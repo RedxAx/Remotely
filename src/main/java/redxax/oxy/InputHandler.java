@@ -2,7 +2,6 @@ package redxax.oxy;
 
 import net.minecraft.client.MinecraftClient;
 import org.lwjgl.glfw.GLFW;
-
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -98,10 +97,6 @@ public class InputHandler {
                     } else if (!isMinecraftServerLoaded) {
                         if (line.contains("Done") && line.contains("For help, type \"help\"")) {
                             isMinecraftServerLoaded = true;
-                            writer.write("help\n");
-                            writer.flush();
-                            collectingServerCommands = true;
-                            serverCommands.clear();
                         }
                     } else if (collectingServerCommands) {
                         if (line.startsWith("----")) {
@@ -220,7 +215,7 @@ public class InputHandler {
         if (keyCode == GLFW.GLFW_KEY_TAB) {
             handleTabCompletion();
             terminalInstance.renderer.resetCursorBlink();
-            return true; // Consume the Tab key event
+            return true;
         }
 
         if (keyCode == GLFW.GLFW_KEY_C && ctrlHeld) {
@@ -373,6 +368,7 @@ public class InputHandler {
 
         return false;
     }
+
     private void updateCurrentDirectoryFromCommand(String command) {
         if (command.startsWith("cd ")) {
             String path = command.substring(3).trim();
@@ -539,18 +535,6 @@ public class InputHandler {
     }
 
     private List<String> getAvailableCommands(String prefix) {
-        if (isMinecraftServerLoaded) {
-            synchronized (this) {
-                List<String> result = new ArrayList<>();
-                for (String cmd : allCommands) {
-                    if (cmd.startsWith(prefix)) {
-                        result.add(cmd);
-                    }
-                }
-                Collections.sort(result);
-                return result;
-            }
-        }
         refreshAvailableCommands();
         List<String> result = new ArrayList<>();
         for (String cmd : allCommands) {

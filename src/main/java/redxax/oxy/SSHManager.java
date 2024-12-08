@@ -1,6 +1,11 @@
 package redxax.oxy;
 
-import com.jcraft.jsch.*;
+import com.jcraft.jsch.JSch;
+import com.jcraft.jsch.Session;
+import com.jcraft.jsch.ChannelShell;
+import com.jcraft.jsch.ChannelExec;
+import com.jcraft.jsch.UserInfo;
+
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;

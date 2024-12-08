@@ -3,15 +3,15 @@
 	"id": "remotely",
 	"version": "${version}",
 	"name": "Remotely",
-	"description": "SSH and SFTP for Minecraft!",
+	"description": "Terminal, SSH, and Minecraft!",
 	"authors": [
-		"RedxAx", "O7Z11"
+		"RedxAx", "O7Z11", "Remax"
 	],
 	"contact": {
-		"Discord": "https://discord.gg/RpuFMMpZCV"
+		"Soon": "Or Add Me In Discord, remax._."
 	},
-	"license": "MIT",
-	"icon": "assets/remotely/icon.png",
+	"license": "Closed For Now, MIT Soon!",
+	"icon": "assets/remotely/Reemotely.png",
 	"environment": "*",
 	"entrypoints": {
 		"main": [
@@ -26,8 +26,8 @@
 	],
 	"depends": {
 		"fabricloader": ">=0.16.3",
-		"minecraft": ">=1.20.4",
-		"java": ">=17",
+		"minecraft": ">=1.21",
+		"java": ">=21",
 		"fabric-api": "*"
 	},
 	"suggests": {

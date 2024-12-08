@@ -4,7 +4,6 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.*;
-import net.minecraft.util.Formatting;
 import net.minecraft.util.Util;
 import org.lwjgl.glfw.GLFW;
 
@@ -29,6 +28,10 @@ public class TerminalRenderer {
     private final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[(.*?)[@-~]");
     private final Pattern URL_PATTERN = Pattern.compile("(https?://\\S+)");
     private final List<UrlInfo> urlInfos = new ArrayList<>();
+    private final Pattern KEYWORD_PATTERN = Pattern.compile("\\b(WARNING|WARN|ERROR|INFO)\\b", Pattern.CASE_INSENSITIVE);
+    private final Pattern BRACKET_KEYWORD_PATTERN = Pattern.compile("\\[(.*?)\\b(WARNING|WARN|ERROR|INFO)\\b(.*?)\\]");
+    private final Map<String, TextColor> keywordColors = new HashMap<>();
+    private final Map<String, TextColor> keywordTextColors = new HashMap<>();
 
     private List<LineInfo> lineInfos = new ArrayList<>();
 
@@ -49,6 +52,14 @@ public class TerminalRenderer {
     public TerminalRenderer(MinecraftClient client, TerminalInstance terminalInstance) {
         this.minecraftClient = client;
         this.terminalInstance = terminalInstance;
+        keywordColors.put("WARNING", TextColor.fromRgb(0xFFA500));
+        keywordColors.put("WARN", TextColor.fromRgb(0xFFA500));
+        keywordColors.put("ERROR", TextColor.fromRgb(0xFF0000));
+        keywordColors.put("INFO", TextColor.fromRgb(0x00FF00));
+        keywordTextColors.put("WARNING", TextColor.fromRgb(0xFFD700));
+        keywordTextColors.put("WARN", TextColor.fromRgb(0xFFD700));
+        keywordTextColors.put("ERROR", TextColor.fromRgb(0xFF6347));
+        keywordTextColors.put("INFO", TextColor.fromRgb(0xFFFFFF));
     }
 
     public void render(DrawContext context, int mouseX, int mouseY, float delta, int screenWidth, int screenHeight, float scale) {
@@ -82,7 +93,7 @@ public class TerminalRenderer {
             List<LineText> allWrappedLines = new ArrayList<>();
 
             for (String line : lines) {
-                List<StyleTextPair> segments = parseAnsiAndHighlight(line);
+                List<StyleTextPair> segments = parseKeywordsAndHighlight(line);
                 List<LineText> wrappedLines = wrapStyledText(segments, maxWidth);
                 allWrappedLines.addAll(wrappedLines);
             }
@@ -152,34 +163,66 @@ public class TerminalRenderer {
         cursorVisible = true;
     }
 
-    private List<StyleTextPair> parseAnsiAndHighlight(String text) {
+    private List<StyleTextPair> parseKeywordsAndHighlight(String text) {
         text = text.replace("\r", "");
 
         List<StyleTextPair> result = new ArrayList<>();
-        List<StyleTextPair> styledSegments = parseAnsiCodes(text);
 
-        for (StyleTextPair segment : styledSegments) {
-            Matcher urlMatcher = URL_PATTERN.matcher(segment.text);
-            int lastEnd = 0;
-
-            while (urlMatcher.find()) {
-                if (urlMatcher.start() > lastEnd) {
-                    String before = segment.text.substring(lastEnd, urlMatcher.start());
-                    result.add(new StyleTextPair(segment.style, null, before));
-                }
-
-                String url = urlMatcher.group(1);
-                Style urlStyle = segment.style.withFormatting(Formatting.UNDERLINE).withColor(TextColor.fromRgb(0x00AAFF));
-                result.add(new StyleTextPair(urlStyle, null, url, url));
-                lastEnd = urlMatcher.end();
+        Matcher bracketMatcher = BRACKET_KEYWORD_PATTERN.matcher(text);
+        int lastEnd = 0;
+        while (bracketMatcher.find()) {
+            if (bracketMatcher.start() > lastEnd) {
+                String before = text.substring(lastEnd, bracketMatcher.start());
+                result.addAll(parseAnsiAndHighlight(before));
             }
-
-            if (lastEnd < segment.text.length()) {
-                String remaining = segment.text.substring(lastEnd);
-                result.add(new StyleTextPair(segment.style, null, remaining));
-            }
+            String insideBracket = bracketMatcher.group(1) + bracketMatcher.group(2) + bracketMatcher.group(3);
+            String keyword = bracketMatcher.group(2).toUpperCase();
+            TextColor keywordColor = keywordColors.getOrDefault(keyword, TextColor.fromRgb(0xFFFFFF));
+            Style keywordStyle = Style.EMPTY.withColor(keywordColor).withBold(false);
+            result.add(new StyleTextPair(keywordStyle, null, "[" + bracketMatcher.group(1) + bracketMatcher.group(2) + bracketMatcher.group(3) + "]"));
+            lastEnd = bracketMatcher.end();
+        }
+        if (lastEnd < text.length()) {
+            String remaining = text.substring(lastEnd);
+            result.addAll(parseAnsiAndHighlight(remaining));
         }
 
+        return result;
+    }
+
+    private List<StyleTextPair> parseAnsiAndHighlight(String text) {
+        List<StyleTextPair> result = new ArrayList<>();
+        Matcher keywordMatcher = KEYWORD_PATTERN.matcher(text);
+        int lastEnd = 0;
+        while (keywordMatcher.find()) {
+            if (keywordMatcher.start() > lastEnd) {
+                String before = text.substring(lastEnd, keywordMatcher.start());
+                result.addAll(parseAnsiCodes(before));
+            }
+            String keyword = keywordMatcher.group(1).toUpperCase();
+            TextColor keywordColor = keywordColors.getOrDefault(keyword, TextColor.fromRgb(0xFFFFFF));
+            Style keywordStyle = Style.EMPTY.withColor(keywordColor).withBold(false);
+            result.add(new StyleTextPair(keywordStyle, null, keywordMatcher.group(1)));
+            String afterKeyword = "";
+            int colonIndex = text.indexOf(":", keywordMatcher.end());
+            if (colonIndex != -1) {
+                afterKeyword = text.substring(keywordMatcher.end(), colonIndex + 1);
+                lastEnd = colonIndex + 1;
+                TextColor textColor = keywordTextColors.getOrDefault(keyword, TextColor.fromRgb(0xFFFFFF));
+                Style textStyle = Style.EMPTY.withColor(textColor);
+                result.add(new StyleTextPair(textStyle, null, afterKeyword));
+            } else {
+                afterKeyword = text.substring(keywordMatcher.end());
+                lastEnd = text.length();
+                TextColor textColor = keyword.equals("INFO") ? TextColor.fromRgb(0xFFFFFF) : keywordTextColors.getOrDefault(keyword, TextColor.fromRgb(0xFFFFFF));
+                Style textStyle = Style.EMPTY.withColor(textColor);
+                result.add(new StyleTextPair(textStyle, null, afterKeyword));
+            }
+        }
+        if (lastEnd < text.length()) {
+            String remaining = text.substring(lastEnd);
+            result.addAll(parseAnsiCodes(remaining));
+        }
         return result;
     }
 
@@ -470,7 +513,7 @@ public class TerminalRenderer {
             String[] lines = terminalOutput.toString().split("\n", -1);
             int totalWrappedLines = 0;
             for (String line : lines) {
-                List<StyleTextPair> segments = parseAnsiAndHighlight(line);
+                List<StyleTextPair> segments = parseKeywordsAndHighlight(line);
                 List<LineText> wrappedLines = wrapStyledText(segments, maxWidth);
                 totalWrappedLines += wrappedLines.size();
             }
@@ -488,7 +531,6 @@ public class TerminalRenderer {
     }
 
     public void appendOutput(String text) {
-        // Remove carriage return characters to prevent unwanted symbols
         text = text.replace("\r", "");
         synchronized (terminalOutput) {
             terminalOutput.append(text);
@@ -496,6 +538,7 @@ public class TerminalRenderer {
         lineInfos.clear();
         minecraftClient.execute(() -> terminalInstance.parentScreen.init());
     }
+
     public void scroll(int direction, int scaledHeight) {
         int maxWidth = (int) ((terminalWidth - 10) / scale);
         int totalLines = getTotalLines(maxWidth);

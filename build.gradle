@@ -1,6 +1,7 @@
 plugins {
     id 'fabric-loom' version '1.7-SNAPSHOT'
     id 'maven-publish'
+    id 'com.gradleup.shadow' version '8.3.0'
 }
 
 version = project.mod_version
@@ -12,8 +13,10 @@ base {
 
 repositories {
     mavenCentral()
-    maven { url "https://jitpack.io" }  // Add this repository for JNA
+    maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://jitpack.io' }
 }
+
 
 fabricApi {
     configureDataGeneration()
@@ -26,9 +29,7 @@ dependencies {
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
     implementation 'org.apache.commons:commons-lang3:3.12.0'
     implementation 'com.jcraft:jsch:0.1.55'
-    implementation 'org.fusesource.jansi:jansi:2.4.1'
 }
-
 
 processResources {
     inputs.property "version", project.version
@@ -45,8 +46,8 @@ tasks.withType(JavaCompile).configureEach {
 java {
     withSourcesJar()
 
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
 }
 
 jar {
@@ -55,7 +56,6 @@ jar {
     }
 }
 
-// configure the maven publication
 publishing {
     publications {
         create("mavenJava", MavenPublication) {
@@ -66,3 +66,19 @@ publishing {
     repositories {
     }
 }
+
+
+
+shadowJar {
+    archiveClassifier.set('all')
+    dependencies {
+        include(dependency("org.apache.commons:commons-lang3"))
+        include(dependency("com.jcraft:jsch"))
+        exclude(dependency('net.fabricmc.fabric-api:fabric-api:.*'))
+        exclude(dependency('net.fabricmc:fabric-loader:.*'))
+
+    }
+}
+
+
+build.dependsOn shadowJar
