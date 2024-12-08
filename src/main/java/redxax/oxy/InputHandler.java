@@ -8,6 +8,7 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class InputHandler {
 
@@ -58,6 +59,9 @@ public class InputHandler {
 
     public void launchTerminal() {
         try {
+            if (terminalProcess != null && terminalProcess.isAlive()) {
+                shutdown();
+            }
             ProcessBuilder processBuilder = new ProcessBuilder("cmd.exe", "/k", "powershell");
             processBuilder.redirectErrorStream(true);
             terminalProcess = processBuilder.start();
@@ -218,6 +222,16 @@ public class InputHandler {
             return true;
         }
 
+        if (keyCode == GLFW.GLFW_KEY_SPACE) {
+            inputBuffer.insert(cursorPosition, ' ');
+            cursorPosition++;
+            resetTabCompletion();
+            updateTabCompletionSuggestion();
+            terminalInstance.renderer.resetCursorBlink();
+            terminalInstance.scrollToBottom();
+            return true;
+        }
+
         if (keyCode == GLFW.GLFW_KEY_C && ctrlHeld) {
             terminalInstance.renderer.copySelectionToClipboard();
             return true;
@@ -317,13 +331,7 @@ public class InputHandler {
         }
 
         if (keyCode == GLFW.GLFW_KEY_DELETE) {
-            if (cursorPosition < inputBuffer.length()) {
-                inputBuffer.deleteCharAt(cursorPosition);
-                resetTabCompletion();
-                updateTabCompletionSuggestion();
-                terminalInstance.renderer.resetCursorBlink();
-                terminalInstance.scrollToBottom();
-            }
+            shutdown();
             return true;
         }
 
@@ -610,11 +618,21 @@ public class InputHandler {
     public void shutdown() {
         isRunning = false;
         if (terminalProcess != null && terminalProcess.isAlive()) {
-            terminalProcess.destroy();
+            try {
+                long pid = terminalProcess.pid();
+                ProcessBuilder pb = new ProcessBuilder("taskkill", "/PID", Long.toString(pid), "/T", "/F");
+                Process killProcess = pb.start();
+                killProcess.waitFor();
+                terminalInstance.appendOutput("Terminal process and its child processes terminated.\n");
+            } catch (IOException | InterruptedException e) {
+                terminalInstance.appendOutput("Error shutting down terminal: " + e.getMessage() + "\n");
+                e.printStackTrace();
+            }
             terminalProcess = null;
         }
         sshManager.shutdown();
         executorService.shutdownNow();
+        terminalInstance.appendOutput("Terminal closed.\n");
     }
 
     public void saveTerminalOutput(Path path) throws IOException {
