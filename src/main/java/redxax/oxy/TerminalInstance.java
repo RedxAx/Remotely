@@ -2,6 +2,7 @@ package redxax.oxy;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import redxax.oxy.input.InputProcessor;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -106,5 +107,9 @@ public class TerminalInstance {
 
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         return renderer.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+
+    public InputProcessor getInputHandler() {
+        return inputHandler.inputProcessor;
     }
 }
