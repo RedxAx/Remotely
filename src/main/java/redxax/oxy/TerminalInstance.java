@@ -12,8 +12,8 @@ public class TerminalInstance {
 
     private final MinecraftClient minecraftClient;
     final MultiTerminalScreen parentScreen;
-    final UUID terminalId;
-    final TerminalRenderer renderer;
+    public final UUID terminalId;
+    public final TerminalRenderer renderer;
     final InputHandler inputHandler;
     final SSHManager sshManager;
 

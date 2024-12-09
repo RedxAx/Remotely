@@ -111,6 +111,10 @@ public class SSHManager {
                     }
                 }
             }
+            if (isSSH) {
+                isSSH = false;
+                terminalInstance.appendOutput("SSH session terminated.\n");
+            }
         } catch (IOException e) {
             terminalInstance.appendOutput("Error reading SSH output: " + e.getMessage() + "\n");
         }
@@ -155,7 +159,8 @@ public class SSHManager {
         if (sshSession != null && sshSession.isConnected()) {
             sshSession.disconnect();
         }
-        executorService.shutdownNow();
+        isSSH = false;
+        awaitingPassword = false;
     }
 
     public boolean isAwaitingPassword() {
