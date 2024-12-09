@@ -36,7 +36,7 @@ public class InputProcessor {
             return false;
         }
 
-        if (chr == '^' || chr == ' ') {
+        if (chr == '`' || chr == ' ') {
             return false;
         }
 

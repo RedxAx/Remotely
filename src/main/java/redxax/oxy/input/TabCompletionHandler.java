@@ -64,7 +64,7 @@ public class TabCompletionHandler {
                 String completion = completions.get(0);
                 String newPath = basePath + completion + separator;
 
-                tabCompletionSuggestion = newPath.substring(partial.length());
+                tabCompletionSuggestion = completion.substring(partial.length()) + separator;
             } else {
                 tabCompletionSuggestion = "";
             }
@@ -91,7 +91,7 @@ public class TabCompletionHandler {
                 String completion = completions.get(0);
                 String newPath = basePath + completion;
 
-                tabCompletionSuggestion = newPath.substring(partial.length());
+                tabCompletionSuggestion = completion.substring(partial.length());
             } else {
                 tabCompletionSuggestion = "";
             }
