@@ -41,13 +41,6 @@ public class InputHandler {
     private long commandsLastFetched = 0;
     private static final long COMMANDS_CACHE_DURATION = 60 * 1000;
 
-    private boolean isMinecraftServerDetected = false;
-    private boolean isMinecraftServerLoaded = false;
-
-    private boolean collectingServerCommands = false;
-    private boolean readingCommands = false;
-    private List<String> serverCommands = new ArrayList<>();
-
     public InputHandler(MinecraftClient client, TerminalInstance terminalInstance) {
         this.minecraftClient = client;
         this.terminalInstance = terminalInstance;
@@ -97,30 +90,6 @@ public class InputHandler {
                         terminalInstance.appendOutput("SSH session closed. Returned to local terminal.\n");
                     }
                     updateCurrentDirectory(line);
-                    if (!isMinecraftServerDetected) {
-                        if (line.contains("Starting minecraft server")) {
-                            isMinecraftServerDetected = true;
-                        }
-                    } else if (!isMinecraftServerLoaded) {
-                        if (line.contains("Done") && line.contains("For help, type \"help\"")) {
-                            isMinecraftServerLoaded = true;
-                        }
-                    } else if (collectingServerCommands) {
-                        if (line.startsWith("----")) {
-                            readingCommands = !readingCommands;
-                            continue;
-                        }
-                        if (readingCommands) {
-                            String cmd = line.trim().split(" ")[0];
-                            serverCommands.add(cmd);
-                        }
-                        if (line.contains("For help, type \"help\"")) {
-                            collectingServerCommands = false;
-                            synchronized (this) {
-                                allCommands = new ArrayList<>(serverCommands);
-                            }
-                        }
-                    }
                 }
             }
             if (outputBuffer.length() > 0) {
@@ -495,7 +464,7 @@ public class InputHandler {
                 partial = path;
             }
 
-            List<String> completions = getExecutableCompletions(basePath + partial);
+            List<String> completions = getExecutableCompletions(path);
 
             if (!completions.isEmpty()) {
                 completions.sort(Comparator.naturalOrder());
