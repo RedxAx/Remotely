@@ -31,6 +31,7 @@ public class TabCompletionHandler {
     }
 
     public void handleTabCompletion(StringBuilder inputBuffer, int cursorPosition) {
+        tabCompletions.clear();
         String currentInput = inputBuffer.toString();
         String trimmedInput = currentInput.substring(0, cursorPosition).trim();
 
@@ -57,13 +58,11 @@ public class TabCompletionHandler {
                 partial = path;
             }
 
-            List<String> completions = getDirectoryCompletions(basePath + partial);
+            tabCompletions = getDirectoryCompletions(basePath + partial);
 
-            if (!completions.isEmpty()) {
-                completions.sort(Comparator.naturalOrder());
-                String completion = completions.get(0);
-                String newPath = basePath + completion + separator;
-
+            if (!tabCompletions.isEmpty()) {
+                Collections.sort(tabCompletions, Comparator.naturalOrder());
+                String completion = tabCompletions.get(0);
                 tabCompletionSuggestion = completion.substring(partial.length()) + separator;
             } else {
                 tabCompletionSuggestion = "";
@@ -84,24 +83,22 @@ public class TabCompletionHandler {
                 partial = path;
             }
 
-            List<String> completions = getExecutableCompletions(basePath + partial);
+            tabCompletions = getExecutableCompletions(basePath + partial);
 
-            if (!completions.isEmpty()) {
-                completions.sort(Comparator.naturalOrder());
-                String completion = completions.get(0);
-                String newPath = basePath + completion;
-
+            if (!tabCompletions.isEmpty()) {
+                Collections.sort(tabCompletions, Comparator.naturalOrder());
+                String completion = tabCompletions.get(0);
                 tabCompletionSuggestion = completion.substring(partial.length());
             } else {
                 tabCompletionSuggestion = "";
             }
         } else {
             String partial = trimmedInput;
-            List<String> completions = getAvailableCommands(partial);
+            tabCompletions = getAvailableCommands(partial);
 
-            if (!completions.isEmpty()) {
-                completions.sort(Comparator.naturalOrder());
-                String completion = completions.get(0);
+            if (!tabCompletions.isEmpty()) {
+                Collections.sort(tabCompletions, Comparator.naturalOrder());
+                String completion = tabCompletions.get(0);
 
                 if (!completion.equals(partial)) {
                     tabCompletionSuggestion = completion.substring(partial.length());
@@ -123,6 +120,7 @@ public class TabCompletionHandler {
     }
 
     public void updateTabCompletionSuggestion(StringBuilder inputBuffer, int cursorPosition) {
+        tabCompletions.clear();
         if (inputBuffer.length() == 0) {
             tabCompletionSuggestion = "";
             return;
@@ -155,10 +153,10 @@ public class TabCompletionHandler {
                 }
             }
 
-            List<String> suggestions = getDirectoryCompletions(path);
+            tabCompletions = getDirectoryCompletions(path);
 
-            if (!suggestions.isEmpty()) {
-                String suggestion = suggestions.get(0);
+            if (!tabCompletions.isEmpty()) {
+                String suggestion = tabCompletions.get(0);
                 if (suggestion.startsWith(partial) && !suggestion.equals(partial)) {
                     tabCompletionSuggestion = suggestion.substring(partial.length()) + (endsWithSeparator ? separator : "");
                 } else {
@@ -180,10 +178,10 @@ public class TabCompletionHandler {
                 partial = path;
             }
 
-            List<String> suggestions = getExecutableCompletions(path);
+            tabCompletions = getExecutableCompletions(path);
 
-            if (!suggestions.isEmpty()) {
-                String suggestion = suggestions.get(0);
+            if (!tabCompletions.isEmpty()) {
+                String suggestion = tabCompletions.get(0);
                 if (suggestion.startsWith(partial) && !suggestion.equals(partial)) {
                     tabCompletionSuggestion = suggestion.substring(partial.length());
                 } else {
@@ -194,10 +192,10 @@ public class TabCompletionHandler {
             }
         } else {
             String partial = lastToken;
-            List<String> suggestions = getAvailableCommands(partial);
+            tabCompletions = getAvailableCommands(partial);
 
-            if (!suggestions.isEmpty()) {
-                String suggestion = suggestions.get(0);
+            if (!tabCompletions.isEmpty()) {
+                String suggestion = tabCompletions.get(0);
                 if (suggestion.startsWith(partial) && !suggestion.equals(partial)) {
                     tabCompletionSuggestion = suggestion.substring(partial.length());
                 } else {

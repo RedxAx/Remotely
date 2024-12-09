@@ -88,13 +88,15 @@ public class InputProcessor {
             if (!suggestion.isEmpty()) {
                 inputBuffer.replace(wordStart, cursorPosition, partial.toString() + suggestion);
                 cursorPosition = wordStart + partial.length() + suggestion.length();
+
+                // **Reset the tab completion after applying the suggestion**
+                tabCompletionHandler.resetTabCompletion();
             }
             updateTabCompletionCurrentDirectory();
             terminalInstance.renderer.resetCursorBlink();
             terminalInstance.scrollToBottom();
             return true;
         }
-
         if (keyCode == GLFW.GLFW_KEY_SPACE) {
             inputBuffer.insert(cursorPosition, ' ');
             cursorPosition++;
