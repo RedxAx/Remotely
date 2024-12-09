@@ -23,7 +23,6 @@ public class MultiTerminalScreen extends Screen {
     int activeTerminalIndex = 0;
 
     public static final int TAB_HEIGHT = 30;
-    private static final int TAB_PADDING = 5;
     private static final int ADD_TAB_BUTTON_WIDTH = 30;
     private static final int TAB_WIDTH = 110;
     private static final int MAX_TABS = 5;
@@ -36,11 +35,9 @@ public class MultiTerminalScreen extends Screen {
 
     private boolean isRenaming = false;
     private int renamingTabIndex = -1;
-    private StringBuilder renameBuffer = new StringBuilder();
+    private final StringBuilder renameBuffer = new StringBuilder();
 
-    private long lastRenameBlinkTime = 0;
-    private boolean renameCursorVisible = true;
-    private long lastRenameInputTime = 0;
+     long lastRenameInputTime = 0;
 
     private boolean closedViaEscape = false;
 
@@ -99,6 +96,7 @@ public class MultiTerminalScreen extends Screen {
     private void addNewTerminal() {
         if (terminals.size() >= MAX_TABS) {
             warningMessage = "Maximum of " + MAX_TABS + " tabs reached!";
+            assert minecraftClient.player != null;
             minecraftClient.player.sendMessage(Text.literal(warningMessage), false);
             return;
         }
@@ -108,6 +106,7 @@ public class MultiTerminalScreen extends Screen {
             }
         } catch (IOException e) {
             warningMessage = "Failed to create terminal log directory!";
+            assert minecraftClient.player != null;
             minecraftClient.player.sendMessage(Text.literal(warningMessage), false);
             return;
         }
@@ -305,7 +304,7 @@ public class MultiTerminalScreen extends Screen {
                 refreshTabButtons();
                 return true;
             } else if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
-                if (renameBuffer.length() > 0) {
+                if (!renameBuffer.isEmpty()) {
                     renameBuffer.deleteCharAt(renameBuffer.length() - 1);
                     refreshTabButtons();
                 }
@@ -337,7 +336,7 @@ public class MultiTerminalScreen extends Screen {
                 refreshTabButtons();
                 return true;
             } else if (chr == '\b') {
-                if (renameBuffer.length() > 0) {
+                if (!renameBuffer.isEmpty()) {
                     renameBuffer.deleteCharAt(renameBuffer.length() - 1);
                     refreshTabButtons();
                 }
@@ -389,6 +388,7 @@ public class MultiTerminalScreen extends Screen {
                 terminal.saveTerminalOutput(TERMINAL_LOG_DIR.resolve(tabName + ".log"));
             }
         } catch (IOException e) {
+            assert minecraftClient.player != null;
             minecraftClient.player.sendMessage(Text.literal("Failed to save terminal logs."), false);
         }
     }

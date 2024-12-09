@@ -81,6 +81,7 @@ public class RemotelyClient implements ClientModInitializer {
                 }
                 multiTerminalScreen.refreshTabButtons();
             } catch (IOException e) {
+                assert MinecraftClient.getInstance().player != null;
                 MinecraftClient.getInstance().player.sendMessage(Text.literal("Failed to load saved terminals."), false);
             }
         }

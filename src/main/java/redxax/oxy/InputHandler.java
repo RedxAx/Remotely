@@ -10,22 +10,15 @@ public class InputHandler {
 
     private final TerminalProcessManager terminalProcessManager;
     private final CommandLogger commandLogger;
-    private final CommandExecutor commandExecutor;
     private final TabCompletionHandler tabCompletionHandler;
     final InputProcessor inputProcessor;
 
-    private final MinecraftClient minecraftClient;
-    private final TerminalInstance terminalInstance;
-    private final SSHManager sshManager;
-
     public InputHandler(MinecraftClient client, TerminalInstance terminalInstance) {
-        this.minecraftClient = client;
-        this.terminalInstance = terminalInstance;
-        this.sshManager = terminalInstance.getSSHManager();
+        SSHManager sshManager = terminalInstance.getSSHManager();
 
         this.terminalProcessManager = new TerminalProcessManager(terminalInstance, sshManager);
         this.commandLogger = new CommandLogger(terminalInstance);
-        this.commandExecutor = new CommandExecutor(terminalInstance, sshManager, terminalProcessManager.getWriter(), commandLogger, terminalProcessManager);
+        CommandExecutor commandExecutor = new CommandExecutor(terminalInstance, sshManager, terminalProcessManager.getWriter(), commandLogger, terminalProcessManager);
         this.tabCompletionHandler = new TabCompletionHandler(terminalInstance, sshManager, commandExecutor, terminalProcessManager.getCurrentDirectory());
         this.inputProcessor = new InputProcessor(client, terminalInstance, sshManager, tabCompletionHandler, commandExecutor);
     }

@@ -11,7 +11,6 @@ import java.util.UUID;
 
 public class TerminalInstance {
 
-    private final MinecraftClient minecraftClient;
     final MultiTerminalScreen parentScreen;
     public final UUID terminalId;
     public final TerminalRenderer renderer;
@@ -19,7 +18,6 @@ public class TerminalInstance {
     final SSHManager sshManager;
 
     public TerminalInstance(MinecraftClient client, MultiTerminalScreen parent, UUID id) {
-        this.minecraftClient = client;
         this.parentScreen = parent;
         this.terminalId = id;
         this.sshManager = new SSHManager(this);

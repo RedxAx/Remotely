@@ -4,19 +4,12 @@ import redxax.oxy.SSHManager;
 import redxax.oxy.TerminalInstance;
 import java.io.File;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class TabCompletionHandler {
 
     private List<String> tabCompletions = new ArrayList<>();
-    private int tabCompletionIndex = -1;
-    private String tabCompletionPrefix = "";
-    private String tabCompletionOriginalInput = "";
     private String tabCompletionSuggestion = "";
-    private final TerminalInstance terminalInstance;
     private final SSHManager sshManager;
-    private final CommandExecutor commandExecutor;
     private String currentDirectory;
 
     private List<String> allCommands = new ArrayList<>();
@@ -24,9 +17,7 @@ public class TabCompletionHandler {
     private static final long COMMANDS_CACHE_DURATION = 60 * 1000;
 
     public TabCompletionHandler(TerminalInstance terminalInstance, SSHManager sshManager, CommandExecutor commandExecutor, String currentDirectory) {
-        this.terminalInstance = terminalInstance;
         this.sshManager = sshManager;
-        this.commandExecutor = commandExecutor;
         this.currentDirectory = currentDirectory;
     }
 
@@ -46,8 +37,8 @@ public class TabCompletionHandler {
             String path = trimmedInput.substring(trimmedInput.indexOf("cd") + 2).trim();
             String separator = getPathSeparator();
 
-            String basePath = "";
-            String partial = "";
+            String basePath;
+            String partial;
 
             int lastSeparatorIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
             if (lastSeparatorIndex != -1) {
@@ -61,18 +52,17 @@ public class TabCompletionHandler {
             tabCompletions = getDirectoryCompletions(basePath + partial);
 
             if (!tabCompletions.isEmpty()) {
-                Collections.sort(tabCompletions, Comparator.naturalOrder());
-                String completion = tabCompletions.get(0);
+                tabCompletions.sort(Comparator.naturalOrder());
+                String completion = tabCompletions.getFirst();
                 tabCompletionSuggestion = completion.substring(partial.length()) + separator;
             } else {
                 tabCompletionSuggestion = "";
             }
         } else if (trimmedInput.startsWith("./") || trimmedInput.startsWith(".\\")) {
             String path = trimmedInput.substring(2).trim();
-            String separator = getPathSeparator();
 
-            String basePath = "";
-            String partial = "";
+            String basePath;
+            String partial;
 
             int lastSeparatorIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
             if (lastSeparatorIndex != -1) {
@@ -86,22 +76,21 @@ public class TabCompletionHandler {
             tabCompletions = getExecutableCompletions(basePath + partial);
 
             if (!tabCompletions.isEmpty()) {
-                Collections.sort(tabCompletions, Comparator.naturalOrder());
-                String completion = tabCompletions.get(0);
+                tabCompletions.sort(Comparator.naturalOrder());
+                String completion = tabCompletions.getFirst();
                 tabCompletionSuggestion = completion.substring(partial.length());
             } else {
                 tabCompletionSuggestion = "";
             }
         } else {
-            String partial = trimmedInput;
-            tabCompletions = getAvailableCommands(partial);
+            tabCompletions = getAvailableCommands(trimmedInput);
 
             if (!tabCompletions.isEmpty()) {
-                Collections.sort(tabCompletions, Comparator.naturalOrder());
-                String completion = tabCompletions.get(0);
+                tabCompletions.sort(Comparator.naturalOrder());
+                String completion = tabCompletions.getFirst();
 
-                if (!completion.equals(partial)) {
-                    tabCompletionSuggestion = completion.substring(partial.length());
+                if (!completion.equals(trimmedInput)) {
+                    tabCompletionSuggestion = completion.substring(trimmedInput.length());
                 } else {
                     tabCompletionSuggestion = "";
                 }
@@ -112,16 +101,13 @@ public class TabCompletionHandler {
     }
 
     public void resetTabCompletion() {
-        tabCompletionIndex = -1;
         tabCompletions.clear();
-        tabCompletionPrefix = "";
-        tabCompletionOriginalInput = "";
         tabCompletionSuggestion = "";
     }
 
     public void updateTabCompletionSuggestion(StringBuilder inputBuffer, int cursorPosition) {
         tabCompletions.clear();
-        if (inputBuffer.length() == 0) {
+        if (inputBuffer.isEmpty()) {
             tabCompletionSuggestion = "";
             return;
         }
@@ -140,7 +126,7 @@ public class TabCompletionHandler {
             String separator = getPathSeparator();
 
             boolean endsWithSeparator = path.endsWith("/") || path.endsWith("\\");
-            String partial = "";
+            String partial;
 
             if (endsWithSeparator) {
                 partial = "";
@@ -156,7 +142,7 @@ public class TabCompletionHandler {
             tabCompletions = getDirectoryCompletions(path);
 
             if (!tabCompletions.isEmpty()) {
-                String suggestion = tabCompletions.get(0);
+                String suggestion = tabCompletions.getFirst();
                 if (suggestion.startsWith(partial) && !suggestion.equals(partial)) {
                     tabCompletionSuggestion = suggestion.substring(partial.length()) + (endsWithSeparator ? separator : "");
                 } else {
@@ -167,10 +153,9 @@ public class TabCompletionHandler {
             }
         } else if (lastToken.startsWith("./") || lastToken.startsWith(".\\")) {
             String path = lastToken.substring(2).trim();
-            String separator = getPathSeparator();
 
             int lastSeparatorIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-            String partial = "";
+            String partial;
 
             if (lastSeparatorIndex != -1) {
                 partial = path.substring(lastSeparatorIndex + 1);
@@ -181,7 +166,7 @@ public class TabCompletionHandler {
             tabCompletions = getExecutableCompletions(path);
 
             if (!tabCompletions.isEmpty()) {
-                String suggestion = tabCompletions.get(0);
+                String suggestion = tabCompletions.getFirst();
                 if (suggestion.startsWith(partial) && !suggestion.equals(partial)) {
                     tabCompletionSuggestion = suggestion.substring(partial.length());
                 } else {
@@ -191,13 +176,12 @@ public class TabCompletionHandler {
                 tabCompletionSuggestion = "";
             }
         } else {
-            String partial = lastToken;
-            tabCompletions = getAvailableCommands(partial);
+            tabCompletions = getAvailableCommands(lastToken);
 
             if (!tabCompletions.isEmpty()) {
-                String suggestion = tabCompletions.get(0);
-                if (suggestion.startsWith(partial) && !suggestion.equals(partial)) {
-                    tabCompletionSuggestion = suggestion.substring(partial.length());
+                String suggestion = tabCompletions.getFirst();
+                if (suggestion.startsWith(lastToken) && !suggestion.equals(lastToken)) {
+                    tabCompletionSuggestion = suggestion.substring(lastToken.length());
                 } else {
                     tabCompletionSuggestion = "";
                 }
@@ -256,7 +240,7 @@ public class TabCompletionHandler {
                 result.add(cmd);
             }
         }
-        Collections.sort(result, String.CASE_INSENSITIVE_ORDER);
+        result.sort(String.CASE_INSENSITIVE_ORDER);
         return result;
     }
 
@@ -288,7 +272,7 @@ public class TabCompletionHandler {
                         }
                     }
                 }
-                Collections.sort(directories, String.CASE_INSENSITIVE_ORDER);
+                directories.sort(String.CASE_INSENSITIVE_ORDER);
             }
         }
         return directories;

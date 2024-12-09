@@ -217,7 +217,7 @@ public class SSHManager {
             Thread.sleep(100);
         }
         channelExec.disconnect();
-        String output = baos.toString(StandardCharsets.UTF_8.name());
+        String output = baos.toString(StandardCharsets.UTF_8);
         String[] commands = output.split("\\s+");
         List<String> result = new ArrayList<>();
         for (String cmd : commands) {

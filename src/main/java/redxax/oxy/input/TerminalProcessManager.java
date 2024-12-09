@@ -6,7 +6,6 @@ import redxax.oxy.TerminalInstance;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -21,10 +20,6 @@ public class TerminalProcessManager {
     private final TerminalInstance terminalInstance;
     private final SSHManager sshManager;
     private String currentDirectory = System.getProperty("user.dir");
-
-    private List<String> allCommands = new ArrayList<>();
-    private long commandsLastFetched = 0;
-    private static final long COMMANDS_CACHE_DURATION = 60 * 1000;
 
     public TerminalProcessManager(TerminalInstance terminalInstance, SSHManager sshManager) {
         this.terminalInstance = terminalInstance;
@@ -74,7 +69,7 @@ public class TerminalProcessManager {
                     updateCurrentDirectory(line);
                 }
             }
-            if (outputBuffer.length() > 0) {
+            if (!outputBuffer.isEmpty()) {
                 terminalInstance.appendOutput(outputBuffer.toString());
                 if (sshManager.isSSH() && outputBuffer.toString().trim().equalsIgnoreCase("logout")) {
                     sshManager.shutdown();
@@ -109,8 +104,8 @@ public class TerminalProcessManager {
                     terminalInstance.appendOutput("ERROR: " + line + "\n");
                 }
             }
-            if (outputBuffer.length() > 0) {
-                terminalInstance.appendOutput("ERROR: " + outputBuffer.toString());
+            if (!outputBuffer.isEmpty()) {
+                terminalInstance.appendOutput("ERROR: " + outputBuffer);
             }
         } catch (IOException e) {
             terminalInstance.appendOutput("Error reading terminal error output: " + e.getMessage() + "\n");
@@ -153,69 +148,6 @@ public class TerminalProcessManager {
         }
     }
 
-    private synchronized void refreshAvailableCommands() {
-        if (sshManager.isSSH()) {
-            return;
-        }
-        if (System.currentTimeMillis() - commandsLastFetched < COMMANDS_CACHE_DURATION) {
-            return;
-        }
-        commandsLastFetched = System.currentTimeMillis();
-        Set<String> commandsSet = new HashSet<>();
-        String pathEnv = System.getenv("PATH");
-        if (pathEnv != null) {
-            String[] pathDirs = pathEnv.split(File.pathSeparator);
-            for (String dir : pathDirs) {
-                File dirFile = new File(dir);
-                if (dirFile.isDirectory()) {
-                    File[] files = dirFile.listFiles();
-                    if (files != null) {
-                        for (File file : files) {
-                            if (file.isFile() && isExecutable(file)) {
-                                String fileName = file.getName();
-                                if (isWindows()) {
-                                    int dotIndex = fileName.indexOf('.');
-                                    if (dotIndex > 0) {
-                                        fileName = fileName.substring(0, dotIndex);
-                                    }
-                                }
-                                commandsSet.add(fileName);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        allCommands = new ArrayList<>(commandsSet);
-    }
-
-    public List<String> getAvailableCommands(String prefix) {
-        if (sshManager.isSSH()) {
-            return sshManager.getSSHCommands(prefix);
-        }
-        refreshAvailableCommands();
-        List<String> result = new ArrayList<>();
-        for (String cmd : allCommands) {
-            if (cmd.toLowerCase().startsWith(prefix.toLowerCase())) {
-                result.add(cmd);
-            }
-        }
-        Collections.sort(result, String.CASE_INSENSITIVE_ORDER);
-        return result;
-    }
-
-    boolean isExecutable(File file) {
-        if (isWindows()) {
-            String name = file.getName().toLowerCase();
-            return name.endsWith(".exe") || name.endsWith(".bat") || name.endsWith(".cmd");
-        } else {
-            return file.canExecute();
-        }
-    }
-
-    public boolean isWindows() {
-        return System.getProperty("os.name").toLowerCase().contains("win");
-    }
 
     public String getCurrentDirectory() {
         return currentDirectory;

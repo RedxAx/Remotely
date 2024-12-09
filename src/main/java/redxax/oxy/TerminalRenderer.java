@@ -26,14 +26,13 @@ public class TerminalRenderer {
     private long lastInputTime = 0;
 
     private final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[(.*?)[@-~]");
-    private final Pattern URL_PATTERN = Pattern.compile("(https?://\\S+)");
     private final List<UrlInfo> urlInfos = new ArrayList<>();
     private final Pattern KEYWORD_PATTERN = Pattern.compile("\\b(WARNING|WARN|ERROR|INFO)\\b", Pattern.CASE_INSENSITIVE);
-    private final Pattern BRACKET_KEYWORD_PATTERN = Pattern.compile("\\[(.*?)\\b(WARNING|WARN|ERROR|INFO)\\b(.*?)\\]");
+    private final Pattern BRACKET_KEYWORD_PATTERN = Pattern.compile("\\[(.*?)\\b(WARNING|WARN|ERROR|INFO)\\b(.*?)]");
     private final Map<String, TextColor> keywordColors = new HashMap<>();
     private final Map<String, TextColor> keywordTextColors = new HashMap<>();
 
-    private List<LineInfo> lineInfos = new ArrayList<>();
+    private final List<LineInfo> lineInfos = new ArrayList<>();
 
     private boolean isSelecting = false;
     private int selectionStartLine = -1;
@@ -47,7 +46,6 @@ public class TerminalRenderer {
     private int terminalHeight;
 
     private UrlInfo hoveredUrl = null;
-    private long urlHoverStartTime = 0;
 
     public TerminalRenderer(MinecraftClient client, TerminalInstance terminalInstance) {
         this.minecraftClient = client;
@@ -86,7 +84,6 @@ public class TerminalRenderer {
         int scaledHeight = (int) (textAreaHeight / this.scale);
         int x = 0;
         int yStart = 0;
-        int maxWidth = scaledWidth;
 
         synchronized (terminalOutput) {
             String[] lines = terminalOutput.toString().split("\n", -1);
@@ -94,7 +91,7 @@ public class TerminalRenderer {
 
             for (String line : lines) {
                 List<StyleTextPair> segments = parseKeywordsAndHighlight(line);
-                List<LineText> wrappedLines = wrapStyledText(segments, maxWidth);
+                List<LineText> wrappedLines = wrapStyledText(segments, scaledWidth);
                 allWrappedLines.addAll(wrappedLines);
             }
 
@@ -134,7 +131,7 @@ public class TerminalRenderer {
         context.drawText(minecraftClient.textRenderer, Text.literal(inputText), inputX, inputY, 0x4AF626, false);
 
         String suggestion = terminalInstance.inputHandler.getTabCompletionSuggestion();
-        if (!suggestion.isEmpty() && terminalInstance.inputHandler.getInputBuffer().length() > 0) {
+        if (!suggestion.isEmpty() && !terminalInstance.inputHandler.getInputBuffer().isEmpty()) {
             int inputTextWidth = minecraftClient.textRenderer.getWidth(inputText);
             context.drawText(minecraftClient.textRenderer, Text.literal(suggestion).setStyle(Style.EMPTY.withColor(0x666666)), inputX + inputTextWidth, inputY, 0x666666, false);
         }
@@ -150,9 +147,8 @@ public class TerminalRenderer {
             int cursorInputPosition = Math.min(terminalInstance.inputHandler.getCursorPosition(), terminalInstance.inputHandler.getInputBuffer().length());
             String beforeCursor = inputPrompt + terminalInstance.inputHandler.getInputBuffer().substring(0, cursorInputPosition);
             int cursorXPos = inputX + minecraftClient.textRenderer.getWidth(beforeCursor);
-            int cursorYPos = inputY;
             int cursorHeight = minecraftClient.textRenderer.fontHeight;
-            context.fill(cursorXPos, cursorYPos, cursorXPos + 1, cursorYPos + cursorHeight, 0xFFFFFFFF);
+            context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, 0xFFFFFFFF);
         }
 
         handleUrlHover(mouseX, mouseY);
@@ -175,7 +171,6 @@ public class TerminalRenderer {
                 String before = text.substring(lastEnd, bracketMatcher.start());
                 result.addAll(parseAnsiAndHighlight(before));
             }
-            String insideBracket = bracketMatcher.group(1) + bracketMatcher.group(2) + bracketMatcher.group(3);
             String keyword = bracketMatcher.group(2).toUpperCase();
             TextColor keywordColor = keywordColors.getOrDefault(keyword, TextColor.fromRgb(0xFFFFFF));
             Style keywordStyle = Style.EMPTY.withColor(keywordColor).withBold(false);
@@ -203,7 +198,7 @@ public class TerminalRenderer {
             TextColor keywordColor = keywordColors.getOrDefault(keyword, TextColor.fromRgb(0xFFFFFF));
             Style keywordStyle = Style.EMPTY.withColor(keywordColor).withBold(false);
             result.add(new StyleTextPair(keywordStyle, null, keywordMatcher.group(1)));
-            String afterKeyword = "";
+            String afterKeyword;
             int colonIndex = text.indexOf(":", keywordMatcher.end());
             if (colonIndex != -1) {
                 afterKeyword = text.substring(keywordMatcher.end(), colonIndex + 1);
@@ -289,7 +284,7 @@ public class TerminalRenderer {
                                         style = style.withColor(color);
                                     }
                                     i += 4;
-                                } catch (NumberFormatException ex) {
+                                } catch (NumberFormatException ignored) {
                                 }
                             }
                         } else if ("5".equals(codes[i + 1])) {
@@ -301,7 +296,7 @@ public class TerminalRenderer {
                                         style = style.withColor(color);
                                     }
                                     i += 2;
-                                } catch (NumberFormatException ex) {
+                                } catch (NumberFormatException ignored) {
                                 }
                             }
                         }
@@ -406,7 +401,7 @@ public class TerminalRenderer {
         }
         if (index < 16) {
             return getStandardColorRGB(index);
-        } else if (index >= 16 && index <= 231) {
+        } else if (index <= 231) {
             index -= 16;
             int r = (index / 36) % 6;
             int g = (index / 6) % 6;
@@ -415,97 +410,58 @@ public class TerminalRenderer {
             g = g * 51;
             b = b * 51;
             return (r << 16) | (g << 8) | b;
-        } else if (index >= 232 && index <= 255) {
+        } else {
             int gray = 8 + (index - 232) * 10;
             return (gray << 16) | (gray << 8) | gray;
-        } else {
-            return 0xFFFFFF;
         }
     }
 
     private TextColor getStandardColor(int index) {
-        switch (index) {
-            case 0:
-                return TextColor.fromRgb(0x000000);
-            case 1:
-                return TextColor.fromRgb(0xAA0000);
-            case 2:
-                return TextColor.fromRgb(0x00AA00);
-            case 3:
-                return TextColor.fromRgb(0xAA5500);
-            case 4:
-                return TextColor.fromRgb(0x0000AA);
-            case 5:
-                return TextColor.fromRgb(0xAA00AA);
-            case 6:
-                return TextColor.fromRgb(0x00AAAA);
-            case 7:
-                return TextColor.fromRgb(0xAAAAAA);
-            default:
-                return TextColor.fromRgb(0xFFFFFF);
-        }
+        return switch (index) {
+            case 0 -> TextColor.fromRgb(0x000000);
+            case 1 -> TextColor.fromRgb(0xAA0000);
+            case 2 -> TextColor.fromRgb(0x00AA00);
+            case 3 -> TextColor.fromRgb(0xAA5500);
+            case 4 -> TextColor.fromRgb(0x0000AA);
+            case 5 -> TextColor.fromRgb(0xAA00AA);
+            case 6 -> TextColor.fromRgb(0x00AAAA);
+            case 7 -> TextColor.fromRgb(0xAAAAAA);
+            default -> TextColor.fromRgb(0xFFFFFF);
+        };
     }
 
     private TextColor getBrightColor(int index) {
-        switch (index) {
-            case 0:
-                return TextColor.fromRgb(0x555555);
-            case 1:
-                return TextColor.fromRgb(0xFF5555);
-            case 2:
-                return TextColor.fromRgb(0x55FF55);
-            case 3:
-                return TextColor.fromRgb(0xFFFF55);
-            case 4:
-                return TextColor.fromRgb(0x5555FF);
-            case 5:
-                return TextColor.fromRgb(0xFF55FF);
-            case 6:
-                return TextColor.fromRgb(0x55FFFF);
-            case 7:
-                return TextColor.fromRgb(0xFFFFFF);
-            default:
-                return TextColor.fromRgb(0xFFFFFF);
-        }
+        return switch (index) {
+            case 0 -> TextColor.fromRgb(0x555555);
+            case 1 -> TextColor.fromRgb(0xFF5555);
+            case 2 -> TextColor.fromRgb(0x55FF55);
+            case 3 -> TextColor.fromRgb(0xFFFF55);
+            case 4 -> TextColor.fromRgb(0x5555FF);
+            case 5 -> TextColor.fromRgb(0xFF55FF);
+            case 6 -> TextColor.fromRgb(0x55FFFF);
+            default -> TextColor.fromRgb(0xFFFFFF);
+        };
     }
 
     private int getStandardColorRGB(int index) {
-        switch (index) {
-            case 0:
-                return 0x000000;
-            case 1:
-                return 0xAA0000;
-            case 2:
-                return 0x00AA00;
-            case 3:
-                return 0xAA5500;
-            case 4:
-                return 0x0000AA;
-            case 5:
-                return 0xAA00AA;
-            case 6:
-                return 0x00AAAA;
-            case 7:
-                return 0xAAAAAA;
-            case 8:
-                return 0x555555;
-            case 9:
-                return 0xFF5555;
-            case 10:
-                return 0x55FF55;
-            case 11:
-                return 0xFFFF55;
-            case 12:
-                return 0x5555FF;
-            case 13:
-                return 0xFF55FF;
-            case 14:
-                return 0x55FFFF;
-            case 15:
-                return 0xFFFFFF;
-            default:
-                return 0xFFFFFF;
-        }
+        return switch (index) {
+            case 0 -> 0x000000;
+            case 1 -> 0xAA0000;
+            case 2 -> 0x00AA00;
+            case 3 -> 0xAA5500;
+            case 4 -> 0x0000AA;
+            case 5 -> 0xAA00AA;
+            case 6 -> 0x00AAAA;
+            case 7 -> 0xAAAAAA;
+            case 8 -> 0x555555;
+            case 9 -> 0xFF5555;
+            case 10 -> 0x55FF55;
+            case 11 -> 0xFFFF55;
+            case 12 -> 0x5555FF;
+            case 13 -> 0xFF55FF;
+            case 14 -> 0x55FFFF;
+            default -> 0xFFFFFF;
+        };
     }
 
     private int getTotalLines(int maxWidth) {
@@ -536,7 +492,7 @@ public class TerminalRenderer {
             terminalOutput.append(text);
         }
         lineInfos.clear();
-        minecraftClient.execute(() -> terminalInstance.parentScreen.init());
+        minecraftClient.execute(terminalInstance.parentScreen::init);
     }
 
     public void scroll(int direction, int scaledHeight) {
@@ -662,7 +618,7 @@ public class TerminalRenderer {
         int x = 0;
         for (char c : lineText.toCharArray()) {
             int charWidth = minecraftClient.textRenderer.getWidth(String.valueOf(c));
-            if (x + charWidth / 2 > relativeX) {
+            if (x + (double) charWidth / 2 > relativeX) {
                 return charIndex;
             }
             x += charWidth;
@@ -762,7 +718,7 @@ public class TerminalRenderer {
             if (lineStartChar >= lineText.length() || lineEndChar < 0) {
                 continue;
             }
-            sb.append(lineText.substring(lineStartChar, lineEndChar));
+            sb.append(lineText, lineStartChar, lineEndChar);
             if (i != endLine) {
                 sb.append("\n");
             }
@@ -772,7 +728,6 @@ public class TerminalRenderer {
 
     private void handleUrlHover(double mouseX, double mouseY) {
         hoveredUrl = null;
-        urlHoverStartTime = 0;
 
         if (!isMouseOverTerminal(mouseX, mouseY)) {
             return;
@@ -783,15 +738,13 @@ public class TerminalRenderer {
             return;
         }
 
-        LineInfo lineInfo = lineInfos.get(lineIndex);
         double relativeX = mouseX - terminalX - 5;
         relativeX /= scale;
-        int xOffset = 0;
 
         for (UrlInfo urlInfo : urlInfos) {
             if (relativeX >= urlInfo.startX && relativeX <= urlInfo.endX) {
                 hoveredUrl = urlInfo;
-                urlHoverStartTime = System.currentTimeMillis();
+                System.currentTimeMillis();
                 break;
             }
         }

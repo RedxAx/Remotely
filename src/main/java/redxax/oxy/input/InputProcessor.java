@@ -69,7 +69,7 @@ public class InputProcessor {
             if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
                 if (!sshManager.getSshPassword().isEmpty()) {
                     sshManager.setSshPassword(sshManager.getSshPassword().substring(0, sshManager.getSshPassword().length() - 1));
-                    if (inputBuffer.length() > 0) {
+                    if (!inputBuffer.isEmpty()) {
                         inputBuffer.deleteCharAt(inputBuffer.length() - 1);
                         cursorPosition--;
                     }
@@ -86,7 +86,7 @@ public class InputProcessor {
             tabCompletionHandler.handleTabCompletion(inputBuffer, cursorPosition);
             String suggestion = tabCompletionHandler.getTabCompletionSuggestion();
             if (!suggestion.isEmpty()) {
-                inputBuffer.replace(wordStart, cursorPosition, partial.toString() + suggestion);
+                inputBuffer.replace(wordStart, cursorPosition, partial + suggestion);
                 cursorPosition = wordStart + partial.length() + suggestion.length();
 
                 // **Reset the tab completion after applying the suggestion**

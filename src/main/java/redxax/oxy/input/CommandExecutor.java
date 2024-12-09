@@ -6,7 +6,6 @@ import redxax.oxy.SSHManager;
 import java.io.File;
 import java.io.IOException;
 import java.io.Writer;
-import java.util.List;
 
 public class CommandExecutor {
 
@@ -73,7 +72,7 @@ public class CommandExecutor {
             updateCurrentDirectoryFromCommand(command);
         }
 
-        if (!command.isEmpty() && (terminalInstance.getCommandHistory().isEmpty() || !command.equals(terminalInstance.getCommandHistory().get(terminalInstance.getCommandHistory().size() - 1)))) {
+        if (!command.isEmpty() && (terminalInstance.getCommandHistory().isEmpty() || !command.equals(terminalInstance.getCommandHistory().getLast()))) {
             terminalInstance.getCommandHistory().add(command);
             terminalInstance.setHistoryIndex(terminalInstance.getCommandHistory().size());
         }
@@ -94,18 +93,6 @@ public class CommandExecutor {
 
     private void shutdown() {
         terminalProcessManager.shutdown();
-    }
-
-    public List<String> getAvailableCommands(String prefix) {
-        return terminalProcessManager.getAvailableCommands(prefix);
-    }
-
-    public boolean isExecutable(File file) {
-        return terminalProcessManager.isExecutable(file);
-    }
-
-    public boolean isWindows() {
-        return terminalProcessManager.isWindows();
     }
 
     public TerminalProcessManager getTerminalProcessManager() {
