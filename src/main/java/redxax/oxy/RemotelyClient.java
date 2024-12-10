@@ -8,6 +8,8 @@ import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 
 import java.nio.file.*;
 import java.io.IOException;
@@ -19,16 +21,22 @@ public class RemotelyClient implements ClientModInitializer {
 
     private KeyBinding openTerminalKeyBinding;
     private MultiTerminalScreen multiTerminalScreen;
-    private static final Path TERMINAL_LOG_DIR = Paths.get(System.getProperty("user.dir"), "remotely_terminal_logs");
+    private static final Path TERMINAL_LOG_DIR = Paths.get(System.getProperty("user.dir"), "remotely", "logs");
+    private static final Path SNIPPETS_FILE = Paths.get(System.getProperty("user.dir"), "remotely", "snippets", "snippets.json");
+    private static final Gson GSON = new Gson();
     List<TerminalInstance> terminals = new ArrayList<>();
     List<String> tabNames = new ArrayList<>();
     int activeTerminalIndex = 0;
     float scale = 1.0f;
+    int snippetPanelWidth = 150;
+    boolean showSnippetsPanel = false;
     public static List<CommandSnippet> globalSnippets = new ArrayList<>();
 
     @Override
     public void onInitializeClient() {
         System.out.println("Remotely mod initialized on the client.");
+        loadSnippets(); // Load snippets on startup
+
         openTerminalKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.remotely.open_terminal",
                 InputUtil.Type.KEYSYM,
@@ -92,6 +100,7 @@ public class RemotelyClient implements ClientModInitializer {
             multiTerminalScreen.shutdownAllTerminals();
             multiTerminalScreen = null;
         }
+        saveSnippets(); // Save snippets on shutdown
         try {
             if (Files.exists(TERMINAL_LOG_DIR) && Files.isDirectory(TERMINAL_LOG_DIR)) {
                 try (DirectoryStream<Path> stream = Files.newDirectoryStream(TERMINAL_LOG_DIR)) {
@@ -117,4 +126,28 @@ public class RemotelyClient implements ClientModInitializer {
             this.commands = commands;
         }
     }
+
+    public void saveSnippets() {
+        try {
+            if (!Files.exists(SNIPPETS_FILE.getParent())) {
+                Files.createDirectories(SNIPPETS_FILE.getParent());
+            }
+            String json = GSON.toJson(globalSnippets);
+            Files.write(SNIPPETS_FILE, json.getBytes());
+        } catch (IOException e) {
+            System.out.println("Failed to save snippets: " + e.getMessage());
+        }
+    }
+
+    public void loadSnippets() {
+        if (Files.exists(SNIPPETS_FILE)) {
+            try {
+                String json = new String(Files.readAllBytes(SNIPPETS_FILE));
+                globalSnippets = GSON.fromJson(json, new TypeToken<List<CommandSnippet>>(){}.getType());
+            } catch (IOException e) {
+                System.out.println("Failed to load snippets: " + e.getMessage());
+            }
+        }
+    }
 }
+

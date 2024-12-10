@@ -2,6 +2,7 @@ package redxax.oxy;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import redxax.oxy.input.CommandLogger;
 import redxax.oxy.input.InputProcessor;
 import redxax.oxy.input.TerminalProcessManager;
 
@@ -17,6 +18,7 @@ public class TerminalInstance {
     public final TerminalRenderer renderer;
     final InputHandler inputHandler;
     final SSHManager sshManager;
+    private final CommandLogger commandLogger;
 
     public TerminalInstance(MinecraftClient client, MultiTerminalScreen parent, UUID id) {
         this.parentScreen = parent;
@@ -24,7 +26,14 @@ public class TerminalInstance {
         this.sshManager = new SSHManager(this);
         this.renderer = new TerminalRenderer(client, this);
         this.inputHandler = new InputHandler(client, this);
+        this.commandLogger = new CommandLogger(this);
         inputHandler.launchTerminal();
+        loadCommandHistory();
+    }
+
+    private void loadCommandHistory() {
+        List<String> commands = commandLogger.loadCommands();
+        parentScreen.commandHistory.addAll(commands);
     }
 
     public void render(DrawContext context, int mouseX, int mouseY, float delta, int screenWidth, int screenHeight, float scale) {

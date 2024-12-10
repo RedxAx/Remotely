@@ -5,12 +5,12 @@
 	"name": "Remotely",
 	"description": "Terminal, SSH, and Minecraft!",
 	"authors": [
-		"RedxAx", "O7Z11", "Remax"
+		"RedxAx", "O7Z11"
 	],
 	"contact": {
-		"Soon": "Or Add Me In Discord, remax._."
+		"Discord": "https://discord.gg/UAEV8WgC6M"
 	},
-	"license": "Closed For Now, MIT Soon!",
+	"license": "ARR, MIT Soon!",
 	"icon": "assets/remotely/Reemotely.png",
 	"environment": "*",
 	"entrypoints": {
