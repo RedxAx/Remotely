@@ -14,7 +14,7 @@ public class InputProcessor {
     private final TerminalInstance terminalInstance;
     private final SSHManager sshManager;
     final TabCompletionHandler tabCompletionHandler;
-    private final CommandExecutor commandExecutor;
+    public final CommandExecutor commandExecutor;
 
     public InputProcessor(MinecraftClient client, TerminalInstance terminalInstance, SSHManager sshManager, TabCompletionHandler tabCompletionHandler, CommandExecutor commandExecutor) {
         this.minecraftClient = client;

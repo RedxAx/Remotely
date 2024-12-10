@@ -523,10 +523,6 @@ public class TerminalRenderer {
         scrollOffset = 0;
     }
 
-    public List<LineInfo> getLineInfos() {
-        return lineInfos;
-    }
-
     public StringBuilder getTerminalOutput() {
         return terminalOutput;
     }
@@ -664,10 +660,9 @@ public class TerminalRenderer {
         String selectionText = lineText.substring(selectionStart, selectionEnd);
         int selectionXStart = x + minecraftClient.textRenderer.getWidth(beforeSelection);
         int selectionWidth = minecraftClient.textRenderer.getWidth(selectionText);
-        int selectionYStart = yPosition;
         int selectionYEnd = yPosition + minecraftClient.textRenderer.fontHeight;
 
-        context.fill(selectionXStart, selectionYStart, selectionXStart + selectionWidth, selectionYEnd, 0x80FFFFFF);
+        context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, selectionYEnd, 0x80FFFFFF);
     }
 
     public void copySelectionToClipboard() {
@@ -776,14 +771,7 @@ public class TerminalRenderer {
         }
     }
 
-    private static class LineText {
-        final OrderedText orderedText;
-        final String plainText;
-
-        LineText(OrderedText orderedText, String plainText) {
-            this.orderedText = orderedText;
-            this.plainText = plainText;
-        }
+    private record LineText(OrderedText orderedText, String plainText) {
     }
 
     public static class LineInfo {
@@ -802,15 +790,6 @@ public class TerminalRenderer {
         }
     }
 
-    private static class UrlInfo {
-        final String url;
-        final int startX;
-        final int endX;
-
-        UrlInfo(String url, int startX, int endX) {
-            this.url = url;
-            this.startX = startX;
-            this.endX = endX;
-        }
+    private record UrlInfo(String url, int startX, int endX) {
     }
 }

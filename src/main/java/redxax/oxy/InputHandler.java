@@ -8,10 +8,12 @@ import java.nio.file.Path;
 
 public class InputHandler {
 
-    private final TerminalProcessManager terminalProcessManager;
+    final TerminalProcessManager terminalProcessManager;
     private final CommandLogger commandLogger;
     private final TabCompletionHandler tabCompletionHandler;
     final InputProcessor inputProcessor;
+    public CommandExecutor commandExecutor;
+
 
     public InputHandler(MinecraftClient client, TerminalInstance terminalInstance) {
         SSHManager sshManager = terminalInstance.getSSHManager();
@@ -21,6 +23,7 @@ public class InputHandler {
         CommandExecutor commandExecutor = new CommandExecutor(terminalInstance, sshManager, terminalProcessManager.getWriter(), commandLogger, terminalProcessManager);
         this.tabCompletionHandler = new TabCompletionHandler(terminalInstance, sshManager, commandExecutor, terminalProcessManager.getCurrentDirectory());
         this.inputProcessor = new InputProcessor(client, terminalInstance, sshManager, tabCompletionHandler, commandExecutor);
+
     }
 
     public void launchTerminal() {

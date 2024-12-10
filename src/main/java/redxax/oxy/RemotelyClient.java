@@ -19,25 +19,22 @@ public class RemotelyClient implements ClientModInitializer {
 
     private KeyBinding openTerminalKeyBinding;
     private MultiTerminalScreen multiTerminalScreen;
-
     private static final Path TERMINAL_LOG_DIR = Paths.get(System.getProperty("user.dir"), "remotely_terminal_logs");
-
     List<TerminalInstance> terminals = new ArrayList<>();
     List<String> tabNames = new ArrayList<>();
     int activeTerminalIndex = 0;
     float scale = 1.0f;
+    public static List<CommandSnippet> globalSnippets = new ArrayList<>();
 
     @Override
     public void onInitializeClient() {
         System.out.println("Remotely mod initialized on the client.");
-
         openTerminalKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.remotely.open_terminal",
                 InputUtil.Type.KEYSYM,
                 GLFW.GLFW_KEY_Z,
                 "category.remotely"
         ));
-
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client != null && client.player != null) {
                 if (openTerminalKeyBinding.wasPressed()) {
@@ -45,7 +42,6 @@ public class RemotelyClient implements ClientModInitializer {
                 }
             }
         });
-
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownAllTerminals));
     }
 
@@ -79,7 +75,6 @@ public class RemotelyClient implements ClientModInitializer {
                 if (!terminals.isEmpty()) {
                     multiTerminalScreen.activeTerminalIndex = activeTerminalIndex;
                 }
-                multiTerminalScreen.refreshTabButtons();
             } catch (IOException e) {
                 assert MinecraftClient.getInstance().player != null;
                 MinecraftClient.getInstance().player.sendMessage(Text.literal("Failed to load saved terminals."), false);
@@ -112,5 +107,14 @@ public class RemotelyClient implements ClientModInitializer {
 
     public void onMultiTerminalScreenClosed() {
         multiTerminalScreen = null;
+    }
+
+    public static class CommandSnippet {
+        public String name;
+        public String commands;
+        public CommandSnippet(String name, String commands) {
+            this.name = name;
+            this.commands = commands;
+        }
     }
 }

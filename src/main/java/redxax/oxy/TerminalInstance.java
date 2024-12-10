@@ -3,6 +3,7 @@ package redxax.oxy;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import redxax.oxy.input.InputProcessor;
+import redxax.oxy.input.TerminalProcessManager;
 
 import java.io.IOException;
 import java.nio.file.Path;
