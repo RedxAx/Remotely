@@ -26,9 +26,6 @@ public class SSHManager {
     private final TerminalInstance terminalInstance;
     private final ExecutorService executorService = Executors.newFixedThreadPool(2);
 
-    private boolean isMinecraftServerDetected = false;
-    private boolean isMinecraftServerLoaded = false;
-
     private List<String> remoteCommandsCache = new ArrayList<>();
     private long remoteCommandsLastFetched = 0;
     private static final long REMOTE_COMMANDS_CACHE_DURATION = 60 * 1000;
@@ -100,16 +97,6 @@ public class SSHManager {
             while (isSSH && (line = sshReader.readLine()) != null) {
                 line = line.replace("\u0000", "").replace("\r", "");
                 terminalInstance.appendOutput(line + "\n");
-                if (!isMinecraftServerDetected) {
-                    if (line.contains("Starting minecraft server")) {
-                        isMinecraftServerDetected = true;
-                    }
-                } else if (!isMinecraftServerLoaded) {
-                    if (line.contains("Done") && line.contains("For help, type \"help\"")) {
-                        isMinecraftServerLoaded = true;
-                        fetchMinecraftServerCommands();
-                    }
-                }
             }
             if (isSSH) {
                 isSSH = false;
@@ -118,38 +105,6 @@ public class SSHManager {
         } catch (IOException e) {
             terminalInstance.appendOutput("Error reading SSH output: " + e.getMessage() + "\n");
         }
-    }
-
-    private void fetchMinecraftServerCommands() {
-        executorService.submit(() -> {
-            try {
-                sshWriter.write("help\n");
-                sshWriter.flush();
-                List<String> commands = new ArrayList<>();
-                boolean readingCommands = false;
-                String line;
-                while ((line = sshReader.readLine()) != null) {
-                    line = line.replace("\u0000", "").replace("\r", "");
-                    if (line.startsWith("----")) {
-                        readingCommands = !readingCommands;
-                        continue;
-                    }
-                    if (readingCommands) {
-                        String cmd = line.trim().split(" ")[0];
-                        commands.add(cmd);
-                    }
-                    if (line.contains("For help, type \"help\"")) {
-                        break;
-                    }
-                }
-                synchronized (this) {
-                    remoteCommandsCache = commands;
-                    remoteCommandsLastFetched = System.currentTimeMillis();
-                }
-            } catch (IOException e) {
-                terminalInstance.appendOutput("Failed to fetch Minecraft server commands: " + e.getMessage() + "\n");
-            }
-        });
     }
 
     public void shutdown() {
