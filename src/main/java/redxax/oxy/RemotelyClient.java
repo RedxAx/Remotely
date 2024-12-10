@@ -35,8 +35,7 @@ public class RemotelyClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         System.out.println("Remotely mod initialized on the client.");
-        loadSnippets(); // Load snippets on startup
-
+        loadSnippets();
         openTerminalKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.remotely.open_terminal",
                 InputUtil.Type.KEYSYM,
@@ -100,7 +99,7 @@ public class RemotelyClient implements ClientModInitializer {
             multiTerminalScreen.shutdownAllTerminals();
             multiTerminalScreen = null;
         }
-        saveSnippets(); // Save snippets on shutdown
+        saveSnippets();
         try {
             if (Files.exists(TERMINAL_LOG_DIR) && Files.isDirectory(TERMINAL_LOG_DIR)) {
                 try (DirectoryStream<Path> stream = Files.newDirectoryStream(TERMINAL_LOG_DIR)) {
@@ -121,9 +120,11 @@ public class RemotelyClient implements ClientModInitializer {
     public static class CommandSnippet {
         public String name;
         public String commands;
-        public CommandSnippet(String name, String commands) {
+        public String shortcut;
+        public CommandSnippet(String name, String commands, String shortcut) {
             this.name = name;
             this.commands = commands;
+            this.shortcut = shortcut;
         }
     }
 
@@ -144,10 +145,10 @@ public class RemotelyClient implements ClientModInitializer {
             try {
                 String json = new String(Files.readAllBytes(SNIPPETS_FILE));
                 globalSnippets = GSON.fromJson(json, new TypeToken<List<CommandSnippet>>(){}.getType());
+                if (globalSnippets == null) globalSnippets = new ArrayList<>();
             } catch (IOException e) {
                 System.out.println("Failed to load snippets: " + e.getMessage());
             }
         }
     }
 }
-

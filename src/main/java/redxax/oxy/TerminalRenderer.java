@@ -70,7 +70,7 @@ public class TerminalRenderer {
 
         context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, 0xFF000000);
 
-        int padding = 5;
+        int padding = 2;
         int textAreaX = terminalX + padding;
         int textAreaY = terminalY + padding;
         int textAreaWidth = terminalWidth - 2 * padding;
