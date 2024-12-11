@@ -8,6 +8,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 
 public class TerminalProcessManager {
 
@@ -20,6 +23,7 @@ public class TerminalProcessManager {
     private final TerminalInstance terminalInstance;
     private final SSHManager sshManager;
     private String currentDirectory = System.getProperty("user.dir");
+    private static final Logger logger = Logger.getLogger(TerminalProcessManager.class.getName());
 
     public TerminalProcessManager(TerminalInstance terminalInstance, SSHManager sshManager) {
         this.terminalInstance = terminalInstance;
@@ -40,7 +44,7 @@ public class TerminalProcessManager {
             startReaders();
         } catch (Exception e) {
             terminalInstance.appendOutput("Failed to launch terminal process: " + e.getMessage() + "\n");
-            e.printStackTrace();
+            logger.log(Level.SEVERE, "Failed to launch terminal process", e);
         }
     }
 
@@ -79,7 +83,7 @@ public class TerminalProcessManager {
             }
         } catch (IOException e) {
             terminalInstance.appendOutput("Error reading terminal output: " + e.getMessage() + "\n");
-            e.printStackTrace();
+            logger.log(Level.SEVERE, "Error reading terminal output", e);
         }
     }
 
@@ -107,9 +111,9 @@ public class TerminalProcessManager {
             if (!outputBuffer.isEmpty()) {
                 terminalInstance.appendOutput("ERROR: " + outputBuffer);
             }
-        } catch (IOException e) {
+        }  catch (IOException e) {
             terminalInstance.appendOutput("Error reading terminal error output: " + e.getMessage() + "\n");
-            e.printStackTrace();
+            logger.log(Level.SEVERE, "Error reading terminal error output", e);
         }
     }
 
@@ -128,7 +132,7 @@ public class TerminalProcessManager {
                 terminalInstance.appendOutput("Terminal process and its child processes terminated.\n");
             } catch (IOException | InterruptedException e) {
                 terminalInstance.appendOutput("Error shutting down terminal: " + e.getMessage() + "\n");
-                e.printStackTrace();
+                logger.log(Level.SEVERE, "Error shutting down terminal", e);
             }
             terminalProcess = null;
         }

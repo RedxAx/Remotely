@@ -168,9 +168,6 @@ public class SSHManager {
         channelExec.setOutputStream(baos);
         channelExec.setCommand("compgen -c");
         channelExec.connect();
-        while (!channelExec.isClosed()) {
-            Thread.sleep(100);
-        }
         channelExec.disconnect();
         String output = baos.toString(StandardCharsets.UTF_8);
         String[] commands = output.split("\\s+");

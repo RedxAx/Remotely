@@ -2,9 +2,7 @@ package redxax.oxy;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import redxax.oxy.input.CommandLogger;
 import redxax.oxy.input.InputProcessor;
-import redxax.oxy.input.TerminalProcessManager;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -18,7 +16,6 @@ public class TerminalInstance {
     public final TerminalRenderer renderer;
     final InputHandler inputHandler;
     final SSHManager sshManager;
-    private final CommandLogger commandLogger;
 
     public TerminalInstance(MinecraftClient client, MultiTerminalScreen parent, UUID id) {
         this.parentScreen = parent;
@@ -26,20 +23,19 @@ public class TerminalInstance {
         this.sshManager = new SSHManager(this);
         this.renderer = new TerminalRenderer(client, this);
         this.inputHandler = new InputHandler(client, this);
-        this.commandLogger = new CommandLogger(this);
         inputHandler.launchTerminal();
     }
 
-    public void render(DrawContext context, int mouseX, int mouseY, float delta, int screenWidth, int screenHeight, float scale) {
-        renderer.render(context, mouseX, mouseY, delta, screenWidth, screenHeight, scale);
+    public void render(DrawContext context, int mouseX, int mouseY, int screenWidth, int screenHeight, float scale) {
+        renderer.render(context, mouseX, mouseY, screenWidth, screenHeight, scale);
     }
 
-    public boolean charTyped(char chr, int keyCode) {
-        return inputHandler.charTyped(chr, keyCode);
+    public boolean charTyped(char chr) {
+        return inputHandler.charTyped(chr);
     }
 
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        return inputHandler.keyPressed(keyCode, scanCode, modifiers);
+    public boolean keyPressed(int keyCode, int modifiers) {
+        return inputHandler.keyPressed(keyCode, modifiers);
     }
 
     public void scroll(int direction, int terminalHeight) {
@@ -107,8 +103,8 @@ public class TerminalInstance {
         return renderer.mouseReleased(mouseX, mouseY, button);
     }
 
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        return renderer.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    public boolean mouseDragged(double mouseX, double mouseY, int button) {
+        return renderer.mouseDragged(mouseX, mouseY, button);
     }
 
     public InputProcessor getInputHandler() {

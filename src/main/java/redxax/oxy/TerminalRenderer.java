@@ -60,7 +60,7 @@ public class TerminalRenderer {
         keywordTextColors.put("INFO", TextColor.fromRgb(0xFFFFFF));
     }
 
-    public void render(DrawContext context, int mouseX, int mouseY, float delta, int screenWidth, int screenHeight, float scale) {
+    public void render(DrawContext context, int mouseX, int mouseY, int screenWidth, int screenHeight, float scale) {
         this.scale = Math.max(MIN_SCALE, Math.min(scale, MAX_SCALE));
 
         this.terminalX = 10;
@@ -329,7 +329,7 @@ public class TerminalRenderer {
             int index = 0;
             while (index < text.length()) {
                 int remainingWidth = maxWidth - currentLineWidth;
-                int charsToFit = measureTextToFit(text.substring(index), style, remainingWidth);
+                int charsToFit = measureTextToFit(text.substring(index), remainingWidth);
                 if (charsToFit == 0) {
                     if (!currentLineSegments.isEmpty()) {
                         LineText lineText = buildLineText(currentLineSegments);
@@ -337,7 +337,7 @@ public class TerminalRenderer {
                         currentLineSegments.clear();
                     }
                     currentLineWidth = 0;
-                    charsToFit = Math.max(1, measureTextToFit(text.substring(index), style, maxWidth));
+                    charsToFit = Math.max(1, measureTextToFit(text.substring(index), maxWidth));
                 }
                 String substring = text.substring(index, index + charsToFit);
                 currentLineSegments.add(new StyleTextPair(style, null, substring, url));
@@ -360,7 +360,7 @@ public class TerminalRenderer {
         return wrappedLines;
     }
 
-    private int measureTextToFit(String text, Style style, int maxWidth) {
+    private int measureTextToFit(String text, int maxWidth) {
         int width = 0;
         int index = 0;
         while (index < text.length()) {
@@ -555,7 +555,7 @@ public class TerminalRenderer {
         return false;
     }
 
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    public boolean mouseDragged(double mouseX, double mouseY, int button) {
         if (isSelecting && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             updateSelectionEnd(mouseX, mouseY);
             return true;
@@ -569,9 +569,9 @@ public class TerminalRenderer {
     }
 
     private void updateSelectionStart(double mouseX, double mouseY) {
-        int lineIndex = getLineIndexAtPosition(mouseX, mouseY);
+        int lineIndex = getLineIndexAtPosition(mouseY);
         if (lineIndex != -1) {
-            int charIndex = getCharIndexAtPosition(mouseX, mouseY, lineIndex);
+            int charIndex = getCharIndexAtPosition(mouseX, lineIndex);
             selectionStartLine = lineIndex;
             selectionStartChar = charIndex;
             selectionEndLine = lineIndex;
@@ -580,15 +580,15 @@ public class TerminalRenderer {
     }
 
     private void updateSelectionEnd(double mouseX, double mouseY) {
-        int lineIndex = getLineIndexAtPosition(mouseX, mouseY);
+        int lineIndex = getLineIndexAtPosition(mouseY);
         if (lineIndex != -1) {
-            int charIndex = getCharIndexAtPosition(mouseX, mouseY, lineIndex);
+            int charIndex = getCharIndexAtPosition(mouseX, lineIndex);
             selectionEndLine = lineIndex;
             selectionEndChar = charIndex;
         }
     }
 
-    private int getLineIndexAtPosition(double mouseX, double mouseY) {
+    private int getLineIndexAtPosition(double mouseY) {
         double relativeY = mouseY - terminalY - 5;
         relativeY /= scale;
         for (LineInfo lineInfo : lineInfos) {
@@ -604,7 +604,7 @@ public class TerminalRenderer {
     }
 
 
-    private int getCharIndexAtPosition(double mouseX, double mouseY, int lineIndex) {
+    private int getCharIndexAtPosition(double mouseX, int lineIndex) {
         LineInfo lineInfo = null;
         for (LineInfo li : lineInfos) {
             if (li.lineNumber == lineIndex) {
@@ -734,7 +734,7 @@ public class TerminalRenderer {
             return;
         }
 
-        int lineIndex = getLineIndexAtPosition(mouseX, mouseY);
+        int lineIndex = getLineIndexAtPosition(mouseY);
         if (lineIndex == -1 || lineIndex >= lineInfos.size()) {
             return;
         }

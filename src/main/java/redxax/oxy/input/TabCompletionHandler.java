@@ -1,7 +1,7 @@
 package redxax.oxy.input;
 
 import redxax.oxy.SSHManager;
-import redxax.oxy.TerminalInstance;
+
 import java.io.File;
 import java.util.*;
 
@@ -16,7 +16,7 @@ public class TabCompletionHandler {
     private long commandsLastFetched = 0;
     private static final long COMMANDS_CACHE_DURATION = 60 * 1000;
 
-    public TabCompletionHandler(TerminalInstance terminalInstance, SSHManager sshManager, CommandExecutor commandExecutor, String currentDirectory) {
+    public TabCompletionHandler(SSHManager sshManager, String currentDirectory) {
         this.sshManager = sshManager;
         this.currentDirectory = currentDirectory;
     }
@@ -105,7 +105,7 @@ public class TabCompletionHandler {
         tabCompletionSuggestion = "";
     }
 
-    public void updateTabCompletionSuggestion(StringBuilder inputBuffer, int cursorPosition) {
+    public void updateTabCompletionSuggestion(StringBuilder inputBuffer) {
         tabCompletions.clear();
         if (inputBuffer.isEmpty()) {
             tabCompletionSuggestion = "";

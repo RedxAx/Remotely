@@ -12,7 +12,6 @@ public class InputHandler {
     private final CommandLogger commandLogger;
     private final TabCompletionHandler tabCompletionHandler;
     final InputProcessor inputProcessor;
-    public CommandExecutor commandExecutor;
 
 
     public InputHandler(MinecraftClient client, TerminalInstance terminalInstance) {
@@ -21,7 +20,7 @@ public class InputHandler {
         this.terminalProcessManager = new TerminalProcessManager(terminalInstance, sshManager);
         this.commandLogger = new CommandLogger(terminalInstance);
         CommandExecutor commandExecutor = new CommandExecutor(terminalInstance, sshManager, terminalProcessManager.getWriter(), commandLogger, terminalProcessManager);
-        this.tabCompletionHandler = new TabCompletionHandler(terminalInstance, sshManager, commandExecutor, terminalProcessManager.getCurrentDirectory());
+        this.tabCompletionHandler = new TabCompletionHandler(sshManager, terminalProcessManager.getCurrentDirectory());
         this.inputProcessor = new InputProcessor(client, terminalInstance, sshManager, tabCompletionHandler, commandExecutor);
 
     }
@@ -30,12 +29,12 @@ public class InputHandler {
         terminalProcessManager.launchTerminal();
     }
 
-    public boolean charTyped(char chr, int keyCode) {
-        return inputProcessor.charTyped(chr, keyCode);
+    public boolean charTyped(char chr) {
+        return inputProcessor.charTyped(chr);
     }
 
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        return inputProcessor.keyPressed(keyCode, scanCode, modifiers);
+    public boolean keyPressed(int keyCode, int modifiers) {
+        return inputProcessor.keyPressed(keyCode, modifiers);
     }
 
     public String getTabCompletionSuggestion() {

@@ -24,7 +24,7 @@ public class InputProcessor {
         this.commandExecutor = commandExecutor;
     }
 
-    public boolean charTyped(char chr, int keyCode) {
+    public boolean charTyped(char chr) {
         if (sshManager.isAwaitingPassword()) {
             if (chr != '\n' && chr != '\r') {
                 sshManager.setSshPassword(sshManager.getSshPassword() + chr);
@@ -44,7 +44,7 @@ public class InputProcessor {
             inputBuffer.insert(cursorPosition, chr);
             cursorPosition++;
             tabCompletionHandler.resetTabCompletion();
-            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer, cursorPosition);
+            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
             terminalInstance.renderer.resetCursorBlink();
             terminalInstance.scrollToBottom();
             return true;
@@ -52,7 +52,7 @@ public class InputProcessor {
         return false;
     }
 
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    public boolean keyPressed(int keyCode, int modifiers) {
         boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
 
         if (sshManager.isAwaitingPassword()) {
@@ -101,7 +101,7 @@ public class InputProcessor {
             inputBuffer.insert(cursorPosition, ' ');
             cursorPosition++;
             tabCompletionHandler.resetTabCompletion();
-            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer, cursorPosition);
+            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
             terminalInstance.renderer.resetCursorBlink();
             terminalInstance.scrollToBottom();
             return true;
@@ -122,7 +122,7 @@ public class InputProcessor {
                 inputBuffer.setLength(0);
                 cursorPosition = 0;
                 tabCompletionHandler.resetTabCompletion();
-                tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer, cursorPosition);
+                tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
                 terminalInstance.renderer.resetCursorBlink();
                 terminalInstance.scrollToBottom();
                 terminalInstance.setHistoryIndex(terminalInstance.getCommandHistory().size());
@@ -141,7 +141,7 @@ public class InputProcessor {
                 cursorPosition = inputBuffer.length();
             }
             tabCompletionHandler.resetTabCompletion();
-            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer, cursorPosition);
+            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
             terminalInstance.renderer.resetCursorBlink();
             return true;
         }
@@ -158,7 +158,7 @@ public class InputProcessor {
                 cursorPosition = 0;
             }
             tabCompletionHandler.resetTabCompletion();
-            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer, cursorPosition);
+            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
             terminalInstance.renderer.resetCursorBlink();
             return true;
         }
@@ -169,7 +169,7 @@ public class InputProcessor {
                 inputBuffer.delete(newCursorPos, cursorPosition);
                 cursorPosition = newCursorPos;
                 tabCompletionHandler.resetTabCompletion();
-                tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer, cursorPosition);
+                tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
                 terminalInstance.renderer.resetCursorBlink();
                 terminalInstance.scrollToBottom();
             }
@@ -181,7 +181,7 @@ public class InputProcessor {
                 inputBuffer.deleteCharAt(cursorPosition - 1);
                 cursorPosition--;
                 tabCompletionHandler.resetTabCompletion();
-                tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer, cursorPosition);
+                tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
                 terminalInstance.renderer.resetCursorBlink();
                 terminalInstance.scrollToBottom();
             }
@@ -202,7 +202,7 @@ public class InputProcessor {
                 }
             }
             tabCompletionHandler.resetTabCompletion();
-            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer, cursorPosition);
+            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
             terminalInstance.renderer.resetCursorBlink();
             return true;
         }
@@ -216,7 +216,7 @@ public class InputProcessor {
                 }
             }
             tabCompletionHandler.resetTabCompletion();
-            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer, cursorPosition);
+            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
             terminalInstance.renderer.resetCursorBlink();
             return true;
         }
@@ -227,7 +227,7 @@ public class InputProcessor {
             inputBuffer.replace(wordStart, cursorPosition, clipboard);
             cursorPosition = wordStart + clipboard.length();
             tabCompletionHandler.resetTabCompletion();
-            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer, cursorPosition);
+            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
             terminalInstance.renderer.resetCursorBlink();
             terminalInstance.scrollToBottom();
             return true;
