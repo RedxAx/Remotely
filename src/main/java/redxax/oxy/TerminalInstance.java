@@ -110,4 +110,8 @@ public class TerminalInstance {
     public InputProcessor getInputHandler() {
         return inputHandler.inputProcessor;
     }
+
+    public boolean isSSHSessionActive() {
+        return sshManager.isSSH();
+    }
 }

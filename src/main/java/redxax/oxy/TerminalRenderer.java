@@ -26,6 +26,7 @@ public class TerminalRenderer {
     private long lastInputTime = 0;
 
     private final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-?]*[ -/]*[@-~]");
+    private final Pattern NON_COLOR_ANSI_PATTERN = Pattern.compile("\u001B\\[(?!\\d*m)[0-?]*[ -/]*[@-~]");
     private static final Pattern TMUX_STATUS_PATTERN = Pattern.compile("^\\[\\d+].*");
     private final List<UrlInfo> urlInfos = new ArrayList<>();
     private final Pattern KEYWORD_PATTERN = Pattern.compile("\\b(WARNING|WARN|ERROR|INFO)\\b", Pattern.CASE_INSENSITIVE);
@@ -70,6 +71,13 @@ public class TerminalRenderer {
         this.terminalWidth = screenWidth - 20;
         this.terminalHeight = screenHeight - terminalY - 10;
 
+        // Draw the border around the terminal
+        int borderColor = 0xFF212121; // Color #212121
+        context.fill(terminalX - 1, terminalY - 1, terminalX + terminalWidth + 1, terminalY, borderColor); // Top border
+        context.fill(terminalX - 1, terminalY + terminalHeight, terminalX + terminalWidth + 1, terminalY + terminalHeight + 1, borderColor); // Bottom border
+        context.fill(terminalX - 1, terminalY, terminalX, terminalY + terminalHeight, borderColor); // Left border
+        context.fill(terminalX + terminalWidth, terminalY, terminalX + terminalWidth + 1, terminalY + terminalHeight, borderColor); // Right border
+
         context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, 0xFF000000);
 
         int padding = 2;
@@ -94,7 +102,11 @@ public class TerminalRenderer {
         List<LineText> allWrappedLines = new ArrayList<>();
         tmuxStatusLine = "";
         for (String line : lines) {
-            line = removeAllControlSequences(line);
+            if (terminalInstance.getSSHManager().isSSH()) {
+                line = removeNonColorControlSequences(line);
+            } else {
+                line = removeAllControlSequences(line);
+            }
             if (line.trim().equals(">")) {
                 continue;
             }
@@ -169,11 +181,15 @@ public class TerminalRenderer {
         OrderedText[] statusTexts = getStatusBarOrderedTexts(scaledWidth);
         OrderedText leftStatus = statusTexts[0];
         OrderedText rightStatus = statusTexts[1];
-        int leftWidth = minecraftClient.textRenderer.getWidth(leftStatus);
         int rightWidth = minecraftClient.textRenderer.getWidth(rightStatus);
 
         context.drawText(minecraftClient.textRenderer, leftStatus, terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, 0xFFFFFFFF, false);
         context.drawText(minecraftClient.textRenderer, rightStatus, terminalX + terminalWidth - 2 - rightWidth, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, 0xFFFFFFFF, false);
+    }
+
+    private String removeNonColorControlSequences(String text) {
+        Matcher matcher = NON_COLOR_ANSI_PATTERN.matcher(text);
+        return matcher.replaceAll("");
     }
 
     private String removeAllControlSequences(String text) {
@@ -220,15 +236,49 @@ public class TerminalRenderer {
     private List<StyleTextPair> parseAnsiAndHighlight(String text) {
         text = text.replace("\u000f", "");
         List<StyleTextPair> result = new ArrayList<>();
+        Matcher matcher = KEYWORD_PATTERN.matcher(text);
+        int lastEnd = 0;
+        while (matcher.find()) {
+            if (matcher.start() > lastEnd) {
+                String before = text.substring(lastEnd, matcher.start());
+                result.addAll(parseAnsiCodes(before));
+            }
+            String keyword = matcher.group(1).toUpperCase();
+            TextColor keywordColor = keywordColors.getOrDefault(keyword, TextColor.fromRgb(0xFFFFFF));
+            Style keywordStyle = Style.EMPTY.withColor(keywordColor);
+            result.add(new StyleTextPair(keywordStyle, matcher.group(1)));
+            String afterKeyword;
+            int colonIndex = text.indexOf(":", matcher.end());
+            if (colonIndex != -1) {
+                afterKeyword = text.substring(matcher.end(), colonIndex + 1);
+                lastEnd = colonIndex + 1;
+                TextColor textColor = keywordTextColors.getOrDefault(keyword, TextColor.fromRgb(0xFFFFFF));
+                Style textStyle = Style.EMPTY.withColor(textColor);
+                result.add(new StyleTextPair(textStyle, afterKeyword));
+            } else {
+                afterKeyword = text.substring(matcher.end());
+                lastEnd = text.length();
+                TextColor textColor = keyword.equals("INFO") ? TextColor.fromRgb(0xFFFFFF) : keywordTextColors.getOrDefault("INFO", TextColor.fromRgb(0xFFFFFF));
+                Style textStyle = Style.EMPTY.withColor(textColor);
+                result.add(new StyleTextPair(textStyle, afterKeyword));
+            }
+        }
+        if (lastEnd < text.length()) {
+            String remaining = text.substring(lastEnd);
+            result.addAll(parseAnsiCodes(remaining));
+        }
+        return result;
+    }
+
+    private List<StyleTextPair> parseAnsiCodes(String text) {
+        List<StyleTextPair> segments = new ArrayList<>();
         Matcher matcher = ANSI_PATTERN.matcher(text);
         int lastEnd = 0;
         Style currentStyle = Style.EMPTY.withColor(TextColor.fromRgb(0xFFFFFF));
         while (matcher.find()) {
             if (matcher.start() > lastEnd) {
                 String before = text.substring(lastEnd, matcher.start());
-                if (!before.isEmpty()) {
-                    result.add(new StyleTextPair(currentStyle, null, before));
-                }
+                segments.add(new StyleTextPair(currentStyle, before));
             }
             String ansiSequence = matcher.group();
             String codeContent = ansiSequence.substring(2, ansiSequence.length() - 1);
@@ -238,10 +288,10 @@ public class TerminalRenderer {
         if (lastEnd < text.length()) {
             String remaining = text.substring(lastEnd);
             if (!remaining.isEmpty()) {
-                result.add(new StyleTextPair(currentStyle, null, remaining));
+                segments.add(new StyleTextPair(currentStyle, remaining));
             }
         }
-        return result;
+        return segments;
     }
 
     private Style applyAnsiCodes(Style style, String code) {
@@ -319,7 +369,7 @@ public class TerminalRenderer {
         int currentLineWidth = 0;
 
         for (StyleTextPair segment : segments) {
-            String text = segment.text;
+            String text = segment.text != null ? segment.text : "";
             Style style = segment.style;
             String url = segment.url;
             int index = 0;
@@ -336,7 +386,7 @@ public class TerminalRenderer {
                     charsToFit = Math.max(1, measureTextToFit(text.substring(index), maxWidth));
                 }
                 String substring = text.substring(index, index + charsToFit);
-                currentLineSegments.add(new StyleTextPair(style, null, substring, url));
+                currentLineSegments.add(new StyleTextPair(style, substring, url));
                 int width = minecraftClient.textRenderer.getWidth(substring);
                 currentLineWidth += width;
                 index += charsToFit;
@@ -468,7 +518,11 @@ public class TerminalRenderer {
         }
         int totalWrappedLines = 0;
         for (String line : allLines) {
-            line = removeAllControlSequences(line);
+            if (terminalInstance.getSSHManager().isSSH()) {
+                line = removeNonColorControlSequences(line);
+            } else {
+                line = removeAllControlSequences(line);
+            }
             if (line.trim().equals(">")) {
                 continue;
             }
@@ -514,11 +568,11 @@ public class TerminalRenderer {
 
         List<StyleTextPair> leftSegments = parseKeywordsAndHighlight(leftText);
         List<LineText> leftWrapped = wrapStyledText(leftSegments, scaledWidth);
-        OrderedText leftOrdered = leftWrapped.isEmpty() ? Text.literal(leftText).asOrderedText() : leftWrapped.get(0).orderedText;
+        OrderedText leftOrdered = leftWrapped.isEmpty() ? Text.literal(leftText).asOrderedText() : leftWrapped.getFirst().orderedText;
 
         List<StyleTextPair> rightSegments = parseKeywordsAndHighlight(rightText);
         List<LineText> rightWrapped = wrapStyledText(rightSegments, scaledWidth);
-        OrderedText rightOrdered = rightWrapped.isEmpty() ? Text.literal(rightText).asOrderedText() : rightWrapped.get(0).orderedText;
+        OrderedText rightOrdered = rightWrapped.isEmpty() ? Text.literal(rightText).asOrderedText() : rightWrapped.getFirst().orderedText;
 
         return new OrderedText[]{leftOrdered, rightOrdered};
     }
@@ -787,17 +841,15 @@ public class TerminalRenderer {
 
     private static class StyleTextPair {
         final Style style;
-        final TextColor backgroundColor;
         final String text;
         final String url;
 
-        StyleTextPair(Style style, TextColor backgroundColor, String text) {
-            this(style, backgroundColor, text, null);
+        StyleTextPair(Style style, String text) {
+            this(style, text, null);
         }
 
-        StyleTextPair(Style style, TextColor backgroundColor, String text, String url) {
+        StyleTextPair(Style style, String text, String url) {
             this.style = style;
-            this.backgroundColor = backgroundColor;
             this.text = text;
             this.url = url;
         }
