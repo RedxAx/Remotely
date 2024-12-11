@@ -25,7 +25,8 @@ public class TerminalRenderer {
     private boolean cursorVisible = true;
     private long lastInputTime = 0;
 
-    private final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[(.*?)[@-~]");
+    private final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-?]*[ -/]*[@-~]");
+    private static final Pattern TMUX_STATUS_PATTERN = Pattern.compile("^\\[\\d+].*");
     private final List<UrlInfo> urlInfos = new ArrayList<>();
     private final Pattern KEYWORD_PATTERN = Pattern.compile("\\b(WARNING|WARN|ERROR|INFO)\\b", Pattern.CASE_INSENSITIVE);
     private final Pattern BRACKET_KEYWORD_PATTERN = Pattern.compile("\\[(.*?)\\b(WARNING|WARN|ERROR|INFO)\\b(.*?)]");
@@ -46,6 +47,7 @@ public class TerminalRenderer {
     private int terminalHeight;
 
     private UrlInfo hoveredUrl = null;
+    private String tmuxStatusLine = "";
 
     public TerminalRenderer(MinecraftClient client, TerminalInstance terminalInstance) {
         this.minecraftClient = client;
@@ -74,7 +76,7 @@ public class TerminalRenderer {
         int textAreaX = terminalX + padding;
         int textAreaY = terminalY + padding;
         int textAreaWidth = terminalWidth - 2 * padding;
-        int textAreaHeight = terminalHeight - 2 * padding - getInputFieldHeight();
+        int textAreaHeight = terminalHeight - 2 * padding - getInputFieldHeight() - getStatusBarHeight();
 
         context.getMatrices().push();
         context.getMatrices().translate(textAreaX, textAreaY, 0);
@@ -85,46 +87,54 @@ public class TerminalRenderer {
         int x = 0;
         int yStart = 0;
 
+        List<String> lines;
         synchronized (terminalOutput) {
-            String[] lines = terminalOutput.toString().split("\n", -1);
-            List<LineText> allWrappedLines = new ArrayList<>();
-
-            for (String line : lines) {
-                List<StyleTextPair> segments = parseKeywordsAndHighlight(line);
-                List<LineText> wrappedLines = wrapStyledText(segments, scaledWidth);
-                allWrappedLines.addAll(wrappedLines);
+            lines = Arrays.asList(terminalOutput.toString().split("\n", -1));
+        }
+        List<LineText> allWrappedLines = new ArrayList<>();
+        tmuxStatusLine = "";
+        for (String line : lines) {
+            line = removeAllControlSequences(line);
+            if (line.trim().equals(">")) {
+                continue;
             }
-
-            int totalLines = allWrappedLines.size();
-            int visibleLines = getVisibleLines(scaledHeight);
-
-            scrollOffset = Math.min(scrollOffset, Math.max(0, totalLines - visibleLines));
-
-            int startLine = Math.max(0, totalLines - visibleLines - scrollOffset);
-            int endLine = Math.min(totalLines, startLine + visibleLines);
-
-            lineInfos.clear();
-            urlInfos.clear();
-
-            for (int i = startLine; i < endLine; i++) {
-                LineText lineText = allWrappedLines.get(i);
-                int lineHeight = minecraftClient.textRenderer.fontHeight;
-                LineInfo lineInfo = new LineInfo(i, yStart, lineHeight, lineText.orderedText, lineText.plainText);
-                lineInfos.add(lineInfo);
-
-                if (isLineSelected(i)) {
-                    drawSelection(context, lineInfo, x);
-                }
-
-                context.drawText(minecraftClient.textRenderer, lineText.orderedText, x, yStart, 0xFFFFFFFF, false);
-                yStart += lineHeight;
+            Matcher tmuxMatcher = TMUX_STATUS_PATTERN.matcher(line);
+            if (tmuxMatcher.matches()) {
+                tmuxStatusLine = removeAllAnsiSequences(line.trim()).replace("\u000f", "");
+                continue;
             }
+            List<StyleTextPair> segments = parseKeywordsAndHighlight(line);
+            List<LineText> wrappedLines = wrapStyledText(segments, scaledWidth);
+            allWrappedLines.addAll(wrappedLines);
+        }
+
+        int totalLines = allWrappedLines.size();
+        int visibleLines = getVisibleLines(scaledHeight);
+
+        scrollOffset = Math.min(scrollOffset, Math.max(0, totalLines - visibleLines));
+
+        int startLine = Math.max(0, totalLines - visibleLines - scrollOffset);
+        int endLine = Math.min(totalLines, startLine + visibleLines);
+
+        lineInfos.clear();
+        urlInfos.clear();
+
+        for (int i = startLine; i < endLine; i++) {
+            LineText lineText = allWrappedLines.get(i);
+            int lineHeight = minecraftClient.textRenderer.fontHeight;
+            LineInfo lineInfo = new LineInfo(i, yStart, lineHeight, lineText.orderedText, lineText.plainText);
+            lineInfos.add(lineInfo);
+            if (isLineSelected(i)) {
+                drawSelection(context, lineInfo, x);
+            }
+            context.drawText(minecraftClient.textRenderer, lineText.orderedText, x, yStart, 0xFFFFFFFF, false);
+            yStart += lineHeight;
         }
 
         context.getMatrices().pop();
 
         int inputX = terminalX + padding;
-        int inputY = terminalY + terminalHeight - padding - getInputFieldHeight();
+        int inputY = terminalY + terminalHeight - padding - getInputFieldHeight() - getStatusBarHeight();
         String inputPrompt = terminalInstance.getSSHManager().isAwaitingPassword() ? "Password: " : "> ";
         String inputText = inputPrompt + terminalInstance.inputHandler.getInputBuffer().toString();
 
@@ -152,6 +162,28 @@ public class TerminalRenderer {
         }
 
         handleUrlHover(mouseX, mouseY);
+
+        int statusBarY = terminalY + terminalHeight - getStatusBarHeight();
+        context.fill(terminalX, statusBarY, terminalX + terminalWidth, statusBarY + getStatusBarHeight(), 0xFF333333);
+
+        OrderedText[] statusTexts = getStatusBarOrderedTexts(scaledWidth);
+        OrderedText leftStatus = statusTexts[0];
+        OrderedText rightStatus = statusTexts[1];
+        int leftWidth = minecraftClient.textRenderer.getWidth(leftStatus);
+        int rightWidth = minecraftClient.textRenderer.getWidth(rightStatus);
+
+        context.drawText(minecraftClient.textRenderer, leftStatus, terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, 0xFFFFFFFF, false);
+        context.drawText(minecraftClient.textRenderer, rightStatus, terminalX + terminalWidth - 2 - rightWidth, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, 0xFFFFFFFF, false);
+    }
+
+    private String removeAllControlSequences(String text) {
+        Matcher matcher = ANSI_PATTERN.matcher(text);
+        return matcher.replaceAll("");
+    }
+
+    private String removeAllAnsiSequences(String text) {
+        Matcher matcher = ANSI_PATTERN.matcher(text);
+        return matcher.replaceAll("");
     }
 
     public void resetCursorBlink() {
@@ -160,8 +192,7 @@ public class TerminalRenderer {
     }
 
     private List<StyleTextPair> parseKeywordsAndHighlight(String text) {
-        text = text.replace("\r", "");
-
+        text = text.replace("\u000f", "");
         List<StyleTextPair> result = new ArrayList<>();
 
         Matcher bracketMatcher = BRACKET_KEYWORD_PATTERN.matcher(text);
@@ -173,73 +204,44 @@ public class TerminalRenderer {
             }
             String keyword = bracketMatcher.group(2).toUpperCase();
             TextColor keywordColor = keywordColors.getOrDefault(keyword, TextColor.fromRgb(0xFFFFFF));
-            Style keywordStyle = Style.EMPTY.withColor(keywordColor).withBold(false);
-            result.add(new StyleTextPair(keywordStyle, null, "[" + bracketMatcher.group(1) + bracketMatcher.group(2) + bracketMatcher.group(3) + "]"));
+            Style keywordStyle = Style.EMPTY.withColor(keywordColor);
+            String fullMatch = "[" + bracketMatcher.group(1) + bracketMatcher.group(2) + bracketMatcher.group(3) + "]";
+            result.add(new StyleTextPair(keywordStyle, null, fullMatch));
+            result.add(new StyleTextPair(Style.EMPTY, null, ""));
             lastEnd = bracketMatcher.end();
         }
         if (lastEnd < text.length()) {
             String remaining = text.substring(lastEnd);
             result.addAll(parseAnsiAndHighlight(remaining));
         }
-
         return result;
     }
 
     private List<StyleTextPair> parseAnsiAndHighlight(String text) {
+        text = text.replace("\u000f", "");
         List<StyleTextPair> result = new ArrayList<>();
-        Matcher keywordMatcher = KEYWORD_PATTERN.matcher(text);
-        int lastEnd = 0;
-        while (keywordMatcher.find()) {
-            if (keywordMatcher.start() > lastEnd) {
-                String before = text.substring(lastEnd, keywordMatcher.start());
-                result.addAll(parseAnsiCodes(before));
-            }
-            String keyword = keywordMatcher.group(1).toUpperCase();
-            TextColor keywordColor = keywordColors.getOrDefault(keyword, TextColor.fromRgb(0xFFFFFF));
-            Style keywordStyle = Style.EMPTY.withColor(keywordColor).withBold(false);
-            result.add(new StyleTextPair(keywordStyle, null, keywordMatcher.group(1)));
-            String afterKeyword;
-            int colonIndex = text.indexOf(":", keywordMatcher.end());
-            if (colonIndex != -1) {
-                afterKeyword = text.substring(keywordMatcher.end(), colonIndex + 1);
-                lastEnd = colonIndex + 1;
-                TextColor textColor = keywordTextColors.getOrDefault(keyword, TextColor.fromRgb(0xFFFFFF));
-                Style textStyle = Style.EMPTY.withColor(textColor);
-                result.add(new StyleTextPair(textStyle, null, afterKeyword));
-            } else {
-                afterKeyword = text.substring(keywordMatcher.end());
-                lastEnd = text.length();
-                TextColor textColor = keyword.equals("INFO") ? TextColor.fromRgb(0xFFFFFF) : keywordTextColors.getOrDefault(keyword, TextColor.fromRgb(0xFFFFFF));
-                Style textStyle = Style.EMPTY.withColor(textColor);
-                result.add(new StyleTextPair(textStyle, null, afterKeyword));
-            }
-        }
-        if (lastEnd < text.length()) {
-            String remaining = text.substring(lastEnd);
-            result.addAll(parseAnsiCodes(remaining));
-        }
-        return result;
-    }
-
-    private List<StyleTextPair> parseAnsiCodes(String text) {
-        List<StyleTextPair> segments = new ArrayList<>();
         Matcher matcher = ANSI_PATTERN.matcher(text);
         int lastEnd = 0;
         Style currentStyle = Style.EMPTY.withColor(TextColor.fromRgb(0xFFFFFF));
         while (matcher.find()) {
             if (matcher.start() > lastEnd) {
                 String before = text.substring(lastEnd, matcher.start());
-                segments.add(new StyleTextPair(currentStyle, null, before));
+                if (!before.isEmpty()) {
+                    result.add(new StyleTextPair(currentStyle, null, before));
+                }
             }
-            String code = matcher.group(1);
-            currentStyle = applyAnsiCodes(currentStyle, code);
+            String ansiSequence = matcher.group();
+            String codeContent = ansiSequence.substring(2, ansiSequence.length() - 1);
+            currentStyle = applyAnsiCodes(currentStyle, codeContent);
             lastEnd = matcher.end();
         }
         if (lastEnd < text.length()) {
             String remaining = text.substring(lastEnd);
-            segments.add(new StyleTextPair(currentStyle, null, remaining));
+            if (!remaining.isEmpty()) {
+                result.add(new StyleTextPair(currentStyle, null, remaining));
+            }
         }
-        return segments;
+        return result;
     }
 
     private Style applyAnsiCodes(Style style, String code) {
@@ -249,29 +251,21 @@ public class TerminalRenderer {
             String c = codes[i];
             int codeNum;
             try {
-                codeNum = Integer.parseInt(c);
+                codeNum = Integer.parseInt(c.replaceAll("\\D", ""));
             } catch (NumberFormatException e) {
                 i++;
                 continue;
             }
             switch (codeNum) {
-                case 0:
-                    style = Style.EMPTY.withColor(TextColor.fromRgb(0xFFFFFF));
-                    break;
-                case 1:
-                    style = style.withBold(true);
-                    break;
-                case 3:
-                    style = style.withItalic(true);
-                    break;
-                case 4:
-                    style = style.withUnderline(true);
-                    break;
-                case 7:
-                    style = style.withObfuscated(true);
-                    break;
-                case 38:
-                case 48:
+                case 0 -> style = Style.EMPTY.withColor(TextColor.fromRgb(0xFFFFFF)).withItalic(false).withUnderline(false);
+                case 1 -> {}
+                case 3 -> style = style.withItalic(true);
+                case 4 -> style = style.withUnderline(true);
+                case 22 -> {}
+                case 23 -> style = style.withItalic(false);
+                case 24 -> style = style.withUnderline(false);
+                case 27 -> {}
+                case 38, 48 -> {
                     if (i + 1 < codes.length) {
                         if ("2".equals(codes[i + 1])) {
                             if (i + 4 < codes.length) {
@@ -284,6 +278,7 @@ public class TerminalRenderer {
                                         style = style.withColor(color);
                                     }
                                     i += 4;
+                                    continue;
                                 } catch (NumberFormatException ignored) {
                                 }
                             }
@@ -296,13 +291,14 @@ public class TerminalRenderer {
                                         style = style.withColor(color);
                                     }
                                     i += 2;
+                                    continue;
                                 } catch (NumberFormatException ignored) {
                                 }
                             }
                         }
                     }
-                    break;
-                default:
+                }
+                default -> {
                     if (codeNum >= 30 && codeNum <= 37) {
                         TextColor color = getStandardColor(codeNum - 30);
                         style = style.withColor(color);
@@ -310,7 +306,7 @@ public class TerminalRenderer {
                         TextColor color = getBrightColor(codeNum - 90);
                         style = style.withColor(color);
                     }
-                    break;
+                }
             }
             i++;
         }
@@ -439,6 +435,7 @@ public class TerminalRenderer {
             case 4 -> TextColor.fromRgb(0x5555FF);
             case 5 -> TextColor.fromRgb(0xFF55FF);
             case 6 -> TextColor.fromRgb(0x55FFFF);
+            case 7 -> TextColor.fromRgb(0xFFFFFF);
             default -> TextColor.fromRgb(0xFFFFFF);
         };
     }
@@ -465,36 +462,75 @@ public class TerminalRenderer {
     }
 
     private int getTotalLines(int maxWidth) {
+        String[] allLines;
         synchronized (terminalOutput) {
-            String[] lines = terminalOutput.toString().split("\n", -1);
-            int totalWrappedLines = 0;
-            for (String line : lines) {
-                List<StyleTextPair> segments = parseKeywordsAndHighlight(line);
-                List<LineText> wrappedLines = wrapStyledText(segments, maxWidth);
-                totalWrappedLines += wrappedLines.size();
-            }
-            return totalWrappedLines;
+            allLines = terminalOutput.toString().split("\n", -1);
         }
+        int totalWrappedLines = 0;
+        for (String line : allLines) {
+            line = removeAllControlSequences(line);
+            if (line.trim().equals(">")) {
+                continue;
+            }
+            Matcher tmuxMatcher = TMUX_STATUS_PATTERN.matcher(line);
+            if (tmuxMatcher.matches()) {
+                continue;
+            }
+            List<StyleTextPair> segments = parseKeywordsAndHighlight(line);
+            List<LineText> wrappedLines = wrapStyledText(segments, maxWidth);
+            totalWrappedLines += wrappedLines.size();
+        }
+        return totalWrappedLines;
     }
 
     private int getVisibleLines(int scaledHeight) {
         int visibleHeight = Math.max(scaledHeight - getInputFieldHeight(), 1);
-        return Math.max(visibleHeight / minecraftClient.textRenderer.fontHeight, 1);
+        return Math.max((visibleHeight - getStatusBarHeight()) / minecraftClient.textRenderer.fontHeight, 1);
     }
 
     int getInputFieldHeight() {
         return minecraftClient.textRenderer.fontHeight + 4;
     }
 
+    int getStatusBarHeight() {
+        return minecraftClient.textRenderer.fontHeight + 4;
+    }
+
+    private OrderedText[] getStatusBarOrderedTexts(int scaledWidth) {
+        if (tmuxStatusLine.isEmpty()) {
+            return new OrderedText[]{Text.literal("Active session").asOrderedText(), Text.literal(new Date().toString()).asOrderedText()};
+        }
+        String line = tmuxStatusLine;
+        String leftText;
+        String rightText;
+        int idx = line.indexOf("     ");
+        if (idx != -1) {
+            leftText = line.substring(0, idx).trim();
+            rightText = line.substring(idx).trim();
+        } else {
+            leftText = line;
+            rightText = "";
+        }
+
+        List<StyleTextPair> leftSegments = parseKeywordsAndHighlight(leftText);
+        List<LineText> leftWrapped = wrapStyledText(leftSegments, scaledWidth);
+        OrderedText leftOrdered = leftWrapped.isEmpty() ? Text.literal(leftText).asOrderedText() : leftWrapped.get(0).orderedText;
+
+        List<StyleTextPair> rightSegments = parseKeywordsAndHighlight(rightText);
+        List<LineText> rightWrapped = wrapStyledText(rightSegments, scaledWidth);
+        OrderedText rightOrdered = rightWrapped.isEmpty() ? Text.literal(rightText).asOrderedText() : rightWrapped.get(0).orderedText;
+
+        return new OrderedText[]{leftOrdered, rightOrdered};
+    }
+
     public void appendOutput(String text) {
         text = text.replace("\r", "");
         synchronized (terminalOutput) {
             terminalOutput.append(text);
-            lineInfos.clear(); // Move inside synchronized block
+            lineInfos.clear();
         }
         minecraftClient.execute(terminalInstance.parentScreen::init);
     }
-
 
     public void scroll(int direction, int scaledHeight) {
         int maxWidth = (int) ((terminalWidth - 10) / scale);
@@ -565,7 +601,7 @@ public class TerminalRenderer {
 
     private boolean isMouseOverTerminal(double mouseX, double mouseY) {
         return mouseX >= terminalX + 5 && mouseX <= terminalX + terminalWidth - 5 &&
-                mouseY >= terminalY + 5 && mouseY <= terminalY + terminalHeight - getInputFieldHeight() - 5;
+                mouseY >= terminalY + 5 && mouseY <= terminalY + terminalHeight - getInputFieldHeight() - getStatusBarHeight() - 5;
     }
 
     private void updateSelectionStart(double mouseX, double mouseY) {
@@ -592,17 +628,12 @@ public class TerminalRenderer {
         double relativeY = mouseY - terminalY - 5;
         relativeY /= scale;
         for (LineInfo lineInfo : lineInfos) {
-            if (lineInfo == null) {
-                System.err.println("Null LineInfo encountered.");
-                continue;
-            }
             if (relativeY >= lineInfo.y && relativeY < lineInfo.y + lineInfo.height) {
                 return lineInfo.lineNumber;
             }
         }
         return -1;
     }
-
 
     private int getCharIndexAtPosition(double mouseX, int lineIndex) {
         LineInfo lineInfo = null;
@@ -729,23 +760,18 @@ public class TerminalRenderer {
 
     private void handleUrlHover(double mouseX, double mouseY) {
         hoveredUrl = null;
-
         if (!isMouseOverTerminal(mouseX, mouseY)) {
             return;
         }
-
         int lineIndex = getLineIndexAtPosition(mouseY);
         if (lineIndex == -1 || lineIndex >= lineInfos.size()) {
             return;
         }
-
         double relativeX = mouseX - terminalX - 5;
         relativeX /= scale;
-
         for (UrlInfo urlInfo : urlInfos) {
             if (relativeX >= urlInfo.startX && relativeX <= urlInfo.endX) {
                 hoveredUrl = urlInfo;
-                System.currentTimeMillis();
                 break;
             }
         }
