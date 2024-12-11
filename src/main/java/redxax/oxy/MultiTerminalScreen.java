@@ -75,6 +75,7 @@ public class MultiTerminalScreen extends Screen {
     int selectedSnippetIndex = -1;
     int snippetCommandsScrollOffset = 0;
     int snippetMaxVisibleLines = 1;
+    private boolean shortcutConsumed = false;
 
     int baseColor = 0xFF181818;
     int lighterColor = 0xFF222222;
@@ -429,7 +430,7 @@ public class MultiTerminalScreen extends Screen {
     }
 
     private void renderSnippetBox(DrawContext context, int snippetX, int snippetY, int snippetMaxWidth, RemotelyClient.CommandSnippet snippet, boolean hovered, boolean selected, int index) {
-        int snippetHeight = selected ? calculateSnippetHeight(snippet.commands) : 35;
+        int snippetHeight = selected ? calculateSnippetHeight(snippet.commands) : 30;
         int bgColor = hovered ? highlightColor : 0xFF444444;
         if (lastClickedSnippet == index && (System.currentTimeMillis() - lastSnippetClickTime) < 500) {
             bgColor = 0xFF666666;
@@ -443,24 +444,33 @@ public class MultiTerminalScreen extends Screen {
         context.fill(snippetX + 5, snippetY + 5 + minecraftClient.textRenderer.fontHeight + 1, snippetX + snippetMaxWidth - 5, snippetY + 5 + minecraftClient.textRenderer.fontHeight + 2, borderColor);
 
         if (selected) {
-            String[] allLines = snippet.commands.split("\n", -1);
+            String[] allLines = snippet.commands.split("\n");
             int lineY = snippetY + 5 + minecraftClient.textRenderer.fontHeight + 5;
             for (String line : allLines) {
-                String tl = trimTextToWidthWithEllipsis(line, snippetMaxWidth - 10);
-                context.drawText(minecraftClient.textRenderer, Text.literal(tl), snippetX + 5, lineY, dimTextColor, false);
-                lineY += minecraftClient.textRenderer.fontHeight + 2;
+                if (!line.trim().isEmpty()) {
+                    String tl = trimTextToWidthWithEllipsis(line, snippetMaxWidth - 10);
+                    context.drawText(minecraftClient.textRenderer, Text.literal(tl), snippetX + 5, lineY, dimTextColor, false);
+                    lineY += minecraftClient.textRenderer.fontHeight + 2;
+                }
             }
         } else {
-            String firstLine = snippet.commands.split("\n", -1)[0];
+            String firstLine = snippet.commands.split("\n")[0];
             firstLine = trimTextToWidthWithEllipsis(firstLine, snippetMaxWidth - 10);
             context.drawText(minecraftClient.textRenderer, Text.literal(firstLine), snippetX + 5, snippetY + 20, dimTextColor, false);
         }
     }
 
     private int calculateSnippetHeight(String commands) {
-        String[] lines = commands.split("\n", -1);
-        return 35 + (lines.length * (minecraftClient.textRenderer.fontHeight + 2)) + 5;
+        String[] lines = commands.split("\n");
+        int nonEmptyLines = 0;
+        for (String line : lines) {
+            if (!line.trim().isEmpty()) {
+                nonEmptyLines++;
+            }
+        }
+        return 1 + (minecraftClient.textRenderer.fontHeight * 2) + (nonEmptyLines * (minecraftClient.textRenderer.fontHeight + 2));
     }
+
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
@@ -576,7 +586,7 @@ public class MultiTerminalScreen extends Screen {
             return super.mouseClicked(mouseX, mouseY, button);
         }
 
-        for (int i=0;i<terminals.size();i++) {
+        for (int i = 0; i < terminals.size(); i++) {
             String tName = tabNames.get(i);
             minecraftClient.textRenderer.getWidth(tName);
         }
@@ -584,12 +594,12 @@ public class MultiTerminalScreen extends Screen {
         int tabY = 5;
         int tabAreaHeight = TAB_HEIGHT;
         float renderX = 5 - tabScrollOffset;
-        for (int i=0;i<terminals.size();i++) {
+        for (int i = 0; i < terminals.size(); i++) {
             String tName = tabNames.get(i);
             int tw = minecraftClient.textRenderer.getWidth(tName);
             int paddingH = 10;
-            int tabW = Math.max(tw+paddingH*2,60);
-            if (mouseX>=renderX && mouseX<=renderX+tabW && mouseY>=tabY && mouseY<=tabY+tabAreaHeight) {
+            int tabW = Math.max(tw + paddingH * 2, 60);
+            if (mouseX >= renderX && mouseX <= renderX + tabW && mouseY >= tabY && mouseY <= tabY + tabAreaHeight) {
                 if (button == 1) {
                     isRenaming = true;
                     renamingTabIndex = i;
@@ -610,7 +620,7 @@ public class MultiTerminalScreen extends Screen {
             }
             renderX += tabW + tabPadding;
         }
-        if (mouseX>=renderX && mouseX<=renderX+plusW && mouseY>=tabY && mouseY<=tabY+tabAreaHeight && button==0) {
+        if (mouseX >= renderX && mouseX <= renderX + plusW && mouseY >= tabY && mouseY <= tabY + tabAreaHeight && button == 0) {
             addNewTerminal();
             return true;
         }
@@ -631,17 +641,18 @@ public class MultiTerminalScreen extends Screen {
                 }
             }
             int yOffset = panelY + 5;
-            if (selectedSnippetIndex==-1) {
-                yOffset+=minecraftClient.textRenderer.fontHeight+5;
+            if (selectedSnippetIndex == -1) {
+                yOffset += minecraftClient.textRenderer.fontHeight + 5;
             }
             int snippetMaxWidth = snippetPanelWidth - 10;
             for (int i = 0; i < RemotelyClient.globalSnippets.size(); i++) {
-                int snippetHeight = 35;
+                RemotelyClient.CommandSnippet snippet = RemotelyClient.globalSnippets.get(i);
+                int snippetHeight = selectedSnippetIndex == i ? calculateSnippetHeight(snippet.commands) : 35;
                 int snippetX = panelX + 5;
                 int snippetY = yOffset;
                 boolean hovered = (mouseX >= snippetX && mouseX <= snippetX + snippetMaxWidth && mouseY >= snippetY && mouseY <= snippetY + snippetHeight);
                 if (hovered) {
-                    if (button==1) {
+                    if (button == 1) {
                         editingSnippet = true;
                         editingSnippetIndex = i;
                         RemotelyClient.CommandSnippet s = RemotelyClient.globalSnippets.get(i);
@@ -650,7 +661,7 @@ public class MultiTerminalScreen extends Screen {
                         snippetCommandsBuffer.setLength(0);
                         snippetCommandsBuffer.append(s.commands);
                         snippetShortcutBuffer.setLength(0);
-                        snippetShortcutBuffer.append(s.shortcut==null?"":s.shortcut);
+                        snippetShortcutBuffer.append(s.shortcut == null ? "" : s.shortcut);
                         snippetPopupActive = true;
                         snippetPopupX = this.width / 2 - snippetPopupWidth / 2;
                         snippetPopupY = this.height / 2 - snippetPopupHeight / 2;
@@ -659,11 +670,11 @@ public class MultiTerminalScreen extends Screen {
                         snippetCommandsCursorPos = snippetCommandsBuffer.length();
                         snippetCreationWarning = false;
                         snippetRecordingKeys = false;
-                        snippetCommandsScrollOffset=0;
+                        snippetCommandsScrollOffset = 0;
                         return true;
                     }
                     if (button == 0) {
-                        if (lastClickedSnippet == i && (System.currentTimeMillis()-lastSnippetClickTime)<500) {
+                        if (lastClickedSnippet == i && (System.currentTimeMillis() - lastSnippetClickTime) < 500) {
                             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
                             String[] lines = RemotelyClient.globalSnippets.get(i).commands.split("\n");
                             for (String line : lines) {
@@ -685,22 +696,16 @@ public class MultiTerminalScreen extends Screen {
                         }
                     }
                 }
-                RemotelyClient.CommandSnippet snippet = RemotelyClient.globalSnippets.get(i);
                 if (selectedSnippetIndex == i) {
-                    String[] allLines = snippet.commands.split("\n",-1);
-                    int lineY = snippetY + 35 + 5;
-                    for (String ignored : allLines) {
-                        lineY += (minecraftClient.textRenderer.fontHeight+2);
-                    }
-                    yOffset = lineY + 5;
+                    yOffset += calculateSnippetHeight(snippet.commands) + 5;
                 } else {
-                    yOffset += snippetHeight + 5;
+                    yOffset += 35 + 5;
                 }
             }
             String createText = "Create Snippet";
-            int ctw = minecraftClient.textRenderer.getWidth(createText)+10;
-            int createButtonWidth = Math.min(ctw, Math.max(50, snippetPanelWidth-10));
-            int createButtonX = panelX + (snippetPanelWidth - createButtonWidth)/2;
+            int ctw = minecraftClient.textRenderer.getWidth(createText) + 10;
+            int createButtonWidth = Math.min(ctw, Math.max(50, snippetPanelWidth - 10));
+            int createButtonX = panelX + (snippetPanelWidth - createButtonWidth) / 2;
             int createButtonY = this.height - 5 - 20;
             if (mouseX >= createButtonX && mouseX <= createButtonX + createButtonWidth && mouseY >= createButtonY && mouseY <= createButtonY + 10 + minecraftClient.textRenderer.fontHeight && button == 0) {
                 creatingSnippet = true;
@@ -715,7 +720,7 @@ public class MultiTerminalScreen extends Screen {
                 snippetCommandsCursorPos = 0;
                 snippetCreationWarning = false;
                 snippetRecordingKeys = false;
-                snippetCommandsScrollOffset=0;
+                snippetCommandsScrollOffset = 0;
                 return true;
             }
         } else {
@@ -820,7 +825,7 @@ public class MultiTerminalScreen extends Screen {
             if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
                 if (!snippetShortcutBuffer.isEmpty()) {
                     int idx = snippetShortcutBuffer.lastIndexOf("+");
-                    if (idx>=0) {
+                    if (idx >= 0) {
                         snippetShortcutBuffer.delete(idx, snippetShortcutBuffer.length());
                     } else {
                         snippetShortcutBuffer.setLength(0);
@@ -837,11 +842,11 @@ public class MultiTerminalScreen extends Screen {
             String keyName = InputUtil.fromKeyCode(keyCode, scanCode).getTranslationKey();
             String hrName = humanReadableKey(keyName);
             List<String> parts = new ArrayList<>(Arrays.asList(snippetShortcutBuffer.toString().split("\\+")));
-            if (parts.size()==1 && parts.getFirst().isEmpty()) parts.clear();
+            if (parts.size() == 1 && parts.getFirst().isEmpty()) parts.clear();
             if (!parts.contains(hrName)) {
                 parts.add(hrName);
                 snippetShortcutBuffer.setLength(0);
-                snippetShortcutBuffer.append(parts.stream().filter(s->!s.isEmpty()).collect(Collectors.joining("+")));
+                snippetShortcutBuffer.append(parts.stream().filter(s -> !s.isEmpty()).collect(Collectors.joining("+")));
             }
             return true;
         }
@@ -988,16 +993,17 @@ public class MultiTerminalScreen extends Screen {
                 renamingTabIndex = -1;
                 return true;
             } else if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
-                if (renameCursorPos>0 && renameCursorPos<=renameBuffer.length()) {
-                    renameBuffer.deleteCharAt(renameCursorPos-1);
+                if (renameCursorPos > 0 && renameCursorPos <= renameBuffer.length()) {
+                    renameBuffer.deleteCharAt(renameCursorPos - 1);
                     renameCursorPos--;
+                    tabNames.set(renamingTabIndex, renameBuffer.toString());
                 }
                 return true;
             } else if (keyCode == GLFW.GLFW_KEY_LEFT) {
-                if (renameCursorPos>0) renameCursorPos--;
+                if (renameCursorPos > 0) renameCursorPos--;
                 return true;
             } else if (keyCode == GLFW.GLFW_KEY_RIGHT) {
-                if (renameCursorPos<renameBuffer.length()) renameCursorPos++;
+                if (renameCursorPos < renameBuffer.length()) renameCursorPos++;
                 return true;
             }
             return super.keyPressed(keyCode, scanCode, modifiers);
@@ -1017,6 +1023,7 @@ public class MultiTerminalScreen extends Screen {
                                 }
                             }
                         }
+                        shortcutConsumed = true;
                         return true;
                     }
                 }
@@ -1028,9 +1035,12 @@ public class MultiTerminalScreen extends Screen {
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
-
     @Override
     public boolean charTyped(char chr, int keyCode) {
+        if (shortcutConsumed) {
+            shortcutConsumed = false;
+            return true;
+        }
         if (snippetRecordingKeys) return true;
         if (snippetPopupActive) {
             snippetLastInputTime = System.currentTimeMillis();
