@@ -31,9 +31,12 @@ public class RemotelyClient implements ClientModInitializer {
     int snippetPanelWidth = 150;
     boolean showSnippetsPanel = false;
     public static List<CommandSnippet> globalSnippets = new ArrayList<>();
+    public static RemotelyClient INSTANCE;
+
 
     @Override
     public void onInitializeClient() {
+        INSTANCE = this;
         System.out.println("Remotely mod initialized on the client.");
         loadSnippets();
         openTerminalKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
@@ -52,7 +55,7 @@ public class RemotelyClient implements ClientModInitializer {
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownAllTerminals));
     }
 
-    private void openMultiTerminalGUI(MinecraftClient client) {
+    public void openMultiTerminalGUI(MinecraftClient client) {
         if (multiTerminalScreen == null || !client.isWindowFocused()) {
             multiTerminalScreen = new MultiTerminalScreen(client, this, terminals, tabNames);
             if (terminals.isEmpty()) {

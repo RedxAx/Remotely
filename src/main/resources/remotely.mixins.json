@@ -3,9 +3,13 @@
   "package": "redxax.oxy.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "ExampleMixin"
+    "ExampleMixin",
+    "TitleScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1
-  }
+  },
+  "client": [
+    "TitleScreenMixin"
+  ]
 }
