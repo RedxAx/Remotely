@@ -490,10 +490,11 @@ public class TerminalRenderer {
         text = text.replace("\r", "");
         synchronized (terminalOutput) {
             terminalOutput.append(text);
+            lineInfos.clear(); // Move inside synchronized block
         }
-        lineInfos.clear();
         minecraftClient.execute(terminalInstance.parentScreen::init);
     }
+
 
     public void scroll(int direction, int scaledHeight) {
         int maxWidth = (int) ((terminalWidth - 10) / scale);
@@ -591,12 +592,17 @@ public class TerminalRenderer {
         double relativeY = mouseY - terminalY - 5;
         relativeY /= scale;
         for (LineInfo lineInfo : lineInfos) {
+            if (lineInfo == null) {
+                System.err.println("Null LineInfo encountered.");
+                continue;
+            }
             if (relativeY >= lineInfo.y && relativeY < lineInfo.y + lineInfo.height) {
                 return lineInfo.lineNumber;
             }
         }
         return -1;
     }
+
 
     private int getCharIndexAtPosition(double mouseX, double mouseY, int lineIndex) {
         LineInfo lineInfo = null;
