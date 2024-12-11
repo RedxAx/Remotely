@@ -84,6 +84,9 @@ public class MultiTerminalScreen extends Screen {
     int dimTextColor = 0xFFBBBBBB;
     int dimmerTextColor = 0xFF888888;
 
+    int renameScrollOffset = 0;
+    int snippetNameScrollOffset = 0;
+
     public MultiTerminalScreen(MinecraftClient minecraftClient, RemotelyClient remotelyClient, List<TerminalInstance> terminals, List<String> tabNames) {
         super(Text.literal("Multi Terminal"));
         this.minecraftClient = minecraftClient;
@@ -187,12 +190,50 @@ public class MultiTerminalScreen extends Screen {
             context.fill((int) renderX, tabY, (int) renderX + ti.width, tabY + tabAreaHeight, bgColor);
             drawInnerBorder(context, (int) renderX, tabY, ti.width, tabAreaHeight, borderColor);
             String tName = ti.name;
-            int textW = minecraftClient.textRenderer.getWidth(tName);
-            int tx = (int) renderX + (ti.width - textW) / 2;
+            String displayName = tName;
+            int tx;
             int ty = tabY + (tabAreaHeight - minecraftClient.textRenderer.fontHeight) / 2;
-            context.drawText(minecraftClient.textRenderer, Text.literal(tName), tx, ty, textColor, false);
             if (isRenaming && renamingTabIndex == i) {
-                drawRenameCursor(context, tx, ty, tName);
+                String fullText = renameBuffer.toString();
+                int wBeforeCursor = minecraftClient.textRenderer.getWidth(fullText.substring(0, Math.min(renameCursorPos, fullText.length())));
+                if (wBeforeCursor < renameScrollOffset) renameScrollOffset = wBeforeCursor;
+                int maxTabTextWidth = ti.width - 10;
+                if (wBeforeCursor - renameScrollOffset > maxTabTextWidth) renameScrollOffset = wBeforeCursor - maxTabTextWidth;
+                if (renameScrollOffset < 0) renameScrollOffset = 0;
+                int charStart = 0;
+                while (charStart < fullText.length()) {
+                    int cw = minecraftClient.textRenderer.getWidth(fullText.substring(0, charStart));
+                    if (cw >= renameScrollOffset) break;
+                    charStart++;
+                }
+                int visibleEnd = charStart;
+                while (visibleEnd <= fullText.length()) {
+                    int cw = minecraftClient.textRenderer.getWidth(fullText.substring(charStart, visibleEnd));
+                    if (cw > maxTabTextWidth) break;
+                    visibleEnd++;
+                }
+                visibleEnd--;
+                if (visibleEnd < charStart) visibleEnd = charStart;
+                displayName = fullText.substring(charStart, visibleEnd);
+                tx = (int) renderX + 5;
+                context.drawText(minecraftClient.textRenderer, Text.literal(displayName), tx, ty, textColor, false);
+                long cTime = System.currentTimeMillis();
+                boolean cursorShow = ((cTime - lastRenameInputTime) < 500) || (((cTime - lastRenameInputTime) > 1000) && ((cTime - lastRenameInputTime) < 1500));
+                if ((cTime - lastRenameInputTime) > 1000) {
+                    if ((cTime - lastRenameInputTime) > 1500) {
+                        lastRenameInputTime = cTime;
+                    }
+                }
+                if (cursorShow) {
+                    int cursorPosVisible = Math.min(renameCursorPos - charStart, displayName.length());
+                    if (cursorPosVisible < 0) cursorPosVisible = 0;
+                    int renameCursorX = tx + minecraftClient.textRenderer.getWidth(displayName.substring(0, Math.min(cursorPosVisible, displayName.length())));
+                    context.fill(renameCursorX, ty - 1, renameCursorX + 1, ty + minecraftClient.textRenderer.fontHeight, textColor);
+                }
+            } else {
+                int textW = minecraftClient.textRenderer.getWidth(displayName);
+                tx = (int) renderX + (ti.width - textW) / 2;
+                context.drawText(minecraftClient.textRenderer, Text.literal(displayName), tx, ty, textColor, false);
             }
             renderX += ti.width + tabPadding;
         }
@@ -260,13 +301,33 @@ public class MultiTerminalScreen extends Screen {
             int nameBoxWidth = snippetPopupWidth - 10;
             context.fill(snippetPopupX + 5, nameBoxY, snippetPopupX + 5 + nameBoxWidth, nameBoxY + nameBoxHeight, snippetNameFocused ? 0xFF444466 : 0xFF333333);
             String fullName = snippetNameBuffer.toString();
-            fullName = ensureCursorBounds(fullName, snippetNameCursorPos);
-            String visibleName = fitTextToWidthFromCursor(fullName, snippetNameCursorPos, nameBoxWidth, minecraftClient.textRenderer);
+            int wBeforeCursor = minecraftClient.textRenderer.getWidth(fullName.substring(0, Math.min(snippetNameCursorPos, fullName.length())));
+            if (wBeforeCursor < snippetNameScrollOffset) snippetNameScrollOffset = wBeforeCursor;
+            int maxVisibleWidth = nameBoxWidth - 6;
+            if (wBeforeCursor - snippetNameScrollOffset > maxVisibleWidth) snippetNameScrollOffset = wBeforeCursor - maxVisibleWidth;
+            if (snippetNameScrollOffset < 0) snippetNameScrollOffset = 0;
+            int charStart = 0;
+            while (charStart < fullName.length()) {
+                int cw = minecraftClient.textRenderer.getWidth(fullName.substring(0, charStart));
+                if (cw >= snippetNameScrollOffset) break;
+                charStart++;
+            }
+            int visibleEnd = charStart;
+            while (visibleEnd <= fullName.length()) {
+                int cw = minecraftClient.textRenderer.getWidth(fullName.substring(charStart, visibleEnd));
+                if (cw > maxVisibleWidth) break;
+                visibleEnd++;
+            }
+            visibleEnd--;
+            if (visibleEnd < charStart) visibleEnd = charStart;
+            String visibleName = fullName.substring(charStart, visibleEnd);
             int nameTextX = snippetPopupX + 8;
             int nameTextY = nameBoxY + 2;
             context.drawText(minecraftClient.textRenderer, Text.literal(visibleName), nameTextX, nameTextY, textColor, false);
             if (snippetNameFocused && snippetCursorVisible) {
-                int cX = nameTextX + minecraftClient.textRenderer.getWidth(visibleName.substring(0, cursorRenderPosition(fullName, visibleName, snippetNameCursorPos)));
+                int cursorPosVisible = Math.min(snippetNameCursorPos - charStart, visibleName.length());
+                if (cursorPosVisible < 0) cursorPosVisible = 0;
+                int cX = nameTextX + minecraftClient.textRenderer.getWidth(visibleName.substring(0, Math.min(cursorPosVisible, visibleName.length())));
                 context.fill(cX, nameTextY - 1, cX + 1, nameTextY + minecraftClient.textRenderer.fontHeight, textColor);
             }
 
@@ -992,7 +1053,7 @@ public class MultiTerminalScreen extends Screen {
     @Override
     public boolean charTyped(char chr, int keyCode) {
         if (snippetRecordingKeys) return true;
-        if (snippetPopupActive && !snippetRecordingKeys) {
+        if (snippetPopupActive) {
             snippetLastInputTime = System.currentTimeMillis();
             if (chr == '\r' || chr == '\b') {
                 return true;
@@ -1025,15 +1086,17 @@ public class MultiTerminalScreen extends Screen {
                 isRenaming = false;
                 renamingTabIndex = -1;
                 return true;
-            } else if (chr== '\b') {
-                if (renameCursorPos>0 && renameCursorPos<=renameBuffer.length()) {
-                    renameBuffer.deleteCharAt(renameCursorPos-1);
+            } else if (chr == '\b') {
+                if (renameCursorPos > 0 && renameCursorPos <= renameBuffer.length()) {
+                    renameBuffer.deleteCharAt(renameCursorPos - 1);
                     renameCursorPos--;
+                    tabNames.set(renamingTabIndex, renameBuffer.toString());
                 }
                 return true;
-            } else if (chr>=32 && chr!=127) {
+            } else if (chr >= 32 && chr != 127) {
                 renameBuffer.insert(renameCursorPos, chr);
                 renameCursorPos++;
+                tabNames.set(renamingTabIndex, renameBuffer.toString());
                 return true;
             }
             return true;
@@ -1124,32 +1187,11 @@ public class MultiTerminalScreen extends Screen {
     }
 
     private String fitTextToWidthFromCursor(String text, int cursorPos, int maxWidth, net.minecraft.client.font.TextRenderer renderer) {
-        int left = cursorPos;
-        int right = cursorPos;
-        String visible = "";
-        while ((left>0 || right<text.length()) && renderer.getWidth(visible) < maxWidth) {
-            if (left>0) {
-                left--;
-            }
-            if (right<text.length()) {
-                right++;
-            }
-            visible = text.substring(left, right);
-            if (renderer.getWidth(visible) > maxWidth) {
-                if (right - left > 1) {
-                    right--;
-                    visible = text.substring(left, right);
-                    break;
-                }
-            }
-        }
-        return visible;
+        return text;
     }
 
     private int cursorRenderPosition(String fullText, String visibleText, int cursorPos) {
-        int start = fullText.indexOf(visibleText);
-        if (start<0) start = 0;
-        return Math.min(Math.max(0, cursorPos - start), visibleText.length());
+        return 0;
     }
 
     private List<String> wrapLines(String[] lines, int width, net.minecraft.client.font.TextRenderer renderer) {
@@ -1229,41 +1271,25 @@ public class MultiTerminalScreen extends Screen {
     }
 
     private void moveCursorVertically(int direction, String full) {
-        String[] lines = full.split("\n",-1);
-        int lineIndex=0;
-        int charInLine=0;
-        int count=0;
-        for (String l : lines) {
-            if (snippetCommandsCursorPos<=count+l.length()) {
-                charInLine=snippetCommandsCursorPos-count;
-                break;
-            }
-            count+=l.length()+1;
-            lineIndex++;
-        }
-        lineIndex += direction;
-        if (lineIndex<0) lineIndex=0;
-        if (lineIndex>=lines.length) lineIndex=lines.length-1;
+        int nameBoxY = snippetPopupY + 5 + 12;
+        int nameBoxHeight = 12;
+        int commandsLabelY = nameBoxY + nameBoxHeight + 8;
+        int commandsBoxY = commandsLabelY + 12;
+        int commandsBoxHeight = snippetPopupHeight - (commandsBoxY - snippetPopupY) - 60;
+        if (commandsBoxHeight < 20) commandsBoxHeight = 20;
+        int commandsBoxWidth = snippetPopupWidth - 10;
+        List<String> wrappedLines = wrapLines(full.split("\n",-1), commandsBoxWidth, minecraftClient.textRenderer);
+        int cLineIndex = findCursorLine(wrappedLines, snippetCommandsCursorPos);
+        int cPosInLine = cursorPosInLine(full, snippetCommandsCursorPos, wrappedLines, cLineIndex);
+        cLineIndex += direction;
+        if (cLineIndex < 0) cLineIndex = 0;
+        if (cLineIndex >= wrappedLines.size()) cLineIndex = wrappedLines.size() - 1;
         int newPos = 0;
-        for (int i=0;i<lineIndex;i++) {
-            newPos+=lines[i].length()+1;
+        for (int i=0; i<cLineIndex; i++) {
+            newPos += wrappedLines.get(i).length();
         }
-        newPos+=Math.min(charInLine,lines[lineIndex].length());
+        newPos += Math.min(cPosInLine, wrappedLines.get(cLineIndex).length());
         snippetCommandsCursorPos = Math.min(newPos, full.length());
-    }
-
-    private void drawRenameCursor(DrawContext context, int tx, int ty, String text) {
-        long currentTime=System.currentTimeMillis();
-        boolean cursorShow = ((currentTime - lastRenameInputTime)<500) || (((currentTime - lastRenameInputTime)>1000) && ((currentTime - lastRenameInputTime)<1500));
-        if ((currentTime - lastRenameInputTime)>1000) {
-            if ((currentTime - lastRenameInputTime)>1500) {
-                lastRenameInputTime = currentTime;
-            }
-        }
-        if (cursorShow) {
-            int renameCursorX = tx + minecraftClient.textRenderer.getWidth(text.substring(0, Math.min(renameCursorPos, text.length())));
-            context.fill(renameCursorX, ty-1, renameCursorX+1, ty+ minecraftClient.textRenderer.fontHeight,textColor);
-        }
     }
 
     private String humanReadableKey(String keyName) {

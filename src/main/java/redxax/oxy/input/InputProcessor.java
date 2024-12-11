@@ -125,7 +125,8 @@ public class InputProcessor {
                 tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer, cursorPosition);
                 terminalInstance.renderer.resetCursorBlink();
                 terminalInstance.scrollToBottom();
-                terminalInstance.setHistoryIndex(0);
+                terminalInstance.setHistoryIndex(terminalInstance.getCommandHistory().size());
+
             } catch (IOException e) {
                 terminalInstance.appendOutput("ERROR: " + e.getMessage() + "\n");
             }

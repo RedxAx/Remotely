@@ -28,12 +28,6 @@ public class TerminalInstance {
         this.inputHandler = new InputHandler(client, this);
         this.commandLogger = new CommandLogger(this);
         inputHandler.launchTerminal();
-        loadCommandHistory();
-    }
-
-    private void loadCommandHistory() {
-        List<String> commands = commandLogger.loadCommands();
-        parentScreen.commandHistory.addAll(commands);
     }
 
     public void render(DrawContext context, int mouseX, int mouseY, float delta, int screenWidth, int screenHeight, float scale) {
