@@ -3,7 +3,6 @@
   "package": "redxax.oxy.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "ExampleMixin",
     "TitleScreenMixin"
   ],
   "injectors": {

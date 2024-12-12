@@ -3,7 +3,7 @@
 	"id": "remotely",
 	"version": "${version}",
 	"name": "Remotely",
-	"description": "Terminal, SSH, and Minecraft!",
+	"description": "Terminal, SSH, And Minecraft!",
 	"authors": [
 		"RedxAx", "O7Z11"
 	],
@@ -12,7 +12,7 @@
 	},
 	"license": "ARR, MIT Soon!",
 	"icon": "assets/remotely/Reemotely.png",
-	"environment": "*",
+	"environment": "client",
 	"entrypoints": {
 		"main": [
 			"redxax.oxy.Remotely"
@@ -32,5 +32,13 @@
 	},
 	"suggests": {
 		"another-mod": "*"
+	},
+	"custom": {
+		"modmenu": {
+			"links": {
+				"modmenu.discord": "https://dsc.gg/RedxAxStudios"
+			},
+			"update_checker": true
+		}
 	}
 }
