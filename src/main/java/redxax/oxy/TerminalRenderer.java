@@ -4,10 +4,8 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.*;
-import net.minecraft.util.Util;
 import org.lwjgl.glfw.GLFW;
 
-import java.net.URI;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -19,6 +17,9 @@ public class TerminalRenderer {
     private final StringBuilder terminalOutput = new StringBuilder();
     private final List<LineText> wrappedLinesCache = new ArrayList<>();
     private float scale = 1.0f;
+    private float previousScale = 1.0f;
+    private int terminalWidth;
+    private int previousTerminalWidth = 0;
     private static final float MIN_SCALE = 0.1f;
     private static final float MAX_SCALE = 2.0f;
     private int scrollOffset = 0;
@@ -29,7 +30,6 @@ public class TerminalRenderer {
 
     private final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-?]*[ -/]*[@-~]");
     private static final Pattern TMUX_STATUS_PATTERN = Pattern.compile("^\\[\\d+].*");
-    private final List<UrlInfo> urlInfos = new ArrayList<>();
     private final Pattern BRACKET_KEYWORD_PATTERN = Pattern.compile("\\[(.*?)\\b(WARNING|WARN|ERROR|INFO)\\b(.*?)]");
     private final Map<String, TextColor> keywordColors = new HashMap<>();
 
@@ -43,10 +43,8 @@ public class TerminalRenderer {
 
     private int terminalX;
     private int terminalY;
-    private int terminalWidth;
     private int terminalHeight;
 
-    private UrlInfo hoveredUrl = null;
     private String tmuxStatusLine = "";
 
     private static final int BORDER_COLOR = 0xFF212121;
@@ -70,13 +68,19 @@ public class TerminalRenderer {
         keywordColors.put("INFO", TextColor.fromRgb(0x00FF00));
     }
 
-    public void render(DrawContext context, int mouseX, int mouseY, int screenWidth, int screenHeight, float scale) {
-        this.scale = Math.max(MIN_SCALE, Math.min(scale, MAX_SCALE));
+    public void render(DrawContext context, int screenWidth, int screenHeight, float newScale) {
+        this.scale = Math.max(MIN_SCALE, Math.min(newScale, MAX_SCALE));
 
         this.terminalX = 10;
         this.terminalY = MultiTerminalScreen.TAB_HEIGHT + 10;
         this.terminalWidth = screenWidth - 20;
         this.terminalHeight = screenHeight - terminalY - 10;
+
+        if (this.scale != previousScale || this.terminalWidth != previousTerminalWidth) {
+            previousScale = this.scale;
+            previousTerminalWidth = this.terminalWidth;
+            rewrap();
+        }
 
         context.fill(terminalX - BORDER_THICKNESS, terminalY - BORDER_THICKNESS, terminalX + terminalWidth + BORDER_THICKNESS, terminalY, BORDER_COLOR);
         context.fill(terminalX - BORDER_THICKNESS, terminalY + terminalHeight, terminalX + terminalWidth + BORDER_THICKNESS, terminalY + terminalHeight + BORDER_THICKNESS, BORDER_COLOR);
@@ -114,7 +118,6 @@ public class TerminalRenderer {
         int endLine = Math.min(totalLines, startLine + visibleLines);
 
         lineInfos.clear();
-        urlInfos.clear();
 
         for (int i = startLine; i < endLine; i++) {
             LineText lineText = allWrappedLines.get(i);
@@ -158,8 +161,6 @@ public class TerminalRenderer {
             context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, CURSOR_COLOR);
         }
 
-        handleUrlHover(mouseX, mouseY);
-
         int statusBarY = terminalY + terminalHeight - getStatusBarHeight();
         context.fill(terminalX, statusBarY, terminalX + terminalWidth, statusBarY + getStatusBarHeight(), STATUS_BAR_COLOR);
 
@@ -172,20 +173,45 @@ public class TerminalRenderer {
         context.drawText(minecraftClient.textRenderer, rightStatus, terminalX + terminalWidth - 2 - rightWidth, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, DEFAULT_TEXT_COLOR, false);
     }
 
+    private void rewrap() {
+        List<LineText> newWrappedLines = new ArrayList<>();
+        synchronized (terminalOutput) {
+            String[] lines = terminalOutput.toString().split("\n", -1);
+            for (String line : lines) {
+                line = removeAllControlSequences(line);
+                if (line.trim().equals(">")) {
+                    continue;
+                }
+                Matcher tmuxMatcher = TMUX_STATUS_PATTERN.matcher(line);
+                if (tmuxMatcher.matches()) {
+                    tmuxStatusLine = removeAllAnsiSequences(line.trim()).replace("\u000f", "");
+                    continue;
+                }
+                List<StyleTextPair> segments = parseKeywordsAndHighlight(line);
+                List<LineText> wrapped = wrapStyledText(segments, (int) ((terminalWidth - 10) / scale));
+                newWrappedLines.addAll(wrapped);
+            }
+        }
+        synchronized (wrappedLinesCache) {
+            wrappedLinesCache.clear();
+            wrappedLinesCache.addAll(newWrappedLines);
+        }
+    }
+
     private String removeAllControlSequences(String text) {
         if (!terminalInstance.getSSHManager().isSSH()) {
-            return text;
+            return text.replace("\t", "    ");
         }
         Matcher matcher = ANSI_PATTERN.matcher(text);
-        return matcher.replaceAll("");
+        return matcher.replaceAll("").replace("\t", "    ");
     }
 
     private String removeAllAnsiSequences(String text) {
         if (!terminalInstance.getSSHManager().isSSH()) {
-            return text;
+            return text.replace("\t", "    ");
         }
         Matcher matcher = ANSI_PATTERN.matcher(text);
-        return matcher.replaceAll("");
+        return matcher.replaceAll("").replace("\t", "    ");
     }
 
     public void resetCursorBlink() {
@@ -194,7 +220,7 @@ public class TerminalRenderer {
     }
 
     private List<StyleTextPair> parseKeywordsAndHighlight(String text) {
-        text = text.replace("\u000f", "");
+        text = text.replace("\u000f", "").replace("\t", "    ");
         List<StyleTextPair> result = new ArrayList<>();
 
         Matcher bracketMatcher = BRACKET_KEYWORD_PATTERN.matcher(text);
@@ -220,7 +246,7 @@ public class TerminalRenderer {
     }
 
     private List<StyleTextPair> parseAnsiAndHighlight(String text) {
-        text = text.replace("\u000f", "");
+        text = text.replace("\u000f", "").replace("\t", "    ");
         List<StyleTextPair> result = new ArrayList<>();
         Matcher matcher = ANSI_PATTERN.matcher(text);
         int lastEnd = 0;
@@ -323,7 +349,6 @@ public class TerminalRenderer {
         for (StyleTextPair segment : segments) {
             String text = segment.text;
             Style style = segment.style;
-            String url = segment.url;
             int index = 0;
             while (index < text.length()) {
                 int remainingWidth = maxWidth - currentLineWidth;
@@ -338,7 +363,7 @@ public class TerminalRenderer {
                     charsToFit = Math.max(1, measureTextToFit(text.substring(index), maxWidth));
                 }
                 String substring = text.substring(index, index + charsToFit);
-                currentLineSegments.add(new StyleTextPair(style, null, substring, url));
+                currentLineSegments.add(new StyleTextPair(style, null, substring));
                 int width = minecraftClient.textRenderer.getWidth(substring);
                 currentLineWidth += width;
                 index += charsToFit;
@@ -376,19 +401,10 @@ public class TerminalRenderer {
     private LineText buildLineText(List<StyleTextPair> segments) {
         MutableText lineText = Text.literal("");
         StringBuilder plainTextBuilder = new StringBuilder();
-        int xOffset = 0;
         for (StyleTextPair segment : segments) {
             Text styledText = Text.literal(segment.text).setStyle(segment.style);
             lineText.append(styledText);
             plainTextBuilder.append(segment.text);
-            if (segment.url != null) {
-                int width = minecraftClient.textRenderer.getWidth(segment.text);
-                UrlInfo urlInfo = new UrlInfo(segment.url, xOffset, xOffset + width);
-                urlInfos.add(urlInfo);
-                xOffset += width;
-            } else {
-                xOffset += minecraftClient.textRenderer.getWidth(segment.text);
-            }
         }
         return new LineText(lineText.asOrderedText(), plainTextBuilder.toString());
     }
@@ -471,7 +487,7 @@ public class TerminalRenderer {
 
     private int getVisibleLines(int scaledHeight) {
         int visibleHeight = Math.max(scaledHeight - getInputFieldHeight(), 1);
-        return Math.max((visibleHeight - getStatusBarHeight()) / minecraftClient.textRenderer.fontHeight, 1);
+        return Math.max((int) Math.ceil((visibleHeight - getStatusBarHeight()) / (double) minecraftClient.textRenderer.fontHeight), 1);
     }
 
     int getInputFieldHeight() {
@@ -510,7 +526,7 @@ public class TerminalRenderer {
     }
 
     public void appendOutput(String text) {
-        text = text.replace("\r", "");
+        text = text.replace("\r", "").replace("\t", "    ");
         List<LineText> newWrappedLines = new ArrayList<>();
         synchronized (terminalOutput) {
             terminalOutput.append(text);
@@ -573,10 +589,6 @@ public class TerminalRenderer {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             if (isMouseOverTerminal(mouseX, mouseY)) {
-                if (hoveredUrl != null && InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL)) {
-                    openUrl(hoveredUrl.url);
-                    return true;
-                }
                 isSelecting = true;
                 updateSelectionStart(mouseX, mouseY);
                 updateSelectionEnd(mouseX, mouseY);
@@ -764,48 +776,25 @@ public class TerminalRenderer {
         return sb.toString();
     }
 
-    private void handleUrlHover(double mouseX, double mouseY) {
-        hoveredUrl = null;
-        if (!isMouseOverTerminal(mouseX, mouseY)) {
-            return;
+    public void clearOutput() {
+        synchronized (terminalOutput) {
+            terminalOutput.setLength(0);
         }
-        int lineIndex = getLineIndexAtPosition(mouseY);
-        if (lineIndex == -1 || lineIndex >= lineInfos.size()) {
-            return;
+        synchronized (wrappedLinesCache) {
+            wrappedLinesCache.clear();
         }
-        double relativeX = mouseX - terminalX - 5;
-        relativeX /= scale;
-        for (UrlInfo urlInfo : urlInfos) {
-            if (relativeX >= urlInfo.startX && relativeX <= urlInfo.endX) {
-                hoveredUrl = urlInfo;
-                break;
-            }
-        }
-    }
-
-    private void openUrl(String url) {
-        try {
-            Util.getOperatingSystem().open(new URI(url));
-        } catch (Exception e) {
-            terminalInstance.appendOutput("Failed to open URL: " + e.getMessage() + "\n");
-        }
+        minecraftClient.execute(terminalInstance.parentScreen::init);
     }
 
     private static class StyleTextPair {
         final Style style;
         final TextColor backgroundColor;
         final String text;
-        final String url;
 
         StyleTextPair(Style style, TextColor backgroundColor, String text) {
-            this(style, backgroundColor, text, null);
-        }
-
-        StyleTextPair(Style style, TextColor backgroundColor, String text, String url) {
             this.style = style;
             this.backgroundColor = backgroundColor;
             this.text = text;
-            this.url = url;
         }
     }
 
@@ -826,8 +815,5 @@ public class TerminalRenderer {
             this.orderedText = orderedText;
             this.plainText = plainText;
         }
-    }
-
-    private record UrlInfo(String url, int startX, int endX) {
     }
 }

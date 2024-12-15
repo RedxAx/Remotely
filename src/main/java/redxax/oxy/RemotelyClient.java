@@ -42,8 +42,7 @@ public class RemotelyClient implements ClientModInitializer {
         openTerminalKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "Open Terminal",
                 InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_Z,
-                "Reemotely"
+                GLFW.GLFW_KEY_Z, "Remotely"
         ));
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client != null && client.player != null) {

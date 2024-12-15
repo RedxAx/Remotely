@@ -255,7 +255,7 @@ public class MultiTerminalScreen extends Screen {
 
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-            activeTerminal.render(context, mouseX, mouseY, Math.max(effectiveWidth, 50), this.height, scale);
+            activeTerminal.render(context, Math.max(effectiveWidth, 50), this.height, scale);
         }
 
         if (showSnippetsPanel) {
@@ -276,7 +276,7 @@ public class MultiTerminalScreen extends Screen {
                 yOffset += selected ? calculateSnippetHeight(snippet.commands) : 35;
                 yOffset += 5;
             }
-            String createText = "Create Snippet";
+            String createText = "+ Snippet";
             int ctw = minecraftClient.textRenderer.getWidth(createText) + 10;
             int createButtonWidth = Math.min(ctw, Math.max(50, snippetPanelWidth - 10));
             int createButtonX = panelX + (snippetPanelWidth - createButtonWidth) / 2;
@@ -701,7 +701,7 @@ public class MultiTerminalScreen extends Screen {
                     yOffset += 35 + 5;
                 }
             }
-            String createText = "Create Snippet";
+            String createText = "+ Snippet";
             int ctw = minecraftClient.textRenderer.getWidth(createText) + 10;
             int createButtonWidth = Math.min(ctw, Math.max(50, snippetPanelWidth - 10));
             int createButtonX = panelX + (snippetPanelWidth - createButtonWidth) / 2;
@@ -1274,11 +1274,9 @@ public class MultiTerminalScreen extends Screen {
                 case "left.control", "right.control" -> "CTRL";
                 case "left.shift", "right.shift" -> "SHIFT";
                 case "left.alt", "right.alt" -> "ALT";
+                case "key.mouse." -> "MOUSE";
                 default -> k.toUpperCase();
             };
-        } else if (keyName.startsWith("key.mouse.")) {
-            String k = keyName.substring("key.mouse.".length());
-            return "MOUSE"+k;
         }
         return keyName.toUpperCase();
     }

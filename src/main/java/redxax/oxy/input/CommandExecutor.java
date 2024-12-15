@@ -12,23 +12,19 @@ public class CommandExecutor {
     private final TerminalInstance terminalInstance;
     private final SSHManager sshManager;
     private Writer writer;
-    private final CommandLogger commandLogger;
     private final TerminalProcessManager terminalProcessManager;
     private String currentDirectory;
 
 
-    public CommandExecutor(TerminalInstance terminalInstance, SSHManager sshManager, Writer writer, CommandLogger commandLogger, TerminalProcessManager terminalProcessManager) {
+    public CommandExecutor(TerminalInstance terminalInstance, SSHManager sshManager, Writer writer, TerminalProcessManager terminalProcessManager) {
         this.terminalInstance = terminalInstance;
         this.sshManager = sshManager;
-        this.commandLogger = commandLogger;
         this.terminalProcessManager = terminalProcessManager;
         this.currentDirectory = terminalProcessManager.getCurrentDirectory();
         this.writer = writer != null ? writer : terminalProcessManager.getWriter();
     }
 
     public void executeCommand(String command, StringBuilder inputBuffer) throws IOException {
-        terminalInstance.logCommand(command);
-        commandLogger.logCommand(command);
 
         if (command.equalsIgnoreCase("exit")) {
             if (sshManager.isSSH()) {
@@ -38,9 +34,7 @@ public class CommandExecutor {
                 shutdown();
             }
         } else if (command.equalsIgnoreCase("clear")) {
-            synchronized (terminalInstance.renderer.getTerminalOutput()) {
-                terminalInstance.renderer.getTerminalOutput().setLength(0);
-            }
+            terminalInstance.renderer.clearOutput();
             if (sshManager.isSSH()) {
                 sshManager.getSshWriter().write("clear\n");
                 sshManager.getSshWriter().flush();
@@ -51,22 +45,16 @@ public class CommandExecutor {
             sshManager.getSshWriter().write(inputBuffer.toString() + "\n");
             sshManager.getSshWriter().flush();
         } else {
-            if (command.equalsIgnoreCase("clear")) {
-                synchronized (terminalInstance.renderer.getTerminalOutput()) {
-                    terminalInstance.renderer.getTerminalOutput().setLength(0);
-                }
+            if (writer != null) {
+                writer.write(inputBuffer.toString() + "\n");
+                writer.flush();
             } else {
+                writer = terminalProcessManager.getWriter();
                 if (writer != null) {
                     writer.write(inputBuffer.toString() + "\n");
                     writer.flush();
                 } else {
-                    writer = terminalProcessManager.getWriter();
-                    if (writer != null) {
-                        writer.write(inputBuffer.toString() + "\n");
-                        writer.flush();
-                    } else {
-                        throw new IOException("Writer is not initialized.");
-                    }
+                    throw new IOException("Writer is not initialized.");
                 }
             }
             updateCurrentDirectoryFromCommand(command);

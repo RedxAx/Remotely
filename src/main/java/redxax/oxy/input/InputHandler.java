@@ -1,6 +1,7 @@
-package redxax.oxy;
+package redxax.oxy.input;
 
-import redxax.oxy.input.*;
+import redxax.oxy.SSHManager;
+import redxax.oxy.TerminalInstance;
 import net.minecraft.client.MinecraftClient;
 
 import java.io.IOException;
@@ -9,17 +10,15 @@ import java.nio.file.Path;
 public class InputHandler {
 
     final TerminalProcessManager terminalProcessManager;
-    private final CommandLogger commandLogger;
     private final TabCompletionHandler tabCompletionHandler;
-    final InputProcessor inputProcessor;
+    public final InputProcessor inputProcessor;
 
 
     public InputHandler(MinecraftClient client, TerminalInstance terminalInstance) {
         SSHManager sshManager = terminalInstance.getSSHManager();
 
         this.terminalProcessManager = new TerminalProcessManager(terminalInstance, sshManager);
-        this.commandLogger = new CommandLogger(terminalInstance);
-        CommandExecutor commandExecutor = new CommandExecutor(terminalInstance, sshManager, terminalProcessManager.getWriter(), commandLogger, terminalProcessManager);
+        CommandExecutor commandExecutor = new CommandExecutor(terminalInstance, sshManager, terminalProcessManager.getWriter(), terminalProcessManager);
         this.tabCompletionHandler = new TabCompletionHandler(sshManager, terminalProcessManager.getCurrentDirectory());
         this.inputProcessor = new InputProcessor(client, terminalInstance, sshManager, tabCompletionHandler, commandExecutor);
 
@@ -43,10 +42,6 @@ public class InputHandler {
 
     public void shutdown() {
         terminalProcessManager.shutdown();
-    }
-
-    public void logCommand(String command) {
-        commandLogger.logCommand(command);
     }
 
     public StringBuilder getInputBuffer() {

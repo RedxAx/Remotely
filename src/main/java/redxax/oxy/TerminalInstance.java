@@ -2,6 +2,7 @@ package redxax.oxy;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import redxax.oxy.input.InputHandler;
 import redxax.oxy.input.InputProcessor;
 
 import java.io.IOException;
@@ -26,8 +27,8 @@ public class TerminalInstance {
         inputHandler.launchTerminal();
     }
 
-    public void render(DrawContext context, int mouseX, int mouseY, int screenWidth, int screenHeight, float scale) {
-        renderer.render(context, mouseX, mouseY, screenWidth, screenHeight, scale);
+    public void render(DrawContext context, int screenWidth, int screenHeight, float scale) {
+        renderer.render(context, screenWidth, screenHeight, scale);
     }
 
     public boolean charTyped(char chr) {
@@ -85,10 +86,6 @@ public class TerminalInstance {
 
     public void setHistoryIndex(int index) {
         parentScreen.historyIndex = index;
-    }
-
-    public void logCommand(String command) {
-        inputHandler.logCommand(command);
     }
 
     public SSHManager getSSHManager() {
