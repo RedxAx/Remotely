@@ -21,7 +21,6 @@ public class MultiTerminalScreen extends Screen {
     int activeTerminalIndex = 0;
 
     public static final int TAB_HEIGHT = 25;
-    static final int SCROLL_STEP = 3;
 
     private float scale = 1.0f;
     private static final float MIN_SCALE = 0.1f;

@@ -17,6 +17,7 @@ public class TerminalRenderer {
     private final MinecraftClient minecraftClient;
     private final TerminalInstance terminalInstance;
     private final StringBuilder terminalOutput = new StringBuilder();
+    private final List<LineText> wrappedLinesCache = new ArrayList<>();
     private float scale = 1.0f;
     private static final float MIN_SCALE = 0.1f;
     private static final float MAX_SCALE = 2.0f;
@@ -24,6 +25,7 @@ public class TerminalRenderer {
     private long lastBlinkTime = 0;
     private boolean cursorVisible = true;
     private long lastInputTime = 0;
+    private static final int SCROLL_STEP = 1;
 
     private final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-?]*[ -/]*[@-~]");
     private static final Pattern TMUX_STATUS_PATTERN = Pattern.compile("^\\[\\d+].*");
@@ -48,7 +50,7 @@ public class TerminalRenderer {
     private String tmuxStatusLine = "";
 
     private static final int BORDER_COLOR = 0xFF212121;
-    private static final int TERMINAL_BACKGROUND_COLOR = 0xFF000000;
+    private static final int TERMINAL_BACKGROUND_COLOR = 0xFF0a0a0a;
     private static final int BORDER_THICKNESS = 2;
     private static final int DEFAULT_TEXT_COLOR = 0xFFFFFF;
     private static final int INPUT_TEXT_COLOR = 0x4AF626;
@@ -76,13 +78,11 @@ public class TerminalRenderer {
         this.terminalWidth = screenWidth - 20;
         this.terminalHeight = screenHeight - terminalY - 10;
 
-        // Draw borders
         context.fill(terminalX - BORDER_THICKNESS, terminalY - BORDER_THICKNESS, terminalX + terminalWidth + BORDER_THICKNESS, terminalY, BORDER_COLOR);
         context.fill(terminalX - BORDER_THICKNESS, terminalY + terminalHeight, terminalX + terminalWidth + BORDER_THICKNESS, terminalY + terminalHeight + BORDER_THICKNESS, BORDER_COLOR);
         context.fill(terminalX - BORDER_THICKNESS, terminalY, terminalX, terminalY + terminalHeight, BORDER_COLOR);
         context.fill(terminalX + terminalWidth, terminalY, terminalX + terminalWidth + BORDER_THICKNESS, terminalY + terminalHeight, BORDER_COLOR);
 
-        // Fill terminal background
         context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, TERMINAL_BACKGROUND_COLOR);
 
         int padding = 2;
@@ -100,25 +100,9 @@ public class TerminalRenderer {
         int x = 0;
         int yStart = 0;
 
-        List<String> lines;
-        synchronized (terminalOutput) {
-            lines = Arrays.asList(terminalOutput.toString().split("\n", -1));
-        }
-        List<LineText> allWrappedLines = new ArrayList<>();
-        tmuxStatusLine = "";
-        for (String line : lines) {
-            line = removeAllControlSequences(line);
-            if (line.trim().equals(">")) {
-                continue;
-            }
-            Matcher tmuxMatcher = TMUX_STATUS_PATTERN.matcher(line);
-            if (tmuxMatcher.matches()) {
-                tmuxStatusLine = removeAllAnsiSequences(line.trim()).replace("\u000f", "");
-                continue;
-            }
-            List<StyleTextPair> segments = parseKeywordsAndHighlight(line);
-            List<LineText> wrappedLines = wrapStyledText(segments, scaledWidth);
-            allWrappedLines.addAll(wrappedLines);
+        List<LineText> allWrappedLines;
+        synchronized (wrappedLinesCache) {
+            allWrappedLines = new ArrayList<>(wrappedLinesCache);
         }
 
         int totalLines = allWrappedLines.size();
@@ -479,26 +463,10 @@ public class TerminalRenderer {
         };
     }
 
-    private int getTotalLines(int maxWidth) {
-        String[] allLines;
-        synchronized (terminalOutput) {
-            allLines = terminalOutput.toString().split("\n", -1);
+    private int getTotalLines() {
+        synchronized (wrappedLinesCache) {
+            return wrappedLinesCache.size();
         }
-        int totalWrappedLines = 0;
-        for (String line : allLines) {
-            line = removeAllControlSequences(line);
-            if (line.trim().equals(">")) {
-                continue;
-            }
-            Matcher tmuxMatcher = TMUX_STATUS_PATTERN.matcher(line);
-            if (tmuxMatcher.matches()) {
-                continue;
-            }
-            List<StyleTextPair> segments = parseKeywordsAndHighlight(line);
-            List<LineText> wrappedLines = wrapStyledText(segments, maxWidth);
-            totalWrappedLines += wrappedLines.size();
-        }
-        return totalWrappedLines;
     }
 
     private int getVisibleLines(int scaledHeight) {
@@ -543,32 +511,52 @@ public class TerminalRenderer {
 
     public void appendOutput(String text) {
         text = text.replace("\r", "");
+        List<LineText> newWrappedLines = new ArrayList<>();
         synchronized (terminalOutput) {
             terminalOutput.append(text);
-            lineInfos.clear();
+            String[] newLines = text.split("\n", -1);
+            for (String line : newLines) {
+                line = removeAllControlSequences(line);
+                if (line.trim().equals(">")) {
+                    continue;
+                }
+                Matcher tmuxMatcher = TMUX_STATUS_PATTERN.matcher(line);
+                if (tmuxMatcher.matches()) {
+                    tmuxStatusLine = removeAllAnsiSequences(line.trim()).replace("\u000f", "");
+                    continue;
+                }
+                List<StyleTextPair> segments = parseKeywordsAndHighlight(line);
+                List<LineText> wrapped = wrapStyledText(segments, (int) ((terminalWidth - 10) / scale));
+                newWrappedLines.addAll(wrapped);
+            }
+        }
+        synchronized (wrappedLinesCache) {
+            wrappedLinesCache.addAll(newWrappedLines);
         }
         minecraftClient.execute(terminalInstance.parentScreen::init);
     }
 
     public void scroll(int direction, int scaledHeight) {
-        int maxWidth = (int) ((terminalWidth - 10) / scale);
-        int totalLines = getTotalLines(maxWidth);
+        int totalLines = getTotalLines();
         int visibleLines = getVisibleLines(scaledHeight);
+        int scrollMultiplier = InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) ||
+                InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) ? 5 : 1;
+        int scrollAmount = SCROLL_STEP * scrollMultiplier;
+
         if (direction > 0) {
             if (scrollOffset < totalLines - visibleLines) {
-                scrollOffset += MultiTerminalScreen.SCROLL_STEP;
+                scrollOffset += scrollAmount;
             }
         } else if (direction < 0) {
             if (scrollOffset > 0) {
-                scrollOffset -= MultiTerminalScreen.SCROLL_STEP;
+                scrollOffset -= scrollAmount;
             }
         }
         scrollOffset = Math.max(0, Math.min(scrollOffset, totalLines - visibleLines));
     }
 
     public void scrollToTop(int scaledHeight) {
-        int maxWidth = (int) ((terminalWidth - 10) / scale);
-        int totalLines = getTotalLines(maxWidth);
+        int totalLines = getTotalLines();
         int visibleLines = getVisibleLines(scaledHeight);
         scrollOffset = totalLines - visibleLines;
         scrollOffset = Math.max(0, scrollOffset);
