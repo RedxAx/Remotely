@@ -136,5 +136,6 @@ public class TerminalInstance {
         }
         processManager = new TerminalProcessManager(this, sshManager);
         processManager.launchTerminal();
+
     }
 }

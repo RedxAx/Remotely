@@ -8,7 +8,7 @@ import java.util.UUID;
 
 public class ServerTerminalInstance extends TerminalInstance {
     public boolean isServerTerminal = false;
-    public String serverJarPath = "";
+    public String serverJarPath;
     public String serverName = "";
     public ServerInfo serverInfo;
     public TerminalProcessManager processManager;

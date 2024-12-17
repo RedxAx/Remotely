@@ -6,7 +6,6 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import redxax.oxy.RemotelyClient;
 import redxax.oxy.ServerTerminalInstance;
-import redxax.oxy.TerminalInstance;
 
 import java.io.IOException;
 import java.nio.file.*;
@@ -269,12 +268,11 @@ public class ServerManagerScreen extends Screen {
         context.drawText(minecraftClient.textRenderer, Text.literal(st), serverPopupX + 8, typeBoxY + 2, textColor, false);
 
         int arrowLeftX = serverPopupX + 5 + boxWidth + 5;
-        int arrowY = typeBoxY;
-        context.fill(arrowLeftX, arrowY, arrowLeftX + 12, arrowY + 12, 0xFF555555);
-        context.drawText(minecraftClient.textRenderer, Text.literal("<"), arrowLeftX + 4, arrowY + 2, textColor, false);
+        context.fill(arrowLeftX, typeBoxY, arrowLeftX + 12, typeBoxY + 12, 0xFF555555);
+        context.drawText(minecraftClient.textRenderer, Text.literal("<"), arrowLeftX + 4, typeBoxY + 2, textColor, false);
         int arrowRightX = arrowLeftX + 12 + 5;
-        context.fill(arrowRightX, arrowY, arrowRightX + 12, arrowY + 12, 0xFF555555);
-        context.drawText(minecraftClient.textRenderer, Text.literal(">"), arrowRightX + 3, arrowY + 2, textColor, false);
+        context.fill(arrowRightX, typeBoxY, arrowRightX + 12, typeBoxY + 12, 0xFF555555);
+        context.drawText(minecraftClient.textRenderer, Text.literal(">"), arrowRightX + 3, typeBoxY + 2, textColor, false);
 
         int versionLabelY = typeBoxY + 20;
         trimAndDrawText(context, "Minecraft Version:", serverPopupX + 5, versionLabelY, serverPopupWidth - 10, textColor);
@@ -339,7 +337,7 @@ public class ServerManagerScreen extends Screen {
         String summary4 = "Type: " + selectedServerType;
         trimAndDrawText(context, summary4, serverPopupX + 5, summaryY, serverPopupWidth - 10, textColor);
         summaryY += 12;
-        String summary5 = "Version: " + (serverVersionBuffer.length() > 0 ? serverVersionBuffer.toString() : "latest");
+        String summary5 = "Version: " + (!serverVersionBuffer.isEmpty() ? serverVersionBuffer.toString() : "latest");
         trimAndDrawText(context, summary5, serverPopupX + 5, summaryY, serverPopupWidth - 10, textColor);
 
         String okText = editingServer ? "Save" : "Create";
@@ -772,18 +770,17 @@ public class ServerManagerScreen extends Screen {
                 String data = new String(new java.net.URL(apiUrl).openStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
                 String[] lines = data.split("\"versions\":\\[");
                 if (lines.length > 1) {
-                    String[] parts = lines[1].split("\\]", 2);
+                    String[] parts = lines[1].split("]", 2);
                     String versions = parts[0];
                     String[] splitted = versions.split(",");
-                    String last = splitted[splitted.length - 1].replace("\"", "").trim();
-                    mcVersion = last;
+                    mcVersion = splitted[splitted.length - 1].replace("\"", "").trim();
                 }
             }
             String buildsUrl = "https://api.papermc.io/v2/projects/paper/versions/" + mcVersion;
             String buildsData = new String(new java.net.URL(buildsUrl).openStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
             String[] splitted2 = buildsData.split("\"builds\":\\[");
             if (splitted2.length > 1) {
-                String[] parts = splitted2[1].split("\\]", 2);
+                String[] parts = splitted2[1].split("]", 2);
                 String builds = parts[0];
                 String[] splittedBuilds = builds.split(",");
                 String lastBuild = splittedBuilds[splittedBuilds.length - 1].trim();
@@ -883,7 +880,7 @@ public class ServerManagerScreen extends Screen {
             return bo;
         }
         int quote2 = entry.indexOf("\"", quote1 + 1);
-        if (quote1 < 0 || quote2 < 0) return "";
+        if (quote2 < 0) return "";
         return entry.substring(quote1 + 1, quote2);
     }
 

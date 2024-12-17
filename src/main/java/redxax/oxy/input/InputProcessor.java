@@ -2,12 +2,13 @@ package redxax.oxy.input;
 
 import redxax.oxy.SSHManager;
 import redxax.oxy.TerminalInstance;
-import net.minecraft.client.MinecraftClient;
+import redxax.oxy.ServerTerminalInstance;
+import redxax.oxy.servers.ServerState;
 import org.lwjgl.glfw.GLFW;
+import net.minecraft.client.MinecraftClient;
 import java.io.IOException;
 
 public class InputProcessor {
-
     private final StringBuilder inputBuffer = new StringBuilder();
     private int cursorPosition = 0;
     private final MinecraftClient minecraftClient;
@@ -25,6 +26,11 @@ public class InputProcessor {
     }
 
     public boolean charTyped(char chr) {
+        if (terminalInstance instanceof ServerTerminalInstance sti) {
+            if (sti.serverInfo.state == ServerState.STOPPED || sti.serverInfo.state == ServerState.CRASHED) {
+                return false;
+            }
+        }
         if (sshManager.isAwaitingPassword()) {
             if (chr != '\n' && chr != '\r') {
                 sshManager.setSshPassword(sshManager.getSshPassword() + chr);
@@ -35,11 +41,9 @@ public class InputProcessor {
             }
             return false;
         }
-
         if (chr == '`' || chr == ' ') {
             return false;
         }
-
         if (chr >= 32 && chr != 127) {
             inputBuffer.insert(cursorPosition, chr);
             cursorPosition++;
@@ -53,8 +57,12 @@ public class InputProcessor {
     }
 
     public boolean keyPressed(int keyCode, int modifiers) {
+        if (terminalInstance instanceof ServerTerminalInstance sti) {
+            if (sti.serverInfo.state == ServerState.STOPPED || sti.serverInfo.state == ServerState.CRASHED) {
+                return false;
+            }
+        }
         boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
-
         if (sshManager.isAwaitingPassword()) {
             if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
                 String password = sshManager.getSshPassword();
@@ -79,7 +87,6 @@ public class InputProcessor {
             }
             return false;
         }
-
         if (keyCode == GLFW.GLFW_KEY_TAB) {
             int wordStart = findWordStart(inputBuffer, cursorPosition);
             StringBuilder partial = new StringBuilder(inputBuffer.substring(wordStart, cursorPosition));
@@ -88,8 +95,6 @@ public class InputProcessor {
             if (!suggestion.isEmpty()) {
                 inputBuffer.replace(wordStart, cursorPosition, partial + suggestion);
                 cursorPosition = wordStart + partial.length() + suggestion.length();
-
-                // **Reset the tab completion after applying the suggestion**
                 tabCompletionHandler.resetTabCompletion();
             }
             updateTabCompletionCurrentDirectory();
@@ -106,19 +111,15 @@ public class InputProcessor {
             terminalInstance.scrollToBottom();
             return true;
         }
-
         if (keyCode == GLFW.GLFW_KEY_C && ctrlHeld) {
             terminalInstance.renderer.copySelectionToClipboard();
             return true;
         }
-
         if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
             try {
                 String command = inputBuffer.toString().trim();
                 commandExecutor.executeCommand(command, inputBuffer);
-
                 updateTabCompletionCurrentDirectory();
-
                 inputBuffer.setLength(0);
                 cursorPosition = 0;
                 tabCompletionHandler.resetTabCompletion();
@@ -126,13 +127,11 @@ public class InputProcessor {
                 terminalInstance.renderer.resetCursorBlink();
                 terminalInstance.scrollToBottom();
                 terminalInstance.setHistoryIndex(terminalInstance.getCommandHistory().size());
-
             } catch (IOException e) {
                 terminalInstance.appendOutput("ERROR: " + e.getMessage() + "\n");
             }
             return true;
         }
-
         if (keyCode == GLFW.GLFW_KEY_UP) {
             if (terminalInstance.getHistoryIndex() > 0) {
                 terminalInstance.setHistoryIndex(terminalInstance.getHistoryIndex() - 1);
@@ -145,7 +144,6 @@ public class InputProcessor {
             terminalInstance.renderer.resetCursorBlink();
             return true;
         }
-
         if (keyCode == GLFW.GLFW_KEY_DOWN) {
             if (terminalInstance.getHistoryIndex() < terminalInstance.getCommandHistory().size() - 1) {
                 terminalInstance.setHistoryIndex(terminalInstance.getHistoryIndex() + 1);
@@ -162,7 +160,6 @@ public class InputProcessor {
             terminalInstance.renderer.resetCursorBlink();
             return true;
         }
-
         if ((keyCode == GLFW.GLFW_KEY_BACKSPACE && ctrlHeld)) {
             int newCursorPos = moveCursorLeftWord(cursorPosition);
             if (newCursorPos != cursorPosition) {
@@ -175,7 +172,6 @@ public class InputProcessor {
             }
             return true;
         }
-
         if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
             if (cursorPosition > 0) {
                 inputBuffer.deleteCharAt(cursorPosition - 1);
@@ -187,12 +183,10 @@ public class InputProcessor {
             }
             return true;
         }
-
         if (keyCode == GLFW.GLFW_KEY_DELETE) {
             shutdown();
             return true;
         }
-
         if (keyCode == GLFW.GLFW_KEY_LEFT) {
             if (ctrlHeld) {
                 cursorPosition = moveCursorLeftWord(cursorPosition);
@@ -206,7 +200,6 @@ public class InputProcessor {
             terminalInstance.renderer.resetCursorBlink();
             return true;
         }
-
         if (keyCode == GLFW.GLFW_KEY_RIGHT) {
             if (ctrlHeld) {
                 cursorPosition = moveCursorRightWord(cursorPosition);
@@ -220,7 +213,6 @@ public class InputProcessor {
             terminalInstance.renderer.resetCursorBlink();
             return true;
         }
-
         if (keyCode == GLFW.GLFW_KEY_V && ctrlHeld) {
             String clipboard = this.minecraftClient.keyboard.getClipboard();
             int wordStart = findWordStart(inputBuffer, cursorPosition);
@@ -232,7 +224,6 @@ public class InputProcessor {
             terminalInstance.scrollToBottom();
             return true;
         }
-
         return false;
     }
 

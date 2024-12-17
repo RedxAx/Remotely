@@ -2,19 +2,18 @@ package redxax.oxy.input;
 
 import redxax.oxy.TerminalInstance;
 import redxax.oxy.SSHManager;
-
+import redxax.oxy.ServerTerminalInstance;
+import redxax.oxy.servers.ServerState;
 import java.io.File;
 import java.io.IOException;
 import java.io.Writer;
 
 public class CommandExecutor {
-
     private final TerminalInstance terminalInstance;
     private final SSHManager sshManager;
     private Writer writer;
     private final TerminalProcessManager terminalProcessManager;
     private String currentDirectory;
-
 
     public CommandExecutor(TerminalInstance terminalInstance, SSHManager sshManager, Writer writer, TerminalProcessManager terminalProcessManager) {
         this.terminalInstance = terminalInstance;
@@ -25,6 +24,16 @@ public class CommandExecutor {
     }
 
     public void executeCommand(String command, StringBuilder inputBuffer) throws IOException {
+        if (terminalInstance instanceof ServerTerminalInstance sti) {
+            if (sti.serverInfo.state == ServerState.STOPPED || sti.serverInfo.state == ServerState.CRASHED) {
+                return;
+            }
+            if (sti.processManager != null && sti.processManager.writer != null) {
+                writer = sti.processManager.writer;
+            } else {
+                throw new IOException("Server process manager writer is not initialized.");
+            }
+        }
 
         if (command.equalsIgnoreCase("exit")) {
             if (sshManager.isSSH()) {
@@ -45,22 +54,20 @@ public class CommandExecutor {
             sshManager.getSshWriter().write(inputBuffer.toString() + "\n");
             sshManager.getSshWriter().flush();
         } else {
-            if (writer != null) {
-                writer.write(inputBuffer.toString() + "\n");
-                writer.flush();
-            } else {
+            if (writer == null) {
                 writer = terminalProcessManager.getWriter();
-                if (writer != null) {
-                    writer.write(inputBuffer.toString() + "\n");
-                    writer.flush();
-                } else {
-                    throw new IOException("Writer is not initialized.");
+                if (writer == null) {
+                    throw new IOException("Writer is not initialized or server process is not running.");
                 }
             }
+            writer.write(inputBuffer.toString() + "\n");
+            writer.flush();
             updateCurrentDirectoryFromCommand(command);
         }
 
-        if (!command.isEmpty() && (terminalInstance.getCommandHistory() == null || terminalInstance.getCommandHistory().isEmpty() || !command.equals(terminalInstance.getCommandHistory().get(terminalInstance.getCommandHistory().size() - 1)))) {
+        if (!command.isEmpty() && (terminalInstance.getCommandHistory() == null
+                || terminalInstance.getCommandHistory().isEmpty()
+                || !command.equals(terminalInstance.getCommandHistory().getLast()))) {
             if (terminalInstance.getCommandHistory() != null) {
                 terminalInstance.getCommandHistory().add(command);
                 terminalInstance.setHistoryIndex(terminalInstance.getCommandHistory().size());
