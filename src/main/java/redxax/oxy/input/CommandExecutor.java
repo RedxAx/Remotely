@@ -60,9 +60,11 @@ public class CommandExecutor {
             updateCurrentDirectoryFromCommand(command);
         }
 
-        if (!command.isEmpty() && (terminalInstance.getCommandHistory().isEmpty() || !command.equals(terminalInstance.getCommandHistory().getLast()))) {
-            terminalInstance.getCommandHistory().add(command);
-            terminalInstance.setHistoryIndex(terminalInstance.getCommandHistory().size());
+        if (!command.isEmpty() && (terminalInstance.getCommandHistory() == null || terminalInstance.getCommandHistory().isEmpty() || !command.equals(terminalInstance.getCommandHistory().get(terminalInstance.getCommandHistory().size() - 1)))) {
+            if (terminalInstance.getCommandHistory() != null) {
+                terminalInstance.getCommandHistory().add(command);
+                terminalInstance.setHistoryIndex(terminalInstance.getCommandHistory().size());
+            }
         }
     }
 

@@ -4,9 +4,11 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import redxax.oxy.input.InputHandler;
 import redxax.oxy.input.InputProcessor;
+import redxax.oxy.input.TerminalProcessManager;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -15,8 +17,14 @@ public class TerminalInstance {
     final MultiTerminalScreen parentScreen;
     public final UUID terminalId;
     public final TerminalRenderer renderer;
-    final InputHandler inputHandler;
+    public final InputHandler inputHandler;
     final SSHManager sshManager;
+    public boolean isServerTerminal;
+    public String serverJarPath;
+    public String serverName;
+
+    private List<String> commandHistory;
+    private int historyIndex;
 
     public TerminalInstance(MinecraftClient client, MultiTerminalScreen parent, UUID id) {
         this.parentScreen = parent;
@@ -24,6 +32,10 @@ public class TerminalInstance {
         this.sshManager = new SSHManager(this);
         this.renderer = new TerminalRenderer(client, this);
         this.inputHandler = new InputHandler(client, this);
+        if (parent == null) {
+            this.commandHistory = new ArrayList<>();
+            this.historyIndex = 0;
+        }
         inputHandler.launchTerminal();
     }
 
@@ -75,17 +87,26 @@ public class TerminalInstance {
         renderer.appendOutput(text);
     }
 
-
     public List<String> getCommandHistory() {
-        return parentScreen.commandHistory;
+        if (parentScreen != null) {
+            return parentScreen.commandHistory;
+        }
+        return this.commandHistory;
     }
 
     public int getHistoryIndex() {
-        return parentScreen.historyIndex;
+        if (parentScreen != null) {
+            return parentScreen.historyIndex;
+        }
+        return this.historyIndex;
     }
 
     public void setHistoryIndex(int index) {
-        parentScreen.historyIndex = index;
+        if (parentScreen != null) {
+            parentScreen.historyIndex = index;
+        } else {
+            this.historyIndex = index;
+        }
     }
 
     public SSHManager getSSHManager() {
@@ -106,5 +127,14 @@ public class TerminalInstance {
 
     public InputProcessor getInputHandler() {
         return inputHandler.inputProcessor;
+    }
+
+    public void launchServerProcess() {
+        TerminalProcessManager processManager = inputHandler.getTerminalProcessManager();
+        if (processManager != null) {
+            processManager.shutdown();
+        }
+        processManager = new TerminalProcessManager(this, sshManager);
+        processManager.launchTerminal();
     }
 }

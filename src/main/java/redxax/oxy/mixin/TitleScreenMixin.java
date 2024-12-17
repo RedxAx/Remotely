@@ -21,27 +21,41 @@ public abstract class TitleScreenMixin extends Screen {
     }
 
     @Inject(method = "init", at = @At("RETURN"))
-    private void addMultiTerminalButton(CallbackInfo ci) {
-        // Find the language button's position
-        ButtonWidget languageButton = this.children().stream()
+    private void addServerManagerButton(CallbackInfo ci) {
+        ButtonWidget optionsButton = this.children().stream()
                 .filter(child -> child instanceof ButtonWidget)
                 .map(child -> (ButtonWidget) child)
-                .filter(button -> button.getMessage().getString().contains("Options..."))
+                .filter(button -> button.getMessage().getString().contains("Options"))
                 .findFirst()
                 .orElse(null);
 
-        if (languageButton != null) {
-            int buttonX = languageButton.getX();
-            int buttonY = languageButton.getY() + languageButton.getHeight() + 5;
-            this.addDrawableChild(ButtonWidget.builder(
-                    Text.literal("🗔"), // Button icon
-                    button -> openMultiTerminalScreen()
-            ).dimensions(
-                    buttonX,
-                    buttonY,
-                    20,
-                    20
-            ).build());
+        if (optionsButton != null) {
+            int buttonX = optionsButton.getX();
+            int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
+
+            ButtonWidget serverButton = ButtonWidget.builder(
+                            Text.literal("Servers"),
+                            btn -> openServerManagerScreen()
+                    )
+                    .dimensions(buttonX, buttonY, 80, 20)
+                    .build();
+            this.addDrawableChild(serverButton);
+
+            ButtonWidget terminalButton = ButtonWidget.builder(
+                            Text.literal("Terminal"),
+                            btn -> openMultiTerminalScreen()
+                    )
+                    .dimensions(buttonX + 85, buttonY, 80, 20)
+                    .build();
+            this.addDrawableChild(terminalButton);
+        }
+    }
+
+    @Unique
+    private void openServerManagerScreen() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client != null) {
+            RemotelyClient.INSTANCE.openServerManagerGUI(client);
         }
     }
 

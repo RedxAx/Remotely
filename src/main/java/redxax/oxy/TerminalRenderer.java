@@ -500,7 +500,7 @@ public class TerminalRenderer {
 
     private OrderedText[] getStatusBarOrderedTexts(int scaledWidth) {
         if (tmuxStatusLine.isEmpty()) {
-            return new OrderedText[]{Text.literal("Remotely Session - BETA 0.4").asOrderedText(), Text.literal(new Date().toString()).asOrderedText()};
+            return new OrderedText[]{Text.literal("Remotely Session - BETA 0.5").asOrderedText(), Text.literal(new Date().toString()).asOrderedText()};
         }
         String line = tmuxStatusLine;
         String leftText;
@@ -549,7 +549,11 @@ public class TerminalRenderer {
         synchronized (wrappedLinesCache) {
             wrappedLinesCache.addAll(newWrappedLines);
         }
-        minecraftClient.execute(terminalInstance.parentScreen::init);
+        minecraftClient.execute(() -> {
+            if (terminalInstance.parentScreen != null) {
+                terminalInstance.parentScreen.init();
+            }
+        });
     }
 
     public void scroll(int direction, int scaledHeight) {
@@ -783,7 +787,11 @@ public class TerminalRenderer {
         synchronized (wrappedLinesCache) {
             wrappedLinesCache.clear();
         }
-        minecraftClient.execute(terminalInstance.parentScreen::init);
+        minecraftClient.execute(() -> {
+            if (terminalInstance.parentScreen != null) {
+                terminalInstance.parentScreen.init();
+            }
+        });
     }
 
     private static class StyleTextPair {

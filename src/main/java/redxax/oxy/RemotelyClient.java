@@ -17,40 +17,70 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import redxax.oxy.servers.ServerInfo;
+import redxax.oxy.servers.ServerManagerScreen;
+
 public class RemotelyClient implements ClientModInitializer {
 
     private KeyBinding openTerminalKeyBinding;
-    private MultiTerminalScreen multiTerminalScreen;
+    // NEW KEYBINDING for the Server Manager:
+    private KeyBinding openServerManagerKeyBinding;
+
+    public MultiTerminalScreen multiTerminalScreen;
+    // We’ll store the server manager screen reference too:
+    private ServerManagerScreen serverManagerScreen;
+
     private static final Path TERMINAL_LOG_DIR = Paths.get(System.getProperty("user.dir"), "remotely", "logs");
     private static final Path SNIPPETS_FILE = Paths.get(System.getProperty("user.dir"), "remotely", "snippets", "snippets.json");
     private static final Gson GSON = new Gson();
-    List<TerminalInstance> terminals = new ArrayList<>();
-    List<String> tabNames = new ArrayList<>();
-    int activeTerminalIndex = 0;
+    public List<TerminalInstance> terminals = new ArrayList<>();
+    public List<String> tabNames = new ArrayList<>();
+    public int activeTerminalIndex = 0;
     float scale = 1.0f;
     int snippetPanelWidth = 150;
     boolean showSnippetsPanel = false;
     public static List<CommandSnippet> globalSnippets = new ArrayList<>();
     public static RemotelyClient INSTANCE;
 
+    // Keep track of servers for the manager
+    public final List<ServerInfo> servers = new ArrayList<>();
 
     @Override
     public void onInitializeClient() {
         INSTANCE = this;
         System.out.println("Remotely mod initialized on the client.");
         loadSnippets();
+
+        // Existing keybinding for MultiTerminalScreen
         openTerminalKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "Open Terminal",
                 InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_Z, "Remotely"
+                GLFW.GLFW_KEY_Z,
+                "Remotely"
         ));
+
+        // NEW keybinding for ServerManagerScreen
+        openServerManagerKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                "Open Server Manager",
+                InputUtil.Type.KEYSYM,
+                GLFW.GLFW_KEY_X,
+                "Remotely"
+        ));
+
+        // Ticking to detect key presses
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client != null && client.player != null) {
+                // Check old keybinding
                 if (openTerminalKeyBinding.wasPressed()) {
                     openMultiTerminalGUI(client);
                 }
+                // Check new keybinding
+                if (openServerManagerKeyBinding.wasPressed()) {
+                    openServerManagerGUI(client);
+                }
             }
         });
+
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownAllTerminals));
     }
 
@@ -68,6 +98,17 @@ public class RemotelyClient implements ClientModInitializer {
             }
             client.setScreen(multiTerminalScreen);
         }
+    }
+
+    // NEW: open the Server Manager GUI
+    public void openServerManagerGUI(MinecraftClient client) {
+        if (serverManagerScreen == null) {
+            serverManagerScreen = new ServerManagerScreen(client, this, servers);
+        } else {
+            // Re-create screen every time if desired
+            serverManagerScreen = new ServerManagerScreen(client, this, servers);
+        }
+        client.setScreen(serverManagerScreen);
     }
 
     private void loadSavedTerminals() {
