@@ -3,117 +3,110 @@ package redxax.oxy.servers;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.client.gui.widget.*;
 import net.minecraft.text.Text;
-import org.lwjgl.glfw.GLFW;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class ServerConfigurationScreen extends Screen {
     private final MinecraftClient minecraftClient;
-    private final Screen parentScreen;
+    private final Screen parent;
     private final ServerInfo serverInfo;
-    private int baseColor = 0xFF181818;
-    private int lighterColor = 0xFF222222;
-    private int borderColor = 0xFF333333;
-    private int highlightColor = 0xFF444444;
-    private int textColor = 0xFFFFFFFF;
     private TextFieldWidget ramField;
     private TextFieldWidget maxPlayersField;
-    private TextFieldWidget portField;
     private TextFieldWidget onlineModeField;
-    private int backButtonX;
-    private int backButtonY;
-    private final int buttonW = 60;
-    private final int buttonH = 20;
+    private TextFieldWidget portField;
+    private ButtonWidget applyButton;
+    private ButtonWidget backButton;
+    private float ramAmount = 2.0f;   // Default in GB
+    private float maxPlayers = 10.0f;
+    private boolean onlineMode = true;
+    private int serverPort = 25565;
 
-    public ServerConfigurationScreen(MinecraftClient client, Screen parent, ServerInfo info) {
+    public ServerConfigurationScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
         super(Text.literal("Server Configuration"));
-        this.minecraftClient = client;
-        this.parentScreen = parent;
+        this.minecraftClient = mc;
+        this.parent = parent;
         this.serverInfo = info;
     }
 
     @Override
     protected void init() {
         super.init();
-        ramField = new TextFieldWidget(this.textRenderer, this.width / 2 - 100, 50, 200, 20, Text.literal("RAM (MB)"));
-        ramField.setText(Integer.toString(serverInfo.ramMB));
-        addDrawableChild(ramField);
-        maxPlayersField = new TextFieldWidget(this.textRenderer, this.width / 2 - 100, 80, 200, 20, Text.literal("Max Players"));
-        maxPlayersField.setText(Integer.toString(serverInfo.maxPlayers));
-        addDrawableChild(maxPlayersField);
-        portField = new TextFieldWidget(this.textRenderer, this.width / 2 - 100, 110, 200, 20, Text.literal("Port"));
-        portField.setText(Integer.toString(serverInfo.port));
-        addDrawableChild(portField);
-        onlineModeField = new TextFieldWidget(this.textRenderer, this.width / 2 - 100, 140, 200, 20, Text.literal("Online Mode (true/false)"));
-        onlineModeField.setText(Boolean.toString(serverInfo.onlineMode));
-        addDrawableChild(onlineModeField);
-        backButtonX = this.width / 2 - 30;
-        backButtonY = 180;
+        int y = 50;
+        ramField = new TextFieldWidget(this.textRenderer, this.width / 2 - 100, y, 200, 20, Text.literal("RAM (GB)"));
+        ramField.setText(String.valueOf(ramAmount));
+        this.addDrawableChild(ramField);
+
+        y += 30;
+        maxPlayersField = new TextFieldWidget(this.textRenderer, this.width / 2 - 100, y, 200, 20, Text.literal("Max Players"));
+        maxPlayersField.setText(String.valueOf(maxPlayers));
+        this.addDrawableChild(maxPlayersField);
+
+        y += 30;
+        onlineModeField = new TextFieldWidget(this.textRenderer, this.width / 2 - 100, y, 200, 20, Text.literal("Online Mode (true/false)"));
+        onlineModeField.setText(String.valueOf(onlineMode));
+        this.addDrawableChild(onlineModeField);
+
+        y += 40;
+        portField = new TextFieldWidget(this.textRenderer, this.width / 2 - 100, y, 200, 20, Text.literal("Server Port"));
+        portField.setText(String.valueOf(serverPort));
+        this.addDrawableChild(portField);
+
+        y += 40;
+        applyButton = ButtonWidget.builder(Text.literal("Apply"), (button) -> {
+            applyChanges();
+        }).dimensions(this.width / 2 - 104, y, 80, 20).build();
+        this.addDrawableChild(applyButton);
+
+        backButton = ButtonWidget.builder(Text.literal("Back"), (button) -> {
+            this.minecraftClient.setScreen(parent);
+        }).dimensions(this.width / 2 + 24, y, 80, 20).build();
+        this.addDrawableChild(backButton);
+    }
+
+    private void applyChanges() {
+        try {
+            float gb = Float.parseFloat(ramField.getText());
+            int mp = Integer.parseInt(maxPlayersField.getText());
+            boolean onMode = Boolean.parseBoolean(onlineModeField.getText());
+            int port = Integer.parseInt(portField.getText());
+
+            serverInfo.ramGb = gb;
+            serverInfo.maxPlayers = mp;
+            serverInfo.onlineMode = onMode;
+            serverInfo.port = port;
+
+            Path serverProps = serverInfo.getServerPropertiesPath();
+            if (Files.exists(serverProps)) {
+                // Load existing server.properties lines
+                java.util.List<String> lines = Files.readAllLines(serverProps);
+                for (int i = 0; i < lines.size(); i++) {
+                    String line = lines.get(i);
+                    if (line.startsWith("max-players=")) {
+                        lines.set(i, "max-players=" + mp);
+                    } else if (line.startsWith("server-port=")) {
+                        lines.set(i, "server-port=" + port);
+                    } else if (line.startsWith("online-mode=")) {
+                        lines.set(i, "online-mode=" + onMode);
+                    }
+                }
+                Files.write(serverProps, lines);
+            }
+            this.minecraftClient.setScreen(parent);
+        } catch (IOException e) {
+            serverInfo.terminal.appendOutput("Failed to update server.properties: " + e.getMessage() + "\n");
+        } catch (NumberFormatException e) {
+            serverInfo.terminal.appendOutput("Invalid input. Please enter valid numbers for RAM, Max Players, and Port, and true/false for Online Mode.\n");
+        }
     }
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor);
+        this.renderBackground(context, mouseX, mouseY, delta);
         super.render(context, mouseX, mouseY, delta);
-        context.drawText(this.textRenderer, Text.literal("Server Configuration"), this.width / 2 - 80, 20, textColor, false);
-        boolean hovered = mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= backButtonY && mouseY <= backButtonY + buttonH;
-        drawButton(context, backButtonX, backButtonY, "Back", hovered);
-    }
-
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 0) {
-            boolean hovered = mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= backButtonY && mouseY <= backButtonY + buttonH;
-            if (hovered) {
-                saveSettings();
-                minecraftClient.setScreen(parentScreen);
-                return true;
-            }
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            saveSettings();
-            minecraftClient.setScreen(parentScreen);
-            return true;
-        }
-        return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    private void drawButton(DrawContext context, int x, int y, String text, boolean hovered) {
-        int bg = hovered ? highlightColor : lighterColor;
-        context.fill(x, y, x + buttonW, y + buttonH, bg);
-        drawInnerBorder(context, x, y, buttonW, buttonH, borderColor);
-        int tw = this.textRenderer.getWidth(text);
-        int tx = x + (buttonW - tw) / 2;
-        int ty = y + (buttonH - this.textRenderer.fontHeight) / 2;
-        context.drawText(this.textRenderer, Text.literal(text), tx, ty, textColor, false);
-    }
-
-    private void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int c) {
-        context.fill(x, y, x + w, y + 1, c);
-        context.fill(x, y + h - 1, x + w, y + h, c);
-        context.fill(x, y, x + 1, y + h, c);
-        context.fill(x + w - 1, y, x + w, y + h, c);
-    }
-
-    private void saveSettings() {
-        serverInfo.maxPlayers = parseInt(maxPlayersField.getText(), serverInfo.maxPlayers);
-        serverInfo.port = parseInt(portField.getText(), serverInfo.port);
-        serverInfo.onlineMode = parseBoolean(onlineModeField.getText(), serverInfo.onlineMode);
-        serverInfo.ramMB = parseInt(ramField.getText(), serverInfo.ramMB);
-    }
-
-    private int parseInt(String s, int fallback) {
-        try { return Integer.parseInt(s); } catch (NumberFormatException e) { return fallback; }
-    }
-
-    private boolean parseBoolean(String s, boolean fallback) {
-        if (s.equalsIgnoreCase("true")) return true;
-        if (s.equalsIgnoreCase("false")) return false;
-        return fallback;
+        context.drawText(this.textRenderer, Text.literal("Server Configuration"), this.width / 2 - 80, 20, 0xFFFFFF, false);
     }
 }
