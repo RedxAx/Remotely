@@ -669,7 +669,7 @@ public class ServerManagerScreen extends Screen {
             info.terminal = new ServerTerminalInstance(minecraftClient, null, UUID.randomUUID(), info);
             info.isRunning = false;
         }
-        minecraftClient.setScreen(new ServerTerminalScreen(minecraftClient, remotelyClient, info));
+        minecraftClient.setScreen(new ServerTerminalScreen(minecraftClient, info));
     }
 
 

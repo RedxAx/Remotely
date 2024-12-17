@@ -5,9 +5,9 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.RemotelyClient;
 import redxax.oxy.ServerTerminalInstance;
-import redxax.oxy.MultiTerminalScreen;
+import redxax.oxy.filexplorer.FileExplorerScreen;
+import redxax.oxy.modplugin.PluginModBrowserScreen;
 
 public class ServerTerminalScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -22,8 +22,14 @@ public class ServerTerminalScreen extends Screen {
     private final int buttonW = 60;
     private final int buttonH = 20;
     private float terminalScale = 1.0f;
+    private int configButtonX;
+    private int configButtonY;
+    private int fileExplorerButtonX;
+    private int fileExplorerButtonY;
+    private int pluginModButtonX;
+    private int pluginModButtonY;
 
-    public ServerTerminalScreen(MinecraftClient client, RemotelyClient remotelyClient, ServerInfo info) {
+    public ServerTerminalScreen(MinecraftClient client, ServerInfo info) {
         super(Text.literal(info.name + " - Server Screen"));
         this.minecraftClient = client;
         this.serverInfo = info;
@@ -50,11 +56,28 @@ public class ServerTerminalScreen extends Screen {
         };
         String titleText = serverInfo.name + " - " + stateText;
         context.drawText(minecraftClient.textRenderer, Text.literal(titleText), 10, 10, textColor, false);
+
         buttonX = this.width - buttonW - 10;
         buttonY = 5;
         String buttonLabel = serverInfo.state == ServerState.RUNNING || serverInfo.state == ServerState.STARTING ? "Stop" : "Start";
         boolean buttonHovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
         drawButton(context, buttonX, buttonY, buttonLabel, buttonHovered);
+
+        configButtonX = buttonX - (buttonW + 10);
+        configButtonY = 5;
+        boolean configButtonHovered = mouseX >= configButtonX && mouseX <= configButtonX + buttonW && mouseY >= configButtonY && mouseY <= configButtonY + buttonH;
+        drawButton(context, configButtonX, configButtonY, "Config", configButtonHovered);
+
+        fileExplorerButtonX = configButtonX - (buttonW + 10);
+        fileExplorerButtonY = 5;
+        boolean fileExplorerHovered = mouseX >= fileExplorerButtonX && mouseX <= fileExplorerButtonX + buttonW && mouseY >= fileExplorerButtonY && mouseY <= fileExplorerButtonY + buttonH;
+        drawButton(context, fileExplorerButtonX, fileExplorerButtonY, "Files", fileExplorerHovered);
+
+        pluginModButtonX = fileExplorerButtonX - (buttonW + 10);
+        pluginModButtonY = 5;
+        boolean pluginModHovered = mouseX >= pluginModButtonX && mouseX <= pluginModButtonX + buttonW && mouseY >= pluginModButtonY && mouseY <= pluginModButtonY + buttonH;
+        drawButton(context, pluginModButtonX, pluginModButtonY, "Mods", pluginModHovered);
+
         int terminalOffsetY = topBarHeight + 5;
         if (serverInfo.terminal != null) {
             serverInfo.terminal.render(context, this.width - 10, this.height - terminalOffsetY - 10, terminalScale);
@@ -70,6 +93,18 @@ public class ServerTerminalScreen extends Screen {
                 } else {
                     startServer();
                 }
+                return true;
+            }
+            if (mouseX >= configButtonX && mouseX <= configButtonX + buttonW && mouseY >= configButtonY && mouseY <= configButtonY + buttonH) {
+                minecraftClient.setScreen(new ServerConfigurationScreen(minecraftClient, this, serverInfo));
+                return true;
+            }
+            if (mouseX >= fileExplorerButtonX && mouseX <= fileExplorerButtonX + buttonW && mouseY >= fileExplorerButtonY && mouseY <= fileExplorerButtonY + buttonH) {
+                minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, serverInfo.path));
+                return true;
+            }
+            if (mouseX >= pluginModButtonX && mouseX <= pluginModButtonX + buttonW && mouseY >= pluginModButtonY && mouseY <= pluginModButtonY + buttonH) {
+                minecraftClient.setScreen(new PluginModBrowserScreen(minecraftClient, this, serverInfo));
                 return true;
             }
         }
@@ -111,6 +146,14 @@ public class ServerTerminalScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == GLFW.GLFW_KEY_EQUAL && (modifiers & GLFW.GLFW_MOD_CONTROL) != 0) {
+            terminalScale = Math.min(terminalScale + 0.1f, 2.0f);
+            return true;
+        }
+        if (keyCode == GLFW.GLFW_KEY_MINUS && (modifiers & GLFW.GLFW_MOD_CONTROL) != 0) {
+            terminalScale = Math.max(terminalScale - 0.1f, 0.1f);
+            return true;
+        }
         if (serverInfo.terminal != null) {
             if (serverInfo.terminal.keyPressed(keyCode, modifiers)) {
                 return true;
@@ -150,12 +193,10 @@ public class ServerTerminalScreen extends Screen {
         if ((serverInfo.state == ServerState.RUNNING || serverInfo.state == ServerState.STARTING) && serverInfo.terminal != null) {
             serverInfo.terminal.appendOutput("Stopping server...\n");
             try {
-                java.io.OutputStreamWriter w = new java.io.OutputStreamWriter(
-                        serverInfo.terminal.getInputHandler().commandExecutor.getTerminalProcessManager().getOutputStream(),
-                        java.nio.charset.StandardCharsets.UTF_8
-                );
-                w.write("stop\n");
-                w.flush();
+                if (serverInfo.terminal instanceof ServerTerminalInstance sti && sti.processManager != null && sti.processManager.getWriter() != null) {
+                    sti.processManager.getWriter().write("stop\n");
+                    sti.processManager.getWriter().flush();
+                }
             } catch (java.io.IOException ignored) {}
             serverInfo.state = ServerState.STOPPED;
         }
