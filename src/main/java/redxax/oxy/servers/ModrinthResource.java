@@ -1,19 +1,19 @@
 package redxax.oxy.servers;
 
-import java.nio.file.Path;
-
 public class ModrinthResource {
-    public String name;
-    public String version;
-    public Path downloadUrl;
-    public String description;
-    public String fileName;
+    public final String name;
+    public final String version;
+    public final String description;
+    public final String fileName;
+    public final String iconUrl;
+    public final int downloads;
 
-    public ModrinthResource(String name, String version, Path downloadUrl, String description, String fileName) {
+    public ModrinthResource(String name, String version, String description, String fileName, String iconUrl, int downloads) {
         this.name = name;
         this.version = version;
-        this.downloadUrl = downloadUrl;
         this.description = description;
         this.fileName = fileName;
+        this.iconUrl = iconUrl;
+        this.downloads = downloads;
     }
 }

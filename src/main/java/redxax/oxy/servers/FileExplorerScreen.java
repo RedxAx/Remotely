@@ -5,7 +5,6 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.fileeditor.FileEditorScreen;
 
 import java.io.IOException;
@@ -328,7 +327,7 @@ public class FileExplorerScreen extends Screen {
 
     private boolean isSupportedFile(Path file) {
         String fileName = file.getFileName().toString().toLowerCase();
-        return fileName.endsWith(".txt") || fileName.endsWith(".md") || fileName.endsWith(".json") || fileName.endsWith(".yml") || fileName.endsWith(".yaml") ||
+        return fileName.endsWith(".txt") || fileName.endsWith(".md") || fileName.endsWith(".json") || fileName.endsWith(".yml") || fileName.endsWith(".yaml") || fileName.endsWith(".conf") || fileName.endsWith(".properties") ||
                 fileName.endsWith(".xml") || fileName.endsWith(".cfg") || fileName.endsWith(".ini");
     }
 

@@ -80,10 +80,6 @@ public class FileEditorScreen extends Screen {
             return true;
         }
         boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
-        if (ctrlHeld && keyCode == GLFW.GLFW_KEY_S) {
-            saveFile();
-            return true;
-        }
         if (ctrlHeld && keyCode == GLFW.GLFW_KEY_Z) {
             textEditor.undo();
             unsaved = true;
