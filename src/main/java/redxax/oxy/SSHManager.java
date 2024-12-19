@@ -40,20 +40,34 @@ public class SSHManager {
                 terminalInstance.appendOutput("Connecting...\n");
                 String[] parts = command.split(" ");
                 if (parts.length < 2) {
-                    terminalInstance.appendOutput("Usage: ssh user@host\n");
+                    terminalInstance.appendOutput("Usage: ssh user@host[:port]\n");
                     return;
                 }
                 String userHost = parts[1];
                 String[] userHostParts = userHost.split("@");
                 if (userHostParts.length != 2) {
-                    terminalInstance.appendOutput("Invalid SSH command. Use ssh user@host\n");
+                    terminalInstance.appendOutput("Invalid SSH command. Use ssh user@host[:port]\n");
                     return;
                 }
                 String user = userHostParts[0];
-                String host = userHostParts[1];
+                String hostPort = userHostParts[1];
+                String host;
+                int port = 22;
+                if (hostPort.contains(":")) {
+                    String[] hostPortParts = hostPort.split(":");
+                    host = hostPortParts[0];
+                    try {
+                        port = Integer.parseInt(hostPortParts[1]);
+                    } catch (NumberFormatException e) {
+                        terminalInstance.appendOutput("Invalid port number. Using default port 22.\n");
+                        port = 22;
+                    }
+                } else {
+                    host = hostPort;
+                }
 
                 JSch jsch = new JSch();
-                sshSession = jsch.getSession(user, host, 22);
+                sshSession = jsch.getSession(user, host, port);
                 sshSession.setConfig("StrictHostKeyChecking", "no");
                 sshSession.setUserInfo(new SSHUserInfo());
                 awaitingPassword = true;

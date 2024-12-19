@@ -753,6 +753,12 @@ public class TerminalRenderer {
         });
     }
 
+    public int getRenderedHeight() {
+        int totalLines = getTotalLines();
+        int visibleLines = getVisibleLines(terminalHeight);
+        return Math.max(totalLines, visibleLines) * minecraftClient.textRenderer.fontHeight;
+    }
+
     private static class StyleTextPair {
         final Style style;
         final TextColor backgroundColor;

@@ -85,6 +85,14 @@ public class InputProcessor {
                 }
                 return true;
             }
+            if (keyCode == GLFW.GLFW_KEY_V && ctrlHeld) {
+                String clipboard = this.minecraftClient.keyboard.getClipboard();
+                sshManager.setSshPassword(sshManager.getSshPassword() + clipboard);
+                inputBuffer.append("*".repeat(clipboard.length()));
+                cursorPosition += clipboard.length();
+                terminalInstance.scrollToBottom();
+                return true;
+            }
             return false;
         }
         if (keyCode == GLFW.GLFW_KEY_TAB) {
@@ -226,7 +234,6 @@ public class InputProcessor {
         }
         return false;
     }
-
     private int moveCursorLeftWord(int position) {
         if (position == 0) return 0;
         int index = position - 1;

@@ -506,10 +506,10 @@ public class FileEditorScreen extends Screen {
                         // Double-click: select word
                         int wordStart = cursorPos;
                         int wordEnd = cursorPos;
-                        while (wordStart > 0 && !Character.isWhitespace(text.charAt(wordStart - 1))) {
+                        while (wordStart > 0 && !Character.isWhitespace(text.charAt(wordStart - 1)) && !"=\"'".contains(String.valueOf(text.charAt(wordStart - 1)))) {
                             wordStart--;
                         }
-                        while (wordEnd < text.length() && !Character.isWhitespace(text.charAt(wordEnd))) {
+                        while (wordEnd < text.length() && !Character.isWhitespace(text.charAt(wordEnd)) && !"=\"'".contains(String.valueOf(text.charAt(wordEnd)))) {
                             wordEnd++;
                         }
                         selectionStartLine = cursorLine;

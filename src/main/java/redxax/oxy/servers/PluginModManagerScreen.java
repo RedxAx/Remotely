@@ -9,23 +9,31 @@ import net.minecraft.client.texture.NativeImageBackedTexture;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
-import org.lwjgl.opengl.GL11;
+
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class PluginModManagerScreen extends Screen {
     private final MinecraftClient minecraftClient;
     private final Screen parent;
     private final ServerInfo serverInfo;
-    private final List<ModrinthResource> resources = new ArrayList<>();
-    private final Map<String, List<ModrinthResource>> resourceCache = new HashMap<>();
-    private final Map<String, Identifier> iconTextures = new HashMap<>();
+    private final List<ModrinthResource> resources = Collections.synchronizedList(new ArrayList<>());
+    private final Map<String, List<ModrinthResource>> resourceCache = new ConcurrentHashMap<>();
+    private final Map<String, Identifier> iconTextures = new ConcurrentHashMap<>();
     private TextFieldWidget searchField;
     private int entryHeight = 50;
-    private boolean isLoading = false;
-    private boolean isLoadingMore = false;
+    private volatile boolean isLoading = false;
+    private volatile boolean isLoadingMore = false;
     private String currentSearch = "";
     private float smoothOffset = 0;
     private float targetOffset = 0;
@@ -52,13 +60,15 @@ public class PluginModManagerScreen extends Screen {
         searchField.setMaxLength(100);
         searchField.setChangedListener(text -> currentSearch = text);
         this.addDrawableChild(searchField);
-        loadResources("", true);
+        loadResourcesAsync("", true);
     }
 
-    private void loadResources(String query, boolean reset) {
+    private void loadResourcesAsync(String query, boolean reset) {
         if (reset) {
             loadedCount = 0;
             resources.clear();
+            smoothOffset = 0;
+            targetOffset = 0;
         }
         if (resourceCache.containsKey(query + "_" + loadedCount)) {
             synchronized (resources) {
@@ -68,14 +78,12 @@ public class PluginModManagerScreen extends Screen {
         }
         isLoading = true;
         if (reset) hasMore = true;
-        new Thread(() -> {
-            List<ModrinthResource> fetched = ModrinthAPI.searchResources(query, serverInfo, 30, loadedCount);
+        ModrinthAPI.searchResources(query, serverInfo, 30, loadedCount).thenAccept(fetched -> {
             if (fetched.size() < 30) hasMore = false;
-            Set<String> seenSlugs = new HashSet<>();
+            Set<String> seenSlugs = ConcurrentHashMap.newKeySet();
             List<ModrinthResource> uniqueResources = new ArrayList<>();
             for (ModrinthResource r : fetched) {
-                if (!seenSlugs.contains(r.fileName)) {
-                    seenSlugs.add(r.fileName);
+                if (seenSlugs.add(r.slug)) {
                     uniqueResources.add(r);
                 }
             }
@@ -85,7 +93,7 @@ public class PluginModManagerScreen extends Screen {
             resourceCache.put(query + "_" + loadedCount, new ArrayList<>(uniqueResources));
             isLoading = false;
             isLoadingMore = false;
-        }).start();
+        });
     }
 
     private void loadMoreIfNeeded() {
@@ -93,7 +101,7 @@ public class PluginModManagerScreen extends Screen {
         if (smoothOffset + (this.height - 60) >= resources.size() * entryHeight - entryHeight) {
             isLoadingMore = true;
             loadedCount += 30;
-            loadResources(currentSearch, false);
+            loadResourcesAsync(currentSearch, false);
         }
     }
 
@@ -116,7 +124,7 @@ public class PluginModManagerScreen extends Screen {
         }
         if (keyCode == GLFW.GLFW_KEY_ENTER) {
             resources.clear();
-            loadResources(currentSearch, true);
+            loadResourcesAsync(currentSearch, true);
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -138,7 +146,7 @@ public class PluginModManagerScreen extends Screen {
             int searchButtonH = 20;
             if (mouseX >= searchButtonX && mouseX <= searchButtonX + searchButtonW && mouseY >= searchButtonY && mouseY <= searchButtonY + searchButtonH) {
                 resources.clear();
-                loadResources(currentSearch, true);
+                loadResourcesAsync(currentSearch, true);
                 return true;
             }
             int backButtonX = this.width - 60;
@@ -198,69 +206,87 @@ public class PluginModManagerScreen extends Screen {
         int ty = backButtonY + (btnH - this.textRenderer.fontHeight) / 2;
         context.drawText(this.textRenderer, Text.literal("Back"), tx, ty, textColor, false);
 
-        if (isLoading) {
+        if (isLoading && resources.isEmpty()) {
             context.drawText(this.textRenderer, Text.literal("Loading..."), 10, 55, 0xFF00FF, false);
             return;
         }
+
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
         int listStartY = 60;
         int listEndY = this.height - 20;
-        int visibleEntries = (listEndY - listStartY) / entryHeight;
-        int startIndex = (int) Math.floor(smoothOffset / entryHeight);
-        int endIndex = startIndex + visibleEntries + 2;
-        if (endIndex > resources.size()) endIndex = resources.size();
+        int panelWidth = this.width - 20;
 
-        GL11.glEnable(GL11.GL_SCISSOR_TEST);
-        double scale = minecraftClient.getWindow().getScaleFactor();
-        int scissorX = 10;
-        int scissorY = (int)((minecraftClient.getWindow().getScaledHeight() - listEndY) * scale);
-        int scissorW = (int)((this.width - 20) * scale);
-        int scissorH = (int)((listEndY - listStartY) * scale);
-        GL11.glScissor(scissorX, scissorY, scissorW, scissorH);
+        // Adjust scissor to clip only the top and bottom edges
+        context.enableScissor(0, listStartY, this.width, listEndY);
+
+        int visibleEntries = (listEndY - listStartY) / entryHeight;
+        int startIndex = Math.max(0, (int) Math.floor(smoothOffset / entryHeight));
+        int endIndex = Math.min(startIndex + visibleEntries + 2, resources.size());
 
         for (int i = startIndex; i < endIndex; i++) {
             ModrinthResource resource = resources.get(i);
             int y = listStartY + (i * entryHeight) - (int) smoothOffset;
+
+            // Enhance the logic for calculating the cutting box
             if (y + entryHeight < listStartY || y > listEndY) continue;
-            boolean hovered = mouseX >= 10 && mouseX <= this.width - 10 && mouseY >= y && mouseY <= y + entryHeight;
+
+            boolean hovered = mouseX >= 0 && mouseX <= this.width && mouseY >= y && mouseY <= y + entryHeight;
             int bg = hovered ? highlightColor : lighterColor;
-            context.fill(10, y, this.width - 10, y + entryHeight, bg);
-            drawInnerBorder(context, 10, y, this.width - 20, entryHeight, borderColor);
+            context.fill(10, y, panelWidth + 10, y + entryHeight, bg);
+            drawInnerBorder(context, 10, y, panelWidth, entryHeight, borderColor);
 
             if (!resource.iconUrl.isEmpty()) {
                 if (!iconTextures.containsKey(resource.iconUrl)) {
                     String texKey = "img_" + Integer.toHexString(resource.iconUrl.hashCode());
                     Identifier textureId = Identifier.tryParse("oxy_mod:" + texKey);
-                    iconTextures.put(resource.iconUrl, textureId);
-                    try (InputStream inputStream = new URL(resource.iconUrl).openStream()) {
-                        NativeImage nativeImage = NativeImage.read(inputStream);
-                        minecraftClient.getTextureManager().registerTexture(textureId, new NativeImageBackedTexture(nativeImage));
-                    } catch (IOException e) {
-                        System.err.println("Failed to load image from URL: " + resource.iconUrl);
-                        e.printStackTrace();
+                    if (textureId != null) {
+                        iconTextures.put(resource.iconUrl, textureId);
+                        CompletableFuture.runAsync(() -> {
+                            try (InputStream inputStream = new URL(resource.iconUrl).openStream()) {
+                                NativeImage nativeImage = loadImage(inputStream, resource.iconUrl);
+                                if (nativeImage != null) {
+                                    minecraftClient.getTextureManager().registerTexture(textureId, new NativeImageBackedTexture(nativeImage));
+                                }
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
+                        });
                     }
                 }
                 Identifier textureId = iconTextures.get(resource.iconUrl);
-                minecraftClient.getTextureManager().bindTexture(textureId);
-                context.drawTexture(textureId, 15, y + 5, 0, 0, 40, 40, 40, 40);
+                if (textureId != null) {
+                    minecraftClient.getTextureManager().bindTexture(textureId);
+                    context.drawTexture(textureId, 15, y + 5, 0, 0, 40, 40, 40, 40);
+                }
             }
 
-            String displayDesc = resource.description;
             int infoX = this.width - 20 - this.textRenderer.getWidth(formatDownloads(resource.downloads) + " | " + resource.version);
+            String displayDesc = resource.description;
+            int descMaxWidth = infoX - 65;
+            if (this.textRenderer.getWidth(displayDesc) > descMaxWidth) {
+                while (this.textRenderer.getWidth(displayDesc + "...") > descMaxWidth && displayDesc.length() > 0) {
+                    displayDesc = displayDesc.substring(0, displayDesc.length() - 1);
+                }
+                displayDesc += "...";
+            }
+
             context.drawText(this.textRenderer, Text.literal(resource.name), 60, y + 5, textColor, false);
             context.drawText(this.textRenderer, Text.literal(displayDesc), 60, y + 20, 0xFFAAAAAA, false);
             context.drawText(this.textRenderer, Text.literal(formatDownloads(resource.downloads) + " | " + resource.version), infoX, y + 20, 0xFFAAAAAA, false);
         }
 
-        GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        context.disableScissor();
+
+        // Extend shadows to full width
         if (smoothOffset > 0) {
-            context.fillGradient(10, listStartY, this.width - 10, listStartY + 10, 0x80000000, 0x00000000);
+            context.fillGradient(0, listStartY, this.width, listStartY + 10, 0x80000000, 0x00000000);
         }
-        if (smoothOffset < resources.size() * entryHeight - (listEndY - listStartY)) {
-            context.fillGradient(10, listEndY - 10, this.width - 10, listEndY, 0x00000000, 0x80000000);
+        int maxScroll = Math.max(0, resources.size() * entryHeight - (listEndY - listStartY));
+        if (smoothOffset < maxScroll) {
+            context.fillGradient(0, listEndY - 10, this.width, listEndY, 0x00000000, 0x80000000);
         }
         loadMoreIfNeeded();
-    }
+    } //finally a perfect renderer
 
     private static String formatDownloads(int n) {
         if (n >= 1_000_000) {
@@ -277,5 +303,37 @@ public class PluginModManagerScreen extends Screen {
         context.fill(x, y + h - 1, x + w, y + h, c);
         context.fill(x, y, x + 1, y + h, c);
         context.fill(x + w - 1, y, x + w, y + h, c);
+    }
+
+    private NativeImage loadImage(InputStream inputStream, String url) throws IOException {
+        if (url.toLowerCase().endsWith(".webp")) {
+            try (ImageInputStream iis = ImageIO.createImageInputStream(inputStream)) {
+                Iterator<ImageReader> readers = ImageIO.getImageReadersByFormatName("webp");
+                if (!readers.hasNext()) throw new IOException("No WEBP reader found");
+                ImageReader reader = readers.next();
+                reader.setInput(iis, false);
+                BufferedImage img = reader.read(0);
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ImageIO.write(img, "png", baos);
+                try (InputStream pngStream = new ByteArrayInputStream(baos.toByteArray())) {
+                    return NativeImage.read(pngStream);
+                }
+            }
+        } else if (url.toLowerCase().endsWith(".gif")) {
+            try (ImageInputStream iis = ImageIO.createImageInputStream(inputStream)) {
+                Iterator<ImageReader> readers = ImageIO.getImageReadersByFormatName("gif");
+                if (!readers.hasNext()) throw new IOException("No GIF reader found");
+                ImageReader reader = readers.next();
+                reader.setInput(iis, false);
+                BufferedImage img = reader.read(0);
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ImageIO.write(img, "png", baos);
+                try (InputStream pngStream = new ByteArrayInputStream(baos.toByteArray())) {
+                    return NativeImage.read(pngStream);
+                }
+            }
+        } else {
+            return NativeImage.read(inputStream);
+        }
     }
 }

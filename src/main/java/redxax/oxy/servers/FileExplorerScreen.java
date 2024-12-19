@@ -11,9 +11,7 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 
 public class FileExplorerScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -40,6 +38,9 @@ public class FileExplorerScreen extends Screen {
     private long lastClickTime = 0;
     private static final int DOUBLE_CLICK_INTERVAL = 500;
     private int lastClickedIndex = -1;
+    private Deque<Path> history = new ArrayDeque<>();
+    private Deque<Path> forwardHistory = new ArrayDeque<>();
+
 
     public FileExplorerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
         super(Text.literal("File Explorer"));
@@ -163,9 +164,33 @@ public class FileExplorerScreen extends Screen {
                     }
                 }
             }
+        } else if (button == GLFW.GLFW_MOUSE_BUTTON_4) {
+            navigateUp();
+            return true;
+        } else if (button == GLFW.GLFW_MOUSE_BUTTON_5) {
+            navigateBack();
+            return true;
         }
         return super.mouseClicked(mouseX, mouseY, button);
     }
+
+    private void navigateBack() {
+        if (!history.isEmpty()) {
+            Path previousPath = history.pop();
+            forwardHistory.push(currentPath);
+            loadDirectory(previousPath, false);
+        }
+    }
+
+    private void navigateUp() {
+        Path parentPath = currentPath.getParent();
+        if (parentPath != null && parentPath.startsWith(Paths.get(serverInfo.path).toAbsolutePath().normalize())) {
+            loadDirectory(parentPath);
+        } else {
+            minecraftClient.setScreen(parent);
+        }
+    }
+
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
@@ -280,7 +305,7 @@ public class FileExplorerScreen extends Screen {
             context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bgWithOpacity);
             drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
 
-            String namePrefix = Files.isDirectory(entry) ? "[DIR] " : "[FILE]";
+            String namePrefix = Files.isDirectory(entry) ? "\uD83D\uDDC1" : "\uD83D\uDDC8";
             String displayName = namePrefix + " " + entry.getFileName().toString();
             String size = Files.isDirectory(entry) ? "-" : getFileSize(entry);
             String created = getCreationDate(entry);
@@ -294,16 +319,15 @@ public class FileExplorerScreen extends Screen {
         context.fillGradient(explorerX, explorerY + explorerHeight - 10, explorerX + explorerWidth, explorerY + explorerHeight, 0x00000000, 0x80000000);
     }
 
-    private void navigateUp() {
-        Path parentPath = currentPath.getParent();
-        if (parentPath != null && parentPath.startsWith(Paths.get(serverInfo.path).toAbsolutePath().normalize())) {
-            loadDirectory(parentPath);
-        } else {
-            minecraftClient.setScreen(parent);
-        }
+    void loadDirectory(Path dir) {
+        loadDirectory(dir, true);
     }
 
-    private void loadDirectory(Path dir) {
+    private void loadDirectory(Path dir, boolean addToHistory) {
+        if (addToHistory && currentPath != null && !currentPath.equals(dir)) {
+            history.push(currentPath);
+            forwardHistory.clear();
+        }
         fileEntries.clear();
         selectedPaths.clear();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
@@ -508,23 +532,4 @@ public class FileExplorerScreen extends Screen {
         loadDirectory(currentPath);
     }
 
-    private void deletePath(Path path) throws IOException {
-        if (Files.isDirectory(path)) {
-            Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    Files.delete(file);
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                    Files.delete(dir);
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-        } else {
-            Files.delete(path);
-        }
-    }
 }

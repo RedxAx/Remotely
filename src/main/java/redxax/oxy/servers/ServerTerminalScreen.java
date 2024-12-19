@@ -7,10 +7,10 @@ import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.RemotelyClient;
 import redxax.oxy.ServerTerminalInstance;
-import redxax.oxy.MultiTerminalScreen;
 
 public class ServerTerminalScreen extends Screen {
     private final MinecraftClient minecraftClient;
+    private final RemotelyClient remotelyClient;
     private final ServerInfo serverInfo;
     private int baseColor = 0xFF181818;
     private int lighterColor = 0xFF222222;
@@ -19,19 +19,20 @@ public class ServerTerminalScreen extends Screen {
     private int textColor = 0xFFFFFFFF;
     private int buttonX;
     private int buttonY;
-    private int configButtonX;
-    private int configButtonY;
     private int explorerButtonX;
     private int explorerButtonY;
     private int pluginButtonX;
     private int pluginButtonY;
-    private final int buttonW = 60;
-    private final int buttonH = 20;
+    private int buttonW = 60;
+    private int buttonH = 20;
     private float terminalScale = 1.0f;
+
+    private int topBarHeight = 30;
 
     public ServerTerminalScreen(MinecraftClient client, RemotelyClient remotelyClient, ServerInfo info) {
         super(Text.literal(info.name + " - Server Screen"));
         this.minecraftClient = client;
+        this.remotelyClient = remotelyClient;
         this.serverInfo = info;
     }
 
@@ -45,7 +46,6 @@ public class ServerTerminalScreen extends Screen {
         context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor);
         super.render(context, mouseX, mouseY, delta);
 
-        int topBarHeight = 30;
         context.fill(0, 0, this.width, topBarHeight, lighterColor);
         drawInnerBorder(context, 0, 0, this.width, topBarHeight, borderColor);
 
@@ -65,10 +65,8 @@ public class ServerTerminalScreen extends Screen {
         boolean buttonHovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
         drawButton(context, buttonX, buttonY, buttonLabel, buttonHovered);
 
-        configButtonX = buttonX - (buttonW + 10);
-        configButtonY = 5;
-        boolean configHovered = mouseX >= configButtonX && mouseX <= configButtonX + buttonW && mouseY >= configButtonY && mouseY <= configButtonY + buttonH;
-        drawButton(context, configButtonX, configButtonY, "Config", configHovered);
+        int configButtonX = buttonX - (buttonW + 10);
+        int configButtonY = 5;
 
         explorerButtonX = configButtonX - (buttonW + 10);
         explorerButtonY = 5;
@@ -77,12 +75,14 @@ public class ServerTerminalScreen extends Screen {
 
         pluginButtonX = explorerButtonX - (buttonW + 10);
         pluginButtonY = 5;
+        String pluginLabel = (serverInfo.type.equalsIgnoreCase("paper") || serverInfo.type.equalsIgnoreCase("spigot")) ? "Plugins" : "Mods";
         boolean pluginHovered = mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH;
-        drawButton(context, pluginButtonX, pluginButtonY, "Mods", pluginHovered);
+        drawButton(context, pluginButtonX, pluginButtonY, pluginLabel, pluginHovered);
 
         int terminalOffsetY = topBarHeight + 5;
+        int terminalAvailableHeight = this.height - topBarHeight - 10;
         if (serverInfo.terminal != null) {
-            serverInfo.terminal.render(context, this.width - 10, this.height - terminalOffsetY - 10, terminalScale);
+            serverInfo.terminal.render(context, this.width - 10, terminalAvailableHeight, terminalScale);
         }
     }
 
@@ -97,16 +97,12 @@ public class ServerTerminalScreen extends Screen {
                 }
                 return true;
             }
-            if (mouseX >= configButtonX && mouseX <= configButtonX + buttonW && mouseY >= configButtonY && mouseY <= configButtonY + buttonH) {
-                minecraftClient.setScreen(new ServerConfigurationScreen(minecraftClient, this, serverInfo));
-                return true;
-            }
             if (mouseX >= explorerButtonX && mouseX <= explorerButtonX + buttonW && mouseY >= explorerButtonY && mouseY <= explorerButtonY + buttonH) {
                 minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, serverInfo));
                 return true;
             }
             if (mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH) {
-                minecraftClient.setScreen(new PluginModManagerScreen(minecraftClient, this, serverInfo));
+                minecraftClient.setScreen(new PluginModListScreen(minecraftClient, this, serverInfo));
                 return true;
             }
         }
@@ -139,7 +135,7 @@ public class ServerTerminalScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (serverInfo.terminal != null) {
-            int scaledHeight = this.height - (30 + 5 + 10);
+            int scaledHeight = this.height - (topBarHeight + 10);
             serverInfo.terminal.scroll(verticalAmount > 0 ? 1 : -1, scaledHeight);
             return true;
         }
@@ -166,11 +162,6 @@ public class ServerTerminalScreen extends Screen {
 
     @Override
     public boolean charTyped(char chr, int keyCode) {
-        if (serverInfo.terminal != null) {
-            if (serverInfo.terminal.charTyped(chr)) {
-                return true;
-            }
-        }
         return super.charTyped(chr, keyCode);
     }
 

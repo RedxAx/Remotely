@@ -6,9 +6,22 @@ import com.google.gson.JsonParser;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.texture.NativeImage;
+import net.minecraft.client.texture.NativeImageBackedTexture;
+import net.minecraft.text.OrderedText;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
+
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -16,6 +29,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 public class PluginModResourceScreen extends Screen {
     private final MinecraftClient mc;
@@ -28,6 +45,10 @@ public class PluginModResourceScreen extends Screen {
     private int highlightColor = 0xFF444444;
     private int textColor = 0xFFFFFFFF;
     private String installButtonText = "Install";
+    private String fullDescription = "";
+    private List<String> imageUrls = new ArrayList<>();
+    private List<Identifier> imageTextures = new ArrayList<>();
+    private boolean isProjectDataLoaded = false;
 
     public PluginModResourceScreen(MinecraftClient mc, Screen parent, ModrinthResource resource, ServerInfo info) {
         super(Text.literal(resource.name));
@@ -59,6 +80,7 @@ public class PluginModResourceScreen extends Screen {
                 installButtonText = "Update";
             }
         }
+        fetchProjectData();
     }
 
     private boolean installButtonNeedsUpdate(Path dest) {
@@ -69,6 +91,85 @@ public class PluginModResourceScreen extends Screen {
 
     private String parseVersionFromFileName(String filename) {
         return filename.replace(".jar", "");
+    }
+
+    private void fetchProjectData() {
+        CompletableFuture.runAsync(() -> {
+            try {
+                URI uri = new URI("https://api.modrinth.com/v2/project/" + resource.slug);
+                HttpClient client = HttpClient.newHttpClient();
+                HttpRequest request = HttpRequest.newBuilder().uri(uri).header("User-Agent", "Remotely").GET().build();
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 200) {
+                    JsonObject project = JsonParser.parseString(response.body()).getAsJsonObject();
+                    if (project.has("description")) {
+                        fullDescription = project.get("description").getAsString();
+                    }
+                    if (project.has("screenshots")) {
+                        JsonArray screenshots = project.getAsJsonArray("screenshots");
+                        for (int i = 0; i < screenshots.size(); i++) {
+                            JsonObject screenshot = screenshots.get(i).getAsJsonObject();
+                            if (screenshot.has("url")) {
+                                imageUrls.add(screenshot.get("url").getAsString());
+                            }
+                        }
+                    }
+                    isProjectDataLoaded = true;
+                    loadImages();
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
+    }
+
+    private void loadImages() {
+        for (String url : imageUrls) {
+            CompletableFuture.runAsync(() -> {
+                try (InputStream inputStream = new URL(url).openStream()) {
+                    NativeImage nativeImage = loadImage(inputStream, url);
+                    if (nativeImage != null) {
+                        NativeImageBackedTexture texture = new NativeImageBackedTexture(nativeImage);
+                        Identifier textureId = mc.getTextureManager().registerDynamicTexture("oxy_mod_" + imageTextures.size(), texture);
+                        mc.execute(() -> imageTextures.add(textureId));
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            });
+        }
+    }
+
+    private NativeImage loadImage(InputStream inputStream, String url) throws Exception {
+        if (url.toLowerCase().endsWith(".webp")) {
+            try (ImageInputStream iis = ImageIO.createImageInputStream(inputStream)) {
+                Iterator<ImageReader> readers = ImageIO.getImageReadersByFormatName("webp");
+                if (!readers.hasNext()) throw new IOException("No WEBP reader found");
+                ImageReader reader = readers.next();
+                reader.setInput(iis, false);
+                BufferedImage img = reader.read(0);
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ImageIO.write(img, "png", baos);
+                try (InputStream pngStream = new ByteArrayInputStream(baos.toByteArray())) {
+                    return NativeImage.read(pngStream);
+                }
+            }
+        } else if (url.toLowerCase().endsWith(".gif")) {
+            try (ImageInputStream iis = ImageIO.createImageInputStream(inputStream)) {
+                Iterator<ImageReader> readers = ImageIO.getImageReadersByFormatName("gif");
+                if (!readers.hasNext()) throw new IOException("No GIF reader found");
+                ImageReader reader = readers.next();
+                reader.setInput(iis, false);
+                BufferedImage img = reader.read(0);
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ImageIO.write(img, "png", baos);
+                try (InputStream pngStream = new ByteArrayInputStream(baos.toByteArray())) {
+                    return NativeImage.read(pngStream);
+                }
+            }
+        } else {
+            return NativeImage.read(inputStream);
+        }
     }
 
     @Override
@@ -83,7 +184,8 @@ public class PluginModResourceScreen extends Screen {
             return true;
         }
         int backButtonX = installButtonX - (btnW + 10);
-        boolean hoveredBack = mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= installButtonY && mouseY <= installButtonY + btnH;
+        int backButtonY = installButtonY;
+        boolean hoveredBack = mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH;
         if (hoveredBack && button == 0) {
             mc.setScreen(parent);
             return true;
@@ -94,7 +196,7 @@ public class PluginModResourceScreen extends Screen {
     private void fetchAndInstallResource() {
         new Thread(() -> {
             try {
-                String downloadUrl = fetchDownloadUrl(resource.fileName.replace(".jar", ""));
+                String downloadUrl = fetchDownloadUrl(resource.version);
                 if (downloadUrl.isEmpty()) {
                     if (serverInfo.terminal != null) {
                         serverInfo.terminal.appendOutput("Failed to fetch download URL for: " + resource.name + "\n");
@@ -114,7 +216,7 @@ public class PluginModResourceScreen extends Screen {
                         .header("User-Agent", "Remotely")
                         .GET()
                         .build();
-                System.out.println("Downloading from URL: " + downloadUrl); // Log the URL
+                System.out.println("Downloading from URL: " + downloadUrl);
                 HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
                 if (response.statusCode() == 200) {
                     Files.copy(response.body(), dest, StandardCopyOption.REPLACE_EXISTING);
@@ -136,21 +238,18 @@ public class PluginModResourceScreen extends Screen {
         }).start();
     }
 
-    private String fetchDownloadUrl(String slug) {
+    private String fetchDownloadUrl(String versionID) {
         try {
-            URI uri = new URI("https://api.modrinth.com/v2/project/" + slug + "/version");
+            URI uri = new URI("https://api.modrinth.com/v2/version/" + versionID);
             HttpClient client = HttpClient.newHttpClient();
             HttpRequest request = HttpRequest.newBuilder().uri(uri).header("User-Agent", "Remotely").GET().build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
-                JsonArray versions = JsonParser.parseString(response.body()).getAsJsonArray();
-                if (versions.size() > 0) {
-                    JsonObject latestVersion = versions.get(0).getAsJsonObject();
-                    JsonArray files = latestVersion.getAsJsonArray("files");
-                    if (files.size() > 0) {
-                        JsonObject file = files.get(0).getAsJsonObject();
-                        return file.get("url").getAsString();
-                    }
+                JsonObject version = JsonParser.parseString(response.body()).getAsJsonObject();
+                JsonArray files = version.getAsJsonArray("files");
+                if (files.size() > 0) {
+                    JsonObject file = files.get(0).getAsJsonObject();
+                    return file.get("url").getAsString();
                 }
             } else {
                 System.err.println("Error fetching download URL: " + response.statusCode() + " - " + response.body());
@@ -183,15 +282,36 @@ public class PluginModResourceScreen extends Screen {
         context.drawText(this.textRenderer, Text.literal(installButtonText), tx, ty, textColor, false);
 
         int backButtonX = installButtonX - (btnW + 10);
-        boolean hoveredBack = mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= installButtonY && mouseY <= installButtonY + btnH;
+        int backButtonY = installButtonY;
+        boolean hoveredBack = mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH;
         int bgBack = hoveredBack ? highlightColor : lighterColor;
-        context.fill(backButtonX, installButtonY, backButtonX + btnW, installButtonY + btnH, bgBack);
-        drawInnerBorder(context, backButtonX, installButtonY, btnW, btnH, borderColor);
+        context.fill(backButtonX, backButtonY, backButtonX + btnW, backButtonY + btnH, bgBack);
+        drawInnerBorder(context, backButtonX, backButtonY, btnW, btnH, borderColor);
         int twb = this.textRenderer.getWidth("Back");
         int txb = backButtonX + (btnW - twb) / 2;
         context.drawText(this.textRenderer, Text.literal("Back"), txb, ty, textColor, false);
 
-        context.drawText(this.textRenderer, Text.literal("Description: " + resource.description), 10, 40, 0xA0A0A0, false);
+        if (!isProjectDataLoaded) {
+            context.drawText(this.textRenderer, Text.literal("Loading project details..."), 10, 40, 0xA0A0A0, false);
+            return;
+        }
+
+        context.drawText(this.textRenderer, Text.literal("Description:"), 10, 40, textColor, false);
+        List<OrderedText> descriptionLines = this.textRenderer.wrapLines(Text.literal(fullDescription), this.width - 20);
+        int descY = 55;
+        for (OrderedText line : descriptionLines) {
+            context.drawText(this.textRenderer, line, 10, descY, 0xA0A0A0, false);
+            descY += this.textRenderer.fontHeight + 2;
+        }
+
+        int imagesY = descY + 10;
+        for (Identifier textureId : imageTextures) {
+            if (textureId != null) {
+                mc.getTextureManager().bindTexture(textureId);
+                context.drawTexture(textureId, 10, imagesY, 0, 0, 200, 112, 200, 112);
+                imagesY += 117;
+            }
+        }
     }
 
     private void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int c) {
