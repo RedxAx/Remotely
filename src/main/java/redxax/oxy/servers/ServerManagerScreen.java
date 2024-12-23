@@ -84,7 +84,7 @@ public class ServerManagerScreen extends Screen {
         super.render(context, mouseX, mouseY, delta);
 
         int tabY = 5;
-        context.drawText(minecraftClient.textRenderer, Text.literal("Servers"), 5, tabY + (tabHeight - minecraftClient.textRenderer.fontHeight)/2, textColor, false);
+        context.drawText(minecraftClient.textRenderer, Text.literal("Servers"), 5, tabY + (tabHeight - minecraftClient.textRenderer.fontHeight) / 2, textColor, false);
 
         int plusW = 20;
         float renderX = 60 - tabScrollOffset;
@@ -110,7 +110,7 @@ public class ServerManagerScreen extends Screen {
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
 
         int visibleEntries = (panelHeight - 10) / entryHeight;
-        int startIndex = (int)Math.floor(smoothOffset / entryHeight);
+        int startIndex = (int) Math.floor(smoothOffset / entryHeight);
         int endIndex = startIndex + visibleEntries + 2;
         if (endIndex > servers.size()) endIndex = servers.size();
 
@@ -118,12 +118,36 @@ public class ServerManagerScreen extends Screen {
         hoveredServerIndex = -1;
         for (int i = startIndex; i < endIndex; i++) {
             ServerInfo info = servers.get(i);
-            int serverY = listY + (i * entryHeight) - (int)smoothOffset;
+            int serverY = listY + (i * entryHeight) - (int) smoothOffset;
             boolean hovered = (mouseX >= listX && mouseX <= listX + (panelWidth - 10) && mouseY >= serverY && mouseY <= serverY + entryHeight);
             if (hovered) hoveredServerIndex = i;
             int bgColor = hovered ? highlightColor : 0xFF444444;
             context.fill(listX, serverY, listX + panelWidth - 10, serverY + entryHeight, bgColor);
             drawInnerBorder(context, listX, serverY, panelWidth - 10, entryHeight, borderColor);
+
+            int buttonSize = entryHeight - 10;
+            int btnGap = 5;
+
+            int editX = listX + panelWidth - 10 - buttonSize - btnGap;
+            int startStopX = editX - buttonSize - btnGap;
+
+            boolean canStop = info.state == ServerState.RUNNING || info.state == ServerState.STARTING;
+            boolean hoveredStartStop = mouseX >= startStopX && mouseX <= startStopX + buttonSize && mouseY >= serverY + btnGap && mouseY <= serverY + btnGap + buttonSize;
+            boolean hoveredEdit = mouseX >= editX && mouseX <= editX + buttonSize && mouseY >= serverY + btnGap && mouseY <= serverY + btnGap + buttonSize;
+
+            int startStopBg = hoveredStartStop ? highlightColor : bgColor;
+            context.fill(startStopX, serverY + btnGap, startStopX + buttonSize, serverY + btnGap + buttonSize, startStopBg);
+            drawInnerBorder(context, startStopX, serverY + btnGap, buttonSize, buttonSize, borderColor);
+            String startStopText = canStop ? "Stop" : "Start";
+            int sstw = minecraftClient.textRenderer.getWidth(startStopText);
+            context.drawText(minecraftClient.textRenderer, Text.literal(startStopText), startStopX + (buttonSize - sstw) / 2, serverY + btnGap + (buttonSize - minecraftClient.textRenderer.fontHeight) / 2, textColor, false);
+
+            int editBg = hoveredEdit ? highlightColor : bgColor;
+            context.fill(editX, serverY + btnGap, editX + buttonSize, serverY + btnGap + buttonSize, editBg);
+            drawInnerBorder(context, editX, serverY + btnGap, buttonSize, buttonSize, borderColor);
+            String editText = "Edit";
+            int etw = minecraftClient.textRenderer.getWidth(editText);
+            context.drawText(minecraftClient.textRenderer, Text.literal(editText), editX + (buttonSize - etw) / 2, serverY + btnGap + (buttonSize - minecraftClient.textRenderer.fontHeight) / 2, textColor, false);
 
             String stateStr = switch (info.state) {
                 case RUNNING -> "Running";
@@ -133,46 +157,18 @@ public class ServerManagerScreen extends Screen {
                 default -> "Unknown";
             };
 
-            String nameLine = trimTextToWidthWithEllipsis(info.name + " ["+stateStr+"]", panelWidth - 80);
+            String nameLine = trimTextToWidthWithEllipsis(info.name + " [" + stateStr + "]", startStopX - listX - 10);
             context.drawText(minecraftClient.textRenderer, Text.literal(nameLine), listX + 5, serverY + 5, textColor, false);
 
-            String stats = "Players: " + info.currentPlayers + "/" + info.maxPlayers + " | TPS: " + info.tps + " | Uptime: " + info.uptime;
-            stats = trimTextToWidthWithEllipsis(stats, panelWidth - 80);
-            context.drawText(minecraftClient.textRenderer, Text.literal(stats), listX + 5, serverY + 20, dimTextColor, false);
-
-            String pathStr = trimTextToWidthWithEllipsis(info.path, panelWidth - 80);
-            context.drawText(minecraftClient.textRenderer, Text.literal(pathStr), listX + 5, serverY + 35, dimTextColor, false);
-
-            int buttonSize = 20;
-            int btnGap = 5;
-
-            int editX = listX + panelWidth - 10 - (buttonSize + btnGap);
-            int startStopX = editX - (buttonSize + btnGap);
-
-            boolean canStop = info.state == ServerState.RUNNING || info.state == ServerState.STARTING;
-            boolean hoveredStartStop = mouseX >= startStopX && mouseX <= startStopX+buttonSize && mouseY >= serverY+(entryHeight/2)-(buttonSize/2) && mouseY <= serverY+(entryHeight/2)-(buttonSize/2)+buttonSize;
-            boolean hoveredEdit = mouseX >= editX && mouseX <= editX+buttonSize && mouseY >= serverY+(entryHeight/2)-(buttonSize/2) && mouseY <= serverY+(entryHeight/2)-(buttonSize/2)+buttonSize;
-
-            int startStopBg = hoveredStartStop ? highlightColor : lighterColor;
-            context.fill(startStopX, serverY+(entryHeight/2)-(buttonSize/2), startStopX+buttonSize, serverY+(entryHeight/2)-(buttonSize/2)+buttonSize, startStopBg);
-            drawInnerBorder(context, startStopX, serverY+(entryHeight/2)-(buttonSize/2), buttonSize, buttonSize, borderColor);
-            String startStopText = canStop ? "■" : "▶";
-            int sstw = minecraftClient.textRenderer.getWidth(startStopText);
-            context.drawText(minecraftClient.textRenderer, Text.literal(startStopText), startStopX+(buttonSize - sstw)/2, serverY+(entryHeight/2)-minecraftClient.textRenderer.fontHeight/2, textColor, false);
-
-            int editBg = hoveredEdit ? highlightColor : lighterColor;
-            context.fill(editX, serverY+(entryHeight/2)-(buttonSize/2), editX+buttonSize, serverY+(entryHeight/2)-(buttonSize/2)+buttonSize, editBg);
-            drawInnerBorder(context, editX, serverY+(entryHeight/2)-(buttonSize/2), buttonSize, buttonSize, borderColor);
-            String editText = "E";
-            int etw = minecraftClient.textRenderer.getWidth(editText);
-            context.drawText(minecraftClient.textRenderer, Text.literal(editText), editX+(buttonSize - etw)/2, serverY+(entryHeight/2)-minecraftClient.textRenderer.fontHeight/2, textColor, false);
+            String pathStr = trimTextToWidthWithEllipsis(info.path, startStopX - listX - 10);
+            context.drawText(minecraftClient.textRenderer, Text.literal(pathStr), listX + 5, serverY + 20, dimTextColor, false);
         }
         context.disableScissor();
 
         if (smoothOffset > 0) {
             context.fillGradient(10, contentYStart + 5, this.width - 5, contentYStart + 15, 0x80000000, 0x00000000);
         }
-        int maxScroll = Math.max(0, servers.size()*entryHeight - (panelHeight - 10));
+        int maxScroll = Math.max(0, servers.size() * entryHeight - (panelHeight - 10));
         if (smoothOffset < maxScroll) {
             context.fillGradient(10, contentYStart + panelHeight - 15, this.width - 5, contentYStart + panelHeight - 5, 0x00000000, 0x80000000);
         }
@@ -218,22 +214,22 @@ public class ServerManagerScreen extends Screen {
             int panelHeight = this.height - contentYStart - 5;
             int panelWidth = this.width - 10;
             int entryHeight = 60;
-            int startIndex = (int)Math.floor(smoothOffset / entryHeight);
+            int startIndex = (int) Math.floor(smoothOffset / entryHeight);
             int listY = contentYStart + 5;
-            int relativeMouseY = (int)(mouseY - listY + smoothOffset);
+            int relativeMouseY = (int) (mouseY - listY + smoothOffset);
             int clickedIndex = relativeMouseY / entryHeight;
             if (clickedIndex >= 0 && clickedIndex < servers.size()) {
                 ServerInfo info = servers.get(clickedIndex);
 
-                int buttonSize = 20;
+                int buttonSize = entryHeight - 10;
                 int btnGap = 5;
-                int editX = 10 + panelWidth - 10 - (buttonSize + btnGap);
-                int startStopX = editX - (buttonSize + btnGap);
-                int serverY = listY + (clickedIndex * entryHeight) - (int)smoothOffset;
-                int buttonY = serverY+(entryHeight/2)-(buttonSize/2);
+                int editX = panelWidth - 10 - buttonSize - btnGap;
+                int startStopX = editX - buttonSize - btnGap;
+                int serverY = listY + (clickedIndex * entryHeight) - (int) smoothOffset;
+                int buttonY = serverY + btnGap;
 
-                boolean inStartStop = mouseX >= startStopX && mouseX <= startStopX+buttonSize && mouseY >= buttonY && mouseY <= buttonY+buttonSize;
-                boolean inEdit = mouseX >= editX && mouseX <= editX+buttonSize && mouseY >= buttonY && mouseY <= buttonY+buttonSize;
+                boolean inStartStop = mouseX >= startStopX && mouseX <= startStopX + buttonSize && mouseY >= buttonY && mouseY <= buttonY + buttonSize;
+                boolean inEdit = mouseX >= editX && mouseX <= editX + buttonSize && mouseY >= buttonY && mouseY <= buttonY + buttonSize;
 
                 if (inStartStop && button == 0) {
                     if (info.state == ServerState.RUNNING || info.state == ServerState.STARTING) {
@@ -502,6 +498,8 @@ public class ServerManagerScreen extends Screen {
         String path = "C:/remotely/servers/" + name;
         String ver = serverVersionBuffer.toString().trim().isEmpty() ? "latest" : serverVersionBuffer.toString().trim();
         selectedServerType = serverTypes.get(selectedTypeIndex);
+        Path serverJarPath = Paths.get(path, "server.jar");
+
         if (editingServer && editingServerIndex >= 0 && editingServerIndex < servers.size()) {
             ServerInfo s = servers.get(editingServerIndex);
             s.name = name;
@@ -510,14 +508,18 @@ public class ServerManagerScreen extends Screen {
             s.version = ver;
             saveServers();
         } else {
-            ServerInfo newInfo = new ServerInfo();
+            ServerInfo newInfo = new ServerInfo(path);
             newInfo.name = name;
             newInfo.path = path;
             newInfo.type = selectedServerType;
             newInfo.version = ver;
             newInfo.isRunning = false;
             servers.add(newInfo);
-            runMrPackInstaller(newInfo);
+
+            if (!Files.exists(serverJarPath)) {
+                runMrPackInstaller(newInfo);
+            }
+
             saveServers();
         }
         closePopup();
@@ -603,16 +605,12 @@ public class ServerManagerScreen extends Screen {
             String type = extractJsonValue(entry, "type");
             String version = extractJsonValue(entry, "version");
             String runVal = extractJsonValue(entry, "isRunning");
-            ServerInfo info = new ServerInfo();
+            ServerInfo info = new ServerInfo(path);
             info.name = name;
             info.path = path;
             info.type = type;
             info.version = version;
             info.isRunning = runVal.equalsIgnoreCase("true");
-            info.currentPlayers = 0;
-            info.maxPlayers = 20;
-            info.tps = 20;
-            info.uptime = "0h 0m";
             list.add(info);
         }
         return list;

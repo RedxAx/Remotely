@@ -2,6 +2,7 @@ plugins {
     id 'fabric-loom' version '1.7-SNAPSHOT'
     id 'maven-publish'
     id 'com.gradleup.shadow' version '8.3.0'
+    id 'org.jetbrains.kotlin.jvm'
 }
 
 version = project.mod_version
@@ -15,6 +16,7 @@ repositories {
     mavenCentral()
     maven { url = 'https://maven.fabricmc.net/' }
     maven { url = 'https://jitpack.io' }
+    maven { url = "https://repo.essential.gg/repository/maven-public"}
 }
 
 
@@ -28,8 +30,12 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
     implementation 'org.apache.commons:commons-lang3:3.12.0'
-    implementation 'com.jcraft:jsch:0.1.55'
     implementation 'com.twelvemonkeys.imageio:imageio-webp:3.12.0'
+    implementation 'com.jcraft:jsch:0.1.55'
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+
+    modImplementation("gg.essential:elementa:$elementaVersion")
+    modImplementation(include("gg.essential:universalcraft-$minecraft_version-fabric:$ucVersion"))
 }
 
 processResources {
@@ -47,8 +53,6 @@ tasks.withType(JavaCompile).configureEach {
 java {
     withSourcesJar()
 
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
 }
 
 jar {
@@ -75,11 +79,15 @@ shadowJar {
     dependencies {
         include(dependency("org.apache.commons:commons-lang3"))
         include(dependency("com.jcraft:jsch"))
+        include(dependency("com.twelvemonkeys.imageio:imageio-webp"))
+        include(dependency {'gg.essential:elementa'})
         exclude(dependency('net.fabricmc.fabric-api:fabric-api:.*'))
         exclude(dependency('net.fabricmc:fabric-loader:.*'))
-
     }
 }
 
 
 build.dependsOn shadowJar
+kotlin {
+    jvmToolchain(21)
+}

@@ -1,6 +1,7 @@
 package redxax.oxy.servers;
 
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
@@ -18,6 +19,7 @@ public class FileExplorerScreen extends Screen {
     private final Screen parent;
     private final ServerInfo serverInfo;
     private List<Path> fileEntries;
+    private List<Path> allFileEntries;
     private float smoothOffset = 0;
     private int entryHeight = 25;
     private int baseColor = 0xFF181818;
@@ -40,6 +42,15 @@ public class FileExplorerScreen extends Screen {
     private int lastClickedIndex = -1;
     private Deque<Path> history = new ArrayDeque<>();
     private Deque<Path> forwardHistory = new ArrayDeque<>();
+    private Deque<UndoableAction> undoStack = new ArrayDeque<>();
+    private boolean searchActive = false;
+    private StringBuilder searchQuery = new StringBuilder();
+    private int searchBarX = 10;
+    private int searchBarY = 0;
+    private int searchBarWidth = 200;
+    private int searchBarHeight = 20;
+    private List<Notification> notifications = new ArrayList<>();
+    private final TextRenderer textRenderer;
 
 
     public FileExplorerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
@@ -48,7 +59,9 @@ public class FileExplorerScreen extends Screen {
         this.parent = parent;
         this.serverInfo = info;
         this.fileEntries = new ArrayList<>();
+        this.allFileEntries = new ArrayList<>();
         this.currentPath = Paths.get(serverInfo.path).toAbsolutePath().normalize();
+        this.textRenderer = mc.textRenderer;
     }
 
     @Override
@@ -60,6 +73,35 @@ public class FileExplorerScreen extends Screen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
+        if (searchActive) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                searchActive = false;
+                searchQuery.setLength(0);
+                fileEntries = new ArrayList<>(allFileEntries);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+                if (ctrl) {
+                    int lastSpace = searchQuery.lastIndexOf(" ");
+                    if (lastSpace != -1) {
+                        searchQuery.delete(lastSpace, searchQuery.length());
+                    } else {
+                        searchQuery.setLength(0);
+                    }
+                } else {
+                    if (searchQuery.length() > 0) {
+                        searchQuery.deleteCharAt(searchQuery.length() - 1);
+                    }
+                }
+                filterFileEntries();
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_ENTER) {
+                searchActive = false;
+                return true;
+            }
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
         if (keyCode == this.minecraftClient.options.backKey.getDefaultKey().getCode()) {
             navigateUp();
             return true;
@@ -80,98 +122,142 @@ public class FileExplorerScreen extends Screen {
             paste();
             return true;
         }
+        if (ctrl && keyCode == GLFW.GLFW_KEY_Z) {
+            undo();
+            return true;
+        }
+        if (ctrl && keyCode == GLFW.GLFW_KEY_F) {
+            searchActive = true;
+            searchQuery.setLength(0);
+            searchBarY = this.height - searchBarHeight - 10;
+            return true;
+        }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == GLFW.GLFW_MOUSE_BUTTON_1) {
-            long currentTime = System.currentTimeMillis();
-            boolean isDoubleClick = false;
-            if (lastClickedIndex != -1 && (currentTime - lastClickTime) < DOUBLE_CLICK_INTERVAL && lastClickedIndex != -1) {
-                isDoubleClick = true;
+    public boolean charTyped(char chr, int modifiers) {
+        if (searchActive) {
+            if (chr == '\b' || chr == '\n') {
+                return false;
             }
-            lastClickTime = currentTime;
-            int explorerX = 50;
-            int explorerY = 60;
-            int explorerWidth = this.width - 100;
-            int explorerHeight = this.height - 100;
-            int backButtonX = this.width - 120;
-            int backButtonY = 5;
-            int btnW = 50;
-            int btnH = 20;
-            int closeButtonX = this.width - 60;
-            int closeButtonY = 5;
-            int closeBtnW = 50;
-            int closeBtnH = 20;
-
-            if (mouseX >= backButtonX && mouseX <= backButtonX + btnW &&
-                    mouseY >= backButtonY && mouseY <= backButtonY + btnH) {
-                navigateUp();
-                return true;
-            }
-
-            if (mouseX >= closeButtonX && mouseX <= closeButtonX + closeBtnW &&
-                    mouseY >= closeButtonY && mouseY <= closeButtonY + closeBtnH) {
-                minecraftClient.setScreen(parent);
-                return true;
-            }
-
-            if (mouseX >= explorerX && mouseX <= explorerX + explorerWidth &&
-                    mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
-                int relativeY = (int) mouseY - explorerY + (int) smoothOffset;
-                int clickedIndex = relativeY / entryHeight;
-                if (clickedIndex >= 0 && clickedIndex < fileEntries.size()) {
-                    Path selectedPath = fileEntries.get(clickedIndex);
-                    if (isDoubleClick) {
-                        if (Files.isDirectory(selectedPath)) {
-                            loadDirectory(selectedPath);
-                        } else {
-                            if (isSupportedFile(selectedPath)) {
-                                minecraftClient.setScreen(new FileEditorScreen(minecraftClient, this, selectedPath, serverInfo));
-                            }
-                        }
-                        lastClickedIndex = -1;
-                        return true;
-                    } else {
-                        boolean ctrl = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) ||
-                                (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
-                        boolean shift = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS) ||
-                                (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS);
-                        if (ctrl) {
-                            if (selectedPaths.contains(selectedPath)) {
-                                selectedPaths.remove(selectedPath);
-                            } else {
-                                selectedPaths.add(selectedPath);
-                            }
-                            lastSelectedIndex = clickedIndex;
-                        } else if (shift && lastSelectedIndex != -1) {
-                            int start = Math.min(lastSelectedIndex, clickedIndex);
-                            int end = Math.max(lastSelectedIndex, clickedIndex);
-                            for (int i = start; i <= end; i++) {
-                                Path path = fileEntries.get(i);
-                                if (!selectedPaths.contains(path)) {
-                                    selectedPaths.add(path);
-                                }
-                            }
-                        } else {
-                            selectedPaths.clear();
-                            selectedPaths.add(selectedPath);
-                            lastSelectedIndex = clickedIndex;
-                        }
-                        lastClickedIndex = clickedIndex;
-                        return true;
-                    }
-                }
-            }
-        } else if (button == GLFW.GLFW_MOUSE_BUTTON_4) {
-            navigateUp();
-            return true;
-        } else if (button == GLFW.GLFW_MOUSE_BUTTON_5) {
-            navigateBack();
+            searchQuery.append(chr);
+            filterFileEntries();
             return true;
         }
+        return super.charTyped(chr, modifiers);
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        boolean handled = false;
+        if (searchActive) {
+            if (mouseX >= searchBarX && mouseX <= searchBarX + searchBarWidth &&
+                    mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight) {
+                handled = true;
+            }
+        }
+        if (!handled) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_1) {
+                long currentTime = System.currentTimeMillis();
+                boolean isDoubleClick = false;
+                if (lastClickedIndex != -1 && (currentTime - lastClickTime) < DOUBLE_CLICK_INTERVAL && lastClickedIndex != -1) {
+                    isDoubleClick = true;
+                }
+                lastClickTime = currentTime;
+                int explorerX = 50;
+                int explorerY = 60;
+                int explorerWidth = this.width - 100;
+                int explorerHeight = this.height - 100;
+                int backButtonX = this.width - 120;
+                int backButtonY = 5;
+                int btnW = 50;
+                int btnH = 20;
+                int closeButtonX = this.width - 60;
+                int closeButtonY = 5;
+                int closeBtnW = 50;
+                int closeBtnH = 20;
+
+                if (mouseX >= backButtonX && mouseX <= backButtonX + btnW &&
+                        mouseY >= backButtonY && mouseY <= backButtonY + btnH) {
+                    navigateUp();
+                    return true;
+                }
+
+                if (mouseX >= closeButtonX && mouseX <= closeButtonX + closeBtnW &&
+                        mouseY >= closeButtonY && mouseY <= closeButtonY + closeBtnH) {
+                    minecraftClient.setScreen(parent);
+                    return true;
+                }
+
+                if (mouseX >= explorerX && mouseX <= explorerX + explorerWidth &&
+                        mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
+                    int relativeY = (int) mouseY - explorerY + (int) smoothOffset;
+                    int clickedIndex = relativeY / entryHeight;
+                    if (clickedIndex >= 0 && clickedIndex < fileEntries.size()) {
+                        Path selectedPath = fileEntries.get(clickedIndex);
+                        if (isDoubleClick) {
+                            if (Files.isDirectory(selectedPath)) {
+                                loadDirectory(selectedPath);
+                            } else {
+                                if (isSupportedFile(selectedPath)) {
+                                    minecraftClient.setScreen(new FileEditorScreen(minecraftClient, this, selectedPath, serverInfo));
+                                } else {
+                                    String fileType = getFileType(selectedPath);
+                                    showNotification(fileType + " isn't supported.", Notification.Type.ERROR);
+                                }
+                            }
+                            lastClickedIndex = -1;
+                            return true;
+                        } else {
+                            boolean ctrlPressed = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) ||
+                                    (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
+                            boolean shiftPressed = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS) ||
+                                    (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS);
+                            if (ctrlPressed) {
+                                if (selectedPaths.contains(selectedPath)) {
+                                    selectedPaths.remove(selectedPath);
+                                } else {
+                                    selectedPaths.add(selectedPath);
+                                }
+                                lastSelectedIndex = clickedIndex;
+                            } else if (shiftPressed && lastSelectedIndex != -1) {
+                                int start = Math.min(lastSelectedIndex, clickedIndex);
+                                int end = Math.max(lastSelectedIndex, clickedIndex);
+                                for (int i = start; i <= end; i++) {
+                                    Path path = fileEntries.get(i);
+                                    if (!selectedPaths.contains(path)) {
+                                        selectedPaths.add(path);
+                                    }
+                                }
+                            } else {
+                                selectedPaths.clear();
+                                selectedPaths.add(selectedPath);
+                                lastSelectedIndex = clickedIndex;
+                            }
+                            lastClickedIndex = clickedIndex;
+                            return true;
+                        }
+                    }
+                }
+            } else if (button == GLFW.GLFW_MOUSE_BUTTON_4) {
+                navigateUp();
+                return true;
+            } else if (button == GLFW.GLFW_MOUSE_BUTTON_5) {
+                navigateBack();
+                return true;
+            }
+        }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private String getFileType(Path file) {
+        String fileName = file.getFileName().toString();
+        int dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex != -1 && dotIndex < fileName.length() - 1) {
+            return fileName.substring(dotIndex + 1).toLowerCase();
+        }
+        return "unknown";
     }
 
     private void navigateBack() {
@@ -191,9 +277,11 @@ public class FileExplorerScreen extends Screen {
         }
     }
 
-
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (searchActive) {
+            return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        }
         targetOffset -= verticalAmount * entryHeight * 0.5f;
         targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, fileEntries.size() * entryHeight - (this.height - 100))));
         return true;
@@ -260,14 +348,14 @@ public class FileExplorerScreen extends Screen {
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
 
         int visibleEntries = explorerHeight / entryHeight;
-        int startIndex = (int)Math.floor(smoothOffset / entryHeight) - 1;
+        int startIndex = (int) Math.floor(smoothOffset / entryHeight) - 1;
         if (startIndex < 0) startIndex = 0;
         int endIndex = startIndex + visibleEntries + 2;
         if (endIndex > fileEntries.size()) endIndex = fileEntries.size();
 
         for (int entryIndex = startIndex; entryIndex < endIndex; entryIndex++) {
             Path entry = fileEntries.get(entryIndex);
-            int entryY = explorerY + (entryIndex * entryHeight) - (int)smoothOffset;
+            int entryY = explorerY + (entryIndex * entryHeight) - (int) smoothOffset;
 
             float opacity = 1.0f;
             if (entryY < explorerY) {
@@ -317,6 +405,36 @@ public class FileExplorerScreen extends Screen {
 
         context.fillGradient(explorerX, explorerY, explorerX + explorerWidth, explorerY + 10, 0x80000000, 0x00000000);
         context.fillGradient(explorerX, explorerY + explorerHeight - 10, explorerX + explorerWidth, explorerY + explorerHeight, 0x00000000, 0x80000000);
+
+        if (searchActive) {
+            context.fill(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight, 0xFF333333);
+            drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, 0xFF555555);
+            context.drawText(this.textRenderer, Text.literal(searchQuery.toString()), searchBarX + 5, searchBarY + 5, 0xFFFFFFFF, false);
+        }
+
+        updateNotifications(delta);
+        renderNotifications(context, mouseX, mouseY, delta);
+    }
+
+    private void showNotification(String message, Notification.Type type) {
+        notifications.add(new Notification(message, type, this.width, this.height));
+    }
+
+    private void updateNotifications(float delta) {
+        Iterator<Notification> iterator = notifications.iterator();
+        while (iterator.hasNext()) {
+            Notification notification = iterator.next();
+            notification.update(delta);
+            if (notification.isFinished()) {
+                iterator.remove();
+            }
+        }
+    }
+
+    private void renderNotifications(DrawContext context, int mouseX, int mouseY, float delta) {
+        for (Notification notification : notifications) {
+            notification.render(context);
+        }
     }
 
     void loadDirectory(Path dir) {
@@ -328,25 +446,43 @@ public class FileExplorerScreen extends Screen {
             history.push(currentPath);
             forwardHistory.clear();
         }
-        fileEntries.clear();
-        selectedPaths.clear();
+        if (searchActive) {
+            searchActive = false;
+            searchQuery.setLength(0);
+        }
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            allFileEntries.clear();
             for (Path entry : stream) {
-                fileEntries.add(entry);
+                allFileEntries.add(entry);
             }
         } catch (IOException e) {
-            if (serverInfo.terminal != null) {
-                serverInfo.terminal.appendOutput("Error reading directory: " + e.getMessage() + "\n");
-            }
+            showNotification("Error reading directory: " + e.getMessage(), Notification.Type.ERROR);
         }
         currentPath = dir.toAbsolutePath().normalize();
         sortFileEntries();
+        fileEntries = new ArrayList<>(allFileEntries);
         targetOffset = 0;
     }
 
     private void sortFileEntries() {
         Comparator<Path> comparator = Comparator.comparing(Path::getFileName);
         fileEntries.sort(comparator);
+    }
+
+    private void filterFileEntries() {
+        if (searchQuery.length() == 0) {
+            fileEntries = new ArrayList<>(allFileEntries);
+        } else {
+            fileEntries = new ArrayList<>();
+            String query = searchQuery.toString().toLowerCase();
+            for (Path entry : allFileEntries) {
+                if (entry.getFileName().toString().toLowerCase().contains(query)) {
+                    fileEntries.add(entry);
+                }
+            }
+        }
+        sortFileEntries();
+        targetOffset = 0;
     }
 
     private boolean isSupportedFile(Path file) {
@@ -409,6 +545,7 @@ public class FileExplorerScreen extends Screen {
 
     private void deleteSelected() {
         List<Path> toRemove = new ArrayList<>();
+        List<Path> deletedPaths = new ArrayList<>();
         for (Path path : selectedPaths) {
             try {
                 if (Files.isDirectory(path)) {
@@ -416,31 +553,36 @@ public class FileExplorerScreen extends Screen {
                         @Override
                         public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                             Files.delete(file);
+                            deletedPaths.add(file);
                             return FileVisitResult.CONTINUE;
                         }
 
                         @Override
                         public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
                             Files.delete(dir);
+                            deletedPaths.add(dir);
                             return FileVisitResult.CONTINUE;
                         }
                     });
                 } else {
                     Files.delete(path);
+                    deletedPaths.add(path);
                 }
                 toRemove.add(path);
             } catch (IOException e) {
-                if (serverInfo.terminal != null) {
-                    serverInfo.terminal.appendOutput("Error deleting " + path.getFileName() + ": " + e.getMessage() + "\n");
-                }
+                showNotification("Error deleting " + path.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
             }
         }
         fileEntries.removeAll(toRemove);
         selectedPaths.removeAll(toRemove);
+        if (!deletedPaths.isEmpty()) {
+            undoStack.push(new DeleteAction(deletedPaths));
+        }
     }
 
     private void paste() {
         List<Path> toDelete = new ArrayList<>();
+        List<Path> pastedPaths = new ArrayList<>();
         for (Path src : clipboard) {
             Path dest = currentPath.resolve(src.getFileName());
             if (src.toAbsolutePath().normalize().equals(dest.toAbsolutePath().normalize())) {
@@ -462,11 +604,13 @@ public class FileExplorerScreen extends Screen {
                             @Override
                             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                                 Files.copy(file, dest.resolve(currentPath.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
+                                pastedPaths.add(dest.resolve(currentPath.relativize(file)));
                                 return FileVisitResult.CONTINUE;
                             }
                         });
                     } else {
                         Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
+                        pastedPaths.add(dest);
                     }
                 } else {
                     if (Files.isDirectory(src)) {
@@ -483,21 +627,24 @@ public class FileExplorerScreen extends Screen {
                             @Override
                             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                                 Files.copy(file, dest.resolve(currentPath.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
+                                pastedPaths.add(dest.resolve(currentPath.relativize(file)));
                                 return FileVisitResult.CONTINUE;
                             }
                         });
                     } else {
                         Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
+                        pastedPaths.add(dest);
                     }
                 }
                 if (isCut && !src.toAbsolutePath().normalize().equals(dest.toAbsolutePath().normalize())) {
                     toDelete.add(src);
                 }
             } catch (IOException e) {
-                if (serverInfo.terminal != null) {
-                    serverInfo.terminal.appendOutput("Error pasting " + src.getFileName() + ": " + e.getMessage() + "\n");
-                }
+                showNotification("Error pasting " + src.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
             }
+        }
+        if (!pastedPaths.isEmpty()) {
+            undoStack.push(new PasteAction(pastedPaths));
         }
         for (Path path : toDelete) {
             try {
@@ -519,9 +666,7 @@ public class FileExplorerScreen extends Screen {
                     Files.delete(path);
                 }
             } catch (IOException e) {
-                if (serverInfo.terminal != null) {
-                    serverInfo.terminal.appendOutput("Error deleting " + path.getFileName() + ": " + e.getMessage() + "\n");
-                }
+                showNotification("Error deleting " + path.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
             }
         }
         if (isCut) {
@@ -532,4 +677,176 @@ public class FileExplorerScreen extends Screen {
         loadDirectory(currentPath);
     }
 
+    private void undo() {
+        if (!undoStack.isEmpty()) {
+            UndoableAction action = undoStack.pop();
+            action.undo();
+            loadDirectory(currentPath);
+        }
+    }
+
+    private interface UndoableAction {
+        void undo();
+    }
+
+    private class DeleteAction implements UndoableAction {
+        private final List<Path> deletedPaths;
+
+        DeleteAction(List<Path> deletedPaths) {
+            this.deletedPaths = new ArrayList<>(deletedPaths);
+        }
+
+        @Override
+        public void undo() {
+            for (Path path : deletedPaths) {
+                try {
+                    if (Files.isDirectory(path)) {
+                        Files.createDirectories(path);
+                    } else {
+                        Files.createFile(path);
+                    }
+                } catch (IOException e) {
+                    showNotification("Error undoing delete for " + path.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
+                }
+            }
+        }
+    }
+
+    private class PasteAction implements UndoableAction {
+        private final List<Path> pastedPaths;
+
+        PasteAction(List<Path> pastedPaths) {
+            this.pastedPaths = new ArrayList<>(pastedPaths);
+        }
+
+        @Override
+        public void undo() {
+            for (Path path : pastedPaths) {
+                try {
+                    if (Files.isDirectory(path)) {
+                        Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
+                            @Override
+                            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                                Files.delete(file);
+                                return FileVisitResult.CONTINUE;
+                            }
+
+                            @Override
+                            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                                Files.delete(dir);
+                                return FileVisitResult.CONTINUE;
+                            }
+                        });
+                    } else {
+                        Files.delete(path);
+                    }
+                } catch (IOException e) {
+                    showNotification("Error undoing paste for " + path.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
+                }
+            }
+        }
+    }
+
+    public class Notification {
+        private final TextRenderer textRenderer = minecraftClient.textRenderer;
+
+        enum Type {
+            INFO, WARN, ERROR
+        }
+
+        private String message;
+        private Type type;
+        private float x;
+        private float y;
+        private float targetX;
+        private float opacity;
+        private float animationSpeed = 30.0f; // pixels per second
+        private float fadeOutSpeed = 100.0f; // opacity per second
+        private float currentOpacity = 0.0f;
+        private float maxOpacity = 1.0f;
+        private float duration = 50.0f; // seconds
+        private float elapsedTime = 0.0f;
+        private boolean fadingOut = false;
+        private int padding = 10;
+        private int width;
+        private int height;
+
+        private static final List<Notification> activeNotifications = new ArrayList<>();
+
+        Notification(String message, Type type, int screenWidth, int screenHeight) {
+            this.message = message;
+            this.type = type;
+            this.width = textRenderer.getWidth(message) + 2 * padding;
+            this.height = textRenderer.fontHeight + 2 * padding;
+            this.x = screenWidth;
+            this.y = screenHeight - height - padding - (activeNotifications.size() * (height + padding));
+            this.targetX = screenWidth - width - padding;
+            this.opacity = 1.0f;
+            activeNotifications.add(this);
+        }
+
+        void update(float delta) {
+            if (x > targetX) {
+                float move = animationSpeed * delta;
+                x -= move;
+                if (x < targetX) {
+                    x = targetX;
+                }
+            } else if (!fadingOut) {
+                elapsedTime += delta;
+                if (elapsedTime >= duration) {
+                    fadingOut = true;
+                }
+            }
+
+            if (fadingOut) {
+                currentOpacity -= fadeOutSpeed * delta / 1000.0f;
+                if (currentOpacity <= 0.0f) {
+                    currentOpacity = 0.0f;
+                    activeNotifications.remove(this);
+                }
+            } else {
+                currentOpacity = maxOpacity;
+            }
+        }
+
+        boolean isFinished() {
+            return currentOpacity <= 0.0f;
+        }
+
+        void render(DrawContext context) {
+            if (currentOpacity <= 0.0f) return;
+            int color;
+            switch (type) {
+                case ERROR:
+                    color = blendColor(0xFFFF5555, currentOpacity);
+                    break;
+                case WARN:
+                    color = blendColor(0xFFFFAA55, currentOpacity);
+                    break;
+                case INFO:
+                default:
+                    color = blendColor(0xFF5555FF, currentOpacity);
+                    break;
+            }
+            context.fill((int) x, (int) y, (int) x + width, (int) y + height, color);
+            drawInnerBorder(context, (int) x, (int) y, width, height, blendColor(0xFF000000, currentOpacity));
+            context.drawText(this.textRenderer, Text.literal(message), (int) x + padding, (int) y + padding, blendColor(0xFFFFFFFF, currentOpacity), false);
+        }
+
+        private int blendColor(int color, float opacity) {
+            int a = (int) ((color >> 24 & 0xFF) * opacity);
+            int r = (color >> 16 & 0xFF);
+            int g = (color >> 8 & 0xFF);
+            int b = (color & 0xFF);
+            return (a << 24) | (r << 16) | (g << 8) | b;
+        }
+
+        private void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int c) {
+            context.fill(x, y, x + w, y + 1, c);
+            context.fill(x, y + h - 1, x + w, y + h, c);
+            context.fill(x, y, x + 1, y + h, c);
+            context.fill(x + w - 1, y, x + w, y + h, c);
+        }
+    }
 }

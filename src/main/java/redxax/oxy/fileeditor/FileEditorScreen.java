@@ -5,12 +5,16 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.Notification;
 import redxax.oxy.servers.ServerInfo;
+
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.stream.Collectors;
 
 public class FileEditorScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -19,6 +23,7 @@ public class FileEditorScreen extends Screen {
     private final ServerInfo serverInfo;
     private final ArrayList<String> fileContent = new ArrayList<>();
     private final MultiLineTextEditor textEditor;
+    private final ArrayList<String> originalContent = new ArrayList<>();
     private boolean unsaved;
     private int baseColor = 0xFF181818;
     private int lighterColor = 0xFF222222;
@@ -40,9 +45,8 @@ public class FileEditorScreen extends Screen {
         this.parent = parent;
         this.filePath = filePath;
         this.serverInfo = info;
-        try {
-            java.util.List<String> lines = Files.readAllLines(filePath);
-            fileContent.addAll(lines);
+        try (BufferedReader reader = Files.newBufferedReader(filePath)) {
+            fileContent.addAll(reader.lines().toList());
         } catch (IOException e) {
             if (serverInfo.terminal != null) {
                 serverInfo.terminal.appendOutput("File load error: " + e.getMessage() + "\n");
@@ -75,7 +79,7 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == this.minecraftClient.options.backKey.getDefaultKey().getCode()) {
+        if (keyCode == this.minecraftClient.options.backKey.getDefaultKey().getCode() && keyCode != GLFW.GLFW_KEY_S) {
             minecraftClient.setScreen(parent);
             return true;
         }
@@ -185,7 +189,7 @@ public class FileEditorScreen extends Screen {
         try {
             Files.write(filePath, newContent);
             if (serverInfo.terminal != null) {
-                serverInfo.terminal.appendOutput("File saved successfully.\n");
+                Notification notification = new Notification.Builder("Starting server...", Notification.Type.INFO).build();
             }
         } catch (IOException e) {
             if (serverInfo.terminal != null) {
@@ -235,21 +239,17 @@ public class FileEditorScreen extends Screen {
         public void render(DrawContext context, int mouseX, int mouseY, float delta) {
             int lineHeight = mc.textRenderer.fontHeight + 2;
             int visibleLines = height / lineHeight;
-            context.fill(x - 2, y - 2, x + width + 2, y, 0xFF333333);
-            context.fill(x - 2, y + height, x + width + 2, y + height + 2, 0xFF333333);
-            context.fill(x - 2, y, x, y + height, 0xFF333333);
-            context.fill(x + width, y, x + width + 2, y + height, 0xFF333333);
             for (int i = 0; i < visibleLines; i++) {
                 int lineIndex = scrollOffset + i;
                 if (lineIndex < 0 || lineIndex >= lines.size()) break;
                 int renderY = y + i * lineHeight;
                 String text = lines.get(lineIndex);
-                String syntaxColoredLine = SyntaxHighlighter.highlight(text, fileName);
+                Text syntaxColoredLine = SyntaxHighlighter.highlight(text, fileName);
                 String lineNumberStr = String.valueOf(lineIndex + 1);
                 int lnWidth = mc.textRenderer.getWidth(lineNumberStr);
                 context.drawText(mc.textRenderer, Text.literal(lineNumberStr), x - lineNumberWidth + (lineNumberWidth - lnWidth) / 2, renderY, 0xFFAAAAAA, false);
                 context.fill(x - 2, renderY, x, renderY + lineHeight - 2, 0xFF555555);
-                context.drawText(mc.textRenderer, Text.literal(syntaxColoredLine), x + textPadding, renderY, 0xFFFFFF, false);
+                context.drawText(mc.textRenderer, syntaxColoredLine, x + textPadding, renderY, 0xFFFFFF, false);
                 if (isLineSelected(lineIndex)) {
                     drawSelection(context, lineIndex, renderY, text, textPadding);
                 }
@@ -261,7 +261,7 @@ public class FileEditorScreen extends Screen {
             }
         }
 
-        public boolean charTyped(char chr, int keyCode) {
+        private boolean charTyped(char chr, int keyCode) {
             if (chr == '\n' || chr == '\r') {
                 deleteSelection();
                 pushState();
@@ -298,6 +298,11 @@ public class FileEditorScreen extends Screen {
             boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
             switch (keyCode) {
                 case GLFW.GLFW_KEY_BACKSPACE -> {
+                    if (ctrlHeld) {
+                        deleteWord();
+                        pushState();
+                        return true;
+                    }
                     if (hasSelection()) {
                         deleteSelection();
                         pushState();
@@ -470,8 +475,42 @@ public class FileEditorScreen extends Screen {
                     }
                     return true;
                 }
+                case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> {
+                    deleteSelection();
+                    pushState();
+                    if (cursorLine < 0) {
+                        cursorLine = 0;
+                    }
+                    if (cursorLine >= lines.size()) {
+                        lines.add("");
+                    } else {
+                        String currentLine = lines.get(cursorLine);
+                        String beforeCursor = currentLine.substring(0, cursorPos);
+                        String afterCursor = currentLine.substring(cursorPos);
+                        lines.set(cursorLine, beforeCursor);
+                        lines.add(cursorLine + 1, afterCursor);
+                    }
+                    cursorLine++;
+                    cursorPos = 0;
+                    return true;
+                }
             }
             return false;
+        }
+
+        private void deleteWord() {
+            if (cursorLine < 0 || cursorLine >= lines.size()) return;
+            String line = lines.get(cursorLine);
+            int startPos = cursorPos;
+            while (startPos > 0 && Character.isWhitespace(line.charAt(startPos - 1))) {
+                startPos--;
+            }
+            while (startPos > 0 && !Character.isWhitespace(line.charAt(startPos - 1))) {
+                startPos--;
+            }
+            String newLine = line.substring(0, startPos) + line.substring(cursorPos);
+            lines.set(cursorLine, newLine);
+            cursorPos = startPos;
         }
 
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
@@ -503,7 +542,6 @@ public class FileEditorScreen extends Screen {
                     cursorPos = cPos;
 
                     if (clickCount == 2) {
-                        // Double-click: select word
                         int wordStart = cursorPos;
                         int wordEnd = cursorPos;
                         while (wordStart > 0 && !Character.isWhitespace(text.charAt(wordStart - 1)) && !"=\"'".contains(String.valueOf(text.charAt(wordStart - 1)))) {
@@ -517,7 +555,6 @@ public class FileEditorScreen extends Screen {
                         selectionEndLine = cursorLine;
                         selectionEndChar = wordEnd;
                     } else if (clickCount >= 3) {
-                        // Triple-click: select line
                         selectionStartLine = cursorLine;
                         selectionStartChar = 0;
                         selectionEndLine = cursorLine;
@@ -564,7 +601,11 @@ public class FileEditorScreen extends Screen {
         }
 
         public void scroll(double amount) {
-            scrollOffset -= (int)amount;
+            if (GLFW.glfwGetKey(mc.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS ||
+                    GLFW.glfwGetKey(mc.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS) {
+                amount *= 3;
+            }
+            scrollOffset -= (int) amount;
             if (scrollOffset < 0) scrollOffset = 0;
             if (scrollOffset >= lines.size()) scrollOffset = Math.max(0, lines.size() - 1);
         }
@@ -798,4 +839,3 @@ public class FileEditorScreen extends Screen {
         }
     }
 }
-

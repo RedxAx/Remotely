@@ -11,6 +11,9 @@ public class ModrinthResource {
     public int downloads;
     public String slug;
     public List<String> gameVersions;
+    public List<String> authors;
+    public List<String> categories;
+    public List<String> dependencies;
 
     public ModrinthResource(String name, String version, String description, String fileName, String iconUrl, int downloads, String slug, List<String> gameVersions) {
         this.name = name;
@@ -21,5 +24,8 @@ public class ModrinthResource {
         this.downloads = downloads;
         this.slug = slug;
         this.gameVersions = gameVersions;
+        this.authors = List.of();
+        this.categories = List.of();
+        this.dependencies = List.of();
     }
 }

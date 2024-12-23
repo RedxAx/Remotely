@@ -1,7 +1,11 @@
 package redxax.oxy.fileeditor;
 
+import java.util.ArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import net.minecraft.text.MutableText;
+import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 
 public class SyntaxHighlighter {
     private static final Pattern YAML_COMMENT = Pattern.compile("^\\s*#.*");
@@ -11,49 +15,60 @@ public class SyntaxHighlighter {
     private static final Pattern NUMBER_PATTERN = Pattern.compile("\\b\\d+(\\.\\d+)?\\b");
     private static final Pattern BOOL_PATTERN = Pattern.compile("\\b(true|false)\\b");
 
-    public static String highlight(String line, String fileName) {
+    public static Text highlight(String line, String fileName) {
         String ext = getExtension(fileName).toLowerCase();
-        line = colorPatterns(line, NUMBER_PATTERN, 0xB5CEA8); // Green for numbers
-        line = colorPatterns(line, BOOL_PATTERN, 0x569CD6);   // Blue for booleans
-        line = colorPatterns(line, STRING_PATTERN, 0xCE9178); // Light Orange for strings
+        MutableText mutableText = Text.literal("");
+        int lastIndex = 0;
+
+        ArrayList<PatternColorPair> patterns = new ArrayList<>();
+        patterns.add(new PatternColorPair(NUMBER_PATTERN, 0xB5CEA8));
+        patterns.add(new PatternColorPair(BOOL_PATTERN, 0x569CD6));
+        patterns.add(new PatternColorPair(STRING_PATTERN, 0xCE9178));
+
+        for (PatternColorPair pair : patterns) {
+            Matcher matcher = pair.pattern.matcher(line);
+            while (matcher.find()) {
+                if (matcher.start() > lastIndex) {
+                    mutableText.append(Text.literal(line.substring(lastIndex, matcher.start())));
+                }
+                mutableText.append(Text.literal(matcher.group()).styled(style -> style.withColor(pair.color)));
+                lastIndex = matcher.end();
+            }
+        }
+
+        if (lastIndex < line.length()) {
+            mutableText.append(Text.literal(line.substring(lastIndex)));
+        }
 
         if (ext.equals("yaml") || ext.equals("yml")) {
-            if (YAML_COMMENT.matcher(line).find()) {
-                line = colorAll(line, 0x6A9955); // Green for comments
+            Matcher commentMatcher = YAML_COMMENT.matcher(line);
+            if (commentMatcher.find()) {
+                return Text.literal(line).styled(style -> style.withColor(0x6A9955));
             } else {
-                line = colorPatterns(line, Pattern.compile("^[^:]+:"), 0x9CDCFE); // Light Blue for keys
+                Matcher keyMatcher = Pattern.compile("^[^:]+:").matcher(line);
+                if (keyMatcher.find()) {
+                    MutableText keyText = Text.literal(keyMatcher.group()).styled(style -> style.withColor(0x9CDCFE));
+                    MutableText restText = Text.literal(line.substring(keyMatcher.end()));
+                    return Text.empty().append(keyText).append(restText);
+                }
             }
         } else if (ext.equals("json")) {
-            line = colorPatterns(line, JSON_KEY, 0x9CDCFE); // Light Blue for JSON keys
+            Matcher keyMatcher = JSON_KEY.matcher(line);
+            if (keyMatcher.find()) {
+                MutableText keyText = Text.literal(keyMatcher.group()).styled(style -> style.withColor(0x9CDCFE));
+                MutableText restText = Text.literal(line.substring(keyMatcher.end()));
+                return Text.empty().append(keyText).append(restText);
+            }
         } else if (ext.equals("toml")) {
-            line = colorPatterns(line, TOML_KEY, 0x9CDCFE); // Light Blue for TOML keys
+            Matcher keyMatcher = TOML_KEY.matcher(line);
+            if (keyMatcher.find()) {
+                MutableText keyText = Text.literal(keyMatcher.group()).styled(style -> style.withColor(0x9CDCFE));
+                MutableText restText = Text.literal(line.substring(keyMatcher.end()));
+                return Text.empty().append(keyText).append(restText);
+            }
         }
-        return line;
-    }
 
-    private static String colorPatterns(String text, Pattern pattern, int rgb) {
-        Matcher matcher = pattern.matcher(text);
-        StringBuffer sb = new StringBuffer();
-        while (matcher.find()) {
-            String match = matcher.group();
-            String colored = colorAll(match, rgb);
-            matcher.appendReplacement(sb, colored);
-        }
-        matcher.appendTail(sb);
-        return sb.toString();
-    }
-
-    private static String colorAll(String text, int rgb) {
-        return "§x" + hex(rgb) + text + "§r";
-    }
-
-    private static String hex(int rgb) {
-        String hex = String.format("%06X", (rgb & 0xFFFFFF));
-        StringBuilder sb = new StringBuilder();
-        for (char c : hex.toCharArray()) {
-            sb.append("§").append(c);
-        }
-        return sb.toString();
+        return mutableText;
     }
 
     private static String getExtension(String fileName) {
@@ -62,5 +77,15 @@ public class SyntaxHighlighter {
             return "";
         }
         return fileName.substring(lastDot + 1);
+    }
+
+    private static class PatternColorPair {
+        Pattern pattern;
+        int color;
+
+        PatternColorPair(Pattern pattern, int color) {
+            this.pattern = pattern;
+            this.color = color;
+        }
     }
 }

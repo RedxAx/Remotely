@@ -29,4 +29,8 @@ public class ServerTerminalInstance extends TerminalInstance {
         processManager.setCurrentDirectory(serverJarPath.replace("server.jar",""));
         processManager.launchTerminal();
     }
+
+    public void clearOutput() {
+        renderer.clearOutput();
+    }
 }

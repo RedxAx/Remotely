@@ -23,8 +23,9 @@ import redxax.oxy.servers.ServerManagerScreen;
 public class RemotelyClient implements ClientModInitializer {
 
     private KeyBinding openTerminalKeyBinding;
-    // NEW KEYBINDING for the Server Manager:
     private KeyBinding openServerManagerKeyBinding;
+    private KeyBinding openComponentsGuiKeyBinding;
+
 
     public MultiTerminalScreen multiTerminalScreen;
     // We’ll store the server manager screen reference too:
@@ -66,6 +67,12 @@ public class RemotelyClient implements ClientModInitializer {
                 GLFW.GLFW_KEY_X,
                 "Remotely"
         ));
+        openComponentsGuiKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                "Open Components GUI",
+                InputUtil.Type.KEYSYM,
+                GLFW.GLFW_KEY_I,
+                "Remotely"
+        ));
 
         // Ticking to detect key presses
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -78,11 +85,19 @@ public class RemotelyClient implements ClientModInitializer {
                 if (openServerManagerKeyBinding.wasPressed()) {
                     openServerManagerGUI(client);
                 }
+//                if (openComponentsGuiKeyBinding.wasPressed()) {
+//                    openComponentsGui(client);
+//                }
             }
         });
 
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownAllTerminals));
     }
+
+//    public void openComponentsGui(MinecraftClient client) {
+//        ComponentsGui screen = new ComponentsGui();
+//        client.setScreen(screen);
+//    }
 
     public void openMultiTerminalGUI(MinecraftClient client) {
         if (multiTerminalScreen == null || !client.isWindowFocused()) {

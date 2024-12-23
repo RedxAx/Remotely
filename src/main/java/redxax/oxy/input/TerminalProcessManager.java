@@ -142,13 +142,15 @@ public class TerminalProcessManager {
     }
 
     private void detectServerState(ServerTerminalInstance sti, String line) {
+        // Match specific patterns for server states
         if (line.contains("Done (")) {
             sti.serverInfo.state = ServerState.RUNNING;
-        } else if (line.toLowerCase().contains("exception") || line.toLowerCase().contains("crash")) {
+        } else if (line.matches(".*\\b[Ff]atal\\b.*") || line.matches(".*\\b[Uu]nhandled exception\\b.*")) {
             sti.serverInfo.state = ServerState.CRASHED;
         } else if (line.toLowerCase().contains("stopping server") || line.toLowerCase().contains("server stopped")) {
             sti.serverInfo.state = ServerState.STOPPED;
-        } else if (line.toLowerCase().contains("starting minecraft server") && sti.serverInfo.state == ServerState.STARTING) {
+        } else if (line.toLowerCase().contains("starting minecraft server")) {
+            sti.serverInfo.state = ServerState.STARTING;
         }
     }
 
@@ -190,7 +192,7 @@ public class TerminalProcessManager {
     }
 
     private void detectServerCrash(ServerTerminalInstance sti, String line) {
-        if (line.toLowerCase().contains("exception") || line.toLowerCase().contains("crash")) {
+        if (line.matches(".*\\b[Uu]nexpected error\\b.*") || line.matches(".*\\b[Oo]ut of memory\\b.*")) {
             sti.serverInfo.state = ServerState.CRASHED;
         }
     }

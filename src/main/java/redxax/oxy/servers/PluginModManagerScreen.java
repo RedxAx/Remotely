@@ -244,9 +244,7 @@ public class PluginModManagerScreen extends Screen {
                         CompletableFuture.runAsync(() -> {
                             try (InputStream inputStream = new URL(resource.iconUrl).openStream()) {
                                 NativeImage nativeImage = loadImage(inputStream, resource.iconUrl);
-                                if (nativeImage != null) {
-                                    minecraftClient.getTextureManager().registerTexture(textureId, new NativeImageBackedTexture(nativeImage));
-                                }
+                                minecraftClient.getTextureManager().registerTexture(textureId, new NativeImageBackedTexture(nativeImage));
                             } catch (IOException e) {
                                 e.printStackTrace();
                             }
