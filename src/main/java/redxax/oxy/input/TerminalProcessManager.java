@@ -249,10 +249,4 @@ public class TerminalProcessManager {
         this.currentDirectory = currentDirectory;
     }
 
-    public OutputStream getOutputStream() {
-        if (isDetachedServer && terminalProcess == null) {
-            return null;
-        }
-        return terminalProcess.getOutputStream();
-    }
 }

@@ -4,6 +4,7 @@ import net.minecraft.client.MinecraftClient;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.servers.ServerState;
 import redxax.oxy.input.TerminalProcessManager;
+import java.nio.file.Paths;
 import java.util.UUID;
 
 public class ServerTerminalInstance extends TerminalInstance {
@@ -16,18 +17,38 @@ public class ServerTerminalInstance extends TerminalInstance {
     public ServerTerminalInstance(MinecraftClient mc, MultiTerminalScreen screen, UUID id, ServerInfo sInfo) {
         super(mc, screen, id);
         this.serverInfo = sInfo;
-        this.serverJarPath = java.nio.file.Paths.get(serverInfo.path, "server.jar").toString().replace("\\", "/");
+        if (serverInfo.isRemote) {
+            this.serverJarPath = serverInfo.path.replace("\\", "/") + "/server.jar";
+        } else {
+            this.serverJarPath = Paths.get(serverInfo.path, "server.jar").toString().replace("\\", "/");
+        }
     }
 
     @Override
     public void launchServerProcess() {
-        if (processManager != null) {
-            processManager.shutdown();
+        if (serverInfo.isRemote && serverInfo.remoteHost != null) {
+            serverInfo.state = ServerState.STARTING;
+            if (serverInfo.remoteSSHManager == null) {
+                serverInfo.remoteSSHManager = new SSHManager(serverInfo.remoteHost);
+            }
+            serverInfo.remoteSSHManager.setTerminalInstance(this);
+            serverInfo.remoteSSHManager.connectToRemoteHost(
+                    serverInfo.remoteHost.getUser(),
+                    serverInfo.remoteHost.ip,
+                    serverInfo.remoteHost.port,
+                    serverInfo.remoteHost.password
+            );
+            serverInfo.remoteSSHManager.connectSFTP();
+            serverInfo.remoteSSHManager.launchRemoteServer(serverInfo.path, serverJarPath);
+        } else {
+            if (processManager != null) {
+                processManager.shutdown();
+            }
+            serverInfo.state = ServerState.STARTING;
+            processManager = new ServerProcessManager(this);
+            processManager.setCurrentDirectory(serverJarPath.replace("server.jar",""));
+            processManager.launchTerminal();
         }
-        serverInfo.state = ServerState.STARTING;
-        processManager = new ServerProcessManager(this);
-        processManager.setCurrentDirectory(serverJarPath.replace("server.jar",""));
-        processManager.launchTerminal();
     }
 
     public void clearOutput() {

@@ -1,4 +1,4 @@
-package redxax.oxy.fileeditor;
+package redxax.oxy.explorer;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
@@ -14,7 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.stream.Collectors;
 
 public class FileEditorScreen extends Screen {
     private final MinecraftClient minecraftClient;

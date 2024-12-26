@@ -21,11 +21,11 @@ public class Notification {
     private float y;
     private float targetX;
     private float opacity;
-    private float animationSpeed = 30.0f;
+    private float animationSpeed = 300.0f;
     private float fadeOutSpeed = 100.0f;
     private float currentOpacity = 0.0f;
     private float maxOpacity = 1.0f;
-    private float duration = 50.0f;
+    private float duration = 5.0f;
     private float elapsedTime = 0.0f;
     private boolean fadingOut = false;
     private int padding = 10;
@@ -61,10 +61,10 @@ public class Notification {
     public static class Builder {
         private String message;
         private Type type;
-        private float animationSpeed = 30.0f;
+        private float animationSpeed = 300.0f;
         private float fadeOutSpeed = 100.0f;
         private float maxOpacity = 1.0f;
-        private float duration = 50.0f;
+        private float duration = 5.0f;
         private int padding = 10;
 
         public Builder(String message, Type type) {
@@ -104,7 +104,7 @@ public class Notification {
 
     public static void updateAll(float delta) {
         List<Notification> toRemove = new ArrayList<>();
-        for (Notification notification : activeNotifications) {
+        for (Notification notification : new ArrayList<>(activeNotifications)) {
             notification.update(delta);
             if (notification.isFinished()) {
                 toRemove.add(notification);
@@ -125,6 +125,7 @@ public class Notification {
             x -= move;
             if (x < targetX) {
                 x = targetX;
+                currentOpacity = maxOpacity;
             }
         } else if (!fadingOut) {
             elapsedTime += delta;
@@ -138,8 +139,6 @@ public class Notification {
             if (currentOpacity <= 0.0f) {
                 currentOpacity = 0.0f;
             }
-        } else {
-            currentOpacity = maxOpacity;
         }
     }
 

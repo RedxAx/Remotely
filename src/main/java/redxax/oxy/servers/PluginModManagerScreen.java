@@ -10,13 +10,8 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
-import javax.imageio.ImageIO;
-import javax.imageio.ImageReader;
-import javax.imageio.stream.ImageInputStream;
-import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.util.*;
@@ -78,7 +73,7 @@ public class PluginModManagerScreen extends Screen {
         }
         isLoading = true;
         if (reset) hasMore = true;
-        ModrinthAPI.searchResources(query, serverInfo, 30, loadedCount).thenAccept(fetched -> {
+        ModrinthAPI.searchModpacks(query, 30, loadedCount).thenAccept(fetched -> {
             if (fetched.size() < 30) hasMore = false;
             Set<String> seenSlugs = ConcurrentHashMap.newKeySet();
             List<ModrinthResource> uniqueResources = new ArrayList<>();
@@ -216,7 +211,6 @@ public class PluginModManagerScreen extends Screen {
         int listEndY = this.height - 20;
         int panelWidth = this.width - 20;
 
-        // Adjust scissor to clip only the top and bottom edges
         context.enableScissor(0, listStartY, this.width, listEndY);
 
         int visibleEntries = (listEndY - listStartY) / entryHeight;
@@ -226,10 +220,7 @@ public class PluginModManagerScreen extends Screen {
         for (int i = startIndex; i < endIndex; i++) {
             ModrinthResource resource = resources.get(i);
             int y = listStartY + (i * entryHeight) - (int) smoothOffset;
-
-            // Enhance the logic for calculating the cutting box
             if (y + entryHeight < listStartY || y > listEndY) continue;
-
             boolean hovered = mouseX >= 0 && mouseX <= this.width && mouseY >= y && mouseY <= y + entryHeight;
             int bg = hovered ? highlightColor : lighterColor;
             context.fill(10, y, panelWidth + 10, y + entryHeight, bg);
@@ -245,9 +236,7 @@ public class PluginModManagerScreen extends Screen {
                             try (InputStream inputStream = new URL(resource.iconUrl).openStream()) {
                                 NativeImage nativeImage = loadImage(inputStream, resource.iconUrl);
                                 minecraftClient.getTextureManager().registerTexture(textureId, new NativeImageBackedTexture(nativeImage));
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
+                            } catch (Exception ignored) {}
                         });
                     }
                 }
@@ -275,7 +264,6 @@ public class PluginModManagerScreen extends Screen {
 
         context.disableScissor();
 
-        // Extend shadows to full width
         if (smoothOffset > 0) {
             context.fillGradient(0, listStartY, this.width, listStartY + 10, 0x80000000, 0x00000000);
         }
@@ -284,7 +272,7 @@ public class PluginModManagerScreen extends Screen {
             context.fillGradient(0, listEndY - 10, this.width, listEndY, 0x00000000, 0x80000000);
         }
         loadMoreIfNeeded();
-    } //finally a perfect renderer
+    }
 
     private static String formatDownloads(int n) {
         if (n >= 1_000_000) {
@@ -303,35 +291,14 @@ public class PluginModManagerScreen extends Screen {
         context.fill(x + w - 1, y, x + w, y + h, c);
     }
 
-    private NativeImage loadImage(InputStream inputStream, String url) throws IOException {
-        if (url.toLowerCase().endsWith(".webp")) {
-            try (ImageInputStream iis = ImageIO.createImageInputStream(inputStream)) {
-                Iterator<ImageReader> readers = ImageIO.getImageReadersByFormatName("webp");
-                if (!readers.hasNext()) throw new IOException("No WEBP reader found");
-                ImageReader reader = readers.next();
-                reader.setInput(iis, false);
-                BufferedImage img = reader.read(0);
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                ImageIO.write(img, "png", baos);
-                try (InputStream pngStream = new ByteArrayInputStream(baos.toByteArray())) {
-                    return NativeImage.read(pngStream);
-                }
-            }
-        } else if (url.toLowerCase().endsWith(".gif")) {
-            try (ImageInputStream iis = ImageIO.createImageInputStream(inputStream)) {
-                Iterator<ImageReader> readers = ImageIO.getImageReadersByFormatName("gif");
-                if (!readers.hasNext()) throw new IOException("No GIF reader found");
-                ImageReader reader = readers.next();
-                reader.setInput(iis, false);
-                BufferedImage img = reader.read(0);
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                ImageIO.write(img, "png", baos);
-                try (InputStream pngStream = new ByteArrayInputStream(baos.toByteArray())) {
-                    return NativeImage.read(pngStream);
-                }
-            }
-        } else {
-            return NativeImage.read(inputStream);
+    private NativeImage loadImage(InputStream inputStream, String url) throws Exception {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int len;
+        while ((len = inputStream.read(buf)) != -1) {
+            baos.write(buf, 0, len);
         }
+        inputStream.close();
+        return NativeImage.read(new ByteArrayInputStream(baos.toByteArray()));
     }
 }

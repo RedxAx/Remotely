@@ -1,11 +1,10 @@
-package redxax.oxy.fileeditor;
+package redxax.oxy.explorer;
 
 import java.util.ArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
 
 public class SyntaxHighlighter {
     private static final Pattern YAML_COMMENT = Pattern.compile("^\\s*#.*");

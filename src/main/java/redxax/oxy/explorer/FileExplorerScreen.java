@@ -1,4 +1,4 @@
-package redxax.oxy.servers;
+package redxax.oxy.explorer;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
@@ -6,20 +6,19 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.fileeditor.FileEditorScreen;
-
+import redxax.oxy.servers.ServerInfo;
+import redxax.oxy.SSHManager;
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
-public class FileExplorerScreen extends Screen {
+public class FileExplorerScreen extends Screen implements FileManager.FileManagerCallback {
     private final MinecraftClient minecraftClient;
     private final Screen parent;
     private final ServerInfo serverInfo;
     private List<Path> fileEntries;
-    private List<Path> allFileEntries;
     private float smoothOffset = 0;
     private int entryHeight = 25;
     private int baseColor = 0xFF181818;
@@ -35,14 +34,11 @@ public class FileExplorerScreen extends Screen {
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm");
     private List<Path> selectedPaths = new ArrayList<>();
     private int lastSelectedIndex = -1;
-    private List<Path> clipboard = new ArrayList<>();
-    private boolean isCut = false;
     private long lastClickTime = 0;
     private static final int DOUBLE_CLICK_INTERVAL = 500;
     private int lastClickedIndex = -1;
     private Deque<Path> history = new ArrayDeque<>();
     private Deque<Path> forwardHistory = new ArrayDeque<>();
-    private Deque<UndoableAction> undoStack = new ArrayDeque<>();
     private boolean searchActive = false;
     private StringBuilder searchQuery = new StringBuilder();
     private int searchBarX = 10;
@@ -51,17 +47,40 @@ public class FileExplorerScreen extends Screen {
     private int searchBarHeight = 20;
     private List<Notification> notifications = new ArrayList<>();
     private final TextRenderer textRenderer;
-
+    private final FileManager fileManager;
+    private boolean importMode;
+    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(
+            ".txt", ".md", ".json", ".yml", ".yaml", ".conf", ".properties",
+            ".xml", ".cfg", ".sk", ".log", ".mcmeta", ".bat", ".sh", ".json5", ".jsonc",
+            ".html", ".js", ".java", ".py", ".css", ".vsh", ".fsh", ".glsl", ".nu",
+            ".bash", ".fish"
+    );
 
     public FileExplorerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
+        this(mc, parent, info, false);
+    }
+
+    public FileExplorerScreen(MinecraftClient mc, Screen parent, ServerInfo info, boolean importMode) {
         super(Text.literal("File Explorer"));
         this.minecraftClient = mc;
         this.parent = parent;
         this.serverInfo = info;
         this.fileEntries = new ArrayList<>();
-        this.allFileEntries = new ArrayList<>();
-        this.currentPath = Paths.get(serverInfo.path).toAbsolutePath().normalize();
         this.textRenderer = mc.textRenderer;
+        this.fileManager = new FileManager(this);
+        this.importMode = importMode;
+        if (serverInfo.isRemote) {
+            String normalized = serverInfo.path == null ? "" : serverInfo.path.replace("\\", "/").trim();
+            if (normalized.isEmpty()) {
+                normalized = "/";
+            }
+            if (!normalized.startsWith("/")) {
+                normalized = "/" + normalized;
+            }
+            this.currentPath = Paths.get(normalized);
+        } else {
+            this.currentPath = Paths.get(serverInfo.path).toAbsolutePath().normalize();
+        }
     }
 
     @Override
@@ -77,7 +96,7 @@ public class FileExplorerScreen extends Screen {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
                 searchActive = false;
                 searchQuery.setLength(0);
-                fileEntries = new ArrayList<>(allFileEntries);
+                loadDirectory(currentPath, false);
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
@@ -107,23 +126,23 @@ public class FileExplorerScreen extends Screen {
             return true;
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_C) {
-            copySelected();
+            fileManager.copySelected(selectedPaths);
             return true;
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_X) {
-            cutSelected();
+            fileManager.cutSelected(selectedPaths);
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_DELETE) {
-            deleteSelected();
+            fileManager.deleteSelected(selectedPaths, currentPath);
             return true;
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_V) {
-            paste();
+            fileManager.paste(currentPath);
             return true;
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_Z) {
-            undo();
+            fileManager.undo(currentPath);
             return true;
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_F) {
@@ -161,7 +180,7 @@ public class FileExplorerScreen extends Screen {
             if (button == GLFW.GLFW_MOUSE_BUTTON_1) {
                 long currentTime = System.currentTimeMillis();
                 boolean isDoubleClick = false;
-                if (lastClickedIndex != -1 && (currentTime - lastClickTime) < DOUBLE_CLICK_INTERVAL && lastClickedIndex != -1) {
+                if (lastClickedIndex != -1 && (currentTime - lastClickTime) < DOUBLE_CLICK_INTERVAL) {
                     isDoubleClick = true;
                 }
                 lastClickTime = currentTime;
@@ -178,33 +197,35 @@ public class FileExplorerScreen extends Screen {
                 int closeBtnW = 50;
                 int closeBtnH = 20;
 
-                if (mouseX >= backButtonX && mouseX <= backButtonX + btnW &&
-                        mouseY >= backButtonY && mouseY <= backButtonY + btnH) {
+                if (mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH) {
                     navigateUp();
                     return true;
                 }
-
-                if (mouseX >= closeButtonX && mouseX <= closeButtonX + closeBtnW &&
-                        mouseY >= closeButtonY && mouseY <= closeButtonY + closeBtnH) {
+                if (mouseX >= closeButtonX && mouseX <= closeButtonX + closeBtnW && mouseY >= closeButtonY && mouseY <= closeButtonY + closeBtnH) {
                     minecraftClient.setScreen(parent);
                     return true;
                 }
-
-                if (mouseX >= explorerX && mouseX <= explorerX + explorerWidth &&
-                        mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
+                if (mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
                     int relativeY = (int) mouseY - explorerY + (int) smoothOffset;
                     int clickedIndex = relativeY / entryHeight;
                     if (clickedIndex >= 0 && clickedIndex < fileEntries.size()) {
                         Path selectedPath = fileEntries.get(clickedIndex);
                         if (isDoubleClick) {
-                            if (Files.isDirectory(selectedPath)) {
+                            if (isDirectory(selectedPath)) {
                                 loadDirectory(selectedPath);
                             } else {
+                                if (importMode && selectedPath.getFileName().toString().equalsIgnoreCase("server.jar")) {
+                                    String folderName = selectedPath.getParent().getFileName().toString();
+                                    if (parent instanceof redxax.oxy.servers.ServerManagerScreen sms) {
+                                        sms.importServerJar(selectedPath, folderName);
+                                    }
+                                    minecraftClient.setScreen(parent);
+                                    return true;
+                                }
                                 if (isSupportedFile(selectedPath)) {
                                     minecraftClient.setScreen(new FileEditorScreen(minecraftClient, this, selectedPath, serverInfo));
                                 } else {
-                                    String fileType = getFileType(selectedPath);
-                                    showNotification(fileType + " isn't supported.", Notification.Type.ERROR);
+                                    showNotification("Unsupported file.", Notification.Type.ERROR);
                                 }
                             }
                             lastClickedIndex = -1;
@@ -251,13 +272,19 @@ public class FileExplorerScreen extends Screen {
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
-    private String getFileType(Path file) {
-        String fileName = file.getFileName().toString();
-        int dotIndex = fileName.lastIndexOf('.');
-        if (dotIndex != -1 && dotIndex < fileName.length() - 1) {
-            return fileName.substring(dotIndex + 1).toLowerCase();
+    private boolean isDirectory(Path p) {
+        if (serverInfo.isRemote) {
+            if (serverInfo.remoteSSHManager == null || !serverInfo.remoteSSHManager.isSFTPConnected()) {
+                return false;
+            }
+            try {
+                String remotePath = p.toString().replace("\\", "/");
+                return serverInfo.remoteSSHManager.isRemoteDirectory(remotePath);
+            } catch (Exception e) {
+                return false;
+            }
         }
-        return "unknown";
+        return Files.isDirectory(p);
     }
 
     private void navigateBack() {
@@ -269,11 +296,25 @@ public class FileExplorerScreen extends Screen {
     }
 
     private void navigateUp() {
-        Path parentPath = currentPath.getParent();
-        if (parentPath != null && parentPath.startsWith(Paths.get(serverInfo.path).toAbsolutePath().normalize())) {
-            loadDirectory(parentPath);
+        if (serverInfo.isRemote) {
+            if (currentPath == null || currentPath.toString().equals("/")) {
+                minecraftClient.setScreen(parent);
+            } else {
+                Path parentPath = currentPath.getParent();
+                if (parentPath == null || parentPath.toString().isEmpty()) {
+                    currentPath = Paths.get("/");
+                    loadDirectory(currentPath);
+                } else {
+                    loadDirectory(parentPath);
+                }
+            }
         } else {
-            minecraftClient.setScreen(parent);
+            Path parentPath = currentPath.getParent();
+            if (parentPath != null && parentPath.startsWith(Paths.get(serverInfo.path).toAbsolutePath().normalize())) {
+                loadDirectory(parentPath);
+            } else {
+                minecraftClient.setScreen(parent);
+            }
         }
     }
 
@@ -296,13 +337,13 @@ public class FileExplorerScreen extends Screen {
         int explorerY = 60;
         int explorerWidth = this.width - 100;
         int explorerHeight = this.height - 100;
-
         context.fill(explorerX, explorerY, explorerX + explorerWidth, explorerY + explorerHeight, explorerBgColor);
         drawInnerBorder(context, explorerX, explorerY, explorerWidth, explorerHeight, explorerBorderColor);
 
         int headerY = explorerY - 25;
         context.fill(explorerX, headerY, explorerX + explorerWidth, headerY + 25, explorerBgColor);
         drawInnerBorder(context, explorerX, headerY, explorerWidth, 25, explorerBorderColor);
+
         context.drawText(this.textRenderer, Text.literal("Name"), explorerX + 10, headerY + 5, textColor, false);
         context.drawText(this.textRenderer, Text.literal("Size"), explorerX + 250, headerY + 5, textColor, false);
         context.drawText(this.textRenderer, Text.literal("Created"), explorerX + 350, headerY + 5, textColor, false);
@@ -311,8 +352,8 @@ public class FileExplorerScreen extends Screen {
         context.fill(0, 0, this.width, titleBarHeight, 0xFF222222);
         drawInnerBorder(context, 0, 0, this.width, titleBarHeight, 0xFF333333);
 
-        String titleText = "File Explorer - " + currentPath.toString();
-        if (!currentPath.equals(Paths.get(serverInfo.path).toAbsolutePath().normalize())) {
+        String titleText = "File Explorer - " + currentPath;
+        if (!serverInfo.isRemote && !currentPath.equals(Paths.get(serverInfo.path).toAbsolutePath().normalize())) {
             titleText += "/";
         }
         context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, textColor, false);
@@ -321,8 +362,7 @@ public class FileExplorerScreen extends Screen {
         int backButtonY = 5;
         int btnW = 50;
         int btnH = 20;
-        boolean hoveredBack = mouseX >= backButtonX && mouseX <= backButtonX + btnW &&
-                mouseY >= backButtonY && mouseY <= backButtonY + btnH;
+        boolean hoveredBack = mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH;
         int bgBack = hoveredBack ? highlightColor : explorerBgColor;
         context.fill(backButtonX, backButtonY, backButtonX + btnW, backButtonY + btnH, bgBack);
         drawInnerBorder(context, backButtonX, backButtonY, btnW, btnH, explorerBorderColor);
@@ -335,8 +375,7 @@ public class FileExplorerScreen extends Screen {
         int closeButtonY = 5;
         int closeBtnW = 50;
         int closeBtnH = 20;
-        boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + closeBtnW &&
-                mouseY >= closeButtonY && mouseY <= closeButtonY + closeBtnH;
+        boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + closeBtnW && mouseY >= closeButtonY && mouseY <= closeButtonY + closeBtnH;
         int bgClose = hoveredClose ? highlightColor : explorerBgColor;
         context.fill(closeButtonX, closeButtonY, closeButtonX + closeBtnW, closeButtonY + closeBtnH, bgClose);
         drawInnerBorder(context, closeButtonX, closeButtonY, closeBtnW, closeBtnH, explorerBorderColor);
@@ -346,7 +385,6 @@ public class FileExplorerScreen extends Screen {
         context.drawText(this.textRenderer, Text.literal("Close"), tcx, tcy, textColor, false);
 
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
-
         int visibleEntries = explorerHeight / entryHeight;
         int startIndex = (int) Math.floor(smoothOffset / entryHeight) - 1;
         if (startIndex < 0) startIndex = 0;
@@ -356,7 +394,6 @@ public class FileExplorerScreen extends Screen {
         for (int entryIndex = startIndex; entryIndex < endIndex; entryIndex++) {
             Path entry = fileEntries.get(entryIndex);
             int entryY = explorerY + (entryIndex * entryHeight) - (int) smoothOffset;
-
             float opacity = 1.0f;
             if (entryY < explorerY) {
                 float distAbove = explorerY - entryY;
@@ -366,7 +403,6 @@ public class FileExplorerScreen extends Screen {
                     opacity = 0.0f;
                 }
             }
-
             int bottomEdge = entryY + entryHeight;
             if (bottomEdge > explorerY + explorerHeight) {
                 float distBelow = bottomEdge - (explorerY + explorerHeight);
@@ -379,23 +415,19 @@ public class FileExplorerScreen extends Screen {
                     opacity = 0.0f;
                 }
             }
-
             if (opacity <= 0.0f) continue;
-
-            boolean hovered = mouseX >= explorerX && mouseX <= explorerX + explorerWidth &&
-                    mouseY >= entryY && mouseY < entryY + entryHeight;
+            boolean hovered = mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= entryY && mouseY < entryY + entryHeight;
             boolean isSelected = selectedPaths.contains(entry);
             int bg = isSelected ? 0xFF555555 : (hovered ? highlightColor : entryBgColor);
             int bgWithOpacity = blendColor(bg, opacity);
             int borderWithOpacity = blendColor(entryBorderColor, opacity);
             int textWithOpacity = blendColor(textColor, opacity);
-
             context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bgWithOpacity);
             drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
 
-            String namePrefix = Files.isDirectory(entry) ? "\uD83D\uDDC1" : "\uD83D\uDDC8";
+            String namePrefix = isDirectory(entry) ? "\uD83D\uDDC1" : "\uD83D\uDDC8";
             String displayName = namePrefix + " " + entry.getFileName().toString();
-            String size = Files.isDirectory(entry) ? "-" : getFileSize(entry);
+            String size = isDirectory(entry) ? "-" : getFileSize(entry);
             String created = getCreationDate(entry);
 
             context.drawText(this.textRenderer, Text.literal(displayName), explorerX + 10, entryY + 5, textWithOpacity, false);
@@ -416,7 +448,7 @@ public class FileExplorerScreen extends Screen {
         renderNotifications(context, mouseX, mouseY, delta);
     }
 
-    private void showNotification(String message, Notification.Type type) {
+    public void showNotification(String message, Notification.Type type) {
         notifications.add(new Notification(message, type, this.width, this.height));
     }
 
@@ -437,7 +469,7 @@ public class FileExplorerScreen extends Screen {
         }
     }
 
-    void loadDirectory(Path dir) {
+    public void loadDirectory(Path dir) {
         loadDirectory(dir, true);
     }
 
@@ -450,53 +482,85 @@ public class FileExplorerScreen extends Screen {
             searchActive = false;
             searchQuery.setLength(0);
         }
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
-            allFileEntries.clear();
-            for (Path entry : stream) {
-                allFileEntries.add(entry);
+        if (serverInfo.isRemote) {
+            if (serverInfo.remoteSSHManager == null) {
+                serverInfo.remoteSSHManager = new SSHManager(serverInfo);
+                try {
+                    serverInfo.remoteSSHManager.connectToRemoteHost(
+                            serverInfo.remoteHost.getUser(),
+                            serverInfo.remoteHost.ip,
+                            serverInfo.remoteHost.port,
+                            serverInfo.remoteHost.password
+                    );
+                    serverInfo.remoteSSHManager.connectSFTP();
+                } catch (Exception e) {
+                    showNotification("Error connecting to remote host: " + e.getMessage(), Notification.Type.ERROR);
+                    return;
+                }
+            } else if (!serverInfo.remoteSSHManager.isSFTPConnected()) {
+                try {
+                    serverInfo.remoteSSHManager.connectSFTP();
+                } catch (Exception e) {
+                    showNotification("Error connecting to SFTP: " + e.getMessage(), Notification.Type.ERROR);
+                    return;
+                }
             }
-        } catch (IOException e) {
-            showNotification("Error reading directory: " + e.getMessage(), Notification.Type.ERROR);
+            try {
+                String remotePath = dir.toString().replace("\\", "/");
+                List<String> entries = serverInfo.remoteSSHManager.listRemoteDirectory(remotePath);
+                List<Path> realEntries = new ArrayList<>();
+                for (String e : entries) {
+                    realEntries.add(dir.resolve(e));
+                }
+                realEntries.sort(Comparator.comparing((Path p) -> !isDirectory(p)).thenComparing(Path::getFileName));
+                fileEntries = realEntries;
+            } catch (Exception e) {
+                showNotification("Error reading remote directory: " + e.getMessage(), Notification.Type.ERROR);
+            }
+        } else {
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+                List<Path> entries = new ArrayList<>();
+                for (Path entry : stream) {
+                    entries.add(entry);
+                }
+                entries.sort(Comparator.comparing((Path p) -> !Files.isDirectory(p)).thenComparing(Path::getFileName));
+                fileEntries = entries;
+            } catch (IOException e) {
+                showNotification("Error reading directory: " + e.getMessage(), Notification.Type.ERROR);
+            }
         }
-        currentPath = dir.toAbsolutePath().normalize();
-        sortFileEntries();
-        fileEntries = new ArrayList<>(allFileEntries);
+        currentPath = dir;
         targetOffset = 0;
-    }
-
-    private void sortFileEntries() {
-        Comparator<Path> comparator = Comparator.comparing(Path::getFileName);
-        fileEntries.sort(comparator);
     }
 
     private void filterFileEntries() {
         if (searchQuery.length() == 0) {
-            fileEntries = new ArrayList<>(allFileEntries);
-        } else {
-            fileEntries = new ArrayList<>();
-            String query = searchQuery.toString().toLowerCase();
-            for (Path entry : allFileEntries) {
-                if (entry.getFileName().toString().toLowerCase().contains(query)) {
-                    fileEntries.add(entry);
-                }
-            }
+            loadDirectory(currentPath, false);
+            return;
         }
-        sortFileEntries();
+        String query = searchQuery.toString().toLowerCase();
+        fileEntries = fileEntries.stream()
+                .filter(p -> p.getFileName().toString().toLowerCase().contains(query))
+                .sorted(Comparator.comparing((Path p) -> !isDirectory(p)).thenComparing(Path::getFileName))
+                .toList();
         targetOffset = 0;
     }
 
     private boolean isSupportedFile(Path file) {
         String fileName = file.getFileName().toString().toLowerCase();
-        return fileName.endsWith(".txt") || fileName.endsWith(".md") || fileName.endsWith(".json") || fileName.endsWith(".yml") || fileName.endsWith(".yaml") || fileName.endsWith(".conf") || fileName.endsWith(".properties") ||
-                fileName.endsWith(".xml") || fileName.endsWith(".cfg") || fileName.endsWith(".ini");
+        return SUPPORTED_EXTENSIONS.stream().anyMatch(fileName::endsWith);
     }
 
     private String getFileSize(Path file) {
-        try {
-            long size = Files.size(file);
-            return humanReadableByteCountBin(size);
-        } catch (IOException e) {
-            return "N/A";
+        if (serverInfo.isRemote) {
+            return serverInfo.remoteSSHManager != null ? serverInfo.remoteSSHManager.getRemoteFileSize(file.toString()) : "N/A";
+        } else {
+            try {
+                long size = Files.size(file);
+                return humanReadableByteCountBin(size);
+            } catch (IOException e) {
+                return "N/A";
+            }
         }
     }
 
@@ -508,11 +572,15 @@ public class FileExplorerScreen extends Screen {
     }
 
     private String getCreationDate(Path file) {
-        try {
-            BasicFileAttributes attrs = Files.readAttributes(file, BasicFileAttributes.class);
-            return dateFormat.format(attrs.creationTime().toMillis());
-        } catch (IOException e) {
-            return "N/A";
+        if (serverInfo.isRemote) {
+            return serverInfo.remoteSSHManager != null ? serverInfo.remoteSSHManager.getRemoteFileDate(file.toString()) : "N/A";
+        } else {
+            try {
+                BasicFileAttributes attrs = Files.readAttributes(file, BasicFileAttributes.class);
+                return dateFormat.format(attrs.creationTime().toMillis());
+            } catch (IOException e) {
+                return "N/A";
+            }
         }
     }
 
@@ -531,246 +599,30 @@ public class FileExplorerScreen extends Screen {
         return (a << 24) | (r << 16) | (g << 8) | b;
     }
 
-    private void copySelected() {
-        clipboard.clear();
-        clipboard.addAll(selectedPaths);
-        isCut = false;
-    }
-
-    private void cutSelected() {
-        clipboard.clear();
-        clipboard.addAll(selectedPaths);
-        isCut = true;
-    }
-
-    private void deleteSelected() {
-        List<Path> toRemove = new ArrayList<>();
-        List<Path> deletedPaths = new ArrayList<>();
-        for (Path path : selectedPaths) {
-            try {
-                if (Files.isDirectory(path)) {
-                    Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
-                        @Override
-                        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                            Files.delete(file);
-                            deletedPaths.add(file);
-                            return FileVisitResult.CONTINUE;
-                        }
-
-                        @Override
-                        public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                            Files.delete(dir);
-                            deletedPaths.add(dir);
-                            return FileVisitResult.CONTINUE;
-                        }
-                    });
-                } else {
-                    Files.delete(path);
-                    deletedPaths.add(path);
-                }
-                toRemove.add(path);
-            } catch (IOException e) {
-                showNotification("Error deleting " + path.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
-            }
-        }
-        fileEntries.removeAll(toRemove);
-        selectedPaths.removeAll(toRemove);
-        if (!deletedPaths.isEmpty()) {
-            undoStack.push(new DeleteAction(deletedPaths));
-        }
-    }
-
-    private void paste() {
-        List<Path> toDelete = new ArrayList<>();
-        List<Path> pastedPaths = new ArrayList<>();
-        for (Path src : clipboard) {
-            Path dest = currentPath.resolve(src.getFileName());
-            if (src.toAbsolutePath().normalize().equals(dest.toAbsolutePath().normalize())) {
-                continue;
-            }
-            try {
-                if (Files.exists(dest)) {
-                    if (Files.isDirectory(src)) {
-                        Files.walkFileTree(src, new SimpleFileVisitor<Path>() {
-                            @Override
-                            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                                Path targetDir = dest.resolve(currentPath.relativize(dir));
-                                if (!Files.exists(targetDir)) {
-                                    Files.createDirectory(targetDir);
-                                }
-                                return FileVisitResult.CONTINUE;
-                            }
-
-                            @Override
-                            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                                Files.copy(file, dest.resolve(currentPath.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
-                                pastedPaths.add(dest.resolve(currentPath.relativize(file)));
-                                return FileVisitResult.CONTINUE;
-                            }
-                        });
-                    } else {
-                        Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
-                        pastedPaths.add(dest);
-                    }
-                } else {
-                    if (Files.isDirectory(src)) {
-                        Files.walkFileTree(src, new SimpleFileVisitor<Path>() {
-                            @Override
-                            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                                Path targetDir = dest.resolve(currentPath.relativize(dir));
-                                if (!Files.exists(targetDir)) {
-                                    Files.createDirectory(targetDir);
-                                }
-                                return FileVisitResult.CONTINUE;
-                            }
-
-                            @Override
-                            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                                Files.copy(file, dest.resolve(currentPath.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
-                                pastedPaths.add(dest.resolve(currentPath.relativize(file)));
-                                return FileVisitResult.CONTINUE;
-                            }
-                        });
-                    } else {
-                        Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
-                        pastedPaths.add(dest);
-                    }
-                }
-                if (isCut && !src.toAbsolutePath().normalize().equals(dest.toAbsolutePath().normalize())) {
-                    toDelete.add(src);
-                }
-            } catch (IOException e) {
-                showNotification("Error pasting " + src.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
-            }
-        }
-        if (!pastedPaths.isEmpty()) {
-            undoStack.push(new PasteAction(pastedPaths));
-        }
-        for (Path path : toDelete) {
-            try {
-                if (Files.isDirectory(path)) {
-                    Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
-                        @Override
-                        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                            Files.delete(file);
-                            return FileVisitResult.CONTINUE;
-                        }
-
-                        @Override
-                        public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                            Files.delete(dir);
-                            return FileVisitResult.CONTINUE;
-                        }
-                    });
-                } else {
-                    Files.delete(path);
-                }
-            } catch (IOException e) {
-                showNotification("Error deleting " + path.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
-            }
-        }
-        if (isCut) {
-            clipboard.clear();
-            isCut = false;
-            selectedPaths.clear();
-        }
-        loadDirectory(currentPath);
-    }
-
-    private void undo() {
-        if (!undoStack.isEmpty()) {
-            UndoableAction action = undoStack.pop();
-            action.undo();
-            loadDirectory(currentPath);
-        }
-    }
-
-    private interface UndoableAction {
-        void undo();
-    }
-
-    private class DeleteAction implements UndoableAction {
-        private final List<Path> deletedPaths;
-
-        DeleteAction(List<Path> deletedPaths) {
-            this.deletedPaths = new ArrayList<>(deletedPaths);
-        }
-
-        @Override
-        public void undo() {
-            for (Path path : deletedPaths) {
-                try {
-                    if (Files.isDirectory(path)) {
-                        Files.createDirectories(path);
-                    } else {
-                        Files.createFile(path);
-                    }
-                } catch (IOException e) {
-                    showNotification("Error undoing delete for " + path.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
-                }
-            }
-        }
-    }
-
-    private class PasteAction implements UndoableAction {
-        private final List<Path> pastedPaths;
-
-        PasteAction(List<Path> pastedPaths) {
-            this.pastedPaths = new ArrayList<>(pastedPaths);
-        }
-
-        @Override
-        public void undo() {
-            for (Path path : pastedPaths) {
-                try {
-                    if (Files.isDirectory(path)) {
-                        Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
-                            @Override
-                            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                                Files.delete(file);
-                                return FileVisitResult.CONTINUE;
-                            }
-
-                            @Override
-                            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                                Files.delete(dir);
-                                return FileVisitResult.CONTINUE;
-                            }
-                        });
-                    } else {
-                        Files.delete(path);
-                    }
-                } catch (IOException e) {
-                    showNotification("Error undoing paste for " + path.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
-                }
-            }
-        }
+    @Override
+    public void refreshDirectory(Path path) {
+        loadDirectory(path, false);
     }
 
     public class Notification {
         private final TextRenderer textRenderer = minecraftClient.textRenderer;
-
-        enum Type {
-            INFO, WARN, ERROR
-        }
-
+        enum Type { INFO, WARN, ERROR }
         private String message;
         private Type type;
         private float x;
         private float y;
         private float targetX;
         private float opacity;
-        private float animationSpeed = 30.0f; // pixels per second
-        private float fadeOutSpeed = 100.0f; // opacity per second
+        private float animationSpeed = 30.0f;
+        private float fadeOutSpeed = 100.0f;
         private float currentOpacity = 0.0f;
         private float maxOpacity = 1.0f;
-        private float duration = 50.0f; // seconds
+        private float duration = 50.0f;
         private float elapsedTime = 0.0f;
         private boolean fadingOut = false;
         private int padding = 10;
         private int width;
         private int height;
-
         private static final List<Notification> activeNotifications = new ArrayList<>();
 
         Notification(String message, Type type, int screenWidth, int screenHeight) {
@@ -798,7 +650,6 @@ public class FileExplorerScreen extends Screen {
                     fadingOut = true;
                 }
             }
-
             if (fadingOut) {
                 currentOpacity -= fadeOutSpeed * delta / 1000.0f;
                 if (currentOpacity <= 0.0f) {
@@ -818,16 +669,9 @@ public class FileExplorerScreen extends Screen {
             if (currentOpacity <= 0.0f) return;
             int color;
             switch (type) {
-                case ERROR:
-                    color = blendColor(0xFFFF5555, currentOpacity);
-                    break;
-                case WARN:
-                    color = blendColor(0xFFFFAA55, currentOpacity);
-                    break;
-                case INFO:
-                default:
-                    color = blendColor(0xFF5555FF, currentOpacity);
-                    break;
+                case ERROR -> color = blendColor(0xFFFF5555, currentOpacity);
+                case WARN -> color = blendColor(0xFFFFAA55, currentOpacity);
+                default -> color = blendColor(0xFF5555FF, currentOpacity);
             }
             context.fill((int) x, (int) y, (int) x + width, (int) y + height, color);
             drawInnerBorder(context, (int) x, (int) y, width, height, blendColor(0xFF000000, currentOpacity));
