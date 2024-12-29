@@ -488,6 +488,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (addToHistory && currentPath != null && !currentPath.equals(dir)) {
             history.push(currentPath);
             forwardHistory.clear();
+            targetOffset = 0;
+        }
+        if (addToHistory) {
+            targetOffset = 0;
         }
         if (searchActive) {
             searchActive = false;
@@ -541,7 +545,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
         }
         currentPath = dir;
-        targetOffset = 0;
     }
 
     private void filterFileEntries() {
