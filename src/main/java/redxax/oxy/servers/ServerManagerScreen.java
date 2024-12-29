@@ -635,7 +635,7 @@ public class ServerManagerScreen extends Screen {
                             try {
                                 RemoteHostInfo rh = currentServers.get(editingServerIndex).remoteHost;
                                 if (rh != null && currentServers.get(editingServerIndex).remoteSSHManager != null) {
-                                    currentServers.get(editingServerIndex).remoteSSHManager.deleteRemoteDirectory(currentServers.get(editingServerIndex).path);
+                                    currentServers.get(editingServerIndex).remoteSSHManager.deleteRemotePath(currentServers.get(editingServerIndex).path);
                                 }
                             } catch (Exception ignored) {}
                             currentServers.remove(editingServerIndex);

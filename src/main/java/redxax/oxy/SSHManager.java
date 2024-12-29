@@ -7,6 +7,7 @@ import redxax.oxy.servers.ServerState;
 import java.io.*;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -22,7 +23,7 @@ public class SSHManager {
     private TerminalInstance terminalInstance;
     private final ExecutorService executorService = Executors.newFixedThreadPool(4);
     private final CountDownLatch sessionInitializedLatch = new CountDownLatch(1);
-    private ChannelSftp sftpChannel;
+    public ChannelSftp sftpChannel;
     private boolean sftpConnected = false;
     private ServerInfo serverInfo;
     private List<String> remoteCommandsCache = new ArrayList<>();
@@ -180,14 +181,13 @@ public class SSHManager {
     private void readSSHOutput() {
         executorService.submit(() -> {
             try {
-                isSSH = true;
                 String line;
                 while (isSSH && (line = sshReader.readLine()) != null) {
                     if (terminalInstance != null) {
                         terminalInstance.appendOutput(line + "\n");
                     }
                 }
-                if (serverInfo != null && serverInfo.state == ServerState.STARTING) {
+                if (isSSH && serverInfo != null && serverInfo.state == ServerState.STARTING) {
                     serverInfo.state = ServerState.RUNNING;
                 }
             } catch (IOException e) {
@@ -242,9 +242,11 @@ public class SSHManager {
                 JSch jsch = new JSch();
                 sshSession = jsch.getSession(user, host, port);
                 sshSession.setConfig("StrictHostKeyChecking", "no");
-                awaitingPassword = true;
+                sshSession.setPassword(sshPassword);
+                sshSession.connect(10000);
+                isSSH = true;
                 if (terminalInstance != null) {
-                    terminalInstance.appendOutput("Password: ");
+                    terminalInstance.appendOutput("Connected.\n");
                 }
                 sessionInitializedLatch.countDown();
             } catch (Exception e) {
@@ -284,24 +286,26 @@ public class SSHManager {
     }
 
     private void readSSHChannel() {
-        try {
-            String line;
-            while (isSSH && (line = sshReader.readLine()) != null) {
+        executorService.submit(() -> {
+            try {
+                String line;
+                while (isSSH && (line = sshReader.readLine()) != null) {
+                    if (terminalInstance != null) {
+                        terminalInstance.appendOutput(line + "\n");
+                    }
+                }
+                if (isSSH) {
+                    isSSH = false;
+                    if (terminalInstance != null) {
+                        terminalInstance.appendOutput("SSH session terminated.\n");
+                    }
+                }
+            } catch (IOException e) {
                 if (terminalInstance != null) {
-                    terminalInstance.appendOutput(line + "\n");
+                    terminalInstance.appendOutput("Error reading SSH output: " + e.getMessage() + "\n");
                 }
             }
-            if (isSSH) {
-                isSSH = false;
-                if (terminalInstance != null) {
-                    terminalInstance.appendOutput("SSH session terminated.\n");
-                }
-            }
-        } catch (IOException e) {
-            if (terminalInstance != null) {
-                terminalInstance.appendOutput("Error reading SSH output: " + e.getMessage() + "\n");
-            }
-        }
+        });
     }
 
     public void shutdown() {
@@ -387,7 +391,7 @@ public class SSHManager {
         if (!sftpConnected) return "N/A";
         try {
             SftpATTRS attrs = sftpChannel.stat(path);
-            long mtime = (long) attrs.getMTime() * 1000;
+            long mtime = ((long) attrs.getMTime()) * 1000;
             Date d = new Date(mtime);
             return d.toString();
         } catch (Exception e) {
@@ -395,12 +399,20 @@ public class SSHManager {
         }
     }
 
-    private void close() {
-        try {
-            if (sshChannel != null && sshChannel.isConnected()) {
-                sshChannel.disconnect();
+    public void deleteRemotePath(String path) throws SftpException {
+        SftpATTRS attrs = sftpChannel.stat(path);
+        if (attrs.isDir()) {
+            Vector<ChannelSftp.LsEntry> list = sftpChannel.ls(path);
+            for (ChannelSftp.LsEntry entry : list) {
+                String filename = entry.getFilename();
+                if (filename.equals(".") || filename.equals("..")) continue;
+                String childPath = path + "/" + filename;
+                deleteRemotePath(childPath);
             }
-        } catch (Exception ignored) {}
+            sftpChannel.rmdir(path);
+        } else {
+            sftpChannel.rm(path);
+        }
     }
 
     public String getSshPassword() {
@@ -435,6 +447,9 @@ public class SSHManager {
         channelExec.setOutputStream(baos);
         channelExec.setCommand("compgen -c");
         channelExec.connect();
+        while (!channelExec.isClosed()) {
+            Thread.sleep(100);
+        }
         channelExec.disconnect();
         String output = baos.toString(StandardCharsets.UTF_8);
         String[] commands = output.split("\\s+");
@@ -451,25 +466,17 @@ public class SSHManager {
         return result;
     }
 
-    public void deleteRemoteDirectory(String path) {
+    public void uploadRemotePath(String string, String remotePath) {
         if (!sftpConnected) return;
         try {
-            Vector<ChannelSftp.LsEntry> list = sftpChannel.ls(path);
-            for (ChannelSftp.LsEntry entry : list) {
-                String fileName = entry.getFilename();
-                if (fileName.equals(".") || fileName.equals("..")) continue;
-                String filePath = path + "/" + fileName;
-                if (entry.getAttrs().isDir()) {
-                    deleteRemoteDirectory(filePath);
-                } else {
-                    sftpChannel.rm(filePath);
-                }
-            }
-            sftpChannel.rmdir(path);
-        } catch (SftpException e) {
-            if (terminalInstance != null) {
-                terminalInstance.appendOutput("Failed to delete remote directory: " + e.getMessage() + "\n");
-            }
-        }
+            sftpChannel.put(new ByteArrayInputStream(string.getBytes(StandardCharsets.UTF_8)), remotePath);
+        } catch (Exception ignored) {}
+    }
+
+    public void downloadRemotePath(String remotePath, Path resolve) {
+        if (!sftpConnected) return;
+        try {
+            sftpChannel.get(remotePath, resolve.toString());
+        } catch (Exception ignored) {}
     }
 }

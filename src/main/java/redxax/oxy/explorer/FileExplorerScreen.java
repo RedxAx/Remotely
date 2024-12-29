@@ -67,7 +67,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         this.serverInfo = info;
         this.fileEntries = new ArrayList<>();
         this.textRenderer = mc.textRenderer;
-        this.fileManager = new FileManager(this);
+        this.fileManager = new FileManager(this, serverInfo);
         this.importMode = importMode;
         if (serverInfo.isRemote) {
             String normalized = serverInfo.path == null ? "" : serverInfo.path.replace("\\", "/").trim();
@@ -125,30 +125,36 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             navigateUp();
             return true;
         }
-        if (ctrl && keyCode == GLFW.GLFW_KEY_C) {
-            fileManager.copySelected(selectedPaths);
-            return true;
-        }
-        if (ctrl && keyCode == GLFW.GLFW_KEY_X) {
-            fileManager.cutSelected(selectedPaths);
-            return true;
+        if (ctrl) {
+            if (keyCode == GLFW.GLFW_KEY_C && !serverInfo.isRemote) {
+                fileManager.copySelected(selectedPaths);
+                showNotification("Copied to clipboard", Notification.Type.INFO);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_X && !serverInfo.isRemote) {
+                fileManager.cutSelected(selectedPaths);
+                showNotification("Cut to clipboard", Notification.Type.INFO);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_V && !serverInfo.isRemote) {
+                fileManager.paste(currentPath);
+                showNotification("Pasted from clipboard", Notification.Type.INFO);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_Z && !serverInfo.isRemote) {
+                fileManager.undo(currentPath);
+                showNotification("Undo action", Notification.Type.INFO);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_F) {
+                searchActive = true;
+                searchQuery.setLength(0);
+                searchBarY = this.height - searchBarHeight - 10;
+                return true;
+            }
         }
         if (keyCode == GLFW.GLFW_KEY_DELETE) {
             fileManager.deleteSelected(selectedPaths, currentPath);
-            return true;
-        }
-        if (ctrl && keyCode == GLFW.GLFW_KEY_V) {
-            fileManager.paste(currentPath);
-            return true;
-        }
-        if (ctrl && keyCode == GLFW.GLFW_KEY_Z) {
-            fileManager.undo(currentPath);
-            return true;
-        }
-        if (ctrl && keyCode == GLFW.GLFW_KEY_F) {
-            searchActive = true;
-            searchQuery.setLength(0);
-            searchBarY = this.height - searchBarHeight - 10;
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -231,30 +237,35 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                             lastClickedIndex = -1;
                             return true;
                         } else {
-                            boolean ctrlPressed = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) ||
-                                    (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
-                            boolean shiftPressed = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS) ||
-                                    (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS);
-                            if (ctrlPressed) {
-                                if (selectedPaths.contains(selectedPath)) {
-                                    selectedPaths.remove(selectedPath);
-                                } else {
-                                    selectedPaths.add(selectedPath);
-                                }
-                                lastSelectedIndex = clickedIndex;
-                            } else if (shiftPressed && lastSelectedIndex != -1) {
-                                int start = Math.min(lastSelectedIndex, clickedIndex);
-                                int end = Math.max(lastSelectedIndex, clickedIndex);
-                                for (int i = start; i <= end; i++) {
-                                    Path path = fileEntries.get(i);
-                                    if (!selectedPaths.contains(path)) {
-                                        selectedPaths.add(path);
+                            if (!serverInfo.isRemote) {
+                                boolean ctrlPressed = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) ||
+                                        (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
+                                boolean shiftPressed = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS) ||
+                                        (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS);
+                                if (ctrlPressed) {
+                                    if (selectedPaths.contains(selectedPath)) {
+                                        selectedPaths.remove(selectedPath);
+                                    } else {
+                                        selectedPaths.add(selectedPath);
                                     }
+                                    lastSelectedIndex = clickedIndex;
+                                } else if (shiftPressed && lastSelectedIndex != -1) {
+                                    int start = Math.min(lastSelectedIndex, clickedIndex);
+                                    int end = Math.max(lastSelectedIndex, clickedIndex);
+                                    for (int i = start; i <= end; i++) {
+                                        Path path = fileEntries.get(i);
+                                        if (!selectedPaths.contains(path)) {
+                                            selectedPaths.add(path);
+                                        }
+                                    }
+                                } else {
+                                    selectedPaths.clear();
+                                    selectedPaths.add(selectedPath);
+                                    lastSelectedIndex = clickedIndex;
                                 }
                             } else {
                                 selectedPaths.clear();
                                 selectedPaths.add(selectedPath);
-                                lastSelectedIndex = clickedIndex;
                             }
                             lastClickedIndex = clickedIndex;
                             return true;
@@ -634,6 +645,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             this.y = screenHeight - height - padding - (activeNotifications.size() * (height + padding));
             this.targetX = screenWidth - width - padding;
             this.opacity = 1.0f;
+            this.currentOpacity = 1.0f;
             activeNotifications.add(this);
         }
 
