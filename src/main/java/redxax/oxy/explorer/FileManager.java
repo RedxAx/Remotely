@@ -1,6 +1,7 @@
 package redxax.oxy.explorer;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
@@ -171,6 +172,7 @@ public class FileManager {
         }
         if (!pastedPaths.isEmpty()) {
             undoStack.push(new PasteAction(pastedPaths));
+            callback.refreshDirectory(currentPath);
         }
         for (Path path : toDelete) {
             try {
