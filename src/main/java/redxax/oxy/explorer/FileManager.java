@@ -54,7 +54,7 @@ public class FileManager {
                 try {
                     String remotePath = path.toString().replace("\\", "/");
                     ssh.downloadRemotePath(remotePath, tempUndoDir.resolve(path.getFileName()));
-                    ssh.deleteRemotePath(remotePath);
+                    ssh.deleteRemoteDirectory(remotePath);
                     deletedPaths.add(path);
                     backupPaths.add(tempUndoDir.resolve(path.getFileName()));
                     toRemove.add(path);
@@ -300,7 +300,7 @@ public class FileManager {
                 for (Path path : pastedPaths) {
                     try {
                         String remotePath = path.toString().replace("\\", "/");
-                        ssh.deleteRemotePath(remotePath);
+                        ssh.deleteRemoteDirectory(remotePath);
                     } catch (Exception e) {
                         callback.showNotification("Error undoing paste for " + path.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
                     }

@@ -78,6 +78,7 @@ public class ServerManagerScreen extends Screen {
     private final StringBuilder remoteHostPasswordBuffer = new StringBuilder();
     private boolean remoteHostCreationWarning;
     private RemoteHostField remoteHostActiveField = RemoteHostField.NONE;
+    private boolean isEditingHost = false;
 
     public ServerManagerScreen(MinecraftClient minecraftClient, RemotelyClient remotelyClient, List<ServerInfo> servers) {
         super(Text.literal("Server Setup"));
@@ -197,7 +198,7 @@ public class ServerManagerScreen extends Screen {
             mask = trimTextToWidthWithEllipsis(mask, remoteHostPopupW - 12);
             context.drawText(minecraftClient.textRenderer, Text.literal(mask), px + 8, passBoxY + 2, textColor, false);
             int confirmButtonY = passBoxY + 35;
-            String createText = "Test & Add";
+            String createText = isEditingHost ? "Save" : "Test & Add";
             int cw = minecraftClient.textRenderer.getWidth(createText) + 10;
             int confirmX = px + 5;
             boolean hoverConfirm = mouseX >= confirmX && mouseX <= confirmX + cw && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
@@ -207,8 +208,15 @@ public class ServerManagerScreen extends Screen {
             int cancX = px + remoteHostPopupW - (cancW + 5);
             boolean hoverCancel = mouseX >= cancX && mouseX <= cancX + cancW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
             drawHoverableButton(context, cancX, confirmButtonY, cancelText, hoverCancel, textColor);
+            if (isEditingHost) {
+                String deleteText = "Delete";
+                int delW = minecraftClient.textRenderer.getWidth(deleteText) + 10;
+                int delX = px + (remoteHostPopupW - delW) / 2;
+                boolean hoverDelete = mouseX >= delX && mouseX <= delX + delW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
+                drawHoverableButton(context, delX, confirmButtonY, deleteText, hoverDelete, 0xFFFF4444);
+            }
             if (remoteHostCreationWarning) {
-                String warning = "Invalid or Connection Failed";
+                String warning = isEditingHost ? "Failed to save changes" : "Invalid or Connection Failed";
                 int ww = minecraftClient.textRenderer.getWidth(warning);
                 context.drawText(minecraftClient.textRenderer, Text.literal(warning), px + (remoteHostPopupW - ww) / 2, passBoxY + 20, 0xFFFF4444, false);
             }
@@ -216,8 +224,9 @@ public class ServerManagerScreen extends Screen {
     }
 
     private void renderTabs(DrawContext context, int mouseX, int mouseY) {
-        int xOffset = 5;
+        int xOffset = 10;
         int yOffset = 5;
+        int padding = 15;
         List<String> allTabs = new ArrayList<>();
         allTabs.add("Local");
         for (RemoteHostInfo rh : remoteHosts) {
@@ -227,9 +236,9 @@ public class ServerManagerScreen extends Screen {
         hoveredServerIndex = -1;
         for (int i = 0; i < allTabs.size(); i++) {
             String tabName = allTabs.get(i);
-            int tw = minecraftClient.textRenderer.getWidth(tabName) + 20;
+            int tw = minecraftClient.textRenderer.getWidth(tabName) + padding * 2;
             boolean hovered = mouseX >= tabX && mouseX <= tabX + tw && mouseY >= yOffset && mouseY <= yOffset + tabHeight;
-            int bg = (i == activeTabIndex) ? highlightColor : (hovered ? 0xFF333333 : 0xFF222222);
+            int bg = (i == activeTabIndex) ? highlightColor : (hovered ? 0xFF444444 : 0xFF333333);
             context.fill(tabX, yOffset, tabX + tw, yOffset + tabHeight, bg);
             drawInnerBorder(context, tabX, yOffset, tw, tabHeight, borderColor);
             int tx = tabX + (tw - minecraftClient.textRenderer.getWidth(tabName)) / 2;
@@ -237,14 +246,14 @@ public class ServerManagerScreen extends Screen {
             context.drawText(minecraftClient.textRenderer, Text.literal(tabName), tx, ty, textColor, false);
             tabX += tw;
         }
-        int plusW = 25;
+        int plusW = 35;
         remoteTabPlusHovered = mouseX >= tabX && mouseX <= tabX + plusW && mouseY >= yOffset && mouseY <= yOffset + tabHeight;
         int plusBg = remoteTabPlusHovered ? 0xFF666666 : 0xFF555555;
         context.fill(tabX, yOffset, tabX + plusW, yOffset + tabHeight, plusBg);
         drawInnerBorder(context, tabX, yOffset, plusW, tabHeight, borderColor);
         String plus = "+";
         int pw = minecraftClient.textRenderer.getWidth(plus);
-        int ptx = (int) (tabX + (plusW - pw) / 2.0f);
+        int ptx = tabX + (plusW - pw) / 2;
         int pty = yOffset + (tabHeight - minecraftClient.textRenderer.fontHeight) / 2;
         context.drawText(minecraftClient.textRenderer, Text.literal(plus), ptx, pty, textColor, false);
     }
@@ -335,45 +344,75 @@ public class ServerManagerScreen extends Screen {
         if (remoteHostPopupActive) {
             return handleRemoteHostPopupClick(mouseX, mouseY, button);
         }
-        int tabsStartX = 5;
+        int tabsStartX = 10;
         int tabsStartY = 5;
-        int localTabW = minecraftClient.textRenderer.getWidth("Local") + 20;
-        if (mouseY >= tabsStartY && mouseY <= tabsStartY + tabHeight && button == 0) {
-            if (mouseX >= tabsStartX && mouseX <= tabsStartX + localTabW) {
-                activeTabIndex = 0;
-                return true;
-            }
-            int nextTabX = tabsStartX + localTabW;
-            for (int i = 0; i < remoteHosts.size(); i++) {
-                int nameW = minecraftClient.textRenderer.getWidth(remoteHosts.get(i).name) + 20;
-                if (mouseX >= nextTabX && mouseX <= nextTabX + nameW) {
-                    activeTabIndex = i + 1;
-                    RemoteHostInfo hostInfo = remoteHosts.get(i);
-                    if (!hostInfo.isConnected && !hostInfo.isConnecting) {
-                        hostInfo.isConnecting = true;
-                        hostInfo.connectionError = null;
-                        connectRemoteHostAsync(hostInfo);
-                    }
+        int localTabW = minecraftClient.textRenderer.getWidth("Local") + 30;
+        if (mouseY >= tabsStartY && mouseY <= tabsStartY + tabHeight) {
+            if (button == 0) {
+                if (mouseX >= tabsStartX && mouseX <= tabsStartX + localTabW) {
+                    activeTabIndex = 0;
+                    isEditingHost = false;
                     return true;
                 }
-                nextTabX += nameW;
-            }
-            int plusW = 25;
-            if (mouseX >= nextTabX && mouseX <= nextTabX + plusW) {
-                remoteHostPopupActive = true;
-                remoteHostCreationWarning = false;
-                remoteHostActiveField = RemoteHostField.NONE;
-                remoteHostNameBuffer.setLength(0);
-                remoteHostUserBuffer.setLength(0);
-                remoteHostUserBuffer.append("root");
-                remoteHostIPBuffer.setLength(0);
-                remoteHostPortBuffer.setLength(0);
-                remoteHostPasswordBuffer.setLength(0);
-                return true;
+                int nextTabX = tabsStartX + localTabW;
+                for (int i = 0; i < remoteHosts.size(); i++) {
+                    int nameW = minecraftClient.textRenderer.getWidth(remoteHosts.get(i).name) + 30;
+                    if (mouseX >= nextTabX && mouseX <= nextTabX + nameW) {
+                        activeTabIndex = i + 1;
+                        RemoteHostInfo hostInfo = remoteHosts.get(i);
+                        if (!hostInfo.isConnected && !hostInfo.isConnecting) {
+                            hostInfo.isConnecting = true;
+                            hostInfo.connectionError = null;
+                            connectRemoteHostAsync(hostInfo);
+                        }
+                        isEditingHost = false;
+                        return true;
+                    }
+                    nextTabX += nameW;
+                }
+                int plusW = 35;
+                if (mouseX >= nextTabX && mouseX <= nextTabX + plusW) {
+                    remoteHostPopupActive = true;
+                    isEditingHost = false;
+                    remoteHostCreationWarning = false;
+                    remoteHostActiveField = RemoteHostField.NONE;
+                    remoteHostNameBuffer.setLength(0);
+                    remoteHostUserBuffer.setLength(0);
+                    remoteHostUserBuffer.append("root");
+                    remoteHostIPBuffer.setLength(0);
+                    remoteHostPortBuffer.setLength(0);
+                    remoteHostPasswordBuffer.setLength(0);
+                    return true;
+                }
+            } else if (button == 1) {
+                int nextTabX = tabsStartX + localTabW;
+                for (int i = 0; i < remoteHosts.size(); i++) {
+                    int nameW = minecraftClient.textRenderer.getWidth(remoteHosts.get(i).name) + 30;
+                    if (mouseX >= nextTabX && mouseX <= nextTabX + nameW) {
+                        activeTabIndex = i + 1;
+                        RemoteHostInfo hostInfo = remoteHosts.get(i);
+                        remoteHostPopupActive = true;
+                        isEditingHost = true;
+                        remoteHostCreationWarning = false;
+                        remoteHostActiveField = RemoteHostField.NONE;
+                        remoteHostNameBuffer.setLength(0);
+                        remoteHostNameBuffer.append(hostInfo.name);
+                        remoteHostUserBuffer.setLength(0);
+                        remoteHostUserBuffer.append(hostInfo.user);
+                        remoteHostIPBuffer.setLength(0);
+                        remoteHostIPBuffer.append(hostInfo.ip);
+                        remoteHostPortBuffer.setLength(0);
+                        remoteHostPortBuffer.append(hostInfo.port);
+                        remoteHostPasswordBuffer.setLength(0);
+                        remoteHostPasswordBuffer.append(hostInfo.password);
+                        return true;
+                    }
+                    nextTabX += nameW;
+                }
             }
         }
         if (!serverPopupActive && !remoteHostPopupActive) {
-            int contentYStart = tabHeight + 5 + verticalPadding;
+            int contentYStart = tabHeight + 10 + verticalPadding;
             int panelWidth = this.width - 10;
             int listX = 10;
             int entryHeight = 60;
@@ -382,8 +421,10 @@ public class ServerManagerScreen extends Screen {
             int bottomY = contentYStart + 5 + (getCurrentServers().size() * entryHeight) - (int) smoothOffset;
             int btnX = listX + (panelWidth - 10 - btnWidth) / 2;
             int btnY = bottomY + 10;
-            if (mouseX >= btnX && mouseX <= btnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight && button == 0) {
+            boolean hoveredAddServer = mouseX >= btnX && mouseX <= btnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight;
+            if (hoveredAddServer && button == 0) {
                 serverTypePopupActive = true;
+                isEditingHost = false;
                 return true;
             }
         }
@@ -445,7 +486,7 @@ public class ServerManagerScreen extends Screen {
         int passLabelY = portBoxY + 25;
         int passBoxY = passLabelY + 10;
         int confirmButtonY = passBoxY + 35;
-        String createText = "Test & Add";
+        String createText = isEditingHost ? "Save" : "Test & Add";
         int cw = minecraftClient.textRenderer.getWidth(createText) + 10;
         int confirmX = px + 5;
         boolean hoverConfirm = mouseX >= confirmX && mouseX <= confirmX + cw && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
@@ -454,26 +495,42 @@ public class ServerManagerScreen extends Screen {
                 remoteHostCreationWarning = true;
                 return true;
             }
-            if (!testSSHConnection(remoteHostUserBuffer.toString().trim(), remoteHostIPBuffer.toString().trim(), remoteHostPortBuffer.toString().trim(), remoteHostPasswordBuffer.toString())) {
+            if (!isEditingHost && !testSSHConnection(remoteHostUserBuffer.toString().trim(), remoteHostIPBuffer.toString().trim(), remoteHostPortBuffer.toString().trim(), remoteHostPasswordBuffer.toString())) {
                 remoteHostCreationWarning = true;
                 return true;
             }
-            RemoteHostInfo rh = new RemoteHostInfo();
-            rh.name = remoteHostNameBuffer.toString().trim();
-            rh.user = remoteHostUserBuffer.toString().trim();
-            rh.ip = remoteHostIPBuffer.toString().trim();
-            try {
-                rh.port = Integer.parseInt(remoteHostPortBuffer.toString().trim());
-            } catch (NumberFormatException e) {
-                rh.port = 22;
+            if (isEditingHost) {
+                RemoteHostInfo rh = remoteHosts.get(activeTabIndex - 1);
+                rh.name = remoteHostNameBuffer.toString().trim();
+                rh.user = remoteHostUserBuffer.toString().trim();
+                rh.ip = remoteHostIPBuffer.toString().trim();
+                try {
+                    rh.port = Integer.parseInt(remoteHostPortBuffer.toString().trim());
+                } catch (NumberFormatException e) {
+                    rh.port = 22;
+                }
+                rh.password = remoteHostPasswordBuffer.toString();
+                saveRemoteHosts();
+                remoteHostPopupActive = false;
+                return true;
+            } else {
+                RemoteHostInfo rh = new RemoteHostInfo();
+                rh.name = remoteHostNameBuffer.toString().trim();
+                rh.user = remoteHostUserBuffer.toString().trim();
+                rh.ip = remoteHostIPBuffer.toString().trim();
+                try {
+                    rh.port = Integer.parseInt(remoteHostPortBuffer.toString().trim());
+                } catch (NumberFormatException e) {
+                    rh.port = 22;
+                }
+                rh.password = remoteHostPasswordBuffer.toString();
+                rh.servers = new ArrayList<>();
+                remoteHosts.add(rh);
+                saveRemoteHosts();
+                activeTabIndex = remoteHosts.size();
+                closeRemoteHostPopup();
+                return true;
             }
-            rh.password = remoteHostPasswordBuffer.toString();
-            rh.servers = new ArrayList<>();
-            remoteHosts.add(rh);
-            saveRemoteHosts();
-            activeTabIndex = remoteHosts.size();
-            closeRemoteHostPopup();
-            return true;
         }
         String cancelText = "Cancel";
         int cancW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
@@ -482,6 +539,21 @@ public class ServerManagerScreen extends Screen {
         if (hoverCancel && button == 0) {
             closeRemoteHostPopup();
             return true;
+        }
+        if (isEditingHost) {
+            String deleteText = "Delete";
+            int delW = minecraftClient.textRenderer.getWidth(deleteText) + 10;
+            int delX = px + (remoteHostPopupW - delW) / 2;
+            boolean hoverDelete = mouseX >= delX && mouseX <= delX + delW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
+            if (hoverDelete && button == 0) {
+                if (activeTabIndex > 0 && activeTabIndex <= remoteHosts.size()) {
+                    remoteHosts.remove(activeTabIndex - 1);
+                    saveRemoteHosts();
+                    activeTabIndex = 0;
+                    closeRemoteHostPopup();
+                    return true;
+                }
+            }
         }
         int nBoxH = 12;
         if (mouseX >= px + 5 && mouseX <= px + remoteHostPopupW - 5 && mouseY >= nameBoxY && mouseY <= nameBoxY + nBoxH && button == 0) {
@@ -635,7 +707,7 @@ public class ServerManagerScreen extends Screen {
                             try {
                                 RemoteHostInfo rh = currentServers.get(editingServerIndex).remoteHost;
                                 if (rh != null && currentServers.get(editingServerIndex).remoteSSHManager != null) {
-                                    currentServers.get(editingServerIndex).remoteSSHManager.deleteRemotePath(currentServers.get(editingServerIndex).path);
+                                    currentServers.get(editingServerIndex).remoteSSHManager.deleteRemoteDirectory(currentServers.get(editingServerIndex).path);
                                 }
                             } catch (Exception ignored) {}
                             currentServers.remove(editingServerIndex);
@@ -990,17 +1062,22 @@ public class ServerManagerScreen extends Screen {
     private void openImportFileExplorer() {
         if (activeTabIndex == 0) {
             try {
-                minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo("C:/"), true));
+                minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo("C:/remotely/servers/"), true));
             } catch (Exception ignored) {}
         } else {
             try {
-                ServerInfo rinfo = new ServerInfo("/root");
+                RemoteHostInfo remoteHost = remoteHosts.get(activeTabIndex - 1);
+                String user = remoteHost.getUser();
+                String homeDir = user.equals("root") ? "/root" : "/home/" + user;
+                String path = homeDir + "/remotely/servers/";
+                ServerInfo rinfo = new ServerInfo(path);
                 rinfo.isRemote = true;
-                rinfo.remoteHost = remoteHosts.get(activeTabIndex - 1);
+                rinfo.remoteHost = remoteHost;
                 minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, rinfo, true));
             } catch (Exception ignored) {}
         }
     }
+
 
     private void openModpackInstallation() {
         try {
@@ -1138,7 +1215,7 @@ public class ServerManagerScreen extends Screen {
                     break;
                 }
             }
-        } catch (Exception e) {
+        } catch (Exception ignored) {
         } finally {
             sshCheck.shutdown();
         }

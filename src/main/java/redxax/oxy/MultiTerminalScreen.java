@@ -286,147 +286,152 @@ public class MultiTerminalScreen extends Screen {
         }
 
         if (snippetPopupActive) {
-            if (snippetPopupX + snippetPopupWidth > this.width) snippetPopupX = this.width - snippetPopupWidth - 5;
-            if (snippetPopupY + snippetPopupHeight > this.height) snippetPopupY = this.height - snippetPopupHeight - 5;
-            context.fill(snippetPopupX, snippetPopupY, snippetPopupX + snippetPopupWidth, snippetPopupY + snippetPopupHeight, baseColor);
-            drawInnerBorder(context, snippetPopupX, snippetPopupY, snippetPopupWidth, snippetPopupHeight, borderColor);
-
-            int nameLabelY = snippetPopupY + 5;
-            trimAndDrawText(context, "Name:", snippetPopupX + 5, nameLabelY, snippetPopupWidth - 10, textColor);
-            int nameBoxY = nameLabelY + 12;
-            int nameBoxHeight = 12;
-            int nameBoxWidth = snippetPopupWidth - 10;
-            context.fill(snippetPopupX + 5, nameBoxY, snippetPopupX + 5 + nameBoxWidth, nameBoxY + nameBoxHeight, snippetNameFocused ? 0xFF444466 : 0xFF333333);
-            String fullName = snippetNameBuffer.toString();
-            int wBeforeCursor = minecraftClient.textRenderer.getWidth(fullName.substring(0, Math.min(snippetNameCursorPos, fullName.length())));
-            if (wBeforeCursor < snippetNameScrollOffset) snippetNameScrollOffset = wBeforeCursor;
-            int maxVisibleWidth = nameBoxWidth - 6;
-            if (wBeforeCursor - snippetNameScrollOffset > maxVisibleWidth) snippetNameScrollOffset = wBeforeCursor - maxVisibleWidth;
-            if (snippetNameScrollOffset < 0) snippetNameScrollOffset = 0;
-            int charStart = 0;
-            while (charStart < fullName.length()) {
-                int cw = minecraftClient.textRenderer.getWidth(fullName.substring(0, charStart));
-                if (cw >= snippetNameScrollOffset) break;
-                charStart++;
-            }
-            int visibleEnd = charStart;
-            while (visibleEnd <= fullName.length()) {
-                int cw = minecraftClient.textRenderer.getWidth(fullName.substring(charStart, visibleEnd));
-                if (cw > maxVisibleWidth) break;
-                visibleEnd++;
-            }
-            visibleEnd--;
-            if (visibleEnd < charStart) visibleEnd = charStart;
-            String visibleName = fullName.substring(charStart, visibleEnd);
-            int nameTextX = snippetPopupX + 8;
-            int nameTextY = nameBoxY + 2;
-            context.drawText(minecraftClient.textRenderer, Text.literal(visibleName), nameTextX, nameTextY, textColor, false);
-            if (snippetNameFocused && snippetCursorVisible) {
-                int cursorPosVisible = Math.min(snippetNameCursorPos - charStart, visibleName.length());
-                if (cursorPosVisible < 0) cursorPosVisible = 0;
-                int cX = nameTextX + minecraftClient.textRenderer.getWidth(visibleName.substring(0, Math.min(cursorPosVisible, visibleName.length())));
-                context.fill(cX, nameTextY - 1, cX + 1, nameTextY + minecraftClient.textRenderer.fontHeight, textColor);
-            }
-
-            int commandsLabelY = nameBoxY + nameBoxHeight + 8;
-            trimAndDrawText(context, "Commands:", snippetPopupX + 5, commandsLabelY, snippetPopupWidth - 10, textColor);
-            int commandsBoxY = commandsLabelY + 12;
-            int commandsBoxHeight = snippetPopupHeight - (commandsBoxY - snippetPopupY) - 60;
-            if (commandsBoxHeight < 20) commandsBoxHeight = 20;
-            int commandsBoxWidth = snippetPopupWidth - 10;
-            context.fill(snippetPopupX + 5, commandsBoxY, snippetPopupX + 5 + commandsBoxWidth, commandsBoxY + commandsBoxHeight, !snippetNameFocused ? 0xFF444466 : 0xFF333333);
-            String fullCommands = snippetCommandsBuffer.toString();
-            fullCommands = ensureCursorBounds(fullCommands);
-            String[] cmdLines = fullCommands.split("\n", -1);
-            List<String> wrappedLines = wrapLines(cmdLines, commandsBoxWidth, minecraftClient.textRenderer);
-            snippetMaxVisibleLines = Math.max(1, commandsBoxHeight / (minecraftClient.textRenderer.fontHeight + 2));
-            if (snippetCommandsScrollOffset < 0) snippetCommandsScrollOffset = 0;
-            if (snippetCommandsScrollOffset > Math.max(0, wrappedLines.size() - snippetMaxVisibleLines)) {
-                snippetCommandsScrollOffset = Math.max(0, wrappedLines.size() - snippetMaxVisibleLines);
-            }
-            int firstVisibleLine = snippetCommandsScrollOffset;
-            List<String> visibleCmdLines = getVisibleLines(wrappedLines, firstVisibleLine, snippetMaxVisibleLines);
-            int commandsInnerX = snippetPopupX + 8;
-            int commandsInnerY = commandsBoxY + 2;
-            int cLineIndex = findCursorLine(wrappedLines, snippetCommandsCursorPos);
-            if (cLineIndex < firstVisibleLine) {
-                snippetCommandsScrollOffset = cLineIndex;
-                firstVisibleLine = snippetCommandsScrollOffset;
-                visibleCmdLines = getVisibleLines(wrappedLines, firstVisibleLine, snippetMaxVisibleLines);
-            }
-            if (cLineIndex >= firstVisibleLine + snippetMaxVisibleLines) {
-                snippetCommandsScrollOffset = cLineIndex - (snippetMaxVisibleLines - 1);
-                firstVisibleLine = snippetCommandsScrollOffset;
-                visibleCmdLines = getVisibleLines(wrappedLines, firstVisibleLine, snippetMaxVisibleLines);
-            }
-            for (int i = 0; i < visibleCmdLines.size(); i++) {
-                context.drawText(minecraftClient.textRenderer, Text.literal(visibleCmdLines.get(i)), commandsInnerX, commandsInnerY + i * (minecraftClient.textRenderer.fontHeight + 2), textColor, false);
-            }
-            if (!snippetNameFocused && snippetCursorVisible) {
-                String cursorLine = cLineIndex >= 0 && cLineIndex < wrappedLines.size() ? wrappedLines.get(cLineIndex) : "";
-                int cPosInLine = cursorPosInLine(snippetCommandsCursorPos, wrappedLines, cLineIndex);
-                if (cPosInLine < 0) cPosInLine = 0;
-                if (cPosInLine > cursorLine.length()) cPosInLine = cursorLine.length();
-                String beforeCursor = cursorLine.substring(0, cPosInLine);
-                int cursorX = commandsInnerX + minecraftClient.textRenderer.getWidth(beforeCursor);
-                int relativeLine = cLineIndex - firstVisibleLine;
-                if (relativeLine < 0) relativeLine = 0;
-                if (relativeLine >= snippetMaxVisibleLines) relativeLine = snippetMaxVisibleLines - 1;
-                int cursorY = commandsInnerY + relativeLine * (minecraftClient.textRenderer.fontHeight + 2);
-                context.fill(cursorX, cursorY - 1, cursorX + 1, cursorY + minecraftClient.textRenderer.fontHeight, textColor);
-            }
-
-            int shortcutLabelY = commandsBoxY + commandsBoxHeight + 8;
-            trimAndDrawText(context, snippetRecordingKeys ? "Shortcut (recording):" : "Shortcut:", snippetPopupX + 5, shortcutLabelY, snippetPopupWidth - 10, textColor);
-            int shortcutBoxY = shortcutLabelY + 12;
-            int shortcutBoxHight = 12;
-            int shortcutBoxWidth = snippetPopupWidth - 10;
-            context.fill(snippetPopupX + 5, shortcutBoxY, snippetPopupX + 5 + shortcutBoxWidth, shortcutBoxY + shortcutBoxHight, 0xFF333333);
-            String shortcutText = snippetShortcutBuffer.isEmpty() ? "No Shortcut" : snippetShortcutBuffer.toString();
-            shortcutText = trimTextToWidthWithEllipsis(shortcutText, shortcutBoxWidth - 2);
-            context.drawText(minecraftClient.textRenderer, Text.literal(shortcutText), snippetPopupX + 8, shortcutBoxY + 2, textColor, false);
-
-            int recordX = snippetPopupX + snippetPopupWidth - shortcutBoxHight - 5;
-            boolean recordHover = mouseX >= recordX && mouseX <= recordX + shortcutBoxHight && mouseY >= shortcutBoxY && mouseY <= shortcutBoxY + shortcutBoxHight;
-            context.fill(recordX + 1, shortcutBoxY + 1, recordX + shortcutBoxHight - 1, shortcutBoxY + shortcutBoxHight - 1, recordHover ? 0xFF666666 : 0xFF555555);
-            context.fill(recordX, shortcutBoxY, recordX + shortcutBoxHight, shortcutBoxY + 1, 0xFFAAAAAA);
-            context.fill(recordX, shortcutBoxY, recordX + 1, shortcutBoxY + shortcutBoxHight, 0xFFAAAAAA);
-            context.fill(recordX, shortcutBoxY + shortcutBoxHight - 1, recordX + shortcutBoxHight, shortcutBoxY + shortcutBoxHight, 0xFF333333);
-            context.fill(recordX + shortcutBoxHight - 1, shortcutBoxY, recordX + shortcutBoxHight, shortcutBoxY + shortcutBoxHight, 0xFF333333);
-            String recordText = "⏺";
-            int rw = minecraftClient.textRenderer.getWidth(recordText);
-            int rtx = recordX + (shortcutBoxHight - rw) / 2;
-            int rty = shortcutBoxY + (shortcutBoxHight - minecraftClient.textRenderer.fontHeight) / 2;
-            trimAndDrawText(context, recordText, rtx, rty, shortcutBoxHight, textColor);
-
-            int confirmButtonY = snippetPopupY + snippetPopupHeight - 15;
-            String okText = "OK";
-            int okW = minecraftClient.textRenderer.getWidth(okText) + 10;
-            int confirmButtonX = snippetPopupX + 5;
-            boolean okHover = mouseX >= confirmButtonX && mouseX <= confirmButtonX + okW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawHoverableButton(context, confirmButtonX, confirmButtonY, okText, okHover, textColor);
-
-            String cancelText = "Cancel";
-            int cancelW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
-            int cancelButtonX = snippetPopupX + snippetPopupWidth - (cancelW + 5);
-            boolean cancelHover = mouseX >= cancelButtonX && mouseX <= cancelButtonX + cancelW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawHoverableButton(context, cancelButtonX, confirmButtonY, cancelText, cancelHover, textColor);
-
-            if (editingSnippet) {
-                String deleteText = "Delete";
-                int dw = minecraftClient.textRenderer.getWidth(deleteText) + 10;
-                int deleteX = snippetPopupX + (snippetPopupWidth - dw) / 2;
-                boolean delHover = mouseX >= deleteX && mouseX <= deleteX + dw && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-                drawHoverableButton(context, deleteX, confirmButtonY, deleteText, delHover, 0xFFFF0000);
-            }
-
-            if (snippetCreationWarning) {
-                String warning = "Name/Code cannot be empty";
-                int ww = minecraftClient.textRenderer.getWidth(warning);
-                trimAndDrawText(context, warning, snippetPopupX + (snippetPopupWidth - ww) / 2, snippetPopupY + snippetPopupHeight - 30, snippetPopupWidth - 10, 0xFFFF0000);
-            }
+            renderSnippetPopup(context, mouseX, mouseY, delta);
         }
     }
+
+    private void renderSnippetPopup(DrawContext context, int mouseX, int mouseY, float delta) {
+        if (snippetPopupX + snippetPopupWidth > this.width) snippetPopupX = this.width - snippetPopupWidth - 5;
+        if (snippetPopupY + snippetPopupHeight > this.height) snippetPopupY = this.height - snippetPopupHeight - 5;
+        context.fill(snippetPopupX, snippetPopupY, snippetPopupX + snippetPopupWidth, snippetPopupY + snippetPopupHeight, baseColor);
+        drawInnerBorder(context, snippetPopupX, snippetPopupY, snippetPopupWidth, snippetPopupHeight, borderColor);
+
+        int nameLabelY = snippetPopupY + 5;
+        trimAndDrawText(context, "Name:", snippetPopupX + 5, nameLabelY, snippetPopupWidth - 10, textColor);
+        int nameBoxY = nameLabelY + 12;
+        int nameBoxHeight = 12;
+        int nameBoxWidth = snippetPopupWidth - 10;
+        context.fill(snippetPopupX + 5, nameBoxY, snippetPopupX + 5 + nameBoxWidth, nameBoxY + nameBoxHeight, snippetNameFocused ? 0xFF444466 : 0xFF333333);
+        String fullName = snippetNameBuffer.toString();
+        int wBeforeCursor = minecraftClient.textRenderer.getWidth(fullName.substring(0, Math.min(snippetNameCursorPos, fullName.length())));
+        if (wBeforeCursor < snippetNameScrollOffset) snippetNameScrollOffset = wBeforeCursor;
+        int maxVisibleWidth = nameBoxWidth - 6;
+        if (wBeforeCursor - snippetNameScrollOffset > maxVisibleWidth) snippetNameScrollOffset = wBeforeCursor - maxVisibleWidth;
+        if (snippetNameScrollOffset < 0) snippetNameScrollOffset = 0;
+        int charStart = 0;
+        while (charStart < fullName.length()) {
+            int cw = minecraftClient.textRenderer.getWidth(fullName.substring(0, charStart));
+            if (cw >= snippetNameScrollOffset) break;
+            charStart++;
+        }
+        int visibleEnd = charStart;
+        while (visibleEnd <= fullName.length()) {
+            int cw = minecraftClient.textRenderer.getWidth(fullName.substring(charStart, visibleEnd));
+            if (cw > maxVisibleWidth) break;
+            visibleEnd++;
+        }
+        visibleEnd--;
+        if (visibleEnd < charStart) visibleEnd = charStart;
+        String visibleName = fullName.substring(charStart, visibleEnd);
+        int nameTextX = snippetPopupX + 8;
+        int nameTextY = nameBoxY + 2;
+        context.drawText(minecraftClient.textRenderer, Text.literal(visibleName), nameTextX, nameTextY, textColor, false);
+        if (snippetNameFocused && snippetCursorVisible) {
+            int cursorPosVisible = Math.min(snippetNameCursorPos - charStart, visibleName.length());
+            if (cursorPosVisible < 0) cursorPosVisible = 0;
+            int cX = nameTextX + minecraftClient.textRenderer.getWidth(visibleName.substring(0, Math.min(cursorPosVisible, visibleName.length())));
+            context.fill(cX, nameTextY - 1, cX + 1, nameTextY + minecraftClient.textRenderer.fontHeight, textColor);
+        }
+
+        int commandsLabelY = nameBoxY + nameBoxHeight + 8;
+        trimAndDrawText(context, "Commands:", snippetPopupX + 5, commandsLabelY, snippetPopupWidth - 10, textColor);
+        int commandsBoxY = commandsLabelY + 12;
+        int commandsBoxHeight = snippetPopupHeight - (commandsBoxY - snippetPopupY) - 60;
+        if (commandsBoxHeight < 20) commandsBoxHeight = 20;
+        int commandsBoxWidth = snippetPopupWidth - 10;
+        context.fill(snippetPopupX + 5, commandsBoxY, snippetPopupX + 5 + commandsBoxWidth, commandsBoxY + commandsBoxHeight, !snippetNameFocused ? 0xFF444466 : 0xFF333333);
+        String fullCommands = snippetCommandsBuffer.toString();
+        fullCommands = ensureCursorBounds(fullCommands);
+        String[] cmdLines = fullCommands.split("\n", -1);
+        List<String> wrappedLines = wrapLines(cmdLines, commandsBoxWidth, minecraftClient.textRenderer);
+        snippetMaxVisibleLines = Math.max(1, commandsBoxHeight / (minecraftClient.textRenderer.fontHeight + 2));
+        if (snippetCommandsScrollOffset < 0) snippetCommandsScrollOffset = 0;
+        if (snippetCommandsScrollOffset > Math.max(0, wrappedLines.size() - snippetMaxVisibleLines)) {
+            snippetCommandsScrollOffset = Math.max(0, wrappedLines.size() - snippetMaxVisibleLines);
+        }
+        int firstVisibleLine = snippetCommandsScrollOffset;
+        List<String> visibleCmdLines = getVisibleLines(wrappedLines, firstVisibleLine, snippetMaxVisibleLines);
+        int commandsInnerX = snippetPopupX + 8;
+        int commandsInnerY = commandsBoxY + 2;
+        int cLineIndex = findCursorLine(wrappedLines, snippetCommandsCursorPos);
+        if (cLineIndex < firstVisibleLine) {
+            snippetCommandsScrollOffset = cLineIndex;
+            firstVisibleLine = snippetCommandsScrollOffset;
+            visibleCmdLines = getVisibleLines(wrappedLines, firstVisibleLine, snippetMaxVisibleLines);
+        }
+        if (cLineIndex >= firstVisibleLine + snippetMaxVisibleLines) {
+            snippetCommandsScrollOffset = cLineIndex - (snippetMaxVisibleLines - 1);
+            firstVisibleLine = snippetCommandsScrollOffset;
+            visibleCmdLines = getVisibleLines(wrappedLines, firstVisibleLine, snippetMaxVisibleLines);
+        }
+        for (int i = 0; i < visibleCmdLines.size(); i++) {
+            context.drawText(minecraftClient.textRenderer, Text.literal(visibleCmdLines.get(i)), commandsInnerX, commandsInnerY + i * (minecraftClient.textRenderer.fontHeight + 2), textColor, false);
+        }
+        if (!snippetNameFocused && snippetCursorVisible) {
+            String cursorLine = cLineIndex >= 0 && cLineIndex < wrappedLines.size() ? wrappedLines.get(cLineIndex) : "";
+            int cPosInLine = cursorPosInLine(snippetCommandsCursorPos, wrappedLines, cLineIndex);
+            if (cPosInLine < 0) cPosInLine = 0;
+            if (cPosInLine > cursorLine.length()) cPosInLine = cursorLine.length();
+            String beforeCursor = cursorLine.substring(0, cPosInLine);
+            int cursorX = commandsInnerX + minecraftClient.textRenderer.getWidth(beforeCursor);
+            int relativeLine = cLineIndex - firstVisibleLine;
+            if (relativeLine < 0) relativeLine = 0;
+            if (relativeLine >= snippetMaxVisibleLines) relativeLine = snippetMaxVisibleLines - 1;
+            int cursorY = commandsInnerY + relativeLine * (minecraftClient.textRenderer.fontHeight + 2);
+            context.fill(cursorX, cursorY - 1, cursorX + 1, cursorY + minecraftClient.textRenderer.fontHeight, textColor);
+        }
+
+        int shortcutLabelY = commandsBoxY + commandsBoxHeight + 8;
+        trimAndDrawText(context, snippetRecordingKeys ? "Shortcut (recording):" : "Shortcut:", snippetPopupX + 5, shortcutLabelY, snippetPopupWidth - 10, textColor);
+        int shortcutBoxY = shortcutLabelY + 12;
+        int shortcutBoxHight = 12;
+        int shortcutBoxWidth = snippetPopupWidth - 10;
+        context.fill(snippetPopupX + 5, shortcutBoxY, snippetPopupX + 5 + shortcutBoxWidth, shortcutBoxY + shortcutBoxHight, 0xFF333333);
+        String shortcutText = snippetShortcutBuffer.isEmpty() ? "No Shortcut" : snippetShortcutBuffer.toString();
+        shortcutText = trimTextToWidthWithEllipsis(shortcutText, shortcutBoxWidth - 2);
+        context.drawText(minecraftClient.textRenderer, Text.literal(shortcutText), snippetPopupX + 8, shortcutBoxY + 2, textColor, false);
+
+        int recordX = snippetPopupX + snippetPopupWidth - shortcutBoxHight - 5;
+        boolean recordHover = mouseX >= recordX && mouseX <= recordX + shortcutBoxHight && mouseY >= shortcutBoxY && mouseY <= shortcutBoxY + shortcutBoxHight;
+        context.fill(recordX + 1, shortcutBoxY + 1, recordX + shortcutBoxHight - 1, shortcutBoxY + shortcutBoxHight - 1, recordHover ? 0xFF666666 : 0xFF555555);
+        context.fill(recordX, shortcutBoxY, recordX + shortcutBoxHight, shortcutBoxY + 1, 0xFFAAAAAA);
+        context.fill(recordX, shortcutBoxY, recordX + 1, shortcutBoxY + shortcutBoxHight, 0xFFAAAAAA);
+        context.fill(recordX, shortcutBoxY + shortcutBoxHight - 1, recordX + shortcutBoxHight, shortcutBoxY + shortcutBoxHight, 0xFF333333);
+        context.fill(recordX + shortcutBoxHight - 1, shortcutBoxY, recordX + shortcutBoxHight, shortcutBoxY + shortcutBoxHight, 0xFF333333);
+        String recordText = "⏺";
+        int rw = minecraftClient.textRenderer.getWidth(recordText);
+        int rtx = recordX + (shortcutBoxHight - rw) / 2;
+        int rty = shortcutBoxY + (shortcutBoxHight - minecraftClient.textRenderer.fontHeight) / 2;
+        trimAndDrawText(context, recordText, rtx, rty, shortcutBoxHight, textColor);
+
+        int confirmButtonY = snippetPopupY + snippetPopupHeight - 15;
+        String okText = "OK";
+        int okW = minecraftClient.textRenderer.getWidth(okText) + 10;
+        int confirmButtonX = snippetPopupX + 5;
+        boolean okHover = mouseX >= confirmButtonX && mouseX <= confirmButtonX + okW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
+        drawHoverableButton(context, confirmButtonX, confirmButtonY, okText, okHover, textColor);
+
+        String cancelText = "Cancel";
+        int cancelW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
+        int cancelButtonX = snippetPopupX + snippetPopupWidth - (cancelW + 5);
+        boolean cancelHover = mouseX >= cancelButtonX && mouseX <= cancelButtonX + cancelW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
+        drawHoverableButton(context, cancelButtonX, confirmButtonY, cancelText, cancelHover, textColor);
+
+        if (editingSnippet) {
+            String deleteText = "Delete";
+            int dw = minecraftClient.textRenderer.getWidth(deleteText) + 10;
+            int deleteX = snippetPopupX + (snippetPopupWidth - dw) / 2;
+            boolean delHover = mouseX >= deleteX && mouseX <= deleteX + dw && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
+            drawHoverableButton(context, deleteX, confirmButtonY, deleteText, delHover, 0xFFFF0000);
+        }
+
+        if (snippetCreationWarning) {
+            String warning = "Name/Code cannot be empty";
+            int ww = minecraftClient.textRenderer.getWidth(warning);
+            trimAndDrawText(context, warning, snippetPopupX + (snippetPopupWidth - ww) / 2, snippetPopupY + snippetPopupHeight - 30, snippetPopupWidth - 10, 0xFFFF0000);
+        }
+    }
+
 
     private void renderSnippetBox(DrawContext context, int snippetX, int snippetY, int snippetMaxWidth, RemotelyClient.CommandSnippet snippet, boolean hovered, boolean selected, int index) {
         int snippetHeight = selected ? calculateSnippetHeight(snippet.commands) : 30;

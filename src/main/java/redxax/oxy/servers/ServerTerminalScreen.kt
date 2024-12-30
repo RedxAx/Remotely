@@ -47,7 +47,7 @@ class ServerTerminalScreen(
         Notification.renderAll(context)
         context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor)
         super.render(context, mouseX, mouseY, delta)
-        context.fill(0, 0, this.width, topBarHeight, baseColor)
+        context.fill(0, 0, this.width, topBarHeight, lighterColor)
         drawInnerBorder(context, 0, 0, this.width, topBarHeight, borderColor)
         val stateText = when (serverInfo.state) {
             ServerState.RUNNING -> "Running"
