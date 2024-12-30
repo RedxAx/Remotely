@@ -15,7 +15,6 @@ base {
 repositories {
     mavenCentral()
     maven { url = "https://jitpack.io" }
-    maven { url = "https://repo.essential.gg/repository/maven-public" }
 }
 
 fabricApi {
@@ -33,9 +32,6 @@ dependencies {
     implementation "com.twelvemonkeys.imageio:imageio-webp:3.12.0"
     implementation "com.jcraft:jsch:0.1.55"
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
-
-    modImplementation("gg.essential:elementa:$elementaVersion")
-    modImplementation(include("gg.essential:universalcraft-$minecraft_version-fabric:$ucVersion"))
 
     shadow "com.twelvemonkeys.imageio:imageio-webp:3.12.0"
     shadow "org.apache.commons:commons-lang3:3.12.0"
