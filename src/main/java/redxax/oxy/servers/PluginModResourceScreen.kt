@@ -128,9 +128,7 @@ class PluginModResourceScreen(
                     isProjectDataLoaded = true
                     mc.execute {
                         markdownComponent.constrain {
-                            //(Text!, Float, Float, Int, Boolean, Matrix4f!, VertexConsumerProvider!, TextRenderer. TextLayerType!, Int, Int)
-                            textRenderer.draw( fullDescription, 0f, 0f, -1, false, null, null, null, 0xffffff, 0, false)
-
+                            textRenderer.draw(fullDescription, 0f, 0f, -1, false, null, null, null, 0xffffff, 0, false)
                         }
                     }
                 }
@@ -289,7 +287,7 @@ class PluginModResourceScreen(
                 val version = JsonParser.parseString(response.body()).asJsonObject
                 val files = version.getAsJsonArray("files")
                 if (files.size() > 0) {
-                    val file = files[0].asJsonObject
+                    val file = files.get(0).asJsonObject
                     return file["url"].asString
                 }
             } else {

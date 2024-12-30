@@ -73,7 +73,15 @@ public class PluginModManagerScreen extends Screen {
         }
         isLoading = true;
         if (reset) hasMore = true;
-        ModrinthAPI.searchModpacks(query, 30, loadedCount).thenAccept(fetched -> {
+        CompletableFuture<List<ModrinthResource>> searchFuture;
+        if (serverInfo.isModServer()) {
+            searchFuture = ModrinthAPI.searchMods(query, 30, loadedCount);
+        } else if (serverInfo.isPluginServer()) {
+            searchFuture = ModrinthAPI.searchPlugins(query, 30, loadedCount);
+        } else {
+            searchFuture = ModrinthAPI.searchModpacks(query, 30, loadedCount);
+        }
+        searchFuture.thenAccept(fetched -> {
             if (fetched.size() < 30) hasMore = false;
             Set<String> seenSlugs = ConcurrentHashMap.newKeySet();
             List<ModrinthResource> uniqueResources = new ArrayList<>();

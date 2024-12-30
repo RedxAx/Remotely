@@ -22,6 +22,14 @@ public class ModrinthAPI {
             .build();
     private static final String USER_AGENT = "Remotely";
 
+    public static CompletableFuture<List<ModrinthResource>> searchMods(String query, int limit, int offset) {
+        return searchResources(query, "mod", limit, offset);
+    }
+
+    public static CompletableFuture<List<ModrinthResource>> searchPlugins(String query, int limit, int offset) {
+        return searchResources(query, "plugin", limit, offset);
+    }
+
     public static CompletableFuture<List<ModrinthResource>> searchModpacks(String query, int limit, int offset) {
         List<ModrinthResource> results = new ArrayList<>();
         try {
@@ -56,6 +64,65 @@ public class ModrinthAPI {
             CompletableFuture<List<ModrinthResource>> failedFuture = new CompletableFuture<>();
             failedFuture.completeExceptionally(e);
             return failedFuture;
+        }
+    }
+
+    private static CompletableFuture<List<ModrinthResource>> searchResources(String query, String type, int limit, int offset) {
+        List<ModrinthResource> results = new ArrayList<>();
+        try {
+            String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
+            String facets = "[[\"project_type:" + type + "\"]]";
+            String encodedFacets = URLEncoder.encode(facets, StandardCharsets.UTF_8);
+            URI uri = new URI(MODRINTH_API_URL + "?query=" + encodedQuery + "&facets=" + encodedFacets + "&limit=" + limit + "&offset=" + offset);
+            HttpRequest request = HttpRequest.newBuilder().uri(uri).header("User-Agent", USER_AGENT).GET().build();
+            return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                    .thenCompose(response -> {
+                        if (response.statusCode() == 200) {
+                            JsonObject jsonResponse = JsonParser.parseString(response.body()).getAsJsonObject();
+                            JsonArray hits = jsonResponse.getAsJsonArray("hits");
+                            for (int i = 0; i < hits.size(); i++) {
+                                JsonObject hit = hits.get(i).getAsJsonObject();
+                                String name = hit.has("title") ? hit.get("title").getAsString() : "Unknown";
+                                String versionID = hit.has("latest_version") ? hit.get("latest_version").getAsString() : "Unknown";
+                                String description = hit.has("description") ? hit.get("description").getAsString() : "No description";
+                                String slug = hit.has("slug") ? hit.get("slug").getAsString() : "unknown";
+                                String iconUrl = hit.has("icon_url") ? hit.get("icon_url").getAsString() : "";
+                                int downloads = hit.has("downloads") ? hit.get("downloads").getAsInt() : 0;
+                                ModrinthResource r = new ModrinthResource(name, versionID, description, slug + (type.equals("plugin") ? ".jar" : ".mrpack"), iconUrl, downloads, slug, new ArrayList<>());
+                                results.add(r);
+                            }
+                            return CompletableFuture.completedFuture(results);
+                        } else {
+                            return CompletableFuture.completedFuture(results);
+                        }
+                    })
+                    .exceptionally(e -> results);
+        } catch (Exception e) {
+            CompletableFuture<List<ModrinthResource>> failedFuture = new CompletableFuture<>();
+            failedFuture.completeExceptionally(e);
+            return failedFuture;
+        }
+    }
+
+    private static CompletableFuture<String> fetchDownloadUrl(String versionID) {
+        try {
+            URI uri = new URI("https://api.modrinth.com/v2/version/" + versionID);
+            HttpRequest request = HttpRequest.newBuilder().uri(uri).header("User-Agent", USER_AGENT).GET().build();
+            return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                    .thenApply(response -> {
+                        if (response.statusCode() == 200) {
+                            JsonObject version = JsonParser.parseString(response.body()).getAsJsonObject();
+                            JsonArray files = version.getAsJsonArray("files");
+                            if (files.size() > 0) {
+                                JsonObject file = files.get(0).getAsJsonObject();
+                                return file.get("url").getAsString();
+                            }
+                        }
+                        return "";
+                    })
+                    .exceptionally(e -> "");
+        } catch (Exception e) {
+            return CompletableFuture.completedFuture("");
         }
     }
 }

@@ -24,4 +24,8 @@ public class ServerInfo {
     public boolean isModServer() {
         return Objects.equals(type, "forge") || Objects.equals(type, "fabric") || Objects.equals(type, "neoforge");
     }
+
+    public boolean isPluginServer() {
+        return Objects.equals(type, "bukkit") || Objects.equals(type, "spigot") || Objects.equals(type, "paper");
+    }
 }
