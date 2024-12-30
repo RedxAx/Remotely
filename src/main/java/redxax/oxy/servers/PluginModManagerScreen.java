@@ -12,6 +12,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.util.*;
@@ -96,6 +97,11 @@ public class PluginModManagerScreen extends Screen {
             resourceCache.put(query + "_" + loadedCount, new ArrayList<>(uniqueResources));
             isLoading = false;
             isLoadingMore = false;
+        }).exceptionally(e -> {
+            e.printStackTrace();
+            isLoading = false;
+            isLoadingMore = false;
+            return null;
         });
     }
 
@@ -244,7 +250,11 @@ public class PluginModManagerScreen extends Screen {
                             try (InputStream inputStream = new URL(resource.iconUrl).openStream()) {
                                 NativeImage nativeImage = loadImage(inputStream, resource.iconUrl);
                                 minecraftClient.getTextureManager().registerTexture(textureId, new NativeImageBackedTexture(nativeImage));
-                            } catch (Exception ignored) {}
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            } catch (Exception e) {
+                                throw new RuntimeException(e);
+                            }
                         });
                     }
                 }

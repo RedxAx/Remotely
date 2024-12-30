@@ -24,11 +24,8 @@ public class RemotelyClient implements ClientModInitializer {
 
     private KeyBinding openTerminalKeyBinding;
     private KeyBinding openServerManagerKeyBinding;
-    private KeyBinding openComponentsGuiKeyBinding;
-
 
     public MultiTerminalScreen multiTerminalScreen;
-    // We’ll store the server manager screen reference too:
     private ServerManagerScreen serverManagerScreen;
 
     private static final Path TERMINAL_LOG_DIR = Paths.get(System.getProperty("user.dir"), "remotely", "logs");
@@ -43,7 +40,6 @@ public class RemotelyClient implements ClientModInitializer {
     public static List<CommandSnippet> globalSnippets = new ArrayList<>();
     public static RemotelyClient INSTANCE;
 
-    // Keep track of servers for the manager
     public final List<ServerInfo> servers = new ArrayList<>();
 
     @Override
@@ -52,7 +48,6 @@ public class RemotelyClient implements ClientModInitializer {
         System.out.println("Remotely mod initialized on the client.");
         loadSnippets();
 
-        // Existing keybinding for MultiTerminalScreen
         openTerminalKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "Open Terminal",
                 InputUtil.Type.KEYSYM,
@@ -60,44 +55,26 @@ public class RemotelyClient implements ClientModInitializer {
                 "Remotely"
         ));
 
-        // NEW keybinding for ServerManagerScreen
         openServerManagerKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "Open Server Manager",
                 InputUtil.Type.KEYSYM,
                 GLFW.GLFW_KEY_X,
                 "Remotely"
         ));
-        openComponentsGuiKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "Open Components GUI",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_I,
-                "Remotely"
-        ));
 
-        // Ticking to detect key presses
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client != null && client.player != null) {
-                // Check old keybinding
                 if (openTerminalKeyBinding.wasPressed()) {
                     openMultiTerminalGUI(client);
                 }
-                // Check new keybinding
                 if (openServerManagerKeyBinding.wasPressed()) {
                     openServerManagerGUI(client);
                 }
-//                if (openComponentsGuiKeyBinding.wasPressed()) {
-//                    openComponentsGui(client);
-//                }
             }
         });
 
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownAllTerminals));
     }
-
-//    public void openComponentsGui(MinecraftClient client) {
-//        ComponentsGui screen = new ComponentsGui();
-//        client.setScreen(screen);
-//    }
 
     public void openMultiTerminalGUI(MinecraftClient client) {
         if (multiTerminalScreen == null || !client.isWindowFocused()) {
@@ -115,12 +92,10 @@ public class RemotelyClient implements ClientModInitializer {
         }
     }
 
-    // NEW: open the Server Manager GUI
     public void openServerManagerGUI(MinecraftClient client) {
         if (serverManagerScreen == null) {
             serverManagerScreen = new ServerManagerScreen(client, this, servers);
         } else {
-            // Re-create screen every time if desired
             serverManagerScreen = new ServerManagerScreen(client, this, servers);
         }
         client.setScreen(serverManagerScreen);

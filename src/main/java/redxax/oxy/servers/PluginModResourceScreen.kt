@@ -1,25 +1,19 @@
 package redxax.oxy.servers
 
 import com.google.gson.JsonParser
-import gg.essential.elementa.components.ScrollComponent
-import gg.essential.elementa.components.UIBlock
-import gg.essential.elementa.constraints.ChildBasedSizeConstraint
-import gg.essential.elementa.constraints.RelativeConstraint
-import gg.essential.elementa.dsl.childOf
-import gg.essential.elementa.dsl.constrain
-import gg.essential.elementa.dsl.minus
-import gg.essential.elementa.dsl.pixels
-import gg.essential.elementa.markdown.MarkdownComponent
 import net.minecraft.client.MinecraftClient
 import net.minecraft.client.gui.DrawContext
 import net.minecraft.client.gui.screen.Screen
 import net.minecraft.client.texture.NativeImage
+import net.minecraft.client.texture.NativeImageBackedTexture
 import net.minecraft.text.Text
+import net.minecraft.util.Identifier
 import redxax.oxy.Notification
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.lang.ProcessBuilder
 import java.net.URI
 import java.net.URL
 import java.net.http.HttpClient
@@ -31,13 +25,16 @@ import java.nio.file.StandardCopyOption
 import java.util.*
 import java.util.concurrent.CompletableFuture
 import javax.imageio.ImageIO
+import kotlin.math.max
+import kotlin.math.min
 
 class PluginModResourceScreen(
     private val mc: MinecraftClient,
     private val parent: Screen,
     private val resource: ModrinthResource,
     private val serverInfo: ServerInfo
-) : Screen(Text.literal(resource.name)) {
+) :
+    Screen(Text.literal(resource.name)) {
     private val baseColor = -0xe7e7e8
     private val lighterColor = -0xddddde
     private val borderColor = -0xcccccd
@@ -46,34 +43,34 @@ class PluginModResourceScreen(
     private var installButtonText = "Install"
     private var fullDescription = ""
     private var isProjectDataLoaded = false
+    private var smoothOffset = 0f
+    private var targetOffset = 0f
+    private val scrollSpeed = 0.2f
+    private val contentBlocks: MutableList<ContentBlock> = ArrayList()
     private var installingMrPack = false
 
-    private val window = UIBlock().constrain {
-        x = 0.pixels()
-        y = 0.pixels()
-        width = RelativeConstraint(1f)
-        height = RelativeConstraint(1f)
+    private class ContentBlock {
+        enum class Type {
+            HEADER, SUBHEADER, TEXT, IMAGE
+        }
+
+        var type: Type
+        var text: String? = null
+        var imageId: Identifier? = null
+
+        constructor(type: Type, text: String?) {
+            this.type = type
+            this.text = text
+        }
+
+        constructor(type: Type, imageId: Identifier?) {
+            this.type = type
+            this.imageId = imageId
+        }
     }
-
-    private val scroll = ScrollComponent().constrain {
-        x = 2.pixels()
-        y = 40.pixels()
-        width = RelativeConstraint(1f) - 4.pixels()
-        height = RelativeConstraint(1f) - 40.pixels()
-    } childOf window
-
-    private val markdownComponent = MarkdownComponent("").constrain {
-        x = 0.pixels()
-        y = 0.pixels()
-        width = ChildBasedSizeConstraint()
-        height = ChildBasedSizeConstraint()
-    } childOf scroll
 
     override fun init() {
         super.init()
-        this.clearChildren()
-        window.addChild(scroll)
-        scroll.addChild(markdownComponent)
         if (resource.fileName.endsWith(".mrpack", ignoreCase = true)) {
             installButtonText = "Install Modpack"
         } else {
@@ -125,16 +122,54 @@ class PluginModResourceScreen(
                     } else if (project.has("description")) {
                         fullDescription = project["description"].asString
                     }
+                    parseDescription()
                     isProjectDataLoaded = true
-                    mc.execute {
-                        markdownComponent.constrain {
-                            textRenderer.draw(fullDescription, 0f, 0f, -1, false, null, null, null, 0xffffff, 0, false)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Notification.Builder("Failed to fetch project data: " + e.message, Notification.Type.ERROR).build()
+            }
+        }
+    }
+
+    private fun parseDescription() {
+        val lines = fullDescription.split("\n".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
+        for (rawLine in lines) {
+            var line = rawLine.trim()
+            if (line.startsWith("### ")) {
+                contentBlocks.add(ContentBlock(ContentBlock.Type.SUBHEADER, line.substring(4).trim()))
+            } else if (line.startsWith("# ")) {
+                contentBlocks.add(ContentBlock(ContentBlock.Type.HEADER, line.substring(2).trim()))
+            } else if (line.startsWith("![")) {
+                val start = line.indexOf("](")
+                val end = line.indexOf(")", start)
+                if (start != -1 && end != -1) {
+                    val url = line.substring(start + 2, end).trim()
+                    loadImage(url)
+                }
+            } else if (line.isNotEmpty()) {
+                contentBlocks.add(ContentBlock(ContentBlock.Type.TEXT, line))
+            }
+        }
+    }
+
+    private fun loadImage(url: String) {
+        CompletableFuture.runAsync {
+            try {
+                URL(url).openStream().use { inputStream ->
+                    val nativeImage = loadImage(inputStream, url)
+                    if (nativeImage != null) {
+                        val texture = NativeImageBackedTexture(nativeImage)
+                        val textureId =
+                            mc.textureManager.registerDynamicTexture("oxy_mod_image_" + contentBlocks.size, texture)
+                        mc.execute {
+                            contentBlocks.add(ContentBlock(ContentBlock.Type.IMAGE, textureId))
                         }
                     }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                Notification.Builder("Failed to fetch project data: " + e.message, Notification.Type.ERROR).build()
+                Notification.Builder("Failed to load image: " + e.message, Notification.Type.WARN).build()
             }
         }
     }
@@ -198,7 +233,6 @@ class PluginModResourceScreen(
             mc.setScreen(parent)
             return true
         }
-        scroll.mouseClick(mouseX, mouseY, button)
         return super.mouseClicked(mouseX, mouseY, button)
     }
 
@@ -287,7 +321,7 @@ class PluginModResourceScreen(
                 val version = JsonParser.parseString(response.body()).asJsonObject
                 val files = version.getAsJsonArray("files")
                 if (files.size() > 0) {
-                    val file = files.get(0).asJsonObject
+                    val file = files[0].asJsonObject
                     return file["url"].asString
                 }
             } else {
@@ -301,9 +335,33 @@ class PluginModResourceScreen(
     }
 
     override fun mouseScrolled(mouseX: Double, mouseY: Double, horizontalAmount: Double, verticalAmount: Double): Boolean {
-        scroll.mouseScroll(mouseX.toDouble())
-        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)
+        targetOffset -= (verticalAmount * 20).toFloat()
+        targetOffset = max(
+            0.0,
+            min(
+                targetOffset.toDouble(),
+                max(0.0, (contentHeight - (this.height - 60)).toDouble())
+            )
+        ).toFloat()
+        return true
     }
+
+    private val contentHeight: Int
+        get() {
+            var height = 55
+            for (block in contentBlocks) {
+                when (block.type) {
+                    ContentBlock.Type.HEADER -> height += textRenderer.fontHeight + 10
+                    ContentBlock.Type.SUBHEADER -> height += textRenderer.fontHeight + 8
+                    ContentBlock.Type.TEXT -> {
+                        val lines = textRenderer.wrapLines(Text.literal(block.text), width - 20)
+                        height += lines.size * (textRenderer.fontHeight + 2) + 5
+                    }
+                    ContentBlock.Type.IMAGE -> height += 117
+                }
+            }
+            return height
+        }
 
     override fun render(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
         Notification.updateAll(delta)
@@ -339,9 +397,54 @@ class PluginModResourceScreen(
 
         if (!isProjectDataLoaded) {
             context.drawText(this.textRenderer, Text.literal("Loading project details..."), 10, 40, 0xA0A0A0, false)
+            return
         }
 
-        window.draw()
+        smoothOffset += (targetOffset - smoothOffset) * scrollSpeed
+        val listStartY = 40
+        val listEndY = this.height - 20
+
+        context.enableScissor(0, listStartY, this.width, listEndY)
+
+        var currentY = listStartY + 15 - smoothOffset.toInt()
+        for (block in contentBlocks) {
+            when (block.type) {
+                ContentBlock.Type.HEADER -> {
+                    context.drawText(this.textRenderer, Text.literal(block.text), 10, currentY, 0xFFFFA0, false)
+                    currentY += textRenderer.fontHeight + 10
+                }
+                ContentBlock.Type.SUBHEADER -> {
+                    context.drawText(this.textRenderer, Text.literal(block.text), 10, currentY, 0xFFA0FF, false)
+                    currentY += textRenderer.fontHeight + 8
+                }
+                ContentBlock.Type.TEXT -> {
+                    val lines = textRenderer.wrapLines(Text.literal(block.text), this.width - 20)
+                    for (line in lines) {
+                        context.drawText(this.textRenderer, line, 10, currentY, 0xA0A0A0, false)
+                        currentY += textRenderer.fontHeight + 2
+                    }
+                    currentY += 5
+                }
+                ContentBlock.Type.IMAGE -> if (block.imageId != null) {
+                    mc.textureManager.bindTexture(block.imageId)
+                    context.drawTexture(block.imageId, 10, currentY, 0f, 0f, 200, 112, 200, 112)
+                    currentY += 117
+                }
+            }
+        }
+
+        context.disableScissor()
+
+        if (smoothOffset > 0) {
+            context.fillGradient(0, listStartY, this.width, listStartY + 10, -0x80000000, 0x00000000)
+        }
+        if (smoothOffset < contentHeight - (this.height - 60)) {
+            context.fillGradient(0, listEndY - 10, this.width, listEndY, 0x00000000, -0x80000000)
+        }
+        loadMoreIfNeeded()
+    }
+
+    private fun loadMoreIfNeeded() {
     }
 
     private fun drawInnerBorder(context: DrawContext, x: Int, y: Int, w: Int, h: Int, c: Int) {
