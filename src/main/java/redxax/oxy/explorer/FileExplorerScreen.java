@@ -13,12 +13,13 @@ import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.*;
 
 public class FileExplorerScreen extends Screen implements FileManager.FileManagerCallback {
     private final MinecraftClient minecraftClient;
     private final Screen parent;
     private final ServerInfo serverInfo;
-    private List<Path> fileEntries;
+    private List<EntryData> fileEntries;
     private float smoothOffset = 0;
     private int entryHeight = 25;
     private int baseColor = 0xFF181818;
@@ -55,6 +56,22 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             ".html", ".js", ".java", ".py", ".css", ".vsh", ".fsh", ".glsl", ".nu",
             ".bash", ".fish"
     );
+    private final ExecutorService directoryLoader = Executors.newSingleThreadExecutor();
+    private static final Map<String, List<EntryData>> remoteCache = new ConcurrentHashMap<>();
+    private boolean loading = false;
+
+    private static class EntryData {
+        Path path;
+        boolean isDirectory;
+        String size;
+        String created;
+        EntryData(Path p, boolean d, String s, String c) {
+            path = p;
+            isDirectory = d;
+            size = s;
+            created = c;
+        }
+    }
 
     public FileExplorerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
         this(mc, parent, info, false);
@@ -96,7 +113,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
                 searchActive = false;
                 searchQuery.setLength(0);
-                loadDirectory(currentPath, false);
+                loadDirectory(currentPath, false, false);
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
@@ -150,6 +167,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 searchActive = true;
                 searchQuery.setLength(0);
                 searchBarY = this.height - searchBarHeight - 10;
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_R) {
+                loadDirectory(currentPath, false, true);
                 return true;
             }
         }
@@ -215,9 +236,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     int relativeY = (int) mouseY - explorerY + (int) smoothOffset;
                     int clickedIndex = relativeY / entryHeight;
                     if (clickedIndex >= 0 && clickedIndex < fileEntries.size()) {
-                        Path selectedPath = fileEntries.get(clickedIndex);
+                        EntryData entryData = fileEntries.get(clickedIndex);
+                        Path selectedPath = entryData.path;
                         if (isDoubleClick) {
-                            if (isDirectory(selectedPath)) {
+                            if (entryData.isDirectory) {
                                 loadDirectory(selectedPath);
                             } else {
                                 if (importMode && selectedPath.getFileName().toString().equalsIgnoreCase("server.jar")) {
@@ -253,7 +275,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                                     int start = Math.min(lastSelectedIndex, clickedIndex);
                                     int end = Math.max(lastSelectedIndex, clickedIndex);
                                     for (int i = start; i <= end; i++) {
-                                        Path path = fileEntries.get(i);
+                                        Path path = fileEntries.get(i).path;
                                         if (!selectedPaths.contains(path)) {
                                             selectedPaths.add(path);
                                         }
@@ -283,26 +305,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
-    private boolean isDirectory(Path p) {
-        if (serverInfo.isRemote) {
-            if (serverInfo.remoteSSHManager == null || !serverInfo.remoteSSHManager.isSFTPConnected()) {
-                return false;
-            }
-            try {
-                String remotePath = p.toString().replace("\\", "/");
-                return serverInfo.remoteSSHManager.isRemoteDirectory(remotePath);
-            } catch (Exception e) {
-                return false;
-            }
-        }
-        return Files.isDirectory(p);
-    }
-
     private void navigateBack() {
         if (!history.isEmpty()) {
             Path previousPath = history.pop();
             forwardHistory.push(currentPath);
-            loadDirectory(previousPath, false);
+            loadDirectory(previousPath, false, false);
         }
     }
 
@@ -363,10 +370,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         context.fill(0, 0, this.width, titleBarHeight, 0xFF222222);
         drawInnerBorder(context, 0, 0, this.width, titleBarHeight, 0xFF333333);
 
-        String titleText = "File Explorer - " + currentPath;
-        if (!serverInfo.isRemote && !currentPath.equals(Paths.get(serverInfo.path).toAbsolutePath().normalize())) {
-            titleText += "/";
-        }
+        String titleText = "File Explorer - " + currentPath + (loading ? " (Loading...)" : "");
         context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, textColor, false);
 
         int backButtonX = this.width - 120;
@@ -392,7 +396,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         drawInnerBorder(context, closeButtonX, closeButtonY, closeBtnW, closeBtnH, explorerBorderColor);
         int tcw = minecraftClient.textRenderer.getWidth("Close");
         int tcx = closeButtonX + (closeBtnW - tcw) / 2;
-        int tcy = closeButtonY + (closeBtnH - minecraftClient.textRenderer.fontHeight) / 2;
+        int tcy = closeButtonY + (btnH - minecraftClient.textRenderer.fontHeight) / 2;
         context.drawText(this.textRenderer, Text.literal("Close"), tcx, tcy, textColor, false);
 
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
@@ -403,7 +407,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (endIndex > fileEntries.size()) endIndex = fileEntries.size();
 
         for (int entryIndex = startIndex; entryIndex < endIndex; entryIndex++) {
-            Path entry = fileEntries.get(entryIndex);
+            EntryData entry = fileEntries.get(entryIndex);
             int entryY = explorerY + (entryIndex * entryHeight) - (int) smoothOffset;
             float opacity = 1.0f;
             if (entryY < explorerY) {
@@ -428,7 +432,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
             if (opacity <= 0.0f) continue;
             boolean hovered = mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= entryY && mouseY < entryY + entryHeight;
-            boolean isSelected = selectedPaths.contains(entry);
+            boolean isSelected = selectedPaths.contains(entry.path);
             int bg = isSelected ? 0xFF555555 : (hovered ? highlightColor : entryBgColor);
             int bgWithOpacity = blendColor(bg, opacity);
             int borderWithOpacity = blendColor(entryBorderColor, opacity);
@@ -436,14 +440,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bgWithOpacity);
             drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
 
-            String namePrefix = isDirectory(entry) ? "\uD83D\uDDC1" : "\uD83D\uDDC8";
-            String displayName = namePrefix + " " + entry.getFileName().toString();
-            String size = isDirectory(entry) ? "-" : getFileSize(entry);
-            String created = getCreationDate(entry);
-
+            String namePrefix = entry.isDirectory ? "\uD83D\uDDC1" : "\uD83D\uDDC8";
+            String displayName = namePrefix + " " + entry.path.getFileName().toString();
             context.drawText(this.textRenderer, Text.literal(displayName), explorerX + 10, entryY + 5, textWithOpacity, false);
-            context.drawText(this.textRenderer, Text.literal(size), explorerX + 250, entryY + 5, textWithOpacity, false);
-            context.drawText(this.textRenderer, Text.literal(created), explorerX + 350, entryY + 5, textWithOpacity, false);
+            context.drawText(this.textRenderer, Text.literal(entry.size), explorerX + 250, entryY + 5, textWithOpacity, false);
+            context.drawText(this.textRenderer, Text.literal(entry.created), explorerX + 350, entryY + 5, textWithOpacity, false);
         }
 
         context.fillGradient(explorerX, explorerY, explorerX + explorerWidth, explorerY + 10, 0x80000000, 0x00000000);
@@ -481,10 +482,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     }
 
     public void loadDirectory(Path dir) {
-        loadDirectory(dir, true);
+        loadDirectory(dir, true, false);
     }
 
-    private void loadDirectory(Path dir, boolean addToHistory) {
+    private void loadDirectory(Path dir, boolean addToHistory, boolean forceReload) {
+        if (loading) return;
         if (addToHistory && currentPath != null && !currentPath.equals(dir)) {
             history.push(currentPath);
             forwardHistory.clear();
@@ -497,66 +499,115 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             searchActive = false;
             searchQuery.setLength(0);
         }
-        if (serverInfo.isRemote) {
-            if (serverInfo.remoteSSHManager == null) {
-                serverInfo.remoteSSHManager = new SSHManager(serverInfo);
-                try {
-                    serverInfo.remoteSSHManager.connectToRemoteHost(
-                            serverInfo.remoteHost.getUser(),
-                            serverInfo.remoteHost.ip,
-                            serverInfo.remoteHost.port,
-                            serverInfo.remoteHost.password
-                    );
-                    serverInfo.remoteSSHManager.connectSFTP();
-                } catch (Exception e) {
-                    showNotification("Error connecting to remote host: " + e.getMessage(), Notification.Type.ERROR);
-                    return;
-                }
-            } else if (!serverInfo.remoteSSHManager.isSFTPConnected()) {
-                try {
-                    serverInfo.remoteSSHManager.connectSFTP();
-                } catch (Exception e) {
-                    showNotification("Error connecting to SFTP: " + e.getMessage(), Notification.Type.ERROR);
-                    return;
-                }
-            }
-            try {
-                String remotePath = dir.toString().replace("\\", "/");
-                List<String> entries = serverInfo.remoteSSHManager.listRemoteDirectory(remotePath);
-                List<Path> realEntries = new ArrayList<>();
-                for (String e : entries) {
-                    realEntries.add(dir.resolve(e));
-                }
-                realEntries.sort(Comparator.comparing((Path p) -> !isDirectory(p)).thenComparing(Path::getFileName));
-                fileEntries = realEntries;
-            } catch (Exception e) {
-                showNotification("Error reading remote directory: " + e.getMessage(), Notification.Type.ERROR);
-            }
-        } else {
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
-                List<Path> entries = new ArrayList<>();
-                for (Path entry : stream) {
-                    entries.add(entry);
-                }
-                entries.sort(Comparator.comparing((Path p) -> !Files.isDirectory(p)).thenComparing(Path::getFileName));
-                fileEntries = entries;
-            } catch (IOException e) {
-                showNotification("Error reading directory: " + e.getMessage(), Notification.Type.ERROR);
+        currentPath = dir;
+        String key = dir.toString();
+        if (!serverInfo.isRemote) {
+            if (!forceReload && remoteCache.containsKey(key)) {
+                fileEntries = remoteCache.get(key);
+                return;
             }
         }
-        currentPath = dir;
+        loading = true;
+        directoryLoader.submit(() -> {
+            try {
+                List<EntryData> temp;
+                if (serverInfo.isRemote) {
+                    ensureRemoteConnected();
+                    temp = loadRemoteDirectory(dir, forceReload);
+                } else {
+                    temp = loadLocalDirectory(dir);
+                }
+                fileEntries = temp;
+                if (!serverInfo.isRemote) {
+                    remoteCache.put(key, temp);
+                }
+            } catch (Exception e) {
+                showNotification("Error reading directory: " + e.getMessage(), Notification.Type.ERROR);
+            } finally {
+                loading = false;
+            }
+        });
+    }
+
+    private List<EntryData> loadRemoteDirectory(Path dir, boolean forceReload) {
+        String remotePath = dir.toString().replace("\\", "/");
+        if (!forceReload && remoteCache.containsKey(remotePath)) {
+            return remoteCache.get(remotePath);
+        }
+        List<String> entries;
+        try {
+            entries = serverInfo.remoteSSHManager.listRemoteDirectory(remotePath);
+        } catch (Exception e) {
+            showNotification("Error reading remote directory: " + e.getMessage(), Notification.Type.ERROR);
+            return new ArrayList<>();
+        }
+        List<EntryData> temp = new ArrayList<>();
+        for (String e : entries) {
+            Path p = dir.resolve(e);
+            boolean d = serverInfo.remoteSSHManager.isRemoteDirectory(p.toString().replace("\\", "/"));
+            String sz = d ? "-" : serverInfo.remoteSSHManager.getRemoteFileSize(p.toString());
+            String cr = serverInfo.remoteSSHManager.getRemoteFileDate(p.toString());
+            temp.add(new EntryData(p, d, sz, cr));
+        }
+        temp.sort(Comparator.comparing(x -> !x.isDirectory));
+        temp.sort(Comparator.comparing(x -> x.path.getFileName().toString().toLowerCase()));
+        remoteCache.put(remotePath, temp);
+        return temp;
+    }
+
+    private List<EntryData> loadLocalDirectory(Path dir) throws IOException {
+        List<EntryData> temp = new ArrayList<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path entry : stream) {
+                boolean d = Files.isDirectory(entry);
+                String sz = d ? "-" : getFileSize(entry);
+                String cr = getCreationDate(entry);
+                temp.add(new EntryData(entry, d, sz, cr));
+            }
+        }
+        temp.sort(Comparator.comparing(x -> !x.isDirectory));
+        temp.sort(Comparator.comparing(x -> x.path.getFileName().toString().toLowerCase()));
+        return temp;
+    }
+
+    private void ensureRemoteConnected() {
+        if (serverInfo.remoteSSHManager == null) {
+            serverInfo.remoteSSHManager = new SSHManager(serverInfo);
+            try {
+                serverInfo.remoteSSHManager.connectToRemoteHost(
+                        serverInfo.remoteHost.getUser(),
+                        serverInfo.remoteHost.ip,
+                        serverInfo.remoteHost.port,
+                        serverInfo.remoteHost.password
+                );
+                serverInfo.remoteSSHManager.connectSFTP();
+            } catch (Exception e) {
+                showNotification("Error connecting to remote host: " + e.getMessage(), Notification.Type.ERROR);
+            }
+        } else if (!serverInfo.remoteSSHManager.isSFTPConnected()) {
+            try {
+                serverInfo.remoteSSHManager.connectSFTP();
+            } catch (Exception e) {
+                showNotification("Error connecting to SFTP: " + e.getMessage(), Notification.Type.ERROR);
+            }
+        }
     }
 
     private void filterFileEntries() {
         if (searchQuery.length() == 0) {
-            loadDirectory(currentPath, false);
+            loadDirectory(currentPath, false, false);
             return;
         }
         String query = searchQuery.toString().toLowerCase();
-        fileEntries = fileEntries.stream()
-                .filter(p -> p.getFileName().toString().toLowerCase().contains(query))
-                .sorted(Comparator.comparing((Path p) -> !isDirectory(p)).thenComparing(Path::getFileName))
-                .toList();
+        List<EntryData> filtered = new ArrayList<>();
+        for (EntryData data : fileEntries) {
+            if (data.path.getFileName().toString().toLowerCase().contains(query)) {
+                filtered.add(data);
+            }
+        }
+        filtered.sort(Comparator.comparing(x -> !x.isDirectory));
+        filtered.sort(Comparator.comparing(x -> x.path.getFileName().toString().toLowerCase()));
+        fileEntries = filtered;
         targetOffset = 0;
     }
 
@@ -615,7 +666,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     @Override
     public void refreshDirectory(Path path) {
-        loadDirectory(path, false);
+        loadDirectory(path, false, false);
     }
 
     public class Notification {
