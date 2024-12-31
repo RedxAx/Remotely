@@ -1,0 +1,25 @@
+name: Feature Request
+description: "For requesting new features or improvements"
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: >- 
+        This form is for requesting new features or improvements, and should not be used for bug reports or other issues.
+  - type: markdown
+    attributes:
+      value: >- 
+        _Keep in mind that development is focused on improving performance and fixing bugs, rather than implementing new features._
+  - type: markdown
+    attributes:
+      value: >- 
+        Make sure you have searched for and ensured an open similar request doesn't already exist. If we have previously closed a feature request, then please do not create another request.
+  - type: textarea
+    id: description
+    attributes:
+      label: Request Description
+      description: >-
+        Use this section to describe the feature or improvement that you are looking for. The description should explain
+        what problem you are trying to solve, what alternatives you have tried, and a clear and concise description
+        of what you would like changed.
