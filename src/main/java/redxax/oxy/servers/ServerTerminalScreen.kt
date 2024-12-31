@@ -5,7 +5,7 @@ import net.minecraft.client.gui.DrawContext
 import net.minecraft.client.gui.screen.Screen
 import net.minecraft.text.Text
 import org.lwjgl.glfw.GLFW
-import redxax.oxy.Notification
+import redxax.oxy.NotificationManager
 import redxax.oxy.RemotelyClient
 import redxax.oxy.ServerTerminalInstance
 import redxax.oxy.explorer.FileExplorerScreen
@@ -43,8 +43,8 @@ class ServerTerminalScreen(
     }
 
     override fun render(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
-        Notification.updateAll(delta)
-        Notification.renderAll(context)
+        NotificationManager.updateAll(delta)
+        NotificationManager.renderAll(context)
         context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor)
         super.render(context, mouseX, mouseY, delta)
         context.fill(0, 0, this.width, topBarHeight, lighterColor)
@@ -174,7 +174,7 @@ class ServerTerminalScreen(
                 srvTerminal.serverJarPath = Paths.get(serverInfo.path, "server.jar").toString().replace("\\", "/")
                 serverInfo.terminal = srvTerminal
             }
-            Notification.Builder("Starting server...", Notification.Type.INFO).build()
+            NotificationManager.addNotification("Starting server...", NotificationManager.Type.INFO)
             if (serverInfo.terminal is ServerTerminalInstance) {
                 val st = serverInfo.terminal as ServerTerminalInstance
                 st.clearOutput()
@@ -186,7 +186,7 @@ class ServerTerminalScreen(
 
     private fun stopServer() {
         if ((serverInfo.state == ServerState.RUNNING || serverInfo.state == ServerState.STARTING) && serverInfo.terminal != null) {
-            Notification.Builder("Stopping server...", Notification.Type.INFO).build()
+            NotificationManager.addNotification("Stopping server...", NotificationManager.Type.INFO)
             try {
                 val sti = serverInfo.terminal as ServerTerminalInstance
                 sti.processManager?.writer?.let {

@@ -14,8 +14,8 @@ public class ModrinthResource {
     public List<String> authors;
     public List<String> categories;
     public List<String> dependencies;
-    public String projectId; // New field
-    public String versionId; // Retain version ID if needed
+    public String projectId;
+    public String versionId;
 
     public ModrinthResource(String name, String version, String description, String fileName, String iconUrl, int downloads, String slug, List<String> gameVersions, String projectId, String versionId) {
         this.name = name;

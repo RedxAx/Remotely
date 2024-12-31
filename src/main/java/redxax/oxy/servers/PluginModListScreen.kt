@@ -1,5 +1,8 @@
 package redxax.oxy.servers
 
+import com.google.gson.Gson
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import net.minecraft.client.MinecraftClient
 import net.minecraft.client.gui.DrawContext
 import net.minecraft.client.gui.screen.Screen
@@ -63,8 +66,7 @@ class PluginModListScreen(
                             if (isPlugin) {
                                 readPluginInfo(info)
                             } else {
-                                info.displayName = p.fileName.toString()
-                                info.version = ""
+                                readModInfo(info)
                             }
                             info.isPlugin = isPlugin
                             entries?.add(info)
@@ -102,18 +104,84 @@ class PluginModListScreen(
         var name: String? = null
         var version: String? = null
         for (line in lines) {
-            var line = line
-            line = line.trim { it <= ' ' }
-            if (line.lowercase(Locale.getDefault()).startsWith("name:")) {
-                name = line.substring(line.indexOf(":") + 1).trim { it <= ' ' }.replace("^['\"]|['\"]$".toRegex(), "")
-            } else if (line.lowercase(Locale.getDefault()).startsWith("version:")) {
+            var ln = line.trim { it <= ' ' }
+            if (ln.lowercase(Locale.getDefault()).startsWith("name:")) {
+                name = ln.substring(ln.indexOf(":") + 1).trim { it <= ' ' }.replace("^['\"]|['\"]$".toRegex(), "")
+            } else if (ln.lowercase(Locale.getDefault()).startsWith("version:")) {
                 version =
-                    line.substring(line.indexOf(":") + 1).trim { it <= ' ' }.replace("^['\"]|['\"]$".toRegex(), "")
+                    ln.substring(ln.indexOf(":") + 1).trim { it <= ' ' }.replace("^['\"]|['\"]$".toRegex(), "")
             }
             if (name != null && version != null) break
         }
         info.displayName = name ?: info.path!!.fileName.toString()
         info.version = version ?: ""
+    }
+
+    private fun readModInfo(info: EntryInfo) {
+        try {
+            FileSystems.newFileSystem(info.path, null as ClassLoader?).use { fs ->
+                val fabricJson: Path = fs.getPath("fabric.mod.json")
+                if (Files.exists(fabricJson)) {
+                    readFabricModJson(fabricJson, info)
+                } else {
+                    val quiltJson: Path = fs.getPath("quilt.mod.json")
+                    if (Files.exists(quiltJson)) {
+                        readFabricModJson(quiltJson, info)
+                    } else {
+                        val mcmodinfo: Path = fs.getPath("mcmod.info")
+                        if (Files.exists(mcmodinfo)) {
+                            readMcModInfo(mcmodinfo, info)
+                        } else {
+                            info.displayName = info.path!!.fileName.toString()
+                            info.version = ""
+                        }
+                    }
+                }
+            }
+        } catch (e: IOException) {
+            info.displayName = info.path!!.fileName.toString()
+            info.version = ""
+        }
+    }
+
+    private fun readFabricModJson(jsonPath: Path, info: EntryInfo) {
+        val gson = Gson()
+        Files.newBufferedReader(jsonPath).use { reader ->
+            val jsonObj = gson.fromJson(reader, JsonObject::class.java)
+            if (jsonObj.has("name")) {
+                info.displayName = jsonObj.get("name").asString
+            } else {
+                info.displayName = info.path!!.fileName.toString()
+            }
+            if (jsonObj.has("version")) {
+                info.version = jsonObj.get("version").asString
+            } else {
+                info.version = ""
+            }
+        }
+    }
+
+    private fun readMcModInfo(jsonPath: Path, info: EntryInfo) {
+        val gson = Gson()
+        Files.newBufferedReader(jsonPath).use { reader ->
+            val jsonArray = gson.fromJson(reader, JsonArray::class.java)
+            if (jsonArray.size() > 0 && jsonArray[0].isJsonObject) {
+                val modObj = jsonArray[0].asJsonObject
+                if (modObj.has("name")) {
+                    info.displayName = modObj.get("name").asString
+                } else {
+                    info.displayName = info.path!!.fileName.toString()
+                }
+                if (modObj.has("version")) {
+                    info.version = modObj.get("version").asString
+                } else {
+                    info.version = ""
+                }
+            } else {
+                info.displayName = info.path!!.fileName.toString()
+                info.version = ""
+            }
+        }
     }
 
     override fun mouseScrolled(
@@ -123,7 +191,7 @@ class PluginModListScreen(
         verticalAmount: Double
     ): Boolean {
         val panelHeight = this.height - 60
-        val maxScroll: Int = entries?.maxOfOrNull { it.path?.toString()?.length ?: 0 } ?: 0
+        val maxScroll = max(0, (entries?.size?.times(entryHeight) ?: 0) - panelHeight)
         targetOffset -= (verticalAmount * entryHeight * 2).toFloat()
         if (targetOffset < 0) targetOffset = 0f
         if (targetOffset > maxScroll) targetOffset = maxScroll.toFloat()
@@ -137,17 +205,14 @@ class PluginModListScreen(
         val btnH = 20
         val downloadButtonX = backButtonX - (btnW + 10)
         val downloadButtonY = 5
-
         if (mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH && button == 0) {
             mc.setScreen(parent)
             return true
         }
-
         if (mouseX >= downloadButtonX && mouseX <= downloadButtonX + btnW && mouseY >= downloadButtonY && mouseY <= downloadButtonY + btnH && button == 0) {
             mc.setScreen(PluginModManagerScreen(mc, this, serverInfo))
             return true
         }
-
         val listY = 50
         val relativeY = mouseY.toInt() - listY + smoothOffset.toInt()
         val index = relativeY / entryHeight
@@ -173,18 +238,15 @@ class PluginModListScreen(
                 }
             }
         }
-
         return super.mouseClicked(mouseX, mouseY, button)
     }
 
     override fun render(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
         context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor)
         super.render(context, mouseX, mouseY, delta)
-
         context.fill(0, 0, this.width, 30, lighterColor)
         drawInnerBorder(context, 0, 0, this.width, 30, borderColor)
         context.drawText(this.textRenderer, this.title, 10, 10, textColor, false)
-
         val backButtonX = this.width - 60
         val backButtonY = 5
         val btnW = 50
@@ -198,7 +260,6 @@ class PluginModListScreen(
         val txb = backButtonX + (btnW - twb) / 2
         val ty = backButtonY + (btnH - textRenderer.fontHeight) / 2
         context.drawText(this.textRenderer, Text.literal("Back"), txb, ty, textColor, false)
-
         val downloadButtonX = backButtonX - (btnW + 10)
         val downloadButtonY = 5
         val hoveredDownload =
@@ -209,15 +270,10 @@ class PluginModListScreen(
         val twd = textRenderer.getWidth("Download")
         val txd = downloadButtonX + (btnW - twd) / 2
         context.drawText(this.textRenderer, Text.literal("Download"), txd, ty, textColor, false)
-
         val listY = 50
         val panelHeight = this.height - 60
-
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed
-
-        // Adjust scissor to clip only the top and bottom edges
         context.enableScissor(0, listY, this.width, listY + panelHeight)
-
         entries?.let {
             for (i in it.indices) {
                 val e = it[i]
@@ -227,7 +283,6 @@ class PluginModListScreen(
                 val bg = if (hovered) highlightColor else lighterColor
                 context.fill(10, y, this.width - 10, y + entryHeight, bg)
                 drawInnerBorder(context, 10, y, this.width - 20, entryHeight, borderColor)
-
                 if (e.isPlugin) {
                     context.drawText(this.textRenderer, Text.literal(e.displayName), 15, y + 5, textColor, false)
                     context.drawText(
@@ -260,9 +315,7 @@ class PluginModListScreen(
                 }
             }
         }
-
         context.disableScissor()
-
         if (smoothOffset > 0) {
             context.fillGradient(0, listY, this.width, listY + 10, -0x80000000, 0x00000000)
         }

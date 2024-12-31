@@ -14,10 +14,20 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.net.URL;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+
+import com.google.gson.JsonParser;
+import redxax.oxy.Notification;
 
 public class PluginModManagerScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -26,6 +36,9 @@ public class PluginModManagerScreen extends Screen {
     private final List<ModrinthResource> resources = Collections.synchronizedList(new ArrayList<>());
     private final Map<String, List<ModrinthResource>> resourceCache = new ConcurrentHashMap<>();
     private final Map<String, Identifier> iconTextures = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> installingMrPack = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> installingResource = new ConcurrentHashMap<>();
+    private final Map<String, String> installButtonTexts = new ConcurrentHashMap<>();
     private TextFieldWidget searchField;
     private int entryHeight = 50;
     private volatile boolean isLoading = false;
@@ -171,9 +184,36 @@ public class PluginModManagerScreen extends Screen {
                 int relativeY = (int) mouseY - listStartY + (int) smoothOffset;
                 int index = relativeY / entryHeight;
                 if (index >= 0 && index < resources.size()) {
-                    ModrinthResource selected = resources.get(index);
-                    minecraftClient.setScreen(new PluginModResourceScreen(minecraftClient, this, selected, serverInfo));
-                    return true;
+                    int iconX = 15;
+                    int iconY = listStartY + (index * entryHeight) - (int) smoothOffset + 5;
+                    int iconSize = 40;
+                    int installButtonX = iconX;
+                    int installButtonY = iconY;
+                    int installButtonW = iconSize;
+                    int installButtonH = iconSize;
+                    if (mouseX >= installButtonX && mouseX <= installButtonX + installButtonW && mouseY >= installButtonY && mouseY <= installButtonY + installButtonH) {
+                        ModrinthResource selected = resources.get(index);
+                        if (!installButtonTexts.containsKey(selected.slug)) {
+                            installButtonTexts.put(selected.slug, "Install");
+                        }
+                        if (!installButtonTexts.get(selected.slug).equalsIgnoreCase("Installed")) {
+                            // Check if it's a .mrpack AND the server path says "modpack" to allow modpack install
+                            if (selected.fileName.toLowerCase(Locale.ROOT).endsWith(".mrpack") && Objects.equals(serverInfo.path, "modpack")) {
+                                if (!installingMrPack.containsKey(selected.slug) || !installingMrPack.get(selected.slug)) {
+                                    installingMrPack.put(selected.slug, true);
+                                    installButtonTexts.put(selected.slug, "Installing...");
+                                    installMrPack(selected);
+                                }
+                            } else {
+                                if (!installingResource.containsKey(selected.slug) || !installingResource.get(selected.slug)) {
+                                    installingResource.put(selected.slug, true);
+                                    installButtonTexts.put(selected.slug, "Installing...");
+                                    fetchAndInstallResource(selected);
+                                }
+                            }
+                        }
+                        return true;
+                    }
                 }
             }
         }
@@ -278,6 +318,20 @@ public class PluginModManagerScreen extends Screen {
             context.drawText(this.textRenderer, Text.literal(resource.name), 60, y + 5, textColor, false);
             context.drawText(this.textRenderer, Text.literal(displayDesc), 60, y + 20, 0xFFAAAAAA, false);
             context.drawText(this.textRenderer, Text.literal(formatDownloads(resource.downloads) + " | " + resource.version), infoX, y + 20, 0xFFAAAAAA, false);
+
+            int iconX = 15;
+            int iconY = y + 5;
+            int iconSize = 40;
+            if (!installButtonTexts.containsKey(resource.slug)) {
+                installButtonTexts.put(resource.slug, "Install");
+            }
+            if (mouseX >= iconX && mouseX < iconX + iconSize && mouseY >= iconY && mouseY < iconY + iconSize) {
+                context.fill(iconX, iconY, iconX + iconSize, iconY + iconSize, 0x80000000);
+                int buttonTextWidth = textRenderer.getWidth(installButtonTexts.get(resource.slug));
+                int buttonX = iconX + (iconSize - buttonTextWidth) / 2;
+                int buttonY = iconY + (iconSize - textRenderer.fontHeight) / 2;
+                context.drawText(this.textRenderer, Text.literal(installButtonTexts.get(resource.slug)), buttonX, buttonY, 0xFFFFFFFF, false);
+            }
         }
 
         context.disableScissor();
@@ -318,5 +372,144 @@ public class PluginModManagerScreen extends Screen {
         }
         inputStream.close();
         return NativeImage.read(new ByteArrayInputStream(baos.toByteArray()));
+    }
+
+    private void installMrPack(ModrinthResource resource) {
+        Thread t = new Thread(() -> {
+            try {
+                String exePath = "C:\\remotely\\mrpack-install-windows.exe";
+                String serverDir = "C:\\remotely\\servers\\" + resource.name;
+                Path exe = Path.of(exePath);
+                Path serverPath = Path.of(serverDir);
+                if (!Files.exists(serverPath)) Files.createDirectories(serverPath);
+                if (!Files.exists(exe)) {
+                    try {
+                        URL url = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-windows.exe");
+                        try (InputStream input = url.openStream()) {
+                            Files.copy(input, exe, StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Failed to download mrpack-install: " + e.getMessage());
+                        return;
+                    }
+                }
+                ProcessBuilder pb = new ProcessBuilder(
+                        exePath,
+                        resource.projectId,
+                        resource.version,
+                        "--server-dir",
+                        serverDir,
+                        "--server-file",
+                        "server.jar"
+                );
+                pb.directory(serverPath.toFile());
+                Process proc = pb.start();
+                String errorStream = new String(proc.getErrorStream().readAllBytes());
+                proc.waitFor();
+                if (proc.exitValue() != 0) {
+                    System.err.println("mrpack-install failed. Exit code: " + proc.exitValue());
+                    System.err.println("Error details: " + errorStream);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                System.err.println("Failed to install mrpack: " + e.getMessage());
+            }
+            minecraftClient.execute(() -> {
+                installingMrPack.put(resource.slug, false);
+                installButtonTexts.put(resource.slug, "Installed");
+            });
+        });
+        t.start();
+    }
+
+    private void fetchAndInstallResource(ModrinthResource resource) {
+        Thread t = new Thread(() -> {
+            try {
+                // Use the project version ID if available instead of the version string
+                // to avoid 400 errors from Modrinth's API.
+                // If resource.versionId is stored, use that; otherwise fallback to resource.version
+                // or resource.versionId if that's the actual version ID.
+                String versionID = (resource.versionId != null && !resource.versionId.isEmpty()) ? resource.versionId : resource.version;
+                String downloadUrl = fetchDownloadUrl(versionID);
+                if (downloadUrl.isEmpty()) {
+                    minecraftClient.execute(() -> {
+                        installingResource.put(resource.slug, false);
+                        installButtonTexts.put(resource.slug, "Install");
+                    });
+                    return;
+                }
+                Path dest;
+                String baseName = stripExtension(resource.fileName);
+                String extension = "";
+                if (serverInfo.isModServer() || serverInfo.isPluginServer()) {
+                    extension = ".jar";
+                }
+                if (serverInfo.isModServer()) {
+                    dest = Path.of(serverInfo.path, "mods", baseName + extension);
+                } else if (serverInfo.isPluginServer()) {
+                    dest = Path.of(serverInfo.path, "plugins", baseName + extension);
+                } else {
+                    dest = Path.of(serverInfo.path, "unknown", resource.fileName);
+                }
+                if (!serverInfo.isModServer() && !serverInfo.isPluginServer()) {
+                    Files.createDirectories(dest.getParent());
+                } else {
+                    Files.createDirectories(dest.getParent());
+                }
+                HttpClient httpClient = HttpClient.newHttpClient();
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(downloadUrl))
+                        .header("User-Agent", "Remotely")
+                        .GET()
+                        .build();
+                HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                if (response.statusCode() == 200) {
+                    Files.copy(response.body(), dest, StandardCopyOption.REPLACE_EXISTING);
+                } else {
+                    System.err.println("Failed to fetch resource: " + response.statusCode());
+                }
+            } catch (Exception e) {
+                System.err.println("Failed to fetch and install resource: " + e.getMessage());
+                e.printStackTrace();
+            }
+            minecraftClient.execute(() -> {
+                installingResource.put(resource.slug, false);
+                installButtonTexts.put(resource.slug, "Installed");
+            });
+        });
+        t.start();
+    }
+
+    private String fetchDownloadUrl(String versionID) {
+        try {
+            URI uri = URI.create("https://api.modrinth.com/v2/version/" + versionID);
+            HttpClient client = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(uri)
+                    .header("User-Agent", "Remotely")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                var version = JsonParser.parseString(response.body()).getAsJsonObject();
+                var files = version.getAsJsonArray("files");
+                if (!files.isEmpty()) {
+                    var file = files.get(0).getAsJsonObject();
+                    return file.get("url").getAsString();
+                }
+            } else {
+                System.err.println("Failed to fetch download URL: " + response.statusCode());
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to fetch download URL: " + e.getMessage());
+            e.printStackTrace();
+        }
+        return "";
+    }
+
+    private String stripExtension(String filename) {
+        int lastDot = filename.lastIndexOf('.');
+        if (lastDot == -1) return filename;
+        return filename.substring(0, lastDot);
     }
 }
