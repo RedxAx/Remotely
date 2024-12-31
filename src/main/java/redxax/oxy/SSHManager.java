@@ -452,26 +452,32 @@ public class SSHManager {
         return result;
     }
 
-    public void deleteRemoteDirectory(String path) {
-        if (!sftpConnected) return;
+    public void deleteRemoteDirectory(String remotePath) throws IOException {
+        ChannelSftp sftpChannel = getSftpChannel();
         try {
-            Vector<ChannelSftp.LsEntry> list = sftpChannel.ls(path);
-            for (ChannelSftp.LsEntry entry : list) {
-                String fileName = entry.getFilename();
-                if (fileName.equals(".") || fileName.equals("..")) continue;
-                String filePath = path + "/" + fileName;
-                if (entry.getAttrs().isDir()) {
-                    deleteRemoteDirectory(filePath);
-                } else {
-                    sftpChannel.rm(filePath);
+            SftpATTRS attrs = sftpChannel.lstat(remotePath);
+            if (attrs.isDir()) {
+                Vector<ChannelSftp.LsEntry> entries = sftpChannel.ls(remotePath);
+                for (ChannelSftp.LsEntry entry : entries) {
+                    String entryName = entry.getFilename();
+                    if (!entryName.equals(".") && !entryName.equals("..")) {
+                        deleteRemoteDirectory(remotePath + "/" + entryName);
+                    }
                 }
+                sftpChannel.rmdir(remotePath);
+            } else {
+                sftpChannel.rm(remotePath);
             }
-            sftpChannel.rmdir(path);
         } catch (SftpException e) {
-            if (terminalInstance != null) {
-                terminalInstance.appendOutput("Failed to delete remote directory: " + e.getMessage() + "\n");
-            }
+            throw new IOException("Failed to delete remote path: " + remotePath, e);
         }
+    }
+
+    private ChannelSftp getSftpChannel() {
+        if (sftpChannel == null || !sftpChannel.isConnected()) {
+            connectSFTP();
+        }
+        return sftpChannel;
     }
 
     public void uploadRemotePath(String string, String remotePath) {
