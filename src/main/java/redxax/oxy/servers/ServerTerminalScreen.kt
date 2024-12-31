@@ -158,6 +158,10 @@ class ServerTerminalScreen(
         return super.keyPressed(keyCode, scanCode, modifiers)
     }
 
+    override fun charTyped(chr: Char, modifiers: Int): Boolean {
+        return serverInfo.terminal?.charTyped(chr, modifiers) ?: super.charTyped(chr, modifiers)
+    }
+
     private fun startServer() {
         if (serverInfo.state == ServerState.STOPPED || serverInfo.state == ServerState.CRASHED) {
             if (serverInfo.terminal == null || serverInfo.terminal !is ServerTerminalInstance) {

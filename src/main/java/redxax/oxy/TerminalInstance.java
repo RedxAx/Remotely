@@ -2,6 +2,7 @@ package redxax.oxy;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import org.jetbrains.annotations.Nullable;
 import redxax.oxy.input.InputHandler;
 import redxax.oxy.input.InputProcessor;
 import redxax.oxy.input.TerminalProcessManager;
@@ -126,7 +127,7 @@ public class TerminalInstance {
     }
 
     public InputProcessor getInputHandler() {
-        return inputHandler.inputProcessor;
+        return inputHandler.getInputProcessor();
     }
 
     public void launchServerProcess() {
@@ -136,6 +137,9 @@ public class TerminalInstance {
         }
         processManager = new TerminalProcessManager(this, sshManager);
         processManager.launchTerminal();
+    }
 
+    public Boolean charTyped(char chr, int modifiers) {
+        return inputHandler.charTyped(chr);
     }
 }

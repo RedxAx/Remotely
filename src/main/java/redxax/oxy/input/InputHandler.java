@@ -64,4 +64,8 @@ public class InputHandler {
     public TerminalProcessManager getTerminalProcessManager() {
         return terminalProcessManager;
     }
+
+    public InputProcessor getInputProcessor() {
+        return inputProcessor;
+    }
 }

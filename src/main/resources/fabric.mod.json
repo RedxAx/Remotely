@@ -3,7 +3,7 @@
 	"id": "remotely",
 	"version": "${version}",
 	"name": "Remotely",
-	"description": "- One Click Server Creation And Management. \n - Multi-Terminal With SSH.",
+	"description": "- One Click Server Creation And Management. \n- Multi-Terminal With SSH.",
 	"authors": [
 		"RedxAx", "O7Z11"
 	],
