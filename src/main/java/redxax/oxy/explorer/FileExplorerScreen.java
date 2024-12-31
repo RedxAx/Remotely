@@ -363,8 +363,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         drawInnerBorder(context, explorerX, headerY, explorerWidth, 25, explorerBorderColor);
 
         context.drawText(this.textRenderer, Text.literal("Name"), explorerX + 10, headerY + 5, textColor, false);
-        context.drawText(this.textRenderer, Text.literal("Size"), explorerX + 250, headerY + 5, textColor, false);
-        context.drawText(this.textRenderer, Text.literal("Created"), explorerX + 350, headerY + 5, textColor, false);
+        if (!serverInfo.isRemote) {
+            context.drawText(this.textRenderer, Text.literal("Size"), explorerX + 250, headerY + 5, textColor, false);
+            context.drawText(this.textRenderer, Text.literal("Created"), explorerX + 350, headerY + 5, textColor, false);
+        }
 
         int titleBarHeight = 30;
         context.fill(0, 0, this.width, titleBarHeight, 0xFF222222);
@@ -443,8 +445,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             String namePrefix = entry.isDirectory ? "\uD83D\uDDC1" : "\uD83D\uDDC8";
             String displayName = namePrefix + " " + entry.path.getFileName().toString();
             context.drawText(this.textRenderer, Text.literal(displayName), explorerX + 10, entryY + 5, textWithOpacity, false);
-            context.drawText(this.textRenderer, Text.literal(entry.size), explorerX + 250, entryY + 5, textWithOpacity, false);
-            context.drawText(this.textRenderer, Text.literal(entry.created), explorerX + 350, entryY + 5, textWithOpacity, false);
+            if (!serverInfo.isRemote) {
+                context.drawText(this.textRenderer, Text.literal(entry.size), explorerX + 250, entryY + 5, textWithOpacity, false);
+                context.drawText(this.textRenderer, Text.literal(entry.created), explorerX + 350, entryY + 5, textWithOpacity, false);
+            }
         }
 
         context.fillGradient(explorerX, explorerY, explorerX + explorerWidth, explorerY + 10, 0x80000000, 0x00000000);
@@ -545,9 +549,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         for (String e : entries) {
             Path p = dir.resolve(e);
             boolean d = serverInfo.remoteSSHManager.isRemoteDirectory(p.toString().replace("\\", "/"));
-            String sz = d ? "-" : serverInfo.remoteSSHManager.getRemoteFileSize(p.toString());
-            String cr = serverInfo.remoteSSHManager.getRemoteFileDate(p.toString());
-            temp.add(new EntryData(p, d, sz, cr));
+            temp.add(new EntryData(p, d, "", ""));
         }
         temp.sort(Comparator.comparing(x -> !x.isDirectory));
         temp.sort(Comparator.comparing(x -> x.path.getFileName().toString().toLowerCase()));
@@ -617,15 +619,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     }
 
     private String getFileSize(Path file) {
-        if (serverInfo.isRemote) {
-            return serverInfo.remoteSSHManager != null ? serverInfo.remoteSSHManager.getRemoteFileSize(file.toString()) : "N/A";
-        } else {
-            try {
-                long size = Files.size(file);
-                return humanReadableByteCountBin(size);
-            } catch (IOException e) {
-                return "N/A";
-            }
+        try {
+            long size = Files.size(file);
+            return humanReadableByteCountBin(size);
+        } catch (IOException e) {
+            return "N/A";
         }
     }
 
@@ -637,15 +635,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     }
 
     private String getCreationDate(Path file) {
-        if (serverInfo.isRemote) {
-            return serverInfo.remoteSSHManager != null ? serverInfo.remoteSSHManager.getRemoteFileDate(file.toString()) : "N/A";
-        } else {
-            try {
-                BasicFileAttributes attrs = Files.readAttributes(file, BasicFileAttributes.class);
-                return dateFormat.format(attrs.creationTime().toMillis());
-            } catch (IOException e) {
-                return "N/A";
-            }
+        try {
+            BasicFileAttributes attrs = Files.readAttributes(file, BasicFileAttributes.class);
+            return dateFormat.format(attrs.creationTime().toMillis());
+        } catch (IOException e) {
+            return "N/A";
         }
     }
 

@@ -361,8 +361,10 @@ public class SSHManager {
     public boolean isRemoteDirectory(String path) {
         if (!sftpConnected) return false;
         try {
-            SftpATTRS attrs = sftpChannel.stat(path);
-            return attrs.isDir();
+            return sftpExecutor.submit(() -> {
+                SftpATTRS attrs = sftpChannel.stat(path);
+                return attrs.isDir();
+            }).get();
         } catch (Exception e) {
             return false;
         }
@@ -380,89 +382,6 @@ public class SSHManager {
             }
             return result;
         }).get();
-    }
-
-    public String getRemoteFileSize(String path) {
-        if (!sftpConnected) return "N/A";
-        try {
-            return sftpExecutor.submit(() -> {
-                SftpATTRS attrs = sftpChannel.stat(path);
-                long size = attrs.getSize();
-                return size + " B";
-            }).get();
-        } catch (Exception e) {
-            return "N/A";
-        }
-    }
-
-    public String getRemoteFileDate(String path) {
-        if (!sftpConnected) return "N/A";
-        try {
-            return sftpExecutor.submit(() -> {
-                SftpATTRS attrs = sftpChannel.stat(path);
-                long mtime = (long) attrs.getMTime() * 1000;
-                Date d = new Date(mtime);
-                return d.toString();
-            }).get();
-        } catch (Exception e) {
-            return "N/A";
-        }
-    }
-
-    private void close() {
-        try {
-            if (sshChannel != null && sshChannel.isConnected()) {
-                sshChannel.disconnect();
-            }
-        } catch (Exception ignored) {}
-    }
-
-    public String getSshPassword() {
-        return sshPassword;
-    }
-
-    public List<String> getSSHCommands(String prefix) {
-        synchronized (this) {
-            if (System.currentTimeMillis() - remoteCommandsLastFetched < REMOTE_COMMANDS_CACHE_DURATION) {
-                List<String> result = new ArrayList<>();
-                for (String cmd : remoteCommandsCache) {
-                    if (cmd.startsWith(prefix)) {
-                        result.add(cmd);
-                    }
-                }
-                return result;
-            }
-        }
-        try {
-            return fetchRemoteCommands(prefix);
-        } catch (Exception e) {
-            if (terminalInstance != null) {
-                terminalInstance.appendOutput("Error fetching remote commands: " + e.getMessage() + "\n");
-            }
-            return new ArrayList<>();
-        }
-    }
-
-    private List<String> fetchRemoteCommands(String prefix) throws Exception {
-        ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        channelExec.setOutputStream(baos);
-        channelExec.setCommand("compgen -c");
-        channelExec.connect();
-        channelExec.disconnect();
-        String output = baos.toString(StandardCharsets.UTF_8);
-        String[] commands = output.split("\\s+");
-        List<String> result = new ArrayList<>();
-        for (String cmd : commands) {
-            if (cmd.startsWith(prefix)) {
-                result.add(cmd);
-            }
-        }
-        synchronized (this) {
-            remoteCommandsCache = Arrays.asList(commands);
-            remoteCommandsLastFetched = System.currentTimeMillis();
-        }
-        return result;
     }
 
     public void deleteRemoteDirectory(String remotePath) throws IOException {
@@ -552,5 +471,53 @@ public class SSHManager {
             }
             return "";
         }
+    }
+
+    public String getSshPassword() {
+        return sshPassword;
+    }
+    
+    public List<String> getSSHCommands(String prefix) {
+        synchronized (this) {
+            if (System.currentTimeMillis() - remoteCommandsLastFetched < REMOTE_COMMANDS_CACHE_DURATION) {
+                List<String> result = new ArrayList<>();
+                for (String cmd : remoteCommandsCache) {
+                    if (cmd.startsWith(prefix)) {
+                        result.add(cmd);
+                    }
+                }
+                return result;
+            }
+        }
+        try {
+            return fetchRemoteCommands(prefix);
+        } catch (Exception e) {
+            if (terminalInstance != null) {
+                terminalInstance.appendOutput("Error fetching remote commands: " + e.getMessage() + "\n");
+            }
+            return new ArrayList<>();
+        }
+    }
+
+    private List<String> fetchRemoteCommands(String prefix) throws Exception {
+        ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        channelExec.setOutputStream(baos);
+        channelExec.setCommand("compgen -c");
+        channelExec.connect();
+        channelExec.disconnect();
+        String output = baos.toString(StandardCharsets.UTF_8);
+        String[] commands = output.split("\\s+");
+        List<String> result = new ArrayList<>();
+        for (String cmd : commands) {
+            if (cmd.startsWith(prefix)) {
+                result.add(cmd);
+            }
+        }
+        synchronized (this) {
+            remoteCommandsCache = Arrays.asList(commands);
+            remoteCommandsLastFetched = System.currentTimeMillis();
+        }
+        return result;
     }
 }
