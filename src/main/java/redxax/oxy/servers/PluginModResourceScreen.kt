@@ -13,7 +13,6 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
-import java.lang.ProcessBuilder
 import java.net.URI
 import java.net.URL
 import java.net.http.HttpClient
@@ -33,8 +32,7 @@ class PluginModResourceScreen(
     private val parent: Screen,
     private val resource: ModrinthResource,
     private val serverInfo: ServerInfo
-) :
-    Screen(Text.literal(resource.name)) {
+) : Screen(Text.literal(resource.name)) {
     private val baseColor = -0xe7e7e8
     private val lighterColor = -0xddddde
     private val borderColor = -0xcccccd
@@ -48,26 +46,23 @@ class PluginModResourceScreen(
     private val scrollSpeed = 0.2f
     private val contentBlocks: MutableList<ContentBlock> = ArrayList()
     private var installingMrPack = false
+    private val linkRegions: MutableList<LinkRegion> = ArrayList()
 
     private class ContentBlock {
         enum class Type {
-            HEADER, SUBHEADER, TEXT, IMAGE
+            HEADER, SUBHEADER, SUBSUBHEADER, TEXT, IMAGE, LIST, TABLE, LINK
         }
 
         var type: Type
-        var text: String? = null
-        var imageId: Identifier? = null
+        var content: Any? = null
 
-        constructor(type: Type, text: String?) {
+        constructor(type: Type, content: Any?) {
             this.type = type
-            this.text = text
-        }
-
-        constructor(type: Type, imageId: Identifier?) {
-            this.type = type
-            this.imageId = imageId
+            this.content = content
         }
     }
+
+    private data class LinkRegion(val x: Int, val y: Int, val width: Int, val height: Int, val url: String)
 
     override fun init() {
         super.init()
@@ -134,23 +129,96 @@ class PluginModResourceScreen(
 
     private fun parseDescription() {
         val lines = fullDescription.split("\n".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
+        var listBuffer: MutableList<String>? = null
+        var tableBuffer: MutableList<String>? = null
         for (rawLine in lines) {
             var line = rawLine.trim()
-            if (line.startsWith("### ")) {
-                contentBlocks.add(ContentBlock(ContentBlock.Type.SUBHEADER, line.substring(4).trim()))
-            } else if (line.startsWith("# ")) {
-                contentBlocks.add(ContentBlock(ContentBlock.Type.HEADER, line.substring(2).trim()))
-            } else if (line.startsWith("![")) {
-                val start = line.indexOf("](")
-                val end = line.indexOf(")", start)
-                if (start != -1 && end != -1) {
-                    val url = line.substring(start + 2, end).trim()
-                    loadImage(url)
+            when {
+                line.startsWith("### ") -> {
+                    contentBlocks.add(ContentBlock(ContentBlock.Type.SUBSUBHEADER, line.substring(4).trim()))
                 }
-            } else if (line.isNotEmpty()) {
-                contentBlocks.add(ContentBlock(ContentBlock.Type.TEXT, line))
+                line.startsWith("## ") -> {
+                    contentBlocks.add(ContentBlock(ContentBlock.Type.SUBHEADER, line.substring(3).trim()))
+                }
+                line.startsWith("# ") -> {
+                    contentBlocks.add(ContentBlock(ContentBlock.Type.HEADER, line.substring(2).trim()))
+                }
+                line.startsWith("![") -> {
+                    val start = line.indexOf("](")
+                    val end = line.indexOf(")", start)
+                    if (start != -1 && end != -1) {
+                        val url = line.substring(start + 2, end).trim()
+                        loadImage(url)
+                        contentBlocks.add(ContentBlock(ContentBlock.Type.IMAGE, "oxy_mod_image_${contentBlocks.size}"))
+                    }
+                }
+                line.contains("[") && line.contains("](") -> {
+                    val linkStart = line.indexOf("[")
+                    val linkMiddle = line.indexOf("](")
+                    val linkEnd = line.indexOf(")", linkMiddle)
+                    if (linkStart != -1 && linkMiddle != -1 && linkEnd != -1) {
+                        val linkText = line.substring(linkStart + 1, linkMiddle)
+                        val linkUrl = line.substring(linkMiddle + 2, linkEnd)
+                        if (isImageUrl(linkUrl)) {
+                            loadImage(linkUrl)
+                            contentBlocks.add(ContentBlock(ContentBlock.Type.IMAGE, "oxy_mod_image_${contentBlocks.size}"))
+                        } else {
+                            contentBlocks.add(ContentBlock(ContentBlock.Type.LINK, Pair(linkText, linkUrl)))
+                        }
+                        val remaining = line.substring(linkEnd + 1).trim()
+                        if (remaining.isNotEmpty()) {
+                            contentBlocks.add(ContentBlock(ContentBlock.Type.TEXT, remaining))
+                        }
+                    } else {
+                        contentBlocks.add(ContentBlock(ContentBlock.Type.TEXT, line))
+                    }
+                }
+                line.startsWith("- ") || line.startsWith("* ") -> {
+                    if (listBuffer == null) {
+                        listBuffer = mutableListOf()
+                    }
+                    listBuffer.add(line.substring(2).trim())
+                }
+                line.startsWith("|") && line.endsWith("|") -> {
+                    if (tableBuffer == null) {
+                        tableBuffer = mutableListOf()
+                    }
+                    tableBuffer.add(line)
+                }
+                line.isEmpty() -> {
+                    if (listBuffer != null) {
+                        contentBlocks.add(ContentBlock(ContentBlock.Type.LIST, ArrayList(listBuffer)))
+                        listBuffer = null
+                    }
+                    if (tableBuffer != null) {
+                        contentBlocks.add(ContentBlock(ContentBlock.Type.TABLE, ArrayList(tableBuffer)))
+                        tableBuffer = null
+                    }
+                }
+                else -> {
+                    if (listBuffer != null) {
+                        contentBlocks.add(ContentBlock(ContentBlock.Type.LIST, ArrayList(listBuffer)))
+                        listBuffer = null
+                    }
+                    if (tableBuffer != null) {
+                        contentBlocks.add(ContentBlock(ContentBlock.Type.TABLE, ArrayList(tableBuffer)))
+                        tableBuffer = null
+                    }
+                    contentBlocks.add(ContentBlock(ContentBlock.Type.TEXT, line))
+                }
             }
         }
+        if (listBuffer != null) {
+            contentBlocks.add(ContentBlock(ContentBlock.Type.LIST, ArrayList(listBuffer)))
+        }
+        if (tableBuffer != null) {
+            contentBlocks.add(ContentBlock(ContentBlock.Type.TABLE, ArrayList(tableBuffer)))
+        }
+    }
+
+    private fun isImageUrl(url: String): Boolean {
+        val lower = url.lowercase(Locale.getDefault())
+        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp")
     }
 
     private fun loadImage(url: String) {
@@ -160,10 +228,15 @@ class PluginModResourceScreen(
                     val nativeImage = loadImage(inputStream, url)
                     if (nativeImage != null) {
                         val texture = NativeImageBackedTexture(nativeImage)
-                        val textureId =
-                            mc.textureManager.registerDynamicTexture("oxy_mod_image_" + contentBlocks.size, texture)
-                        mc.execute {
-                            contentBlocks.add(ContentBlock(ContentBlock.Type.IMAGE, textureId))
+                        mc.textureManager.registerDynamicTexture("oxy_mod_image_${contentBlocks.size}", texture)
+                        val identifierString = "oxy_mod_image:image_${contentBlocks.size}"
+                        val textureId = Identifier.tryParse(identifierString)
+                        if (textureId != null) {
+                            mc.execute {
+                                // Image is added as ContentBlock.Type.IMAGE in parseDescription
+                            }
+                        } else {
+                            Notification.Builder("Invalid Identifier for image: $identifierString", Notification.Type.ERROR).build()
                         }
                     }
                 }
@@ -176,36 +249,39 @@ class PluginModResourceScreen(
 
     @Throws(Exception::class)
     private fun loadImage(inputStream: InputStream, url: String): NativeImage? {
-        if (url.lowercase(Locale.getDefault()).endsWith(".webp")) {
-            ImageIO.createImageInputStream(inputStream).use { iis ->
-                val readers = ImageIO.getImageReadersByFormatName("webp")
-                if (!readers.hasNext()) throw IOException("No WEBP reader found")
-                val reader = readers.next()
-                reader.setInput(iis, false)
-                val img = reader.read(0)
-                val baos = ByteArrayOutputStream()
-                ImageIO.write(img, "png", baos)
-                ByteArrayInputStream(baos.toByteArray()).use { pngStream ->
-                    return NativeImage.read(pngStream)
+        return when {
+            url.lowercase(Locale.getDefault()).endsWith(".webp") -> {
+                ImageIO.createImageInputStream(inputStream).use { iis ->
+                    val readers = ImageIO.getImageReadersByFormatName("webp")
+                    if (!readers.hasNext()) throw IOException("No WEBP reader found")
+                    val reader = readers.next()
+                    reader.setInput(iis, false)
+                    val img = reader.read(0)
+                    val baos = ByteArrayOutputStream()
+                    ImageIO.write(img, "png", baos)
+                    ByteArrayInputStream(baos.toByteArray()).use { pngStream ->
+                        NativeImage.read(pngStream)
+                    }
                 }
             }
-        } else if (url.lowercase(Locale.getDefault()).endsWith(".gif")) {
-            ImageIO.createImageInputStream(inputStream).use { iis ->
-                val readers = ImageIO.getImageReadersByFormatName("gif")
-                if (!readers.hasNext()) throw IOException("No GIF reader found")
-                val reader = readers.next()
-                reader.setInput(iis, false)
-                val img = reader.read(0)
-                val baos = ByteArrayOutputStream()
-                ImageIO.write(img, "png", baos)
-                ByteArrayInputStream(baos.toByteArray()).use { pngStream ->
-                    return NativeImage.read(pngStream)
+            url.lowercase(Locale.getDefault()).endsWith(".gif") -> {
+                ImageIO.createImageInputStream(inputStream).use { iis ->
+                    val readers = ImageIO.getImageReadersByFormatName("gif")
+                    if (!readers.hasNext()) throw IOException("No GIF reader found")
+                    val reader = readers.next()
+                    reader.setInput(iis, false)
+                    val img = reader.read(0)
+                    val baos = ByteArrayOutputStream()
+                    ImageIO.write(img, "png", baos)
+                    ByteArrayInputStream(baos.toByteArray()).use { pngStream ->
+                        NativeImage.read(pngStream)
+                    }
                 }
             }
-        } else {
-            return NativeImage.read(inputStream)
+            else -> {
+                NativeImage.read(inputStream)
+            }
         }
-        return null
     }
 
     override fun mouseClicked(mouseX: Double, mouseY: Double, button: Int): Boolean {
@@ -233,15 +309,38 @@ class PluginModResourceScreen(
             mc.setScreen(parent)
             return true
         }
+        if (isProjectDataLoaded) {
+            for (region in linkRegions) {
+                if (mouseX.toInt() in region.x until (region.x + region.width) &&
+                    mouseY.toInt() in region.y until (region.y + region.height)
+                ) {
+                    try {
+                        val uri = URI(region.url)
+                        val desktop = java.awt.Desktop.getDesktop()
+                        desktop.browse(uri)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        Notification.Builder("Failed to open link: " + e.message, Notification.Type.ERROR).build()
+                    }
+                    return true
+                }
+            }
+        }
         return super.mouseClicked(mouseX, mouseY, button)
     }
 
     private fun installMrPack() {
         Thread {
             try {
-                val exePath = "C:/remotely/mrpack-install-windows.exe"
-                val serverDir = "C:/remotely/servers/" + resource.name.replace(" ", "_")
+                val exePath = "C:\\remotely\\mrpack-install-windows.exe"
+                val serverDir = "C:\\remotely\\servers\\${resource.name}"
                 val exe = Path.of(exePath)
+                val serverPath = Path.of(serverDir)
+
+                if (!Files.exists(serverPath)) {
+                    Files.createDirectories(serverPath)
+                }
+
                 if (!Files.exists(exe)) {
                     try {
                         val url = URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-windows.exe")
@@ -249,24 +348,40 @@ class PluginModResourceScreen(
                             Files.copy(input, exe, StandardCopyOption.REPLACE_EXISTING)
                         }
                     } catch (e: Exception) {
+                        System.err.println("Failed to download mrpack-install: " + e.message)
+                        return@Thread
                     }
                 }
+
+                System.out.println("Resource ID: " + resource.projectId)
+                System.out.println("Resource Version: " + resource.version)
+
                 val pb = ProcessBuilder(
                     exePath,
-                    resource.slug,
+                    resource.projectId,
                     resource.version,
                     "--server-dir",
-                    serverDir
+                    serverDir,
+                    "--server-file server.jar --verbose"
                 )
-                pb.directory(Path.of(serverDir).toFile())
+                pb.directory(serverPath.toFile())
                 val proc = pb.start()
+
+                val errorStream = proc.errorStream.bufferedReader().readText()
                 proc.waitFor()
-                Notification.Builder("Modpack installed to $serverDir", Notification.Type.INFO).build()
+                System.out.println("mrpack-install exit code: " + proc.exitValue())
+                if (proc.exitValue() != 0) {
+                    System.err.println("mrpack-install failed. Exit code: ${proc.exitValue()}")
+                    System.err.println("Error details: $errorStream")
+                }
+
             } catch (e: Exception) {
-                Notification.Builder("mrpack-install failed: " + e.message, Notification.Type.ERROR).build()
+                e.printStackTrace()
+                System.err.println("Failed to install mrpack: " + e.message)
             }
             mc.execute {
                 installingMrPack = false
+                System.out.println("install finished.")
                 installButtonText = "Installed"
                 mc.setScreen(parent)
             }
@@ -337,12 +452,12 @@ class PluginModResourceScreen(
     override fun mouseScrolled(mouseX: Double, mouseY: Double, horizontalAmount: Double, verticalAmount: Double): Boolean {
         targetOffset -= (verticalAmount * 20).toFloat()
         targetOffset = max(
-            0.0,
+            0.0f,
             min(
-                targetOffset.toDouble(),
-                max(0.0, (contentHeight - (this.height - 60)).toDouble())
+                targetOffset,
+                (contentHeight - (this.height - 60)).toFloat().coerceAtLeast(0f)
             )
-        ).toFloat()
+        )
         return true
     }
 
@@ -350,18 +465,49 @@ class PluginModResourceScreen(
         get() {
             var height = 55
             for (block in contentBlocks) {
-                when (block.type) {
-                    ContentBlock.Type.HEADER -> height += textRenderer.fontHeight + 10
-                    ContentBlock.Type.SUBHEADER -> height += textRenderer.fontHeight + 8
+                height += when (block.type) {
+                    ContentBlock.Type.HEADER -> textRenderer.fontHeight + 20
+                    ContentBlock.Type.SUBHEADER -> textRenderer.fontHeight + 16
+                    ContentBlock.Type.SUBSUBHEADER -> textRenderer.fontHeight + 12
                     ContentBlock.Type.TEXT -> {
-                        val lines = textRenderer.wrapLines(Text.literal(block.text), width - 20)
-                        height += lines.size * (textRenderer.fontHeight + 2) + 5
+                        val lines = wrapText(block.content as String, width - 20)
+                        lines.size * (textRenderer.fontHeight + 4) + 10
                     }
-                    ContentBlock.Type.IMAGE -> height += 117
+                    ContentBlock.Type.LIST -> {
+                        val items = block.content as List<*>
+                        items.size * (textRenderer.fontHeight + 4) + 10
+                    }
+                    ContentBlock.Type.TABLE -> {
+                        val rows = (block.content as List<*>).size
+                        rows * (textRenderer.fontHeight + 4) + 10
+                    }
+                    ContentBlock.Type.IMAGE -> 117
+                    ContentBlock.Type.LINK -> textRenderer.fontHeight + 4
                 }
             }
             return height
         }
+
+    private fun wrapText(text: String, maxWidth: Int): List<String> {
+        val words = text.split(" ")
+        val lines = mutableListOf<String>()
+        var currentLine = ""
+        for (word in words) {
+            val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
+            if (textRenderer.getWidth(testLine) > maxWidth) {
+                if (currentLine.isNotEmpty()) {
+                    lines.add(currentLine)
+                }
+                currentLine = word
+            } else {
+                currentLine = testLine
+            }
+        }
+        if (currentLine.isNotEmpty()) {
+            lines.add(currentLine)
+        }
+        return lines
+    }
 
     override fun render(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
         Notification.updateAll(delta)
@@ -407,28 +553,67 @@ class PluginModResourceScreen(
         context.enableScissor(0, listStartY, this.width, listEndY)
 
         var currentY = listStartY + 15 - smoothOffset.toInt()
+        linkRegions.clear()
         for (block in contentBlocks) {
             when (block.type) {
                 ContentBlock.Type.HEADER -> {
-                    context.drawText(this.textRenderer, Text.literal(block.text), 10, currentY, 0xFFFFA0, false)
-                    currentY += textRenderer.fontHeight + 10
+                    context.drawText(this.textRenderer, Text.literal(block.content as String), 10, currentY, 0xFFAA00, false)
+                    currentY += textRenderer.fontHeight + 20
                 }
                 ContentBlock.Type.SUBHEADER -> {
-                    context.drawText(this.textRenderer, Text.literal(block.text), 10, currentY, 0xFFA0FF, false)
-                    currentY += textRenderer.fontHeight + 8
+                    context.drawText(this.textRenderer, Text.literal(block.content as String), 10, currentY, 0xFFA0FF, false)
+                    currentY += textRenderer.fontHeight + 16
+                }
+                ContentBlock.Type.SUBSUBHEADER -> {
+                    context.drawText(this.textRenderer, Text.literal(block.content as String), 10, currentY, 0xA0A0FF, false)
+                    currentY += textRenderer.fontHeight + 12
                 }
                 ContentBlock.Type.TEXT -> {
-                    val lines = textRenderer.wrapLines(Text.literal(block.text), this.width - 20)
+                    val lines = wrapText(block.content as String, this.width - 20)
                     for (line in lines) {
-                        context.drawText(this.textRenderer, line, 10, currentY, 0xA0A0A0, false)
-                        currentY += textRenderer.fontHeight + 2
+                        context.drawText(this.textRenderer, Text.literal(line), 10, currentY, 0xA0A0A0, false)
+                        currentY += textRenderer.fontHeight + 4
                     }
-                    currentY += 5
+                    currentY += 10
                 }
-                ContentBlock.Type.IMAGE -> if (block.imageId != null) {
-                    mc.textureManager.bindTexture(block.imageId)
-                    context.drawTexture(block.imageId, 10, currentY, 0f, 0f, 200, 112, 200, 112)
-                    currentY += 117
+                ContentBlock.Type.LIST -> {
+                    val items = block.content as List<*>
+                    for (item in items) {
+                        context.drawText(this.textRenderer, Text.literal("• ${item as String}"), 20, currentY, 0xA0A0A0, false)
+                        currentY += textRenderer.fontHeight + 4
+                    }
+                    currentY += 10
+                }
+                ContentBlock.Type.TABLE -> {
+                    val rows = block.content as List<*>
+                    for (row in rows) {
+                        val columns = (row as String).trim().trim('|').split("|").map { it.trim() }
+                        var currentX = 10
+                        for (col in columns) {
+                            context.drawText(this.textRenderer, Text.literal(col), currentX, currentY, 0xA0A0A0, false)
+                            currentX += textRenderer.getWidth(col) + 20
+                        }
+                        currentY += textRenderer.fontHeight + 4
+                    }
+                    currentY += 10
+                }
+                ContentBlock.Type.IMAGE -> {
+                    val imageIdStr = block.content as String
+                    val textureId = Identifier.tryParse("oxy_mod_image:image_$imageIdStr")
+                    if (textureId != null) {
+                        mc.textureManager.bindTexture(textureId)
+                        context.drawTexture(textureId, 10, currentY, 0f, 0f, 200, 112, 200, 112)
+                        currentY += 117
+                    } else {
+                        Notification.Builder("Invalid image identifier: oxy_mod_image:image_$imageIdStr", Notification.Type.ERROR).build()
+                    }
+                }
+                ContentBlock.Type.LINK -> {
+                    val (text, url) = block.content as Pair<String, String>
+                    val linkWidth = textRenderer.getWidth(text)
+                    context.drawText(this.textRenderer, Text.literal(text), 10, currentY, 0x0000FF, false)
+                    linkRegions.add(LinkRegion(10, currentY, linkWidth, textRenderer.fontHeight, url))
+                    currentY += textRenderer.fontHeight + 4
                 }
             }
         }
@@ -441,10 +626,6 @@ class PluginModResourceScreen(
         if (smoothOffset < contentHeight - (this.height - 60)) {
             context.fillGradient(0, listEndY - 10, this.width, listEndY, 0x00000000, -0x80000000)
         }
-        loadMoreIfNeeded()
-    }
-
-    private fun loadMoreIfNeeded() {
     }
 
     private fun drawInnerBorder(context: DrawContext, x: Int, y: Int, w: Int, h: Int, c: Int) {

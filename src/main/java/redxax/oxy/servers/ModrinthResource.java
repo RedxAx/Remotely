@@ -14,8 +14,10 @@ public class ModrinthResource {
     public List<String> authors;
     public List<String> categories;
     public List<String> dependencies;
+    public String projectId; // New field
+    public String versionId; // Retain version ID if needed
 
-    public ModrinthResource(String name, String version, String description, String fileName, String iconUrl, int downloads, String slug, List<String> gameVersions) {
+    public ModrinthResource(String name, String version, String description, String fileName, String iconUrl, int downloads, String slug, List<String> gameVersions, String projectId, String versionId) {
         this.name = name;
         this.version = version;
         this.description = description;
@@ -27,5 +29,7 @@ public class ModrinthResource {
         this.authors = List.of();
         this.categories = List.of();
         this.dependencies = List.of();
+        this.projectId = projectId;
+        this.versionId = versionId;
     }
 }

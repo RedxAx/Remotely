@@ -43,18 +43,34 @@ public class ModrinthAPI {
                         if (response.statusCode() == 200) {
                             JsonObject jsonResponse = JsonParser.parseString(response.body()).getAsJsonObject();
                             JsonArray hits = jsonResponse.getAsJsonArray("hits");
+                            List<CompletableFuture<Void>> futures = new ArrayList<>();
                             for (int i = 0; i < hits.size(); i++) {
                                 JsonObject hit = hits.get(i).getAsJsonObject();
                                 String name = hit.has("title") ? hit.get("title").getAsString() : "Unknown";
-                                String versionID = hit.has("latest_version") ? hit.get("latest_version").getAsString() : "Unknown";
+                                String versionId = hit.has("latest_version") ? hit.get("latest_version").getAsString() : "Unknown";
+                                String projectId = hit.has("project_id") ? hit.get("project_id").getAsString() : "Unknown"; // Extract project_id
                                 String description = hit.has("description") ? hit.get("description").getAsString() : "No description";
                                 String slug = hit.has("slug") ? hit.get("slug").getAsString() : "unknown";
                                 String iconUrl = hit.has("icon_url") ? hit.get("icon_url").getAsString() : "";
                                 int downloads = hit.has("downloads") ? hit.get("downloads").getAsInt() : 0;
-                                ModrinthResource r = new ModrinthResource(name, versionID, description, slug + ".mrpack", iconUrl, downloads, slug, new ArrayList<>());
-                                results.add(r);
+                                CompletableFuture<Void> future = fetchVersionDetails(versionId).thenAccept(version -> {
+                                    ModrinthResource r = new ModrinthResource(
+                                            name,
+                                            version,
+                                            description,
+                                            slug + ".mrpack",
+                                            iconUrl,
+                                            downloads,
+                                            slug,
+                                            new ArrayList<>(),
+                                            projectId, // Set projectId
+                                            versionId // Set versionId
+                                    );
+                                    results.add(r);
+                                });
+                                futures.add(future);
                             }
-                            return CompletableFuture.completedFuture(results);
+                            return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).thenApply(v -> results);
                         } else {
                             return CompletableFuture.completedFuture(results);
                         }
@@ -80,18 +96,34 @@ public class ModrinthAPI {
                         if (response.statusCode() == 200) {
                             JsonObject jsonResponse = JsonParser.parseString(response.body()).getAsJsonObject();
                             JsonArray hits = jsonResponse.getAsJsonArray("hits");
+                            List<CompletableFuture<Void>> futures = new ArrayList<>();
                             for (int i = 0; i < hits.size(); i++) {
                                 JsonObject hit = hits.get(i).getAsJsonObject();
                                 String name = hit.has("title") ? hit.get("title").getAsString() : "Unknown";
-                                String versionID = hit.has("latest_version") ? hit.get("latest_version").getAsString() : "Unknown";
+                                String versionId = hit.has("latest_version") ? hit.get("latest_version").getAsString() : "Unknown";
+                                String projectId = hit.has("project_id") ? hit.get("project_id").getAsString() : "Unknown"; // Extract project_id
                                 String description = hit.has("description") ? hit.get("description").getAsString() : "No description";
                                 String slug = hit.has("slug") ? hit.get("slug").getAsString() : "unknown";
                                 String iconUrl = hit.has("icon_url") ? hit.get("icon_url").getAsString() : "";
                                 int downloads = hit.has("downloads") ? hit.get("downloads").getAsInt() : 0;
-                                ModrinthResource r = new ModrinthResource(name, versionID, description, slug + (type.equals("plugin") ? ".jar" : ".mrpack"), iconUrl, downloads, slug, new ArrayList<>());
-                                results.add(r);
+                                CompletableFuture<Void> future = fetchVersionDetails(versionId).thenAccept(version -> {
+                                    ModrinthResource r = new ModrinthResource(
+                                            name,
+                                            version,
+                                            description,
+                                            slug + (type.equals("plugin") ? ".jar" : ".mrpack"),
+                                            iconUrl,
+                                            downloads,
+                                            slug,
+                                            new ArrayList<>(),
+                                            projectId, // Set projectId
+                                            versionId // Set versionId
+                                    );
+                                    results.add(r);
+                                });
+                                futures.add(future);
                             }
-                            return CompletableFuture.completedFuture(results);
+                            return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).thenApply(v -> results);
                         } else {
                             return CompletableFuture.completedFuture(results);
                         }
@@ -104,25 +136,21 @@ public class ModrinthAPI {
         }
     }
 
-    private static CompletableFuture<String> fetchDownloadUrl(String versionID) {
+    private static CompletableFuture<String> fetchVersionDetails(String versionId) {
         try {
-            URI uri = new URI("https://api.modrinth.com/v2/version/" + versionID);
+            URI uri = new URI("https://api.modrinth.com/v2/version/" + versionId);
             HttpRequest request = HttpRequest.newBuilder().uri(uri).header("User-Agent", USER_AGENT).GET().build();
             return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                     .thenApply(response -> {
                         if (response.statusCode() == 200) {
                             JsonObject version = JsonParser.parseString(response.body()).getAsJsonObject();
-                            JsonArray files = version.getAsJsonArray("files");
-                            if (files.size() > 0) {
-                                JsonObject file = files.get(0).getAsJsonObject();
-                                return file.get("url").getAsString();
-                            }
+                            return version.has("version_number") ? version.get("version_number").getAsString() : "Unknown";
                         }
-                        return "";
+                        return "Unknown";
                     })
-                    .exceptionally(e -> "");
+                    .exceptionally(e -> "Unknown");
         } catch (Exception e) {
-            return CompletableFuture.completedFuture("");
+            return CompletableFuture.completedFuture("Unknown");
         }
     }
 }
