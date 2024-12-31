@@ -15,6 +15,7 @@ import java.net.URL;
 import java.nio.file.*;
 import java.util.*;
 import java.util.List;
+import org.lwjgl.glfw.GLFW;
 
 public class ServerManagerScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -35,7 +36,7 @@ public class ServerManagerScreen extends Screen {
     private final StringBuilder serverNameBuffer = new StringBuilder();
     private final StringBuilder serverVersionBuffer = new StringBuilder();
     private String selectedServerType = "paper";
-    private final List<String> serverTypes = Arrays.asList("paper","spigot","vanilla","fabric","forge","neoforge","quilt");
+    private final List<String> serverTypes = Arrays.asList("paper","spigot","vanilla","fabric","forge","neoforge","quilt","velocity","waterfall","bungeecord");
     private int selectedTypeIndex = 0;
     private long serverLastBlinkTime = 0;
     private boolean serverCursorVisible = true;
@@ -94,6 +95,7 @@ public class ServerManagerScreen extends Screen {
             loadSavedServers();
         }
         loadSavedRemoteHosts();
+        activeTabIndex = remotelyClient.getSavedTabIndex();
     }
 
     @Override
@@ -402,7 +404,7 @@ public class ServerManagerScreen extends Screen {
                         remoteHostIPBuffer.setLength(0);
                         remoteHostIPBuffer.append(hostInfo.ip);
                         remoteHostPortBuffer.setLength(0);
-                        remoteHostPortBuffer.append(hostInfo.port);
+                        remoteHostPortBuffer.append(String.valueOf(hostInfo.port));
                         remoteHostPasswordBuffer.setLength(0);
                         remoteHostPasswordBuffer.append(hostInfo.password);
                         return true;
@@ -797,6 +799,29 @@ public class ServerManagerScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if ((modifiers & GLFW.GLFW_MOD_CONTROL) != 0 && keyCode == GLFW.GLFW_KEY_V) {
+            String clipboard = minecraftClient.keyboard.getClipboard();
+            if (remoteHostPopupActive) {
+                switch (remoteHostActiveField) {
+                    case NAME -> remoteHostNameBuffer.append(clipboard);
+                    case USER -> remoteHostUserBuffer.append(clipboard);
+                    case IP -> remoteHostIPBuffer.append(clipboard);
+                    case PORT -> remoteHostPortBuffer.append(clipboard);
+                    case PASSWORD -> remoteHostPasswordBuffer.append(clipboard);
+                }
+                return true;
+            } else if (serverPopupActive) {
+                if (nameFieldFocused) {
+                    serverNameBuffer.insert(serverNameCursorPos, clipboard);
+                    serverNameCursorPos += clipboard.length();
+                    return true;
+                } else if (versionFieldFocused) {
+                    serverVersionBuffer.insert(serverVersionCursorPos, clipboard);
+                    serverVersionCursorPos += clipboard.length();
+                    return true;
+                }
+            }
+        }
         if (remoteHostPopupActive) {
             handleRemoteHostTypingKey(keyCode);
             return true;
@@ -1062,7 +1087,7 @@ public class ServerManagerScreen extends Screen {
     private void openImportFileExplorer() {
         if (activeTabIndex == 0) {
             try {
-                minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo("C:/remotely/servers/"), true));
+                minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo("C:/"), true));
             } catch (Exception ignored) {}
         } else {
             try {
@@ -1077,7 +1102,6 @@ public class ServerManagerScreen extends Screen {
             } catch (Exception ignored) {}
         }
     }
-
 
     private void openModpackInstallation() {
         try {
@@ -1110,6 +1134,7 @@ public class ServerManagerScreen extends Screen {
 
     @Override
     public void close() {
+        remotelyClient.saveTabIndex(activeTabIndex);
         super.close();
     }
 
@@ -1197,7 +1222,6 @@ public class ServerManagerScreen extends Screen {
             sshCheck.startSSHConnection("ssh " + user + "@" + ip + ":" + port);
             boolean initialized = sshCheck.waitForSessionInitialization(5000);
             if (!initialized) {
-                System.err.println("SSH session initialization timed out.");
                 return false;
             }
             sshCheck.setSshPassword(password);
@@ -1215,10 +1239,7 @@ public class ServerManagerScreen extends Screen {
                     break;
                 }
             }
-        } catch (Exception ignored) {
-        } finally {
-            sshCheck.shutdown();
-        }
+        } catch (Exception ignored) {}
         return connectionResult;
     }
 
@@ -1436,16 +1457,13 @@ public class ServerManagerScreen extends Screen {
             rh.password = extractJsonValue(entry, "password");
             String serversStr = parseServersBlock(entry);
             rh.servers = parseServersJson(serversStr);
-
             for (ServerInfo s : rh.servers) {
                 s.remoteHost = rh;
             }
-
             list.add(rh);
         }
         return list;
     }
-
 
     private String parseServersBlock(String json) {
         int idx = json.indexOf("\"servers\"");

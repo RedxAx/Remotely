@@ -78,14 +78,20 @@ class ServerTerminalScreen(
         val explorerHovered = mouseX in explorerButtonX..(explorerButtonX + buttonW) &&
                 mouseY in explorerButtonY..(explorerButtonY + buttonH)
         drawButton(context, explorerButtonX, explorerButtonY, "Explorer", explorerHovered)
-        pluginButtonX = explorerButtonX - (buttonW + 10)
-        pluginButtonY = 5
-        val pluginLabel = if (serverInfo.type.equals("paper", ignoreCase = true)
-            || serverInfo.type.equals("spigot", ignoreCase = true)
-        ) "Plugins" else "Mods"
-        val pluginHovered = mouseX in pluginButtonX..(pluginButtonX + buttonW) &&
-                mouseY in pluginButtonY..(pluginButtonY + buttonH)
-        drawButton(context, pluginButtonX, pluginButtonY, pluginLabel, pluginHovered)
+        val isProxy = listOf("velocity", "waterfall", "bungeecord").contains(serverInfo.type.lowercase(Locale.getDefault()))
+        if (!isProxy) {
+            pluginButtonX = explorerButtonX - (buttonW + 10)
+            pluginButtonY = 5
+            val pluginLabel = if (serverInfo.type.equals("paper", ignoreCase = true)
+                || serverInfo.type.equals("spigot", ignoreCase = true)
+                || serverInfo.type.equals("velocity", ignoreCase = true)
+                || serverInfo.type.equals("waterfall", ignoreCase = true)
+                || serverInfo.type.equals("bungeecord", ignoreCase = true)
+            ) "Plugins" else "Mods"
+            val pluginHovered = mouseX in pluginButtonX..(pluginButtonX + buttonW) &&
+                    mouseY in pluginButtonY..(pluginButtonY + buttonH)
+            drawButton(context, pluginButtonX, pluginButtonY, pluginLabel, pluginHovered)
+        }
         val terminalOffsetY = topBarHeight + 5
         val terminalAvailableHeight = this.height - topBarHeight - 10
         serverInfo.terminal?.render(context, this.width - 10, terminalAvailableHeight, terminalScale)
@@ -109,11 +115,14 @@ class ServerTerminalScreen(
                 minecraftClient.setScreen(FileExplorerScreen(minecraftClient, this, serverInfo))
                 return true
             }
-            if (mouseX in pluginButtonX.toDouble()..(pluginButtonX + buttonW).toDouble()
-                && mouseY in pluginButtonY.toDouble()..(pluginButtonY + buttonH).toDouble()
-            ) {
-                minecraftClient.setScreen(PluginModListScreen(minecraftClient, this, serverInfo))
-                return true
+            val isProxy = listOf("velocity", "waterfall", "bungeecord").contains(serverInfo.type.lowercase(Locale.getDefault()))
+            if (!isProxy) {
+                if (mouseX in pluginButtonX.toDouble()..(pluginButtonX + buttonW).toDouble()
+                    && mouseY in pluginButtonY.toDouble()..(pluginButtonY + buttonH).toDouble()
+                ) {
+                    minecraftClient.setScreen(PluginModListScreen(minecraftClient, this, serverInfo))
+                    return true
+                }
             }
         }
         serverInfo.terminal?.mouseClicked(mouseX, mouseY, button)

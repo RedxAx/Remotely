@@ -20,6 +20,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private final Screen parent;
     private final ServerInfo serverInfo;
     private List<EntryData> fileEntries;
+    private final Object fileEntriesLock = new Object();
     private float smoothOffset = 0;
     private int entryHeight = 25;
     private int baseColor = 0xFF181818;
@@ -235,8 +236,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 if (mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
                     int relativeY = (int) mouseY - explorerY + (int) smoothOffset;
                     int clickedIndex = relativeY / entryHeight;
-                    if (clickedIndex >= 0 && clickedIndex < fileEntries.size()) {
-                        EntryData entryData = fileEntries.get(clickedIndex);
+                    List<EntryData> entriesToRender;
+                    synchronized (fileEntriesLock) {
+                        entriesToRender = new ArrayList<>(fileEntries);
+                    }
+                    if (clickedIndex >= 0 && clickedIndex < entriesToRender.size()) {
+                        EntryData entryData = entriesToRender.get(clickedIndex);
                         Path selectedPath = entryData.path;
                         if (isDoubleClick) {
                             if (entryData.isDirectory) {
@@ -275,9 +280,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                                     int start = Math.min(lastSelectedIndex, clickedIndex);
                                     int end = Math.max(lastSelectedIndex, clickedIndex);
                                     for (int i = start; i <= end; i++) {
-                                        Path path = fileEntries.get(i).path;
-                                        if (!selectedPaths.contains(path)) {
-                                            selectedPaths.add(path);
+                                        if (i >= 0 && i < entriesToRender.size()) {
+                                            Path path = entriesToRender.get(i).path;
+                                            if (!selectedPaths.contains(path)) {
+                                                selectedPaths.add(path);
+                                            }
                                         }
                                     }
                                 } else {
@@ -342,7 +349,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
         targetOffset -= verticalAmount * entryHeight * 0.5f;
-        targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, fileEntries.size() * entryHeight - (this.height - 100))));
+        List<EntryData> entriesToRender;
+        synchronized (fileEntriesLock) {
+            entriesToRender = new ArrayList<>(fileEntries);
+        }
+        targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, entriesToRender.size() * entryHeight - (this.height - 100))));
         return true;
     }
 
@@ -402,14 +413,18 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         context.drawText(this.textRenderer, Text.literal("Close"), tcx, tcy, textColor, false);
 
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
+        List<EntryData> entriesToRender;
+        synchronized (fileEntriesLock) {
+            entriesToRender = new ArrayList<>(fileEntries);
+        }
         int visibleEntries = explorerHeight / entryHeight;
         int startIndex = (int) Math.floor(smoothOffset / entryHeight) - 1;
         if (startIndex < 0) startIndex = 0;
         int endIndex = startIndex + visibleEntries + 2;
-        if (endIndex > fileEntries.size()) endIndex = fileEntries.size();
+        if (endIndex > entriesToRender.size()) endIndex = entriesToRender.size();
 
         for (int entryIndex = startIndex; entryIndex < endIndex; entryIndex++) {
-            EntryData entry = fileEntries.get(entryIndex);
+            EntryData entry = entriesToRender.get(entryIndex);
             int entryY = explorerY + (entryIndex * entryHeight) - (int) smoothOffset;
             float opacity = 1.0f;
             if (entryY < explorerY) {
@@ -507,7 +522,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         String key = dir.toString();
         if (!serverInfo.isRemote) {
             if (!forceReload && remoteCache.containsKey(key)) {
-                fileEntries = remoteCache.get(key);
+                synchronized (fileEntriesLock) {
+                    fileEntries = remoteCache.get(key);
+                }
                 return;
             }
         }
@@ -521,7 +538,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 } else {
                     temp = loadLocalDirectory(dir);
                 }
-                fileEntries = temp;
+                synchronized (fileEntriesLock) {
+                    fileEntries = temp;
+                }
                 if (!serverInfo.isRemote) {
                     remoteCache.put(key, temp);
                 }
@@ -602,14 +621,18 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         }
         String query = searchQuery.toString().toLowerCase();
         List<EntryData> filtered = new ArrayList<>();
-        for (EntryData data : fileEntries) {
-            if (data.path.getFileName().toString().toLowerCase().contains(query)) {
-                filtered.add(data);
+        synchronized (fileEntriesLock) {
+            for (EntryData data : fileEntries) {
+                if (data.path.getFileName().toString().toLowerCase().contains(query)) {
+                    filtered.add(data);
+                }
             }
         }
         filtered.sort(Comparator.comparing(x -> !x.isDirectory));
         filtered.sort(Comparator.comparing(x -> x.path.getFileName().toString().toLowerCase()));
-        fileEntries = filtered;
+        synchronized (fileEntriesLock) {
+            fileEntries = filtered;
+        }
         targetOffset = 0;
     }
 

@@ -41,6 +41,7 @@ public class RemotelyClient implements ClientModInitializer {
     public static RemotelyClient INSTANCE;
 
     public final List<ServerInfo> servers = new ArrayList<>();
+    private int activeHostIndex = 0;
 
     @Override
     public void onInitializeClient() {
@@ -149,6 +150,15 @@ public class RemotelyClient implements ClientModInitializer {
     public void onMultiTerminalScreenClosed() {
         multiTerminalScreen = null;
     }
+
+    public void saveTabIndex(int activeTabIndex) {
+        activeHostIndex = activeTabIndex;
+    }
+
+    public int getSavedTabIndex() {
+        return activeHostIndex;
+    }
+
 
     public static class CommandSnippet {
         public String name;
