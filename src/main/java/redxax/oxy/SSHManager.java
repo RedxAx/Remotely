@@ -501,4 +501,32 @@ public class SSHManager {
             }
         }
     }
+
+    public void writeRemoteFile(String remotePath, String content) {
+        if (!sftpConnected) return;
+        try (OutputStream out = sftpChannel.put(remotePath)) {
+            out.write(content.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            if (terminalInstance != null) {
+                terminalInstance.appendOutput("Failed to write file: " + e.getMessage() + "\n");
+            }
+        }
+    }
+
+    public String readRemoteFile(String remotePath) {
+        if (!sftpConnected) return "";
+        StringBuilder sb = new StringBuilder();
+        try (InputStream in = sftpChannel.get(remotePath);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append("\n");
+            }
+        } catch (Exception e) {
+            if (terminalInstance != null) {
+                terminalInstance.appendOutput("Failed to read file: " + e.getMessage() + "\n");
+            }
+        }
+        return sb.toString();
+    }
 }

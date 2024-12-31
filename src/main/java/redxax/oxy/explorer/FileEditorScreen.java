@@ -10,6 +10,7 @@ import redxax.oxy.servers.ServerInfo;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -44,11 +45,33 @@ public class FileEditorScreen extends Screen {
         this.parent = parent;
         this.filePath = filePath;
         this.serverInfo = info;
-        try (BufferedReader reader = Files.newBufferedReader(filePath)) {
-            fileContent.addAll(reader.lines().toList());
-        } catch (IOException e) {
-            if (serverInfo.terminal != null) {
-                serverInfo.terminal.appendOutput("File load error: " + e.getMessage() + "\n");
+        if (serverInfo.isRemote) {
+            try {
+                if (serverInfo.remoteSSHManager == null) {
+                    serverInfo.remoteSSHManager = new redxax.oxy.SSHManager(serverInfo);
+                    serverInfo.remoteSSHManager.connectToRemoteHost(serverInfo.remoteHost.getUser(), serverInfo.remoteHost.ip, serverInfo.remoteHost.port, serverInfo.remoteHost.password);
+                    serverInfo.remoteSSHManager.connectSFTP();
+                } else if (!serverInfo.remoteSSHManager.isSFTPConnected()) {
+                    serverInfo.remoteSSHManager.connectSFTP();
+                }
+                String remotePath = filePath.toString().replace("\\", "/");
+                String content = serverInfo.remoteSSHManager.readRemoteFile(remotePath);
+                String[] lines = content.split("\\r?\\n");
+                for (String line : lines) {
+                    fileContent.add(line);
+                }
+            } catch (Exception e) {
+                if (serverInfo.terminal != null) {
+                    serverInfo.terminal.appendOutput("File load error (remote): " + e.getMessage() + "\n");
+                }
+            }
+        } else {
+            try (BufferedReader reader = Files.newBufferedReader(filePath)) {
+                fileContent.addAll(reader.lines().toList());
+            } catch (IOException e) {
+                if (serverInfo.terminal != null) {
+                    serverInfo.terminal.appendOutput("File load error: " + e.getMessage() + "\n");
+                }
             }
         }
         this.textEditor = new MultiLineTextEditor(minecraftClient, fileContent, filePath.getFileName().toString());
@@ -185,14 +208,33 @@ public class FileEditorScreen extends Screen {
 
     private void saveFile() {
         ArrayList<String> newContent = new ArrayList<>(textEditor.getLines());
-        try {
-            Files.write(filePath, newContent);
-            if (serverInfo.terminal != null) {
-                Notification notification = new Notification.Builder("Starting server...", Notification.Type.INFO).build();
+        if (serverInfo.isRemote) {
+            try {
+                if (serverInfo.remoteSSHManager == null) {
+                    serverInfo.remoteSSHManager = new redxax.oxy.SSHManager(serverInfo);
+                    serverInfo.remoteSSHManager.connectToRemoteHost(serverInfo.remoteHost.getUser(), serverInfo.remoteHost.ip, serverInfo.remoteHost.port, serverInfo.remoteHost.password);
+                    serverInfo.remoteSSHManager.connectSFTP();
+                } else if (!serverInfo.remoteSSHManager.isSFTPConnected()) {
+                    serverInfo.remoteSSHManager.connectSFTP();
+                }
+                String remotePath = filePath.toString().replace("\\", "/");
+                String joined = String.join("\n", newContent);
+                serverInfo.remoteSSHManager.writeRemoteFile(remotePath, joined);
+            } catch (Exception e) {
+                if (serverInfo.terminal != null) {
+                    serverInfo.terminal.appendOutput("File save error (remote): " + e.getMessage() + "\n");
+                }
             }
-        } catch (IOException e) {
-            if (serverInfo.terminal != null) {
-                serverInfo.terminal.appendOutput("File save error: " + e.getMessage() + "\n");
+        } else {
+            try {
+                Files.write(filePath, newContent);
+                if (serverInfo.terminal != null) {
+                    Notification notification = new Notification.Builder("Starting server...", Notification.Type.INFO).build();
+                }
+            } catch (IOException e) {
+                if (serverInfo.terminal != null) {
+                    serverInfo.terminal.appendOutput("File save error: " + e.getMessage() + "\n");
+                }
             }
         }
         unsaved = false;
