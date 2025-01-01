@@ -63,7 +63,7 @@ public class TerminalRenderer {
     public void render(DrawContext context, int screenWidth, int screenHeight, float newScale) {
         this.scale = Math.max(MIN_SCALE, Math.min(newScale, MAX_SCALE));
         this.terminalX = 10;
-        this.terminalY = MultiTerminalScreen.TAB_HEIGHT + 10;
+        this.terminalY = MultiTerminalScreen.ContentYStart;
         this.terminalWidth = screenWidth - 20;
         this.terminalHeight = screenHeight - terminalY - 10;
         if (this.scale != previousScale || this.terminalWidth != previousTerminalWidth) {
