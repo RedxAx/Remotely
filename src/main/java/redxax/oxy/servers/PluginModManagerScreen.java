@@ -4,15 +4,13 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
 import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
+import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URL;
@@ -23,11 +21,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.imageio.ImageIO;
 
 import com.google.gson.JsonParser;
-import redxax.oxy.Notification;
 
 public class PluginModManagerScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -35,7 +34,7 @@ public class PluginModManagerScreen extends Screen {
     private final ServerInfo serverInfo;
     private final List<ModrinthResource> resources = Collections.synchronizedList(new ArrayList<>());
     private final Map<String, List<ModrinthResource>> resourceCache = new ConcurrentHashMap<>();
-    private final Map<String, Identifier> iconTextures = new ConcurrentHashMap<>();
+    private final Map<String, BufferedImage> iconImages = new ConcurrentHashMap<>();
     private final Map<String, Boolean> installingMrPack = new ConcurrentHashMap<>();
     private final Map<String, Boolean> installingResource = new ConcurrentHashMap<>();
     private final Map<String, String> installButtonTexts = new ConcurrentHashMap<>();
@@ -54,6 +53,7 @@ public class PluginModManagerScreen extends Screen {
     private int textColor = 0xFFFFFFFF;
     private int loadedCount = 0;
     private boolean hasMore = false;
+    private final Map<BufferedImage, BufferedImage> scaledCache = new ConcurrentHashMap<>();
 
     public PluginModManagerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
         super(Text.literal("Plugin / Mod Manager"));
@@ -197,7 +197,6 @@ public class PluginModManagerScreen extends Screen {
                             installButtonTexts.put(selected.slug, "Install");
                         }
                         if (!installButtonTexts.get(selected.slug).equalsIgnoreCase("Installed")) {
-                            // Check if it's a .mrpack AND the server path says "modpack" to allow modpack install
                             if (selected.fileName.toLowerCase(Locale.ROOT).endsWith(".mrpack") && Objects.equals(serverInfo.path, "modpack")) {
                                 if (!installingMrPack.containsKey(selected.slug) || !installingMrPack.get(selected.slug)) {
                                     installingMrPack.put(selected.slug, true);
@@ -221,8 +220,12 @@ public class PluginModManagerScreen extends Screen {
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
         context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor);
+    }
+
+    @Override
+    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         context.fill(0, 0, this.width, 25, lighterColor);
         drawInnerBorder(context, 0, 0, this.width, 25, borderColor);
@@ -281,27 +284,21 @@ public class PluginModManagerScreen extends Screen {
             drawInnerBorder(context, 10, y, panelWidth, entryHeight, borderColor);
 
             if (!resource.iconUrl.isEmpty()) {
-                if (!iconTextures.containsKey(resource.iconUrl)) {
-                    String texKey = "img_" + Integer.toHexString(resource.iconUrl.hashCode());
-                    Identifier textureId = Identifier.tryParse("oxy_mod:" + texKey);
-                    if (textureId != null) {
-                        iconTextures.put(resource.iconUrl, textureId);
-                        CompletableFuture.runAsync(() -> {
-                            try (InputStream inputStream = new URL(resource.iconUrl).openStream()) {
-                                NativeImage nativeImage = loadImage(inputStream, resource.iconUrl);
-                                minecraftClient.getTextureManager().registerTexture(textureId, new NativeImageBackedTexture(nativeImage));
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            } catch (Exception e) {
-                                throw new RuntimeException(e);
-                            }
-                        });
+                if (!iconImages.containsKey(resource.iconUrl)) {
+                    CompletableFuture.runAsync(() -> {
+                        try (InputStream inputStream = new URL(resource.iconUrl).openStream()) {
+                            BufferedImage bufferedImage = loadImage(inputStream, resource.iconUrl);
+                            if (bufferedImage == null) return;
+                            iconImages.put(resource.iconUrl, bufferedImage);
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    });
+                } else {
+                    BufferedImage image = iconImages.get(resource.iconUrl);
+                    if (image != null) {
+                        drawBufferedImage(context, image, 15, y + 5, 40, 40);
                     }
-                }
-                Identifier textureId = iconTextures.get(resource.iconUrl);
-                if (textureId != null) {
-                    minecraftClient.getTextureManager().bindTexture(textureId);
-                    context.drawTexture(textureId, 15, y + 5, 0, 0, 40, 40, 40, 40);
                 }
             }
 
@@ -363,7 +360,7 @@ public class PluginModManagerScreen extends Screen {
         context.fill(x + w - 1, y, x + w, y + h, c);
     }
 
-    private NativeImage loadImage(InputStream inputStream, String url) throws Exception {
+    private BufferedImage loadImage(InputStream inputStream, String url) throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
         int len;
@@ -371,7 +368,42 @@ public class PluginModManagerScreen extends Screen {
             baos.write(buf, 0, len);
         }
         inputStream.close();
-        return NativeImage.read(new ByteArrayInputStream(baos.toByteArray()));
+        return ImageIO.read(new ByteArrayInputStream(baos.toByteArray()));
+    }
+
+    private void drawBufferedImage(DrawContext context, BufferedImage image, int x, int y, int width, int height) {
+        if (x + width < 0 || y + height < 0 || x > this.width || y > this.height) return;
+        BufferedImage scaledImage = scaledCache.get(image);
+        if (scaledImage == null) {
+            scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2d = scaledImage.createGraphics();
+            g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g2d.drawImage(image, 0, 0, width, height, null);
+            g2d.dispose();
+            scaledCache.put(image, scaledImage);
+        }
+        int[] pixels = scaledImage.getRGB(0, 0, width, height, null, 0, width);
+        for (int py = 0; py < height; py++) {
+            int rowStart = py * width;
+            int lastCol = -1;
+            int lastColor = 0;
+            for (int px = 0; px < width; px++) {
+                int color = pixels[rowStart + px];
+                if (px == 0) {
+                    lastCol = 0;
+                    lastColor = color;
+                } else if (color != lastColor) {
+                    if ((lastColor >>> 24) != 0) {
+                        context.fill(x + lastCol, y + py, x + px, y + py + 1, lastColor);
+                    }
+                    lastCol = px;
+                    lastColor = color;
+                }
+            }
+            if ((lastColor >>> 24) != 0) {
+                context.fill(x + lastCol, y + py, x + width, y + py + 1, lastColor);
+            }
+        }
     }
 
     private void installMrPack(ModrinthResource resource) {
@@ -425,10 +457,6 @@ public class PluginModManagerScreen extends Screen {
     private void fetchAndInstallResource(ModrinthResource resource) {
         Thread t = new Thread(() -> {
             try {
-                // Use the project version ID if available instead of the version string
-                // to avoid 400 errors from Modrinth's API.
-                // If resource.versionId is stored, use that; otherwise fallback to resource.version
-                // or resource.versionId if that's the actual version ID.
                 String versionID = (resource.versionId != null && !resource.versionId.isEmpty()) ? resource.versionId : resource.version;
                 String downloadUrl = fetchDownloadUrl(versionID);
                 if (downloadUrl.isEmpty()) {
