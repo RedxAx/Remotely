@@ -7,8 +7,14 @@ import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
-import java.nio.file.*;
+import redxax.oxy.explorer.FileExplorerScreen;
+import redxax.oxy.servers.PluginModListScreen;
+import redxax.oxy.servers.ServerInfo;
+import redxax.oxy.servers.ServerState;
+
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -20,7 +26,8 @@ public class MultiTerminalScreen extends Screen {
     final List<String> tabNames;
     int activeTerminalIndex = 0;
 
-    public static final int TAB_HEIGHT = 25;
+    public static final int TAB_HEIGHT = 20;
+    public static int ContentYStart;
 
     private float scale = 1.0f;
     private static final float MIN_SCALE = 0.1f;
@@ -35,7 +42,7 @@ public class MultiTerminalScreen extends Screen {
     private boolean closedViaEscape = false;
     private String warningMessage = "";
 
-    private static final Path TERMINAL_LOG_DIR = Paths.get(System.getProperty("user.dir"), "remotely_terminal_logs");
+    private static final java.nio.file.Path TERMINAL_LOG_DIR = java.nio.file.Paths.get(System.getProperty("user.dir"), "remotely_terminal_logs");
     final List<String> commandHistory = new ArrayList<>();
     int historyIndex = -1;
 
@@ -86,6 +93,19 @@ public class MultiTerminalScreen extends Screen {
     int renameScrollOffset = 0;
     int snippetNameScrollOffset = 0;
 
+    private int buttonX = 0;
+    private int buttonY = 0;
+    private int explorerButtonX = 0;
+    private int explorerButtonY = 0;
+    private int pluginButtonX = 0;
+    private int pluginButtonY = 0;
+    private final int buttonW = 60;
+    private final int buttonH = 20;
+    private final int topBarHeight = 30;
+
+    private List<TerminalInstance> savedTerminals;
+    private List<String> savedTabNames;
+
     public MultiTerminalScreen(MinecraftClient minecraftClient, RemotelyClient remotelyClient, List<TerminalInstance> terminals, List<String> tabNames) {
         super(Text.literal("Multi Terminal"));
         this.minecraftClient = minecraftClient;
@@ -100,6 +120,17 @@ public class MultiTerminalScreen extends Screen {
         this.snippetPanelWidth = remotelyClient.snippetPanelWidth;
         this.showSnippetsPanel = remotelyClient.showSnippetsPanel;
         this.snippetLastBlinkTime = System.currentTimeMillis();
+        this.savedTerminals = new ArrayList<>(terminals);
+        this.savedTabNames = new ArrayList<>(tabNames);
+    }
+
+    public MultiTerminalScreen(MinecraftClient minecraftClient, RemotelyClient remotelyClient) {
+        this(minecraftClient, remotelyClient, new ArrayList<>(remotelyClient.multiTerminals), new ArrayList<>(remotelyClient.multiTabNames));
+    }
+
+    public MultiTerminalScreen(MinecraftClient minecraftClient, RemotelyClient remotelyClient, ServerInfo serverInfo) {
+        this(minecraftClient, remotelyClient);
+        addNewServerTab(serverInfo);
     }
 
     @Override
@@ -113,6 +144,21 @@ public class MultiTerminalScreen extends Screen {
         terminals.add(newTerminal);
         tabNames.add("Tab " + terminals.size());
         activeTerminalIndex = terminals.size() - 1;
+        remotelyClient.multiTerminals = new ArrayList<>(terminals);
+        remotelyClient.multiTabNames = new ArrayList<>(tabNames);
+    }
+
+    private void addNewServerTab(ServerInfo serverInfo) {
+        UUID terminalId = UUID.randomUUID();
+        ServerTerminalInstance newTerminal = new ServerTerminalInstance(minecraftClient, null, terminalId, serverInfo);
+        newTerminal.isServerTerminal = true;
+        newTerminal.serverName = serverInfo.name;
+        newTerminal.serverJarPath = Paths.get(serverInfo.path, "server.jar").toString().replace("\\", "/");
+        terminals.add(newTerminal);
+        tabNames.add(serverInfo.name);
+        activeTerminalIndex = terminals.size() - 1;
+        remotelyClient.multiTerminals = new ArrayList<>(terminals);
+        remotelyClient.multiTabNames = new ArrayList<>(tabNames);
     }
 
     private void closeTerminal(int index) {
@@ -126,6 +172,8 @@ public class MultiTerminalScreen extends Screen {
         if (activeTerminalIndex >= terminals.size()) {
             activeTerminalIndex = terminals.size() - 1;
         }
+        remotelyClient.multiTerminals = new ArrayList<>(terminals);
+        remotelyClient.multiTabNames = new ArrayList<>(tabNames);
     }
 
     private void setActiveTerminal(int index) {
@@ -146,41 +194,92 @@ public class MultiTerminalScreen extends Screen {
             snippetCursorVisible = !snippetCursorVisible;
             snippetLastBlinkTime = currentTime;
         }
-
         super.render(context, mouseX, mouseY, delta);
-
+        if (!terminals.isEmpty()) {
+            TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
+            if (activeTerminal instanceof ServerTerminalInstance serverTerminal) {
+                context.fill(0, 0, this.width, topBarHeight, lighterColor);
+                drawInnerBorder(context, 0, 0, this.width, topBarHeight, borderColor);
+                ServerInfo sInfo = serverTerminal.getServerInfo();
+                ServerState st = sInfo.state;
+                String stateText = switch (st) {
+                    case RUNNING -> "Running";
+                    case STARTING -> "Starting";
+                    case STOPPED -> "Stopped";
+                    case CRASHED -> "Crashed";
+                    default -> "Unknown";
+                };
+                String hostStatus;
+                if (sInfo.isRemote && sInfo.remoteHost != null) {
+                    boolean connected = (sInfo.remoteSSHManager != null && sInfo.remoteSSHManager.isSSH());
+                    hostStatus = connected ? "Host: Connected" : "Host: Disconnected";
+                } else {
+                    hostStatus = "Local Host";
+                }
+                String titleText = sInfo.name + " - " + stateText + " | " + hostStatus;
+                context.drawText(minecraftClient.textRenderer, Text.literal(titleText), 10, 10, textColor, false);
+                buttonX = this.width - buttonW - 10;
+                buttonY = 5;
+                String buttonLabel = (st == ServerState.RUNNING || st == ServerState.STARTING) ? "Stop" : "Start";
+                boolean buttonHovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
+                drawHeaderButton(context, buttonX, buttonY, buttonLabel, buttonHovered);
+                explorerButtonX = buttonX - (buttonW + 10);
+                explorerButtonY = 5;
+                boolean explorerHovered = mouseX >= explorerButtonX && mouseX <= explorerButtonX + buttonW && mouseY >= explorerButtonY && mouseY <= explorerButtonY + buttonH;
+                drawHeaderButton(context, explorerButtonX, explorerButtonY, "Explorer", explorerHovered);
+                boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
+                if (!isProxy) {
+                    pluginButtonX = explorerButtonX - (buttonW + 10);
+                    pluginButtonY = 5;
+                    String pluginLabel = (sInfo.type.equalsIgnoreCase("paper")
+                            || sInfo.type.equalsIgnoreCase("spigot")
+                            || sInfo.type.equalsIgnoreCase("velocity")
+                            || sInfo.type.equalsIgnoreCase("waterfall")
+                            || sInfo.type.equalsIgnoreCase("bungeecord"))
+                            ? "Plugins" : "Mods";
+                    boolean pluginHovered = mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH;
+                    drawHeaderButton(context, pluginButtonX, pluginButtonY, pluginLabel, pluginHovered);
+                }
+            } else {
+                context.fill(0, 0, this.width, topBarHeight, lighterColor);
+                drawInnerBorder(context, 0, 0, this.width, topBarHeight, borderColor);
+                String titleText = "Multi Terminal - General Tab";
+                context.drawText(minecraftClient.textRenderer, Text.literal(titleText), 10, 10, textColor, false);
+                buttonX = this.width - buttonW - 10;
+                buttonY = 5;
+                boolean buttonHovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
+                drawHeaderButton(context, buttonX, buttonY, "Explorer", buttonHovered);
+                explorerButtonX = buttonX;
+                explorerButtonY = buttonY;
+            }
+        }
         if (!warningMessage.isEmpty()) {
             context.drawText(minecraftClient.textRenderer, Text.literal(warningMessage), 5, TAB_HEIGHT + verticalPadding, 0xFFFF0000, false);
             warningMessage = "";
         }
-
         int hideButtonX = this.width - 15 - 5;
-        int hideButtonY = 5;
+        int hideButtonY = 5 + topBarHeight;
         hideButtonHovered = mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15;
         drawHoverableButton(context, hideButtonX, hideButtonY, "≡", hideButtonHovered, textColor);
-
+        int tabOffsetY = topBarHeight + 5;
         int availableTabWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 20;
         int tabStartX = 5;
-        int tabY = 5;
+        int tabY = tabOffsetY;
         int tabAreaHeight = TAB_HEIGHT;
-        int contentYStart = tabY + tabAreaHeight + verticalPadding;
         int contentXStart = 2;
         int effectiveWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - contentXStart - 2;
-
         List<TabInfo> tabInfos = new ArrayList<>();
         for (int i = 0; i < terminals.size(); i++) {
             String tName = tabNames.get(i);
             int tw = minecraftClient.textRenderer.getWidth(tName);
             int paddingH = 10;
-            int tabW = Math.max(tw + paddingH * 2, 60);
+            int tabW = Math.max(tw + paddingH * 2, 45);
             tabInfos.add(new TabInfo(tName, tabW));
         }
-
         int totalTabsWidth = 0;
         for (TabInfo ti : tabInfos) totalTabsWidth += ti.width + tabPadding;
         if (totalTabsWidth < availableTabWidth) totalTabsWidth = availableTabWidth;
         tabScrollOffset = MathHelper.clamp(tabScrollOffset, 0, Math.max(0, totalTabsWidth - availableTabWidth));
-
         int plusW = 20;
         float renderX = tabStartX - tabScrollOffset;
         hoveredTabIndex = -1;
@@ -239,7 +338,6 @@ public class MultiTerminalScreen extends Screen {
             }
             renderX += ti.width + tabPadding;
         }
-
         plusButtonHovered = mouseX >= renderX && mouseX <= renderX + plusW && mouseY >= tabY && mouseY <= tabY + tabAreaHeight;
         int plusBg = plusButtonHovered ? 0xFF666666 : 0xFF555555;
         context.fill((int) renderX, tabY, (int) renderX + plusW, tabY + tabAreaHeight, plusBg);
@@ -249,26 +347,27 @@ public class MultiTerminalScreen extends Screen {
         int ptx = (int) renderX + (plusW - pw) / 2;
         int pty = tabY + (tabAreaHeight - minecraftClient.textRenderer.fontHeight) / 2;
         context.drawText(minecraftClient.textRenderer, Text.literal(plus), ptx, pty, textColor, false);
-
         if (tabScrollOffset > 0) {
             drawFade(context, 5, tabY, 15, tabY + tabAreaHeight, true);
         }
         if (totalTabsWidth - tabScrollOffset > availableTabWidth) {
             drawFade(context, this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 15, tabY, this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 5, tabY + tabAreaHeight, false);
         }
-
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-            activeTerminal.render(context, Math.max(effectiveWidth, 50), this.height, scale);
+            int contentYStart = tabY + tabAreaHeight + verticalPadding;
+            ContentYStart = contentYStart + 5;
+            int adjustedHeight = this.height - (topBarHeight + tabAreaHeight + verticalPadding) + 60;
+            activeTerminal.render(context, Math.max(effectiveWidth, 50), adjustedHeight, scale);
         }
-
         if (showSnippetsPanel) {
             int panelX = this.width - snippetPanelWidth;
-            int panelHeight = this.height - contentYStart - 5;
-            context.fill(panelX - 1, contentYStart, panelX, contentYStart + panelHeight, borderColor);
-            context.fill(panelX, contentYStart, panelX + snippetPanelWidth, contentYStart + panelHeight, lighterColor);
-            drawInnerBorder(context, panelX, contentYStart, snippetPanelWidth, panelHeight, borderColor);
-            int yOffset = contentYStart + 5;
+            int panelY = tabOffsetY + tabAreaHeight + verticalPadding;
+            int panelHeight = this.height - panelY - 5;
+            context.fill(panelX - 1, panelY, panelX, panelY + panelHeight, borderColor);
+            context.fill(panelX, panelY, panelX + snippetPanelWidth, panelY + panelHeight, lighterColor);
+            drawInnerBorder(context, panelX, panelY, snippetPanelWidth, panelHeight, borderColor);
+            int yOffset = panelY + 5;
             int snippetMaxWidth = snippetPanelWidth - 10;
             snippetHoverIndex = -1;
             for (int i = 0; i < RemotelyClient.globalSnippets.size(); i++) {
@@ -288,10 +387,19 @@ public class MultiTerminalScreen extends Screen {
             createSnippetButtonHovered = mouseX >= createButtonX && mouseX <= createButtonX + createButtonWidth && mouseY >= createButtonY && mouseY <= createButtonY + 10 + minecraftClient.textRenderer.fontHeight;
             drawHoverableButton(context, createButtonX, createButtonY, createText, createSnippetButtonHovered, textColor);
         }
-
         if (snippetPopupActive) {
             renderSnippetPopup(context, mouseX, mouseY, delta);
         }
+    }
+
+    private void drawHeaderButton(DrawContext context, int x, int y, String text, boolean hovered) {
+        int bg = hovered ? highlightColor : lighterColor;
+        context.fill(x, y, x + buttonW, y + buttonH, bg);
+        drawInnerBorder(context, x, y, buttonW, buttonH, borderColor);
+        int tw = minecraftClient.textRenderer.getWidth(text);
+        int tx = x + (buttonW - tw) / 2;
+        int ty = y + (buttonH - minecraftClient.textRenderer.fontHeight) / 2;
+        context.drawText(minecraftClient.textRenderer, Text.literal(text), tx, ty, textColor, false);
     }
 
     private void renderSnippetPopup(DrawContext context, int mouseX, int mouseY, float delta) {
@@ -299,7 +407,6 @@ public class MultiTerminalScreen extends Screen {
         if (snippetPopupY + snippetPopupHeight > this.height) snippetPopupY = this.height - snippetPopupHeight - 5;
         context.fill(snippetPopupX, snippetPopupY, snippetPopupX + snippetPopupWidth, snippetPopupY + snippetPopupHeight, baseColor);
         drawInnerBorder(context, snippetPopupX, snippetPopupY, snippetPopupWidth, snippetPopupHeight, borderColor);
-
         int nameLabelY = snippetPopupY + 5;
         trimAndDrawText(context, "Name:", snippetPopupX + 5, nameLabelY, snippetPopupWidth - 10, textColor);
         int nameBoxY = nameLabelY + 12;
@@ -336,7 +443,6 @@ public class MultiTerminalScreen extends Screen {
             int cX = nameTextX + minecraftClient.textRenderer.getWidth(visibleName.substring(0, Math.min(cursorPosVisible, visibleName.length())));
             context.fill(cX, nameTextY - 1, cX + 1, nameTextY + minecraftClient.textRenderer.fontHeight, textColor);
         }
-
         int commandsLabelY = nameBoxY + nameBoxHeight + 8;
         trimAndDrawText(context, "Commands:", snippetPopupX + 5, commandsLabelY, snippetPopupWidth - 10, textColor);
         int commandsBoxY = commandsLabelY + 12;
@@ -384,7 +490,6 @@ public class MultiTerminalScreen extends Screen {
             int cursorY = commandsInnerY + relativeLine * (minecraftClient.textRenderer.fontHeight + 2);
             context.fill(cursorX, cursorY - 1, cursorX + 1, cursorY + minecraftClient.textRenderer.fontHeight, textColor);
         }
-
         int shortcutLabelY = commandsBoxY + commandsBoxHeight + 8;
         trimAndDrawText(context, snippetRecordingKeys ? "Shortcut (recording):" : "Shortcut:", snippetPopupX + 5, shortcutLabelY, snippetPopupWidth - 10, textColor);
         int shortcutBoxY = shortcutLabelY + 12;
@@ -394,7 +499,6 @@ public class MultiTerminalScreen extends Screen {
         String shortcutText = snippetShortcutBuffer.isEmpty() ? "No Shortcut" : snippetShortcutBuffer.toString();
         shortcutText = trimTextToWidthWithEllipsis(shortcutText, shortcutBoxWidth - 2);
         context.drawText(minecraftClient.textRenderer, Text.literal(shortcutText), snippetPopupX + 8, shortcutBoxY + 2, textColor, false);
-
         int recordX = snippetPopupX + snippetPopupWidth - shortcutBoxHight - 5;
         boolean recordHover = mouseX >= recordX && mouseX <= recordX + shortcutBoxHight && mouseY >= shortcutBoxY && mouseY <= shortcutBoxY + shortcutBoxHight;
         context.fill(recordX + 1, shortcutBoxY + 1, recordX + shortcutBoxHight - 1, shortcutBoxY + shortcutBoxHight - 1, recordHover ? 0xFF666666 : 0xFF555555);
@@ -407,20 +511,17 @@ public class MultiTerminalScreen extends Screen {
         int rtx = recordX + (shortcutBoxHight - rw) / 2;
         int rty = shortcutBoxY + (shortcutBoxHight - minecraftClient.textRenderer.fontHeight) / 2;
         trimAndDrawText(context, recordText, rtx, rty, shortcutBoxHight, textColor);
-
         int confirmButtonY = snippetPopupY + snippetPopupHeight - 15;
         String okText = "OK";
         int okW = minecraftClient.textRenderer.getWidth(okText) + 10;
         int confirmButtonX = snippetPopupX + 5;
         boolean okHover = mouseX >= confirmButtonX && mouseX <= confirmButtonX + okW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
         drawHoverableButton(context, confirmButtonX, confirmButtonY, okText, okHover, textColor);
-
         String cancelText = "Cancel";
         int cancelW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
         int cancelButtonX = snippetPopupX + snippetPopupWidth - (cancelW + 5);
         boolean cancelHover = mouseX >= cancelButtonX && mouseX <= cancelButtonX + cancelW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
         drawHoverableButton(context, cancelButtonX, confirmButtonY, cancelText, cancelHover, textColor);
-
         if (editingSnippet) {
             String deleteText = "Delete";
             int dw = minecraftClient.textRenderer.getWidth(deleteText) + 10;
@@ -428,14 +529,12 @@ public class MultiTerminalScreen extends Screen {
             boolean delHover = mouseX >= deleteX && mouseX <= deleteX + dw && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
             drawHoverableButton(context, deleteX, confirmButtonY, deleteText, delHover, 0xFFFF0000);
         }
-
         if (snippetCreationWarning) {
             String warning = "Name/Code cannot be empty";
             int ww = minecraftClient.textRenderer.getWidth(warning);
             trimAndDrawText(context, warning, snippetPopupX + (snippetPopupWidth - ww) / 2, snippetPopupY + snippetPopupHeight - 30, snippetPopupWidth - 10, 0xFFFF0000);
         }
     }
-
 
     private void renderSnippetBox(DrawContext context, int snippetX, int snippetY, int snippetMaxWidth, RemotelyClient.CommandSnippet snippet, boolean hovered, boolean selected, int index) {
         int snippetHeight = selected ? calculateSnippetHeight(snippet.commands) : 30;
@@ -445,12 +544,9 @@ public class MultiTerminalScreen extends Screen {
         }
         context.fill(snippetX, snippetY, snippetX + snippetMaxWidth, snippetY + snippetHeight, bgColor);
         drawInnerBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, borderColor);
-
         String displayName = trimTextToWidthWithEllipsis(snippet.name, snippetMaxWidth - 10);
         context.drawText(minecraftClient.textRenderer, Text.literal(displayName), snippetX + 5, snippetY + 5, textColor, false);
-
         context.fill(snippetX + 5, snippetY + 5 + minecraftClient.textRenderer.fontHeight + 1, snippetX + snippetMaxWidth - 5, snippetY + 5 + minecraftClient.textRenderer.fontHeight + 2, borderColor);
-
         if (selected) {
             String[] allLines = snippet.commands.split("\n");
             int lineY = snippetY + 5 + minecraftClient.textRenderer.fontHeight + 5;
@@ -479,12 +575,61 @@ public class MultiTerminalScreen extends Screen {
         return 1 + (minecraftClient.textRenderer.fontHeight * 2) + (nonEmptyLines * (minecraftClient.textRenderer.fontHeight + 2));
     }
 
-
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (!terminals.isEmpty()) {
+            TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
+            if (activeTerminal instanceof ServerTerminalInstance serverTerminal) {
+                if (button == 0) {
+                    if (mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+                        ServerInfo sInfo = serverTerminal.getServerInfo();
+                        if (sInfo.state == ServerState.RUNNING || sInfo.state == ServerState.STARTING) {
+                            try {
+                                if (serverTerminal.processManager != null && serverTerminal.processManager.writer != null) {
+                                    serverTerminal.processManager.writer.write("stop\n");
+                                    serverTerminal.processManager.writer.flush();
+                                }
+                            } catch (IOException ignored) {}
+                            sInfo.state = ServerState.STOPPED;
+                        } else {
+                            if (sInfo.state == ServerState.STOPPED || sInfo.state == ServerState.CRASHED) {
+                                if (!serverTerminal.isServerTerminal) {
+                                    serverTerminal.isServerTerminal = true;
+                                }
+                                if (serverTerminal.serverName == null) {
+                                    serverTerminal.serverName = sInfo.name;
+                                }
+                                serverTerminal.clearOutput();
+                                serverTerminal.launchServerProcess();
+                                sInfo.state = ServerState.STARTING;
+                            }
+                        }
+                        return true;
+                    }
+                    if (mouseX >= explorerButtonX && mouseX <= explorerButtonX + buttonW && mouseY >= explorerButtonY && mouseY <= explorerButtonY + buttonH) {
+                        minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
+                        return true;
+                    }
+                    boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(serverTerminal.getServerInfo().type.toLowerCase(Locale.getDefault()));
+                    if (!isProxy) {
+                        if (mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH) {
+                            minecraftClient.setScreen(new PluginModListScreen(minecraftClient, this, serverTerminal.getServerInfo()));
+                            return true;
+                        }
+                    }
+                }
+            } else {
+                if (button == 0) {
+                    if (mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+                        minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo("C:/")));
+                        return true;
+                    }
+                }
+            }
+        }
         int hideButtonX = this.width - 15 - 5;
-        int hideButtonY = 5;
-        if (mouseX >= hideButtonX && mouseX <= hideButtonX+15 && mouseY >= hideButtonY && mouseY <= hideButtonY+15 && button==0) {
+        int hideButtonY = 5 + topBarHeight;
+        if (mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15 && button == 0) {
             showSnippetsPanel = !showSnippetsPanel;
             return true;
         }
@@ -505,7 +650,7 @@ public class MultiTerminalScreen extends Screen {
             int shortcutBoxY = shortcutLabelY + 12;
             int rbSize = 12;
             int recordX = snippetPopupX + snippetPopupWidth - rbSize - 5;
-            if (mouseX >= recordX && mouseX <= recordX+rbSize && mouseY>= shortcutBoxY && mouseY<= shortcutBoxY +rbSize && button==0) {
+            if (mouseX >= recordX && mouseX <= recordX + rbSize && mouseY >= shortcutBoxY && mouseY <= shortcutBoxY + rbSize && button == 0) {
                 snippetRecordingKeys = !snippetRecordingKeys;
                 snippetShortcutBuffer.setLength(0);
                 return true;
@@ -529,7 +674,7 @@ public class MultiTerminalScreen extends Screen {
                 return true;
             }
             if (mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight) {
-                if (mouseX >= confirmButtonX && mouseX <= confirmButtonX + okW && button==0) {
+                if (mouseX >= confirmButtonX && mouseX <= confirmButtonX + okW && button == 0) {
                     if (snippetNameBuffer.toString().trim().isEmpty() || snippetCommandsBuffer.toString().trim().isEmpty()) {
                         snippetCreationWarning = true;
                         return true;
@@ -558,7 +703,7 @@ public class MultiTerminalScreen extends Screen {
                     snippetRecordingKeys = false;
                     return true;
                 }
-                if (mouseX >= cancelButtonX && mouseX <= cancelButtonX + (minecraftClient.textRenderer.getWidth("Cancel")+10) && button==0) {
+                if (mouseX >= cancelButtonX && mouseX <= cancelButtonX + (minecraftClient.textRenderer.getWidth("Cancel") + 10) && button == 0) {
                     creatingSnippet = false;
                     editingSnippet = false;
                     editingSnippetIndex = -1;
@@ -578,35 +723,34 @@ public class MultiTerminalScreen extends Screen {
             commandsBoxY = commandsLabelY + 12;
             commandsBoxHeight = snippetPopupHeight - (commandsBoxY - snippetPopupY) - 60;
             if (commandsBoxHeight < 20) commandsBoxHeight = 20;
-            if (mouseX >= snippetPopupX + 5 && mouseX <= snippetPopupX + snippetPopupWidth - 5 && mouseY >= nameBoxY && mouseY <= nameBoxY + nameBoxHeight && button==0) {
+            if (mouseX >= snippetPopupX + 5 && mouseX <= snippetPopupX + snippetPopupWidth - 5 && mouseY >= nameBoxY && mouseY <= nameBoxY + nameBoxHeight && button == 0) {
                 snippetNameFocused = true;
                 snippetCommandsCursorPos = Math.min(snippetCommandsCursorPos, snippetCommandsBuffer.length());
                 snippetNameCursorPos = Math.min(snippetNameCursorPos, snippetNameBuffer.length());
-                int cx = (int)(mouseX-(snippetPopupX+8));
+                int cx = (int) (mouseX - (snippetPopupX + 8));
                 snippetNameCursorPos = getCursorFromMouseX(snippetNameBuffer.toString(), cx);
                 return true;
             }
-            if (mouseX >= snippetPopupX + 5 && mouseX <= snippetPopupX + snippetPopupWidth - 5 && mouseY >= commandsBoxY && mouseY <= commandsBoxY + commandsBoxHeight && button==0) {
+            if (mouseX >= snippetPopupX + 5 && mouseX <= snippetPopupX + snippetPopupWidth - 5 && mouseY >= commandsBoxY && mouseY <= commandsBoxY + commandsBoxHeight && button == 0) {
                 snippetNameFocused = false;
                 snippetCommandsCursorPos = 0;
                 return true;
             }
             return super.mouseClicked(mouseX, mouseY, button);
         }
-
         for (int i = 0; i < terminals.size(); i++) {
-            String tName = tabNames.get(i);
-            minecraftClient.textRenderer.getWidth(tName);
+            minecraftClient.textRenderer.getWidth(tabNames.get(i));
         }
         int plusW = 20;
-        int tabY = 5;
+        int tabOffsetY = topBarHeight + 5;
+        int tabY = tabOffsetY;
         int tabAreaHeight = TAB_HEIGHT;
         float renderX = 5 - tabScrollOffset;
         for (int i = 0; i < terminals.size(); i++) {
             String tName = tabNames.get(i);
             int tw = minecraftClient.textRenderer.getWidth(tName);
             int paddingH = 10;
-            int tabW = Math.max(tw + paddingH * 2, 60);
+            int tabW = Math.max(tw + paddingH * 2, 45);
             if (mouseX >= renderX && mouseX <= renderX + tabW && mouseY >= tabY && mouseY <= tabY + tabAreaHeight) {
                 if (button == 1) {
                     isRenaming = true;
@@ -634,7 +778,7 @@ public class MultiTerminalScreen extends Screen {
         }
         if (showSnippetsPanel) {
             int panelX = this.width - snippetPanelWidth;
-            int panelY = tabY + tabAreaHeight + verticalPadding;
+            int panelY = tabOffsetY + tabAreaHeight + verticalPadding;
             int panelHeight = this.height - panelY - 5;
             if (Math.abs(mouseX - (panelX - 1)) < 5 && mouseY >= panelY && mouseY <= panelY + panelHeight && button == 0) {
                 isResizingSnippetPanel = true;
@@ -766,7 +910,7 @@ public class MultiTerminalScreen extends Screen {
             }
         }
         if (isResizingSnippetPanel && button == 0) {
-            int newWidth = this.width - (int)mouseX;
+            int newWidth = this.width - (int) mouseX;
             snippetPanelWidth = Math.max(80, Math.min(newWidth, this.width - 50));
             return true;
         }
@@ -781,15 +925,15 @@ public class MultiTerminalScreen extends Screen {
                 InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(),
                         GLFW.GLFW_KEY_RIGHT_CONTROL);
         int availableTabWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 20;
-        int totalTabsWidth=0;
-        for (int i=0;i<terminals.size();i++) {
+        int totalTabsWidth = 0;
+        for (int i = 0; i < terminals.size(); i++) {
             String tName = tabNames.get(i);
             int tw = minecraftClient.textRenderer.getWidth(tName);
             int paddingH = 10;
-            int tabW = Math.max(tw+paddingH*2,60);
+            int tabW = Math.max(tw + paddingH * 2, 45);
             totalTabsWidth += tabW + tabPadding;
         }
-        if (totalTabsWidth < availableTabWidth) totalTabsWidth=availableTabWidth;
+        if (totalTabsWidth < availableTabWidth) totalTabsWidth = availableTabWidth;
         if (ctrlHeld) {
             scale += verticalAmount > 0 ? 0.1f : -0.1f;
             scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
@@ -802,20 +946,21 @@ public class MultiTerminalScreen extends Screen {
                 int commandsBoxY = commandsLabelY + 12;
                 int commandsBoxHeight = snippetPopupHeight - (commandsBoxY - snippetPopupY) - 60;
                 if (commandsBoxHeight < 20) commandsBoxHeight = 20;
-                if (mouseY >= commandsBoxY && mouseY <= commandsBoxY+commandsBoxHeight) {
-                    snippetCommandsScrollOffset -= (int)verticalAmount;
+                if (mouseY >= commandsBoxY && mouseY <= commandsBoxY + commandsBoxHeight) {
+                    snippetCommandsScrollOffset -= (int) verticalAmount;
                     return true;
                 }
                 return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
             }
-            if (mouseY <= TAB_HEIGHT+10) {
-                tabScrollOffset -= (float) (verticalAmount*20);
-                tabScrollOffset = MathHelper.clamp(tabScrollOffset,0,Math.max(0,totalTabsWidth-availableTabWidth));
+            if (mouseY <= topBarHeight + TAB_HEIGHT + 10) {
+                tabScrollOffset -= (float) (verticalAmount * 20);
+                tabScrollOffset = MathHelper.clamp(tabScrollOffset, 0, Math.max(0, totalTabsWidth - availableTabWidth));
                 return true;
             }
             if (!terminals.isEmpty()) {
                 TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-                activeTerminal.scroll((int) verticalAmount, this.height - (TAB_HEIGHT + verticalPadding) - 5);
+                int adjustedHeight = this.height - (topBarHeight + TAB_HEIGHT + verticalPadding) - 5;
+                activeTerminal.scroll((int) verticalAmount, adjustedHeight);
                 return true;
             }
         }
@@ -860,7 +1005,6 @@ public class MultiTerminalScreen extends Screen {
             }
             return true;
         }
-
         boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
         if (snippetPopupActive) {
             snippetLastInputTime = System.currentTimeMillis();
@@ -950,7 +1094,6 @@ public class MultiTerminalScreen extends Screen {
             }
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
-
         boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             closedViaEscape = true;
@@ -960,7 +1103,8 @@ public class MultiTerminalScreen extends Screen {
         if (keyCode == GLFW.GLFW_KEY_PAGE_UP) {
             if (!terminals.isEmpty()) {
                 TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-                activeTerminal.scrollToTop(this.height - (TAB_HEIGHT + verticalPadding) - 5);
+                int adjustedHeight = this.height - (topBarHeight + TAB_HEIGHT + verticalPadding) - 5;
+                activeTerminal.scrollToTop(adjustedHeight);
             }
             return true;
         }
@@ -1001,6 +1145,7 @@ public class MultiTerminalScreen extends Screen {
                 }
                 isRenaming = false;
                 renamingTabIndex = -1;
+                remotelyClient.multiTabNames = new ArrayList<>(tabNames);
                 return true;
             } else if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
                 if (renameCursorPos > 0 && renameCursorPos <= renameBuffer.length()) {
@@ -1045,6 +1190,7 @@ public class MultiTerminalScreen extends Screen {
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
+
     @Override
     public boolean charTyped(char chr, int keyCode) {
         if (shortcutConsumed) {
@@ -1084,6 +1230,7 @@ public class MultiTerminalScreen extends Screen {
                 }
                 isRenaming = false;
                 renamingTabIndex = -1;
+                remotelyClient.multiTabNames = new ArrayList<>(tabNames);
                 return true;
             } else if (chr == '\b') {
                 if (renameCursorPos > 0 && renameCursorPos <= renameBuffer.length()) {
@@ -1096,6 +1243,7 @@ public class MultiTerminalScreen extends Screen {
                 renameBuffer.insert(renameCursorPos, chr);
                 renameCursorPos++;
                 tabNames.set(renamingTabIndex, renameBuffer.toString());
+                remotelyClient.multiTabNames = new ArrayList<>(tabNames);
                 return true;
             }
             return true;
@@ -1118,6 +1266,8 @@ public class MultiTerminalScreen extends Screen {
         remotelyClient.scale = this.scale;
         remotelyClient.snippetPanelWidth = this.snippetPanelWidth;
         remotelyClient.showSnippetsPanel = this.showSnippetsPanel;
+        remotelyClient.multiTerminals = new ArrayList<>(terminals);
+        remotelyClient.multiTabNames = new ArrayList<>(tabNames);
     }
 
     public void shutdownAllTerminals() {
@@ -1142,8 +1292,9 @@ public class MultiTerminalScreen extends Screen {
                 terminal.saveTerminalOutput(TERMINAL_LOG_DIR.resolve(tabName + ".log"));
             }
         } catch (IOException e) {
-            assert minecraftClient.player != null;
-            minecraftClient.player.sendMessage(Text.literal("Failed to save terminal logs."), false);
+            if (minecraftClient.player != null) {
+                minecraftClient.player.sendMessage(Text.literal("Failed to save terminal logs."), false);
+            }
         }
     }
 
@@ -1151,21 +1302,21 @@ public class MultiTerminalScreen extends Screen {
         int w = minecraftClient.textRenderer.getWidth(text) + 10;
         int h = 10 + minecraftClient.textRenderer.fontHeight;
         int bgColor = hovered ? 0xFF666666 : 0xFF555555;
-        context.fill(x+1, y+1, x+w-1, y+h-1, bgColor);
-        context.fill(x, y, x+w, y+1, 0xFFAAAAAA);
-        context.fill(x, y, x+1, y+h, 0xFFAAAAAA);
-        context.fill(x, y+h-1, x+w, y+h, 0xFF333333);
-        context.fill(x+w-1, y, x+w, y+h, 0xFF333333);
+        context.fill(x + 1, y + 1, x + w - 1, y + h - 1, bgColor);
+        context.fill(x, y, x + w, y + 1, 0xFFAAAAAA);
+        context.fill(x, y, x + 1, y + h, 0xFFAAAAAA);
+        context.fill(x, y + h - 1, x + w, y + h, 0xFF333333);
+        context.fill(x + w - 1, y, x + w, y + h, 0xFF333333);
         int tx = x + (w - minecraftClient.textRenderer.getWidth(text)) / 2;
         int ty = y + (h - minecraftClient.textRenderer.fontHeight) / 2;
         trimAndDrawText(context, text, tx, ty, w, textColor);
     }
 
     private void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int c) {
-        context.fill(x, y, x+w, y+1, c);
-        context.fill(x, y+h-1, x+w, y+h, c);
-        context.fill(x, y, x+1, y+h, c);
-        context.fill(x+w-1, y, x+w, y+h, c);
+        context.fill(x, y, x + w, y + 1, c);
+        context.fill(x, y + h - 1, x + w, y + h, c);
+        context.fill(x, y, x + 1, y + h, c);
+        context.fill(x + w - 1, y, x + w, y + h, c);
     }
 
     private void trimAndDrawText(DrawContext context, String text, int x, int y, int maxWidth, int color) {
@@ -1175,10 +1326,10 @@ public class MultiTerminalScreen extends Screen {
 
     private String trimTextToWidthWithEllipsis(String text, int maxWidth) {
         if (minecraftClient.textRenderer.getWidth(text) <= maxWidth) return text;
-        while (minecraftClient.textRenderer.getWidth(text+"..")>maxWidth && text.length()>1) {
-            text = text.substring(0,text.length()-1);
+        while (minecraftClient.textRenderer.getWidth(text + "..") > maxWidth && text.length() > 1) {
+            text = text.substring(0, text.length() - 1);
         }
-        return text+"..";
+        return text + "..";
     }
 
     private String ensureCursorBounds(String text) {
@@ -1195,11 +1346,11 @@ public class MultiTerminalScreen extends Screen {
             String temp = l;
             while (renderer.getWidth(temp) > width && !temp.isEmpty()) {
                 int cut = temp.length();
-                while (cut>0 && renderer.getWidth(temp.substring(0,cut))>width) {
+                while (cut > 0 && renderer.getWidth(temp.substring(0, cut)) > width) {
                     cut--;
                 }
-                if (cut==0) cut = 1;
-                wrapped.add(temp.substring(0,cut));
+                if (cut == 0) cut = 1;
+                wrapped.add(temp.substring(0, cut));
                 temp = temp.substring(cut);
             }
             wrapped.add(temp);
@@ -1208,30 +1359,30 @@ public class MultiTerminalScreen extends Screen {
     }
 
     private int findCursorLine(List<String> wrappedLines, int cursorPos) {
-        int count=0;
-        int total=0;
+        int count = 0;
+        int total = 0;
         for (String l : wrappedLines) {
             int len = l.length();
-            if (cursorPos <= total+len) {
+            if (cursorPos <= total + len) {
                 return count;
             }
             total += len;
             count++;
         }
-        return wrappedLines.size()-1;
+        return wrappedLines.size() - 1;
     }
 
     private int cursorPosInLine(int cursorPos, List<String> wrappedLines, int lineIndex) {
-        int total=0;
-        for (int i=0;i<lineIndex;i++) {
-            total+=wrappedLines.get(i).length();
+        int total = 0;
+        for (int i = 0; i < lineIndex; i++) {
+            total += wrappedLines.get(i).length();
         }
         return cursorPos - total;
     }
 
     private List<String> getVisibleLines(List<String> wrappedLines, int start, int maxCount) {
         List<String> res = new ArrayList<>();
-        for (int i=start; i<start+maxCount && i<wrappedLines.size(); i++) {
+        for (int i = start; i < start + maxCount && i < wrappedLines.size(); i++) {
             res.add(wrappedLines.get(i));
         }
         return res;
@@ -1239,23 +1390,23 @@ public class MultiTerminalScreen extends Screen {
 
     private void drawFade(DrawContext context, int x1, int y1, int x2, int y2, boolean left) {
         int steps = 10;
-        for (int i=0;i<steps;i++) {
-            float alpha = (float)i/(steps-1);
-            int a = (int)(alpha*255);
-            int c = (0x333333 & 0x00FFFFFF) | (a<<24);
+        for (int i = 0; i < steps; i++) {
+            float alpha = (float) i / (steps - 1);
+            int a = (int) (alpha * 255);
+            int c = (0x333333 & 0x00FFFFFF) | (a << 24);
             if (left) {
-                context.fill(x1+i, y1, x1+i+1, y2, c);
+                context.fill(x1 + i, y1, x1 + i + 1, y2, c);
             } else {
-                context.fill(x2-i-1, y1, x2-i, y2, c);
+                context.fill(x2 - i - 1, y1, x2 - i, y2, c);
             }
         }
     }
 
     private int getCursorFromMouseX(String line, int mouseX) {
-        int pos=0;
-        while(pos<line.length()) {
-            int w=minecraftClient.textRenderer.getWidth(line.substring(0,pos+1));
-            if (w>mouseX) break;
+        int pos = 0;
+        while (pos < line.length()) {
+            int w = minecraftClient.textRenderer.getWidth(line.substring(0, pos + 1));
+            if (w > mouseX) break;
             pos++;
         }
         return pos;
@@ -1263,14 +1414,14 @@ public class MultiTerminalScreen extends Screen {
 
     private void moveCursorVertically(int direction, String full) {
         int commandsBoxWidth = snippetPopupWidth - 10;
-        List<String> wrappedLines = wrapLines(full.split("\n",-1), commandsBoxWidth, minecraftClient.textRenderer);
+        List<String> wrappedLines = wrapLines(full.split("\n", -1), commandsBoxWidth, minecraftClient.textRenderer);
         int cLineIndex = findCursorLine(wrappedLines, snippetCommandsCursorPos);
         int cPosInLine = cursorPosInLine(snippetCommandsCursorPos, wrappedLines, cLineIndex);
         cLineIndex += direction;
         if (cLineIndex < 0) cLineIndex = 0;
         if (cLineIndex >= wrappedLines.size()) cLineIndex = wrappedLines.size() - 1;
         int newPos = 0;
-        for (int i=0; i<cLineIndex; i++) {
+        for (int i = 0; i < cLineIndex; i++) {
             newPos += wrappedLines.get(i).length();
         }
         newPos += Math.min(cPosInLine, wrappedLines.get(cLineIndex).length());
@@ -1285,7 +1436,6 @@ public class MultiTerminalScreen extends Screen {
                 case "left.control", "right.control" -> "CTRL";
                 case "left.shift", "right.shift" -> "SHIFT";
                 case "left.alt", "right.alt" -> "ALT";
-                case "key.mouse." -> "MOUSE";
                 default -> k.toUpperCase();
             };
         }
@@ -1305,18 +1455,21 @@ public class MultiTerminalScreen extends Screen {
         k = k.toLowerCase();
         switch (k) {
             case "ctrl" -> {
-                return InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
+                return InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL)
+                        || InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
             }
             case "shift" -> {
-                return InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) || InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT);
+                return InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT)
+                        || InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT);
             }
             case "alt" -> {
-                return InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
+                return InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT)
+                        || InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
             }
         }
-        for (int code=0;code<400;code++) {
+        for (int code = 0; code < 400; code++) {
             InputUtil.Key testKey = InputUtil.fromKeyCode(code, 0);
-            if (testKey!=InputUtil.UNKNOWN_KEY && testKey.getTranslationKey().toLowerCase().endsWith("."+k.toLowerCase())) {
+            if (testKey != InputUtil.UNKNOWN_KEY && testKey.getTranslationKey().toLowerCase().endsWith("." + k.toLowerCase())) {
                 if (InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), code)) return true;
             }
         }
@@ -1324,19 +1477,19 @@ public class MultiTerminalScreen extends Screen {
     }
 
     private int findPreviousWord(String text, int pos) {
-        if (pos<=0) return 0;
-        int idx=pos-1;
-        while (idx>0 && Character.isWhitespace(text.charAt(idx))) idx--;
-        while (idx>0 && !Character.isWhitespace(text.charAt(idx))) idx--;
-        if (idx>0 && Character.isWhitespace(text.charAt(idx))) idx++;
+        if (pos <= 0) return 0;
+        int idx = pos - 1;
+        while (idx > 0 && Character.isWhitespace(text.charAt(idx))) idx--;
+        while (idx > 0 && !Character.isWhitespace(text.charAt(idx))) idx--;
+        if (idx > 0 && Character.isWhitespace(text.charAt(idx))) idx++;
         return idx;
     }
 
     private int findNextWord(String text, int pos) {
-        if (pos>=text.length()) return text.length();
-        int idx=pos;
-        while (idx<text.length() && !Character.isWhitespace(text.charAt(idx))) idx++;
-        while (idx<text.length() && Character.isWhitespace(text.charAt(idx))) idx++;
+        if (pos >= text.length()) return text.length();
+        int idx = pos;
+        while (idx < text.length() && !Character.isWhitespace(text.charAt(idx))) idx++;
+        while (idx < text.length() && Character.isWhitespace(text.charAt(idx))) idx++;
         return idx;
     }
 
@@ -1344,7 +1497,8 @@ public class MultiTerminalScreen extends Screen {
         String name;
         int width;
         TabInfo(String n, int w) {
-            name=n; width=w;
+            name = n;
+            width = w;
         }
     }
 
@@ -1354,5 +1508,7 @@ public class MultiTerminalScreen extends Screen {
         remotelyClient.scale = this.scale;
         remotelyClient.snippetPanelWidth = this.snippetPanelWidth;
         remotelyClient.showSnippetsPanel = this.showSnippetsPanel;
+        remotelyClient.multiTerminals = new ArrayList<>(terminals);
+        remotelyClient.multiTabNames = new ArrayList<>(tabNames);
     }
 }

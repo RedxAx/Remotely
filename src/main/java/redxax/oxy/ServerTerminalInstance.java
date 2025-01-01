@@ -54,4 +54,8 @@ public class ServerTerminalInstance extends TerminalInstance {
     public void clearOutput() {
         renderer.clearOutput();
     }
+
+    public ServerInfo getServerInfo() {
+        return serverInfo;
+    }
 }
