@@ -8,12 +8,17 @@ import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.SSHManager;
+
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.*;
+
+import static redxax.oxy.ImageUtil.*;
 
 public class FileExplorerScreen extends Screen implements FileManager.FileManagerCallback {
     private final MinecraftClient minecraftClient;
@@ -53,13 +58,19 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private boolean importMode;
     private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(
             ".txt", ".md", ".json", ".yml", ".yaml", ".conf", ".properties",
-            ".xml", ".cfg", ".sk", ".log", ".mcmeta", ".bat", ".sh", ".json5", ".jsonc",
+            ".xml", ".cfg", ".sk", ".log",  ".mcmeta", ".bat", ".sh", ".json5", ".jsonc",
             ".html", ".js", ".java", ".py", ".css", ".vsh", ".fsh", ".glsl", ".nu",
             ".bash", ".fish"
     );
     private final ExecutorService directoryLoader = Executors.newSingleThreadExecutor();
     private static final Map<String, List<EntryData>> remoteCache = new ConcurrentHashMap<>();
     private boolean loading = false;
+    private BufferedImage fileIcon;
+    private BufferedImage folderIcon;
+    private BufferedImage loadingAnim;
+    private List<BufferedImage> loadingFrames = new ArrayList<>();
+    private int currentLoadingFrame = 0;
+    private long lastFrameTime = 0;
 
     private static class EntryData {
         Path path;
@@ -104,6 +115,20 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     @Override
     protected void init() {
         super.init();
+        try {
+            fileIcon = loadResourceIcon("/assets/remotely/icons/file.png");
+            folderIcon = loadResourceIcon("/assets/remotely/icons/folder.png");
+            loadingAnim = loadSpriteSheet("/assets/remotely/icons/loadinganim.png");
+            int frameWidth = 16;
+            int frameHeight = 16;
+            int rows = loadingAnim.getHeight() / frameHeight;
+            for (int i = 0; i < rows; i++) {
+                BufferedImage frame = loadingAnim.getSubimage(0, i * frameHeight, frameWidth, frameHeight);
+                loadingFrames.add(frame);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         loadDirectory(currentPath);
     }
 
@@ -366,10 +391,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
 
-        int explorerX = 50;
+        int explorerX = 5;
         int explorerY = 60;
-        int explorerWidth = this.width - 100;
-        int explorerHeight = this.height - 100;
+        int explorerWidth = this.width - 10;
+        int explorerHeight = this.height - 70;
         context.fill(explorerX, explorerY, explorerX + explorerWidth, explorerY + explorerHeight, explorerBgColor);
         drawInnerBorder(context, explorerX, explorerY, explorerWidth, explorerHeight, explorerBorderColor);
 
@@ -416,6 +441,22 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int tcy = closeButtonY + (btnH - minecraftClient.textRenderer.fontHeight) / 2;
         context.drawText(this.textRenderer, Text.literal("Close"), tcx, tcy, textColor, false);
 
+        if (loading) {
+            long currentTime = System.currentTimeMillis();
+            if (currentTime - lastFrameTime >= 40) {
+                currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
+                lastFrameTime = currentTime;
+            }
+            BufferedImage currentFrame = loadingFrames.get(currentLoadingFrame);
+            int scale = 8;
+            int imgWidth = currentFrame.getWidth() * scale;
+            int imgHeight = currentFrame.getHeight() * scale;
+            int centerX = (this.width - imgWidth) / 2;
+            int centerY = (this.height - imgHeight) / 2;
+            drawBufferedImage(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
+            return;
+        }
+
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
         List<EntryData> entriesToRender;
         synchronized (fileEntriesLock) {
@@ -427,51 +468,39 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int endIndex = startIndex + visibleEntries + 2;
         if (endIndex > entriesToRender.size()) endIndex = entriesToRender.size();
 
+        context.enableScissor(explorerX, explorerY, explorerX + explorerWidth, explorerY + explorerHeight); // Enable scissor
+
         for (int entryIndex = startIndex; entryIndex < endIndex; entryIndex++) {
             EntryData entry = entriesToRender.get(entryIndex);
             int entryY = explorerY + (entryIndex * entryHeight) - (int) smoothOffset;
-            float opacity = 1.0f;
-            if (entryY < explorerY) {
-                float distAbove = explorerY - entryY;
-                if (distAbove < 10) {
-                    opacity = 1.0f - (distAbove / 10.0f);
-                } else {
-                    opacity = 0.0f;
-                }
-            }
-            int bottomEdge = entryY + entryHeight;
-            if (bottomEdge > explorerY + explorerHeight) {
-                float distBelow = bottomEdge - (explorerY + explorerHeight);
-                if (distBelow < 10) {
-                    float fade = 1.0f - (distBelow / 10.0f);
-                    if (fade < opacity) {
-                        opacity = fade;
-                    }
-                } else {
-                    opacity = 0.0f;
-                }
-            }
-            if (opacity <= 0.0f) continue;
             boolean hovered = mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= entryY && mouseY < entryY + entryHeight;
             boolean isSelected = selectedPaths.contains(entry.path);
             int bg = isSelected ? 0xFF555555 : (hovered ? highlightColor : entryBgColor);
-            int bgWithOpacity = blendColor(bg, opacity);
-            int borderWithOpacity = blendColor(entryBorderColor, opacity);
-            int textWithOpacity = blendColor(textColor, opacity);
-            context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bgWithOpacity);
+            int borderWithOpacity = entryBorderColor;
+            int textWithOpacity = textColor;
+            context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
             drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
 
-            String namePrefix = entry.isDirectory ? "\uD83D\uDDC1" : "\uD83D\uDDC8";
-            String displayName = namePrefix + " " + entry.path.getFileName().toString();
-            context.drawText(this.textRenderer, Text.literal(displayName), explorerX + 10, entryY + 5, textWithOpacity, false);
+            BufferedImage icon = entry.isDirectory ? folderIcon : fileIcon;
+            drawBufferedImage(context, icon, explorerX + 10, entryY + 5, 16, 16);
+
+            String displayName = entry.path.getFileName().toString();
+            context.drawText(this.textRenderer, Text.literal(displayName), explorerX + 30, entryY + 5, textWithOpacity, false);
             if (!serverInfo.isRemote) {
                 context.drawText(this.textRenderer, Text.literal(entry.size), explorerX + 250, entryY + 5, textWithOpacity, false);
                 context.drawText(this.textRenderer, Text.literal(entry.created), explorerX + 350, entryY + 5, textWithOpacity, false);
             }
         }
 
-        context.fillGradient(explorerX, explorerY, explorerX + explorerWidth, explorerY + 10, 0x80000000, 0x00000000);
-        context.fillGradient(explorerX, explorerY + explorerHeight - 10, explorerX + explorerWidth, explorerY + explorerHeight, 0x00000000, 0x80000000);
+        context.disableScissor();
+
+        // Add shadow effect
+        if (smoothOffset > 0) {
+            context.fillGradient(0, explorerY, this.width, explorerY + 10, 0x80000000, 0x00000000);
+        }
+        if (smoothOffset < Math.max(0, (entriesToRender.size() * entryHeight) - explorerHeight)) {
+            context.fillGradient(0, explorerY + explorerHeight - 10, this.width, explorerY + explorerHeight, 0x00000000, 0x80000000);
+        }
 
         if (searchActive) {
             context.fill(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight, 0xFF333333);

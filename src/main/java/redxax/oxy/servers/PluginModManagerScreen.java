@@ -28,6 +28,8 @@ import javax.imageio.ImageIO;
 
 import com.google.gson.JsonParser;
 
+import static redxax.oxy.ImageUtil.*;
+
 public class PluginModManagerScreen extends Screen {
     private final MinecraftClient minecraftClient;
     private final Screen parent;
@@ -54,12 +56,30 @@ public class PluginModManagerScreen extends Screen {
     private int loadedCount = 0;
     private boolean hasMore = false;
     private final Map<BufferedImage, BufferedImage> scaledCache = new ConcurrentHashMap<>();
+    private BufferedImage installIcon;
+    private BufferedImage installingIcon;
+    private BufferedImage installedIcon;
+
+    private BufferedImage loadingAnim;
+    private List<BufferedImage> loadingFrames = new ArrayList<>();
+    private int currentLoadingFrame = 0;
+    private long lastFrameTime = 0;
 
     public PluginModManagerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
-        super(Text.literal("Plugin / Mod Manager"));
+        super(Text.literal(getTitle(info)));
         this.minecraftClient = mc;
         this.parent = parent;
         this.serverInfo = info;
+    }
+
+    private static String getTitle(ServerInfo info) {
+        if (info.isModServer()) {
+            return "Mod Manager";
+        } else if (info.isPluginServer()) {
+            return "Plugin Manager";
+        } else {
+            return "Modpack Manager";
+        }
     }
 
     @Override
@@ -69,6 +89,21 @@ public class PluginModManagerScreen extends Screen {
         searchField.setMaxLength(100);
         searchField.setChangedListener(text -> currentSearch = text);
         this.addDrawableChild(searchField);
+        try {
+            installIcon = loadResourceIcon("/assets/remotely/icons/download.png");
+            installingIcon = loadResourceIcon("/assets/remotely/icons/loading.png");
+            installedIcon = loadResourceIcon("/assets/remotely/icons/installed.png");
+            loadingAnim = loadSpriteSheet("/assets/remotely/icons/loadinganim.png");
+            int frameWidth = 16;
+            int frameHeight = 16;
+            int rows = loadingAnim.getHeight() / frameHeight;
+            for (int i = 0; i < rows; i++) {
+                BufferedImage frame = loadingAnim.getSubimage(0, i * frameHeight, frameWidth, frameHeight);
+                loadingFrames.add(frame);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         loadResourcesAsync("", true);
     }
 
@@ -187,11 +222,7 @@ public class PluginModManagerScreen extends Screen {
                     int iconX = 15;
                     int iconY = listStartY + (index * entryHeight) - (int) smoothOffset + 5;
                     int iconSize = 40;
-                    int installButtonX = iconX;
-                    int installButtonY = iconY;
-                    int installButtonW = iconSize;
-                    int installButtonH = iconSize;
-                    if (mouseX >= installButtonX && mouseX <= installButtonX + installButtonW && mouseY >= installButtonY && mouseY <= installButtonY + installButtonH) {
+                    if (mouseX >= iconX && mouseX <= iconX + iconSize && mouseY >= iconY && mouseY <= iconY + iconSize) {
                         ModrinthResource selected = resources.get(index);
                         if (!installButtonTexts.containsKey(selected.slug)) {
                             installButtonTexts.put(selected.slug, "Install");
@@ -200,13 +231,13 @@ public class PluginModManagerScreen extends Screen {
                             if (selected.fileName.toLowerCase(Locale.ROOT).endsWith(".mrpack") && Objects.equals(serverInfo.path, "modpack")) {
                                 if (!installingMrPack.containsKey(selected.slug) || !installingMrPack.get(selected.slug)) {
                                     installingMrPack.put(selected.slug, true);
-                                    installButtonTexts.put(selected.slug, "Installing...");
+                                    installButtonTexts.put(selected.slug, "Installing");
                                     installMrPack(selected);
                                 }
                             } else {
                                 if (!installingResource.containsKey(selected.slug) || !installingResource.get(selected.slug)) {
                                     installingResource.put(selected.slug, true);
-                                    installButtonTexts.put(selected.slug, "Installing...");
+                                    installButtonTexts.put(selected.slug, "Installing");
                                     fetchAndInstallResource(selected);
                                 }
                             }
@@ -259,7 +290,18 @@ public class PluginModManagerScreen extends Screen {
         context.drawText(this.textRenderer, Text.literal("Back"), tx, ty, textColor, false);
 
         if (isLoading && resources.isEmpty()) {
-            context.drawText(this.textRenderer, Text.literal("Loading..."), 10, 55, 0xFF00FF, false);
+            long currentTime = System.currentTimeMillis();
+            if (currentTime - lastFrameTime >= 40) {
+                currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
+                lastFrameTime = currentTime;
+            }
+            BufferedImage currentFrame = loadingFrames.get(currentLoadingFrame);
+            int scale = 8;
+            int imgWidth = currentFrame.getWidth() * scale;
+            int imgHeight = currentFrame.getHeight() * scale;
+            int centerX = (this.width - imgWidth) / 2;
+            int centerY = (this.height - imgHeight) / 2;
+            drawBufferedImage(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
             return;
         }
 
@@ -319,15 +361,19 @@ public class PluginModManagerScreen extends Screen {
             int iconX = 15;
             int iconY = y + 5;
             int iconSize = 40;
-            if (!installButtonTexts.containsKey(resource.slug)) {
-                installButtonTexts.put(resource.slug, "Install");
-            }
-            if (mouseX >= iconX && mouseX < iconX + iconSize && mouseY >= iconY && mouseY < iconY + iconSize) {
+            boolean isHoveringInstall = mouseX >= iconX && mouseX <= iconX + iconSize && mouseY >= iconY && mouseY <= iconY + iconSize;
+            if (isHoveringInstall) {
                 context.fill(iconX, iconY, iconX + iconSize, iconY + iconSize, 0x80000000);
-                int buttonTextWidth = textRenderer.getWidth(installButtonTexts.get(resource.slug));
-                int buttonX = iconX + (iconSize - buttonTextWidth) / 2;
-                int buttonY = iconY + (iconSize - textRenderer.fontHeight) / 2;
-                context.drawText(this.textRenderer, Text.literal(installButtonTexts.get(resource.slug)), buttonX, buttonY, 0xFFFFFFFF, false);
+                BufferedImage buttonIcon = installIcon;
+                String status = installButtonTexts.getOrDefault(resource.slug, "Install");
+                if (status.equals("Installing")) {
+                    buttonIcon = installingIcon;
+                } else if (status.equals("Installed")) {
+                    buttonIcon = installedIcon;
+                }
+                if (buttonIcon != null) {
+                    drawBufferedImage(context, buttonIcon, iconX, iconY, iconSize, iconSize);
+                }
             }
         }
 
@@ -369,41 +415,6 @@ public class PluginModManagerScreen extends Screen {
         }
         inputStream.close();
         return ImageIO.read(new ByteArrayInputStream(baos.toByteArray()));
-    }
-
-    private void drawBufferedImage(DrawContext context, BufferedImage image, int x, int y, int width, int height) {
-        if (x + width < 0 || y + height < 0 || x > this.width || y > this.height) return;
-        BufferedImage scaledImage = scaledCache.get(image);
-        if (scaledImage == null) {
-            scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g2d = scaledImage.createGraphics();
-            g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g2d.drawImage(image, 0, 0, width, height, null);
-            g2d.dispose();
-            scaledCache.put(image, scaledImage);
-        }
-        int[] pixels = scaledImage.getRGB(0, 0, width, height, null, 0, width);
-        for (int py = 0; py < height; py++) {
-            int rowStart = py * width;
-            int lastCol = -1;
-            int lastColor = 0;
-            for (int px = 0; px < width; px++) {
-                int color = pixels[rowStart + px];
-                if (px == 0) {
-                    lastCol = 0;
-                    lastColor = color;
-                } else if (color != lastColor) {
-                    if ((lastColor >>> 24) != 0) {
-                        context.fill(x + lastCol, y + py, x + px, y + py + 1, lastColor);
-                    }
-                    lastCol = px;
-                    lastColor = color;
-                }
-            }
-            if ((lastColor >>> 24) != 0) {
-                context.fill(x + lastCol, y + py, x + width, y + py + 1, lastColor);
-            }
-        }
     }
 
     private void installMrPack(ModrinthResource resource) {
@@ -479,11 +490,7 @@ public class PluginModManagerScreen extends Screen {
                 } else {
                     dest = Path.of(serverInfo.path, "unknown", resource.fileName);
                 }
-                if (!serverInfo.isModServer() && !serverInfo.isPluginServer()) {
-                    Files.createDirectories(dest.getParent());
-                } else {
-                    Files.createDirectories(dest.getParent());
-                }
+                Files.createDirectories(dest.getParent());
                 HttpClient httpClient = HttpClient.newHttpClient();
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(downloadUrl))
