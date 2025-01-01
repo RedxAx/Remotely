@@ -3,12 +3,12 @@ package redxax.oxy.servers;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen;
 import net.minecraft.text.Text;
-import redxax.oxy.RemotelyClient;
-import redxax.oxy.ServerTerminalInstance;
-import redxax.oxy.TerminalInstance;
+import redxax.oxy.*;
 import redxax.oxy.explorer.FileExplorerScreen;
-import redxax.oxy.SSHManager;
+
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -16,6 +16,9 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.List;
 import org.lwjgl.glfw.GLFW;
+
+import static redxax.oxy.ImageUtil.drawBufferedImage;
+import static redxax.oxy.ImageUtil.loadSpriteSheet;
 
 public class ServerManagerScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -80,6 +83,12 @@ public class ServerManagerScreen extends Screen {
     private boolean remoteHostCreationWarning;
     private RemoteHostField remoteHostActiveField = RemoteHostField.NONE;
     private boolean isEditingHost = false;
+    private BufferedImage loadingAnim;
+    private List<BufferedImage> loadingFrames = new ArrayList<>();
+    private int currentLoadingFrame = 0;
+    private long lastFrameTime = 0;
+    private boolean loading = false;
+
 
     public ServerManagerScreen(MinecraftClient minecraftClient, RemotelyClient remotelyClient, List<ServerInfo> servers) {
         super(Text.literal("Server Setup"));
@@ -96,6 +105,18 @@ public class ServerManagerScreen extends Screen {
         }
         loadSavedRemoteHosts();
         activeTabIndex = remotelyClient.getSavedTabIndex();
+        try {
+            loadingAnim = loadSpriteSheet("/assets/remotely/icons/loadinganim.png");
+            int frameWidth = 16;
+            int frameHeight = 16;
+            int rows = loadingAnim.getHeight() / frameHeight;
+            for (int i = 0; i < rows; i++) {
+                BufferedImage frame = loadingAnim.getSubimage(0, i * frameHeight, frameWidth, frameHeight);
+                loadingFrames.add(frame);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -117,12 +138,24 @@ public class ServerManagerScreen extends Screen {
         int panelWidth = this.width - 10;
         context.fill(5, contentYStart, 5 + panelWidth, contentYStart + panelHeight, lighterColor);
         drawInnerBorder(context, 5, contentYStart, panelWidth, panelHeight, borderColor);
+        drawInnerBorder(context, 5, contentYStart, panelWidth, panelHeight, borderColor);
         if (activeTabIndex == 0) {
             renderServerList(context, localServers, mouseX, mouseY, contentYStart, panelHeight, panelWidth, delta);
         } else {
             RemoteHostInfo hostInfo = remoteHosts.get(activeTabIndex - 1);
             if (hostInfo.isConnecting) {
-                drawCenteredString(context, "Loading...", this.width / 2, (contentYStart + panelHeight) / 2, 0xFFFFFFFF);
+                if (currentTime - lastFrameTime >= 40) {
+                    currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
+                    lastFrameTime = currentTime;
+                }
+                BufferedImage currentFrame = loadingFrames.get(currentLoadingFrame);
+                int scale = 8;
+                int imgWidth = currentFrame.getWidth() * scale;
+                int imgHeight = currentFrame.getHeight() * scale;
+                int centerX = (this.width - imgWidth) / 2;
+                int centerY = (this.height - imgHeight) / 2;
+                drawBufferedImage(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
+                return;
             } else if (hostInfo.connectionError != null) {
                 drawCenteredString(context, "Error: " + hostInfo.connectionError, this.width / 2, (contentYStart + panelHeight) / 2, 0xFFFF5555);
             } else if (!hostInfo.isConnected) {
@@ -944,7 +977,7 @@ public class ServerManagerScreen extends Screen {
             info.terminal = new ServerTerminalInstance(minecraftClient, null, UUID.randomUUID(), info);
             info.isRunning = false;
         }
-        minecraftClient.setScreen(new ServerTerminalScreen(minecraftClient, remotelyClient, info));
+        minecraftClient.setScreen(new MultiTerminalScreen(minecraftClient, remotelyClient, info));
     }
 
     private void closePopup() {

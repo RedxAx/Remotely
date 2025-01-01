@@ -10,6 +10,8 @@ import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import redxax.oxy.servers.ServerInfo;
+import redxax.oxy.servers.ServerManagerScreen;
 
 import java.nio.file.*;
 import java.io.IOException;
@@ -17,17 +19,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-import redxax.oxy.servers.ServerInfo;
-import redxax.oxy.servers.ServerManagerScreen;
-
 public class RemotelyClient implements ClientModInitializer {
 
+    public ArrayList<TerminalInstance> multiTerminals;
+    public ArrayList<String> multiTabNames;
     private KeyBinding openTerminalKeyBinding;
     private KeyBinding openServerManagerKeyBinding;
-
     public MultiTerminalScreen multiTerminalScreen;
     private ServerManagerScreen serverManagerScreen;
-
     private static final Path TERMINAL_LOG_DIR = Paths.get(System.getProperty("user.dir"), "remotely", "logs");
     private static final Path SNIPPETS_FILE = Paths.get(System.getProperty("user.dir"), "remotely", "snippets", "snippets.json");
     private static final Gson GSON = new Gson();
@@ -39,7 +38,6 @@ public class RemotelyClient implements ClientModInitializer {
     boolean showSnippetsPanel = false;
     public static List<CommandSnippet> globalSnippets = new ArrayList<>();
     public static RemotelyClient INSTANCE;
-
     public final List<ServerInfo> servers = new ArrayList<>();
     private int activeHostIndex = 0;
 
@@ -48,21 +46,20 @@ public class RemotelyClient implements ClientModInitializer {
         INSTANCE = this;
         System.out.println("Remotely mod initialized on the client.");
         loadSnippets();
-
+        multiTerminals = new ArrayList<>();
+        multiTabNames = new ArrayList<>();
         openTerminalKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "Open Terminal",
                 InputUtil.Type.KEYSYM,
                 GLFW.GLFW_KEY_Z,
                 "Remotely"
         ));
-
         openServerManagerKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "Open Server Manager",
                 InputUtil.Type.KEYSYM,
                 GLFW.GLFW_KEY_X,
                 "Remotely"
         ));
-
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client != null && client.player != null) {
                 if (openTerminalKeyBinding.wasPressed()) {
@@ -73,22 +70,33 @@ public class RemotelyClient implements ClientModInitializer {
                 }
             }
         });
-
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownAllTerminals));
     }
 
     public void openMultiTerminalGUI(MinecraftClient client) {
         if (multiTerminalScreen == null || !client.isWindowFocused()) {
-            multiTerminalScreen = new MultiTerminalScreen(client, this, terminals, tabNames);
-            if (terminals.isEmpty()) {
+            if (multiTerminals.isEmpty() && terminals.isEmpty()) {
                 loadSavedTerminals();
             }
+            if (!multiTerminals.isEmpty()) {
+                terminals.clear();
+                terminals.addAll(multiTerminals);
+                tabNames.clear();
+                tabNames.addAll(multiTabNames);
+            }
+            multiTerminalScreen = new MultiTerminalScreen(client, this, terminals, tabNames);
             client.setScreen(multiTerminalScreen);
         } else {
-            multiTerminalScreen = new MultiTerminalScreen(client, this, terminals, tabNames);
-            if (terminals.isEmpty()) {
+            if (multiTerminals.isEmpty() && terminals.isEmpty()) {
                 loadSavedTerminals();
             }
+            if (!multiTerminals.isEmpty()) {
+                terminals.clear();
+                terminals.addAll(multiTerminals);
+                tabNames.clear();
+                tabNames.addAll(multiTabNames);
+            }
+            multiTerminalScreen = new MultiTerminalScreen(client, this, terminals, tabNames);
             client.setScreen(multiTerminalScreen);
         }
     }
@@ -113,12 +121,13 @@ public class RemotelyClient implements ClientModInitializer {
                     terminals.add(terminal);
                     tabNames.add(tabName);
                 }
-                if (!terminals.isEmpty()) {
+                if (!terminals.isEmpty() && multiTerminalScreen != null) {
                     multiTerminalScreen.activeTerminalIndex = activeTerminalIndex;
                 }
             } catch (IOException e) {
-                assert MinecraftClient.getInstance().player != null;
-                MinecraftClient.getInstance().player.sendMessage(Text.literal("Failed to load saved terminals."), false);
+                if (MinecraftClient.getInstance().player != null) {
+                    MinecraftClient.getInstance().player.sendMessage(Text.literal("Failed to load saved terminals."), false);
+                }
             }
         }
     }
@@ -158,7 +167,6 @@ public class RemotelyClient implements ClientModInitializer {
     public int getSavedTabIndex() {
         return activeHostIndex;
     }
-
 
     public static class CommandSnippet {
         public String name;
