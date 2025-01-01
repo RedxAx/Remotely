@@ -67,7 +67,7 @@ public class CommandExecutor {
 
         if (!command.isEmpty() && (terminalInstance.getCommandHistory() == null
                 || terminalInstance.getCommandHistory().isEmpty()
-                || !command.equals(terminalInstance.getCommandHistory().getLast()))) {
+                || !command.equals(terminalInstance.getCommandHistory().get(terminalInstance.getCommandHistory().size() - 1)))) {
             if (terminalInstance.getCommandHistory() != null) {
                 terminalInstance.getCommandHistory().add(command);
                 terminalInstance.setHistoryIndex(terminalInstance.getCommandHistory().size());

@@ -241,8 +241,11 @@ class PluginModListScreen(
         return super.mouseClicked(mouseX, mouseY, button)
     }
 
-    override fun render(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
+    override fun renderBackground(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
         context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor)
+    }
+
+    override fun render(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
         super.render(context, mouseX, mouseY, delta)
         context.fill(0, 0, this.width, 30, lighterColor)
         drawInnerBorder(context, 0, 0, this.width, 30, borderColor)
