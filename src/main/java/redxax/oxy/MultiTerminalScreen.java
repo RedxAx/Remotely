@@ -135,6 +135,11 @@ public class MultiTerminalScreen extends Screen {
     }
 
     @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor);
+    }
+
+    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         long currentTime = System.currentTimeMillis();
         if (currentTime - snippetLastBlinkTime > 500) {
@@ -142,7 +147,6 @@ public class MultiTerminalScreen extends Screen {
             snippetLastBlinkTime = currentTime;
         }
 
-        context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor);
         super.render(context, mouseX, mouseY, delta);
 
         if (!warningMessage.isEmpty()) {
@@ -846,7 +850,9 @@ public class MultiTerminalScreen extends Screen {
             String keyName = InputUtil.fromKeyCode(keyCode, scanCode).getTranslationKey();
             String hrName = humanReadableKey(keyName);
             List<String> parts = new ArrayList<>(Arrays.asList(snippetShortcutBuffer.toString().split("\\+")));
-            if (parts.size() == 1 && parts.getFirst().isEmpty()) parts.clear();
+            if (parts.size() == 1 && parts.get(0).isEmpty()) {
+                parts.clear();
+            }
             if (!parts.contains(hrName)) {
                 parts.add(hrName);
                 snippetShortcutBuffer.setLength(0);

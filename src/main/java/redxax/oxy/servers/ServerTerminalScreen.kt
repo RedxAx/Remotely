@@ -42,10 +42,13 @@ class ServerTerminalScreen(
         super.init()
     }
 
+    override fun renderBackground(context: DrawContext?, mouseX: Int, mouseY: Int, delta: Float) {
+        context?.fillGradient(0, 0, this.width, this.height, baseColor, baseColor)
+    }
+
     override fun render(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
         NotificationManager.updateAll(delta)
         NotificationManager.renderAll(context)
-        context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor)
         super.render(context, mouseX, mouseY, delta)
         context.fill(0, 0, this.width, topBarHeight, lighterColor)
         drawInnerBorder(context, 0, 0, this.width, topBarHeight, borderColor)

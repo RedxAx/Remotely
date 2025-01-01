@@ -99,13 +99,17 @@ public class ServerManagerScreen extends Screen {
     }
 
     @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor);
+    }
+
+    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         long currentTime = System.currentTimeMillis();
         if (currentTime - serverLastBlinkTime > 500) {
             serverCursorVisible = !serverCursorVisible;
             serverLastBlinkTime = currentTime;
         }
-        context.fillGradient(0, 0, this.width, this.height, baseColor, baseColorDark);
         super.render(context, mouseX, mouseY, delta);
         renderTabs(context, mouseX, mouseY);
         int contentYStart = tabHeight + 5 + verticalPadding;
