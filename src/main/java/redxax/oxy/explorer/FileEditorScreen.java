@@ -5,12 +5,10 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.Notification;
 import redxax.oxy.servers.ServerInfo;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -233,7 +231,7 @@ public class FileEditorScreen extends Screen {
             try {
                 Files.write(filePath, newContent);
                 if (serverInfo.terminal != null) {
-                    Notification notification = new Notification.Builder("Starting server...", Notification.Type.INFO).build();
+                    serverInfo.terminal.appendOutput("File saved: " + filePath + "\n");
                 }
             } catch (IOException e) {
                 if (serverInfo.terminal != null) {

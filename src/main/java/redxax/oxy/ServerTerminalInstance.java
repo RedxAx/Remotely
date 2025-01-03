@@ -19,6 +19,7 @@ public class ServerTerminalInstance extends TerminalInstance {
         this.serverInfo = sInfo;
         if (serverInfo.isRemote) {
             this.serverJarPath = serverInfo.path.replace("\\", "/") + "/server.jar";
+
         } else {
             this.serverJarPath = Paths.get(serverInfo.path, "server.jar").toString().replace("\\", "/");
         }
@@ -40,6 +41,7 @@ public class ServerTerminalInstance extends TerminalInstance {
             );
             serverInfo.remoteSSHManager.connectSFTP();
             serverInfo.remoteSSHManager.launchRemoteServer(serverInfo.path, serverJarPath);
+            super.setServerInfo(this.serverInfo);
         } else {
             if (processManager != null) {
                 processManager.shutdown();

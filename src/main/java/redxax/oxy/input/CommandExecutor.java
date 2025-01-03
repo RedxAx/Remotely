@@ -3,6 +3,7 @@ package redxax.oxy.input;
 import redxax.oxy.TerminalInstance;
 import redxax.oxy.SSHManager;
 import redxax.oxy.ServerTerminalInstance;
+import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.servers.ServerState;
 import java.io.File;
 import java.io.IOException;
@@ -10,29 +11,35 @@ import java.io.Writer;
 
 public class CommandExecutor {
     private final TerminalInstance terminalInstance;
-    private final SSHManager sshManager;
+    //private final SSHManager sshManager;
+    private SSHManager sshManager;
+    private SSHManager localSshManager;
+    private ServerInfo serverInfo;
     private Writer writer;
     private final TerminalProcessManager terminalProcessManager;
     private String currentDirectory;
 
     public CommandExecutor(TerminalInstance terminalInstance, SSHManager sshManager, Writer writer, TerminalProcessManager terminalProcessManager) {
         this.terminalInstance = terminalInstance;
+        this.localSshManager = sshManager;
         this.sshManager = sshManager;
+
         this.terminalProcessManager = terminalProcessManager;
         this.currentDirectory = terminalProcessManager.getCurrentDirectory();
-        this.writer = writer != null ? writer : terminalProcessManager.getWriter();
+        this.writer = writer;
     }
 
     public void executeCommand(String command, StringBuilder inputBuffer) throws IOException {
         if (terminalInstance instanceof ServerTerminalInstance sti) {
+            this.serverInfo = terminalInstance.getServerInfo();
+            if (serverInfo.isRemote) {
+                this.sshManager = serverInfo.remoteSSHManager;
+            }
             if (sti.serverInfo.state == ServerState.STOPPED || sti.serverInfo.state == ServerState.CRASHED) {
                 return;
             }
-            if (sti.processManager != null && sti.processManager.writer != null) {
-                writer = sti.processManager.writer;
-            } else {
-                throw new IOException("Server process manager writer is not initialized.");
-            }
+        } else {
+            this.sshManager = localSshManager;
         }
 
         if (command.equalsIgnoreCase("exit")) {

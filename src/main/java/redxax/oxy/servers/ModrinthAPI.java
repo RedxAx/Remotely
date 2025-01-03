@@ -16,7 +16,6 @@ import java.util.concurrent.CompletableFuture;
 
 public class ModrinthAPI {
     private static final String MODRINTH_API_URL = "https://api.modrinth.com/v2/search";
-    private static final Gson gson = new Gson();
     private static final HttpClient client = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_2)
             .build();
@@ -48,7 +47,7 @@ public class ModrinthAPI {
                                 JsonObject hit = hits.get(i).getAsJsonObject();
                                 String name = hit.has("title") ? hit.get("title").getAsString() : "Unknown";
                                 String versionId = hit.has("latest_version") ? hit.get("latest_version").getAsString() : "Unknown";
-                                String projectId = hit.has("project_id") ? hit.get("project_id").getAsString() : "Unknown"; // Extract project_id
+                                String projectId = hit.has("project_id") ? hit.get("project_id").getAsString() : "Unknown";
                                 String description = hit.has("description") ? hit.get("description").getAsString() : "No description";
                                 String slug = hit.has("slug") ? hit.get("slug").getAsString() : "unknown";
                                 String iconUrl = hit.has("icon_url") ? hit.get("icon_url").getAsString() : "";
@@ -63,8 +62,8 @@ public class ModrinthAPI {
                                             downloads,
                                             slug,
                                             new ArrayList<>(),
-                                            projectId, // Set projectId
-                                            versionId // Set versionId
+                                            projectId,
+                                            versionId
                                     );
                                     results.add(r);
                                 });
@@ -89,7 +88,7 @@ public class ModrinthAPI {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
             String facets = "[[\"project_type:" + type + "\"]]";
             String encodedFacets = URLEncoder.encode(facets, StandardCharsets.UTF_8);
-            URI uri = new URI(MODRINTH_API_URL + "?query=" + encodedQuery + "&facets=" + encodedFacets + "&limit=" + limit + "&offset=" + offset);
+            URI uri = new URI(MODRINTH_API_URL + "?query=" + encodedQuery + "&facets=" + encodedFacets + "&limit=" + limit + "&offset=" + offset + "&index=downloads");
             HttpRequest request = HttpRequest.newBuilder().uri(uri).header("User-Agent", USER_AGENT).GET().build();
             return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                     .thenCompose(response -> {
@@ -101,7 +100,7 @@ public class ModrinthAPI {
                                 JsonObject hit = hits.get(i).getAsJsonObject();
                                 String name = hit.has("title") ? hit.get("title").getAsString() : "Unknown";
                                 String versionId = hit.has("latest_version") ? hit.get("latest_version").getAsString() : "Unknown";
-                                String projectId = hit.has("project_id") ? hit.get("project_id").getAsString() : "Unknown"; // Extract project_id
+                                String projectId = hit.has("project_id") ? hit.get("project_id").getAsString() : "Unknown";
                                 String description = hit.has("description") ? hit.get("description").getAsString() : "No description";
                                 String slug = hit.has("slug") ? hit.get("slug").getAsString() : "unknown";
                                 String iconUrl = hit.has("icon_url") ? hit.get("icon_url").getAsString() : "";
@@ -116,8 +115,8 @@ public class ModrinthAPI {
                                             downloads,
                                             slug,
                                             new ArrayList<>(),
-                                            projectId, // Set projectId
-                                            versionId // Set versionId
+                                            projectId,
+                                            versionId
                                     );
                                     results.add(r);
                                 });

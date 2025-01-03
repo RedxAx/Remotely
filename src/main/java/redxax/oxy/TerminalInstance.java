@@ -6,6 +6,7 @@ import org.jetbrains.annotations.Nullable;
 import redxax.oxy.input.InputHandler;
 import redxax.oxy.input.InputProcessor;
 import redxax.oxy.input.TerminalProcessManager;
+import redxax.oxy.servers.ServerInfo;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -20,9 +21,7 @@ public class TerminalInstance {
     public final TerminalRenderer renderer;
     public final InputHandler inputHandler;
     final SSHManager sshManager;
-    public boolean isServerTerminal;
-    public String serverJarPath;
-    public String serverName;
+    protected ServerInfo serverInfo;
 
     private List<String> commandHistory;
     private int historyIndex;
@@ -38,6 +37,10 @@ public class TerminalInstance {
             this.historyIndex = 0;
         }
         inputHandler.launchTerminal();
+    }
+
+    public ServerInfo getServerInfo() {
+        return serverInfo;
     }
 
     public void render(DrawContext context, int screenWidth, int screenHeight, float scale) {
@@ -142,4 +145,9 @@ public class TerminalInstance {
     public Boolean charTyped(char chr, int modifiers) {
         return inputHandler.charTyped(chr);
     }
+
+    protected void setServerInfo(ServerInfo sInfo) {
+        this.serverInfo = sInfo;
+    }
+
 }
