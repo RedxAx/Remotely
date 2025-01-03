@@ -198,9 +198,6 @@ public class TerminalProcessManager {
     }
 
     public Writer getWriter() {
-        if (isDetachedServer && terminalProcess == null) {
-            return null;
-        }
         return writer;
     }
 

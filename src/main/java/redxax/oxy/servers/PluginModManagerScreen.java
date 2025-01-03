@@ -22,8 +22,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
+
 import javax.imageio.ImageIO;
 
 import com.google.gson.JsonParser;
@@ -37,6 +37,13 @@ public class PluginModManagerScreen extends Screen {
     private final List<ModrinthResource> resources = Collections.synchronizedList(new ArrayList<>());
     private final Map<String, List<ModrinthResource>> resourceCache = new ConcurrentHashMap<>();
     private final Map<String, BufferedImage> iconImages = new ConcurrentHashMap<>();
+    private final Map<String, BufferedImage> scaledIcons = Collections.synchronizedMap(new LinkedHashMap<String, BufferedImage>() {
+        private static final int MAX_ENTRIES = 100;
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> eldest) {
+            return size() > MAX_ENTRIES;
+        }
+    });
     private final Map<String, Boolean> installingMrPack = new ConcurrentHashMap<>();
     private final Map<String, Boolean> installingResource = new ConcurrentHashMap<>();
     private final Map<String, String> installButtonTexts = new ConcurrentHashMap<>();
@@ -55,7 +62,7 @@ public class PluginModManagerScreen extends Screen {
     private int textColor = 0xFFFFFFFF;
     private int loadedCount = 0;
     private boolean hasMore = false;
-    private final Map<BufferedImage, BufferedImage> scaledCache = new ConcurrentHashMap<>();
+
     private BufferedImage installIcon;
     private BufferedImage installingIcon;
     private BufferedImage installedIcon;
@@ -64,6 +71,9 @@ public class PluginModManagerScreen extends Screen {
     private List<BufferedImage> loadingFrames = new ArrayList<>();
     private int currentLoadingFrame = 0;
     private long lastFrameTime = 0;
+
+    private final ExecutorService imageLoader = Executors.newFixedThreadPool(4);
+    private final BufferedImage placeholderIcon = createPlaceholderIcon();
 
     public PluginModManagerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
         super(Text.literal(getTitle(info)));
@@ -107,6 +117,15 @@ public class PluginModManagerScreen extends Screen {
         loadResourcesAsync("", true);
     }
 
+    private BufferedImage createPlaceholderIcon() {
+        BufferedImage img = new BufferedImage(40, 40, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2d = img.createGraphics();
+        g2d.setColor(new Color(0xFF555555, true));
+        g2d.fillRect(0, 0, 40, 40);
+        g2d.dispose();
+        return img;
+    }
+
     private void loadResourcesAsync(String query, boolean reset) {
         if (reset) {
             loadedCount = 0;
@@ -145,6 +164,28 @@ public class PluginModManagerScreen extends Screen {
             resourceCache.put(query + "_" + loadedCount, new ArrayList<>(uniqueResources));
             isLoading = false;
             isLoadingMore = false;
+            uniqueResources.forEach(resource -> {
+                if (!resource.iconUrl.isEmpty() && !iconImages.containsKey(resource.iconUrl)) {
+                    imageLoader.submit(() -> {
+                        try (InputStream inputStream = new URL(resource.iconUrl).openStream()) {
+                            BufferedImage bufferedImage = loadImage(inputStream, resource.iconUrl);
+                            if (bufferedImage != null) {
+                                iconImages.put(resource.iconUrl, bufferedImage);
+                                BufferedImage scaled = new BufferedImage(40, 40, BufferedImage.TYPE_INT_ARGB);
+                                Graphics2D g2d = scaled.createGraphics();
+                                g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                                g2d.drawImage(bufferedImage, 0, 0, 40, 40, null);
+                                g2d.dispose();
+                                synchronized (scaledIcons) {
+                                    scaledIcons.put(resource.iconUrl, scaled);
+                                }
+                            }
+                        } catch (Exception e) {
+                            scaledIcons.put(resource.iconUrl, placeholderIcon);
+                        }
+                    });
+                }
+            });
         }).exceptionally(e -> {
             e.printStackTrace();
             isLoading = false;
@@ -325,24 +366,13 @@ public class PluginModManagerScreen extends Screen {
             context.fill(10, y, panelWidth + 10, y + entryHeight, bg);
             drawInnerBorder(context, 10, y, panelWidth, entryHeight, borderColor);
 
+            BufferedImage scaledImage;
             if (!resource.iconUrl.isEmpty()) {
-                if (!iconImages.containsKey(resource.iconUrl)) {
-                    CompletableFuture.runAsync(() -> {
-                        try (InputStream inputStream = new URL(resource.iconUrl).openStream()) {
-                            BufferedImage bufferedImage = loadImage(inputStream, resource.iconUrl);
-                            if (bufferedImage == null) return;
-                            iconImages.put(resource.iconUrl, bufferedImage);
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                    });
-                } else {
-                    BufferedImage image = iconImages.get(resource.iconUrl);
-                    if (image != null) {
-                        drawBufferedImage(context, image, 15, y + 5, 40, 40);
-                    }
-                }
+                scaledImage = scaledIcons.getOrDefault(resource.iconUrl, placeholderIcon);
+            } else {
+                scaledImage = placeholderIcon;
             }
+            drawBufferedImage(context, scaledImage, 15, y + 5, 40, 40);
 
             int infoX = this.width - 20 - this.textRenderer.getWidth(formatDownloads(resource.downloads) + " | " + resource.version);
             String displayDesc = resource.description;
@@ -491,7 +521,9 @@ public class PluginModManagerScreen extends Screen {
                     dest = Path.of(serverInfo.path, "unknown", resource.fileName);
                 }
                 Files.createDirectories(dest.getParent());
-                HttpClient httpClient = HttpClient.newHttpClient();
+                HttpClient httpClient = HttpClient.newBuilder()
+                        .executor(imageLoader)
+                        .build();
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(downloadUrl))
                         .header("User-Agent", "Remotely")
