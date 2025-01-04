@@ -23,11 +23,8 @@ class PluginModListScreen(
 ) :
     Screen(
         Text.literal(
-            if (serverInfo.type.equals("paper", ignoreCase = true) || serverInfo.type.equals(
-                    "spigot",
-                    ignoreCase = true
-                )
-            ) "Installed Plugins" else "Installed Mods"
+            if (serverInfo.isPluginServer)
+             "Installed Plugins" else "Installed Mods"
         )
     ) {
     private var entries: MutableList<EntryInfo>? = null
@@ -50,11 +47,11 @@ class PluginModListScreen(
         entries = ArrayList()
         val dir: Path
         val isPlugin =
-            serverInfo.type.equals("paper", ignoreCase = true) || serverInfo.type.equals("spigot", ignoreCase = true)
+            !serverInfo.isPluginServer
         dir = if (isPlugin) {
-            Paths.get(serverInfo.path, "plugins")
+            Paths.get(serverInfo.path, "Plugins")
         } else {
-            Paths.get(serverInfo.path, "mods")
+            Paths.get(serverInfo.path, "Mods")
         }
         try {
             if (Files.exists(dir)) {

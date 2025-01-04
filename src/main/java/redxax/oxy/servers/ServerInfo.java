@@ -26,6 +26,6 @@ public class ServerInfo {
     }
 
     public boolean isPluginServer() {
-        return Objects.equals(type, "bukkit") || Objects.equals(type, "spigot") || Objects.equals(type, "paper");
+        return Objects.equals(type, "paper");
     }
 }

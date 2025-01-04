@@ -240,11 +240,7 @@ public class MultiTerminalScreen extends Screen {
                 if (!isProxy) {
                     pluginButtonX = explorerButtonX - (buttonW + 10);
                     pluginButtonY = 5;
-                    String pluginLabel = (sInfo.type.equalsIgnoreCase("paper")
-                            || sInfo.type.equalsIgnoreCase("spigot")
-                            || sInfo.type.equalsIgnoreCase("velocity")
-                            || sInfo.type.equalsIgnoreCase("waterfall")
-                            || sInfo.type.equalsIgnoreCase("bungeecord"))
+                    String pluginLabel = (sInfo.type.equalsIgnoreCase("paper"))
                             ? "Plugins" : "Mods";
                     boolean pluginHovered = mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH;
                     drawHeaderButton(context, pluginButtonX, pluginButtonY, pluginLabel, pluginHovered);
@@ -252,7 +248,7 @@ public class MultiTerminalScreen extends Screen {
             } else {
                 context.fill(0, 0, this.width, topBarHeight, lighterColor);
                 drawInnerBorder(context, 0, 0, this.width, topBarHeight, borderColor);
-                String titleText = "Multi Terminal - General Tab";
+                String titleText = "Remotely Terminal";
                 context.drawText(minecraftClient.textRenderer, Text.literal(titleText), 10, 10, textColor, false);
                 buttonX = this.width - buttonW - 10;
                 buttonY = 5;
@@ -619,12 +615,9 @@ public class MultiTerminalScreen extends Screen {
                         minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
                         return true;
                     }
-                    boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(serverTerminal.getServerInfo().type.toLowerCase(Locale.getDefault()));
-                    if (!isProxy) {
-                        if (mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH) {
-                            minecraftClient.setScreen(new PluginModListScreen(minecraftClient, this, serverTerminal.getServerInfo()));
-                            return true;
-                        }
+                    if (mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH) {
+                        minecraftClient.setScreen(new PluginModListScreen(minecraftClient, this, serverTerminal.getServerInfo()));
+                        return true;
                     }
                 }
             } else {
