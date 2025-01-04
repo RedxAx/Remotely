@@ -221,7 +221,7 @@ public class MultiTerminalScreen extends Screen {
                 String hostStatus;
                 if (sInfo.isRemote && sInfo.remoteHost != null) {
                     boolean connected = (sInfo.remoteSSHManager != null && sInfo.remoteSSHManager.isSSH());
-                    hostStatus = connected ? "Host: Connected" : "Host: Disconnected";
+                    hostStatus = connected ? sInfo.remoteHost.name + ": Connected" : sInfo.remoteHost.name + ": Disconnected";
                 } else {
                     hostStatus = "Local Host";
                 }
