@@ -1,6 +1,5 @@
 package redxax.oxy.servers;
 
-import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -21,19 +20,19 @@ public class ModrinthAPI {
             .build();
     private static final String USER_AGENT = "Remotely";
 
-    public static CompletableFuture<List<ModrinthResource>> searchMods(String query, int limit, int offset) {
-        return searchResources(query, "mod", limit, offset);
+    public static CompletableFuture<List<ModrinthResource>> searchMods(String query, String serverVersion, int limit, int offset, String category) {
+        return searchResources(query, "mod", serverVersion, limit, offset, category);
     }
 
-    public static CompletableFuture<List<ModrinthResource>> searchPlugins(String query, int limit, int offset) {
-        return searchResources(query, "plugin", limit, offset);
+    public static CompletableFuture<List<ModrinthResource>> searchPlugins(String query, String serverVersion, int limit, int offset, String category) {
+        return searchResources(query, "plugin", serverVersion, limit, offset, category);
     }
 
-    public static CompletableFuture<List<ModrinthResource>> searchModpacks(String query, int limit, int offset) {
+    public static CompletableFuture<List<ModrinthResource>> searchModpacks(String query, String serverVersion, int limit, int offset) {
         List<ModrinthResource> results = new ArrayList<>();
         try {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
-            String facets = "[[\"project_type:modpack\"]]";
+            String facets = "[[\"project_type:modpack\"], [\"versions:" + serverVersion + "\"]]";
             String encodedFacets = URLEncoder.encode(facets, StandardCharsets.UTF_8);
             URI uri = new URI(MODRINTH_API_URL + "?query=" + encodedQuery + "&facets=" + encodedFacets + "&limit=" + limit + "&offset=" + offset);
             HttpRequest request = HttpRequest.newBuilder().uri(uri).header("User-Agent", USER_AGENT).GET().build();
@@ -82,11 +81,17 @@ public class ModrinthAPI {
         }
     }
 
-    private static CompletableFuture<List<ModrinthResource>> searchResources(String query, String type, int limit, int offset) {
+    private static CompletableFuture<List<ModrinthResource>> searchResources(String query, String type, String serverVersion, int limit, int offset, String category) {
         List<ModrinthResource> results = new ArrayList<>();
         try {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
-            String facets = "[[\"project_type:" + type + "\"]]";
+            String facets;
+            if (type.equals("mod")) {
+
+                facets = "[[\"project_type:mod\"], [\"versions:" + serverVersion + "\"], [\"categories:" + category + "\"], [\"server_side:required\", \"server_side:optional\"]]";
+            } else {
+                facets = "[[\"project_type:" + type + "\"], [\"versions:" + serverVersion + "\"]]";
+            }
             String encodedFacets = URLEncoder.encode(facets, StandardCharsets.UTF_8);
             URI uri = new URI(MODRINTH_API_URL + "?query=" + encodedQuery + "&facets=" + encodedFacets + "&limit=" + limit + "&offset=" + offset + "&index=downloads");
             HttpRequest request = HttpRequest.newBuilder().uri(uri).header("User-Agent", USER_AGENT).GET().build();

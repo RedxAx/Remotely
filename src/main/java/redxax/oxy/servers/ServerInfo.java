@@ -28,4 +28,8 @@ public class ServerInfo {
     public boolean isPluginServer() {
         return Objects.equals(type, "paper");
     }
+
+    public String getVersion() {
+        return version;
+    }
 }
