@@ -149,6 +149,15 @@ public class MultiTerminalScreen extends Screen {
     }
 
     private void addNewServerTab(ServerInfo serverInfo) {
+        for (int i = 0; i < terminals.size(); i++) {
+            TerminalInstance terminal = terminals.get(i);
+            if (terminal instanceof ServerTerminalInstance serverTerminal) {
+                if (serverTerminal.getServerInfo().path.equals(serverInfo.path)) {
+                    setActiveTerminal(i);
+                    return;
+                }
+            }
+        }
         UUID terminalId = UUID.randomUUID();
         ServerTerminalInstance newTerminal = new ServerTerminalInstance(minecraftClient, null, terminalId, serverInfo);
         newTerminal.isServerTerminal = true;
