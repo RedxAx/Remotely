@@ -10,7 +10,7 @@ import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.SSHManager;
 
 import java.awt.image.BufferedImage;
-import java.io.IOException;
+import java.io.*;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.text.SimpleDateFormat;
@@ -34,6 +34,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private int entryBgColor = 0xFF2C2C2C;
     private int entryBorderColor = 0xFF444444;
     private int highlightColor = 0xFF444444;
+    private int goldBorderColor = 0xFFCC9900;
     private int textColor = 0xFFFFFFFF;
     private Path currentPath;
     private float targetOffset = 0;
@@ -71,6 +72,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private List<BufferedImage> loadingFrames = new ArrayList<>();
     private int currentLoadingFrame = 0;
     private long lastFrameTime = 0;
+    private final List<Path> favoritePaths = new ArrayList<>();
+    private final Object favoritePathsLock = new Object();
+    private final Path favoritesFilePath = Paths.get("C:/remotely/data/favorites.dat");
 
     private static class EntryData {
         Path path;
@@ -116,6 +120,20 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     protected void init() {
         super.init();
         try {
+            if (!Files.exists(favoritesFilePath.getParent())) {
+                Files.createDirectories(favoritesFilePath.getParent());
+            }
+            if (Files.exists(favoritesFilePath)) {
+                List<String> lines = Files.readAllLines(favoritesFilePath);
+                synchronized (favoritePathsLock) {
+                    for (String line : lines) {
+                        Path p = Paths.get(line);
+                        if (Files.exists(p)) {
+                            favoritePaths.add(p);
+                        }
+                    }
+                }
+            }
             fileIcon = loadResourceIcon("/assets/remotely/icons/file.png");
             folderIcon = loadResourceIcon("/assets/remotely/icons/folder.png");
             loadingAnim = loadSpriteSheet("/assets/remotely/icons/loadinganim.png");
@@ -199,12 +217,38 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 loadDirectory(currentPath, false, true);
                 return true;
             }
+            if (keyCode == GLFW.GLFW_KEY_T) {
+                synchronized (favoritePathsLock) {
+                    for (Path p : selectedPaths) {
+                        if (!favoritePaths.contains(p)) {
+                            favoritePaths.add(p);
+                        } else {
+                            favoritePaths.remove(p);
+                        }
+                    }
+                    saveFavorites();
+                }
+                return true;
+            }
         }
         if (keyCode == GLFW.GLFW_KEY_DELETE) {
             fileManager.deleteSelected(selectedPaths, currentPath);
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    private void saveFavorites() {
+        try (BufferedWriter writer = Files.newBufferedWriter(favoritesFilePath)) {
+            synchronized (favoritePathsLock) {
+                for (Path p : favoritePaths) {
+                    writer.write(p.toString());
+                    writer.newLine();
+                }
+            }
+        } catch (IOException e) {
+            showNotification("Error saving favorites: " + e.getMessage(), Notification.Type.ERROR);
+        }
     }
 
     @Override
@@ -237,10 +281,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     isDoubleClick = true;
                 }
                 lastClickTime = currentTime;
-                int explorerX = 50;
+                int explorerX = 5;
                 int explorerY = 60;
-                int explorerWidth = this.width - 100;
-                int explorerHeight = this.height - 100;
+                int explorerWidth = this.width - 10;
+                int explorerHeight = this.height - 70;
                 int backButtonX = this.width - 120;
                 int backButtonY = 5;
                 int btnW = 50;
@@ -378,7 +422,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         synchronized (fileEntriesLock) {
             entriesToRender = new ArrayList<>(fileEntries);
         }
-        targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, entriesToRender.size() * entryHeight - (this.height - 100))));
+        targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, entriesToRender.size() * entryHeight - (this.height - 70))));
         return true;
     }
 
@@ -468,15 +512,19 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int endIndex = startIndex + visibleEntries + 2;
         if (endIndex > entriesToRender.size()) endIndex = entriesToRender.size();
 
-        context.enableScissor(explorerX, explorerY, explorerX + explorerWidth, explorerY + explorerHeight); // Enable scissor
+        context.enableScissor(explorerX, explorerY, explorerX + explorerWidth, explorerY + explorerHeight);
 
         for (int entryIndex = startIndex; entryIndex < endIndex; entryIndex++) {
             EntryData entry = entriesToRender.get(entryIndex);
             int entryY = explorerY + (entryIndex * entryHeight) - (int) smoothOffset;
             boolean hovered = mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= entryY && mouseY < entryY + entryHeight;
             boolean isSelected = selectedPaths.contains(entry.path);
+            boolean isFavorite;
+            synchronized (favoritePathsLock) {
+                isFavorite = favoritePaths.contains(entry.path);
+            }
             int bg = isSelected ? 0xFF555555 : (hovered ? highlightColor : entryBgColor);
-            int borderWithOpacity = entryBorderColor;
+            int borderWithOpacity = isFavorite ? goldBorderColor : entryBorderColor;
             int textWithOpacity = textColor;
             context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
             drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
@@ -494,7 +542,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
         context.disableScissor();
 
-        // Add shadow effect
         if (smoothOffset > 0) {
             context.fillGradient(0, explorerY, this.width, explorerY + 10, 0x80000000, 0x00000000);
         }
@@ -603,12 +650,14 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             boolean d = serverInfo.remoteSSHManager.isRemoteDirectory(p.toString().replace("\\", "/"));
             temp.add(new EntryData(p, d, "", ""));
         }
-        temp.sort(Comparator.comparing(x -> !x.isDirectory));
-        temp.sort(Comparator.comparing(x -> x.path.getFileName().toString().toLowerCase()));
+        synchronized (favoritePathsLock) {
+            temp.sort(Comparator.comparing((EntryData x) -> !favoritePaths.contains(x.path))
+                    .thenComparing(x -> !x.isDirectory)
+                    .thenComparing(x -> x.path.getFileName().toString().toLowerCase()));
+        }
         remoteCache.put(remotePath, temp);
         return temp;
     }
-
     private List<EntryData> loadLocalDirectory(Path dir) throws IOException {
         List<EntryData> temp = new ArrayList<>();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
@@ -619,8 +668,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 temp.add(new EntryData(entry, d, sz, cr));
             }
         }
-        temp.sort(Comparator.comparing(x -> !x.isDirectory));
-        temp.sort(Comparator.comparing(x -> x.path.getFileName().toString().toLowerCase()));
+        synchronized (favoritePathsLock) {
+            temp.sort(Comparator.comparing((EntryData x) -> !favoritePaths.contains(x.path))
+                    .thenComparing(x -> !x.isDirectory)
+                    .thenComparing(x -> x.path.getFileName().toString().toLowerCase()));
+        }
         return temp;
     }
 
@@ -660,6 +712,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     filtered.add(data);
                 }
             }
+        }
+        synchronized (favoritePathsLock) {
+            filtered.sort(Comparator.comparing((EntryData x) -> !favoritePaths.contains(x.path)));
         }
         filtered.sort(Comparator.comparing(x -> !x.isDirectory));
         filtered.sort(Comparator.comparing(x -> x.path.getFileName().toString().toLowerCase()));
