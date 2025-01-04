@@ -127,10 +127,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 List<String> lines = Files.readAllLines(favoritesFilePath);
                 synchronized (favoritePathsLock) {
                     for (String line : lines) {
-                        Path p = Paths.get(line);
-                        if (Files.exists(p)) {
-                            favoritePaths.add(p);
-                        }
+                        Path p = serverInfo.isRemote ? Paths.get(line.replace("\\", "/")) : Paths.get(line);
+                        favoritePaths.add(p);
                     }
                 }
             }
@@ -658,6 +656,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         remoteCache.put(remotePath, temp);
         return temp;
     }
+
     private List<EntryData> loadLocalDirectory(Path dir) throws IOException {
         List<EntryData> temp = new ArrayList<>();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
