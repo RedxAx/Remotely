@@ -75,7 +75,6 @@ publishing {
 
 shadowJar {
     configurations = [project.configurations.shadow]
-    minimize()
     exclude("META-INF")
 }
 
