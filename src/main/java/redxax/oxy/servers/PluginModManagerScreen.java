@@ -304,7 +304,7 @@ public class PluginModManagerScreen extends Screen {
         super.render(context, mouseX, mouseY, delta);
         context.fill(0, 0, this.width, 25, lighterColor);
         drawInnerBorder(context, 0, 0, this.width, 25, borderColor);
-        context.drawText(this.textRenderer, Text.literal("Plugin / Mod Manager"), 10, 10, textColor, false);
+        context.drawText(this.textRenderer, Text.literal(getTitle(serverInfo)), 10, 10, textColor, false);
         searchField.render(context, mouseX, mouseY, delta);
 
         int searchButtonX = this.width - 120;

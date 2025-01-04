@@ -78,7 +78,7 @@ public class ServerManagerScreen extends Screen {
     private final StringBuilder remoteHostNameBuffer = new StringBuilder();
     private final StringBuilder remoteHostUserBuffer = new StringBuilder("root");
     private final StringBuilder remoteHostIPBuffer = new StringBuilder();
-    private final StringBuilder remoteHostPortBuffer = new StringBuilder();
+    private final StringBuilder remoteHostPortBuffer = new StringBuilder("22");
     private final StringBuilder remoteHostPasswordBuffer = new StringBuilder();
     private boolean remoteHostCreationWarning;
     private RemoteHostField remoteHostActiveField = RemoteHostField.NONE;
@@ -100,11 +100,11 @@ public class ServerManagerScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        scanForUnknownServers();
         if (localServers.isEmpty()) {
             loadSavedServers();
         }
         loadSavedRemoteHosts();
+        scanForUnknownServers();
         activeTabIndex = remotelyClient.getSavedTabIndex();
         try {
             loadingAnim = loadSpriteSheet("/assets/remotely/icons/loadinganim.png");
@@ -1371,15 +1371,17 @@ public class ServerManagerScreen extends Screen {
     }
 
     private void scanForUnknownServers() {
-        Path serversDir = Paths.get("C:/remotely/servers/");
+        Path serversDir = Paths.get("C:/remotely/servers/").toAbsolutePath().normalize();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(serversDir)) {
             for (Path entry : stream) {
                 if (Files.isDirectory(entry)) {
                     Path serverJarPath = entry.resolve("server.jar");
                     if (Files.exists(serverJarPath)) {
                         String folderName = entry.getFileName().toString();
-                        if (!isServerRegistered(folderName)) {
-                            addServer(folderName, entry.toString());
+                        String fullPath = entry.toAbsolutePath().toString().replace("/", "\\");
+                        Path normalizedPath = Paths.get(fullPath).normalize();
+                        if (!isServerRegistered(normalizedPath.toString())) {
+                            addServer(folderName, normalizedPath.toString());
                         }
                     }
                 }
@@ -1389,10 +1391,20 @@ public class ServerManagerScreen extends Screen {
         }
     }
 
-    private boolean isServerRegistered(String folderName) {
+
+    private boolean isServerRegistered(String normalizedPath) {
         for (ServerInfo server : localServers) {
-            if (server.name.equals(folderName)) {
+            String serverPath = Paths.get(server.path).toAbsolutePath().normalize().toString().replace("/", "\\");
+            if (serverPath.equalsIgnoreCase(normalizedPath)) {
                 return true;
+            }
+        }
+        for (RemoteHostInfo host : remoteHosts) {
+            for (ServerInfo server : host.servers) {
+                String serverPath = Paths.get(server.path).toAbsolutePath().normalize().toString().replace("/", "\\");
+                if (serverPath.equalsIgnoreCase(normalizedPath)) {
+                    return true;
+                }
             }
         }
         return false;
