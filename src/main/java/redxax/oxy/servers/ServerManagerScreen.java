@@ -39,7 +39,7 @@ public class ServerManagerScreen extends Screen {
     private final StringBuilder serverNameBuffer = new StringBuilder();
     private final StringBuilder serverVersionBuffer = new StringBuilder();
     private String selectedServerType = "paper";
-    private final List<String> serverTypes = Arrays.asList("paper","spigot","vanilla","fabric","forge","neoforge","quilt","velocity","waterfall","bungeecord");
+    private final List<String> serverTypes = Arrays.asList("paper","vanilla","fabric","forge","neoforge","quilt");
     private int selectedTypeIndex = 0;
     private long serverLastBlinkTime = 0;
     private boolean serverCursorVisible = true;
@@ -100,6 +100,7 @@ public class ServerManagerScreen extends Screen {
     @Override
     protected void init() {
         super.init();
+        scanForUnknownServers();
         if (localServers.isEmpty()) {
             loadSavedServers();
         }
@@ -1075,34 +1076,36 @@ public class ServerManagerScreen extends Screen {
     }
 
     private void runMrPackInstaller(ServerInfo serverInfo) {
-        try {
-            Path serverDir = Paths.get(serverInfo.path);
-            if (!Files.exists(serverDir)) {
-                Files.createDirectories(serverDir);
-            }
-            String exePath = "C:/remotely/mrpack-install-windows.exe";
-            if (!Files.exists(Paths.get(exePath))) {
-                try (InputStream in = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-windows.exe").openStream()) {
-                    Files.copy(in, Paths.get(exePath), StandardCopyOption.REPLACE_EXISTING);
+        new Thread(() -> {
+            try {
+                Path serverDir = Paths.get(serverInfo.path);
+                if (!Files.exists(serverDir)) {
+                    Files.createDirectories(serverDir);
                 }
-            }
-            List<String> cmd = new ArrayList<>();
-            cmd.add(exePath);
-            cmd.add("server");
-            cmd.add(serverInfo.type.equalsIgnoreCase("vanilla") ? "vanilla" : serverInfo.type);
-            cmd.add("--server-dir");
-            cmd.add(serverInfo.path);
-            if (!serverInfo.version.equalsIgnoreCase("latest")) {
-                cmd.add("--minecraft-version");
-                cmd.add(serverInfo.version);
-            }
-            cmd.add("--server-file");
-            cmd.add("server.jar");
-            ProcessBuilder pb = new ProcessBuilder(cmd);
-            pb.directory(serverDir.toFile());
-            pb.redirectErrorStream(true);
-            pb.start().waitFor();
-        } catch (Exception ignored) {}
+                String exePath = "C:/remotely/mrpack-install-windows.exe";
+                if (!Files.exists(Paths.get(exePath))) {
+                    try (InputStream in = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-windows.exe").openStream()) {
+                        Files.copy(in, Paths.get(exePath), StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+                List<String> cmd = new ArrayList<>();
+                cmd.add(exePath);
+                cmd.add("server");
+                cmd.add(serverInfo.type.equalsIgnoreCase("vanilla") ? "vanilla" : serverInfo.type);
+                cmd.add("--server-dir");
+                cmd.add(serverInfo.path);
+                if (!serverInfo.version.equalsIgnoreCase("latest")) {
+                    cmd.add("--minecraft-version");
+                    cmd.add(serverInfo.version);
+                }
+                cmd.add("--server-file");
+                cmd.add("server.jar");
+                ProcessBuilder pb = new ProcessBuilder(cmd);
+                pb.directory(serverDir.toFile());
+                pb.redirectErrorStream(true);
+                pb.start().waitFor();
+            } catch (Exception ignored) {}
+        }).start();
     }
 
     private void runMrPackInstallerRemote(ServerInfo serverInfo, RemoteHostInfo hostInfo) {
@@ -1355,6 +1358,46 @@ public class ServerManagerScreen extends Screen {
             List<RemoteHostInfo> loaded = parseRemoteHostsJson(json);
             remoteHosts.addAll(loaded);
         } catch (IOException ignored) {}
+    }
+
+    private void scanForUnknownServers() {
+        Path serversDir = Paths.get("C:/remotely/servers/");
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(serversDir)) {
+            for (Path entry : stream) {
+                if (Files.isDirectory(entry)) {
+                    Path serverJarPath = entry.resolve("server.jar");
+                    if (Files.exists(serverJarPath)) {
+                        String folderName = entry.getFileName().toString();
+                        if (!isServerRegistered(folderName)) {
+                            addServer(folderName, entry.toString());
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private boolean isServerRegistered(String folderName) {
+        for (ServerInfo server : localServers) {
+            if (server.name.equals(folderName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void addServer(String name, String path) {
+        ServerInfo newServer = new ServerInfo(path);
+        newServer.name = name;
+        newServer.path = path;
+        newServer.type = "imported";
+        newServer.version = "unknown";
+        newServer.isRunning = false;
+        newServer.isRemote = false;
+        localServers.add(newServer);
+        saveServers();
     }
 
     private void saveServers() {

@@ -11,6 +11,7 @@ import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URL;
@@ -27,6 +28,7 @@ import java.util.concurrent.*;
 import javax.imageio.ImageIO;
 
 import com.google.gson.JsonParser;
+import redxax.oxy.SSHManager;
 
 import static redxax.oxy.ImageUtil.*;
 
@@ -39,6 +41,7 @@ public class PluginModManagerScreen extends Screen {
     private final Map<String, BufferedImage> iconImages = new ConcurrentHashMap<>();
     private final Map<String, BufferedImage> scaledIcons = Collections.synchronizedMap(new LinkedHashMap<String, BufferedImage>() {
         private static final int MAX_ENTRIES = 100;
+
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> eldest) {
             return size() > MAX_ENTRIES;
@@ -448,51 +451,64 @@ public class PluginModManagerScreen extends Screen {
     }
 
     private void installMrPack(ModrinthResource resource) {
-        Thread t = new Thread(() -> {
-            try {
-                String exePath = "C:\\remotely\\mrpack-install-windows.exe";
-                String serverDir = "C:\\remotely\\servers\\" + resource.name;
-                Path exe = Path.of(exePath);
-                Path serverPath = Path.of(serverDir);
-                if (!Files.exists(serverPath)) Files.createDirectories(serverPath);
-                if (!Files.exists(exe)) {
-                    try {
-                        URL url = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-windows.exe");
-                        try (InputStream input = url.openStream()) {
-                            Files.copy(input, exe, StandardCopyOption.REPLACE_EXISTING);
+            new Thread(() -> {
+                try {
+                    String exePath = "C:\\remotely\\mrpack-install-windows.exe";
+                    String serverDir = "C:\\remotely\\servers\\" + resource.name;
+                    Path exe = Path.of(exePath);
+                    Path serverPath = Path.of(serverDir);
+                    if (!Files.exists(serverPath)) Files.createDirectories(serverPath);
+                    if (!Files.exists(exe)) {
+                        try {
+                            URL url = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-windows.exe");
+                            try (InputStream input = url.openStream()) {
+                                Files.copy(input, exe, StandardCopyOption.REPLACE_EXISTING);
+                            }
+                        } catch (Exception e) {
+                            System.err.println("Failed to download mrpack-install: " + e.getMessage());
+                            return;
                         }
-                    } catch (Exception e) {
-                        System.err.println("Failed to download mrpack-install: " + e.getMessage());
-                        return;
                     }
+                    ProcessBuilder pb = new ProcessBuilder(
+                            exePath,
+                            resource.projectId,
+                            resource.version,
+                            "--server-dir",
+                            serverDir,
+                            "--server-file",
+                            "server.jar"
+                    );
+                    pb.directory(serverPath.toFile());
+                    Process proc = pb.start();
+
+                    ExecutorService executor = Executors.newFixedThreadPool(2);
+                    executor.submit(() -> {
+                        try (InputStream is = proc.getInputStream()) {
+                            is.transferTo(System.out);
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    });
+                    executor.submit(() -> {
+                        try (InputStream is = proc.getErrorStream()) {
+                            is.transferTo(System.err);
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    });
+
+                    proc.waitFor();
+                    executor.shutdown();
+
+                    if (proc.exitValue() != 0) {
+                        System.err.println("mrpack-install failed. Exit code: " + proc.exitValue());
+                    }
+                    installingMrPack.put(resource.slug, false);
+                    installButtonTexts.put(resource.slug, "Installed");
+                } catch (IOException | InterruptedException e) {
+                    e.printStackTrace();
                 }
-                ProcessBuilder pb = new ProcessBuilder(
-                        exePath,
-                        resource.projectId,
-                        resource.version,
-                        "--server-dir",
-                        serverDir,
-                        "--server-file",
-                        "server.jar"
-                );
-                pb.directory(serverPath.toFile());
-                Process proc = pb.start();
-                String errorStream = new String(proc.getErrorStream().readAllBytes());
-                proc.waitFor();
-                if (proc.exitValue() != 0) {
-                    System.err.println("mrpack-install failed. Exit code: " + proc.exitValue());
-                    System.err.println("Error details: " + errorStream);
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-                System.err.println("Failed to install mrpack: " + e.getMessage());
-            }
-            minecraftClient.execute(() -> {
-                installingMrPack.put(resource.slug, false);
-                installButtonTexts.put(resource.slug, "Installed");
-            });
-        });
-        t.start();
+            }).start();
     }
 
     private void fetchAndInstallResource(ModrinthResource resource) {
