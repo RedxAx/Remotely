@@ -1,6 +1,5 @@
 package redxax.oxy.explorer;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -53,10 +52,11 @@ public class FileManager {
             for (Path path : selectedPaths) {
                 try {
                     String remotePath = path.toString().replace("\\", "/");
-                    ssh.downloadRemotePath(remotePath, tempUndoDir.resolve(path.getFileName()));
+                    Path backupPath = tempUndoDir.resolve(path.getFileName());
+                    ssh.downloadRemotePath(remotePath, backupPath);
                     ssh.deleteRemoteDirectory(remotePath);
                     deletedPaths.add(path);
-                    backupPaths.add(tempUndoDir.resolve(path.getFileName()));
+                    backupPaths.add(backupPath);
                     toRemove.add(path);
                 } catch (Exception e) {
                     callback.showNotification("Error deleting " + path.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
