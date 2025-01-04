@@ -145,12 +145,14 @@ public class PluginModManagerScreen extends Screen {
         isLoading = true;
         if (reset) hasMore = true;
         CompletableFuture<List<ModrinthResource>> searchFuture;
+        String serverVersion = serverInfo.getVersion();
+        int limit = 30;
         if (serverInfo.isModServer()) {
-            searchFuture = ModrinthAPI.searchMods(query, 30, loadedCount);
+            searchFuture = ModrinthAPI.searchMods(query, serverVersion, limit, loadedCount, serverInfo.type);
         } else if (serverInfo.isPluginServer()) {
-            searchFuture = ModrinthAPI.searchPlugins(query, 30, loadedCount);
+            searchFuture = ModrinthAPI.searchPlugins(query, serverVersion, limit, loadedCount, serverInfo.type);
         } else {
-            searchFuture = ModrinthAPI.searchModpacks(query, 30, loadedCount);
+            searchFuture = ModrinthAPI.searchModpacks(query, serverVersion, limit, loadedCount);
         }
         searchFuture.thenAccept(fetched -> {
             if (fetched.size() < 30) hasMore = false;
@@ -451,64 +453,64 @@ public class PluginModManagerScreen extends Screen {
     }
 
     private void installMrPack(ModrinthResource resource) {
-            new Thread(() -> {
-                try {
-                    String exePath = "C:\\remotely\\mrpack-install-windows.exe";
-                    String serverDir = "C:\\remotely\\servers\\" + resource.name;
-                    Path exe = Path.of(exePath);
-                    Path serverPath = Path.of(serverDir);
-                    if (!Files.exists(serverPath)) Files.createDirectories(serverPath);
-                    if (!Files.exists(exe)) {
-                        try {
-                            URL url = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-windows.exe");
-                            try (InputStream input = url.openStream()) {
-                                Files.copy(input, exe, StandardCopyOption.REPLACE_EXISTING);
-                            }
-                        } catch (Exception e) {
-                            System.err.println("Failed to download mrpack-install: " + e.getMessage());
-                            return;
+        new Thread(() -> {
+            try {
+                String exePath = "C:\\remotely\\mrpack-install-windows.exe";
+                String serverDir = "C:\\remotely\\servers\\" + resource.name;
+                Path exe = Path.of(exePath);
+                Path serverPath = Path.of(serverDir);
+                if (!Files.exists(serverPath)) Files.createDirectories(serverPath);
+                if (!Files.exists(exe)) {
+                    try {
+                        URL url = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-windows.exe");
+                        try (InputStream input = url.openStream()) {
+                            Files.copy(input, exe, StandardCopyOption.REPLACE_EXISTING);
                         }
+                    } catch (Exception e) {
+                        System.err.println("Failed to download mrpack-install: " + e.getMessage());
+                        return;
                     }
-                    ProcessBuilder pb = new ProcessBuilder(
-                            exePath,
-                            resource.projectId,
-                            resource.version,
-                            "--server-dir",
-                            serverDir,
-                            "--server-file",
-                            "server.jar"
-                    );
-                    pb.directory(serverPath.toFile());
-                    Process proc = pb.start();
-
-                    ExecutorService executor = Executors.newFixedThreadPool(2);
-                    executor.submit(() -> {
-                        try (InputStream is = proc.getInputStream()) {
-                            is.transferTo(System.out);
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    });
-                    executor.submit(() -> {
-                        try (InputStream is = proc.getErrorStream()) {
-                            is.transferTo(System.err);
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    });
-
-                    proc.waitFor();
-                    executor.shutdown();
-
-                    if (proc.exitValue() != 0) {
-                        System.err.println("mrpack-install failed. Exit code: " + proc.exitValue());
-                    }
-                    installingMrPack.put(resource.slug, false);
-                    installButtonTexts.put(resource.slug, "Installed");
-                } catch (IOException | InterruptedException e) {
-                    e.printStackTrace();
                 }
-            }).start();
+                ProcessBuilder pb = new ProcessBuilder(
+                        exePath,
+                        resource.projectId,
+                        resource.version,
+                        "--server-dir",
+                        serverDir,
+                        "--server-file",
+                        "server.jar"
+                );
+                pb.directory(serverPath.toFile());
+                Process proc = pb.start();
+
+                ExecutorService executor = Executors.newFixedThreadPool(2);
+                executor.submit(() -> {
+                    try (InputStream is = proc.getInputStream()) {
+                        is.transferTo(System.out);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                });
+                executor.submit(() -> {
+                    try (InputStream is = proc.getErrorStream()) {
+                        is.transferTo(System.err);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                });
+
+                proc.waitFor();
+                executor.shutdown();
+
+                if (proc.exitValue() != 0) {
+                    System.err.println("mrpack-install failed. Exit code: " + proc.exitValue());
+                }
+                installingMrPack.put(resource.slug, false);
+                installButtonTexts.put(resource.slug, "Installed");
+            } catch (IOException | InterruptedException e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
 
     private void fetchAndInstallResource(ModrinthResource resource) {
