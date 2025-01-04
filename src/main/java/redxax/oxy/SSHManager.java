@@ -58,6 +58,7 @@ public class SSHManager {
             sshSession.setPassword(password);
             sshSession.connect(10000);
             isSSH = true;
+            connectSFTP();
         } catch (Exception e) {
             if (terminalInstance != null) {
                 terminalInstance.appendOutput("SSH connection failed: " + e.getMessage() + "\n");
@@ -68,17 +69,19 @@ public class SSHManager {
 
     public void connectSFTP() {
         if (sshSession == null || !sshSession.isConnected()) return;
-        try {
-            Channel channel = sshSession.openChannel("sftp");
-            channel.connect();
-            sftpChannel = (ChannelSftp) channel;
-            sftpConnected = true;
-        } catch (Exception e) {
-            if (terminalInstance != null) {
-                terminalInstance.appendOutput("SFTP connection failed: " + e.getMessage() + "\n");
+        sftpExecutor.submit(() -> {
+            try {
+                Channel channel = sshSession.openChannel("sftp");
+                channel.connect();
+                sftpChannel = (ChannelSftp) channel;
+                sftpConnected = true;
+            } catch (Exception e) {
+                if (terminalInstance != null) {
+                    terminalInstance.appendOutput("SFTP connection failed: " + e.getMessage() + "\n");
+                }
+                sftpConnected = false;
             }
-            sftpConnected = false;
-        }
+        });
     }
 
     public boolean isSFTPConnected() {
@@ -275,6 +278,7 @@ public class SSHManager {
                 sshReader = new BufferedReader(new InputStreamReader(sshChannel.getInputStream(), StandardCharsets.UTF_8));
                 sshWriter = new OutputStreamWriter(sshChannel.getOutputStream(), StandardCharsets.UTF_8);
                 isSSH = true;
+                connectSFTP();
                 executorService.submit(this::readSSHChannel);
                 if (terminalInstance != null) {
                     terminalInstance.appendOutput("Connected.\n");
@@ -384,32 +388,24 @@ public class SSHManager {
         }).get();
     }
 
-    public void deleteRemoteDirectory(String remotePath) throws IOException {
-        ChannelSftp s = getSftpChannel();
-        try {
-            SftpATTRS attrs = s.lstat(remotePath);
-            if (attrs.isDir()) {
-                Vector<ChannelSftp.LsEntry> entries = s.ls(remotePath);
-                for (ChannelSftp.LsEntry entry : entries) {
-                    String entryName = entry.getFilename();
-                    if (!entryName.equals(".") && !entryName.equals("..")) {
-                        deleteRemoteDirectory(remotePath + "/" + entryName);
-                    }
+    public void deleteRemoteDirectory(String remotePath) {
+        if (!sftpConnected) return;
+        sftpExecutor.submit(() -> {
+            try {
+                String command = "rm -rf " + remotePath;
+                ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
+                channelExec.setCommand(command);
+                channelExec.connect();
+                while (!channelExec.isClosed()) {
+                    Thread.sleep(100);
                 }
-                s.rmdir(remotePath);
-            } else {
-                s.rm(remotePath);
+                channelExec.disconnect();
+            } catch (Exception e) {
+                if (terminalInstance != null) {
+                    terminalInstance.appendOutput("Failed to delete remote directory: " + e.getMessage() + "\n");
+                }
             }
-        } catch (SftpException e) {
-            throw new IOException("Failed to delete remote path: " + remotePath, e);
-        }
-    }
-
-    private ChannelSftp getSftpChannel() {
-        if (sftpChannel == null || !sftpChannel.isConnected()) {
-            connectSFTP();
-        }
-        return sftpChannel;
+        });
     }
 
     public void uploadRemotePath(String string, String remotePath) {
@@ -476,7 +472,7 @@ public class SSHManager {
     public String getSshPassword() {
         return sshPassword;
     }
-    
+
     public List<String> getSSHCommands(String prefix) {
         synchronized (this) {
             if (System.currentTimeMillis() - remoteCommandsLastFetched < REMOTE_COMMANDS_CACHE_DURATION) {
@@ -505,6 +501,9 @@ public class SSHManager {
         channelExec.setOutputStream(baos);
         channelExec.setCommand("compgen -c");
         channelExec.connect();
+        while (!channelExec.isClosed()) {
+            Thread.sleep(100);
+        }
         channelExec.disconnect();
         String output = baos.toString(StandardCharsets.UTF_8);
         String[] commands = output.split("\\s+");
