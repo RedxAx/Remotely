@@ -1356,7 +1356,17 @@ public class ServerManagerScreen extends Screen {
             if (!Files.exists(file)) return;
             String json = Files.readString(file);
             List<RemoteHostInfo> loaded = parseRemoteHostsJson(json);
-            remoteHosts.addAll(loaded);
+            for (RemoteHostInfo newHost : loaded) {
+                boolean exists = remoteHosts.stream().anyMatch(existingHost ->
+                        existingHost.name.equals(newHost.name) &&
+                                existingHost.ip.equals(newHost.ip) &&
+                                existingHost.port == newHost.port &&
+                                existingHost.user.equals(newHost.user)
+                );
+                if (!exists) {
+                    remoteHosts.add(newHost);
+                }
+            }
         } catch (IOException ignored) {}
     }
 
