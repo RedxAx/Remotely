@@ -7,6 +7,7 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.CursorUtils;
+import redxax.oxy.TabTextAnimator;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.SSHManager;
 
@@ -107,6 +108,43 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         }
     }
 
+    class Tab {
+        Path path;
+        String name;
+        TabTextAnimator textAnimator;
+
+        Tab(Path path) {
+            this.path = path;
+            this.name = path.getFileName() != null ? path.getFileName().toString() : path.toString();
+            this.textAnimator = new TabTextAnimator(this.name, 0, 30);
+            this.textAnimator.start();
+        }
+
+        public void setName(String newName) {
+            textAnimator.setOnAnimationEnd(() -> {
+                this.name = newName;
+                textAnimator.updateText(newName);
+                textAnimator.setOnAnimationEnd(null);
+            });
+            textAnimator.reverse();
+        }
+
+        public String getAnimatedText() {
+            return textAnimator.getCurrentText();
+        }
+
+        public int getCurrentWidth(TextRenderer textRenderer) {
+            return textRenderer.getWidth(getAnimatedText()) + 2 * TAB_PADDING;
+        }
+    }
+
+    private List<Tab> tabs = new ArrayList<>();
+    private int currentTabIndex = 0;
+    private final int TAB_HEIGHT = 18;
+    private final int TAB_PADDING = 5;
+    private final int TAB_GAP = 5;
+    private final int PLUS_TAB_WIDTH = 18;
+
     public FileExplorerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
         this(mc, parent, info, false);
     }
@@ -162,6 +200,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 BufferedImage frame = loadingAnim.getSubimage(0, i * frameHeight, frameWidth, frameHeight);
                 loadingFrames.add(frame);
             }
+            tabs.add(new Tab(currentPath));
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -172,11 +211,32 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
 
+        int titleBarHeight = 30;
+        int tabBarY = titleBarHeight + 5;
+        int tabBarHeight = TAB_HEIGHT;
+        int tabX = 5;
+        int tabY = tabBarY;
+        for (int i = 0; i < tabs.size(); i++) {
+            Tab tab = tabs.get(i);
+            int tabWidth = tab.getCurrentWidth(textRenderer);
+            boolean isActive = (i == currentTabIndex);
+            boolean isHovered = mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
+            int bgColor = isActive ? elementSelectedBg : (isHovered ? highlightColor : elementBg);
+            context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
+            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? elementSelectedBorder : isHovered ? elementBorderHover : elementBorder);
+            context.drawText(this.textRenderer, Text.literal(tab.getAnimatedText()), tabX + TAB_PADDING, tabY + 5, textColor, true);
+            tabX += tabWidth + TAB_GAP;
+        }
+        int plusTabX = tabX;
+        boolean isPlusTabHovered = mouseX >= plusTabX && mouseX <= plusTabX + PLUS_TAB_WIDTH && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
+        context.fill(plusTabX, tabY, plusTabX + PLUS_TAB_WIDTH, tabY + tabBarHeight, isPlusTabHovered ? highlightColor : elementBg);
+        drawInnerBorder(context, plusTabX, tabY, PLUS_TAB_WIDTH, tabBarHeight, isPlusTabHovered ? elementBorderHover : elementBorder);
+        context.drawText(this.textRenderer, Text.literal("+"), plusTabX + PLUS_TAB_WIDTH / 2 - textRenderer.getWidth("+") / 2, tabY + 5, textColor, true);
+
+        int explorerY = tabBarY + tabBarHeight + 30;
+        int explorerHeight = this.height - explorerY - 10;
         int explorerX = 5;
-        int explorerY = 60;
         int explorerWidth = this.width - 10;
-        int explorerHeight = this.height - 70;
-        int gap = 1;
 
         int headerY = explorerY - 25;
         context.fill(explorerX, headerY, explorerX + explorerWidth, headerY + 25, BgColor);
@@ -188,7 +248,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             context.drawText(this.textRenderer, Text.literal("Created"), explorerX + 350, headerY + 5, textColor, true);
         }
 
-        int titleBarHeight = 30;
         context.fill(0, 0, this.width, titleBarHeight, 0xFF222222);
         drawInnerBorder(context, 0, 0, this.width, titleBarHeight, 0xFF333333);
 
@@ -199,8 +258,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (currentMode == Mode.SEARCH) {
             fieldWidthDynamic = searchBarWidth;
         }
-        fieldWidthDynamic = Math.min(fieldWidthDynamic + textRenderer.getWidth(fieldText.toString()), maxPathFieldWidth);
-        fieldWidthDynamic = Math.max(basePathFieldWidth, fieldWidthDynamic);
+
         int fieldX = (this.width - fieldWidthDynamic) / 2;
         int fieldY = 5;
         int fieldHeight = titleBarHeight - 10;
@@ -277,7 +335,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         drawInnerBorder(context, closeButtonX, closeButtonY, closeBtnW, closeBtnH, BorderColor);
         int tcw = minecraftClient.textRenderer.getWidth("Close");
         int tcx = closeButtonX + (closeBtnW - tcw) / 2;
-        int tcy = closeButtonY + (btnH - minecraftClient.textRenderer.fontHeight) / 2;
+        int tcy = closeButtonY + (closeBtnH - minecraftClient.textRenderer.fontHeight) / 2;
         context.drawText(this.textRenderer, Text.literal("Close"), tcx, tcy, textColor, true);
 
         if (loading) {
@@ -301,8 +359,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         synchronized (fileEntriesLock) {
             entriesToRender = new ArrayList<>(fileEntries);
         }
-        int visibleEntries = explorerHeight / (entryHeight + gap);
-        int startIndex = (int) Math.floor(smoothOffset / (entryHeight + gap)) - 1;
+        int visibleEntries = explorerHeight / (entryHeight + 1);
+        int startIndex = (int) Math.floor(smoothOffset / (entryHeight + 1)) - 1;
         if (startIndex < 0) startIndex = 0;
         int endIndex = startIndex + visibleEntries + 2;
         if (endIndex > entriesToRender.size()) endIndex = entriesToRender.size();
@@ -311,7 +369,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
         for (int entryIndex = startIndex; entryIndex < endIndex; entryIndex++) {
             EntryData entry = entriesToRender.get(entryIndex);
-            int entryY = explorerY + (entryIndex * (entryHeight + gap)) - (int) smoothOffset;
+            int entryY = explorerY + (entryIndex * (entryHeight + 1)) - (int) smoothOffset;
             boolean hovered = mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= entryY && mouseY < entryY + entryHeight;
             boolean isSelected = selectedPaths.contains(entry.path);
             boolean isFavorite;
@@ -342,13 +400,14 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (smoothOffset > 0) {
             context.fillGradient(0, explorerY, this.width, explorerY + 10, 0x80000000, 0x00000000);
         }
-        if (smoothOffset < Math.max(0, (entriesToRender.size() * (entryHeight + gap)) - explorerHeight)) {
+        if (smoothOffset < Math.max(0, (entriesToRender.size() * (entryHeight + 1)) - explorerHeight)) {
             context.fillGradient(0, explorerY + explorerHeight - 10, this.width, explorerY + explorerHeight, 0x00000000, 0x80000000);
         }
 
         updateNotifications(delta);
         renderNotifications(context, mouseX, mouseY, delta);
     }
+
 
     private void updatePathInfo() {
         fieldText.setLength(0);
@@ -528,7 +587,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
             if (keyCode == GLFW.GLFW_KEY_V && !serverInfo.isRemote) {
                 if (currentMode == Mode.SEARCH) {
-                    // Do nothing
                 } else {
                     if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
                         int selStart = Math.min(selectionStart, selectionEnd);
@@ -634,9 +692,47 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         boolean handled = false;
-        if (currentMode == Mode.SEARCH) {
-            if (mouseX >= searchBarX && mouseX <= searchBarX + searchBarWidth &&
-                    mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight) {
+        int titleBarHeight = 30;
+        int tabBarY = titleBarHeight + 5;
+        int tabBarHeight = TAB_HEIGHT;
+        int tabX = 5;
+        int tabY = tabBarY;
+        for (int i = 0; i < tabs.size(); i++) {
+            Tab tab = tabs.get(i);
+            int tabWidth = textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
+            if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight) {
+                if (button == GLFW.GLFW_MOUSE_BUTTON_1) {
+                    currentTabIndex = i;
+                    currentPath = tabs.get(i).path;
+                    loadDirectory(currentPath);
+                } else if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
+                    if (tabs.size() > 1) {
+                        Tab tabToRemove = tabs.get(i);
+                        tabToRemove.textAnimator.setOnAnimationEnd(() -> {
+                            tabs.remove(tabToRemove);
+                            if (currentTabIndex >= tabs.size()) {
+                                currentTabIndex = tabs.size() - 1;
+                            }
+                            currentPath = tabs.get(currentTabIndex).path;
+                            loadDirectory(currentPath);
+                        });
+                        tabToRemove.textAnimator.reverse();
+                    }
+                }
+                handled = true;
+                break;
+            }
+            tabX += tabWidth + TAB_GAP;
+        }
+        if (!handled) {
+            int plusTabX = tabX;
+            if (mouseX >= plusTabX && mouseX <= plusTabX + PLUS_TAB_WIDTH && mouseY >= tabY && mouseY <= tabY + tabBarHeight) {
+                if (button == GLFW.GLFW_MOUSE_BUTTON_1) {
+                    Tab newTab = new Tab(currentPath);
+                    tabs.add(newTab);
+                    currentTabIndex = tabs.size() - 1;
+                    loadDirectory(newTab.path);
+                }
                 handled = true;
             }
         }
@@ -648,10 +744,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     isDoubleClick = true;
                 }
                 lastClickTime = currentTime;
+                int explorerY = tabBarY + tabBarHeight + 30;
+                int explorerHeight = this.height - explorerY - 10;
                 int explorerX = 5;
-                int explorerY = 60;
                 int explorerWidth = this.width - 10;
-                int explorerHeight = this.height - 70;
                 int backButtonX = this.width - 120;
                 int backButtonY = 5;
                 int btnW = 50;
@@ -684,6 +780,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         if (isDoubleClick && lastClickedIndex == clickedIndex) {
                             if (entryData.isDirectory) {
                                 loadDirectory(selectedPath);
+                                tabs.get(currentTabIndex).path = selectedPath;
+                                tabs.get(currentTabIndex).setName(selectedPath.getFileName() != null ? selectedPath.getFileName().toString() : selectedPath.toString());
                             } else {
                                 if (importMode && selectedPath.getFileName().toString().equalsIgnoreCase("server.jar")) {
                                     String folderName = selectedPath.getParent().getFileName().toString();
@@ -740,7 +838,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     }
                 }
 
-                int titleBarHeight = 30;
                 int fieldWidthDynamic = basePathFieldWidth;
                 if (currentMode == Mode.SEARCH) {
                     fieldWidthDynamic = searchBarWidth;
@@ -761,74 +858,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     fieldFocused = false;
                 }
 
-                if (mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
-                    int relativeY = (int) mouseY - explorerY + (int) smoothOffset;
-                    int clickedIndex = relativeY / (entryHeight + gap);
-                    List<EntryData> entriesToRender;
-                    synchronized (fileEntriesLock) {
-                        entriesToRender = new ArrayList<>(fileEntries);
-                    }
-                    if (clickedIndex >= 0 && clickedIndex < entriesToRender.size()) {
-                        EntryData entryData = entriesToRender.get(clickedIndex);
-                        Path selectedPath = entryData.path;
-                        if (isDoubleClick && lastClickedIndex == clickedIndex) {
-                            if (entryData.isDirectory) {
-                                loadDirectory(selectedPath);
-                            } else {
-                                if (importMode && selectedPath.getFileName().toString().equalsIgnoreCase("server.jar")) {
-                                    String folderName = selectedPath.getParent().getFileName().toString();
-                                    if (parent instanceof redxax.oxy.servers.ServerManagerScreen sms) {
-                                        sms.importServerJar(selectedPath, folderName);
-                                    }
-                                    minecraftClient.setScreen(parent);
-                                    return true;
-                                }
-                                if (isSupportedFile(selectedPath)) {
-                                    minecraftClient.setScreen(new FileEditorScreen(minecraftClient, this, selectedPath, serverInfo));
-                                } else {
-                                    showNotification("Unsupported file.", Notification.Type.ERROR);
-                                }
-                            }
-                            lastClickedIndex = -1;
-                            return true;
-                        } else {
-                            lastClickedIndex = clickedIndex;
-                            if (!serverInfo.isRemote) {
-                                boolean ctrlPressed = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) ||
-                                        (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
-                                boolean shiftPressed = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS) ||
-                                        (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS);
-                                if (ctrlPressed) {
-                                    if (selectedPaths.contains(selectedPath)) {
-                                        selectedPaths.remove(selectedPath);
-                                    } else {
-                                        selectedPaths.add(selectedPath);
-                                    }
-                                    lastSelectedIndex = clickedIndex;
-                                } else if (shiftPressed && lastSelectedIndex != -1) {
-                                    int start = Math.min(lastSelectedIndex, clickedIndex);
-                                    int end = Math.max(lastSelectedIndex, clickedIndex);
-                                    for (int i = start; i <= end; i++) {
-                                        if (i >= 0 && i < entriesToRender.size()) {
-                                            Path path = entriesToRender.get(i).path;
-                                            if (!selectedPaths.contains(path)) {
-                                                selectedPaths.add(path);
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    selectedPaths.clear();
-                                    selectedPaths.add(selectedPath);
-                                    lastSelectedIndex = clickedIndex;
-                                }
-                            } else {
-                                selectedPaths.clear();
-                                selectedPaths.add(selectedPath);
-                            }
-                            return true;
-                        }
-                    }
-                }
+                return false;
             } else if (button == GLFW.GLFW_MOUSE_BUTTON_4) {
                 navigateUp();
                 return true;
@@ -848,7 +878,13 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (!history.isEmpty()) {
             Path previousPath = history.pop();
             forwardHistory.push(currentPath);
-            loadDirectory(previousPath, false, false);
+            loadDirectory(previousPath);
+            for (int i = 0; i < tabs.size(); i++) {
+                if (tabs.get(i).path.equals(previousPath)) {
+                    currentTabIndex = i;
+                    break;
+                }
+            }
         }
     }
 
@@ -861,14 +897,20 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 if (parentPath == null || parentPath.toString().isEmpty()) {
                     currentPath = Paths.get("/");
                     loadDirectory(currentPath);
+                    tabs.get(currentTabIndex).path = currentPath;
+                    tabs.get(currentTabIndex).setName(currentPath.getFileName() != null ? currentPath.getFileName().toString() : currentPath.toString());
                 } else {
                     loadDirectory(parentPath);
+                    tabs.get(currentTabIndex).path = parentPath;
+                    tabs.get(currentTabIndex).setName(parentPath.getFileName() != null ? parentPath.getFileName().toString() : parentPath.toString());
                 }
             }
         } else {
             Path parentPath = currentPath.getParent();
             if (parentPath != null && parentPath.startsWith(Paths.get(serverInfo.path).toAbsolutePath().normalize())) {
                 loadDirectory(parentPath);
+                tabs.get(currentTabIndex).path = parentPath;
+                tabs.get(currentTabIndex).setName(parentPath.getFileName() != null ? parentPath.getFileName().toString() : parentPath.toString());
             } else {
                 minecraftClient.setScreen(parent);
             }
@@ -915,6 +957,14 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         Path newPath = Paths.get(fieldText.toString()).toAbsolutePath().normalize();
         if (Files.exists(newPath) && Files.isDirectory(newPath)) {
             loadDirectory(newPath);
+            for (int i = 0; i < tabs.size(); i++) {
+                if (tabs.get(i).path.equals(newPath)) {
+                    currentTabIndex = i;
+                    return;
+                }
+            }
+            tabs.get(currentTabIndex).path = newPath;
+            tabs.get(currentTabIndex).setName(newPath.getFileName() != null ? newPath.getFileName().toString() : newPath.toString());
         } else {
             showNotification("Invalid path.", Notification.Type.ERROR);
         }
