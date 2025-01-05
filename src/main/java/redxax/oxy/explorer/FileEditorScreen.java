@@ -5,6 +5,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.CursorUtils;
 import redxax.oxy.servers.ServerInfo;
 
 import java.io.BufferedReader;
@@ -13,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.List;
 
 public class FileEditorScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -25,7 +27,7 @@ public class FileEditorScreen extends Screen {
     private boolean unsaved;
     private int baseColor = 0xFF181818;
     private int lighterColor = 0xFF222222;
-    private int borderColor = 0xFF333333;
+    private int borderColor = 0xFF555555;
     private int highlightColor = 0xFF444444;
     private int textColor = 0xFFFFFFFF;
     private static long lastLeftClickTime = 0;
@@ -36,6 +38,8 @@ public class FileEditorScreen extends Screen {
     private int saveButtonY;
     private int btnW;
     private int btnH;
+    private static final double FAST_SCROLL_FACTOR = 3.0;
+    private static final double HORIZONTAL_SCROLL_FACTOR = 10.0;
 
     public FileEditorScreen(MinecraftClient mc, Screen parent, Path filePath, ServerInfo info) {
         super(Text.literal("File Editor"));
@@ -79,7 +83,7 @@ public class FileEditorScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        this.textEditor.init(10, 40, this.width - 20, this.height - 80);
+        this.textEditor.init(5, 35, this.width - 10, this.height - 45);
         btnW = 50;
         btnH = 20;
         saveButtonX = this.width - 60;
@@ -164,7 +168,18 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizAmount, double vertAmount) {
-        textEditor.scroll(vertAmount);
+        long windowHandle = minecraftClient.getWindow().getHandle();
+        boolean shiftHeld = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS ||
+                GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
+        boolean ctrlHeld = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS ||
+                GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
+        if (shiftHeld) {
+            textEditor.scrollHoriz((int) (-vertAmount) * (int) HORIZONTAL_SCROLL_FACTOR);
+        } else if (ctrlHeld) {
+            textEditor.scrollVert((int) (-vertAmount) * (int) FAST_SCROLL_FACTOR);
+        } else {
+            textEditor.scrollVert((int) (-vertAmount));
+        }
         return true;
     }
 
@@ -177,11 +192,12 @@ public class FileEditorScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         context.fill(0, 0, this.width, 30, lighterColor);
-        drawInnerBorder(context, 0, 0, this.width, 30, borderColor);
+        drawInnerBorder(context, 0, 1, this.width, 30, borderColor);
         String titleText = "Editing: " + filePath.getFileName().toString() + (unsaved ? " *" : "");
-        context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, textColor, false);
+        context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, textColor, true);
 
         textEditor.render(context, mouseX, mouseY, delta);
+        drawInnerBorder(context, 5, 35, this.width - 10, this.height - 45, borderColor);
 
         boolean hoveredSave = mouseX >= saveButtonX && mouseX <= saveButtonX + btnW && mouseY >= saveButtonY && mouseY <= saveButtonY + btnH;
         int bgSave = hoveredSave ? highlightColor : lighterColor;
@@ -190,7 +206,7 @@ public class FileEditorScreen extends Screen {
         int tw = minecraftClient.textRenderer.getWidth("Save");
         int tx = saveButtonX + (btnW - tw) / 2;
         int ty = saveButtonY + (btnH - minecraftClient.textRenderer.fontHeight) / 2;
-        context.drawText(minecraftClient.textRenderer, Text.literal("Save"), tx, ty, textColor, false);
+        context.drawText(minecraftClient.textRenderer, Text.literal("Save"), tx, ty, textColor, true);
 
         boolean hoveredBack = mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH;
         int bgBack = hoveredBack ? highlightColor : lighterColor;
@@ -198,7 +214,7 @@ public class FileEditorScreen extends Screen {
         drawInnerBorder(context, backButtonX, backButtonY, btnW, btnH, borderColor);
         int twb = minecraftClient.textRenderer.getWidth("Back");
         int txb = backButtonX + (btnW - twb) / 2;
-        context.drawText(minecraftClient.textRenderer, Text.literal("Back"), txb, ty, textColor, false);
+        context.drawText(minecraftClient.textRenderer, Text.literal("Back"), txb, ty, textColor, true);
     }
 
     private void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int c) {
@@ -250,7 +266,11 @@ public class FileEditorScreen extends Screen {
         private int y;
         private int width;
         private int height;
-        private int scrollOffset;
+        private double smoothScrollOffsetVert = 0;
+        private double smoothScrollOffsetHoriz = 0;
+        private double targetScrollOffsetVert = 0;
+        private double targetScrollOffsetHoriz = 0;
+        private double scrollSpeed = 0.3;
         private int cursorLine;
         private int cursorPos;
         private int selectionStartLine = -1;
@@ -259,8 +279,14 @@ public class FileEditorScreen extends Screen {
         private int selectionEndChar = -1;
         private final ArrayDeque<EditorState> undoStack = new ArrayDeque<>();
         private final ArrayDeque<EditorState> redoStack = new ArrayDeque<>();
-        private int lineNumberWidth = 40;
         private int textPadding = 4;
+        private int paddingTop = 5;
+        private int paddingRight = 5;
+        private int cursor = 0xFFFF0000;
+        private float cursorOpacity = 1.0f;
+        private boolean cursorFadingOut = true;
+        private long lastCursorBlinkTime = 0;
+        private static final long CURSOR_BLINK_INTERVAL = 30;
 
         public MultiLineTextEditor(MinecraftClient mc, ArrayList<String> content, String fileName) {
             this.mc = mc;
@@ -273,35 +299,54 @@ public class FileEditorScreen extends Screen {
             this.y = y;
             this.width = w;
             this.height = h;
-            this.scrollOffset = 0;
+            this.smoothScrollOffsetVert = 0;
+            this.smoothScrollOffsetHoriz = 0;
+            this.targetScrollOffsetVert = 0;
+            this.targetScrollOffsetHoriz = 0;
             this.cursorLine = 0;
             this.cursorPos = 0;
             pushState();
         }
 
         public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+            smoothScrollOffsetVert += (targetScrollOffsetVert - smoothScrollOffsetVert) * scrollSpeed;
+            smoothScrollOffsetHoriz += (targetScrollOffsetHoriz - smoothScrollOffsetHoriz) * scrollSpeed;
+
+            context.enableScissor(x, y, x + width, y + height);
+
             int lineHeight = mc.textRenderer.fontHeight + 2;
             int visibleLines = height / lineHeight;
+
             for (int i = 0; i < visibleLines; i++) {
-                int lineIndex = scrollOffset + i;
-                if (lineIndex < 0 || lineIndex >= lines.size()) break;
-                int renderY = y + i * lineHeight;
+                int lineIndex = (int) Math.floor(smoothScrollOffsetVert / lineHeight) + i;
+                if (lineIndex < 0 || lineIndex >= lines.size()) continue;
+                int renderY = y + i * lineHeight - (int) smoothScrollOffsetVert % lineHeight;
                 String text = lines.get(lineIndex);
                 Text syntaxColoredLine = SyntaxHighlighter.highlight(text, fileName);
-                String lineNumberStr = String.valueOf(lineIndex + 1);
-                int lnWidth = mc.textRenderer.getWidth(lineNumberStr);
-                context.drawText(mc.textRenderer, Text.literal(lineNumberStr), x - lineNumberWidth + (lineNumberWidth - lnWidth) / 2, renderY, 0xFFAAAAAA, false);
-                context.fill(x - 2, renderY, x, renderY + lineHeight - 2, 0xFF555555);
-                context.drawText(mc.textRenderer, syntaxColoredLine, x + textPadding, renderY, 0xFFFFFF, false);
+                context.drawText(mc.textRenderer, syntaxColoredLine, x + textPadding - (int) smoothScrollOffsetHoriz, renderY, 0xFFFFFF, true);
                 if (isLineSelected(lineIndex)) {
                     drawSelection(context, lineIndex, renderY, text, textPadding);
                 }
                 if (lineIndex == cursorLine && !hasSelection()) {
+                    CursorUtils.updateCursorOpacity();
                     int cursorX = mc.textRenderer.getWidth(text.substring(0, Math.min(cursorPos, text.length())));
                     int cy = renderY;
-                    context.fill(x + textPadding + cursorX, cy, x + textPadding + cursorX + 1, cy + lineHeight - 2, 0xFFFFFFFF);
+                    int cursorColor = CursorUtils.blendColor();
+                    context.fill(x + textPadding - (int) smoothScrollOffsetHoriz + cursorX, cy, x + textPadding - (int) smoothScrollOffsetHoriz + cursorX + 1, cy + lineHeight - 2, cursorColor);
                 }
             }
+            context.disableScissor();
+        }
+
+        private int getMaxLineWidth() {
+            int maxWidth = 0;
+            for (String line : lines) {
+                int lineWidth = mc.textRenderer.getWidth(line);
+                if (lineWidth > maxWidth) {
+                    maxWidth = lineWidth;
+                }
+            }
+            return maxWidth;
         }
 
         private boolean charTyped(char chr, int keyCode) {
@@ -321,6 +366,7 @@ public class FileEditorScreen extends Screen {
                     cursorLine = lines.size() - 1;
                     cursorPos = 0;
                 }
+                scrollToCursor();
                 return true;
             } else if (chr >= 32 && chr != 127) {
                 deleteSelection();
@@ -332,6 +378,7 @@ public class FileEditorScreen extends Screen {
                 String newLine = line.substring(0, pos) + chr + line.substring(pos);
                 lines.set(cursorLine, newLine);
                 cursorPos++;
+                scrollToCursor();
                 return true;
             }
             return false;
@@ -344,11 +391,13 @@ public class FileEditorScreen extends Screen {
                     if (ctrlHeld) {
                         deleteWord();
                         pushState();
+                        scrollToCursor();
                         return true;
                     }
                     if (hasSelection()) {
                         deleteSelection();
                         pushState();
+                        scrollToCursor();
                         return true;
                     }
                     if (cursorLine < 0 || cursorLine >= lines.size()) return true;
@@ -367,6 +416,7 @@ public class FileEditorScreen extends Screen {
                             cursorPos = oldLen;
                         }
                     }
+                    scrollToCursor();
                     return true;
                 }
                 case GLFW.GLFW_KEY_LEFT -> {
@@ -403,6 +453,7 @@ public class FileEditorScreen extends Screen {
                             selectionEndChar = cursorPos;
                         }
                     }
+                    scrollToCursor();
                     return true;
                 }
                 case GLFW.GLFW_KEY_RIGHT -> {
@@ -439,6 +490,7 @@ public class FileEditorScreen extends Screen {
                             selectionEndChar = cursorPos;
                         }
                     }
+                    scrollToCursor();
                     return true;
                 }
                 case GLFW.GLFW_KEY_DOWN -> {
@@ -456,6 +508,7 @@ public class FileEditorScreen extends Screen {
                             selectionEndChar = cursorPos;
                         }
                     }
+                    scrollToCursor();
                     return true;
                 }
                 case GLFW.GLFW_KEY_UP -> {
@@ -473,6 +526,7 @@ public class FileEditorScreen extends Screen {
                             selectionEndChar = cursorPos;
                         }
                     }
+                    scrollToCursor();
                     return true;
                 }
                 case GLFW.GLFW_KEY_V -> {
@@ -501,6 +555,7 @@ public class FileEditorScreen extends Screen {
                                 cursorPos++;
                             }
                         }
+                        scrollToCursor();
                         return true;
                     }
                 }
@@ -515,6 +570,7 @@ public class FileEditorScreen extends Screen {
                         copySelectionToClipboard();
                         deleteSelection();
                         pushState();
+                        scrollToCursor();
                     }
                     return true;
                 }
@@ -535,10 +591,47 @@ public class FileEditorScreen extends Screen {
                     }
                     cursorLine++;
                     cursorPos = 0;
+                    scrollToCursor();
                     return true;
                 }
             }
             return false;
+        }
+
+        private int moveCursorLeftWord() {
+            if (cursorLine < 0 || cursorLine >= lines.size()) return 0;
+            String line = lines.get(cursorLine);
+            int index = Math.min(cursorPos - 1, line.length() - 1);
+            while (index >= 0 && Character.isWhitespace(line.charAt(index))) {
+                index--;
+            }
+            while (index >= 0 && !Character.isWhitespace(line.charAt(index))) {
+                index--;
+            }
+            if (index < 0 && cursorLine > 0) {
+                cursorLine--;
+                cursorPos = lines.get(cursorLine).length();
+                return cursorPos;
+            }
+            return Math.max(0, index + 1);
+        }
+
+        private int moveCursorRightWord() {
+            if (cursorLine < 0 || cursorLine >= lines.size()) return 0;
+            String line = lines.get(cursorLine);
+            int index = cursorPos;
+            while (index < line.length() && Character.isWhitespace(line.charAt(index))) {
+                index++;
+            }
+            while (index < line.length() && !Character.isWhitespace(line.charAt(index))) {
+                index++;
+            }
+            if (index >= line.length() && cursorLine < lines.size() - 1) {
+                cursorLine++;
+                cursorPos = 0;
+                return cursorPos;
+            }
+            return index;
         }
 
         private void deleteWord() {
@@ -554,6 +647,7 @@ public class FileEditorScreen extends Screen {
             String newLine = line.substring(0, startPos) + line.substring(cursorPos);
             lines.set(cursorLine, newLine);
             cursorPos = startPos;
+            scrollToCursor();
         }
 
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
@@ -569,10 +663,10 @@ public class FileEditorScreen extends Screen {
                 clearSelection();
                 int lineHeight = mc.textRenderer.fontHeight + 2;
                 int localY = (int) mouseY - y;
-                int clickedLine = scrollOffset + (localY / lineHeight);
+                int clickedLine = (int) Math.floor(smoothScrollOffsetVert / lineHeight) + (localY / lineHeight);
                 if (clickedLine >= 0 && clickedLine < lines.size()) {
                     cursorLine = clickedLine;
-                    int localX = (int) mouseX - (x + textPadding);
+                    int localX = (int) mouseX - (x + textPadding) + (int) smoothScrollOffsetHoriz;
                     String text = lines.get(cursorLine);
                     int cPos = 0;
                     int widthSum = 0;
@@ -620,11 +714,11 @@ public class FileEditorScreen extends Screen {
         public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 int lineHeight = mc.textRenderer.fontHeight + 2;
-                int localY = (int)mouseY - y;
-                int dragLine = scrollOffset + (localY / lineHeight);
+                int localY = (int) mouseY - y;
+                int dragLine = (int) Math.floor(smoothScrollOffsetVert / lineHeight) + (localY / lineHeight);
                 if (dragLine < 0) dragLine = 0;
                 if (dragLine >= lines.size()) dragLine = lines.size() - 1;
-                int localX = (int)mouseX - (x + textPadding);
+                int localX = (int) mouseX - (x + textPadding) + (int) smoothScrollOffsetHoriz;
                 String text = lines.get(dragLine);
                 int cPos = 0;
                 int widthSum = 0;
@@ -638,55 +732,24 @@ public class FileEditorScreen extends Screen {
                 cursorPos = cPos;
                 selectionEndLine = dragLine;
                 selectionEndChar = cPos;
+                scrollToCursor();
                 return true;
             }
             return false;
         }
 
-        public void scroll(double amount) {
-            if (GLFW.glfwGetKey(mc.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS ||
-                    GLFW.glfwGetKey(mc.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS) {
-                amount *= 3;
-            }
-            scrollOffset -= (int) amount;
-            if (scrollOffset < 0) scrollOffset = 0;
-            if (scrollOffset >= lines.size()) scrollOffset = Math.max(0, lines.size() - 1);
+        public void scrollVert(int amount) {
+            targetScrollOffsetVert += amount * (mc.textRenderer.fontHeight + 2);
+            if (targetScrollOffsetVert < 0) targetScrollOffsetVert = 0;
+            int maxScroll = Math.max(0, lines.size() * (mc.textRenderer.fontHeight + 2) - height);
+            if (targetScrollOffsetVert > maxScroll) targetScrollOffsetVert = maxScroll;
         }
 
-        private int moveCursorLeftWord() {
-            if (cursorLine < 0 || cursorLine >= lines.size()) return 0;
-            String line = lines.get(cursorLine);
-            int index = Math.min(cursorPos - 1, line.length() - 1);
-            while (index >= 0 && Character.isWhitespace(line.charAt(index))) {
-                index--;
-            }
-            while (index >= 0 && !Character.isWhitespace(line.charAt(index))) {
-                index--;
-            }
-            if (index < 0 && cursorLine > 0) {
-                cursorLine--;
-                cursorPos = lines.get(cursorLine).length();
-                return cursorPos;
-            }
-            return Math.max(0, index + 1);
-        }
-
-        private int moveCursorRightWord() {
-            if (cursorLine < 0 || cursorLine >= lines.size()) return 0;
-            String line = lines.get(cursorLine);
-            int index = cursorPos;
-            while (index < line.length() && Character.isWhitespace(line.charAt(index))) {
-                index++;
-            }
-            while (index < line.length() && !Character.isWhitespace(line.charAt(index))) {
-                index++;
-            }
-            if (index >= line.length() && cursorLine < lines.size() - 1) {
-                cursorLine++;
-                cursorPos = 0;
-                return 0;
-            }
-            return index;
+        public void scrollHoriz(int amount) {
+            targetScrollOffsetHoriz += amount;
+            int maxScroll = Math.max(0, getMaxLineWidth() - width);
+            if (targetScrollOffsetHoriz < 0) targetScrollOffsetHoriz = 0;
+            if (targetScrollOffsetHoriz > maxScroll) targetScrollOffsetHoriz = maxScroll;
         }
 
         private void deleteSelection() {
@@ -725,6 +788,7 @@ public class FileEditorScreen extends Screen {
             lines.clear();
             lines.addAll(newLines);
             clearSelection();
+            scrollToCursor();
         }
 
         private boolean hasSelection() {
@@ -760,7 +824,7 @@ public class FileEditorScreen extends Screen {
             selectionEnd = Math.min(lineText.length(), selectionEnd);
             String beforeSelection = lineText.substring(0, selectionStart);
             String selectionText = lineText.substring(selectionStart, selectionEnd);
-            int selectionXStart = x + padding + mc.textRenderer.getWidth(beforeSelection);
+            int selectionXStart = x + padding + mc.textRenderer.getWidth(beforeSelection) - (int) smoothScrollOffsetHoriz;
             int selectionWidth = mc.textRenderer.getWidth(selectionText);
             int lineHeight = mc.textRenderer.fontHeight + 2;
             context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, yPosition + lineHeight - 2, 0x804A90E2);
@@ -817,7 +881,7 @@ public class FileEditorScreen extends Screen {
             selectionEndChar = -1;
         }
 
-        public java.util.List<String> getLines() {
+        public List<String> getLines() {
             return lines;
         }
 
@@ -830,10 +894,8 @@ public class FileEditorScreen extends Screen {
                 lines.addAll(state.lines);
                 cursorLine = state.cursorLine;
                 cursorPos = state.cursorPos;
-                selectionStartLine = -1;
-                selectionStartChar = -1;
-                selectionEndLine = -1;
-                selectionEndChar = -1;
+                clearSelection();
+                scrollToCursor();
             }
         }
 
@@ -845,10 +907,8 @@ public class FileEditorScreen extends Screen {
                 lines.addAll(state.lines);
                 cursorLine = state.cursorLine;
                 cursorPos = state.cursorPos;
-                selectionStartLine = -1;
-                selectionStartChar = -1;
-                selectionEndLine = -1;
-                selectionEndChar = -1;
+                clearSelection();
+                scrollToCursor();
             }
         }
 
@@ -859,6 +919,7 @@ public class FileEditorScreen extends Screen {
             selectionEndChar = lines.get(lines.size() - 1).length();
             cursorLine = lines.size() - 1;
             cursorPos = lines.get(lines.size() - 1).length();
+            scrollToCursor();
         }
 
         private void pushState() {
@@ -870,10 +931,29 @@ public class FileEditorScreen extends Screen {
             return new EditorState(new ArrayList<>(lines), cursorLine, cursorPos);
         }
 
+        private void scrollToCursor() {
+            int lineHeight = mc.textRenderer.fontHeight + 2;
+            int cursorY = cursorLine * lineHeight;
+            double desiredScrollVert = cursorY - (height / 2.0) + (3 * lineHeight) - paddingTop;
+            targetScrollOffsetVert = desiredScrollVert;
+            if (targetScrollOffsetVert < 0) targetScrollOffsetVert = 0;
+            int maxScrollVert = Math.max(0, lines.size() * lineHeight - height);
+            if (targetScrollOffsetVert > maxScrollVert) targetScrollOffsetVert = maxScrollVert;
+
+            String lineText = lines.get(cursorLine);
+            int cursorX = mc.textRenderer.getWidth(lineText.substring(0, Math.min(cursorPos, lineText.length())));
+            double desiredScrollHoriz = cursorX - (width / 2.0) + (3 * mc.textRenderer.getWidth("word"));
+            targetScrollOffsetHoriz = desiredScrollHoriz;
+            if (targetScrollOffsetHoriz < 0) targetScrollOffsetHoriz = 0;
+            int maxScrollHoriz = Math.max(0, getMaxLineWidth() - width);
+            if (targetScrollOffsetHoriz > maxScrollHoriz) targetScrollOffsetHoriz = maxScrollHoriz;
+        }
+
         private static class EditorState {
             private final ArrayList<String> lines;
             private final int cursorLine;
             private final int cursorPos;
+
             public EditorState(ArrayList<String> lines, int cursorLine, int cursorPos) {
                 this.lines = lines;
                 this.cursorLine = cursorLine;
