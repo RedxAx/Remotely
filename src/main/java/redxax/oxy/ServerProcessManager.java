@@ -4,11 +4,13 @@ import redxax.oxy.input.TerminalProcessManager;
 import redxax.oxy.servers.ServerState;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 
 public class ServerProcessManager extends TerminalProcessManager {
     private final ServerTerminalInstance serverInstance;
@@ -18,35 +20,43 @@ public class ServerProcessManager extends TerminalProcessManager {
         this.serverInstance = terminalInstance;
     }
 
+    public void extract() throws IOException {
+        Path localScriptPath = Paths.get("C:\\remotely\\scripts\\");
+        Path assetsPath = Paths.get("/assets/remotely/scripts/");
+        Path shScriptPath = assetsPath.resolve("start.sh");
+        Path batScriptPath = assetsPath.resolve("start.bat");
+
+        if (!Files.exists(localScriptPath)) {
+            Files.createDirectories(localScriptPath);
+        }
+
+        try (InputStream shStream = getClass().getResourceAsStream(shScriptPath.toString());
+             InputStream batStream = getClass().getResourceAsStream(batScriptPath.toString())) {
+
+            if (shStream == null || batStream == null) {
+                throw new IOException("Script resources not found.");
+            }
+
+            Files.copy(shStream, localScriptPath.resolve("start.sh"), StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(batStream, localScriptPath.resolve("start.bat"), StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
     @Override
     public void launchTerminal() {
+
         try {
-            if (serverInstance.serverInfo.isRemote) {
-                if (serverInstance.serverInfo.remoteSSHManager == null) {
-                    serverInstance.appendOutput("Remote SSH Manager not initialized.\n");
-                    return;
-                }
-                if (!serverInstance.serverInfo.remoteSSHManager.isSSH()) {
-                    serverInstance.appendOutput("SSH connection not established.\n");
-                    return;
-                }
-                serverInstance.serverInfo.remoteSSHManager.launchRemoteServer(serverInstance.serverInfo.path, serverInstance.serverJarPath);
-                serverInstance.appendOutput("Remote server launch command sent.\n");
-            } else {
+            extract();
                 if (terminalProcess != null && terminalProcess.isAlive()) {
                     shutdown();
                 }
-                if (serverInstance.serverJarPath == null || serverInstance.serverJarPath.isEmpty()) {
-                    serverInstance.appendOutput("No server JAR specified.\n");
-                    return;
+                String scriptName = System.getProperty("os.name").toLowerCase().contains("win") ? "start.bat" : "start.sh";
+                Path scriptPath = Paths.get(serverInstance.serverJarPath).getParent().resolve(scriptName);
+                if (!Files.exists(scriptPath)) {
+                    copyScriptFromResources(scriptName, scriptPath);
                 }
-                Path jarPath = Paths.get(serverInstance.serverJarPath);
-                if (!Files.exists(jarPath)) {
-                    serverInstance.appendOutput("Server JAR not found at: " + serverInstance.serverJarPath + "\n");
-                    return;
-                }
-                File workingDir = jarPath.getParent().toFile();
-                ProcessBuilder pb = new ProcessBuilder("java", "-jar", serverInstance.serverJarPath, "--nogui");
+                File workingDir = scriptPath.getParent().toFile();
+                ProcessBuilder pb = new ProcessBuilder(scriptPath.toString());
                 if (workingDir.exists()) {
                     pb.directory(workingDir);
                 }
@@ -57,10 +67,19 @@ public class ServerProcessManager extends TerminalProcessManager {
                 writer = new OutputStreamWriter(terminalProcess.getOutputStream(), StandardCharsets.UTF_8);
                 startReaders();
                 serverInstance.appendOutput("Server process started.\n");
-            }
+
         } catch (Exception e) {
             serverInstance.serverInfo.state = ServerState.CRASHED;
             serverInstance.appendOutput("Failed to launch server process: " + e.getMessage() + "\n");
+        }
+    }
+
+    private void copyScriptFromResources(String scriptName, Path destination) throws IOException {
+        try (InputStream resourceStream = getClass().getResourceAsStream("/assets/remotely/scripts/" + scriptName)) {
+            if (resourceStream == null) {
+                throw new IOException("Resource not found: " + scriptName);
+            }
+            Files.copy(resourceStream, destination);
         }
     }
 }
