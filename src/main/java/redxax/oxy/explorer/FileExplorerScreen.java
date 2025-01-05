@@ -52,8 +52,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private int lastClickedIndex = -1;
     private Deque<Path> history = new ArrayDeque<>();
     private Deque<Path> forwardHistory = new ArrayDeque<>();
-    private boolean searchActive = false;
-    private StringBuilder searchQuery = new StringBuilder();
     private int searchBarX = 10;
     private int searchBarY = 0;
     private int searchBarWidth = 200;
@@ -81,8 +79,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private final Object favoritePathsLock = new Object();
     private final Path favoritesFilePath = Paths.get("C:/remotely/data/favorites.dat");
 
-    private boolean pathFieldFocused = false;
-    private StringBuilder pathFieldText = new StringBuilder();
+    private boolean fieldFocused = false;
+    private StringBuilder fieldText = new StringBuilder();
     private int cursorPosition = 0;
     private int selectionStart = -1;
     private int selectionEnd = -1;
@@ -93,6 +91,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private float pathScrollOffset = 0;
     private float pathTargetScrollOffset = 0;
 
+    private enum Mode { PATH, SEARCH }
+    private Mode currentMode = Mode.PATH;
 
     private static class EntryData {
         Path path;
@@ -132,8 +132,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         } else {
             this.currentPath = Paths.get(serverInfo.path).toAbsolutePath().normalize();
         }
-        this.pathFieldText.append(currentPath.toString());
-        this.cursorPosition = pathFieldText.length();
+        this.fieldText.append(currentPath.toString());
+        this.cursorPosition = fieldText.length();
     }
 
     @Override
@@ -195,44 +195,49 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         String prefixText = "Remotely - File Explorer";
         context.drawText(this.textRenderer, Text.literal(prefixText), 10, 10, textColor, true);
 
-        int pathFieldWidthDynamic = basePathFieldWidth;
-        int pathFieldX = (this.width - pathFieldWidthDynamic) / 2;
-        int pathFieldY = 5;
-        int pathFieldHeight = titleBarHeight - 10;
-        int pathFieldColor = pathFieldFocused ? elementSelectedBg : elementBg;
-        context.fill(pathFieldX, pathFieldY, pathFieldX + pathFieldWidthDynamic, pathFieldY + pathFieldHeight, pathFieldColor);
-        drawInnerBorder(context, pathFieldX, pathFieldY, pathFieldWidthDynamic, pathFieldHeight, pathFieldFocused ? elementSelectedBorder : elementBorder);
+        int fieldWidthDynamic = basePathFieldWidth;
+        if (currentMode == Mode.SEARCH) {
+            fieldWidthDynamic = searchBarWidth;
+        }
+        fieldWidthDynamic = Math.min(fieldWidthDynamic + textRenderer.getWidth(fieldText.toString()), maxPathFieldWidth);
+        fieldWidthDynamic = Math.max(basePathFieldWidth, fieldWidthDynamic);
+        int fieldX = (this.width - fieldWidthDynamic) / 2;
+        int fieldY = 5;
+        int fieldHeight = titleBarHeight - 10;
+        int fieldColor = fieldFocused ? (currentMode == Mode.SEARCH ? elementSelectedBg : elementBg) : elementBg;
+        context.fill(fieldX, fieldY, fieldX + fieldWidthDynamic, fieldY + fieldHeight, fieldColor);
+        drawInnerBorder(context, fieldX, fieldY, fieldWidthDynamic, fieldHeight, fieldFocused ? (currentMode == Mode.SEARCH ? elementSelectedBorder : elementBorder) : elementBorder);
 
         if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
             int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
-            int selEnd = Math.min(pathFieldText.length(), Math.max(selectionStart, selectionEnd));
+            int selEnd = Math.min(fieldText.length(), Math.max(selectionStart, selectionEnd));
             if (selStart < 0) selStart = 0;
-            if (selEnd > pathFieldText.length()) selEnd = pathFieldText.length();
-            String beforeSelection = pathFieldText.substring(0, selStart);
-            String selectedText = pathFieldText.substring(selStart, selEnd);
-            int selX = pathFieldX + 5 + textRenderer.getWidth(beforeSelection);
+            if (selEnd > fieldText.length()) selEnd = fieldText.length();
+            String beforeSelection = fieldText.substring(0, selStart);
+            String selectedText = fieldText.substring(selStart, selEnd);
+            int selX = fieldX + 5 + textRenderer.getWidth(beforeSelection);
             int selWidth = textRenderer.getWidth(selectedText);
-            context.fill(selX, pathFieldY + 5, selX + selWidth, pathFieldY + 5 + textRenderer.fontHeight, 0x80FFFFFF);
+            context.fill(selX, fieldY + 5, selX + selWidth, fieldY + 5 + textRenderer.fontHeight, 0x80FFFFFF);
         }
 
-        String displayText = pathFieldText.toString();
-        int displayWidth = pathFieldWidthDynamic - 10;
+        String displayText = fieldText.toString();
+        int displayWidth = fieldWidthDynamic - 10;
         int textWidth = textRenderer.getWidth(displayText);
 
-        int cursorX = pathFieldX + 5 + textRenderer.getWidth(displayText.substring(0, Math.min(cursorPosition, displayText.length())));
+        int cursorX = fieldX + 5 + textRenderer.getWidth(displayText.substring(0, Math.min(cursorPosition, displayText.length())));
         float cursorMargin = 50.0f;
-        if (cursorX - pathScrollOffset > pathFieldX + pathFieldWidthDynamic - 5 - cursorMargin) {
-            pathTargetScrollOffset = cursorX - (pathFieldX + pathFieldWidthDynamic - 5 - cursorMargin);
-        } else if (cursorX - pathScrollOffset < pathFieldX + 5 + cursorMargin) {
-            pathTargetScrollOffset = cursorX - (pathFieldX + 5 + cursorMargin);
+        if (cursorX - pathScrollOffset > fieldX + fieldWidthDynamic - 5 - cursorMargin) {
+            pathTargetScrollOffset = cursorX - (fieldX + fieldWidthDynamic - 5 - cursorMargin);
+        } else if (cursorX - pathScrollOffset < fieldX + 5 + cursorMargin) {
+            pathTargetScrollOffset = cursorX - (fieldX + 5 + cursorMargin);
         }
 
         pathTargetScrollOffset = Math.max(0, Math.min(pathTargetScrollOffset, textWidth - displayWidth));
 
         pathScrollOffset += (pathTargetScrollOffset - pathScrollOffset) * scrollSpeed;
 
-        context.enableScissor(pathFieldX, pathFieldY, pathFieldX + pathFieldWidthDynamic, pathFieldY + pathFieldHeight);
-        context.drawText(this.textRenderer, Text.literal(displayText), pathFieldX + 5 - (int) pathScrollOffset, pathFieldY + 5, textColor, true);
+        context.enableScissor(fieldX, fieldY, fieldX + fieldWidthDynamic, fieldY + fieldHeight);
+        context.drawText(this.textRenderer, Text.literal(displayText), fieldX + 5 - (int) pathScrollOffset, fieldY + 5, textColor, true);
 
         CursorUtils.updateCursorOpacity();
 
@@ -241,11 +246,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             showCursor = !showCursor;
             lastBlinkTime = currentTime;
         }
-        if (pathFieldFocused && showCursor) {
+        if (fieldFocused && showCursor) {
             String beforeCursor = cursorPosition <= displayText.length() ? displayText.substring(0, cursorPosition) : displayText;
-            int cursorPosX = pathFieldX + 5 + textRenderer.getWidth(beforeCursor) - (int) pathScrollOffset;
+            int cursorPosX = fieldX + 5 + textRenderer.getWidth(beforeCursor) - (int) pathScrollOffset;
             int blendedCursorColor = CursorUtils.blendColor();
-            context.fill(cursorPosX, pathFieldY + 5, cursorPosX + 2, pathFieldY + 5 + textRenderer.fontHeight, blendedCursorColor);
+            context.fill(cursorPosX, fieldY + 5, cursorPosX + 2, fieldY + 5 + textRenderer.fontHeight, blendedCursorColor);
         }
         context.disableScissor();
 
@@ -341,84 +346,169 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             context.fillGradient(0, explorerY + explorerHeight - 10, this.width, explorerY + explorerHeight, 0x00000000, 0x80000000);
         }
 
-        if (searchActive) {
-            context.fill(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight, 0xFF333333);
-            drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, 0xFF555555);
-            context.drawText(this.textRenderer, Text.literal(searchQuery.toString()), searchBarX + 5, searchBarY + 5, 0xFFFFFFFF, true);
-        }
-
         updateNotifications(delta);
         renderNotifications(context, mouseX, mouseY, delta);
+    }
+
+    private void updatePathInfo() {
+        fieldText.setLength(0);
+        fieldText.append(currentPath.toString());
+        cursorPosition = fieldText.length();
     }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
         boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
-        if (pathFieldFocused) {
-            if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
-                if (ctrl) {
-                    deleteWord();
-                } else {
+        if (fieldFocused) {
+            if (currentMode == Mode.PATH) {
+                if (ctrl && keyCode == GLFW.GLFW_KEY_F) {
+                    currentMode = Mode.SEARCH;
+                    fieldFocused = true;
+                    fieldText.setLength(0);
+                    cursorPosition = 0;
+                    selectionStart = -1;
+                    selectionEnd = -1;
+                    return true;
+                }
+                if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+                    if (ctrl) {
+                        deleteWord();
+                    } else {
+                        if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
+                            int selStart = Math.min(selectionStart, selectionEnd);
+                            int selEnd = Math.max(selectionStart, selectionEnd);
+                            fieldText.delete(selStart, selEnd);
+                            cursorPosition = selStart;
+                            selectionStart = -1;
+                            selectionEnd = -1;
+                        } else {
+                            if (cursorPosition > 0) {
+                                fieldText.deleteCharAt(cursorPosition - 1);
+                                cursorPosition--;
+                            }
+                        }
+                    }
+                    if (currentMode == Mode.SEARCH) {
+                        filterFileEntries();
+                    }
+                    return true;
+                }
+                if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                    fieldFocused = false;
+                    return true;
+                }
+                if (keyCode == GLFW.GLFW_KEY_DELETE) {
                     if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
                         int selStart = Math.min(selectionStart, selectionEnd);
                         int selEnd = Math.max(selectionStart, selectionEnd);
-                        pathFieldText.delete(selStart, selEnd);
+                        fieldText.delete(selStart, selEnd);
+                        cursorPosition = selStart;
+                        selectionStart = -1;
+                        selectionEnd = -1;
+                    } else {
+                        if (cursorPosition < fieldText.length()) {
+                            fieldText.deleteCharAt(cursorPosition);
+                        }
+                    }
+                    if (currentMode == Mode.SEARCH) {
+                        filterFileEntries();
+                    }
+                    return true;
+                }
+                if (ctrl && keyCode == GLFW.GLFW_KEY_A) {
+                    selectionStart = 0;
+                    selectionEnd = fieldText.length();
+                    return true;
+                }
+                if (keyCode == GLFW.GLFW_KEY_LEFT) {
+                    if (cursorPosition > 0) {
+                        cursorPosition--;
+                    }
+                    return true;
+                }
+                if (keyCode == GLFW.GLFW_KEY_RIGHT) {
+                    if (cursorPosition < fieldText.length()) {
+                        cursorPosition++;
+                    }
+                    return true;
+                }
+                if (ctrl && keyCode == GLFW.GLFW_KEY_V) {
+                    pasteClipboard();
+                    return true;
+                }
+                if (keyCode == GLFW.GLFW_KEY_ENTER) {
+                    executePath();
+                    return true;
+                }
+            } else if (currentMode == Mode.SEARCH) {
+                if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                    currentMode = Mode.PATH;
+                    fieldFocused = false;
+                    updatePathInfo();
+                    return true;
+                }
+                if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+                    if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
+                        int selStart = Math.min(selectionStart, selectionEnd);
+                        int selEnd = Math.max(selectionStart, selectionEnd);
+                        fieldText.delete(selStart, selEnd);
                         cursorPosition = selStart;
                         selectionStart = -1;
                         selectionEnd = -1;
                     } else {
                         if (cursorPosition > 0) {
-                            pathFieldText.deleteCharAt(cursorPosition - 1);
+                            fieldText.deleteCharAt(cursorPosition - 1);
                             cursorPosition--;
                         }
                     }
+                    filterFileEntries();
+                    return true;
                 }
-                return true;
-            }
-            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-                pathFieldFocused = false;
-                return true;
-            }
-            if (keyCode == GLFW.GLFW_KEY_DELETE) {
-                if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
-                    int selStart = Math.min(selectionStart, selectionEnd);
-                    int selEnd = Math.max(selectionStart, selectionEnd);
-                    pathFieldText.delete(selStart, selEnd);
-                    cursorPosition = selStart;
-                    selectionStart = -1;
-                    selectionEnd = -1;
-                } else {
-                    if (cursorPosition < pathFieldText.length()) {
-                        pathFieldText.deleteCharAt(cursorPosition);
+                if (keyCode == GLFW.GLFW_KEY_DELETE) {
+                    if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
+                        int selStart = Math.min(selectionStart, selectionEnd);
+                        int selEnd = Math.max(selectionStart, selectionEnd);
+                        fieldText.delete(selStart, selEnd);
+                        cursorPosition = selStart;
+                        selectionStart = -1;
+                        selectionEnd = -1;
+                    } else {
+                        if (cursorPosition < fieldText.length()) {
+                            fieldText.deleteCharAt(cursorPosition);
+                        }
                     }
+                    filterFileEntries();
+                    return true;
                 }
-                return true;
-            }
-            if (ctrl && keyCode == GLFW.GLFW_KEY_A) {
-                selectionStart = 0;
-                selectionEnd = pathFieldText.length();
-                return true;
-            }
-            if (keyCode == GLFW.GLFW_KEY_LEFT) {
-                if (cursorPosition > 0) {
-                    cursorPosition--;
+                if (ctrl && keyCode == GLFW.GLFW_KEY_A) {
+                    selectionStart = 0;
+                    selectionEnd = fieldText.length();
+                    return true;
                 }
-                return true;
-            }
-            if (keyCode == GLFW.GLFW_KEY_RIGHT) {
-                if (cursorPosition < pathFieldText.length()) {
-                    cursorPosition++;
+                if (keyCode == GLFW.GLFW_KEY_LEFT) {
+                    if (cursorPosition > 0) {
+                        cursorPosition--;
+                    }
+                    return true;
                 }
-                return true;
-            }
-            if (ctrl && keyCode == GLFW.GLFW_KEY_V) {
-                pasteClipboard();
-                return true;
-            }
-            if (keyCode == GLFW.GLFW_KEY_ENTER) {
-                executePath();
-                return true;
+                if (keyCode == GLFW.GLFW_KEY_RIGHT) {
+                    if (cursorPosition < fieldText.length()) {
+                        cursorPosition++;
+                    }
+                    return true;
+                }
+                if (ctrl && keyCode == GLFW.GLFW_KEY_V) {
+                    pasteClipboard();
+                    filterFileEntries();
+                    return true;
+                }
+                if (keyCode == GLFW.GLFW_KEY_ENTER) {
+                    currentMode = Mode.PATH;
+                    updatePathInfo();
+                    fieldFocused = false;
+                    return true;
+                }
             }
         }
         if (keyCode == this.minecraftClient.options.backKey.getDefaultKey().getCode() && keyCode != GLFW.GLFW_KEY_S) {
@@ -437,15 +527,19 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_V && !serverInfo.isRemote) {
-                if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
-                    int selStart = Math.min(selectionStart, selectionEnd);
-                    int selEnd = Math.max(selectionStart, selectionEnd);
-                    pathFieldText.delete(selStart, selEnd);
-                    cursorPosition = selStart;
-                    selectionStart = -1;
-                    selectionEnd = -1;
+                if (currentMode == Mode.SEARCH) {
+                    // Do nothing
+                } else {
+                    if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
+                        int selStart = Math.min(selectionStart, selectionEnd);
+                        int selEnd = Math.max(selectionStart, selectionEnd);
+                        fieldText.delete(selStart, selEnd);
+                        cursorPosition = selStart;
+                        selectionStart = -1;
+                        selectionEnd = -1;
+                    }
+                    pasteClipboard();
                 }
-                pasteClipboard();
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_Z && !serverInfo.isRemote) {
@@ -454,9 +548,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_F) {
-                searchActive = true;
-                searchQuery.setLength(0);
-                searchBarY = this.height - searchBarHeight - 10;
+                currentMode = Mode.SEARCH;
+                fieldFocused = true;
+                fieldText.setLength(0);
+                cursorPosition = 0;
+                selectionStart = -1;
+                selectionEnd = -1;
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_R) {
@@ -477,7 +574,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 return true;
             }
         }
-        if (keyCode == GLFW.GLFW_KEY_DELETE) {
+        if (currentMode == Mode.PATH && keyCode == GLFW.GLFW_KEY_DELETE) {
             fileManager.deleteSelected(selectedPaths, currentPath);
             return true;
         }
@@ -486,29 +583,36 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
-        if (pathFieldFocused) {
+        if (fieldFocused) {
             if (chr == '\b' || chr == '\n') {
                 return false;
             }
-            if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
-                int selStart = Math.min(selectionStart, selectionEnd);
-                int selEnd = Math.max(selectionStart, selectionEnd);
-                pathFieldText.delete(selStart, selEnd);
-                cursorPosition = selStart;
-                selectionStart = -1;
-                selectionEnd = -1;
+            if (currentMode == Mode.PATH) {
+                if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
+                    int selStart = Math.min(selectionStart, selectionEnd);
+                    int selEnd = Math.max(selectionStart, selectionEnd);
+                    fieldText.delete(selStart, selEnd);
+                    cursorPosition = selStart;
+                    selectionStart = -1;
+                    selectionEnd = -1;
+                }
+                fieldText.insert(cursorPosition, chr);
+                cursorPosition++;
+                return true;
+            } else if (currentMode == Mode.SEARCH) {
+                if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
+                    int selStart = Math.min(selectionStart, selectionEnd);
+                    int selEnd = Math.max(selectionStart, selectionEnd);
+                    fieldText.delete(selStart, selEnd);
+                    cursorPosition = selStart;
+                    selectionStart = -1;
+                    selectionEnd = -1;
+                }
+                fieldText.insert(cursorPosition, chr);
+                cursorPosition++;
+                filterFileEntries();
+                return true;
             }
-            pathFieldText.insert(cursorPosition, chr);
-            cursorPosition++;
-            return true;
-        }
-        if (searchActive) {
-            if (chr == '\b' || chr == '\n') {
-                return false;
-            }
-            searchQuery.append(chr);
-            filterFileEntries();
-            return true;
         }
         return super.charTyped(chr, modifiers);
     }
@@ -530,7 +634,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         boolean handled = false;
-        if (searchActive) {
+        if (currentMode == Mode.SEARCH) {
             if (mouseX >= searchBarX && mouseX <= searchBarX + searchBarWidth &&
                     mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight) {
                 handled = true;
@@ -574,7 +678,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         entriesToRender = new ArrayList<>(fileEntries);
                     }
                     if (clickedIndex >= 0 && clickedIndex < entriesToRender.size()) {
-                        pathFieldFocused = false;
+                        fieldFocused = false;
                         EntryData entryData = entriesToRender.get(clickedIndex);
                         Path selectedPath = entryData.path;
                         if (isDoubleClick && lastClickedIndex == clickedIndex) {
@@ -637,20 +741,24 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 }
 
                 int titleBarHeight = 30;
-                int pathFieldWidthDynamic = Math.min(basePathFieldWidth + textRenderer.getWidth(pathFieldText.toString()), maxPathFieldWidth);
-                pathFieldWidthDynamic = Math.max(basePathFieldWidth, pathFieldWidthDynamic);
-                int pathFieldX = (this.width - pathFieldWidthDynamic) / 2;
-                int pathFieldY = 5;
-                int pathFieldHeight = titleBarHeight - 10;
-                if (mouseX >= pathFieldX && mouseX <= pathFieldX + pathFieldWidthDynamic &&
-                        mouseY >= pathFieldY && mouseY <= pathFieldY + pathFieldHeight) {
-                    pathFieldFocused = true;
-                    cursorPosition = pathFieldText.length();
+                int fieldWidthDynamic = basePathFieldWidth;
+                if (currentMode == Mode.SEARCH) {
+                    fieldWidthDynamic = searchBarWidth;
+                }
+                fieldWidthDynamic = Math.min(fieldWidthDynamic + textRenderer.getWidth(fieldText.toString()), maxPathFieldWidth);
+                fieldWidthDynamic = Math.max(basePathFieldWidth, fieldWidthDynamic);
+                int fieldX = (this.width - fieldWidthDynamic) / 2;
+                int fieldY = 5;
+                int fieldHeight = titleBarHeight - 10;
+                if (mouseX >= fieldX && mouseX <= fieldX + fieldWidthDynamic &&
+                        mouseY >= fieldY && mouseY <= fieldY + fieldHeight) {
+                    fieldFocused = true;
+                    cursorPosition = fieldText.length();
                     selectionStart = -1;
                     selectionEnd = -1;
                     return true;
                 } else {
-                    pathFieldFocused = false;
+                    fieldFocused = false;
                 }
 
                 if (mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
@@ -729,8 +837,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 return true;
             }
         }
-        if (!handled && searchActive) {
-            searchActive = false;
+        if (!handled && currentMode == Mode.SEARCH) {
+            currentMode = Mode.PATH;
+            updatePathInfo();
         }
         return super.mouseClicked(mouseX, mouseY, button);
     }
@@ -770,14 +879,14 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (cursorPosition == 0) return;
         int deleteStart = cursorPosition;
         while (deleteStart > 0) {
-            char c = pathFieldText.charAt(deleteStart - 1);
+            char c = fieldText.charAt(deleteStart - 1);
             if (c == '/' || c == '\\') break;
             deleteStart--;
         }
-        if (deleteStart < 0 || deleteStart > pathFieldText.length()) {
+        if (deleteStart < 0 || deleteStart > fieldText.length()) {
             deleteStart = 0;
         }
-        pathFieldText.delete(deleteStart, cursorPosition);
+        fieldText.delete(deleteStart, cursorPosition);
         cursorPosition = deleteStart;
     }
 
@@ -787,20 +896,23 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
                 int selStart = Math.min(selectionStart, selectionEnd);
                 int selEnd = Math.max(selectionStart, selectionEnd);
-                pathFieldText.delete(selStart, selEnd);
+                fieldText.delete(selStart, selEnd);
                 cursorPosition = selStart;
                 selectionStart = -1;
                 selectionEnd = -1;
             }
-            pathFieldText.insert(cursorPosition, clipboard);
+            fieldText.insert(cursorPosition, clipboard);
             cursorPosition += clipboard.length();
+            if (currentMode == Mode.SEARCH) {
+                filterFileEntries();
+            }
         } catch (Exception e) {
             showNotification("Failed to paste from clipboard.", Notification.Type.ERROR);
         }
     }
 
     private void executePath() {
-        Path newPath = Paths.get(pathFieldText.toString()).toAbsolutePath().normalize();
+        Path newPath = Paths.get(fieldText.toString()).toAbsolutePath().normalize();
         if (Files.exists(newPath) && Files.isDirectory(newPath)) {
             loadDirectory(newPath);
         } else {
@@ -816,7 +928,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     @Override
     public void tick() {
         super.tick();
-        if (pathFieldFocused) {
+        if (fieldFocused) {
             long currentTime = System.currentTimeMillis();
             if (currentTime - lastBlinkTime >= 500) {
                 showCursor = !showCursor;
@@ -860,14 +972,15 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (addToHistory) {
             targetOffset = 0;
         }
-        if (searchActive) {
-            searchActive = false;
-            searchQuery.setLength(0);
+        if (currentMode == Mode.SEARCH) {
+            currentMode = Mode.PATH;
+            fieldText.setLength(0);
+            cursorPosition = 0;
         }
         currentPath = dir;
-        pathFieldText.setLength(0);
-        pathFieldText.append(currentPath.toString());
-        cursorPosition = pathFieldText.length();
+        fieldText.setLength(0);
+        fieldText.append(currentPath.toString());
+        cursorPosition = fieldText.length();
         String key = dir.toString();
         if (!serverInfo.isRemote) {
             if (!forceReload && remoteCache.containsKey(key)) {
@@ -970,11 +1083,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     }
 
     private void filterFileEntries() {
-        if (searchQuery.length() == 0) {
+        if (fieldText.isEmpty()) {
             loadDirectory(currentPath, false, false);
             return;
         }
-        String query = searchQuery.toString().toLowerCase();
+        String query = fieldText.toString().toLowerCase();
         List<EntryData> filtered = new ArrayList<>();
         synchronized (fileEntriesLock) {
             for (EntryData data : fileEntries) {
