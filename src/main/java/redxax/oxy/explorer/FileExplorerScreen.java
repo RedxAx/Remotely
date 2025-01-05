@@ -6,6 +6,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.CursorUtils;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.SSHManager;
 
@@ -29,16 +30,16 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private float smoothOffset = 0;
     private int entryHeight = 25;
     private int baseColor = 0xFF181818;
-    private int explorerBgColor = 0xFF242424;
-    private int explorerBorderColor = 0xFF555555;
+    private int BgColor = 0xFF242424;
+    private int BorderColor = 0xFF555555;
     private int elementBg = 0xFF2C2C2C;
     private int elementSelectedBorder = 0xFFd6f264;
     private int elementSelectedBg = 0xFF0b371c;
     private int elementBorder = 0xFF444444;
     private int elementBorderHover = 0xFF9d9d9d;
     private int highlightColor = 0xFF444444;
-    private int favorateBorder = 0xFFdf3e23;
-    private int favorateBg = 0xFF3b1725;
+    private int favorateBorder = 0xFFffc800;
+    private int favorateBg = 0xFF3b2d17;
     private int textColor = 0xFFFFFFFF;
     private Path currentPath;
     private float targetOffset = 0;
@@ -165,6 +166,189 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             e.printStackTrace();
         }
         loadDirectory(currentPath);
+    }
+
+    @Override
+    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        super.render(context, mouseX, mouseY, delta);
+
+        int explorerX = 5;
+        int explorerY = 60;
+        int explorerWidth = this.width - 10;
+        int explorerHeight = this.height - 70;
+        int gap = 1;
+
+        int headerY = explorerY - 25;
+        context.fill(explorerX, headerY, explorerX + explorerWidth, headerY + 25, BgColor);
+        drawInnerBorder(context, explorerX, headerY, explorerWidth, 25, BorderColor);
+
+        context.drawText(this.textRenderer, Text.literal("Name"), explorerX + 10, headerY + 5, textColor, true);
+        if (!serverInfo.isRemote) {
+            context.drawText(this.textRenderer, Text.literal("Size"), explorerX + 250, headerY + 5, textColor, true);
+            context.drawText(this.textRenderer, Text.literal("Created"), explorerX + 350, headerY + 5, textColor, true);
+        }
+
+        int titleBarHeight = 30;
+        context.fill(0, 0, this.width, titleBarHeight, 0xFF222222);
+        drawInnerBorder(context, 0, 0, this.width, titleBarHeight, 0xFF333333);
+
+        String prefixText = "Remotely - File Explorer";
+        context.drawText(this.textRenderer, Text.literal(prefixText), 10, 10, textColor, true);
+
+        int pathFieldWidthDynamic = basePathFieldWidth;
+        int pathFieldX = (this.width - pathFieldWidthDynamic) / 2;
+        int pathFieldY = 5;
+        int pathFieldHeight = titleBarHeight - 10;
+        int pathFieldColor = pathFieldFocused ? elementSelectedBg : elementBg;
+        context.fill(pathFieldX, pathFieldY, pathFieldX + pathFieldWidthDynamic, pathFieldY + pathFieldHeight, pathFieldColor);
+        drawInnerBorder(context, pathFieldX, pathFieldY, pathFieldWidthDynamic, pathFieldHeight, pathFieldFocused ? elementSelectedBorder : elementBorder);
+
+        if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
+            int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
+            int selEnd = Math.min(pathFieldText.length(), Math.max(selectionStart, selectionEnd));
+            if (selStart < 0) selStart = 0;
+            if (selEnd > pathFieldText.length()) selEnd = pathFieldText.length();
+            String beforeSelection = pathFieldText.substring(0, selStart);
+            String selectedText = pathFieldText.substring(selStart, selEnd);
+            int selX = pathFieldX + 5 + textRenderer.getWidth(beforeSelection);
+            int selWidth = textRenderer.getWidth(selectedText);
+            context.fill(selX, pathFieldY + 5, selX + selWidth, pathFieldY + 5 + textRenderer.fontHeight, 0x80FFFFFF);
+        }
+
+        String displayText = pathFieldText.toString();
+        int displayWidth = pathFieldWidthDynamic - 10;
+        int textWidth = textRenderer.getWidth(displayText);
+
+        int cursorX = pathFieldX + 5 + textRenderer.getWidth(displayText.substring(0, Math.min(cursorPosition, displayText.length())));
+        float cursorMargin = 50.0f;
+        if (cursorX - pathScrollOffset > pathFieldX + pathFieldWidthDynamic - 5 - cursorMargin) {
+            pathTargetScrollOffset = cursorX - (pathFieldX + pathFieldWidthDynamic - 5 - cursorMargin);
+        } else if (cursorX - pathScrollOffset < pathFieldX + 5 + cursorMargin) {
+            pathTargetScrollOffset = cursorX - (pathFieldX + 5 + cursorMargin);
+        }
+
+        pathTargetScrollOffset = Math.max(0, Math.min(pathTargetScrollOffset, textWidth - displayWidth));
+
+        pathScrollOffset += (pathTargetScrollOffset - pathScrollOffset) * scrollSpeed;
+
+        context.enableScissor(pathFieldX, pathFieldY, pathFieldX + pathFieldWidthDynamic, pathFieldY + pathFieldHeight);
+        context.drawText(this.textRenderer, Text.literal(displayText), pathFieldX + 5 - (int) pathScrollOffset, pathFieldY + 5, textColor, true);
+
+        CursorUtils.updateCursorOpacity();
+
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastBlinkTime >= 500) {
+            showCursor = !showCursor;
+            lastBlinkTime = currentTime;
+        }
+        if (pathFieldFocused && showCursor) {
+            String beforeCursor = cursorPosition <= displayText.length() ? displayText.substring(0, cursorPosition) : displayText;
+            int cursorPosX = pathFieldX + 5 + textRenderer.getWidth(beforeCursor) - (int) pathScrollOffset;
+            int blendedCursorColor = CursorUtils.blendColor();
+            context.fill(cursorPosX, pathFieldY + 5, cursorPosX + 2, pathFieldY + 5 + textRenderer.fontHeight, blendedCursorColor);
+        }
+        context.disableScissor();
+
+        int backButtonX = this.width - 120;
+        int backButtonY = 5;
+        int btnW = 50;
+        int btnH = 20;
+        boolean hoveredBack = mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH;
+        int bgBack = hoveredBack ? highlightColor : BgColor;
+        context.fill(backButtonX, backButtonY, backButtonX + btnW, backButtonY + btnH, bgBack);
+        drawInnerBorder(context, backButtonX, backButtonY, btnW, btnH, BorderColor);
+        int twb = minecraftClient.textRenderer.getWidth("Back");
+        int txb = backButtonX + (btnW - twb) / 2;
+        int ty = backButtonY + (btnH - minecraftClient.textRenderer.fontHeight) / 2;
+        context.drawText(this.textRenderer, Text.literal("Back"), txb, ty, textColor, true);
+
+        int closeButtonX = this.width - 60;
+        int closeButtonY = 5;
+        int closeBtnW = 50;
+        int closeBtnH = 20;
+        boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + closeBtnW && mouseY >= closeButtonY && mouseY <= closeButtonY + closeBtnH;
+        int bgClose = hoveredClose ? highlightColor : BgColor;
+        context.fill(closeButtonX, closeButtonY, closeButtonX + closeBtnW, closeButtonY + closeBtnH, bgClose);
+        drawInnerBorder(context, closeButtonX, closeButtonY, closeBtnW, closeBtnH, BorderColor);
+        int tcw = minecraftClient.textRenderer.getWidth("Close");
+        int tcx = closeButtonX + (closeBtnW - tcw) / 2;
+        int tcy = closeButtonY + (btnH - minecraftClient.textRenderer.fontHeight) / 2;
+        context.drawText(this.textRenderer, Text.literal("Close"), tcx, tcy, textColor, true);
+
+        if (loading) {
+            long currentTimeLoading = System.currentTimeMillis();
+            if (currentTimeLoading - lastFrameTime >= 40) {
+                currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
+                lastFrameTime = currentTimeLoading;
+            }
+            BufferedImage currentFrame = loadingFrames.get(currentLoadingFrame);
+            int scale = 8;
+            int imgWidth = currentFrame.getWidth() * scale;
+            int imgHeight = currentFrame.getHeight() * scale;
+            int centerX = (this.width - imgWidth) / 2;
+            int centerY = (this.height - imgHeight) / 2;
+            drawBufferedImage(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
+            return;
+        }
+
+        smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
+        List<EntryData> entriesToRender;
+        synchronized (fileEntriesLock) {
+            entriesToRender = new ArrayList<>(fileEntries);
+        }
+        int visibleEntries = explorerHeight / (entryHeight + gap);
+        int startIndex = (int) Math.floor(smoothOffset / (entryHeight + gap)) - 1;
+        if (startIndex < 0) startIndex = 0;
+        int endIndex = startIndex + visibleEntries + 2;
+        if (endIndex > entriesToRender.size()) endIndex = entriesToRender.size();
+
+        context.enableScissor(explorerX, explorerY, explorerX + explorerWidth, explorerY + explorerHeight);
+
+        for (int entryIndex = startIndex; entryIndex < endIndex; entryIndex++) {
+            EntryData entry = entriesToRender.get(entryIndex);
+            int entryY = explorerY + (entryIndex * (entryHeight + gap)) - (int) smoothOffset;
+            boolean hovered = mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= entryY && mouseY < entryY + entryHeight;
+            boolean isSelected = selectedPaths.contains(entry.path);
+            boolean isFavorite;
+            synchronized (favoritePathsLock) {
+                isFavorite = favoritePaths.contains(entry.path);
+            }
+            int bg = isSelected ? (isFavorite ? favorateBg : elementSelectedBg) : (hovered ? highlightColor : elementBg);
+            int borderWithOpacity = isFavorite ? favorateBorder : (isSelected ? elementSelectedBorder : (hovered ? elementBorderHover : elementBorder));
+            int textWithOpacity = textColor;
+            context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
+            drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
+
+            context.fill(explorerX, entryY + entryHeight - 1, explorerX + explorerWidth, entryY + entryHeight, borderWithOpacity);
+
+            BufferedImage icon = entry.isDirectory ? folderIcon : fileIcon;
+            drawBufferedImage(context, icon, explorerX + 10, entryY + 5, 16, 16);
+
+            String displayName = entry.path.getFileName().toString();
+            context.drawText(this.textRenderer, Text.literal(displayName), explorerX + 30, entryY + 5, textWithOpacity, true);
+            if (!serverInfo.isRemote) {
+                context.drawText(this.textRenderer, Text.literal(entry.size), explorerX + 250, entryY + 5, textWithOpacity, true);
+                context.drawText(this.textRenderer, Text.literal(entry.created), explorerX + 350, entryY + 5, textWithOpacity, true);
+            }
+        }
+
+        context.disableScissor();
+
+        if (smoothOffset > 0) {
+            context.fillGradient(0, explorerY, this.width, explorerY + 10, 0x80000000, 0x00000000);
+        }
+        if (smoothOffset < Math.max(0, (entriesToRender.size() * (entryHeight + gap)) - explorerHeight)) {
+            context.fillGradient(0, explorerY + explorerHeight - 10, this.width, explorerY + explorerHeight, 0x00000000, 0x80000000);
+        }
+
+        if (searchActive) {
+            context.fill(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight, 0xFF333333);
+            drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, 0xFF555555);
+            context.drawText(this.textRenderer, Text.literal(searchQuery.toString()), searchBarX + 5, searchBarY + 5, 0xFFFFFFFF, true);
+        }
+
+        updateNotifications(delta);
+        renderNotifications(context, mouseX, mouseY, delta);
     }
 
     @Override
@@ -331,10 +515,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (searchActive) {
-            return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
-        }
-        targetOffset -= (float) (verticalAmount * entryHeight * 0.5f);
+        boolean ctrl = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) ||
+                (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
+        float scrollMultiplier = ctrl ? 5.0f : 1.0f;
+        targetOffset -= (float) ((verticalAmount * entryHeight * 0.5f) * scrollMultiplier);
         List<EntryData> entriesToRender;
         synchronized (fileEntriesLock) {
             entriesToRender = new ArrayList<>(fileEntries);
@@ -627,186 +811,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
         context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor);
-    }
-
-    @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        super.render(context, mouseX, mouseY, delta);
-
-        int explorerX = 5;
-        int explorerY = 60;
-        int explorerWidth = this.width - 10;
-        int explorerHeight = this.height - 70;
-        int gap = 1;
-
-        int headerY = explorerY - 25;
-        context.fill(explorerX, headerY, explorerX + explorerWidth, headerY + 25, explorerBgColor);
-        drawInnerBorder(context, explorerX, headerY, explorerWidth, 25, explorerBorderColor);
-
-        context.drawText(this.textRenderer, Text.literal("Name"), explorerX + 10, headerY + 5, textColor, false);
-        if (!serverInfo.isRemote) {
-            context.drawText(this.textRenderer, Text.literal("Size"), explorerX + 250, headerY + 5, textColor, false);
-            context.drawText(this.textRenderer, Text.literal("Created"), explorerX + 350, headerY + 5, textColor, false);
-        }
-
-        int titleBarHeight = 30;
-        context.fill(0, 0, this.width, titleBarHeight, 0xFF222222);
-        drawInnerBorder(context, 0, 0, this.width, titleBarHeight, 0xFF333333);
-
-        String prefixText = "Remotely - File Explorer";
-        context.drawText(this.textRenderer, Text.literal(prefixText), 10, 10, textColor, false);
-
-        int pathFieldWidthDynamic = basePathFieldWidth;
-        int pathFieldX = (this.width - pathFieldWidthDynamic) / 2;
-        int pathFieldY = 5;
-        int pathFieldHeight = titleBarHeight - 10;
-        int pathFieldColor = pathFieldFocused ? elementSelectedBg : elementBg;
-        context.fill(pathFieldX, pathFieldY, pathFieldX + pathFieldWidthDynamic, pathFieldY + pathFieldHeight, pathFieldColor);
-        drawInnerBorder(context, pathFieldX, pathFieldY, pathFieldWidthDynamic, pathFieldHeight, pathFieldFocused ? elementSelectedBorder : elementBorder);
-
-        if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
-            int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
-            int selEnd = Math.min(pathFieldText.length(), Math.max(selectionStart, selectionEnd));
-            if (selStart < 0) selStart = 0;
-            if (selEnd > pathFieldText.length()) selEnd = pathFieldText.length();
-            String beforeSelection = pathFieldText.substring(0, selStart);
-            String selectedText = pathFieldText.substring(selStart, selEnd);
-            int selX = pathFieldX + 5 + textRenderer.getWidth(beforeSelection);
-            int selWidth = textRenderer.getWidth(selectedText);
-            context.fill(selX, pathFieldY + 5, selX + selWidth, pathFieldY + 5 + textRenderer.fontHeight, 0x80FFFFFF);
-        }
-
-        String displayText = pathFieldText.toString();
-        int displayWidth = pathFieldWidthDynamic - 10;
-        int textWidth = textRenderer.getWidth(displayText);
-
-        int cursorX = pathFieldX + 5 + textRenderer.getWidth(displayText.substring(0, Math.min(cursorPosition, displayText.length())));
-        float cursorMargin = 50.0f;
-        if (cursorX - pathScrollOffset > pathFieldX + pathFieldWidthDynamic - 5 - cursorMargin) {
-            pathTargetScrollOffset = cursorX - (pathFieldX + pathFieldWidthDynamic - 5 - cursorMargin);
-        } else if (cursorX - pathScrollOffset < pathFieldX + 5 + cursorMargin) {
-            pathTargetScrollOffset = cursorX - (pathFieldX + 5 + cursorMargin);
-        }
-
-        pathTargetScrollOffset = Math.max(0, Math.min(pathTargetScrollOffset, textWidth - displayWidth));
-
-        pathScrollOffset += (pathTargetScrollOffset - pathScrollOffset) * scrollSpeed;
-
-        context.enableScissor(pathFieldX, pathFieldY, pathFieldX + pathFieldWidthDynamic, pathFieldY + pathFieldHeight);
-        context.drawText(this.textRenderer, Text.literal(displayText), pathFieldX + 5 - (int) pathScrollOffset, pathFieldY + 5, textColor, false);
-
-        long currentTime = System.currentTimeMillis();
-        if (currentTime - lastBlinkTime >= 500) {
-            showCursor = !showCursor;
-            lastBlinkTime = currentTime;
-        }
-        if (pathFieldFocused && showCursor) {
-            String beforeCursor = cursorPosition <= displayText.length() ? displayText.substring(0, cursorPosition) : displayText;
-            int cursorPosX = pathFieldX + 5 + textRenderer.getWidth(beforeCursor) - (int) pathScrollOffset;
-            context.fill(cursorPosX, pathFieldY + 5, cursorPosX + 2, pathFieldY + 5 + textRenderer.fontHeight, textColor);
-        }
-        context.disableScissor();
-
-        int backButtonX = this.width - 120;
-        int backButtonY = 5;
-        int btnW = 50;
-        int btnH = 20;
-        boolean hoveredBack = mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH;
-        int bgBack = hoveredBack ? highlightColor : explorerBgColor;
-        context.fill(backButtonX, backButtonY, backButtonX + btnW, backButtonY + btnH, bgBack);
-        drawInnerBorder(context, backButtonX, backButtonY, btnW, btnH, explorerBorderColor);
-        int twb = minecraftClient.textRenderer.getWidth("Back");
-        int txb = backButtonX + (btnW - twb) / 2;
-        int ty = backButtonY + (btnH - minecraftClient.textRenderer.fontHeight) / 2;
-        context.drawText(this.textRenderer, Text.literal("Back"), txb, ty, textColor, false);
-
-        int closeButtonX = this.width - 60;
-        int closeButtonY = 5;
-        int closeBtnW = 50;
-        int closeBtnH = 20;
-        boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + closeBtnW && mouseY >= closeButtonY && mouseY <= closeButtonY + closeBtnH;
-        int bgClose = hoveredClose ? highlightColor : explorerBgColor;
-        context.fill(closeButtonX, closeButtonY, closeButtonX + closeBtnW, closeButtonY + closeBtnH, bgClose);
-        drawInnerBorder(context, closeButtonX, closeButtonY, closeBtnW, closeBtnH, explorerBorderColor);
-        int tcw = minecraftClient.textRenderer.getWidth("Close");
-        int tcx = closeButtonX + (closeBtnW - tcw) / 2;
-        int tcy = closeButtonY + (btnH - minecraftClient.textRenderer.fontHeight) / 2;
-        context.drawText(this.textRenderer, Text.literal("Close"), tcx, tcy, textColor, false);
-
-        if (loading) {
-            long currentTimeLoading = System.currentTimeMillis();
-            if (currentTimeLoading - lastFrameTime >= 40) {
-                currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
-                lastFrameTime = currentTimeLoading;
-            }
-            BufferedImage currentFrame = loadingFrames.get(currentLoadingFrame);
-            int scale = 8;
-            int imgWidth = currentFrame.getWidth() * scale;
-            int imgHeight = currentFrame.getHeight() * scale;
-            int centerX = (this.width - imgWidth) / 2;
-            int centerY = (this.height - imgHeight) / 2;
-            drawBufferedImage(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
-            return;
-        }
-
-        smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
-        List<EntryData> entriesToRender;
-        synchronized (fileEntriesLock) {
-            entriesToRender = new ArrayList<>(fileEntries);
-        }
-        int visibleEntries = explorerHeight / (entryHeight + gap);
-        int startIndex = (int) Math.floor(smoothOffset / (entryHeight + gap)) - 1;
-        if (startIndex < 0) startIndex = 0;
-        int endIndex = startIndex + visibleEntries + 2;
-        if (endIndex > entriesToRender.size()) endIndex = entriesToRender.size();
-
-        context.enableScissor(explorerX, explorerY, explorerX + explorerWidth, explorerY + explorerHeight);
-
-        for (int entryIndex = startIndex; entryIndex < endIndex; entryIndex++) {
-            EntryData entry = entriesToRender.get(entryIndex);
-            int entryY = explorerY + (entryIndex * (entryHeight + gap)) - (int) smoothOffset;
-            boolean hovered = mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= entryY && mouseY < entryY + entryHeight;
-            boolean isSelected = selectedPaths.contains(entry.path);
-            boolean isFavorite;
-            synchronized (favoritePathsLock) {
-                isFavorite = favoritePaths.contains(entry.path);
-            }
-            int bg = isSelected ? (isFavorite ? favorateBg : elementSelectedBg) : (hovered ? highlightColor : elementBg);
-            int borderWithOpacity = isFavorite ? favorateBorder : (isSelected ? elementSelectedBorder : (hovered ? elementBorderHover : elementBorder));
-            int textWithOpacity = textColor;
-            context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
-            drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
-
-            context.fill(explorerX, entryY + entryHeight - 1, explorerX + explorerWidth, entryY + entryHeight, borderWithOpacity);
-
-            BufferedImage icon = entry.isDirectory ? folderIcon : fileIcon;
-            drawBufferedImage(context, icon, explorerX + 10, entryY + 5, 16, 16);
-
-            String displayName = entry.path.getFileName().toString();
-            context.drawText(this.textRenderer, Text.literal(displayName), explorerX + 30, entryY + 5, textWithOpacity, false);
-            if (!serverInfo.isRemote) {
-                context.drawText(this.textRenderer, Text.literal(entry.size), explorerX + 250, entryY + 5, textWithOpacity, false);
-                context.drawText(this.textRenderer, Text.literal(entry.created), explorerX + 350, entryY + 5, textWithOpacity, false);
-            }
-        }
-
-        context.disableScissor();
-
-        if (smoothOffset > 0) {
-            context.fillGradient(0, explorerY, this.width, explorerY + 10, 0x80000000, 0x00000000);
-        }
-        if (smoothOffset < Math.max(0, (entriesToRender.size() * (entryHeight + gap)) - explorerHeight)) {
-            context.fillGradient(0, explorerY + explorerHeight - 10, this.width, explorerY + explorerHeight, 0x00000000, 0x80000000);
-        }
-
-        if (searchActive) {
-            context.fill(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight, 0xFF333333);
-            drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, 0xFF555555);
-            context.drawText(this.textRenderer, Text.literal(searchQuery.toString()), searchBarX + 5, searchBarY + 5, 0xFFFFFFFF, false);
-        }
-
-        updateNotifications(delta);
-        renderNotifications(context, mouseX, mouseY, delta);
     }
 
     @Override
@@ -1125,7 +1129,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
             context.fill((int) x, (int) y, (int) x + width, (int) y + height, color);
             drawInnerBorder(context, (int) x, (int) y, width, height, blendColor(0xFF000000, currentOpacity));
-            context.drawText(this.textRenderer, Text.literal(message), (int) x + padding, (int) y + padding, blendColor(0xFFFFFFFF, currentOpacity), false);
+            context.drawText(this.textRenderer, Text.literal(message), (int) x + padding, (int) y + padding, blendColor(0xFFFFFFFF, currentOpacity), true);
         }
 
         private int blendColor(int color, float opacity) {
