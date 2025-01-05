@@ -40,9 +40,9 @@ public class TerminalRenderer {
     private int terminalY;
     private int terminalHeight;
     private String tmuxStatusLine = "";
-    private static final int BORDER_COLOR = 0xFF212121;
+    private static final int BORDER_COLOR = 0xFF555555;
     private static final int TERMINAL_BACKGROUND_COLOR = 0xFF0a0a0a;
-    private static final int BORDER_THICKNESS = 2;
+    private static final int BORDER_THICKNESS = 1;
     private static final int DEFAULT_TEXT_COLOR = 0xFFFFFF;
     private static final int INPUT_TEXT_COLOR = 0x4AF626;
     private static final int SUGGESTION_TEXT_COLOR = 0x666666;
@@ -62,10 +62,10 @@ public class TerminalRenderer {
 
     public void render(DrawContext context, int screenWidth, int screenHeight, float newScale) {
         this.scale = Math.max(MIN_SCALE, Math.min(newScale, MAX_SCALE));
-        this.terminalX = 10;
+        this.terminalX = 5;
         this.terminalY = MultiTerminalScreen.ContentYStart;
-        this.terminalWidth = screenWidth - 20;
-        this.terminalHeight = screenHeight - terminalY - 10;
+        this.terminalWidth = screenWidth - 5;
+        this.terminalHeight = screenHeight - terminalY - 15;
         if (this.scale != previousScale || this.terminalWidth != previousTerminalWidth) {
             previousScale = this.scale;
             previousTerminalWidth = this.terminalWidth;
@@ -106,7 +106,7 @@ public class TerminalRenderer {
             if (isLineSelected(i)) {
                 drawSelection(context, lineInfo, x);
             }
-            context.drawText(minecraftClient.textRenderer, lineText.orderedText, x, yStart, DEFAULT_TEXT_COLOR, false);
+            context.drawText(minecraftClient.textRenderer, lineText.orderedText, x, yStart, DEFAULT_TEXT_COLOR, Config.shadow);
             yStart += lineHeight;
         }
         context.getMatrices().pop();
@@ -114,11 +114,11 @@ public class TerminalRenderer {
         int inputY = terminalY + terminalHeight - padding - getInputFieldHeight() - getStatusBarHeight();
         String inputPrompt = terminalInstance.getSSHManager().isAwaitingPassword() ? "Password: " : "> ";
         String inputText = inputPrompt + terminalInstance.inputHandler.getInputBuffer().toString();
-        context.drawText(minecraftClient.textRenderer, Text.literal(inputText), inputX, inputY, INPUT_TEXT_COLOR, false);
+        context.drawText(minecraftClient.textRenderer, Text.literal(inputText), inputX, inputY, INPUT_TEXT_COLOR, Config.shadow);
         String suggestion = terminalInstance.inputHandler.getTabCompletionSuggestion();
         if (!suggestion.isEmpty() && !terminalInstance.inputHandler.getInputBuffer().isEmpty()) {
             int inputTextWidth = minecraftClient.textRenderer.getWidth(inputText);
-            context.drawText(minecraftClient.textRenderer, Text.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(SUGGESTION_TEXT_COLOR))), inputX + inputTextWidth, inputY, SUGGESTION_TEXT_COLOR, false);
+            context.drawText(minecraftClient.textRenderer, Text.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(SUGGESTION_TEXT_COLOR))), inputX + inputTextWidth, inputY, SUGGESTION_TEXT_COLOR, Config.shadow);
         }
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastInputTime < 500) {
@@ -140,8 +140,8 @@ public class TerminalRenderer {
         OrderedText leftStatus = statusTexts[0];
         OrderedText rightStatus = statusTexts[1];
         int rightWidth = minecraftClient.textRenderer.getWidth(rightStatus);
-        context.drawText(minecraftClient.textRenderer, leftStatus, terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, DEFAULT_TEXT_COLOR, false);
-        context.drawText(minecraftClient.textRenderer, rightStatus, terminalX + terminalWidth - 2 - rightWidth, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, DEFAULT_TEXT_COLOR, false);
+        context.drawText(minecraftClient.textRenderer, leftStatus, terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, DEFAULT_TEXT_COLOR, Config.shadow);
+        context.drawText(minecraftClient.textRenderer, rightStatus, terminalX + terminalWidth - 2 - rightWidth, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, DEFAULT_TEXT_COLOR, Config.shadow);
     }
 
     private void rewrap() {
