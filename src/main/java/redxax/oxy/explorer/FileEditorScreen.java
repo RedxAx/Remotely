@@ -5,33 +5,29 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.CursorUtils;
+import redxax.oxy.*;
 import redxax.oxy.servers.ServerInfo;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
+
+import static redxax.oxy.Render.buttonW;
+import static redxax.oxy.Render.elementSelectedBorder;
 
 public class FileEditorScreen extends Screen {
     private final MinecraftClient minecraftClient;
+    private MultiLineTextEditor textEditor;
     private final Screen parent;
-    private final Path filePath;
     private final ServerInfo serverInfo;
-    private final ArrayList<String> fileContent = new ArrayList<>();
-    private final MultiLineTextEditor textEditor;
-    private final ArrayList<String> originalContent = new ArrayList<>();
-    private boolean unsaved;
     private int baseColor = 0xFF181818;
     private int lighterColor = 0xFF222222;
     private int borderColor = 0xFF555555;
     private int highlightColor = 0xFF444444;
     private int textColor = 0xFFFFFFFF;
-    private static long lastLeftClickTime = 0;
-    private static int clickCount = 0;
     private int backButtonX;
     private int backButtonY;
     private int saveButtonX;
@@ -41,129 +37,237 @@ public class FileEditorScreen extends Screen {
     private static final double FAST_SCROLL_FACTOR = 3.0;
     private static final double HORIZONTAL_SCROLL_FACTOR = 10.0;
 
+    private List<Tab> tabs = new ArrayList<>();
+    private int currentTabIndex = 0;
+    private final int TAB_HEIGHT = 18;
+    private final int TAB_PADDING = 5;
+    private final int TAB_GAP = 5;
+
+    class Tab {
+        Path path;
+        String name;
+        TabTextAnimator textAnimator;
+        MultiLineTextEditor textEditor;
+        boolean unsaved;
+
+        Tab(Path path) {
+            this.path = path;
+            this.name = path.getFileName() != null ? path.getFileName().toString() : path.toString();
+            this.textAnimator = new TabTextAnimator(this.name, 0, 30);
+            this.textAnimator.start();
+            loadFileContent();
+            this.unsaved = false;
+        }
+
+        public void markUnsaved() {
+            this.unsaved = true;
+        }
+
+        private void loadFileContent() {
+            ArrayList<String> fileContent = new ArrayList<>();
+            if (serverInfo.isRemote) {
+                try {
+                    if (serverInfo.remoteSSHManager == null) {
+                        serverInfo.remoteSSHManager = new redxax.oxy.SSHManager(serverInfo);
+                        serverInfo.remoteSSHManager.connectToRemoteHost(serverInfo.remoteHost.getUser(), serverInfo.remoteHost.ip, serverInfo.remoteHost.port, serverInfo.remoteHost.password);
+                        serverInfo.remoteSSHManager.connectSFTP();
+                    } else if (!serverInfo.remoteSSHManager.isSFTPConnected()) {
+                        serverInfo.remoteSSHManager.connectSFTP();
+                    }
+                    String remotePath = path.toString().replace("\\", "/");
+                    String content = serverInfo.remoteSSHManager.readRemoteFile(remotePath);
+                    String[] lines = content.split("\\r?\\n");
+                    Collections.addAll(fileContent, lines);
+                } catch (Exception e) {
+                    if (serverInfo.terminal != null) {
+                        serverInfo.terminal.appendOutput("File load error (remote): " + e.getMessage() + "\n");
+                    }
+                }
+            } else {
+                try (BufferedReader reader = Files.newBufferedReader(path)) {
+                    reader.lines().forEach(fileContent::add);
+                } catch (IOException e) {
+                    if (serverInfo.terminal != null) {
+                        serverInfo.terminal.appendOutput("File load error: " + e.getMessage() + "\n");
+                    }
+                }
+            }
+            this.textEditor = new MultiLineTextEditor(minecraftClient, fileContent, path.getFileName().toString(), this);
+        }
+
+        public void saveFile() {
+            ArrayList<String> newContent = new ArrayList<>(textEditor.getLines());
+            if (serverInfo.isRemote) {
+                try {
+                    if (serverInfo.remoteSSHManager == null) {
+                        serverInfo.remoteSSHManager = new redxax.oxy.SSHManager(serverInfo);
+                        serverInfo.remoteSSHManager.connectToRemoteHost(serverInfo.remoteHost.getUser(), serverInfo.remoteHost.ip, serverInfo.remoteHost.port, serverInfo.remoteHost.password);
+                        serverInfo.remoteSSHManager.connectSFTP();
+                    } else if (!serverInfo.remoteSSHManager.isSFTPConnected()) {
+                        serverInfo.remoteSSHManager.connectSFTP();
+                    }
+                    String remotePath = path.toString().replace("\\", "/");
+                    String joined = String.join("\n", newContent);
+                    serverInfo.remoteSSHManager.writeRemoteFile(remotePath, joined);
+                    this.unsaved = false;
+                } catch (Exception e) {
+                    if (serverInfo.terminal != null) {
+                        serverInfo.terminal.appendOutput("File save error (remote): " + e.getMessage() + "\n");
+                    }
+                }
+            } else {
+                try {
+                    Files.write(path, newContent);
+                    if (serverInfo.terminal != null) {
+                        serverInfo.terminal.appendOutput("File saved: " + path + "\n");
+                    }
+                    this.unsaved = false;
+                } catch (IOException e) {
+                    if (serverInfo.terminal != null) {
+                        serverInfo.terminal.appendOutput("File save error: " + e.getMessage() + "\n");
+                    }
+                }
+            }
+        }
+    }
+
     public FileEditorScreen(MinecraftClient mc, Screen parent, Path filePath, ServerInfo info) {
         super(Text.literal("File Editor"));
         this.minecraftClient = mc;
         this.parent = parent;
-        this.filePath = filePath;
         this.serverInfo = info;
-        if (serverInfo.isRemote) {
-            try {
-                if (serverInfo.remoteSSHManager == null) {
-                    serverInfo.remoteSSHManager = new redxax.oxy.SSHManager(serverInfo);
-                    serverInfo.remoteSSHManager.connectToRemoteHost(serverInfo.remoteHost.getUser(), serverInfo.remoteHost.ip, serverInfo.remoteHost.port, serverInfo.remoteHost.password);
-                    serverInfo.remoteSSHManager.connectSFTP();
-                } else if (!serverInfo.remoteSSHManager.isSFTPConnected()) {
-                    serverInfo.remoteSSHManager.connectSFTP();
-                }
-                String remotePath = filePath.toString().replace("\\", "/");
-                String content = serverInfo.remoteSSHManager.readRemoteFile(remotePath);
-                String[] lines = content.split("\\r?\\n");
-                for (String line : lines) {
-                    fileContent.add(line);
-                }
-            } catch (Exception e) {
-                if (serverInfo.terminal != null) {
-                    serverInfo.terminal.appendOutput("File load error (remote): " + e.getMessage() + "\n");
-                }
-            }
-        } else {
-            try (BufferedReader reader = Files.newBufferedReader(filePath)) {
-                fileContent.addAll(reader.lines().toList());
-            } catch (IOException e) {
-                if (serverInfo.terminal != null) {
-                    serverInfo.terminal.appendOutput("File load error: " + e.getMessage() + "\n");
-                }
-            }
-        }
-        this.textEditor = new MultiLineTextEditor(minecraftClient, fileContent, filePath.getFileName().toString());
-        this.unsaved = false;
+        Tab initialTab = new Tab(filePath);
+        tabs.add(initialTab);
+        this.textEditor = initialTab.textEditor;
     }
 
     @Override
     protected void init() {
         super.init();
-        this.textEditor.init(5, 35, this.width - 10, this.height - 45);
+        this.textEditor.init(5, 60, this.width - 10, this.height - 70);
         btnW = 50;
         btnH = 20;
         saveButtonX = this.width - 60;
         saveButtonY = 5;
         backButtonX = saveButtonX - (btnW + 10);
         backButtonY = saveButtonY;
+
+        List<Path> loadedTabs = RemotelyClient.INSTANCE.loadFileEditorTabs();
+        for (Path path : loadedTabs) {
+            boolean tabExists = false;
+            for (Tab tab : tabs) {
+                if (tab.path.equals(path)) {
+                    tabExists = true;
+                    break;
+                }
+            }
+            if (!tabExists) {
+                Tab tab = new Tab(path);
+                tabs.add(tab);
+                tab.textEditor.init(5, 60, this.width - 10, this.height - 70);
+            }
+        }
+        if (!tabs.isEmpty()) {
+            this.textEditor = tabs.get(0).textEditor;
+        }
+    }
+
+    @Override
+    public void close() {
+        RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
+        minecraftClient.setScreen(parent);
     }
 
     @Override
     public boolean charTyped(char chr, int keyCode) {
-        boolean used = textEditor.charTyped(chr, keyCode);
-        if (used) {
-            unsaved = true;
-        }
-        return used || super.charTyped(chr, keyCode);
+        return tabs.get(currentTabIndex).textEditor.charTyped(chr, keyCode) || super.charTyped(chr, keyCode);
     }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == this.minecraftClient.options.backKey.getDefaultKey().getCode() && keyCode != GLFW.GLFW_KEY_S) {
-            minecraftClient.setScreen(parent);
+            close();
             return true;
         }
         boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
         if (ctrlHeld && keyCode == GLFW.GLFW_KEY_Z) {
-            textEditor.undo();
-            unsaved = true;
+            tabs.get(currentTabIndex).textEditor.undo();
             return true;
         }
         if (ctrlHeld && keyCode == GLFW.GLFW_KEY_Y) {
-            textEditor.redo();
-            unsaved = true;
+            tabs.get(currentTabIndex).textEditor.redo();
             return true;
         }
         if (ctrlHeld && keyCode == GLFW.GLFW_KEY_A) {
-            textEditor.selectAll();
+            tabs.get(currentTabIndex).textEditor.selectAll();
             return true;
         }
-        boolean used = textEditor.keyPressed(keyCode, modifiers);
-        if (used) {
-            unsaved = true;
-        }
-        return used || super.keyPressed(keyCode, scanCode, modifiers);
+        return tabs.get(currentTabIndex).textEditor.keyPressed(keyCode, modifiers) || super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == GLFW.GLFW_MOUSE_BUTTON_4) {
-            minecraftClient.setScreen(parent);
+        boolean clickedTab = false;
+        int titleBarHeight = 30;
+        int tabBarY = titleBarHeight + 5;
+        int tabBarHeight = TAB_HEIGHT;
+        int tabX = 5;
+        int tabY = tabBarY;
+        for (int i = 0; i < tabs.size(); i++) {
+            Tab tab = tabs.get(i);
+            int tabWidth = minecraftClient.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
+            if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight) {
+                if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
+                    tabs.remove(i);
+                    if (i == currentTabIndex) {
+                        currentTabIndex = Math.max(0, currentTabIndex - 1);
+                    }
+                    if (!tabs.isEmpty()) {
+                        this.textEditor = tabs.get(currentTabIndex).textEditor;
+                    } else {
+                        close();
+                    }
+                    RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
+                    return true;
+                } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                    if (currentTabIndex != i) {
+                        if (tabs.get(currentTabIndex).unsaved) {
+                            tabs.get(currentTabIndex).saveFile();
+                        }
+                        currentTabIndex = i;
+                        this.textEditor = tabs.get(currentTabIndex).textEditor;
+                        RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
+                    }
+                    clickedTab = true;
+                    break;
+                }
+            }
+            tabX += tabWidth + TAB_GAP;
+        }
+        if (clickedTab) {
             return true;
         }
-        boolean clickedText = textEditor.mouseClicked(mouseX, mouseY, button);
-        if (clickedText) {
+        boolean clickedSave = mouseX >= saveButtonX && mouseX <= saveButtonX + btnW && mouseY >= saveButtonY && mouseY <= saveButtonY + btnH && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
+        if (clickedSave) {
+            tabs.get(currentTabIndex).saveFile();
             return true;
         }
-        if (mouseX >= saveButtonX && mouseX <= saveButtonX + btnW && mouseY >= saveButtonY && mouseY <= saveButtonY + btnH && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            saveFile();
+        boolean clickedBack = mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
+        if (clickedBack) {
+            close();
             return true;
         }
-        if (mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            minecraftClient.setScreen(parent);
-            return true;
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return tabs.get(currentTabIndex).textEditor.mouseClicked(mouseX, mouseY, button) || super.mouseClicked(mouseX, mouseY, button);
     }
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (textEditor.mouseReleased(mouseX, mouseY, button)) {
-            return true;
-        }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return tabs.get(currentTabIndex).textEditor.mouseReleased(mouseX, mouseY, button) || super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (textEditor.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
-            return true;
-        }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return tabs.get(currentTabIndex).textEditor.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
     }
 
     @Override
@@ -174,11 +278,11 @@ public class FileEditorScreen extends Screen {
         boolean ctrlHeld = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS ||
                 GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
         if (shiftHeld) {
-            textEditor.scrollHoriz((int) (-vertAmount) * (int) HORIZONTAL_SCROLL_FACTOR);
+            tabs.get(currentTabIndex).textEditor.scrollHoriz((int) (-vertAmount) * (int) HORIZONTAL_SCROLL_FACTOR);
         } else if (ctrlHeld) {
-            textEditor.scrollVert((int) (-vertAmount) * (int) FAST_SCROLL_FACTOR);
+            tabs.get(currentTabIndex).textEditor.scrollVert((int) (-vertAmount) * (int) FAST_SCROLL_FACTOR);
         } else {
-            textEditor.scrollVert((int) (-vertAmount));
+            tabs.get(currentTabIndex).textEditor.scrollVert((int) (-vertAmount));
         }
         return true;
     }
@@ -191,30 +295,47 @@ public class FileEditorScreen extends Screen {
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
-        context.fill(0, 0, this.width, 30, lighterColor);
-        drawInnerBorder(context, 0, 1, this.width, 30, borderColor);
-        String titleText = "Editing: " + filePath.getFileName().toString() + (unsaved ? " *" : "");
-        context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, textColor, true);
+        int titleBarHeight = 30;
+        context.fill(0, 0, this.width, titleBarHeight, 0xFF222222);
+        drawInnerBorder(context, 0, 0, this.width, titleBarHeight, 0xFF333333);
+        String titleText = "Remotely - File Editor";
+        context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, textColor, Config.shadow);
 
-        textEditor.render(context, mouseX, mouseY, delta);
-        drawInnerBorder(context, 5, 35, this.width - 10, this.height - 45, borderColor);
+        int tabBarY = titleBarHeight + 5;
+        int tabBarHeight = TAB_HEIGHT;
+        int tabX = 5;
+        int tabY = tabBarY;
+        for (int i = 0; i < tabs.size(); i++) {
+            Tab tab = tabs.get(i);
+            int tabWidth = minecraftClient.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
+            boolean isActive = (i == currentTabIndex);
+            boolean isHovered = mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
+            int bgColor = isActive ? 0xFF0b371c : (isHovered ? highlightColor : 0xFF2C2C2C);
+            context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
+            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? 0xFFd6f264 : (isHovered ? 0xFF00000 : 0xFF444444));
+            context.drawText(this.textRenderer, Text.literal(tab.unsaved ? tab.name + "*" : tab.name), tabX + TAB_PADDING, tabY + 5, textColor, Config.shadow);
+            context.fill(tabX, tabY + tabBarHeight, tabX + tabWidth, tabY + tabBarHeight + 2, isActive ? 0xFF0b0b0b : 0xFF000000);
+            tabX += tabWidth + TAB_GAP;
+        }
 
-        boolean hoveredSave = mouseX >= saveButtonX && mouseX <= saveButtonX + btnW && mouseY >= saveButtonY && mouseY <= saveButtonY + btnH;
-        int bgSave = hoveredSave ? highlightColor : lighterColor;
-        context.fill(saveButtonX, saveButtonY, saveButtonX + btnW, saveButtonY + btnH, bgSave);
-        drawInnerBorder(context, saveButtonX, saveButtonY, btnW, btnH, borderColor);
-        int tw = minecraftClient.textRenderer.getWidth("Save");
-        int tx = saveButtonX + (btnW - tw) / 2;
-        int ty = saveButtonY + (btnH - minecraftClient.textRenderer.fontHeight) / 2;
-        context.drawText(minecraftClient.textRenderer, Text.literal("Save"), tx, ty, textColor, true);
+        int editorY = tabBarY + tabBarHeight + 5;
+        int editorHeight = this.height - editorY - 10;
+        int editorX = 5;
+        int editorWidth = this.width - 10;
 
-        boolean hoveredBack = mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH;
-        int bgBack = hoveredBack ? highlightColor : lighterColor;
-        context.fill(backButtonX, backButtonY, backButtonX + btnW, backButtonY + btnH, bgBack);
-        drawInnerBorder(context, backButtonX, backButtonY, btnW, btnH, borderColor);
-        int twb = minecraftClient.textRenderer.getWidth("Back");
-        int txb = backButtonX + (btnW - twb) / 2;
-        context.drawText(minecraftClient.textRenderer, Text.literal("Back"), txb, ty, textColor, true);
+        context.fill(editorX, editorY, editorX + editorWidth, editorY + editorHeight, lighterColor);
+        drawInnerBorder(context, editorX, editorY, editorWidth, editorHeight, borderColor);
+
+        tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
+
+        int buttonX = this.width - buttonW - 10;
+        int ButtonY = 5;
+        boolean hovered = mouseX >= buttonX && mouseX <= buttonX + Render.buttonW && mouseY >= ButtonY && mouseY <= ButtonY + Render.buttonH;
+        Render.drawHeaderButton(context, buttonX, ButtonY, "Save", minecraftClient, hovered, false, textColor, elementSelectedBorder);
+
+        buttonX = buttonX - (buttonW + 10);
+        hovered = mouseX >= buttonX && mouseX <= buttonX + Render.buttonW && mouseY >= ButtonY && mouseY <= ButtonY + Render.buttonH;
+        Render.drawHeaderButton(context, buttonX, ButtonY, "Back", minecraftClient, hovered, false, textColor, elementSelectedBorder);
     }
 
     private void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int c) {
@@ -224,42 +345,9 @@ public class FileEditorScreen extends Screen {
         context.fill(x + w - 1, y, x + w, y + h, c);
     }
 
-    private void saveFile() {
-        ArrayList<String> newContent = new ArrayList<>(textEditor.getLines());
-        if (serverInfo.isRemote) {
-            try {
-                if (serverInfo.remoteSSHManager == null) {
-                    serverInfo.remoteSSHManager = new redxax.oxy.SSHManager(serverInfo);
-                    serverInfo.remoteSSHManager.connectToRemoteHost(serverInfo.remoteHost.getUser(), serverInfo.remoteHost.ip, serverInfo.remoteHost.port, serverInfo.remoteHost.password);
-                    serverInfo.remoteSSHManager.connectSFTP();
-                } else if (!serverInfo.remoteSSHManager.isSFTPConnected()) {
-                    serverInfo.remoteSSHManager.connectSFTP();
-                }
-                String remotePath = filePath.toString().replace("\\", "/");
-                String joined = String.join("\n", newContent);
-                serverInfo.remoteSSHManager.writeRemoteFile(remotePath, joined);
-            } catch (Exception e) {
-                if (serverInfo.terminal != null) {
-                    serverInfo.terminal.appendOutput("File save error (remote): " + e.getMessage() + "\n");
-                }
-            }
-        } else {
-            try {
-                Files.write(filePath, newContent);
-                if (serverInfo.terminal != null) {
-                    serverInfo.terminal.appendOutput("File saved: " + filePath + "\n");
-                }
-            } catch (IOException e) {
-                if (serverInfo.terminal != null) {
-                    serverInfo.terminal.appendOutput("File save error: " + e.getMessage() + "\n");
-                }
-            }
-        }
-        unsaved = false;
-    }
-
     private static class MultiLineTextEditor {
         private final MinecraftClient mc;
+        private final Tab parentTab;
         private final ArrayList<String> lines;
         private final String fileName;
         private int x;
@@ -287,11 +375,14 @@ public class FileEditorScreen extends Screen {
         private boolean cursorFadingOut = true;
         private long lastCursorBlinkTime = 0;
         private static final long CURSOR_BLINK_INTERVAL = 30;
+        private static long lastLeftClickTime = 0;
+        private static int clickCount = 0;
 
-        public MultiLineTextEditor(MinecraftClient mc, ArrayList<String> content, String fileName) {
+        public MultiLineTextEditor(MinecraftClient mc, ArrayList<String> content, String fileName, Tab parentTab) {
             this.mc = mc;
             this.lines = new ArrayList<>(content);
             this.fileName = fileName;
+            this.parentTab = parentTab;
         }
 
         public void init(int x, int y, int w, int h) {
@@ -323,7 +414,7 @@ public class FileEditorScreen extends Screen {
                 int renderY = y + i * lineHeight - (int) smoothScrollOffsetVert % lineHeight;
                 String text = lines.get(lineIndex);
                 Text syntaxColoredLine = SyntaxHighlighter.highlight(text, fileName);
-                context.drawText(mc.textRenderer, syntaxColoredLine, x + textPadding - (int) smoothScrollOffsetHoriz, renderY, 0xFFFFFF, true);
+                context.drawText(mc.textRenderer, syntaxColoredLine, x + textPadding - (int) smoothScrollOffsetHoriz, renderY, 0xFFFFFF, Config.shadow);
                 if (isLineSelected(lineIndex)) {
                     drawSelection(context, lineIndex, renderY, text, textPadding);
                 }
@@ -350,6 +441,7 @@ public class FileEditorScreen extends Screen {
         }
 
         private boolean charTyped(char chr, int keyCode) {
+            parentTab.markUnsaved();
             if (chr == '\n' || chr == '\r') {
                 deleteSelection();
                 pushState();
@@ -388,6 +480,7 @@ public class FileEditorScreen extends Screen {
             boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
             switch (keyCode) {
                 case GLFW.GLFW_KEY_BACKSPACE -> {
+                    parentTab.markUnsaved();
                     if (ctrlHeld) {
                         deleteWord();
                         pushState();
@@ -531,6 +624,7 @@ public class FileEditorScreen extends Screen {
                 }
                 case GLFW.GLFW_KEY_V -> {
                     if (ctrlHeld) {
+                        parentTab.markUnsaved();
                         deleteSelection();
                         pushState();
                         String clipboard = mc.keyboard.getClipboard();
@@ -561,12 +655,14 @@ public class FileEditorScreen extends Screen {
                 }
                 case GLFW.GLFW_KEY_C -> {
                     if (ctrlHeld && hasSelection()) {
+                        parentTab.markUnsaved();
                         copySelectionToClipboard();
                     }
                     return true;
                 }
                 case GLFW.GLFW_KEY_X -> {
                     if (ctrlHeld && hasSelection()) {
+                        parentTab.markUnsaved();
                         copySelectionToClipboard();
                         deleteSelection();
                         pushState();
@@ -575,6 +671,7 @@ public class FileEditorScreen extends Screen {
                     return true;
                 }
                 case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> {
+                    parentTab.markUnsaved();
                     deleteSelection();
                     pushState();
                     if (cursorLine < 0) {
