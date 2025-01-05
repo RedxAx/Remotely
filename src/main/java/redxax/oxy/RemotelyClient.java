@@ -27,8 +27,11 @@ public class RemotelyClient implements ClientModInitializer {
     private KeyBinding openServerManagerKeyBinding;
     public MultiTerminalScreen multiTerminalScreen;
     private ServerManagerScreen serverManagerScreen;
-    private static final Path TERMINAL_LOG_DIR = Paths.get(System.getProperty("user.dir"), "remotely", "logs");
-    private static final Path SNIPPETS_FILE = Paths.get(System.getProperty("user.dir"), "remotely", "snippets", "snippets.json");
+    private static final Path TERMINAL_LOG_DIR = Paths.get("C:/remotely/data/remotely", "logs");
+    private static final Path SNIPPETS_FILE = Paths.get("C:/remotely/data/snippets.json");
+    private static final Path FILE_EXPLORER_TABS_FILE = Paths.get("C:/remotely/data/fileExplorerTabs.json");
+    private static final Path FILE_EDITOR_TABS_FILE = Paths.get("C:/remotely/data/file_editor_tabs.dat");
+
     private static final Gson GSON = new Gson();
     public List<TerminalInstance> terminals = new ArrayList<>();
     public List<String> tabNames = new ArrayList<>();
@@ -166,6 +169,70 @@ public class RemotelyClient implements ClientModInitializer {
 
     public int getSavedTabIndex() {
         return activeHostIndex;
+    }
+
+    public void saveFileExplorerTabs(List<Path> tabs) {
+        try {
+            if (!Files.exists(FILE_EXPLORER_TABS_FILE.getParent())) {
+                Files.createDirectories(FILE_EXPLORER_TABS_FILE.getParent());
+            }
+            List<String> tabPaths = new ArrayList<>();
+            for (Path p : tabs) {
+                tabPaths.add(p.toString());
+            }
+            String json = GSON.toJson(tabPaths);
+            Files.write(FILE_EXPLORER_TABS_FILE, json.getBytes());
+        } catch (IOException e) {
+            System.out.println("Failed to save File Explorer tabs: " + e.getMessage());
+        }
+    }
+
+    public List<Path> loadFileExplorerTabs() {
+        List<Path> tabs = new ArrayList<>();
+        if (Files.exists(FILE_EXPLORER_TABS_FILE)) {
+            try {
+                String json = new String(Files.readAllBytes(FILE_EXPLORER_TABS_FILE));
+                List<String> tabPaths = GSON.fromJson(json, new TypeToken<List<String>>(){}.getType());
+                for (String pathStr : tabPaths) {
+                    tabs.add(Paths.get(pathStr));
+                }
+            } catch (IOException e) {
+                System.out.println("Failed to load File Explorer tabs: " + e.getMessage());
+            }
+        }
+        return tabs;
+    }
+
+    public void saveFileEditorTabs(List<Path> tabs) {
+        try {
+            if (!Files.exists(FILE_EDITOR_TABS_FILE.getParent())) {
+                Files.createDirectories(FILE_EDITOR_TABS_FILE.getParent());
+            }
+            List<String> tabPaths = new ArrayList<>();
+            for (Path p : tabs) {
+                tabPaths.add(p.toString());
+            }
+            String json = GSON.toJson(tabPaths);
+            Files.write(FILE_EDITOR_TABS_FILE, json.getBytes());
+        } catch (IOException e) {
+            System.out.println("Failed to save File Editor tabs: " + e.getMessage());
+        }
+    }
+
+    public List<Path> loadFileEditorTabs() {
+        List<Path> tabs = new ArrayList<>();
+        if (Files.exists(FILE_EDITOR_TABS_FILE)) {
+            try {
+                String json = new String(Files.readAllBytes(FILE_EDITOR_TABS_FILE));
+                List<String> tabPaths = GSON.fromJson(json, new TypeToken<List<String>>(){}.getType());
+                for (String pathStr : tabPaths) {
+                    tabs.add(Paths.get(pathStr));
+                }
+            } catch (IOException e) {
+                System.out.println("Failed to load File Editor tabs: " + e.getMessage());
+            }
+        }
+        return tabs;
     }
 
     public static class CommandSnippet {
