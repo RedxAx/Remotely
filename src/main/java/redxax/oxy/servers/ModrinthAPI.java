@@ -88,7 +88,7 @@ public class ModrinthAPI {
             String facets;
             if (type.equals("mod")) {
 
-                facets = "[[\"project_type:mod\"], [\"versions:" + serverVersion + "\"], [\"categories:" + category + "\"], [\"server_side:required\", \"server_side:optional\"]]";
+                facets = "[[\"project_type:mod\"], [\"versions:" + serverVersion + "\"], [\"categories:" + category + "\"], [\"server_side:required\",\"server_side:optional\"]]";
             } else {
                 facets = "[[\"project_type:" + type + "\"], [\"versions:" + serverVersion + "\"]]";
             }
