@@ -23,8 +23,8 @@ public class Render {
     public static final int favorateBg = 0xFF3b2d17;
     public static final int deleteColor = 0xFFff7a7a;
     public static final int deleteHoverColor = 0xFFb4202a;
-    public static final int blueColor = 0xFF6cc4f1;
-    public static final int blueHoverColor = 0xFF285cc4;
+    public static final int blueColor = 0xFF249fde;
+    public static final int blueHoverColor = 0xFF6cc4f1;
     public static final int textColor = 0xFFFFFFFF;
     public static RenderLayer layer;
     private static int hoveredItemIndex = -1;

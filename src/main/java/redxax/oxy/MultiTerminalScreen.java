@@ -18,8 +18,7 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static redxax.oxy.Render.drawHeaderButton;
-import static redxax.oxy.Render.drawInnerBorder;
+import static redxax.oxy.Render.*;
 
 public class MultiTerminalScreen extends Screen {
 
@@ -245,13 +244,13 @@ public class MultiTerminalScreen extends Screen {
                 buttonY = 5;
                 String buttonLabel = (st == ServerState.RUNNING || st == ServerState.STARTING) ? "Stop" : "Start";
                 boolean buttonHovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
-                drawHeaderButton(context, buttonX, buttonY, buttonLabel, minecraftClient, buttonHovered, false, (buttonLabel.equals("Start") ? Render.elementSelectedBorder : Render.deleteHoverColor), elementSelectedBorder);
+                drawHeaderButton(context, buttonX, buttonY, buttonLabel, minecraftClient, buttonHovered, false, (buttonLabel.equals("Start") ? Render.elementSelectedBorder : Render.deleteHoverColor),(buttonLabel.equals("Start") ? elementSelectedBorder : deleteHoverColor));
 
                 //Explorer
                 explorerButtonX = buttonX - (buttonW + 10);
                 explorerButtonY = 5;
                 boolean explorerHovered = mouseX >= explorerButtonX && mouseX <= explorerButtonX + buttonW && mouseY >= explorerButtonY && mouseY <= explorerButtonY + buttonH;
-                drawHeaderButton(context, explorerButtonX, explorerButtonY, "Explorer", minecraftClient, explorerHovered, false, textColor, elementSelectedBorder);
+                drawHeaderButton(context, explorerButtonX, explorerButtonY, "Explorer", minecraftClient, explorerHovered, false, Render.favorateBorder, Render.favorateSelectedBorder);
                 boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
                 if (!isProxy) {
                     pluginButtonX = explorerButtonX - (buttonW + 10);
@@ -259,7 +258,7 @@ public class MultiTerminalScreen extends Screen {
                     String pluginLabel = (sInfo.type.equalsIgnoreCase("paper"))
                             ? "Plugins" : "Mods";
                     boolean pluginHovered = mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH;
-                    drawHeaderButton(context, pluginButtonX, pluginButtonY, pluginLabel, minecraftClient, pluginHovered, false, textColor, elementSelectedBorder);
+                    drawHeaderButton(context, pluginButtonX, pluginButtonY, pluginLabel, minecraftClient, pluginHovered, false, Render.blueColor, Render.blueHoverColor);
                 }
             } else {
                 context.fill(0, 0, this.width, topBarHeight, lighterColor);
@@ -269,7 +268,7 @@ public class MultiTerminalScreen extends Screen {
                 buttonX = this.width - buttonW - 10;
                 buttonY = 5;
                 boolean buttonHovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
-                drawHeaderButton(context, buttonX, buttonY, "Explorer", minecraftClient, buttonHovered, false, textColor, elementSelectedBorder);
+                drawHeaderButton(context, buttonX, buttonY, "Explorer", minecraftClient, buttonHovered, false, favorateBorder, favorateSelectedBorder);
                 explorerButtonX = buttonX;
                 explorerButtonY = buttonY;
             }
@@ -347,10 +346,8 @@ public class MultiTerminalScreen extends Screen {
                     lastRenameInputTime = cTime;
                 }
                 if (cursorShow) {
-                    int cursorPosVisible = Math.min(renameCursorPos - charStart, displayName.length());
-                    if (cursorPosVisible < 0) cursorPosVisible = 0;
-                    int cX = tx + minecraftClient.textRenderer.getWidth(displayName.substring(0, Math.min(cursorPosVisible, displayName.length())));
-                    context.fill(cX, ty - 1, cX + 1, ty + minecraftClient.textRenderer.fontHeight, textColor);
+                    int cX = tx + minecraftClient.textRenderer.getWidth(displayName.substring(0, Math.min(renameCursorPos - charStart, displayName.length())));
+                    context.fill(cX, ty - 1, cX + 1, ty + minecraftClient.textRenderer.fontHeight, CursorUtils.blendColor());
                 }
             } else {
                 int textW = minecraftClient.textRenderer.getWidth(displayName);
@@ -452,7 +449,7 @@ public class MultiTerminalScreen extends Screen {
             int cursorPosVisible = Math.min(snippetNameCursorPos - charStart, visibleName.length());
             if (cursorPosVisible < 0) cursorPosVisible = 0;
             int cX = nameTextX + minecraftClient.textRenderer.getWidth(visibleName.substring(0, Math.min(cursorPosVisible, visibleName.length())));
-            context.fill(cX, nameTextY - 1, cX + 1, nameTextY + minecraftClient.textRenderer.fontHeight, textColor);
+            context.fill(cX, nameTextY - 1, cX + 1, nameTextY + minecraftClient.textRenderer.fontHeight, CursorUtils.blendColor());
         }
         int commandsLabelY = nameBoxY + nameBoxHeight + 8;
         trimAndDrawText(context, "Commands:", snippetPopupX + 5, commandsLabelY, snippetPopupWidth - 10, textColor);
@@ -499,7 +496,7 @@ public class MultiTerminalScreen extends Screen {
             if (relativeLine < 0) relativeLine = 0;
             if (relativeLine >= snippetMaxVisibleLines) relativeLine = snippetMaxVisibleLines - 1;
             int cursorY = commandsInnerY + relativeLine * (minecraftClient.textRenderer.fontHeight + 2);
-            context.fill(cursorX, cursorY - 1, cursorX + 1, cursorY + minecraftClient.textRenderer.fontHeight, textColor);
+            context.fill(cursorX, cursorY - 1, cursorX + 1, cursorY + minecraftClient.textRenderer.fontHeight, CursorUtils.blendColor());
         }
         int shortcutLabelY = commandsBoxY + commandsBoxHeight + 8;
         trimAndDrawText(context, snippetRecordingKeys ? "Shortcut (recording):" : "Shortcut:", snippetPopupX + 5, shortcutLabelY, snippetPopupWidth - 10, textColor);
@@ -533,13 +530,13 @@ public class MultiTerminalScreen extends Screen {
         int cancelW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
         int cancelButtonX = snippetPopupX + snippetPopupWidth - (cancelW + 5);
         boolean cancelHover = mouseX >= cancelButtonX && mouseX <= cancelButtonX + cancelW && mouseY >= ButtonY && mouseY <= ButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-        drawHeaderButton(context, cancelButtonX, ButtonY, cancelText, minecraftClient, cancelHover, true, textColor, elementSelectedBorder);
+        drawHeaderButton(context, cancelButtonX, ButtonY, cancelText, minecraftClient, cancelHover, true, textColor, Render.blueColor);
         if (editingSnippet) {
             String deleteText = "Delete";
             int dw = minecraftClient.textRenderer.getWidth(deleteText) + 10;
             int deleteX = snippetPopupX + (snippetPopupWidth - dw) / 2;
             boolean delHover = mouseX >= deleteX && mouseX <= deleteX + dw && mouseY >= ButtonY && mouseY <= ButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawHeaderButton(context, deleteX, ButtonY, deleteText, minecraftClient, delHover, true, textColor, elementSelectedBorder);
+            drawHeaderButton(context, deleteX, ButtonY, deleteText, minecraftClient, delHover, true, Render.deleteColor, Render.deleteHoverColor);
         }
         if (snippetCreationWarning) {
             String warning = "Name/Code cannot be empty";

@@ -132,7 +132,7 @@ public class TerminalRenderer {
             String beforeCursor = inputPrompt + terminalInstance.inputHandler.getInputBuffer().substring(0, cursorInputPosition);
             int cursorXPos = inputX + minecraftClient.textRenderer.getWidth(beforeCursor);
             int cursorHeight = minecraftClient.textRenderer.fontHeight;
-            context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, CURSOR_COLOR);
+            context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, CursorUtils.blendColor());
         }
         int statusBarY = terminalY + terminalHeight - getStatusBarHeight();
         context.fill(terminalX, statusBarY, terminalX + terminalWidth, statusBarY + getStatusBarHeight(), STATUS_BAR_COLOR);

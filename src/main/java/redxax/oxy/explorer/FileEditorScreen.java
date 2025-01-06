@@ -419,7 +419,6 @@ public class FileEditorScreen extends Screen {
                     drawSelection(context, lineIndex, renderY, text, textPadding);
                 }
                 if (lineIndex == cursorLine && !hasSelection()) {
-                    CursorUtils.updateCursorOpacity();
                     int cursorX = mc.textRenderer.getWidth(text.substring(0, Math.min(cursorPos, text.length())));
                     int cy = renderY;
                     int cursorColor = CursorUtils.blendColor();
