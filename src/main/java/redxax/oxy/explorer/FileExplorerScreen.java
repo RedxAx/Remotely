@@ -23,7 +23,7 @@ import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 import static redxax.oxy.ImageUtil.*;
-import static redxax.oxy.Render.buttonW;
+import static redxax.oxy.Render.*;
 
 public class FileExplorerScreen extends Screen implements FileManager.FileManagerCallback {
     private final MinecraftClient minecraftClient;
@@ -32,20 +32,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private List<EntryData> fileEntries;
     private final Object fileEntriesLock = new Object();
     private float smoothOffset = 0;
-    private int entryHeight = 25;
-    private int baseColor = 0xFF181818;
-    private int BgColor = 0xFF242424;
-    private int BorderColor = 0xFF555555;
-    private int elementBg = 0xFF2C2C2C;
-    private int elementSelectedBorder = 0xFFd6f264;
-    private int elementSelectedBg = 0xFF0b371c;
-    private int elementBorder = 0xFF444444;
-    private int elementBorderHover = 0xFF9d9d9d;
-    private int highlightColor = 0xFF444444;
-    private int favorateBorder = 0xFFbfab61;
-    private int favorateSelectedBorder = 0xFFffc800;
-    private int favorateBg = 0xFF3b2d17;
-    private int textColor = 0xFFFFFFFF;
+    private final int entryHeight = 25;
     private Path currentPath;
     private float targetOffset = 0;
     private float scrollSpeed = 0.2f;
@@ -57,10 +44,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private int lastClickedIndex = -1;
     private Deque<Path> history = new ArrayDeque<>();
     private Deque<Path> forwardHistory = new ArrayDeque<>();
-    private int searchBarX = 10;
-    private int searchBarY = 0;
     private int searchBarWidth = 200;
-    private int searchBarHeight = 20;
     private List<Notification> notifications = new ArrayList<>();
     private final TextRenderer textRenderer;
     private final FileManager fileManager;
@@ -76,6 +60,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private boolean loading = false;
     private BufferedImage fileIcon;
     private BufferedImage folderIcon;
+    private BufferedImage pinIcon;
     private BufferedImage loadingAnim;
     private List<BufferedImage> loadingFrames = new ArrayList<>();
     private int currentLoadingFrame = 0;
@@ -222,6 +207,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
             fileIcon = loadResourceIcon("/assets/remotely/icons/file.png");
             folderIcon = loadResourceIcon("/assets/remotely/icons/folder.png");
+            pinIcon = loadResourceIcon("/assets/remotely/icons/pin.png");
             loadingAnim = loadSpriteSheet("/assets/remotely/icons/loadinganim.png");
             int frameWidth = 16;
             int frameHeight = 16;
@@ -230,7 +216,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 BufferedImage frame = loadingAnim.getSubimage(0, i * frameHeight, frameWidth, frameHeight);
                 loadingFrames.add(frame);
             }
-            List<TabData> loadedTabs = loadFileExplorerTabs().stream().distinct().collect(Collectors.toList());
+            List<TabData> loadedTabs = loadFileExplorerTabs().stream().distinct().toList();
             if (loadedTabs.isEmpty()) {
                 tabs.add(new Tab(new TabData(currentPath, serverInfo.isRemote, serverInfo.remoteHost)));
             } else {
@@ -273,7 +259,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             int bgColor = isActive ? elementSelectedBg : (isHovered ? highlightColor : elementBg);
             context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
             drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? elementSelectedBorder : isHovered ? elementBorderHover : elementBorder);
-            context.drawText(this.textRenderer, Text.literal(tab.getAnimatedText()), tabX + TAB_PADDING, tabY + 5, textColor, Config.shadow);
+            context.drawText(this.textRenderer, Text.literal(tab.getAnimatedText()), tabX + TAB_PADDING, tabY + 5, isHovered ? elementSelectedBorder : textColor, Config.shadow);
 
             context.fill(tabX, tabY + tabBarHeight, tabX + tabWidth, tabY + tabBarHeight + 2, isActive ? 0xFF0b0b0b : 0xFF000000);
 
@@ -283,7 +269,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         boolean isPlusTabHovered = mouseX >= plusTabX && mouseX <= plusTabX + PLUS_TAB_WIDTH && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
         context.fill(plusTabX, tabY, plusTabX + PLUS_TAB_WIDTH, tabY + tabBarHeight, isPlusTabHovered ? highlightColor : elementBg);
         drawInnerBorder(context, plusTabX, tabY, PLUS_TAB_WIDTH, tabBarHeight, isPlusTabHovered ? elementBorderHover : elementBorder);
-        context.drawText(this.textRenderer, Text.literal("+"), plusTabX + PLUS_TAB_WIDTH / 2 - textRenderer.getWidth("+") / 2, tabY + 5, textColor, Config.shadow);
+        context.drawText(this.textRenderer, Text.literal("+"), plusTabX + PLUS_TAB_WIDTH / 2 - textRenderer.getWidth("+") / 2, tabY + 5, isPlusTabHovered ? elementSelectedBorder : textColor, Config.shadow);
 
         int explorerY = tabBarY + tabBarHeight + 30;
         int explorerHeight = this.height - explorerY - 10;
@@ -292,7 +278,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
         int headerY = explorerY - 25;
         context.fill(explorerX, headerY, explorerX + explorerWidth, headerY + 25, BgColor);
-        drawInnerBorder(context, explorerX, headerY, explorerWidth, 25, BorderColor);
+        drawInnerBorder(context, explorerX, headerY, explorerWidth, 25, borderColor);
 
         context.drawText(this.textRenderer, Text.literal("Name"), explorerX + 10, headerY + 5, textColor, Config.shadow);
         if (!serverInfo.isRemote) {
@@ -306,7 +292,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         drawInnerBorder(context, 0, 0, this.width, titleBarHeight, 0xFF333333);
 
         String prefixText = "Remotely - File Explorer";
-        context.drawText(this.textRenderer, Text.literal(prefixText), 10, 10, textColor, true);
+        context.drawText(this.textRenderer, Text.literal(prefixText), 10, 10, textColor, Config.shadow);
 
         int fieldWidthDynamic = basePathFieldWidth;
         if (currentMode == Mode.SEARCH) {
@@ -316,9 +302,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int fieldX = (this.width - fieldWidthDynamic) / 2;
         int fieldY = 5;
         int fieldHeight = titleBarHeight - 10;
-        int fieldColor = fieldFocused ? (currentMode == Mode.SEARCH ? elementSelectedBg : elementBg) : elementBg;
+        int fieldColor = fieldFocused ? (currentMode == Mode.SEARCH ? redBg : elementSelectedBg) : elementBg;
         context.fill(fieldX, fieldY, fieldX + fieldWidthDynamic, fieldY + fieldHeight, fieldColor);
-        drawInnerBorder(context, fieldX, fieldY, fieldWidthDynamic, fieldHeight, fieldFocused ? (currentMode == Mode.SEARCH ? elementSelectedBorder : elementBorder) : elementBorder);
+        drawInnerBorder(context, fieldX, fieldY, fieldWidthDynamic, fieldHeight, fieldFocused ? (currentMode == Mode.SEARCH ? redBright : elementSelectedBorder) : elementBorder);
 
         if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
             int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
@@ -365,12 +351,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         context.disableScissor();
 
         buttonX = this.width - buttonW - 10;
-        boolean hoveredBack = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + Render.buttonH;
+        boolean hoveredBack = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
         Render.drawHeaderButton(context, buttonX, buttonY, "Close", minecraftClient, hoveredBack, false, textColor, elementSelectedBorder);
 
         int closeButtonX = buttonX - (buttonW + 10);
         int buttonYLocal = 5;
-        boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= buttonYLocal && mouseY <= buttonYLocal + Render.buttonH;
+        boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= buttonYLocal && mouseY <= buttonYLocal + buttonH;
         Render.drawHeaderButton(context, closeButtonX, buttonYLocal, "Back", minecraftClient, hoveredClose, false, textColor, elementSelectedBorder);
 
         if (loading) {
@@ -421,6 +407,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
             BufferedImage icon = entry.isDirectory ? folderIcon : fileIcon;
             drawBufferedImage(context, icon, explorerX + 10, entryY + 5, 16, 16);
+            if (isFavorite) drawBufferedImage(context, pinIcon, explorerX + 5, entryY + 5, 16, 16);
 
             String displayName = entry.path.getFileName().toString();
             context.drawText(this.textRenderer, Text.literal(displayName), explorerX + 30, entryY + 5, textWithOpacity, Config.shadow);
@@ -443,6 +430,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
         updateNotifications(delta);
         renderNotifications(context, mouseX, mouseY, delta);
+
     }
 
 
@@ -827,6 +815,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     }
                     if (clickedIndex >= 0 && clickedIndex < entriesToRender.size()) {
                         fieldFocused = false;
+                        currentMode = Mode.PATH;
+                        updatePathInfo();
                         EntryData entryData = entriesToRender.get(clickedIndex);
                         Path selectedPath = entryData.path;
                         if (isDoubleClick && lastClickedIndex == clickedIndex) {
@@ -909,6 +899,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     return true;
                 } else {
                     fieldFocused = false;
+                    currentMode = Mode.PATH;
+                    updatePathInfo();
                 }
 
                 return false;

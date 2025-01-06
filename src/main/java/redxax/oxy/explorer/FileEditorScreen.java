@@ -15,8 +15,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static redxax.oxy.Render.buttonW;
-import static redxax.oxy.Render.elementSelectedBorder;
+import static redxax.oxy.Render.*;
 
 public class FileEditorScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -310,10 +309,10 @@ public class FileEditorScreen extends Screen {
             int tabWidth = minecraftClient.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
             boolean isActive = (i == currentTabIndex);
             boolean isHovered = mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
-            int bgColor = isActive ? 0xFF0b371c : (isHovered ? highlightColor : 0xFF2C2C2C);
+            int bgColor = isActive ? (tab.unsaved ? redBg : 0xFF0b371c) : (isHovered ? highlightColor : 0xFF2C2C2C);
             context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
-            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? 0xFFd6f264 : (isHovered ? 0xFF00000 : 0xFF444444));
-            context.drawText(this.textRenderer, Text.literal(tab.unsaved ? tab.name + "*" : tab.name), tabX + TAB_PADDING, tabY + 5, textColor, Config.shadow);
+            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? (tab.unsaved ? redBright : 0xFFd6f264) : (isHovered ? 0xFF00000 : 0xFF444444));
+            context.drawText(this.textRenderer, Text.literal(tab.unsaved ? tab.name + "*" : tab.name), tabX + TAB_PADDING, tabY + 5, isHovered ? elementSelectedBorder : textColor, Config.shadow);
             context.fill(tabX, tabY + tabBarHeight, tabX + tabWidth, tabY + tabBarHeight + 2, isActive ? 0xFF0b0b0b : 0xFF000000);
             tabX += tabWidth + TAB_GAP;
         }
