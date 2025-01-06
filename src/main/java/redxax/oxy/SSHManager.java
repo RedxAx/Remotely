@@ -5,11 +5,12 @@ import redxax.oxy.servers.RemoteHostInfo;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.servers.ServerState;
 import java.io.*;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
+
+import static redxax.oxy.DevUtil.*;
 
 public class SSHManager {
     private RemoteHostInfo remoteHost = new RemoteHostInfo();
@@ -107,15 +108,33 @@ public class SSHManager {
         });
     }
 
-    public void uploadMrPackBinary() {
-        if (!sftpConnected) return;
-        sftpExecutor.submit(() -> {
+    public void downloadMrPackBinary(String user) {
+        if (!isSSH || sshSession == null || !sshSession.isConnected()) {
+            if (terminalInstance != null) {
+                terminalInstance.appendOutput("SSH not connected.\n");
+            }
+            return;
+        }
+        executorService.submit(() -> {
             try {
-                InputStream in = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-linux").openStream();
-                sftpChannel.put(in, "/tmp/mrpack-install-linux");
-                sftpChannel.chmod(0755, "/tmp/mrpack-install-linux");
-                in.close();
-            } catch (Exception ignored) {}
+                ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
+                String homePath = user.equals("root") ? "/root/remotely/" : "/home/" + user + "/remotely/";
+                String command = "wget -O " + homePath + "mrpack-install-linux https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-linux && chmod 0755 " + homePath + "mrpack-install-linux";
+                channelExec.setCommand(command);
+                channelExec.setInputStream(null);
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                channelExec.setOutputStream(out);
+                channelExec.setErrStream(out);
+                channelExec.connect();
+                while (!channelExec.isClosed()) {
+                    Thread.sleep(100);
+                }
+                String output = out.toString(StandardCharsets.UTF_8);
+                System.out.println(output);
+                channelExec.disconnect();
+            } catch (Exception e) {
+                System.out.println("Failed to download MrPack: " + e.getMessage());
+            }
         });
     }
 
@@ -128,18 +147,24 @@ public class SSHManager {
         }
         executorService.submit(() -> {
             try {
+                String user = s.remoteHost.user;
+                String homePath = user.equals("root") ? "/root/remotely/mrpack-install-linux" : "/home/" + user + "/remotely/mrpack-install-linux";
+                if (!remoteFileExists(homePath)) {
+                    downloadMrPackBinary(user);
+                }
                 ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
                 StringBuilder cmd = new StringBuilder();
-                cmd.append("/tmp/mrpack-install-linux server ");
+                cmd.append(homePath).append(" server");
                 if (s.type.equalsIgnoreCase("vanilla")) {
-                    cmd.append("vanilla");
+                    cmd.append(" vanilla");
                 } else {
-                    cmd.append(s.type);
+                    cmd.append(" ").append(s.type);
                 }
                 cmd.append(" --server-dir ").append(s.path.replace(" ", "\\ "));
                 if (!s.version.equalsIgnoreCase("latest")) {
                     cmd.append(" --minecraft-version ").append(s.version);
                 }
+                System.out.println("Running MrPack on remote: " + cmd);
                 cmd.append(" --server-file server.jar");
                 channelExec.setCommand(cmd.toString());
                 channelExec.setInputStream(null);
@@ -150,9 +175,33 @@ public class SSHManager {
                 while (!channelExec.isClosed()) {
                     Thread.sleep(100);
                 }
+                String output = out.toString(StandardCharsets.UTF_8);
+                System.out.println(output);
                 channelExec.disconnect();
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                System.out.println("Failed to run MrPack on remote: " + e.getMessage() + "\n");
+            }
         });
+    }
+
+    private boolean remoteFileExists(String path) { //don't forget to add "/" before the file path.
+        devPrint("Checking if remote file exists: " + path);
+        try {
+            ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
+            channelExec.setCommand("test -f " + path + " && echo exists || echo not_exist");
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            channelExec.setOutputStream(out);
+            channelExec.connect();
+            while (!channelExec.isClosed()) {
+                Thread.sleep(100);
+            }
+            String output = out.toString(StandardCharsets.UTF_8).trim();
+            channelExec.disconnect();
+            devPrint("The File: " + output);
+            return "exists".equals(output);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public void launchRemoteServer(String folder, String jarPath) {
@@ -173,9 +222,19 @@ public class SSHManager {
                 if (terminalInstance != null) {
                     terminalInstance.appendOutput("Remote server starting...\n");
                 }
-                String startCmd = "cd \"" + folder.replace(" ", "\\ ") + "\" && java -jar server.jar --nogui\n";
-                sshWriter.write(startCmd);
+                String scriptFilePath = "cd " + folder + "&& ./start.sh";
+                if (!remoteFileExists(folder + "/start.sh")) {
+                    if (terminalInstance != null) terminalInstance.appendOutput("You Don't Have a start.sh, Creating One...\n");
+
+                    StringBuilder commandStr = ServerProcessManager.getCommandStr();
+                    sshWriter.write("echo \"" + commandStr.toString().replace("\"", "\\\"") + "\" > " + scriptFilePath + "\n");
+                    sshWriter.write("chmod +x " + scriptFilePath + "\n");
+                    if (terminalInstance != null)
+                        terminalInstance.appendOutput("start.sh Created, Starting Server...\n");
+                }
+                sshWriter.write(scriptFilePath + "\n");
                 sshWriter.flush();
+
                 readSSHOutput();
             } catch (Exception e) {
                 if (terminalInstance != null) {
