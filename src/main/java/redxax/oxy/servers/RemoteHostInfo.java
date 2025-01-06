@@ -9,11 +9,27 @@ public class RemoteHostInfo {
     public int port;
     public String password;
     public List<ServerInfo> servers;
-    String user;
+    public String user;
     public boolean isConnecting = false;
     public boolean isConnected = false;
     public String connectionError = null;
     public SSHManager sshManager;
+
+    public void setUser(String user) {
+        this.user = user;
+    }
+
+    public void setIp(String ip) {
+        this.ip = ip;
+    }
+
+    public void setPort(int port) {
+        this.port = port;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
 
     public String getUser() {
         return this.user;
@@ -30,4 +46,6 @@ public class RemoteHostInfo {
     public String getPassword() {
         return password;
     }
+
+
 }
