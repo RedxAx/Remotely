@@ -366,12 +366,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
         buttonX = this.width - buttonW - 10;
         boolean hoveredBack = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + Render.buttonH;
-        Render.drawHeaderButton(context, buttonX, buttonY, "Back", minecraftClient, hoveredBack, false, textColor, elementSelectedBorder);
+        Render.drawHeaderButton(context, buttonX, buttonY, "Close", minecraftClient, hoveredBack, false, textColor, elementSelectedBorder);
 
         int closeButtonX = buttonX - (buttonW + 10);
         int buttonYLocal = 5;
         boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= buttonYLocal && mouseY <= buttonYLocal + Render.buttonH;
-        Render.drawHeaderButton(context, closeButtonX, buttonYLocal, "Close", minecraftClient, hoveredClose, false, textColor, elementSelectedBorder);
+        Render.drawHeaderButton(context, closeButtonX, buttonYLocal, "Back", minecraftClient, hoveredClose, false, textColor, elementSelectedBorder);
 
         if (loading) {
             long currentTimeLoading = System.currentTimeMillis();
