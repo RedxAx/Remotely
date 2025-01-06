@@ -85,20 +85,6 @@ public class MultiTerminalScreen extends Screen {
     int snippetMaxVisibleLines = 1;
     private boolean shortcutConsumed = false;
 
-    int baseColor = 0xFF181818;
-    int lighterColor = 0xFF222222;
-    int highlightColor = 0xFF444444;
-    int textColor = 0xFFFFFFFF;
-    int dimTextColor = 0xFFBBBBBB;
-
-    int borderColor = 0xFF555555;
-    int elementBg = 0xFF2C2C2C;
-    int elementSelectedBorder = 0xFFd6f264;
-    int elementSelectedBg = 0xFF0b371c;
-    int elementBorder = 0xFF444444;
-    int elementBorderHover = 0xFF9d9d9d;
-
-
     int renameScrollOffset = 0;
     int snippetNameScrollOffset = 0;
 
@@ -107,7 +93,7 @@ public class MultiTerminalScreen extends Screen {
     private int explorerButtonX = 0;
     private int explorerButtonY = 5;
     private int pluginButtonX = 0;
-    private int pluginButtonY = 5;
+    private final int pluginButtonY = 5;
     private final int buttonW = 60;
     private final int buttonH = 20;
     private final int topBarHeight = 30;
@@ -244,13 +230,13 @@ public class MultiTerminalScreen extends Screen {
                 buttonY = 5;
                 String buttonLabel = (st == ServerState.RUNNING || st == ServerState.STARTING) ? "Stop" : "Start";
                 boolean buttonHovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
-                drawHeaderButton(context, buttonX, buttonY, buttonLabel, minecraftClient, buttonHovered, false, (buttonLabel.equals("Start") ? Render.elementSelectedBorder : Render.deleteHoverColor),(buttonLabel.equals("Start") ? elementSelectedBorder : deleteHoverColor));
+                drawHeaderButton(context, buttonX, buttonY, buttonLabel, minecraftClient, buttonHovered, false, (buttonLabel.equals("Start") ? elementSelectedBorder : redColor),(buttonLabel.equals("Start") ? elementSelectedBorder : deleteHoverColor));
 
                 //Explorer
                 explorerButtonX = buttonX - (buttonW + 10);
                 explorerButtonY = 5;
                 boolean explorerHovered = mouseX >= explorerButtonX && mouseX <= explorerButtonX + buttonW && mouseY >= explorerButtonY && mouseY <= explorerButtonY + buttonH;
-                drawHeaderButton(context, explorerButtonX, explorerButtonY, "Explorer", minecraftClient, explorerHovered, false, Render.favorateBorder, Render.favorateSelectedBorder);
+                drawHeaderButton(context, explorerButtonX, explorerButtonY, "Explorer", minecraftClient, explorerHovered, false, favorateBorder, favorateSelectedBorder);
                 boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
                 if (!isProxy) {
                     pluginButtonX = explorerButtonX - (buttonW + 10);
@@ -258,7 +244,7 @@ public class MultiTerminalScreen extends Screen {
                     String pluginLabel = (sInfo.type.equalsIgnoreCase("paper"))
                             ? "Plugins" : "Mods";
                     boolean pluginHovered = mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH;
-                    drawHeaderButton(context, pluginButtonX, pluginButtonY, pluginLabel, minecraftClient, pluginHovered, false, Render.blueColor, Render.blueHoverColor);
+                    drawHeaderButton(context, pluginButtonX, pluginButtonY, pluginLabel, minecraftClient, pluginHovered, false, blueColor, blueHoverColor);
                 }
             } else {
                 context.fill(0, 0, this.width, topBarHeight, lighterColor);
@@ -284,7 +270,6 @@ public class MultiTerminalScreen extends Screen {
         int tabOffsetY = topBarHeight + 5;
         int availableTabWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 20;
         int tabStartX = 5;
-        int tabY = tabOffsetY;
         int tabAreaHeight = TAB_HEIGHT;
         int contentXStart = 2;
         int effectiveWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - contentXStart - 2;
@@ -305,17 +290,17 @@ public class MultiTerminalScreen extends Screen {
         hoveredTabIndex = -1;
         for (int i = 0; i < tabInfos.size(); i++) {
             TabInfo ti = tabInfos.get(i);
-            boolean tabHovered = mouseX >= renderX && mouseX <= renderX + ti.width && mouseY >= tabY && mouseY <= tabY + tabAreaHeight;
+            boolean tabHovered = mouseX >= renderX && mouseX <= renderX + ti.width && mouseY >= tabOffsetY && mouseY <= tabOffsetY + tabAreaHeight;
             if (tabHovered) hoveredTabIndex = i;
             int bgColor = isTabActive(i) ? elementSelectedBg : (tabHovered ? highlightColor : elementBg);
-            context.fill((int) renderX, tabY, (int) renderX + ti.width, tabY + tabAreaHeight, bgColor);
-            drawInnerBorder(context, (int) renderX, tabY, ti.width, tabAreaHeight, isTabActive(i) ? elementSelectedBorder : (tabHovered ? elementBorderHover : elementBorder));
+            context.fill((int) renderX, tabOffsetY, (int) renderX + ti.width, tabOffsetY + tabAreaHeight, bgColor);
+            drawInnerBorder(context, (int) renderX, tabOffsetY, ti.width, tabAreaHeight, isTabActive(i) ? elementSelectedBorder : (tabHovered ? elementBorderHover : elementBorder));
 
-            context.fill((int) renderX, tabY + tabAreaHeight, (int) renderX + ti.width, tabY + tabAreaHeight + 2, isTabActive(i) ? 0xFF0b0b0b : 0xFF000000);
+            context.fill((int) renderX, tabOffsetY + tabAreaHeight, (int) renderX + ti.width, tabOffsetY + tabAreaHeight + 2, isTabActive(i) ? 0xFF0b0b0b : 0xFF000000);
 
             String displayName = ti.name;
             int tx;
-            int ty = tabY + (tabAreaHeight - minecraftClient.textRenderer.fontHeight) / 2;
+            int ty = tabOffsetY + (tabAreaHeight - minecraftClient.textRenderer.fontHeight) / 2;
             if (isRenaming && renamingTabIndex == i) {
                 String fullText = renameBuffer.toString();
                 int wBeforeCursor = minecraftClient.textRenderer.getWidth(fullText.substring(0, Math.min(renameCursorPos, fullText.length())));
@@ -339,7 +324,7 @@ public class MultiTerminalScreen extends Screen {
                 if (visibleEnd < charStart) visibleEnd = charStart;
                 displayName = fullText.substring(charStart, visibleEnd);
                 tx = (int) renderX + 5;
-                context.drawText(minecraftClient.textRenderer, Text.literal(displayName), tx, ty, textColor, Config.shadow);
+                context.drawText(minecraftClient.textRenderer, Text.literal(displayName), tx, ty, tabHovered ? elementSelectedBorder : textColor, Config.shadow);
                 long cTime = System.currentTimeMillis();
                 boolean cursorShow = ((cTime - lastRenameInputTime) < 500) || (((cTime - lastRenameInputTime) > 1000) && ((cTime - lastRenameInputTime) < 1500));
                 if ((cTime - lastRenameInputTime) > 1000) {
@@ -352,28 +337,28 @@ public class MultiTerminalScreen extends Screen {
             } else {
                 int textW = minecraftClient.textRenderer.getWidth(displayName);
                 tx = (int) renderX + (ti.width - textW) / 2;
-                context.drawText(minecraftClient.textRenderer, Text.literal(displayName), tx, ty, textColor, Config.shadow);
+                context.drawText(minecraftClient.textRenderer, Text.literal(displayName), tx, ty, tabHovered ? elementSelectedBorder : textColor, Config.shadow);
             }
             renderX += ti.width + tabPadding;
         }
-        plusButtonHovered = mouseX >= renderX && mouseX <= renderX + plusW && mouseY >= tabY && mouseY <= tabY + tabAreaHeight;
+        plusButtonHovered = mouseX >= renderX && mouseX <= renderX + plusW && mouseY >= tabOffsetY && mouseY <= tabOffsetY + tabAreaHeight;
         int plusBg = plusButtonHovered ? highlightColor : elementBg;
-        context.fill((int) renderX, tabY, (int) renderX + plusW, tabY + tabAreaHeight, plusBg);
-        drawInnerBorder(context, (int) renderX, tabY, plusW, tabAreaHeight, plusButtonHovered ? elementBorderHover : elementBorder);
+        context.fill((int) renderX, tabOffsetY, (int) renderX + plusW, tabOffsetY + tabAreaHeight, plusBg);
+        drawInnerBorder(context, (int) renderX, tabOffsetY, plusW, tabAreaHeight, plusButtonHovered ? elementBorderHover : elementBorder);
         String plus = "+";
         int pw = minecraftClient.textRenderer.getWidth(plus);
         int ptx = (int) renderX + (plusW - pw) / 2;
-        int pty = tabY + (tabAreaHeight - minecraftClient.textRenderer.fontHeight) / 2;
-        context.drawText(minecraftClient.textRenderer, Text.literal(plus), ptx, pty, textColor, Config.shadow);
+        int pty = tabOffsetY + (tabAreaHeight - minecraftClient.textRenderer.fontHeight) / 2;
+        context.drawText(minecraftClient.textRenderer, Text.literal(plus), ptx, pty, plusButtonHovered ? elementSelectedBorder : textColor, Config.shadow);
         if (tabScrollOffset > 0) {
-            drawFade(context, 5, tabY, 15, tabY + tabAreaHeight, Config.shadow);
+            drawFade(context, 5, tabOffsetY, 15, tabOffsetY + tabAreaHeight, Config.shadow);
         }
         if (totalTabsWidth - tabScrollOffset > availableTabWidth) {
-            drawFade(context, this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 15, tabY, this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 5, tabY + tabAreaHeight, false);
+            drawFade(context, this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 15, tabOffsetY, this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 5, tabOffsetY + tabAreaHeight, false);
         }
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-            int contentYStart = tabY + tabAreaHeight + verticalPadding;
+            int contentYStart = tabOffsetY + tabAreaHeight + verticalPadding;
             ContentYStart = contentYStart + 5;
             int adjustedHeight = this.height - (topBarHeight + tabAreaHeight + verticalPadding) + 60;
             activeTerminal.render(context, Math.max(effectiveWidth, 50), adjustedHeight, scale);
@@ -530,13 +515,13 @@ public class MultiTerminalScreen extends Screen {
         int cancelW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
         int cancelButtonX = snippetPopupX + snippetPopupWidth - (cancelW + 5);
         boolean cancelHover = mouseX >= cancelButtonX && mouseX <= cancelButtonX + cancelW && mouseY >= ButtonY && mouseY <= ButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-        drawHeaderButton(context, cancelButtonX, ButtonY, cancelText, minecraftClient, cancelHover, true, textColor, Render.blueColor);
+        drawHeaderButton(context, cancelButtonX, ButtonY, cancelText, minecraftClient, cancelHover, true, textColor, blueColor);
         if (editingSnippet) {
             String deleteText = "Delete";
             int dw = minecraftClient.textRenderer.getWidth(deleteText) + 10;
             int deleteX = snippetPopupX + (snippetPopupWidth - dw) / 2;
             boolean delHover = mouseX >= deleteX && mouseX <= deleteX + dw && mouseY >= ButtonY && mouseY <= ButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawHeaderButton(context, deleteX, ButtonY, deleteText, minecraftClient, delHover, true, Render.deleteColor, Render.deleteHoverColor);
+            drawHeaderButton(context, deleteX, ButtonY, deleteText, minecraftClient, delHover, true, deleteColor, deleteHoverColor);
         }
         if (snippetCreationWarning) {
             String warning = "Name/Code cannot be empty";
@@ -554,19 +539,19 @@ public class MultiTerminalScreen extends Screen {
         context.fill(snippetX, snippetY, snippetX + snippetMaxWidth, snippetY + snippetHeight, bgColor);
         drawInnerBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, lastClickedSnippet == index ? elementSelectedBorder : borderColor);
         String displayName = trimTextToWidthWithEllipsis(snippet.name, snippetMaxWidth - 10);
-        context.drawText(minecraftClient.textRenderer, Text.literal(displayName), snippetX + 5, snippetY + 5, textColor, Config.shadow);
+        context.drawText(minecraftClient.textRenderer, Text.literal(displayName), snippetX + 5, snippetY + 5, hovered ? elementSelectedBorder : textColor, Config.shadow);
         context.fill(snippetX + 5, snippetY + 5 + minecraftClient.textRenderer.fontHeight + 1, snippetX + snippetMaxWidth - 5, snippetY + 5 + minecraftClient.textRenderer.fontHeight + 2, borderColor);
         if (selected) {
             String[] allLines = snippet.commands.split("\n");
             int lineY = snippetY + 5 + minecraftClient.textRenderer.fontHeight + 5;
             for (String line : allLines) {
-                context.drawText(minecraftClient.textRenderer, Text.literal(line), snippetX + 5, lineY, textColor, Config.shadow);
+                context.drawText(minecraftClient.textRenderer, Text.literal(line), snippetX + 5, lineY, hovered ? elementSelectedBorder : textColor, Config.shadow);
                 lineY += minecraftClient.textRenderer.fontHeight + 2;
             }
         } else {
             String firstLine = snippet.commands.split("\n")[0];
             firstLine = trimTextToWidthWithEllipsis(firstLine, snippetMaxWidth - 10);
-            context.drawText(minecraftClient.textRenderer, Text.literal(firstLine), snippetX + 5, snippetY + 20, dimTextColor, Config.shadow);
+            context.drawText(minecraftClient.textRenderer, Text.literal(firstLine), snippetX + 5, snippetY + 20, hovered ? elementSelectedBorder : dimTextColor, Config.shadow);
         }
     }
 
@@ -746,7 +731,6 @@ public class MultiTerminalScreen extends Screen {
         }
         int plusW = 20;
         int tabOffsetY = topBarHeight + 5;
-        int tabY = tabOffsetY;
         int tabAreaHeight = TAB_HEIGHT;
         float renderX = 5 - tabScrollOffset;
         for (int i = 0; i < terminals.size(); i++) {
@@ -754,7 +738,7 @@ public class MultiTerminalScreen extends Screen {
             int tw = minecraftClient.textRenderer.getWidth(tName);
             int paddingH = 10;
             int tabW = Math.max(tw + paddingH * 2, 45);
-            if (mouseX >= renderX && mouseX <= renderX + tabW && mouseY >= tabY && mouseY <= tabY + tabAreaHeight) {
+            if (mouseX >= renderX && mouseX <= renderX + tabW && mouseY >= tabOffsetY && mouseY <= tabOffsetY + tabAreaHeight) {
                 if (button == 1) {
                     isRenaming = true;
                     renamingTabIndex = i;
@@ -775,7 +759,7 @@ public class MultiTerminalScreen extends Screen {
             }
             renderX += tabW + tabPadding;
         }
-        if (mouseX >= renderX && mouseX <= renderX + plusW && mouseY >= tabY && mouseY <= tabY + tabAreaHeight && button == 0) {
+        if (mouseX >= renderX && mouseX <= renderX + plusW && mouseY >= tabOffsetY && mouseY <= tabOffsetY + tabAreaHeight && button == 0) {
             addNewTerminal();
             return true;
         }

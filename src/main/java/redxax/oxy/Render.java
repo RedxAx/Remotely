@@ -2,7 +2,6 @@ package redxax.oxy;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.render.RenderLayer;
 import net.minecraft.text.Text;
 
 public class Render {
@@ -11,7 +10,7 @@ public class Render {
     public static int buttonH = 18;
     public static final int baseColor = 0xFF181818;
     public static final int BgColor = 0xFF242424;
-    public static final int BorderColor = 0xFF555555;
+    public static final int borderColor = 0xFF555555;
     public static final int elementBg = 0xFF2C2C2C;
     public static final int elementSelectedBorder = 0xFFd6f264;
     public static final int elementSelectedBg = 0xFF0b371c;
@@ -25,9 +24,12 @@ public class Render {
     public static final int deleteHoverColor = 0xFFb4202a;
     public static final int blueColor = 0xFF249fde;
     public static final int blueHoverColor = 0xFF6cc4f1;
+    public static final int redColor = 0xFFb4202a;
+    public static final int redBg = 0xFF3b1725;
+    public static final int redBright = 0xFFdf3e23;
     public static final int textColor = 0xFFFFFFFF;
-    public static RenderLayer layer;
-    private static int hoveredItemIndex = -1;
+    public static final int dimTextColor = 0xFFBBBBBB;
+    public static final int lighterColor = 0xFF222222;
 
     public static void drawHeaderButton(DrawContext context, int x, int y, String text, MinecraftClient mc, boolean hovered, boolean dynamic, int txColor, int hoverColor) {
         int bg = hovered ? highlightColor : elementBg;
