@@ -1,6 +1,7 @@
 package redxax.oxy;
 
 import com.jcraft.jsch.*;
+import redxax.oxy.explorer.Notification;
 import redxax.oxy.servers.RemoteHostInfo;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.servers.ServerState;
@@ -577,5 +578,30 @@ public class SSHManager {
             remoteCommandsLastFetched = System.currentTimeMillis();
         }
         return result;
+    }
+
+    public void runRemoteCommand(String s) {
+        if (!isSSH || sshSession == null || !sshSession.isConnected()) {
+            if (terminalInstance != null) {
+                terminalInstance.appendOutput("SSH not connected.\n");
+            }
+            return;
+        }
+        executorService.submit(() -> {
+            try {
+                ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
+                channelExec.setCommand(s);
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                channelExec.setOutputStream(out);
+                channelExec.setErrStream(out);
+                channelExec.connect();
+                while (!channelExec.isClosed()) {
+                    Thread.sleep(100);
+                }
+                channelExec.disconnect();
+            } catch (Exception e) {
+                System.out.println("Failed to run remote command: " + e.getMessage());
+            }
+        });
     }
 }

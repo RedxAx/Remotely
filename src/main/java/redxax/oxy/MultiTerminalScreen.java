@@ -8,6 +8,7 @@ import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.explorer.FileExplorerScreen;
+import redxax.oxy.explorer.Notification;
 import redxax.oxy.servers.PluginModListScreen;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.servers.ServerState;
@@ -393,6 +394,14 @@ public class MultiTerminalScreen extends Screen {
         if (snippetPopupActive) {
             renderSnippetPopup(context, mouseX, mouseY, delta);
         }
+        for (Notification notification : Notification.getActiveNotifications()) {
+            notification.update(delta);
+            notification.render(context);
+        }
+    }
+
+    public void showNotification(String message, Notification.Type type) {
+        Notification notification = new Notification(message, type, this.width, this.height, minecraftClient);
     }
 
     private void renderSnippetPopup(DrawContext context, int mouseX, int mouseY, float delta) {
