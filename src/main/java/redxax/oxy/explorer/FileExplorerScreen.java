@@ -168,7 +168,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         this.serverInfo = info;
         this.fileEntries = new ArrayList<>();
         this.textRenderer = mc.textRenderer;
-        this.fileManager = new FileManager(this, serverInfo);
+        this.fileManager = new FileManager(this, serverInfo, serverInfo.remoteSSHManager);
         this.importMode = importMode;
         if (serverInfo.isRemote) {
             String normalized = serverInfo.path == null ? "" : serverInfo.path.replace("\\", "/").trim();
@@ -599,17 +599,17 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             return true;
         }
         if (ctrl) {
-            if (keyCode == GLFW.GLFW_KEY_C && !serverInfo.isRemote) {
+            if (keyCode == GLFW.GLFW_KEY_C) {
                 fileManager.copySelected(selectedPaths);
                 showNotification("Copied to clipboard", Notification.Type.INFO);
                 return true;
             }
-            if (keyCode == GLFW.GLFW_KEY_X && !serverInfo.isRemote) {
+            if (keyCode == GLFW.GLFW_KEY_X) {
                 fileManager.cutSelected(selectedPaths);
                 showNotification("Cut to clipboard", Notification.Type.INFO);
                 return true;
             }
-            if (keyCode == GLFW.GLFW_KEY_V && !serverInfo.isRemote) {
+            if (keyCode == GLFW.GLFW_KEY_V) {
                 if (currentMode == Mode.SEARCH) {
                 } else {
                     if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
@@ -624,7 +624,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 }
                 return true;
             }
-            if (keyCode == GLFW.GLFW_KEY_Z && !serverInfo.isRemote) {
+            if (keyCode == GLFW.GLFW_KEY_Z) {
+                if (serverInfo.isRemote) {
+                    showNotification("Undo not supported for remote files.", Notification.Type.ERROR);
+                    return true;
+                }
                 fileManager.undo(currentPath);
                 showNotification("Undo action", Notification.Type.INFO);
                 return true;
@@ -766,12 +770,15 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             int plusTabX = tabX;
             if (mouseX >= plusTabX && mouseX <= plusTabX + PLUS_TAB_WIDTH && mouseY >= tabY && mouseY <= tabY + tabBarHeight) {
                 if (button == GLFW.GLFW_MOUSE_BUTTON_1) {
-                    RemoteHostInfo newRemoteHostInfo = serverInfo.isRemote ? serverInfo.remoteHost : null;
-                    Tab newTab = new Tab(new TabData(currentPath, serverInfo.isRemote, newRemoteHostInfo));
-                    tabs.add(newTab);
-                    currentTabIndex = tabs.size() - 1;
-                    saveFileExplorerTabs(tabs.stream().map(t -> new TabData(t.tabData.path, t.tabData.isRemote, t.tabData.remoteHostInfo)).collect(Collectors.toList()));
-                    loadDirectory(newTab.tabData.path);
+                    TabData newTabData = new TabData(currentPath, serverInfo.isRemote, serverInfo.remoteHost);
+                    boolean duplicate = tabs.stream().anyMatch(t -> t.tabData.path.equals(newTabData.path) && t.tabData.isRemote == newTabData.isRemote && Objects.equals(t.tabData.remoteHostInfo, newTabData.remoteHostInfo));
+                    if (!duplicate) {
+                        Tab newTab = new Tab(newTabData);
+                        tabs.add(newTab);
+                        currentTabIndex = tabs.size() - 1;
+                        saveFileExplorerTabs(tabs.stream().map(t -> new TabData(t.tabData.path, t.tabData.isRemote, t.tabData.remoteHostInfo)).collect(Collectors.toList()));
+                        loadDirectory(newTab.tabData.path);
+                    }
                 }
                 handled = true;
             }
@@ -1046,22 +1053,27 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     private void pasteClipboard() {
         try {
-            String clipboard = minecraftClient.keyboard.getClipboard();
-            if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
-                int selStart = Math.min(selectionStart, selectionEnd);
-                int selEnd = Math.max(selectionStart, selectionEnd);
-                fieldText.delete(selStart, selEnd);
-                cursorPosition = selStart;
-                selectionStart = -1;
-                selectionEnd = -1;
-            }
-            fieldText.insert(cursorPosition, clipboard);
-            cursorPosition += clipboard.length();
-            if (currentMode == Mode.SEARCH) {
-                filterFileEntries();
+            if (fieldFocused) {
+                if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
+                    int selStart = Math.min(selectionStart, selectionEnd);
+                    int selEnd = Math.max(selectionStart, selectionEnd);
+                    fieldText.delete(selStart, selEnd);
+                    cursorPosition = selStart;
+                    selectionStart = -1;
+                    selectionEnd = -1;
+                }
+                String clipboard = minecraftClient.keyboard.getClipboard();
+                fieldText.insert(cursorPosition, clipboard);
+                cursorPosition += clipboard.length();
+                if (currentMode == Mode.SEARCH) {
+                    filterFileEntries();
+                }
+            } else {
+                fileManager.paste(currentPath);
+                showNotification("Pasted " + currentPath, Notification.Type.INFO);
             }
         } catch (Exception e) {
-            showNotification("Failed to paste from clipboard.", Notification.Type.ERROR);
+            showNotification("Failed to paste.", Notification.Type.ERROR);
         }
     }
 
@@ -1152,8 +1164,13 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             pathTextAnimator.setOnAnimationEnd(null);
         });
         pathTextAnimator.reverse();
-        String key = dir.toString() + "_" + serverInfo.isRemote;
-        if (!serverInfo.isRemote) {
+        String key = dir.toString() + "_" + serverInfo.isRemote + (serverInfo.isRemote && serverInfo.remoteHost != null ? "_" + serverInfo.remoteHost.getIp() + "_" + serverInfo.remoteHost.getPort() : "");
+        boolean shouldCache = serverInfo.isRemote && serverInfo.remoteHost != null && !serverInfo.remoteHost.getIp().equals("127.0.0.1");
+        if (!shouldCache) {
+            remoteCache.remove(key);
+        }
+        if (!serverInfo.isRemote || !shouldCache) {
+        } else {
             if (!forceReload && remoteCache.containsKey(key)) {
                 synchronized (fileEntriesLock) {
                     fileEntries = remoteCache.get(key);
@@ -1179,7 +1196,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 synchronized (fileEntriesLock) {
                     fileEntries = temp;
                 }
-                if (!serverInfo.isRemote) {
+                if (serverInfo.isRemote && shouldCache) {
                     remoteCache.put(key, temp);
                 }
             } catch (Exception e) {
@@ -1192,8 +1209,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     private List<EntryData> loadRemoteDirectory(Path dir, boolean forceReload) {
         String remotePath = dir.toString().replace("\\", "/");
-        if (!forceReload && remoteCache.containsKey(remotePath + "_true")) {
-            return remoteCache.get(remotePath + "_true");
+        String key = remotePath + "_true_" + serverInfo.remoteHost.getIp() + "_" + serverInfo.remoteHost.getPort();
+        if (!forceReload && remoteCache.containsKey(key)) {
+            return remoteCache.get(key);
         }
         List<String> entries;
         try {
@@ -1213,7 +1231,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     .thenComparing(x -> !x.isDirectory)
                     .thenComparing(x -> x.path.getFileName().toString().toLowerCase()));
         }
-        remoteCache.put(remotePath + "_true", temp);
+        remoteCache.put(key, temp);
         return temp;
     }
 
