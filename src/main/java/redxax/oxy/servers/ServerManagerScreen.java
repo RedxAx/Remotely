@@ -20,8 +20,7 @@ import org.lwjgl.glfw.GLFW;
 import static redxax.oxy.ImageUtil.drawBufferedImage;
 import static redxax.oxy.ImageUtil.loadSpriteSheet;
 import static redxax.oxy.MultiTerminalScreen.TAB_HEIGHT;
-import static redxax.oxy.Render.drawHeaderButton;
-import static redxax.oxy.Render.elementSelectedBorder;
+import static redxax.oxy.Render.*;
 
 public class ServerManagerScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -53,19 +52,6 @@ public class ServerManagerScreen extends Screen {
     private int hoveredServerIndex = -1;
     private boolean plusButtonHovered = false;
     private boolean remoteTabPlusHovered = false;
-    private int baseColor = 0xFF181818;
-    private int baseColorDark = 0xFF101010;
-    private int lighterColor = 0xFF222222;
-    private int highlightColor = 0xFF444444;
-    private int textColor = 0xFFFFFFFF;
-    private int dimTextColor = 0xFFBBBBBB;
-
-    private int borderColor = 0xFF555555;
-    private int elementBg = 0xFF2C2C2C;
-    private int elementSelectedBorder = 0xFFd6f264;
-    private int elementSelectedBg = 0xFF0b371c;
-    private int elementBorder = 0xFF444444;
-    private int elementBorderHover = 0xFF9d9d9d;
 
     private int tabScrollOffset = 0;
     private int tabPadding = 5;
@@ -179,7 +165,7 @@ public class ServerManagerScreen extends Screen {
         if (serverTypePopupActive) {
             serverTypePopupX = (this.width - serverTypePopupWidth) / 2;
             serverTypePopupY = (this.height - serverTypePopupHeight) / 2;
-            context.fillGradient(serverTypePopupX, serverTypePopupY, serverTypePopupX + serverTypePopupWidth, serverTypePopupY + serverTypePopupHeight, baseColor, baseColorDark);
+            context.fill(serverTypePopupX, serverTypePopupY, serverTypePopupX + serverTypePopupWidth, serverTypePopupY + serverTypePopupHeight, baseColor);
             drawInnerBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, borderColor);
             String title = "Select Action";
             int titleW = minecraftClient.textRenderer.getWidth(title);
@@ -199,7 +185,7 @@ public class ServerManagerScreen extends Screen {
         if (serverPopupActive) {
             serverPopupX = (this.width - serverPopupWidth) / 2;
             serverPopupY = (this.height - serverPopupHeight) / 2;
-            context.fillGradient(serverPopupX, serverPopupY, serverPopupX + serverPopupWidth, serverPopupY + serverPopupHeight, baseColor, baseColorDark);
+            context.fill(serverPopupX, serverPopupY, serverPopupX + serverPopupWidth, serverPopupY + serverPopupHeight, baseColor);
             drawInnerBorder(context, serverPopupX, serverPopupY, serverPopupWidth, serverPopupHeight, borderColor);
             if (deletingServer) {
                 renderDeletePopup(context, mouseX, mouseY);
@@ -210,7 +196,7 @@ public class ServerManagerScreen extends Screen {
         if (remoteHostPopupActive) {
             int px = (this.width - remoteHostPopupW) / 2;
             int py = (this.height - remoteHostPopupH) / 2;
-            context.fillGradient(px, py, px + remoteHostPopupW, py + remoteHostPopupH, baseColor, baseColorDark);
+            context.fill(px, py, px + remoteHostPopupW, py + remoteHostPopupH, baseColor);
             drawInnerBorder(context, px, py, remoteHostPopupW, remoteHostPopupH, borderColor);
             int labelY = py + 5;
             context.drawText(minecraftClient.textRenderer, Text.literal("Host Name:"), px + 5, labelY, textColor, false);
