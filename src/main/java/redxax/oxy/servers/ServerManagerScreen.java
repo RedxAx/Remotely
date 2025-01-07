@@ -52,7 +52,6 @@ public class ServerManagerScreen extends Screen {
     private int hoveredServerIndex = -1;
     private boolean plusButtonHovered = false;
     private boolean remoteTabPlusHovered = false;
-
     private int tabScrollOffset = 0;
     private int tabPadding = 5;
     private int tabHeight = 25;
@@ -85,7 +84,8 @@ public class ServerManagerScreen extends Screen {
     private int currentLoadingFrame = 0;
     private long lastFrameTime = 0;
     private boolean loading = false;
-
+    private final int entryHeight = 25;
+    private final int topBarHeight = 30;
 
     public ServerManagerScreen(MinecraftClient minecraftClient, RemotelyClient remotelyClient, List<ServerInfo> servers) {
         super(Text.literal("Server Setup"));
@@ -117,6 +117,16 @@ public class ServerManagerScreen extends Screen {
         }
     }
 
+
+    static class TabInfo {
+        String name;
+        int width;
+        TabInfo(String n, int w) {
+            name = n;
+            width = w;
+        }
+    }
+
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
         context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor);
@@ -130,15 +140,39 @@ public class ServerManagerScreen extends Screen {
             serverLastBlinkTime = currentTime;
         }
         super.render(context, mouseX, mouseY, delta);
+        context.fill(0, 0, this.width, topBarHeight, 0xFF222222);
+        drawInnerBorder(context, 0, 0, this.width, topBarHeight, 0xFF333333);
+        String title = "Remotely - Server Manager";
+        context.drawText(minecraftClient.textRenderer, Text.literal(title), 10, 10, textColor, Config.shadow);
+
+        int closeButtonY = 5;
+        int closeButtonX = this.width - 70;
+        int closeButtonWidth = 60;
+        boolean hoveredBack = mouseX >= closeButtonX && mouseX <= closeButtonX + closeButtonWidth && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH;
+        Render.drawHeaderButton(context, closeButtonX, closeButtonY, "Close", minecraftClient, hoveredBack, false, textColor, redVeryBright);
+
         renderTabs(context, mouseX, mouseY);
-        int contentYStart = tabHeight + 5 + verticalPadding;
+        int contentYStart = topBarHeight + tabHeight + 5 + verticalPadding;
         int panelHeight = this.height - contentYStart - 5;
         int panelWidth = this.width - 10;
         context.fill(5, contentYStart, 5 + panelWidth, contentYStart + panelHeight, lighterColor);
         drawInnerBorder(context, 5, contentYStart, panelWidth, panelHeight, borderColor);
-        drawInnerBorder(context, 5, contentYStart, panelWidth, panelHeight, borderColor);
         if (activeTabIndex == 0) {
-            renderServerList(context, localServers, mouseX, mouseY, contentYStart, panelHeight, panelWidth, delta);
+            if (loading) {
+                if (currentTime - lastFrameTime >= 40) {
+                    currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
+                    lastFrameTime = currentTime;
+                }
+                BufferedImage currentFrame = loadingFrames.get(currentLoadingFrame);
+                int scale = 8;
+                int imgWidth = currentFrame.getWidth() * scale;
+                int imgHeight = currentFrame.getHeight() * scale;
+                int centerX = (this.width - imgWidth) / 2;
+                int centerY = (this.height - imgHeight) / 2;
+                drawBufferedImage(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
+            } else {
+                renderServerList(context, localServers, mouseX, mouseY, contentYStart, panelHeight, panelWidth, delta);
+            }
         } else {
             RemoteHostInfo hostInfo = remoteHosts.get(activeTabIndex - 1);
             if (hostInfo.isConnecting) {
@@ -153,7 +187,6 @@ public class ServerManagerScreen extends Screen {
                 int centerX = (this.width - imgWidth) / 2;
                 int centerY = (this.height - imgHeight) / 2;
                 drawBufferedImage(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
-                return;
             } else if (hostInfo.connectionError != null) {
                 drawCenteredString(context, "Error: " + hostInfo.connectionError, this.width / 2, (contentYStart + panelHeight) / 2, 0xFFFF5555);
             } else if (!hostInfo.isConnected) {
@@ -167,12 +200,12 @@ public class ServerManagerScreen extends Screen {
             serverTypePopupY = (this.height - serverTypePopupHeight) / 2;
             context.fill(serverTypePopupX, serverTypePopupY, serverTypePopupX + serverTypePopupWidth, serverTypePopupY + serverTypePopupHeight, baseColor);
             drawInnerBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, borderColor);
-            String title = "Select Action";
-            int titleW = minecraftClient.textRenderer.getWidth(title);
-            int titleX = serverTypePopupX + (serverTypePopupWidth - titleW) / 2;
-            int titleY = serverTypePopupY + 5;
-            context.drawText(minecraftClient.textRenderer, Text.literal(title), titleX, titleY, textColor, false);
-            int option1Y = titleY + 20;
+            String stTitle = "Select Action";
+            int stTitleW = minecraftClient.textRenderer.getWidth(stTitle);
+            int stTitleX = serverTypePopupX + (serverTypePopupWidth - stTitleW) / 2;
+            int stTitleY = serverTypePopupY + 5;
+            context.drawText(minecraftClient.textRenderer, Text.literal(stTitle), stTitleX, stTitleY, textColor, false);
+            int option1Y = stTitleY + 20;
             int option2Y = option1Y + 30;
             int option3Y = option2Y + 30;
             String option1 = "Server Creation";
@@ -244,13 +277,13 @@ public class ServerManagerScreen extends Screen {
             int cancW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
             int cancX = px + remoteHostPopupW - (cancW + 5);
             boolean hoverCancel = mouseX >= cancX && mouseX <= cancX + cancW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawHeaderButton(context, cancX, confirmButtonY, cancelText, minecraftClient, hoverCancel, true, textColor, Render.blueColor);
+            drawHeaderButton(context, cancX, confirmButtonY, cancelText, minecraftClient, hoverCancel, true, textColor, redVeryBright);
             if (isEditingHost) {
                 String deleteText = "Delete";
                 int delW = minecraftClient.textRenderer.getWidth(deleteText) + 10;
                 int delX = px + (remoteHostPopupW - delW) / 2;
                 boolean hoverDelete = mouseX >= delX && mouseX <= delX + delW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-                drawHeaderButton(context, delX, confirmButtonY, deleteText, minecraftClient, hoverDelete, true, Render.deleteColor, Render.deleteHoverColor);
+                drawHeaderButton(context, delX, confirmButtonY, deleteText, minecraftClient, hoverDelete, true, deleteColor, deleteHoverColor);
             }
             if (remoteHostCreationWarning) {
                 String warning = isEditingHost ? "Failed to save changes" : "Invalid or Connection Failed";
@@ -261,7 +294,7 @@ public class ServerManagerScreen extends Screen {
     }
 
     private void renderTabs(DrawContext context, int mouseX, int mouseY) {
-        int tabOffsetY = 5;
+        int tabOffsetY = topBarHeight + 5;
         int availableTabWidth = this.width - 15 - 20;
         int tabStartX = 5;
         int tabY = tabOffsetY;
@@ -292,6 +325,7 @@ public class ServerManagerScreen extends Screen {
             int bgColor = (i == activeTabIndex) ? elementSelectedBg : (tabHovered ? 0xFF444444 : 0xFF333333);
             context.fill((int) renderX, tabY, (int) renderX + ti.width, tabY + tabAreaHeight, bgColor);
             drawInnerBorder(context, (int) renderX, tabY, ti.width, tabAreaHeight,(i == activeTabIndex) ? elementSelectedBorder : (tabHovered ? elementBorderHover : borderColor));
+            context.fill((int) renderX, tabY + tabAreaHeight, (int) renderX + ti.width, tabY + tabAreaHeight + 2, (i == activeTabIndex) ? 0xFF0b0b0b : 0xFF000000);
             int tx = (int) renderX + (ti.width - minecraftClient.textRenderer.getWidth(ti.name)) / 2;
             int ty = tabY + (tabAreaHeight - minecraftClient.textRenderer.fontHeight) / 2;
             context.drawText(minecraftClient.textRenderer, Text.literal(ti.name), tx, ty, tabHovered ? elementSelectedBorder : textColor, false);
@@ -309,93 +343,53 @@ public class ServerManagerScreen extends Screen {
         context.drawText(minecraftClient.textRenderer, Text.literal(plus), ptx, pty, remoteTabPlusHovered ? elementSelectedBorder : textColor, false);
     }
 
-    static class TabInfo {
-        String name;
-        int width;
-        TabInfo(String n, int w) {
-            name = n;
-            width = w;
-        }
-    }
-
     private void renderServerList(DrawContext context, List<ServerInfo> currentServers, int mouseX, int mouseY, int contentYStart, int panelHeight, int panelWidth, float delta) {
         int listX = 10;
         int listY = contentYStart + 5;
-        int entryHeight = 60;
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
-        int visibleEntries = (panelHeight - 10) / entryHeight;
-        int startIndex = (int) Math.floor(smoothOffset / entryHeight);
+        int visibleEntries = panelHeight / (entryHeight + 1);
+        int startIndex = (int) Math.floor(smoothOffset / (entryHeight + 1));
         int endIndex = startIndex + visibleEntries + 2;
         if (endIndex > currentServers.size()) endIndex = currentServers.size();
-        context.enableScissor(10, contentYStart + 5, panelWidth - 10, panelHeight - 10);
+        context.enableScissor(5, contentYStart, panelWidth, panelHeight);
         hoveredServerIndex = -1;
         for (int i = startIndex; i < endIndex; i++) {
             ServerInfo info = currentServers.get(i);
-            int serverY = listY + (i * entryHeight) - (int) smoothOffset;
-            boolean hovered = (mouseX >= listX && mouseX <= listX + (panelWidth - 10) && mouseY >= serverY && mouseY <= serverY + entryHeight);
+            int serverY = listY + (i * (entryHeight + 1)) - (int) smoothOffset;
+            if (serverY + entryHeight < contentYStart || serverY > contentYStart + panelHeight) {
+                continue;
+            }
+            boolean hovered = !(serverPopupActive || remoteHostPopupActive || serverTypePopupActive) && (mouseX >= listX && mouseX <= listX + (panelWidth - 10) && mouseY >= serverY && mouseY <= serverY + entryHeight);
             if (hovered) hoveredServerIndex = i;
-            int bgColor = hovered ? highlightColor : 0xFF444444;
+            int bgColor = hovered ? highlightColor : elementBg;
             context.fill(listX, serverY, listX + panelWidth - 10, serverY + entryHeight, bgColor);
-            drawInnerBorder(context, listX, serverY, panelWidth - 10, entryHeight, borderColor);
-            int buttonSize = entryHeight - 10;
-            int btnGap = 5;
-            int editX = listX + panelWidth - 10 - buttonSize - btnGap;
-            int startStopX = editX - buttonSize - btnGap;
-            boolean canStop = info.state == ServerState.RUNNING || info.state == ServerState.STARTING;
-            boolean hoveredStartStop = mouseX >= startStopX && mouseX <= startStopX + buttonSize && mouseY >= serverY + btnGap && mouseY <= serverY + btnGap + buttonSize;
-            boolean hoveredEdit = mouseX >= editX && mouseX <= editX + buttonSize && mouseY >= serverY + btnGap && mouseY <= serverY + btnGap + buttonSize;
-            int startStopBg = hoveredStartStop ? highlightColor : bgColor;
-            context.fill(startStopX, serverY + btnGap, startStopX + buttonSize, serverY + btnGap + buttonSize, startStopBg);
-            drawInnerBorder(context, startStopX, serverY + btnGap, buttonSize, buttonSize, borderColor);
-            String startStopText = canStop ? "Stop" : "Start";
-            int sstw = minecraftClient.textRenderer.getWidth(startStopText);
-            context.drawText(minecraftClient.textRenderer, Text.literal(startStopText), startStopX + (buttonSize - sstw) / 2, serverY + btnGap + (buttonSize - minecraftClient.textRenderer.fontHeight) / 2, textColor, false);
-            int editBg = hoveredEdit ? highlightColor : bgColor;
-            context.fill(editX, serverY + btnGap, editX + buttonSize, serverY + btnGap + buttonSize, editBg);
-            drawInnerBorder(context, editX, serverY + btnGap, buttonSize, buttonSize, borderColor);
-            String editText = "Edit";
-            int etw = minecraftClient.textRenderer.getWidth(editText);
-            context.drawText(minecraftClient.textRenderer, Text.literal(editText), editX + (buttonSize - etw) / 2, serverY + btnGap + (buttonSize - minecraftClient.textRenderer.fontHeight) / 2, textColor, false);
-            String stateStr = switch (info.state) {
-                case RUNNING -> "Running";
-                case STARTING -> "Starting";
-                case STOPPED -> "Stopped";
-                case CRASHED -> "Crashed";
-                default -> "Unknown";
-            };
-            int stateColor = switch (info.state) {
-                case RUNNING -> 0xFF00FF00;
-                case STARTING -> 0xFFFFFF00;
-                case CRASHED -> 0xFFFF5555;
-                default -> 0xFFFFFFFF;
-            };
-            String nameLine = trimTextToWidthWithEllipsis(info.name + " [" + stateStr + "]", startStopX - listX - 10);
-            context.drawText(minecraftClient.textRenderer, Text.literal(nameLine), listX + 5, serverY + 5, stateColor, false);
-            String pathStr = trimTextToWidthWithEllipsis(info.path, startStopX - listX - 10);
-            context.drawText(minecraftClient.textRenderer, Text.literal(pathStr), listX + 5, serverY + 20, dimTextColor, false);
+            int bdr = hovered ? elementBorderHover : borderColor;
+            drawInnerBorder(context, listX, serverY, panelWidth - 10, entryHeight, bdr);
+            String nameStr = info.name;
+            context.drawText(minecraftClient.textRenderer, Text.literal(nameStr), listX + 5, serverY + 5, textColor, false);
+            String pathStr = trimTextToWidthWithEllipsis(info.path, (panelWidth - 140));
+            context.drawText(minecraftClient.textRenderer, Text.literal(pathStr), listX + 5, serverY + 15, dimTextColor, false);
+            int editWidth = minecraftClient.textRenderer.getWidth("Edit") + 10;
+            int editX = listX + panelWidth - 10 - editWidth - 5;
+            int editY = serverY + (entryHeight - 20) / 2;
+            boolean hoveredEdit = mouseX >= editX && mouseX <= editX + editWidth && mouseY >= editY && mouseY <= editY + 20;
+            drawHeaderButton(context, editX, editY, "Edit", minecraftClient, hoveredEdit, true, textColor, elementSelectedBorder);
         }
-        int bottomY = listY + (currentServers.size() * entryHeight) - (int) smoothOffset;
-        int btnWidth = 140;
-        int btnHeight = 20;
-        int btnX = listX + (panelWidth - 10 - btnWidth) / 2;
-        int btnY = bottomY + 10;
-        boolean hoveredAddServer = mouseX >= btnX && mouseX <= btnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight;
-        int buttonBG = hoveredAddServer ? highlightColor : 0xFF444444;
-        context.fill(btnX, btnY, btnX + btnWidth, btnY + btnHeight, buttonBG);
-        drawInnerBorder(context, btnX, btnY, btnWidth, btnHeight, borderColor);
-        String addServerText = "Add New Server";
-        int textW = minecraftClient.textRenderer.getWidth(addServerText);
-        int addTextX = btnX + (btnWidth - textW) / 2;
-        int addTextY = btnY + (btnHeight - minecraftClient.textRenderer.fontHeight) / 2;
-        context.drawText(minecraftClient.textRenderer, Text.literal(addServerText), addTextX, addTextY, textColor, false);
         context.disableScissor();
-        int maxScroll = Math.max(0, currentServers.size() * entryHeight - (panelHeight - 10));
-        maxScroll += (btnHeight + 15);
+        int bottomY = listY + (currentServers.size() * (entryHeight + 1)) - (int) smoothOffset + 10;
+        int addWidth = minecraftClient.textRenderer.getWidth("Add New Server") + 10;
+        int addX = listX + (panelWidth - 10 - addWidth) / 2;
+        int addY = bottomY;
+        if (bottomY + 20 < contentYStart + panelHeight) {
+            boolean hoveredAdd = mouseX >= addX && mouseX <= addX + addWidth && mouseY >= addY && mouseY <= addY + 20;
+            drawHeaderButton(context, addX, addY, "Add New Server", minecraftClient, hoveredAdd, true, textColor, elementSelectedBorder);
+        }
+        int maxScroll = Math.max(0, currentServers.size() * (entryHeight + 1) - panelHeight);
         if (smoothOffset > 0) {
-            context.fillGradient(10, contentYStart + 5, this.width - 5, contentYStart + 15, 0x80000000, 0x00000000);
+            context.fillGradient(5, contentYStart, this.width - 5, contentYStart + 10, 0x80000000, 0x00000000);
         }
         if (smoothOffset < maxScroll) {
-            context.fillGradient(10, contentYStart + panelHeight - 15, this.width - 5, contentYStart + panelHeight - 5, 0x00000000, 0x80000000);
+            context.fillGradient(5, contentYStart + panelHeight - 10, this.width - 5, contentYStart + panelHeight, 0x00000000, 0x80000000);
         }
     }
 
@@ -404,92 +398,35 @@ public class ServerManagerScreen extends Screen {
         if (remoteHostPopupActive) {
             return handleRemoteHostPopupClick(mouseX, mouseY, button);
         }
-        int tabsStartX = 10;
-        int tabsStartY = 5;
-        int localTabW = minecraftClient.textRenderer.getWidth("Local") + 30;
-        if (mouseY >= tabsStartY && mouseY <= tabsStartY + tabHeight) {
-            if (button == 0) {
-                if (mouseX >= tabsStartX && mouseX <= tabsStartX + localTabW) {
-                    activeTabIndex = 0;
-                    isEditingHost = false;
-                    return true;
-                }
-                int nextTabX = tabsStartX + localTabW;
-                for (int i = 0; i < remoteHosts.size(); i++) {
-                    int nameW = minecraftClient.textRenderer.getWidth(remoteHosts.get(i).name) + 30;
-                    if (mouseX >= nextTabX && mouseX <= nextTabX + nameW) {
-                        activeTabIndex = i + 1;
-                        RemoteHostInfo hostInfo = remoteHosts.get(i);
-                        if (!hostInfo.isConnected && !hostInfo.isConnecting) {
-                            hostInfo.isConnecting = true;
-                            hostInfo.connectionError = null;
-                            connectRemoteHostAsync(hostInfo);
-                        }
-                        isEditingHost = false;
-                        return true;
-                    }
-                    nextTabX += nameW;
-                }
-                int plusW = 35;
-                if (mouseX >= nextTabX && mouseX <= nextTabX + plusW) {
-                    remoteHostPopupActive = true;
-                    isEditingHost = false;
-                    remoteHostCreationWarning = false;
-                    remoteHostActiveField = RemoteHostField.NONE;
-                    remoteHostNameBuffer.setLength(0);
-                    remoteHostUserBuffer.setLength(0);
-                    remoteHostUserBuffer.append("root");
-                    remoteHostIPBuffer.setLength(0);
-                    remoteHostPortBuffer.setLength(0);
-                    remoteHostPasswordBuffer.setLength(0);
-                    return true;
-                }
-            } else if (button == 1) {
-                int nextTabX = tabsStartX + localTabW;
-                for (int i = 0; i < remoteHosts.size(); i++) {
-                    int nameW = minecraftClient.textRenderer.getWidth(remoteHosts.get(i).name) + 30;
-                    if (mouseX >= nextTabX && mouseX <= nextTabX + nameW) {
-                        activeTabIndex = i + 1;
-                        RemoteHostInfo hostInfo = remoteHosts.get(i);
-                        remoteHostPopupActive = true;
-                        isEditingHost = true;
-                        remoteHostCreationWarning = false;
-                        remoteHostActiveField = RemoteHostField.NONE;
-                        remoteHostNameBuffer.setLength(0);
-                        remoteHostNameBuffer.append(hostInfo.name);
-                        remoteHostUserBuffer.setLength(0);
-                        remoteHostUserBuffer.append(hostInfo.user);
-                        remoteHostIPBuffer.setLength(0);
-                        remoteHostIPBuffer.append(hostInfo.ip);
-                        remoteHostPortBuffer.setLength(0);
-                        remoteHostPortBuffer.append(String.valueOf(hostInfo.port));
-                        remoteHostPasswordBuffer.setLength(0);
-                        remoteHostPasswordBuffer.append(hostInfo.password);
-                        return true;
-                    }
-                    nextTabX += nameW;
-                }
-            }
-        }
-        if (!serverPopupActive && !remoteHostPopupActive) {
-            int contentYStart = tabHeight + 10 + verticalPadding;
-            int panelWidth = this.width - 10;
-            int listX = 10;
-            int entryHeight = 60;
-            int btnWidth = 140;
-            int btnHeight = 20;
-            int bottomY = contentYStart + 5 + (getCurrentServers().size() * entryHeight) - (int) smoothOffset;
-            int btnX = listX + (panelWidth - 10 - btnWidth) / 2;
-            int btnY = bottomY + 10;
-            boolean hoveredAddServer = mouseX >= btnX && mouseX <= btnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight;
-            if (hoveredAddServer && button == 0) {
-                serverTypePopupActive = true;
-                isEditingHost = false;
+        if (serverTypePopupActive) {
+            if (handleServerTypePopupClick(mouseX, mouseY, button)) {
                 return true;
             }
         }
-        if (serverTypePopupActive) {
-            if (handleServerTypePopupClick(mouseX, mouseY, button)) {
+        int closeButtonWidth = 60;
+        int closeButtonX = this.width - closeButtonWidth - 10;
+        int closeButtonY = 5;
+        boolean inCloseButton = mouseX >= closeButtonX && mouseX <= closeButtonX + closeButtonWidth && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH;
+        if (inCloseButton && button == 0) {
+            this.close();
+            return true;
+        }
+        if (!serverPopupActive && !remoteHostPopupActive) {
+            int contentYStart = topBarHeight + tabHeight + 5 + verticalPadding;
+            int panelWidth = this.width - 10;
+            int listX = 10;
+            int bottomY = 0;
+            int visibleEntries = (this.height - contentYStart - 5) / (entryHeight + 1);
+            if (activeTabIndex == 0) {
+                bottomY = contentYStart + 5 + (localServers.size() * (entryHeight + 1)) - (int) smoothOffset + 10;
+            } else {
+                bottomY = contentYStart + 5 + (remoteHosts.get(activeTabIndex - 1).servers.size() * (entryHeight + 1)) - (int) smoothOffset + 10;
+            }
+            int addWidth = minecraftClient.textRenderer.getWidth("Add New Server") + 10;
+            int addX = listX + (panelWidth - 10 - addWidth) / 2;
+            int addY = bottomY;
+            if (button == 0 && mouseX >= addX && mouseX <= addX + addWidth && mouseY >= addY && mouseY <= addY + 20) {
+                serverTypePopupActive = true;
                 return true;
             }
         }
@@ -500,13 +437,162 @@ public class ServerManagerScreen extends Screen {
         if (serverPopupActive) {
             handleServerPopupClick(mouseX, mouseY, button, currentServers);
         }
+        if (button == 0 || button == 1) { // Handle left and right clicks
+            int plusW = 18;
+            int tabOffsetY = topBarHeight + 5;
+            int tabY = tabOffsetY;
+            int usedX = 5;
+            List<String> allTabs = getAllTabNames();
+            for (int i = 0; i < allTabs.size(); i++) {
+                String tabName = allTabs.get(i);
+                int tw = minecraftClient.textRenderer.getWidth(tabName);
+                int paddingH = 10;
+                int tabW = Math.max(tw + paddingH * 2, 45);
+                boolean inTab = mouseX >= usedX && mouseX <= usedX + tabW && mouseY >= tabY && mouseY <= tabY + this.tabHeight;
+                if (inTab) {
+                    if (button == 0) {
+                        activeTabIndex = i;
+                        if (i > 0) {
+                            RemoteHostInfo host = remoteHosts.get(i - 1);
+                            if (!host.isConnected && !host.isConnecting) {
+                                connectRemoteHostAsync(host);
+                            }
+                        }
+                    } else if (button == 1) {
+                        if (i > 0) {
+                            RemoteHostInfo host = remoteHosts.get(i - 1);
+                            remoteHostPopupActive = true;
+                            isEditingHost = true;
+                            remoteHostCreationWarning = false;
+                            remoteHostActiveField = RemoteHostField.NONE;
+                            remoteHostNameBuffer.setLength(0);
+                            remoteHostNameBuffer.append(host.name);
+                            remoteHostUserBuffer.setLength(0);
+                            remoteHostUserBuffer.append(host.user);
+                            remoteHostIPBuffer.setLength(0);
+                            remoteHostIPBuffer.append(host.ip);
+                            remoteHostPortBuffer.setLength(0);
+                            remoteHostPortBuffer.append(host.port);
+                            remoteHostPasswordBuffer.setLength(0);
+                            remoteHostPasswordBuffer.append(host.password);
+                        }
+                    }
+                    return true;
+                }
+                usedX += tabW + 5;
+            }
+            boolean inPlus = mouseX >= usedX && mouseX <= usedX + plusW && mouseY >= tabY && mouseY <= tabY + this.tabHeight;
+            if (inPlus) {
+                remoteHostPopupActive = true;
+                isEditingHost = false;
+                remoteHostCreationWarning = false;
+                remoteHostActiveField = RemoteHostField.NONE;
+                remoteHostNameBuffer.setLength(0);
+                remoteHostUserBuffer.setLength(0);
+                remoteHostUserBuffer.append("root");
+                remoteHostIPBuffer.setLength(0);
+                remoteHostPortBuffer.setLength(0);
+                remoteHostPasswordBuffer.setLength(0);
+                return true;
+            }
+        }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        int contentYStart = topBarHeight + tabHeight + 5 + verticalPadding;
+        int panelHeight = this.height - contentYStart - 5;
+        List<ServerInfo> currentServers = getCurrentServers();
+        int maxScroll = Math.max(0, currentServers.size() * (entryHeight + 1) - panelHeight);
+        targetOffset -= verticalAmount * entryHeight * 2;
+        if (targetOffset < 0) targetOffset = 0;
+        if (targetOffset > maxScroll) targetOffset = maxScroll;
+        return true;
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if ((modifiers & GLFW.GLFW_MOD_CONTROL) != 0 && keyCode == GLFW.GLFW_KEY_V) {
+            String clipboard = minecraftClient.keyboard.getClipboard();
+            if (remoteHostPopupActive) {
+                switch (remoteHostActiveField) {
+                    case NAME -> remoteHostNameBuffer.append(clipboard);
+                    case USER -> remoteHostUserBuffer.append(clipboard);
+                    case IP -> remoteHostIPBuffer.append(clipboard);
+                    case PORT -> remoteHostPortBuffer.append(clipboard);
+                    case PASSWORD -> remoteHostPasswordBuffer.append(clipboard);
+                }
+                return true;
+            } else if (serverPopupActive) {
+                if (nameFieldFocused) {
+                    serverNameBuffer.insert(serverNameCursorPos, clipboard);
+                    serverNameCursorPos += clipboard.length();
+                    return true;
+                } else if (versionFieldFocused) {
+                    serverVersionBuffer.insert(serverVersionCursorPos, clipboard);
+                    serverVersionCursorPos += clipboard.length();
+                    return true;
+                }
+            }
+        }
+        if (remoteHostPopupActive) {
+            handleRemoteHostTypingKey(keyCode);
+            return true;
+        }
+        if (!serverPopupActive) return super.keyPressed(keyCode, scanCode, modifiers);
+        if (nameFieldFocused) {
+            if (handleTypingKey(keyCode, serverNameBuffer, true)) return true;
+        } else if (versionFieldFocused) {
+            if (handleTypingKey(keyCode, serverVersionBuffer, false)) return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean charTyped(char chr, int modifiers) {
+        if (remoteHostPopupActive) {
+            if (chr == 27) {
+                closeRemoteHostPopup();
+                return true;
+            }
+            if (Character.isISOControl(chr)) return true;
+            if (remoteHostActiveField == RemoteHostField.NAME) {
+                if (chr >= 32 && remoteHostNameBuffer.length() < 100) remoteHostNameBuffer.append(chr);
+            } else if (remoteHostActiveField == RemoteHostField.USER) {
+                if (chr >= 32 && remoteHostUserBuffer.length() < 100) remoteHostUserBuffer.append(chr);
+            } else if (remoteHostActiveField == RemoteHostField.IP) {
+                if ((Character.isLetterOrDigit(chr) || chr == '.' || chr == '-') && remoteHostIPBuffer.length() < 100) {
+                    remoteHostIPBuffer.append(chr);
+                }
+            } else if (remoteHostActiveField == RemoteHostField.PORT) {
+                if (Character.isDigit(chr) && remoteHostPortBuffer.length() < 6) {
+                    remoteHostPortBuffer.append(chr);
+                }
+            } else if (remoteHostActiveField == RemoteHostField.PASSWORD) {
+                if (chr >= 32 && chr < 127 && remoteHostPasswordBuffer.length() < 100) {
+                    remoteHostPasswordBuffer.append(chr);
+                }
+            }
+            return true;
+        }
+        if (!serverPopupActive) return super.charTyped(chr, modifiers);
+        if (nameFieldFocused) {
+            insertChar(serverNameBuffer, chr, true);
+            return true;
+        } else if (versionFieldFocused) {
+            insertChar(serverVersionBuffer, chr, false);
+            return true;
+        }
+        return super.charTyped(chr, modifiers);
     }
 
     private void connectRemoteHostAsync(RemoteHostInfo hostInfo) {
         if (hostInfo.sshManager == null) {
             hostInfo.sshManager = new SSHManager(hostInfo);
         }
+        hostInfo.isConnecting = true;
         new Thread(() -> {
             try {
                 hostInfo.sshManager.connectToRemoteHost(hostInfo.getUser(), hostInfo.getIp(), hostInfo.getPort(), hostInfo.getPassword());
@@ -527,6 +613,16 @@ public class ServerManagerScreen extends Screen {
                 hostInfo.connectionError = "Failed to connect: " + ex.getMessage();
             }
         }).start();
+    }
+
+
+    private List<String> getAllTabNames() {
+        List<String> all = new ArrayList<>();
+        all.add("Local");
+        for (RemoteHostInfo rh : remoteHosts) {
+            all.add(rh.name);
+        }
+        return all;
     }
 
     private List<ServerInfo> getCurrentServers() {
@@ -686,68 +782,45 @@ public class ServerManagerScreen extends Screen {
     }
 
     private void handleServerListClick(double mouseX, double mouseY, int button, List<ServerInfo> currentServers) {
-        int contentYStart = tabHeight + 5 + verticalPadding;
+        int contentYStart = topBarHeight + tabHeight + 5 + verticalPadding;
         int panelHeight = this.height - contentYStart - 5;
         int panelWidth = this.width - 10;
-        int entryHeight = 60;
-        int startIndex = (int) Math.floor(smoothOffset / entryHeight);
         int listY = contentYStart + 5;
+        if (mouseY < contentYStart || mouseY > contentYStart + panelHeight) {
+            return;
+        }
         int relativeMouseY = (int) (mouseY - listY + smoothOffset);
-        int clickedIndex = relativeMouseY / entryHeight;
+        int clickedIndex = relativeMouseY / (entryHeight + 1);
         if (clickedIndex >= 0 && clickedIndex < currentServers.size()) {
+            int serverY = listY + (clickedIndex * (entryHeight + 1)) - (int) smoothOffset;
+            if (serverY + entryHeight < contentYStart || serverY > contentYStart + panelHeight) {
+                return;
+            }
             ServerInfo info = currentServers.get(clickedIndex);
-            int buttonSize = entryHeight - 10;
-            int btnGap = 5;
-            int editX = panelWidth - 10 - buttonSize - btnGap;
-            int startStopX = editX - buttonSize - btnGap;
-            int serverY = listY + (clickedIndex * entryHeight) - (int) smoothOffset;
-            int buttonY = serverY + btnGap;
-            boolean inStartStop = mouseX >= startStopX && mouseX <= startStopX + buttonSize && mouseY >= buttonY && mouseY <= buttonY + buttonSize;
-            boolean inEdit = mouseX >= editX && mouseX <= editX + buttonSize && mouseY >= buttonY && mouseY <= buttonY + buttonSize;
-            if (inStartStop && button == 0) {
-                if (info.state == ServerState.RUNNING || info.state == ServerState.STARTING) {
-                    if (info.terminal != null) {
-                        info.terminal.appendOutput("Stopping server...\n");
-                        try {
-                            if (info.terminal instanceof ServerTerminalInstance sti && sti.processManager != null && sti.processManager.getWriter() != null) {
-                                sti.processManager.getWriter().write("stop\n");
-                                sti.processManager.getWriter().flush();
-                            }
-                        } catch (IOException ignored) {}
-                        info.state = ServerState.STOPPED;
-                    }
-                } else {
-                    if (info.state == ServerState.STOPPED || info.state == ServerState.CRASHED) {
-                        if (info.terminal == null) {
-                            info.terminal = new ServerTerminalInstance(minecraftClient, null, UUID.randomUUID(), info);
-                            info.isRunning = false;
-                        }
-                        info.terminal.appendOutput("Starting server...\n");
-                        if (info.terminal instanceof ServerTerminalInstance) {
-                            info.terminal.launchServerProcess();
-                        }
-                        info.state = ServerState.STARTING;
-                    }
-                }
-            } else if (inEdit && button == 0) {
+            int editWidth = minecraftClient.textRenderer.getWidth("Edit") + 10;
+            int editX = 10 + panelWidth - 10 - editWidth - 5;
+            int editY = serverY + (entryHeight - 20) / 2;
+            boolean inEdit = mouseX >= editX && mouseX <= editX + editWidth && mouseY >= editY && mouseY <= editY + 20;
+            if (inEdit && button == 0) {
                 creatingServer = false;
                 editingServer = true;
                 deletingServer = false;
                 editingServerIndex = clickedIndex;
                 serverPopupActive = true;
-                ServerInfo s = currentServers.get(editingServerIndex);
                 serverNameBuffer.setLength(0);
-                serverNameBuffer.append(s.name);
+                serverNameBuffer.append(info.name);
                 serverVersionBuffer.setLength(0);
-                serverVersionBuffer.append(s.version);
-                selectedTypeIndex = serverTypes.indexOf(s.type);
+                serverVersionBuffer.append(info.version);
+                selectedTypeIndex = serverTypes.indexOf(info.type);
                 if (selectedTypeIndex < 0) selectedTypeIndex = 0;
                 nameFieldFocused = false;
                 versionFieldFocused = false;
                 serverCreationWarning = false;
                 serverNameCursorPos = serverNameBuffer.length();
                 serverVersionCursorPos = serverVersionBuffer.length();
-            } else if (button == 0) {
+                return;
+            }
+            if (button == 0 && !inEdit) {
                 openServerScreen(clickedIndex, currentServers);
             }
         }
@@ -855,96 +928,6 @@ public class ServerManagerScreen extends Screen {
         }
     }
 
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if ((modifiers & GLFW.GLFW_MOD_CONTROL) != 0 && keyCode == GLFW.GLFW_KEY_V) {
-            String clipboard = minecraftClient.keyboard.getClipboard();
-            if (remoteHostPopupActive) {
-                switch (remoteHostActiveField) {
-                    case NAME -> remoteHostNameBuffer.append(clipboard);
-                    case USER -> remoteHostUserBuffer.append(clipboard);
-                    case IP -> remoteHostIPBuffer.append(clipboard);
-                    case PORT -> remoteHostPortBuffer.append(clipboard);
-                    case PASSWORD -> remoteHostPasswordBuffer.append(clipboard);
-                }
-                return true;
-            } else if (serverPopupActive) {
-                if (nameFieldFocused) {
-                    serverNameBuffer.insert(serverNameCursorPos, clipboard);
-                    serverNameCursorPos += clipboard.length();
-                    return true;
-                } else if (versionFieldFocused) {
-                    serverVersionBuffer.insert(serverVersionCursorPos, clipboard);
-                    serverVersionCursorPos += clipboard.length();
-                    return true;
-                }
-            }
-        }
-        if (remoteHostPopupActive) {
-            handleRemoteHostTypingKey(keyCode);
-            return true;
-        }
-        if (!serverPopupActive) return super.keyPressed(keyCode, scanCode, modifiers);
-        if (nameFieldFocused) {
-            if (handleTypingKey(keyCode, serverNameBuffer, true)) return true;
-        } else if (versionFieldFocused) {
-            if (handleTypingKey(keyCode, serverVersionBuffer, false)) return true;
-        }
-        return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    @Override
-    public boolean charTyped(char chr, int modifiers) {
-        if (remoteHostPopupActive) {
-            if (chr == 27) {
-                closeRemoteHostPopup();
-                return true;
-            }
-            if (Character.isISOControl(chr)) return true;
-            if (remoteHostActiveField == RemoteHostField.NAME) {
-                if (chr >= 32 && remoteHostNameBuffer.length() < 100) remoteHostNameBuffer.append(chr);
-            } else if (remoteHostActiveField == RemoteHostField.USER) {
-                if (chr >= 32 && remoteHostUserBuffer.length() < 100) remoteHostUserBuffer.append(chr);
-            } else if (remoteHostActiveField == RemoteHostField.IP) {
-                if ((Character.isLetterOrDigit(chr) || chr == '.' || chr == '-') && remoteHostIPBuffer.length() < 100) {
-                    remoteHostIPBuffer.append(chr);
-                }
-            } else if (remoteHostActiveField == RemoteHostField.PORT) {
-                if (Character.isDigit(chr) && remoteHostPortBuffer.length() < 6) {
-                    remoteHostPortBuffer.append(chr);
-                }
-            } else if (remoteHostActiveField == RemoteHostField.PASSWORD) {
-                if (chr >= 32 && chr < 127 && remoteHostPasswordBuffer.length() < 100) {
-                    remoteHostPasswordBuffer.append(chr);
-                }
-            }
-            return true;
-        }
-        if (!serverPopupActive) return super.charTyped(chr, modifiers);
-        if (nameFieldFocused) {
-            insertChar(serverNameBuffer, chr, true);
-            return true;
-        } else if (versionFieldFocused) {
-            insertChar(serverVersionBuffer, chr, false);
-            return true;
-        }
-        return super.charTyped(chr, modifiers);
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        int contentYStart = tabHeight + 5 + verticalPadding;
-        int panelHeight = this.height - contentYStart - 5;
-        int entryHeight = 60;
-        List<ServerInfo> currentServers = getCurrentServers();
-        int maxScroll = Math.max(0, currentServers.size() * entryHeight - (panelHeight - 10));
-        maxScroll += 35;
-        targetOffset -= verticalAmount * entryHeight * 2;
-        if (targetOffset < 0) targetOffset = 0;
-        if (targetOffset > maxScroll) targetOffset = maxScroll;
-        return true;
-    }
-
     private boolean handleTypingKey(int keyCode, StringBuilder buffer, boolean isNameField) {
         if (keyCode == 259 || keyCode == 261) {
             if (isNameField) {
@@ -1031,9 +1014,9 @@ public class ServerManagerScreen extends Screen {
     public void createOrSaveServer() {
         List<ServerInfo> currentServers = getCurrentServers();
         String name = serverNameBuffer.toString().trim();
-        String path;
         String ver = serverVersionBuffer.toString().trim().isEmpty() ? "latest" : serverVersionBuffer.toString().trim();
         selectedServerType = serverTypes.get(selectedTypeIndex);
+        String path;
         if (activeTabIndex == 0) {
             path = "C:/remotely/servers/" + name;
         } else {
@@ -1396,7 +1379,6 @@ public class ServerManagerScreen extends Screen {
         }
     }
 
-
     private boolean isServerRegistered(String normalizedPath) {
         for (ServerInfo server : localServers) {
             String serverPath = Paths.get(server.path).toAbsolutePath().normalize().toString().replace("/", "\\");
@@ -1522,7 +1504,7 @@ public class ServerManagerScreen extends Screen {
         int cancelW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
         int cancelButtonX = serverPopupX + serverPopupWidth - (cancelW + 5);
         boolean cancelHover = mouseX >= cancelButtonX && mouseX <= cancelButtonX + cancelW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-        drawHeaderButton(context, cancelButtonX, confirmButtonY, cancelText, minecraftClient, cancelHover, true, textColor, Render.blueColor);
+        drawHeaderButton(context, cancelButtonX, confirmButtonY, cancelText, minecraftClient, cancelHover, true, textColor, redVeryBright);
     }
 
     private String[] splitJsonObjects(String json) {
@@ -1645,7 +1627,7 @@ public class ServerManagerScreen extends Screen {
         int cancelW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
         int cancelButtonX = serverPopupX + serverPopupWidth - (cancelW + 5);
         boolean cancelHover = mouseX >= cancelButtonX && mouseX <= cancelButtonX + cancelW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-        drawHeaderButton(context, cancelButtonX, confirmButtonY, cancelText, minecraftClient, cancelHover, true, textColor, Render.blueColor);
+        drawHeaderButton(context, cancelButtonX, confirmButtonY, cancelText, minecraftClient, cancelHover, true, textColor, redVeryBright);
         if (editingServer) {
             String deleteText = "Delete Server";
             int dw = minecraftClient.textRenderer.getWidth(deleteText) + 10;
