@@ -361,14 +361,14 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         }
         context.disableScissor();
 
-        buttonX = this.width - buttonW - 10;
-        boolean hoveredBack = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
-        Render.drawHeaderButton(context, buttonX, buttonY, "Close", minecraftClient, hoveredBack, false, textColor, elementSelectedBorder);
+        int closeButtonX = this.width - buttonW - 10;
+        boolean hoveredBack = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
+        Render.drawHeaderButton(context, closeButtonX, buttonY, "Close", minecraftClient, hoveredBack, false, textColor, redVeryBright);
 
-        int closeButtonX = buttonX - (buttonW + 10);
-        int buttonYLocal = 5;
-        boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= buttonYLocal && mouseY <= buttonYLocal + buttonH;
-        Render.drawHeaderButton(context, closeButtonX, buttonYLocal, "Back", minecraftClient, hoveredClose, false, textColor, elementSelectedBorder);
+        int backButtonX = closeButtonX - (buttonW + 10);
+        int backYLocal = 5;
+        boolean hoveredClose = mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= backYLocal && mouseY <= backYLocal + buttonH;
+        Render.drawHeaderButton(context, backButtonX, backYLocal, "Back", minecraftClient, hoveredClose, false, textColor, elementSelectedBorder);
 
         if (loading && currentTab.tabData.isRemote) {
             long currentTimeLoading = System.currentTimeMillis();
@@ -808,21 +808,17 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 int explorerHeight = this.height - explorerY - 10;
                 int explorerX = 5;
                 int explorerWidth = this.width - 10;
-                int backButtonX = this.width - 120;
+                int closeButtonX = this.width - buttonW - 10;
+                int backButtonX = closeButtonX - (buttonW + 10);
                 int backButtonY = 5;
-                int btnW = 50;
-                int btnH = 20;
-                int closeButtonX = this.width - 60;
                 int closeButtonY = 5;
-                int closeBtnW = 50;
-                int closeBtnH = 20;
                 int gap = 1;
 
-                if (mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH) {
+                if (mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= backButtonY && mouseY <= backButtonY + buttonH) {
                     navigateUp();
                     return true;
                 }
-                if (mouseX >= closeButtonX && mouseX <= closeButtonX + closeBtnW && mouseY >= closeButtonY && mouseY <= closeButtonY + closeBtnH) {
+                if (mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH) {
                     minecraftClient.setScreen(parent);
                     return true;
                 }

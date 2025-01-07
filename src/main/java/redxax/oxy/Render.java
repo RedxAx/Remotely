@@ -27,6 +27,7 @@ public class Render {
     public static final int redColor = 0xFFb4202a;
     public static final int redBg = 0xFF3b1725;
     public static final int redBright = 0xFFdf3e23;
+    public static final int redVeryBright = 0xFFff7a7a;
     public static final int textColor = 0xFFFFFFFF;
     public static final int dimTextColor = 0xFFBBBBBB;
     public static final int lighterColor = 0xFF222222;
