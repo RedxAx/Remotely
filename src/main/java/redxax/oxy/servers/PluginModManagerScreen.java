@@ -30,6 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static redxax.oxy.DevUtil.devPrint;
 import static redxax.oxy.ImageUtil.drawBufferedImage;
 import static redxax.oxy.ImageUtil.loadResourceIcon;
 import static redxax.oxy.ImageUtil.loadSpriteSheet;
@@ -39,9 +40,8 @@ public class PluginModManagerScreen extends Screen {
     private final MinecraftClient minecraftClient;
     private final Screen parent;
     private final ServerInfo serverInfo;
-
-    private final List<ModrinthResource> resources = Collections.synchronizedList(new ArrayList<>());
-    private final Map<String, List<ModrinthResource>> resourceCache = new ConcurrentHashMap<>();
+    private final List<IRemotelyResource> resources = Collections.synchronizedList(new ArrayList<>());
+    private final Map<String, List<IRemotelyResource>> resourceCache = new ConcurrentHashMap<>();
     private final Map<String, BufferedImage> iconImages = new ConcurrentHashMap<>();
     private final Map<String, BufferedImage> scaledIcons = Collections.synchronizedMap(new LinkedHashMap<String, BufferedImage>() {
         private static final int MAX_ENTRIES = 100;
@@ -53,7 +53,6 @@ public class PluginModManagerScreen extends Screen {
     private final Map<String, Boolean> installingMrPack = new ConcurrentHashMap<>();
     private final Map<String, Boolean> installingResource = new ConcurrentHashMap<>();
     private final Map<String, String> installButtonTexts = new ConcurrentHashMap<>();
-
     private BufferedImage installIcon;
     private BufferedImage installingIcon;
     private BufferedImage installedIcon;
@@ -61,23 +60,19 @@ public class PluginModManagerScreen extends Screen {
     private List<BufferedImage> loadingFrames = new ArrayList<>();
     private int currentLoadingFrame = 0;
     private long lastFrameTime = 0;
-
     private final ExecutorService imageLoader = Executors.newFixedThreadPool(4);
     private final BufferedImage placeholderIcon = createPlaceholderIcon();
-
     private float smoothOffset = 0;
     private float targetOffset = 0;
     private float scrollSpeed = 0.2f;
     private int entryHeight = 40;
     private final int gapBetweenEntries = 2;
     private int selectedIndex = -1;
-
     private volatile boolean isLoading = false;
     private volatile boolean isLoadingMore = false;
     private boolean hasMore = false;
     private int loadedCount = 0;
     private String currentSearch = "";
-
     private boolean fieldFocused = false;
     private StringBuilder fieldText = new StringBuilder();
     private int cursorPosition = 0;
@@ -85,26 +80,20 @@ public class PluginModManagerScreen extends Screen {
     private int selectionEnd = -1;
     private long lastBlinkTime = 0;
     private boolean showCursor = true;
-
     private float pathScrollOffset = 0;
     private float pathTargetScrollOffset = 0;
-
     private TextRenderer textRenderer;
     private boolean searching = false;
-
-    private enum TabMode { MODRINTH }
-
+    private enum TabMode { MODRINTH, SPIGOT, HANGAR }
     private static class Tab {
         TabMode mode;
         String name;
         float scrollOffset;
-
         Tab(TabMode mode, String name) {
             this.mode = mode;
             this.name = name;
         }
     }
-
     private final List<Tab> tabs = new ArrayList<>();
     private int currentTabIndex = 0;
     private final int TAB_HEIGHT = 18;
@@ -125,6 +114,10 @@ public class PluginModManagerScreen extends Screen {
         this.textRenderer = this.minecraftClient.textRenderer;
         tabs.clear();
         tabs.add(new Tab(TabMode.MODRINTH, "Modrinth"));
+        if (serverInfo.isPluginServer()) {
+            tabs.add(new Tab(TabMode.SPIGOT, "Spigot"));
+            tabs.add(new Tab(TabMode.HANGAR, "Hangar"));
+        }
         fieldText.setLength(0);
         fieldText.append("");
         cursorPosition = 0;
@@ -171,6 +164,7 @@ public class PluginModManagerScreen extends Screen {
             int tabWidth = this.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
             if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight) {
                 currentTabIndex = i;
+                loadResourcesAsync(currentSearch, true);
                 handled = true;
                 break;
             }
@@ -212,21 +206,21 @@ public class PluginModManagerScreen extends Screen {
                         int iconY = contentY + (index * (entryHeight + gapBetweenEntries)) - (int) smoothOffset + (entryHeight - 30) / 2;
                         int iconSize = 30;
                         if (mouseX >= iconX && mouseX <= iconX + iconSize && mouseY >= iconY && mouseY <= iconY + iconSize) {
-                            ModrinthResource selected = resources.get(index);
-                            if (!installButtonTexts.containsKey(selected.slug)) {
-                                installButtonTexts.put(selected.slug, "Install");
+                            IRemotelyResource selected = resources.get(index);
+                            if (!installButtonTexts.containsKey(selected.getSlug())) {
+                                installButtonTexts.put(selected.getSlug(), "Install");
                             }
-                            if (!installButtonTexts.get(selected.slug).equalsIgnoreCase("Installed")) {
-                                if (selected.fileName.toLowerCase(Locale.ROOT).endsWith(".mrpack") && Objects.equals(serverInfo.path, "modpack")) {
-                                    if (!installingMrPack.containsKey(selected.slug) || !installingMrPack.get(selected.slug)) {
-                                        installingMrPack.put(selected.slug, true);
-                                        installButtonTexts.put(selected.slug, "Installing");
+                            if (!installButtonTexts.get(selected.getSlug()).equalsIgnoreCase("Installed")) {
+                                if (selected.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack") && Objects.equals(serverInfo.path, "modpack")) {
+                                    if (!installingMrPack.containsKey(selected.getSlug()) || !installingMrPack.get(selected.getSlug())) {
+                                        installingMrPack.put(selected.getSlug(), true);
+                                        installButtonTexts.put(selected.getSlug(), "Installing");
                                         installMrPack(selected);
                                     }
                                 } else {
-                                    if (!installingResource.containsKey(selected.slug) || !installingResource.get(selected.slug)) {
-                                        installingResource.put(selected.slug, true);
-                                        installButtonTexts.put(selected.slug, "Installing");
+                                    if (!installingResource.containsKey(selected.getSlug()) || !installingResource.get(selected.getSlug())) {
+                                        installingResource.put(selected.getSlug(), true);
+                                        installButtonTexts.put(selected.getSlug(), "Installing");
                                         fetchAndInstallResource(selected);
                                     }
                                 }
@@ -378,16 +372,13 @@ public class PluginModManagerScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         int titleBarHeight = 30;
-
         context.fill(0, 0, this.width, titleBarHeight, 0xFF222222);
         drawInnerBorder(context, 0, 0, this.width, titleBarHeight, 0xFF333333);
         context.drawText(this.textRenderer, Text.literal(this.getTitle().getString()), 10, 10, textColor, Config.shadow);
-
         int tabBarY = titleBarHeight + 5;
         int tabBarHeight = TAB_HEIGHT;
         int tabX = 5;
         int tabY = tabBarY;
-
         for (int i = 0; i < tabs.size(); i++) {
             Tab tab = tabs.get(i);
             int tabWidth = textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
@@ -402,7 +393,6 @@ public class PluginModManagerScreen extends Screen {
             context.fill(tabX, tabY + tabBarHeight, tabX + tabWidth, tabY + tabBarHeight + 2, isActive ? 0xFF0b0b0b : 0xFF000000);
             tabX += tabWidth + TAB_GAP;
         }
-
         int textFieldHeight = 20;
         int textFieldX = (this.width / 2) - 100;
         int textFieldY = 5;
@@ -411,7 +401,6 @@ public class PluginModManagerScreen extends Screen {
         int fieldColor = fieldFocused ? elementSelectedBg : elementBg;
         context.fill(textFieldX, textFieldY, textFieldX + textFieldW, textFieldY + textFieldH, fieldColor);
         drawInnerBorder(context, textFieldX, textFieldY, textFieldW, textFieldH, fieldFocused ? elementSelectedBorder : elementBorder);
-
         if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
             int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
             int selEnd = Math.min(fieldText.length(), Math.max(selectionStart, selectionEnd));
@@ -423,7 +412,6 @@ public class PluginModManagerScreen extends Screen {
             int selWidth = textRenderer.getWidth(selectedText);
             context.fill(selX, textFieldY + 4, selX + selWidth, textFieldY + 4 + textRenderer.fontHeight, 0x80FFFFFF);
         }
-
         String displayText = fieldText.toString();
         int textWidth = textRenderer.getWidth(displayText);
         int cursorX = textFieldX + 5 + textRenderer.getWidth(displayText.substring(0, Math.min(cursorPosition, displayText.length())));
@@ -435,7 +423,6 @@ public class PluginModManagerScreen extends Screen {
         }
         pathTargetScrollOffset = Math.max(0, Math.min(pathTargetScrollOffset, textWidth - textFieldW + 10));
         pathScrollOffset += (pathTargetScrollOffset - pathScrollOffset) * scrollSpeed;
-
         context.enableScissor(textFieldX, textFieldY, textFieldX + textFieldW, textFieldY + textFieldH);
         context.drawText(textRenderer, Text.literal(displayText), textFieldX + 5 - (int) pathScrollOffset, textFieldY + 5, textColor, Config.shadow);
         if (fieldFocused && showCursor) {
@@ -444,23 +431,18 @@ public class PluginModManagerScreen extends Screen {
             context.fill(curX, textFieldY + 5, curX + 1, textFieldY + 5 + textRenderer.fontHeight, 0xFFFFFFFF);
         }
         context.disableScissor();
-
         int closeButtonX = this.width - buttonW - 10;
         int closeButtonY = 5;
         boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH;
         drawHeaderButton(context, closeButtonX, closeButtonY, "Close", minecraftClient, hoveredClose, false, textColor, redVeryBright);
-
-
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
         int contentY = tabBarY + tabBarHeight + 30;
         int contentHeight = this.height - contentY - 10;
         int contentX = 5;
         int contentWidth = this.width - 10;
-
         context.fill(contentX, contentY - 25, contentX + contentWidth, contentY, BgColor);
         drawInnerBorder(context, contentX, contentY - 25, contentWidth, 25, borderColor);
         context.drawText(textRenderer, Text.literal("Name"), contentX + 10, contentY - 18, textColor, Config.shadow);
-
         context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
         if (isLoading && resources.isEmpty()) {
             long currentTime = System.currentTimeMillis();
@@ -478,13 +460,11 @@ public class PluginModManagerScreen extends Screen {
             context.disableScissor();
             return;
         }
-
         int startIndex = (int) Math.floor(smoothOffset / (entryHeight + gapBetweenEntries));
         int visibleEntries = contentHeight / (entryHeight + gapBetweenEntries);
         int endIndex = Math.min(startIndex + visibleEntries + 2, resources.size());
-
         for (int i = startIndex; i < endIndex; i++) {
-            ModrinthResource resource = resources.get(i);
+            IRemotelyResource resource = resources.get(i);
             int y = contentY + (i * (entryHeight + gapBetweenEntries)) - (int) smoothOffset;
             boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + entryHeight;
             boolean isSelected = (i == selectedIndex);
@@ -492,16 +472,12 @@ public class PluginModManagerScreen extends Screen {
             int borderColorFinal = isSelected ? elementSelectedBorder : (hovered ? elementBorderHover : elementBorder);
             context.fill(contentX, y, contentX + contentWidth, y + entryHeight, bg);
             drawInnerBorder(context, contentX, y, contentWidth, entryHeight, borderColorFinal);
-
             context.fill(contentX, y + entryHeight + 1, contentX + contentWidth, y + entryHeight, 0xFF000000);
-
-            BufferedImage scaledImage = resource.iconUrl.isEmpty() ? placeholderIcon : scaledIcons.getOrDefault(resource.iconUrl, placeholderIcon);
+            BufferedImage scaledImage = resource.getIconUrl().isEmpty() ? placeholderIcon : scaledIcons.getOrDefault(resource.getIconUrl(), placeholderIcon);
             drawBufferedImage(context, scaledImage, contentX + 5, y + (entryHeight - 30) / 2, 30, 30);
-
-            String resourceName = resource.name;
+            String resourceName = resource.getName();
             context.drawText(textRenderer, Text.literal(resourceName), contentX + 40, y + 5, elementSelectedBorder, Config.shadow);
-
-            String resourceDesc = resource.description;
+            String resourceDesc = resource.getDescription();
             int descMaxWidth = contentWidth - 50;
             if (textRenderer.getWidth(resourceDesc) > descMaxWidth) {
                 while (textRenderer.getWidth(resourceDesc + "...") > descMaxWidth && resourceDesc.length() > 0) {
@@ -510,10 +486,16 @@ public class PluginModManagerScreen extends Screen {
                 resourceDesc += "...";
             }
             context.drawText(textRenderer, Text.literal(resourceDesc), contentX + 40, y + 16, textColor, Config.shadow);
-
-            String downloadsAndVersion = formatDownloads(resource.downloads) + " | " + resource.version  + " | " + resource.followers + " Followers";
-            context.drawText(textRenderer, Text.literal(downloadsAndVersion), contentX + 40, y + 30, dimTextColor, Config.shadow);
-
+            String mrInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getVersion()  + " | " + resource.getFollowers() + " Followers";
+            String spInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getAverageRating() + " Star Rating";
+            String hgInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getVersion()  + " | " + resource.getFollowers() + " Stars";
+            if (currentTabIndex == 0) {
+                context.drawText(textRenderer, Text.literal(mrInfo), contentX + 40, y + 30, dimTextColor, Config.shadow);
+            } else if (currentTabIndex == 1) {
+                context.drawText(textRenderer, Text.literal(spInfo), contentX + 40, y + 30, dimTextColor, Config.shadow);
+            } else {
+                context.drawText(textRenderer, Text.literal(hgInfo), contentX + 40, y + 30, dimTextColor, Config.shadow);
+            }
             int buttonX = contentX + 5;
             int buttonY = y + (entryHeight - 30) / 2;
             int buttonSize = 30;
@@ -521,7 +503,7 @@ public class PluginModManagerScreen extends Screen {
             if (isHoveringInstall) {
                 context.fill(buttonX, buttonY, buttonX + buttonSize, buttonY + buttonSize, 0x80000000);
                 BufferedImage buttonIcon = installIcon;
-                String status = installButtonTexts.getOrDefault(resource.slug, "Install");
+                String status = installButtonTexts.getOrDefault(resource.getSlug(), "Install");
                 if (status.equals("Installing")) {
                     buttonIcon = installingIcon;
                 } else if (status.equals("Installed")) {
@@ -533,7 +515,6 @@ public class PluginModManagerScreen extends Screen {
             }
         }
         context.disableScissor();
-
         if (smoothOffset > 0) {
             context.fillGradient(contentX, contentY, contentX + contentWidth, contentY + 10, 0x80000000, 0x00000000);
         }
@@ -541,7 +522,6 @@ public class PluginModManagerScreen extends Screen {
         if (smoothOffset < maxScroll) {
             context.fillGradient(contentX, contentY + contentHeight - 10, contentX + contentWidth, contentY + contentHeight, 0x00000000, 0x80000000);
         }
-
         loadMoreIfNeeded();
     }
 
@@ -571,57 +551,83 @@ public class PluginModManagerScreen extends Screen {
             smoothOffset = 0;
             targetOffset = 0;
         }
-        if (resourceCache.containsKey(query + "_" + loadedCount)) {
+        if (resourceCache.containsKey(query + "_" + loadedCount + "_" + currentTabIndex)) {
             synchronized (resources) {
-                resources.addAll(resourceCache.get(query + "_" + loadedCount));
+                resources.addAll(resourceCache.get(query + "_" + loadedCount + "_" + currentTabIndex));
             }
             return;
         }
         isLoading = true;
         if (reset) hasMore = true;
-        CompletableFuture<List<ModrinthResource>> searchFuture;
+        CompletableFuture<List<IRemotelyResource>> searchFuture;
         String serverVersion = serverInfo.getVersion();
         int limit = 30;
-        if (serverInfo.isModServer()) {
-            searchFuture = ModrinthAPI.searchMods(query, serverVersion, limit, loadedCount, serverInfo.type);
-        } else if (serverInfo.isPluginServer()) {
-            searchFuture = ModrinthAPI.searchPlugins(query, serverVersion, limit, loadedCount, serverInfo.type);
+        TabMode tabMode = tabs.get(currentTabIndex).mode;
+        if (tabMode == TabMode.MODRINTH) {
+            if (serverInfo.isModServer()) {
+                searchFuture = ModrinthAPI.searchMods(query, serverVersion, limit, loadedCount, serverInfo.type)
+                        .thenApply(list -> new ArrayList<>(list));
+            } else if (serverInfo.isPluginServer()) {
+                searchFuture = ModrinthAPI.searchPlugins(query, serverVersion, limit, loadedCount, serverInfo.type)
+                        .thenApply(list -> new ArrayList<>(list));
+            } else {
+                searchFuture = ModrinthAPI.searchModpacks(query, serverVersion, limit, loadedCount)
+                        .thenApply(list -> new ArrayList<>(list));
+            }
+        } else if (tabMode == TabMode.SPIGOT) {
+            int page = loadedCount / limit;
+            searchFuture = SpigetAPI.searchPlugins(query, limit, page)
+                    .thenApply(list -> {
+                        List<IRemotelyResource> mapped = new ArrayList<>();
+                        for (SpigetResource sr : list) {
+                            mapped.add(sr);
+                        }
+                        return mapped;
+                    });
         } else {
-            searchFuture = ModrinthAPI.searchModpacks(query, serverVersion, limit, loadedCount);
+            int offset = loadedCount;
+            searchFuture = HangarAPI.searchPlugins(query, limit, offset)
+                    .thenApply(list -> {
+                        List<IRemotelyResource> mapped = new ArrayList<>();
+                        for (HangarResource hr : list) {
+                            mapped.add(hr);
+                        }
+                        return mapped;
+                    });
         }
         searchFuture.thenAccept(fetched -> {
-            if (fetched.size() < 30) hasMore = false;
+            if (fetched.size() < limit) hasMore = false;
             Set<String> seenSlugs = ConcurrentHashMap.newKeySet();
-            List<ModrinthResource> uniqueResources = new ArrayList<>();
-            for (ModrinthResource r : fetched) {
-                if (seenSlugs.add(r.slug)) {
+            List<IRemotelyResource> uniqueResources = new ArrayList<>();
+            for (IRemotelyResource r : fetched) {
+                if (seenSlugs.add(r.getSlug())) {
                     uniqueResources.add(r);
                 }
             }
             synchronized (resources) {
                 resources.addAll(uniqueResources);
             }
-            resourceCache.put(query + "_" + loadedCount, new ArrayList<>(uniqueResources));
+            resourceCache.put(query + "_" + loadedCount + "_" + currentTabIndex, new ArrayList<>(uniqueResources));
             isLoading = false;
             isLoadingMore = false;
             uniqueResources.forEach(resource -> {
-                if (!resource.iconUrl.isEmpty() && !iconImages.containsKey(resource.iconUrl)) {
+                if (!resource.getIconUrl().isEmpty() && !iconImages.containsKey(resource.getIconUrl())) {
                     imageLoader.submit(() -> {
-                        try (InputStream inputStream = new URL(resource.iconUrl).openStream()) {
-                            BufferedImage bufferedImage = loadImage(inputStream, resource.iconUrl);
+                        try (InputStream inputStream = new URL(resource.getIconUrl()).openStream()) {
+                            BufferedImage bufferedImage = loadImage(inputStream, resource.getIconUrl());
                             if (bufferedImage != null) {
-                                iconImages.put(resource.iconUrl, bufferedImage);
+                                iconImages.put(resource.getIconUrl(), bufferedImage);
                                 BufferedImage scaled = new BufferedImage(30, 30, BufferedImage.TYPE_INT_ARGB);
                                 Graphics2D g2d = scaled.createGraphics();
                                 g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
                                 g2d.drawImage(bufferedImage, 0, 0, 30, 30, null);
                                 g2d.dispose();
                                 synchronized (scaledIcons) {
-                                    scaledIcons.put(resource.iconUrl, scaled);
+                                    scaledIcons.put(resource.getIconUrl(), scaled);
                                 }
                             }
                         } catch (Exception e) {
-                            scaledIcons.put(resource.iconUrl, placeholderIcon);
+                            scaledIcons.put(resource.getIconUrl(), placeholderIcon);
                         }
                     });
                 }
@@ -642,7 +648,14 @@ public class PluginModManagerScreen extends Screen {
             baos.write(buf, 0, len);
         }
         inputStream.close();
-        return ImageIO.read(new ByteArrayInputStream(baos.toByteArray()));
+        try {
+            return ImageIO.read(new ByteArrayInputStream(baos.toByteArray()));
+        } catch (Exception e) {
+            if (url.toLowerCase(Locale.ROOT).endsWith(".webp")) {
+                return null;
+            }
+            throw e;
+        }
     }
 
     private BufferedImage createPlaceholderIcon() {
@@ -654,11 +667,11 @@ public class PluginModManagerScreen extends Screen {
         return img;
     }
 
-    private void installMrPack(ModrinthResource resource) {
+    private void installMrPack(IRemotelyResource resource) {
         new Thread(() -> {
             try {
                 String exePath = "C:\\remotely\\mrpack-install-windows.exe";
-                String serverDir = "C:\\remotely\\servers\\" + resource.name;
+                String serverDir = "C:\\remotely\\servers\\" + resource.getName();
                 Path exe = Path.of(exePath);
                 Path serverPath = Path.of(serverDir);
                 if (!Files.exists(serverPath)) Files.createDirectories(serverPath);
@@ -669,55 +682,47 @@ public class PluginModManagerScreen extends Screen {
                             Files.copy(input, exe, StandardCopyOption.REPLACE_EXISTING);
                         }
                     } catch (Exception e) {
-                        System.err.println("Failed to download mrpack-install: " + e.getMessage());
                         return;
                     }
                 }
-                ProcessBuilder pb = new ProcessBuilder(exePath, resource.projectId, resource.version, "--server-dir", serverDir, "--server-file", "server.jar");
+                ProcessBuilder pb = new ProcessBuilder(exePath, resource.getProjectId(), resource.getVersion(), "--server-dir", serverDir, "--server-file", "server.jar");
                 pb.directory(serverPath.toFile());
                 Process proc = pb.start();
                 ExecutorService executor = Executors.newFixedThreadPool(2);
                 executor.submit(() -> {
                     try (InputStream is = proc.getInputStream()) {
                         is.transferTo(System.out);
-                    } catch (Exception e) {
-                        e.printStackTrace();
+                    } catch (Exception ignored) {
                     }
                 });
                 executor.submit(() -> {
                     try (InputStream is = proc.getErrorStream()) {
                         is.transferTo(System.err);
-                    } catch (Exception e) {
-                        e.printStackTrace();
+                    } catch (Exception ignored) {
                     }
                 });
                 proc.waitFor();
                 executor.shutdown();
-                if (proc.exitValue() != 0) {
-                    System.err.println("mrpack-install failed. Exit code: " + proc.exitValue());
-                }
-                installingMrPack.put(resource.slug, false);
-                installButtonTexts.put(resource.slug, "Installed");
-            } catch (Exception e) {
-                e.printStackTrace();
+                installingMrPack.put(resource.getSlug(), false);
+                installButtonTexts.put(resource.getSlug(), "Installed");
+            } catch (Exception ignored) {
             }
         }).start();
     }
 
-    private void fetchAndInstallResource(ModrinthResource resource) {
+    private void fetchAndInstallResource(IRemotelyResource resource) {
         Thread t = new Thread(() -> {
             try {
-                String versionID = (resource.versionId != null && !resource.versionId.isEmpty()) ? resource.versionId : resource.version;
-                String downloadUrl = fetchDownloadUrl(versionID);
+                String downloadUrl = getDownloadUrlFor(resource);
                 if (downloadUrl.isEmpty()) {
                     minecraftClient.execute(() -> {
-                        installingResource.put(resource.slug, false);
-                        installButtonTexts.put(resource.slug, "Install");
+                        installingResource.put(resource.getSlug(), false);
+                        installButtonTexts.put(resource.getSlug(), "Install");
                     });
                     return;
                 }
                 Path dest;
-                String baseName = stripExtension(resource.fileName);
+                String baseName = stripExtension(resource.getFileName());
                 String extension = "";
                 if (serverInfo.isModServer() || serverInfo.isPluginServer()) {
                     extension = ".jar";
@@ -727,7 +732,7 @@ public class PluginModManagerScreen extends Screen {
                 } else if (serverInfo.isPluginServer()) {
                     dest = Path.of(serverInfo.path, "plugins", baseName + extension);
                 } else {
-                    dest = Path.of(serverInfo.path, "unknown", resource.fileName);
+                    dest = Path.of(serverInfo.path, "unknown", resource.getFileName());
                 }
                 Files.createDirectories(dest.getParent());
                 HttpClient httpClient = HttpClient.newBuilder().executor(imageLoader).build();
@@ -737,46 +742,51 @@ public class PluginModManagerScreen extends Screen {
                         .GET()
                         .build();
                 HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-                if (response.statusCode() == 200) {
+                devPrint("Response Code: " + response.statusCode());
+                if (response.statusCode() == 200 || response.statusCode() == 302 || response.statusCode() == 303) {
+                    devPrint("Downloading " + downloadUrl + " to " + dest);
                     Files.copy(response.body(), dest, StandardCopyOption.REPLACE_EXISTING);
-                } else {
-                    System.err.println("Failed to fetch resource: " + response.statusCode());
                 }
-            } catch (Exception e) {
-                System.err.println("Failed to fetch and install resource: " + e.getMessage());
-                e.printStackTrace();
+            } catch (Exception ignored) {
             }
             minecraftClient.execute(() -> {
-                installingResource.put(resource.slug, false);
-                installButtonTexts.put(resource.slug, "Installed");
+                installingResource.put(resource.getSlug(), false);
+                installButtonTexts.put(resource.getSlug(), "Installed");
             });
         });
         t.start();
     }
 
-    private String fetchDownloadUrl(String versionID) {
-        try {
-            URI uri = URI.create("https://api.modrinth.com/v2/version/" + versionID);
-            HttpClient client = HttpClient.newHttpClient();
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(uri)
-                    .header("User-Agent", "Remotely")
-                    .GET()
-                    .build();
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 200) {
-                var version = JsonParser.parseString(response.body()).getAsJsonObject();
-                var files = version.getAsJsonArray("files");
-                if (!files.isEmpty()) {
-                    var file = files.get(0).getAsJsonObject();
-                    return file.get("url").getAsString();
+    private String getDownloadUrlFor(IRemotelyResource resource) {
+        if (resource instanceof SpigetResource) {
+            SpigetResource sp = (SpigetResource) resource;
+            devPrint("External Spiget Download: " + "https://api.spiget.org/v2/resources/" + sp.getProjectId() + "/download");
+            return "https://api.spiget.org/v2/resources/" + sp.getProjectId() + "/download";
+        } else if (resource instanceof HangarResource) {
+            HangarResource hg = (HangarResource) resource;
+            devPrint("Hangar Download: " + "https://hangar.papermc.io/api/v1/versions/" + hg.getProjectId() +  "/" + serverInfo.type.toUpperCase() + "/download");
+            return "https://hangar.papermc.io/api/v1/versions/" + hg.getProjectId() +  "/" + serverInfo.type.toUpperCase() + "/download";
+        } else {
+            try {
+                URI uri = URI.create("https://api.modrinth.com/v2/version/" + resource.getVersionId());
+                HttpClient client = HttpClient.newHttpClient();
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(uri)
+                        .header("User-Agent", "Remotely")
+                        .header("Content-Type", "application/octet-stream")
+                        .GET()
+                        .build();
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 200) {
+                    var version = JsonParser.parseString(response.body()).getAsJsonObject();
+                    var files = version.getAsJsonArray("files");
+                    if (!files.isEmpty()) {
+                        var file = files.get(0).getAsJsonObject();
+                        return file.get("url").getAsString();
+                    }
                 }
-            } else {
-                System.err.println("Failed to fetch download URL: " + response.statusCode());
+            } catch (Exception ignored) {
             }
-        } catch (Exception e) {
-            System.err.println("Failed to fetch download URL: " + e.getMessage());
-            e.printStackTrace();
         }
         return "";
     }

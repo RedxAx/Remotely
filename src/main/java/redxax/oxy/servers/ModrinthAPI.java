@@ -20,20 +20,20 @@ public class ModrinthAPI {
             .build();
     private static final String USER_AGENT = "Remotely";
 
-    public static CompletableFuture<List<ModrinthResource>> searchMods(String query, String serverVersion, int limit, int offset, String category) {
+    public static CompletableFuture<List<IRemotelyResource>> searchMods(String query, String serverVersion, int limit, int offset, String category) {
         return searchResources(query, "mod", serverVersion, limit, offset, category);
     }
 
-    public static CompletableFuture<List<ModrinthResource>> searchPlugins(String query, String serverVersion, int limit, int offset, String category) {
+    public static CompletableFuture<List<IRemotelyResource>> searchPlugins(String query, String serverVersion, int limit, int offset, String category) {
         return searchResources(query, "plugin", serverVersion, limit, offset, category);
     }
 
-    public static CompletableFuture<List<ModrinthResource>> searchModpacks(String query, String serverVersion, int limit, int offset) {
+    public static CompletableFuture<List<IRemotelyResource>> searchModpacks(String query, String serverVersion, int limit, int offset) {
         return searchResources(query, "modpack", serverVersion, limit, offset, "fabric");
     }
 
-    private static CompletableFuture<List<ModrinthResource>> searchResources(String query, String type, String serverVersion, int limit, int offset, String category) {
-        List<ModrinthResource> results = new ArrayList<>();
+    private static CompletableFuture<List<IRemotelyResource>> searchResources(String query, String type, String serverVersion, int limit, int offset, String category) {
+        List<IRemotelyResource> results = new ArrayList<>();
         try {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
             String facets;
@@ -63,22 +63,24 @@ public class ModrinthAPI {
                                 String iconUrl = hit.has("icon_url") ? hit.get("icon_url").getAsString() : "";
                                 int downloads = hit.has("downloads") ? hit.get("downloads").getAsInt() : 0;
                                 CompletableFuture<Void> future = fetchProjectDetails(projectId).thenAccept(projectDetails -> {
-                                    String version = String.valueOf(projectDetails.get("version"));
-                                    int followers = projectDetails.get("followers") != null ? Integer.parseInt(String.valueOf(projectDetails.get("followers"))) : 0;
-                                    ModrinthResource r = new ModrinthResource(
-                                            name,
-                                            version,
-                                            description,
-                                            slug + (type.equals("plugin") ? ".jar" : ".mrpack"),
-                                            iconUrl,
-                                            downloads,
-                                            followers,
-                                            slug,
-                                            new ArrayList<>(),
-                                            projectId,
-                                            versionId
-                                    );
-                                    results.add(r);
+                                    if (projectDetails != null) {
+                                        String version = projectDetails.has("version") ? projectDetails.get("version").getAsString() : "Unknown";
+                                        int followers = projectDetails.has("followers") && !projectDetails.get("followers").isJsonNull() ? projectDetails.get("followers").getAsInt() : 0;
+                                        ModrinthResource r = new ModrinthResource(
+                                                name,
+                                                version,
+                                                description,
+                                                slug + (type.equals("plugin") ? ".jar" : ".mrpack"),
+                                                iconUrl,
+                                                downloads,
+                                                followers,
+                                                slug,
+                                                new ArrayList<>(),
+                                                projectId,
+                                                versionId
+                                        );
+                                        results.add(r);
+                                    }
                                 });
                                 futures.add(future);
                             }
@@ -92,7 +94,7 @@ public class ModrinthAPI {
                         return results;
                     });
         } catch (Exception e) {
-            CompletableFuture<List<ModrinthResource>> failedFuture = new CompletableFuture<>();
+            CompletableFuture<List<IRemotelyResource>> failedFuture = new CompletableFuture<>();
             failedFuture.completeExceptionally(e);
             return failedFuture;
         }
