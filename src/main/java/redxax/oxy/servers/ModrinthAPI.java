@@ -19,25 +19,20 @@ public class ModrinthAPI {
             .version(HttpClient.Version.HTTP_2)
             .build();
     private static final String USER_AGENT = "Remotely";
-    private static String index = "relevance";
 
-    public static void setSortIndex(String currentSortParam) {
-        index = currentSortParam;
+    public static CompletableFuture<List<IRemotelyResource>> searchMods(String query, String serverVersion, int limit, int offset, String category, String sortParam) {
+        return searchResources(query, "mod", serverVersion, limit, offset, category, sortParam);
     }
 
-    public static CompletableFuture<List<IRemotelyResource>> searchMods(String query, String serverVersion, int limit, int offset, String category) {
-        return searchResources(query, "mod", serverVersion, limit, offset, category);
+    public static CompletableFuture<List<IRemotelyResource>> searchPlugins(String query, String serverVersion, int limit, int offset, String category, String sortParam) {
+        return searchResources(query, "plugin", serverVersion, limit, offset, category, sortParam);
     }
 
-    public static CompletableFuture<List<IRemotelyResource>> searchPlugins(String query, String serverVersion, int limit, int offset, String category) {
-        return searchResources(query, "plugin", serverVersion, limit, offset, category);
+    public static CompletableFuture<List<IRemotelyResource>> searchModpacks(String query, String serverVersion, int limit, int offset, String sortParam) {
+        return searchResources(query, "modpack", serverVersion, limit, offset, "fabric", sortParam);
     }
 
-    public static CompletableFuture<List<IRemotelyResource>> searchModpacks(String query, String serverVersion, int limit, int offset) {
-        return searchResources(query, "modpack", serverVersion, limit, offset, "fabric");
-    }
-
-    private static CompletableFuture<List<IRemotelyResource>> searchResources(String query, String type, String serverVersion, int limit, int offset, String category) {
+    private static CompletableFuture<List<IRemotelyResource>> searchResources(String query, String type, String serverVersion, int limit, int offset, String category, String sortParam) {
         List<IRemotelyResource> results = new ArrayList<>();
         try {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
@@ -50,7 +45,7 @@ public class ModrinthAPI {
                 facets = "[[\"project_type:" + type + "\"], [\"versions:" + serverVersion + "\"]]";
             }
             String encodedFacets = URLEncoder.encode(facets, StandardCharsets.UTF_8);
-            URI uri = new URI(MODRINTH_API_URL + "/search?query=" + encodedQuery + "&facets=" + encodedFacets + "&limit=" + limit + "&offset=" + offset + "&index=" + index);
+            URI uri = new URI(MODRINTH_API_URL + "/search?query=" + encodedQuery + "&facets=" + encodedFacets + "&limit=" + limit + "&offset=" + offset + "&index=" + sortParam);
             HttpRequest request = HttpRequest.newBuilder().uri(uri).header("User-Agent", USER_AGENT).GET().build();
             return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                     .thenCompose(response -> {

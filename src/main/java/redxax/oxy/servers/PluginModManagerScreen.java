@@ -85,7 +85,11 @@ public class PluginModManagerScreen extends Screen {
     private float pathTargetScrollOffset = 0;
     private TextRenderer textRenderer;
     private boolean searching = false;
-    private enum TabMode { SORT, MODRINTH, SPIGOT, HANGAR }
+    private final int colorDownloadSuccess = 0xFF00FF00;
+    private final int colorDownloadFail = 0xFFFF0000;
+    private final int colorNotDownloaded = 0xFF999999;
+
+    private enum TabMode { MODRINTH, SPIGOT, HANGAR, SORT }
     private static class Tab {
         TabMode mode;
         String name;
@@ -101,9 +105,9 @@ public class PluginModManagerScreen extends Screen {
     private final int TAB_PADDING = 5;
     private final int TAB_GAP = 5;
     private final int PLUS_TAB_WIDTH = 18;
-    private final Map<TabMode, String[]> sortOptionsMap = new HashMap<>();
-    private final Map<TabMode, Integer> sortIndicesMap = new HashMap<>();
-    private String currentSortParam = "";
+    private int currentSortIndex = 0;
+    private final Map<TabMode, String[]> sortLabels = new HashMap<>();
+    private final Map<TabMode, String[]> sortValues = new HashMap<>();
 
     public PluginModManagerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
         super(Text.literal(info.isModServer() ? "Remotely - Mods Browser" : (info.isPluginServer() ? "Remotely - Plugins Browser" : "Remotely - Modpacks Browser")));
@@ -117,18 +121,18 @@ public class PluginModManagerScreen extends Screen {
         super.init();
         this.textRenderer = this.minecraftClient.textRenderer;
         tabs.clear();
-        tabs.add(new Tab(TabMode.SORT, "Sort"));
         tabs.add(new Tab(TabMode.MODRINTH, "Modrinth"));
         if (serverInfo.isPluginServer()) {
             tabs.add(new Tab(TabMode.SPIGOT, "Spigot"));
             tabs.add(new Tab(TabMode.HANGAR, "Hangar"));
         }
-        sortOptionsMap.put(TabMode.MODRINTH, new String[]{"relevance", "downloads", "follows", "updated", "newest"});
-        sortOptionsMap.put(TabMode.SPIGOT, new String[]{"-rating", "-downloads", "-updateDate", "-releaseDate"});
-        sortOptionsMap.put(TabMode.HANGAR, new String[]{"stars", "views", "downloads", "updated", "newest"});
-        sortIndicesMap.put(TabMode.MODRINTH, 0);
-        sortIndicesMap.put(TabMode.SPIGOT, 0);
-        sortIndicesMap.put(TabMode.HANGAR, 0);
+        tabs.add(new Tab(TabMode.SORT, "Sort"));
+        sortLabels.put(TabMode.MODRINTH, new String[]{"Relevance", "Downloads", "Most Followers", "Last Updated", "Newest"});
+        sortValues.put(TabMode.MODRINTH, new String[]{"relevance", "downloads", "follows", "updated", "newest"});
+        sortLabels.put(TabMode.SPIGOT, new String[]{"Highest Rating", "Most Downloads", "Last Updated", "Newest"});
+        sortValues.put(TabMode.SPIGOT, new String[]{"-rating", "-downloads", "-updateDate", "-releaseDate"});
+        sortLabels.put(TabMode.HANGAR, new String[]{"Most Stars", "Most Views", "Most Downloads", "Last Updated", "Newest"});
+        sortValues.put(TabMode.HANGAR, new String[]{"stars", "views", "downloads", "updated", "newest"});
         fieldText.setLength(0);
         fieldText.append("");
         cursorPosition = 0;
@@ -161,6 +165,11 @@ public class PluginModManagerScreen extends Screen {
             }
         }
     }
+    private void updateSortLabel() {
+        TabMode mode = getPreviousMode();
+        String sortLabel = sortLabels.get(mode)[currentSortIndex];
+        tabs.get(tabs.size() - 1).name = "Sort By: " + sortLabel;
+    }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
@@ -170,27 +179,20 @@ public class PluginModManagerScreen extends Screen {
         int tabBarHeight = TAB_HEIGHT;
         int tabX = 5;
         int tabY = tabBarY;
+
         for (int i = 0; i < tabs.size(); i++) {
             Tab tab = tabs.get(i);
             int tabWidth = this.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
             if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight) {
                 if (tab.mode == TabMode.SORT) {
-                    int rTabIndex = getCurrentResourceTabIndex();
-                    if (rTabIndex >= 0) {
-                        TabMode resourceTab = tabs.get(rTabIndex).mode;
-                        if (sortOptionsMap.containsKey(resourceTab)) {
-                            int si = sortIndicesMap.get(resourceTab);
-                            si = (si + 1) % sortOptionsMap.get(resourceTab).length;
-                            sortIndicesMap.put(resourceTab, si);
-                            currentSortParam = sortOptionsMap.get(resourceTab)[si];
-                            loadResourcesAsync(currentSearch, true);
-                        }
-                    }
+                    nextSort();
+                    loadResourcesAsync(currentSearch, true);
                 } else {
                     currentTabIndex = i;
                     loadResourcesAsync(currentSearch, true);
                 }
                 handled = true;
+
                 break;
             }
             tabX += tabWidth + TAB_GAP;
@@ -240,14 +242,14 @@ public class PluginModManagerScreen extends Screen {
                                     if (!installingMrPack.containsKey(selected.getSlug()) || !installingMrPack.get(selected.getSlug())) {
                                         installingMrPack.put(selected.getSlug(), true);
                                         installButtonTexts.put(selected.getSlug(), "Installing");
-                                        resourceColors.put(selected.getSlug(), 0x55FFFF00);
+                                        resourceColors.put(selected.getSlug(), colorNotDownloaded);
                                         installMrPack(selected);
                                     }
                                 } else {
                                     if (!installingResource.containsKey(selected.getSlug()) || !installingResource.get(selected.getSlug())) {
                                         installingResource.put(selected.getSlug(), true);
                                         installButtonTexts.put(selected.getSlug(), "Installing");
-                                        resourceColors.put(selected.getSlug(), 0x55FFFF00);
+                                        resourceColors.put(selected.getSlug(), colorNotDownloaded);
                                         fetchAndInstallResource(selected);
                                     }
                                 }
@@ -409,7 +411,7 @@ public class PluginModManagerScreen extends Screen {
         for (int i = 0; i < tabs.size(); i++) {
             Tab tab = tabs.get(i);
             int tabWidth = textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
-            boolean isActive = (i == currentTabIndex);
+            boolean isActive = (i == currentTabIndex && tab.mode != TabMode.SORT);
             boolean isHovered = mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
             int bgColor = isActive ? elementSelectedBg : (isHovered ? highlightColor : elementBg);
             context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
@@ -496,17 +498,15 @@ public class PluginModManagerScreen extends Screen {
             boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + entryHeight;
             boolean isSelected = (i == selectedIndex);
             int bg = isSelected ? elementSelectedBg : (hovered ? highlightColor : elementBg);
+            int borderColorFinal = isSelected ? elementSelectedBorder : (hovered ? elementBorderHover : elementBorder);
             context.fill(contentX, y, contentX + contentWidth, y + entryHeight, bg);
-            Integer colorOverlay = resourceColors.getOrDefault(resource.getSlug(), 0);
-            if (colorOverlay != 0) {
-                context.fill(contentX, y, contentX + contentWidth, y + entryHeight, colorOverlay);
-            }
-            drawInnerBorder(context, contentX, y, contentWidth, entryHeight, isSelected ? elementSelectedBorder : (hovered ? elementBorderHover : elementBorder));
+            drawInnerBorder(context, contentX, y, contentWidth, entryHeight, borderColorFinal);
             context.fill(contentX, y + entryHeight + 1, contentX + contentWidth, y + entryHeight, 0xFF000000);
             BufferedImage scaledImage = resource.getIconUrl().isEmpty() ? placeholderIcon : scaledIcons.getOrDefault(resource.getIconUrl(), placeholderIcon);
             drawBufferedImage(context, scaledImage, contentX + 5, y + (entryHeight - 30) / 2, 30, 30);
+            int colorToUse = resourceColors.getOrDefault(resource.getSlug(), colorNotDownloaded);
             String resourceName = resource.getName();
-            context.drawText(textRenderer, Text.literal(resourceName), contentX + 40, y + 5, elementSelectedBorder, Config.shadow);
+            context.drawText(textRenderer, Text.literal(resourceName), contentX + 40, y + 5, colorToUse, Config.shadow);
             String resourceDesc = resource.getDescription();
             int descMaxWidth = contentWidth - 50;
             if (textRenderer.getWidth(resourceDesc) > descMaxWidth) {
@@ -519,11 +519,11 @@ public class PluginModManagerScreen extends Screen {
             String mrInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getVersion()  + " | " + resource.getFollowers() + " Followers";
             String spInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getAverageRating() + " Star Rating";
             String hgInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getVersion()  + " | " + resource.getFollowers() + " Stars";
-            if (tabs.get(getCurrentResourceTabIndex()).mode == TabMode.MODRINTH) {
+            if (tabs.get(currentTabIndex).mode == TabMode.MODRINTH) {
                 context.drawText(textRenderer, Text.literal(mrInfo), contentX + 40, y + 30, dimTextColor, Config.shadow);
-            } else if (tabs.get(getCurrentResourceTabIndex()).mode == TabMode.SPIGOT) {
+            } else if (tabs.get(currentTabIndex).mode == TabMode.SPIGOT) {
                 context.drawText(textRenderer, Text.literal(spInfo), contentX + 40, y + 30, dimTextColor, Config.shadow);
-            } else if (tabs.get(getCurrentResourceTabIndex()).mode == TabMode.HANGAR) {
+            } else if (tabs.get(currentTabIndex).mode == TabMode.HANGAR) {
                 context.drawText(textRenderer, Text.literal(hgInfo), contentX + 40, y + 30, dimTextColor, Config.shadow);
             }
             int buttonX = contentX + 5;
@@ -555,19 +555,6 @@ public class PluginModManagerScreen extends Screen {
         loadMoreIfNeeded();
     }
 
-    private int getCurrentResourceTabIndex() {
-        for (int i = 0; i < tabs.size(); i++) {
-            if (i == currentTabIndex) continue;
-            if (tabs.get(currentTabIndex).mode == TabMode.SORT) {
-                if (i != 0 && (tabs.get(i).mode == TabMode.MODRINTH || tabs.get(i).mode == TabMode.SPIGOT || tabs.get(i).mode == TabMode.HANGAR)) {
-                    return i;
-                }
-            }
-        }
-        if (tabs.get(currentTabIndex).mode != TabMode.SORT) return currentTabIndex;
-        return tabs.size() > 1 ? 1 : 0;
-    }
-
     private static String formatDownloads(int n) {
         if (n >= 1_000_000) {
             return String.format("%.1fM", n / 1_000_000.0);
@@ -588,53 +575,55 @@ public class PluginModManagerScreen extends Screen {
     }
 
     private void loadResourcesAsync(String query, boolean reset) {
-        int rTabIndex = getCurrentResourceTabIndex();
-        if (rTabIndex < 0 || rTabIndex >= tabs.size()) return;
-        TabMode tabMode = tabs.get(rTabIndex).mode;
         if (reset) {
             loadedCount = 0;
             resources.clear();
             smoothOffset = 0;
             targetOffset = 0;
+            resourceCache.clear();
             hasMore = true;
-            isLoadingMore = false;
         }
-        String cacheKey = query + "_" + loadedCount + "_" + rTabIndex + "_" + currentSortParam;
-        if (resourceCache.containsKey(cacheKey)) {
+        if (resourceCache.containsKey(query + "_" + loadedCount + "_" + currentTabIndex)) {
             synchronized (resources) {
-                resources.addAll(resourceCache.get(cacheKey));
+                resources.addAll(resourceCache.get(query + "_" + loadedCount + "_" + currentTabIndex));
             }
             return;
         }
         isLoading = true;
-        if (reset) hasMore = true;
         CompletableFuture<List<IRemotelyResource>> searchFuture;
         String serverVersion = serverInfo.getVersion();
         int limit = 30;
+        TabMode tabMode = tabs.get(currentTabIndex).mode == TabMode.SORT ? getPreviousMode() : tabs.get(currentTabIndex).mode;
+        String sortParam = getCurrentSortParam(tabMode);
         if (tabMode == TabMode.MODRINTH) {
-            searchFuture = (serverInfo.isModServer()
-                    ? ModrinthAPI.searchMods(query, serverVersion, limit, loadedCount, serverInfo.type)
-                    : serverInfo.isPluginServer()
-                    ? ModrinthAPI.searchPlugins(query, serverVersion, limit, loadedCount, serverInfo.type)
-                    : ModrinthAPI.searchModpacks(query, serverVersion, limit, loadedCount))
-                    .thenApply(list -> new ArrayList<>(list));
-            ModrinthAPI.setSortIndex(currentSortParam);
+            if (serverInfo.isModServer()) {
+                searchFuture = ModrinthAPI.searchMods(query, serverVersion, limit, loadedCount, serverInfo.type, sortParam)
+                        .thenApply(list -> new ArrayList<>(list));
+            } else if (serverInfo.isPluginServer()) {
+                searchFuture = ModrinthAPI.searchPlugins(query, serverVersion, limit, loadedCount, serverInfo.type, sortParam)
+                        .thenApply(list -> new ArrayList<>(list));
+            } else {
+                searchFuture = ModrinthAPI.searchModpacks(query, serverVersion, limit, loadedCount, sortParam)
+                        .thenApply(list -> new ArrayList<>(list));
+            }
         } else if (tabMode == TabMode.SPIGOT) {
-            SpigetAPI.setSortParam(currentSortParam);
             int page = loadedCount / limit;
-            searchFuture = SpigetAPI.searchPlugins(query, limit, page)
+            searchFuture = SpigetAPI.searchPlugins(query, limit, page, sortParam)
                     .thenApply(list -> {
                         List<IRemotelyResource> mapped = new ArrayList<>();
-                        mapped.addAll(list);
+                        for (SpigetResource sr : list) {
+                            mapped.add(sr);
+                        }
                         return mapped;
                     });
         } else {
-            HangarAPI.setSortParam(currentSortParam);
             int offset = loadedCount;
-            searchFuture = HangarAPI.searchPlugins(query, limit, offset)
+            searchFuture = HangarAPI.searchPlugins(query, limit, offset, sortParam)
                     .thenApply(list -> {
                         List<IRemotelyResource> mapped = new ArrayList<>();
-                        mapped.addAll(list);
+                        for (HangarResource hr : list) {
+                            mapped.add(hr);
+                        }
                         return mapped;
                     });
         }
@@ -650,7 +639,7 @@ public class PluginModManagerScreen extends Screen {
             synchronized (resources) {
                 resources.addAll(uniqueResources);
             }
-            resourceCache.put(cacheKey, new ArrayList<>(uniqueResources));
+            resourceCache.put(query + "_" + loadedCount + "_" + currentTabIndex, new ArrayList<>(uniqueResources));
             isLoading = false;
             isLoadingMore = false;
             uniqueResources.forEach(resource -> {
@@ -681,6 +670,7 @@ public class PluginModManagerScreen extends Screen {
             isLoadingMore = false;
             return null;
         });
+        updateSortLabel();
     }
 
     private BufferedImage loadImage(InputStream inputStream, String url) throws Exception {
@@ -691,11 +681,17 @@ public class PluginModManagerScreen extends Screen {
             baos.write(buf, 0, len);
         }
         inputStream.close();
+        byte[] imageData = baos.toByteArray();
         try {
-            return ImageIO.read(new ByteArrayInputStream(baos.toByteArray()));
+            return ImageIO.read(new ByteArrayInputStream(imageData));
         } catch (Exception e) {
-            if (url.toLowerCase(Locale.ROOT).endsWith(".webp")) {
-                return placeholderIcon;
+            if (url.toLowerCase(Locale.ROOT).contains(".webp")) {
+                try (ByteArrayInputStream webpStream = new ByteArrayInputStream(imageData)) {
+                    BufferedImage webpImage = ImageIO.read(webpStream);
+                    if (webpImage != null) {
+                        return webpImage;
+                    }
+                }
             }
             throw e;
         }
@@ -725,6 +721,9 @@ public class PluginModManagerScreen extends Screen {
                             Files.copy(input, exe, StandardCopyOption.REPLACE_EXISTING);
                         }
                     } catch (Exception e) {
+                        installingMrPack.put(resource.getSlug(), false);
+                        installButtonTexts.put(resource.getSlug(), "Install");
+                        resourceColors.put(resource.getSlug(), colorDownloadFail);
                         return;
                     }
                 }
@@ -746,24 +745,30 @@ public class PluginModManagerScreen extends Screen {
                 });
                 proc.waitFor();
                 executor.shutdown();
-                installingMrPack.put(resource.getSlug(), false);
-                installButtonTexts.put(resource.getSlug(), "Installed");
-                resourceColors.put(resource.getSlug(), 0x5500FF00);
-            } catch (Exception ignored) {
+                minecraftClient.execute(() -> {
+                    installingMrPack.put(resource.getSlug(), false);
+                    installButtonTexts.put(resource.getSlug(), "Installed");
+                    resourceColors.put(resource.getSlug(), colorDownloadSuccess);
+                });
+            } catch (Exception e) {
+                minecraftClient.execute(() -> {
+                    installingMrPack.put(resource.getSlug(), false);
+                    installButtonTexts.put(resource.getSlug(), "Install");
+                    resourceColors.put(resource.getSlug(), colorDownloadFail);
+                });
             }
         }).start();
     }
 
     private void fetchAndInstallResource(IRemotelyResource resource) {
         Thread t = new Thread(() -> {
-            boolean success = false;
             try {
                 String downloadUrl = getDownloadUrlFor(resource);
                 if (downloadUrl.isEmpty()) {
                     minecraftClient.execute(() -> {
                         installingResource.put(resource.getSlug(), false);
                         installButtonTexts.put(resource.getSlug(), "Install");
-                        resourceColors.put(resource.getSlug(), 0x55FF0000);
+                        resourceColors.put(resource.getSlug(), colorDownloadFail);
                     });
                     return;
                 }
@@ -793,21 +798,19 @@ public class PluginModManagerScreen extends Screen {
                 if (response.statusCode() == 200 || response.statusCode() == 302 || response.statusCode() == 303) {
                     devPrint("Downloading " + downloadUrl + " to " + dest);
                     Files.copy(response.body(), dest, StandardCopyOption.REPLACE_EXISTING);
-                    success = true;
                 }
-            } catch (Exception ignored) {
-            }
-            boolean finalSuccess = success;
-            minecraftClient.execute(() -> {
-                installingResource.put(resource.getSlug(), false);
-                if (finalSuccess) {
+                minecraftClient.execute(() -> {
+                    installingResource.put(resource.getSlug(), false);
                     installButtonTexts.put(resource.getSlug(), "Installed");
-                    resourceColors.put(resource.getSlug(), 0x5500FF00);
-                } else {
+                    resourceColors.put(resource.getSlug(), colorDownloadSuccess);
+                });
+            } catch (Exception e) {
+                minecraftClient.execute(() -> {
+                    installingResource.put(resource.getSlug(), false);
                     installButtonTexts.put(resource.getSlug(), "Install");
-                    resourceColors.put(resource.getSlug(), 0x55FF0000);
-                }
-            });
+                    resourceColors.put(resource.getSlug(), colorDownloadFail);
+                });
+            }
         });
         t.start();
     }
@@ -876,5 +879,33 @@ public class PluginModManagerScreen extends Screen {
         context.fill(x, y + h - 1, x + w, y + h, c);
         context.fill(x, y, x + 1, y + h, c);
         context.fill(x + w - 1, y, x + w, y + h, c);
+    }
+
+    private void nextSort() {
+        TabMode mode = getPreviousMode();
+        currentSortIndex++;
+        if (currentSortIndex >= sortValues.get(mode).length) {
+            currentSortIndex = 0;
+        }
+    }
+
+    private TabMode getPreviousMode() {
+        if (currentTabIndex == 0) {
+            return TabMode.MODRINTH;
+        } else if (tabs.get(currentTabIndex).mode == TabMode.SORT) {
+            if (serverInfo.isPluginServer()) {
+                return tabs.get(currentTabIndex - 1).mode == TabMode.HANGAR ? TabMode.HANGAR : (tabs.get(currentTabIndex - 1).mode == TabMode.SPIGOT ? TabMode.SPIGOT : TabMode.MODRINTH);
+            } else {
+                return TabMode.MODRINTH;
+            }
+        }
+        return tabs.get(currentTabIndex).mode;
+    }
+
+    private String getCurrentSortParam(TabMode mode) {
+        if (!sortValues.containsKey(mode)) {
+            return "downloads";
+        }
+        return sortValues.get(mode)[currentSortIndex];
     }
 }
