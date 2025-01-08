@@ -223,7 +223,7 @@ public class SSHManager {
                 if (terminalInstance != null) {
                     terminalInstance.appendOutput("Remote server starting...\n");
                 }
-                String scriptFilePath = "cd " + folder + "&& ./start.sh";
+                String scriptFilePath = folder + "/start.sh";
                 if (!remoteFileExists(folder + "/start.sh")) {
                     if (terminalInstance != null) terminalInstance.appendOutput("You Don't Have a start.sh, Creating One...\n");
 
@@ -233,7 +233,7 @@ public class SSHManager {
                     if (terminalInstance != null)
                         terminalInstance.appendOutput("start.sh Created, Starting Server...\n");
                 }
-                sshWriter.write(scriptFilePath + "\n");
+                sshWriter.write("cd " + folder +  " && ./start.sh \n");
                 sshWriter.flush();
 
                 readSSHOutput();
