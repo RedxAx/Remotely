@@ -5,9 +5,12 @@ import redxax.oxy.SSHManager;
 import redxax.oxy.ServerTerminalInstance;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.servers.ServerState;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.Writer;
+
+import static redxax.oxy.DevUtil.devPrint;
 
 public class CommandExecutor {
     private final TerminalInstance terminalInstance;
@@ -38,6 +41,22 @@ public class CommandExecutor {
             if (sti.serverInfo.state == ServerState.STOPPED || sti.serverInfo.state == ServerState.CRASHED) {
                 return;
             }
+            if (sti.serverInfo.isRemote) {
+                if (sshManager != null){
+                    devPrint("Command DEBUG: SSH Manager is not null");
+                }
+                if (sshManager.getSshWriter() != null) {
+                    devPrint("Command DEBUG: SSH Writer is not null");
+                }else {
+                    devPrint("Command DEBUG: SSH Manager writer is not initialized.");
+                }
+            } else {
+                if (sti.processManager != null && sti.processManager.writer != null) {
+                    writer = sti.processManager.writer;
+                } else {
+                    devPrint("Command DEBUG: Server process manager writer is not initialized.");
+                }
+            }
         } else {
             this.sshManager = localSshManager;
         }
@@ -64,7 +83,7 @@ public class CommandExecutor {
             if (writer == null) {
                 writer = terminalProcessManager.getWriter();
                 if (writer == null) {
-                    throw new IOException("Writer is not initialized or server process is not running.");
+                   devPrint("Command DEBUG: Writer is not initialized or server process is not running.");
                 }
             }
             writer.write(inputBuffer.toString() + "\n");

@@ -26,7 +26,7 @@ public class HangarAPI {
         List<HangarResource> results = new ArrayList<>();
         try {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
-            URI uri = new URI(HANGAR_API_URL + "/projects?query=" + encodedQuery + "&limit=" + limit + "&offset=" + offset);
+            URI uri = new URI(HANGAR_API_URL + "/projects?" + (encodedQuery.isEmpty() ? "" : ("query=" + encodedQuery)) + "&limit=" + limit + "&offset=" + offset);
             DevUtil.devPrint("uri: " + uri);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(uri)
@@ -58,14 +58,25 @@ public class HangarAPI {
     }
 
     private static HangarResource parseResource(JsonObject project) {
+        String id = project.has("id") ? project.get("id").getAsString() : "Unknown";
         String name = project.has("name") ? project.get("name").getAsString() : "Unknown";
         String description = project.has("description") ? project.get("description").getAsString() : "No description";
         String owner = project.has("owner") ? project.get("owner").getAsString() : "Unknown";
         String visibility = project.has("visibility") ? project.get("visibility").getAsString() : "Public";
-        int stars = project.has("stars") ? project.get("stars").getAsInt() : 0;
-        int watchers = project.has("watchers") ? project.get("watchers").getAsInt() : 0;
-        int downloads = project.has("downloads") ? project.get("downloads").getAsInt() : 0;
-
-        return new HangarResource(name, description, owner, visibility, stars, watchers, downloads);
+        String avatarUrl = "";
+        int stars = 0;
+        int watchers = 0;
+        int downloads = 0;
+        if (project.has("stats")) {
+            JsonObject stats = project.getAsJsonObject("stats");
+            if (stats.has("stars")) stars = stats.get("stars").getAsInt();
+            if (stats.has("watchers")) watchers = stats.get("watchers").getAsInt();
+            if (stats.has("downloads")) downloads = stats.get("downloads").getAsInt();
+            if (stats.has("avatarUrl")) {
+                avatarUrl = stats.get("avatarUrl").getAsString();
+            }
+        }
+        return new HangarResource(id, name, description, owner, visibility, stars, watchers, downloads, avatarUrl);
     }
 }
+
