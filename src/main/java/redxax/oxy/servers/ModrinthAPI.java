@@ -19,6 +19,11 @@ public class ModrinthAPI {
             .version(HttpClient.Version.HTTP_2)
             .build();
     private static final String USER_AGENT = "Remotely";
+    private static String index = "relevance";
+
+    public static void setSortIndex(String currentSortParam) {
+        index = currentSortParam;
+    }
 
     public static CompletableFuture<List<IRemotelyResource>> searchMods(String query, String serverVersion, int limit, int offset, String category) {
         return searchResources(query, "mod", serverVersion, limit, offset, category);
@@ -45,7 +50,7 @@ public class ModrinthAPI {
                 facets = "[[\"project_type:" + type + "\"], [\"versions:" + serverVersion + "\"]]";
             }
             String encodedFacets = URLEncoder.encode(facets, StandardCharsets.UTF_8);
-            URI uri = new URI(MODRINTH_API_URL + "/search?query=" + encodedQuery + "&facets=" + encodedFacets + "&limit=" + limit + "&offset=" + offset + "&index=downloads");
+            URI uri = new URI(MODRINTH_API_URL + "/search?query=" + encodedQuery + "&facets=" + encodedFacets + "&limit=" + limit + "&offset=" + offset + "&index=" + index);
             HttpRequest request = HttpRequest.newBuilder().uri(uri).header("User-Agent", USER_AGENT).GET().build();
             return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                     .thenCompose(response -> {
