@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 public class ModrinthAPI {
-    private static final String MODRINTH_API_URL = "https://api.modrinth.com/v2/search";
+    private static final String MODRINTH_API_URL = "https://api.modrinth.com/v2";
     private static final HttpClient client = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_2)
             .build();
@@ -32,23 +32,20 @@ public class ModrinthAPI {
         return searchResources(query, "modpack", serverVersion, limit, offset, "fabric");
     }
 
-
     private static CompletableFuture<List<ModrinthResource>> searchResources(String query, String type, String serverVersion, int limit, int offset, String category) {
         List<ModrinthResource> results = new ArrayList<>();
         try {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
             String facets;
             if (type.equals("mod")) {
-
                 facets = "[[\"project_type:mod\"], [\"versions:" + serverVersion + "\"], [\"categories:" + category + "\"], [\"server_side:required\",\"server_side:optional\"]]";
             } else if (type.equals("modpack")) {
                 facets = "[[\"project_type:modpack\"], [\"server_side:required\",\"server_side:optional\"]]";
-            }
-            else {
+            } else {
                 facets = "[[\"project_type:" + type + "\"], [\"versions:" + serverVersion + "\"]]";
             }
             String encodedFacets = URLEncoder.encode(facets, StandardCharsets.UTF_8);
-            URI uri = new URI(MODRINTH_API_URL + "?query=" + encodedQuery + "&facets=" + encodedFacets + "&limit=" + limit + "&offset=" + offset + "&index=downloads");
+            URI uri = new URI(MODRINTH_API_URL + "/search?query=" + encodedQuery + "&facets=" + encodedFacets + "&limit=" + limit + "&offset=" + offset + "&index=downloads");
             HttpRequest request = HttpRequest.newBuilder().uri(uri).header("User-Agent", USER_AGENT).GET().build();
             return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                     .thenCompose(response -> {
@@ -65,7 +62,9 @@ public class ModrinthAPI {
                                 String slug = hit.has("slug") ? hit.get("slug").getAsString() : "unknown";
                                 String iconUrl = hit.has("icon_url") ? hit.get("icon_url").getAsString() : "";
                                 int downloads = hit.has("downloads") ? hit.get("downloads").getAsInt() : 0;
-                                CompletableFuture<Void> future = fetchVersionDetails(versionId).thenAccept(version -> {
+                                CompletableFuture<Void> future = fetchProjectDetails(projectId).thenAccept(projectDetails -> {
+                                    String version = String.valueOf(projectDetails.get("version"));
+                                    int followers = projectDetails.get("followers") != null ? Integer.parseInt(String.valueOf(projectDetails.get("followers"))) : 0;
                                     ModrinthResource r = new ModrinthResource(
                                             name,
                                             version,
@@ -73,6 +72,7 @@ public class ModrinthAPI {
                                             slug + (type.equals("plugin") ? ".jar" : ".mrpack"),
                                             iconUrl,
                                             downloads,
+                                            followers,
                                             slug,
                                             new ArrayList<>(),
                                             projectId,
@@ -87,7 +87,10 @@ public class ModrinthAPI {
                             return CompletableFuture.completedFuture(results);
                         }
                     })
-                    .exceptionally(e -> results);
+                    .exceptionally(e -> {
+                        e.printStackTrace();
+                        return results;
+                    });
         } catch (Exception e) {
             CompletableFuture<List<ModrinthResource>> failedFuture = new CompletableFuture<>();
             failedFuture.completeExceptionally(e);
@@ -95,21 +98,24 @@ public class ModrinthAPI {
         }
     }
 
-    private static CompletableFuture<String> fetchVersionDetails(String versionId) {
+    private static CompletableFuture<JsonObject> fetchProjectDetails(String projectId) {
         try {
-            URI uri = new URI("https://api.modrinth.com/v2/version/" + versionId);
+            URI uri = new URI(MODRINTH_API_URL + "/project/" + projectId);
             HttpRequest request = HttpRequest.newBuilder().uri(uri).header("User-Agent", USER_AGENT).GET().build();
             return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                     .thenApply(response -> {
                         if (response.statusCode() == 200) {
-                            JsonObject version = JsonParser.parseString(response.body()).getAsJsonObject();
-                            return version.has("version_number") ? version.get("version_number").getAsString() : "Unknown";
+                            return JsonParser.parseString(response.body()).getAsJsonObject();
                         }
-                        return "Unknown";
+                        return null;
                     })
-                    .exceptionally(e -> "Unknown");
+                    .exceptionally(e -> {
+                        e.printStackTrace();
+                        return null;
+                    });
         } catch (Exception e) {
-            return CompletableFuture.completedFuture("Unknown");
+            e.printStackTrace();
+            return CompletableFuture.completedFuture(null);
         }
     }
 }
