@@ -21,18 +21,12 @@ public class HangarAPI {
             .version(HttpClient.Version.HTTP_2)
             .build();
     private static final String USER_AGENT = "Remotely";
-    private static String sortParam = "-stars";
 
-
-    public static void setSortParam(String currentSortParam) {
-        sortParam = "-" + currentSortParam;
-    }
-
-    public static CompletableFuture<List<HangarResource>> searchPlugins(String query, int limit, int offset) {
+    public static CompletableFuture<List<HangarResource>> searchPlugins(String query, int limit, int offset, String sortParam) {
         List<HangarResource> results = new ArrayList<>();
         try {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
-            URI uri = new URI(HANGAR_API_URL + "/projects?" + (encodedQuery.isEmpty() ? "" : ("query=" + encodedQuery)) + "&limit=" + limit + "&offset=" + offset + "&platform=PAPER&sort=" + sortParam);
+            URI uri = new URI(HANGAR_API_URL + "/projects?" + (encodedQuery.isEmpty() ? "" : ("query=" + encodedQuery)) + "&limit=" + limit + "&offset=" + offset + "&platform=PAPER&sort=" + "-" + sortParam);
             DevUtil.devPrint("uri: " + uri);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(uri)
