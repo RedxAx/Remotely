@@ -84,7 +84,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private int buttonY = 5;
     private Gson GSON = new Gson();
 
-
     private enum Mode { PATH, SEARCH }
     private Mode currentMode = Mode.PATH;
 
@@ -261,7 +260,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             int tabWidth = tab.getCurrentWidth(textRenderer);
             boolean isActive = (i == currentTabIndex);
             boolean isHovered = mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
-            int bgColor = isActive ? greenDark : (isHovered ? highlightColor : elementBg);
+            int bgColor = isActive ? darkGreen : (isHovered ? highlightColor : elementBg);
             context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
             drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? greenBright : isHovered ? elementBorderHover : elementBorder);
             context.drawText(this.textRenderer, Text.literal(tab.getAnimatedText()), tabX + TAB_PADDING, tabY + 5, isHovered ? greenBright : textColor, Config.shadow);
@@ -307,7 +306,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int fieldX = (this.width - fieldWidthDynamic) / 2;
         int fieldY = 5;
         int fieldHeight = titleBarHeight - 10;
-        int fieldColor = fieldFocused ? (currentMode == Mode.SEARCH ? redBg : greenDark) : elementBg;
+        int fieldColor = fieldFocused ? (currentMode == Mode.SEARCH ? redBg : darkGreen) : elementBg;
         context.fill(fieldX, fieldY, fieldX + fieldWidthDynamic, fieldY + fieldHeight, fieldColor);
         drawInnerBorder(context, fieldX, fieldY, fieldWidthDynamic, fieldHeight, fieldFocused ? (currentMode == Mode.SEARCH ? redBright : greenBright) : elementBorder);
 
@@ -363,12 +362,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
         int closeButtonX = this.width - buttonW - 10;
         boolean hoveredBack = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
-        Render.drawCustomButton(context, closeButtonX, buttonY, "Close", minecraftClient, hoveredBack, false, textColor, redVeryBright);
+        drawCustomButton(context, closeButtonX, buttonY, "Close", minecraftClient, hoveredBack, false, true, textColor, redVeryBright);
 
         int backButtonX = closeButtonX - (buttonW + 10);
         int backYLocal = 5;
         boolean hoveredClose = mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= backYLocal && mouseY <= backYLocal + buttonH;
-        Render.drawCustomButton(context, backButtonX, backYLocal, "Back", minecraftClient, hoveredClose, false, textColor, greenBright);
+        drawCustomButton(context, backButtonX, backYLocal, "Back", minecraftClient, hoveredClose, false, true, textColor, greenBright);
 
         if (loading && currentTab.tabData.isRemote) {
             long currentTimeLoading = System.currentTimeMillis();
@@ -408,7 +407,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             synchronized (favoritePathsLock) {
                 isFavorite = favoritePaths.contains(entry.path);
             }
-            int bg = isSelected ? (isFavorite ? goldDark : greenDark) : (hovered ? highlightColor : elementBg);
+            int bg = isSelected ? (isFavorite ? darkGold : darkGreen) : (hovered ? highlightColor : elementBg);
             int borderWithOpacity = isFavorite ? isSelected ? kingsGold : paleGold : (isSelected ? greenBright : (hovered ? elementBorderHover : elementBorder));
             int textWithOpacity = textColor;
             context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
@@ -442,8 +441,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         updateNotifications(delta);
         renderNotifications(context, mouseX, mouseY, delta);
 
+        if (ContextMenu.isOpen()) {
+            ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
+        }
     }
-
 
     private void updatePathInfo() {
         fieldText.setLength(0);
@@ -733,6 +734,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (ContextMenu.isOpen()) {
+            if (ContextMenu.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+        }
         boolean handled = false;
         int titleBarHeight = 30;
         int tabBarY = titleBarHeight + 5;
@@ -938,10 +944,82 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 return true;
             }
         }
+
         if (!handled && currentMode == Mode.SEARCH) {
             currentMode = Mode.PATH;
             updatePathInfo();
         }
+
+        if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
+            int explorerY = tabBarY + tabBarHeight + 30;
+            int explorerHeight = this.height - explorerY - 10;
+            int explorerX = 5;
+            int explorerWidth = this.width - 10;
+            if (mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
+                int relativeY = (int) mouseY - explorerY + (int) smoothOffset;
+                int clickedIndex = relativeY / (entryHeight + 1);
+                List<EntryData> entriesToRender;
+                synchronized (fileEntriesLock) {
+                    entriesToRender = new ArrayList<>(fileEntries);
+                }
+                if (clickedIndex >= 0 && clickedIndex < entriesToRender.size()) {
+                    EntryData entryData = entriesToRender.get(clickedIndex);
+                    selectedPaths.clear();
+                    selectedPaths.add(entryData.path);
+                    Render.ContextMenu.hide();
+                    Render.ContextMenu.addItem("Open New", () -> {
+                        if (entryData.isDirectory) {
+                            TabData newTabData = new TabData(entryData.path, serverInfo.isRemote, serverInfo.remoteHost);
+                            Tab newTab = new Tab(newTabData);
+                            tabs.add(newTab);
+                            currentTabIndex = tabs.size() - 1;
+                            saveFileExplorerTabs(tabs.stream().map(t -> new TabData(t.tabData.path, t.tabData.isRemote, t.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
+                            loadDirectory(newTab.tabData.path, false, false);
+                        } else {
+                            if (isSupportedFile(entryData.path)) {
+                                minecraftClient.setScreen(new FileEditorScreen(minecraftClient, this, entryData.path, serverInfo));
+                            } else {
+                                showNotification("Unsupported file.", Notification.Type.ERROR);
+                            }
+                        }
+                    }, greenBright);
+                    Render.ContextMenu.addItem("Copy", () -> {
+                        fileManager.copySelected(selectedPaths);
+                        showNotification("Copied to clipboard", Notification.Type.INFO);
+                    }, greenBright);
+                    Render.ContextMenu.addItem("Favorite", () -> {
+                        synchronized (favoritePathsLock) {
+                            for (Path p : selectedPaths) {
+                                if (!favoritePaths.contains(p)) {
+                                    favoritePaths.add(p);
+                                } else {
+                                    favoritePaths.remove(p);
+                                }
+                            }
+                            saveFavorites();
+                        }
+                        showNotification("Favorites updated", Notification.Type.INFO);
+                    }, greenBright);
+                    Render.ContextMenu.addItem("Cut", () -> {
+                        fileManager.cutSelected(selectedPaths);
+                        showNotification("Cut to clipboard", Notification.Type.INFO);
+                    }, greenBright);
+                    Render.ContextMenu.addItem("Paste", () -> {
+                        fileManager.paste(currentPath);
+                        showNotification("Pasted to " + currentPath, Notification.Type.INFO);
+                    }, greenBright);
+                    Render.ContextMenu.addItem("Delete", () -> {
+                        fileManager.deleteSelected(selectedPaths, currentPath);
+                    }, deleteHoverColor);
+                    Render.ContextMenu.addItem("Copy Path", () -> {
+                        minecraftClient.keyboard.setClipboard(entryData.path.toString());
+                        showNotification("Path copied", Notification.Type.INFO);
+                    }, greenBright);
+                    Render.ContextMenu.show((int) mouseX, (int) mouseY, 80);
+                }
+            }
+        }
+
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
