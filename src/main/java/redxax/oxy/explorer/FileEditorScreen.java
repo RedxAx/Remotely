@@ -413,9 +413,9 @@ public class FileEditorScreen extends Screen {
         int searchBarY = 5;
         int searchBarH = searchBarHeight;
         int searchBarW = searchBarWidth;
-        int searchBarColor = searchBarFocused ? elementSelectedBg : elementBg;
+        int searchBarColor = searchBarFocused ? greenDark : elementBg;
         context.fill(searchBarX, searchBarY, searchBarX + searchBarW, searchBarY + searchBarH, searchBarColor);
-        drawInnerBorder(context, searchBarX, searchBarY, searchBarW, searchBarH, searchBarFocused ? elementSelectedBorder : elementBorder);
+        drawInnerBorder(context, searchBarX, searchBarY, searchBarW, searchBarH, searchBarFocused ? greenBright : elementBorder);
         context.drawText(this.textRenderer, Text.literal(searchText.toString()), searchBarX + 5, searchBarY + 5, textColor, Config.shadow);
         if (searchBarFocused && searchText.length() == 0) {
             context.drawText(this.textRenderer, Text.literal("Search..."), searchBarX + 5, searchBarY + 5, 0xFF888888, false);
@@ -437,7 +437,7 @@ public class FileEditorScreen extends Screen {
             int bgColor = isActive ? (tab.unsaved ? redBg : 0xFF0b371c) : (isHovered ? highlightColor : 0xFF2C2C2C);
             context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
             drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? (tab.unsaved ? redBright : 0xFFd6f264) : (isHovered ? 0xFF00000 : 0xFF444444));
-            context.drawText(this.textRenderer, Text.literal(tab.unsaved ? tab.name + "*" : tab.name), tabX + TAB_PADDING, tabY + 5, isHovered ? elementSelectedBorder : textColor, Config.shadow);
+            context.drawText(this.textRenderer, Text.literal(tab.unsaved ? tab.name + "*" : tab.name), tabX + TAB_PADDING, tabY + 5, isHovered ? greenBright : textColor, Config.shadow);
             context.fill(tabX, tabY + tabBarHeight, tabX + tabWidth, tabY + tabBarHeight + 2, isActive ? 0xFF0b0b0b : 0xFF000000);
             tabX += tabWidth + TAB_GAP;
         }
@@ -453,10 +453,10 @@ public class FileEditorScreen extends Screen {
         int buttonX = this.width - buttonW - 10;
         int ButtonY = 5;
         boolean hovered = mouseX >= buttonX && mouseX <= buttonX + Render.buttonW && mouseY >= ButtonY && mouseY <= ButtonY + Render.buttonH;
-        Render.drawHeaderButton(context, buttonX, ButtonY, "Save", minecraftClient, hovered, false, textColor, elementSelectedBorder);
+        Render.drawCustomButton(context, buttonX, ButtonY, "Save", minecraftClient, hovered, false, textColor, greenBright);
         buttonX = buttonX - (buttonW + 10);
         hovered = mouseX >= buttonX && mouseX <= buttonX + Render.buttonW && mouseY >= ButtonY && mouseY <= ButtonY + Render.buttonH;
-        Render.drawHeaderButton(context, buttonX, ButtonY, "Back", minecraftClient, hovered, false, textColor, elementSelectedBorder);
+        Render.drawCustomButton(context, buttonX, ButtonY, "Back", minecraftClient, hovered, false, textColor, greenBright);
     }
 
     private void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int c) {
