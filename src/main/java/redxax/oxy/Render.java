@@ -12,14 +12,14 @@ public class Render {
     public static final int BgColor = 0xFF242424;
     public static final int borderColor = 0xFF555555;
     public static final int elementBg = 0xFF2C2C2C;
-    public static final int elementSelectedBorder = 0xFFd6f264;
-    public static final int elementSelectedBg = 0xFF0b371c;
+    public static final int greenBright = 0xFFd6f264;
+    public static final int greenDark = 0xFF0b371c;
     public static final int elementBorder = 0xFF444444;
     public static final int elementBorderHover = 0xFF9d9d9d;
     public static final int highlightColor = 0xFF444444;
-    public static final int favorateBorder = 0xFFbfab61;
-    public static final int favorateSelectedBorder = 0xFFffc800;
-    public static final int favorateBg = 0xFF3b2d17;
+    public static final int paleGold = 0xFFbfab61;
+    public static final int kingsGold = 0xFFffc800;
+    public static final int goldDark = 0xFF3b2d17;
     public static final int deleteColor = 0xFFff7a7a;
     public static final int deleteHoverColor = 0xFFb4202a;
     public static final int blueColor = 0xFF249fde;
@@ -32,7 +32,7 @@ public class Render {
     public static final int dimTextColor = 0xFFBBBBBB;
     public static final int lighterColor = 0xFF222222;
 
-    public static void drawHeaderButton(DrawContext context, int x, int y, String text, MinecraftClient mc, boolean hovered, boolean dynamic, int txColor, int hoverColor) {
+    public static void drawCustomButton(DrawContext context, int x, int y, String text, MinecraftClient mc, boolean hovered, boolean dynamic, int txColor, int hoverColor) {
         int bg = hovered ? highlightColor : elementBg;
         if (dynamic) {
             buttonW = mc.textRenderer.getWidth(text) + 10;

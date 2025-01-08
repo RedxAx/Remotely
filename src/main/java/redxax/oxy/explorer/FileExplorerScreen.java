@@ -261,10 +261,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             int tabWidth = tab.getCurrentWidth(textRenderer);
             boolean isActive = (i == currentTabIndex);
             boolean isHovered = mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
-            int bgColor = isActive ? elementSelectedBg : (isHovered ? highlightColor : elementBg);
+            int bgColor = isActive ? greenDark : (isHovered ? highlightColor : elementBg);
             context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
-            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? elementSelectedBorder : isHovered ? elementBorderHover : elementBorder);
-            context.drawText(this.textRenderer, Text.literal(tab.getAnimatedText()), tabX + TAB_PADDING, tabY + 5, isHovered ? elementSelectedBorder : textColor, Config.shadow);
+            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? greenBright : isHovered ? elementBorderHover : elementBorder);
+            context.drawText(this.textRenderer, Text.literal(tab.getAnimatedText()), tabX + TAB_PADDING, tabY + 5, isHovered ? greenBright : textColor, Config.shadow);
 
             context.fill(tabX, tabY + tabBarHeight, tabX + tabWidth, tabY + tabBarHeight + 2, isActive ? 0xFF0b0b0b : 0xFF000000);
 
@@ -274,7 +274,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         boolean isPlusTabHovered = mouseX >= plusTabX && mouseX <= plusTabX + PLUS_TAB_WIDTH && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
         context.fill(plusTabX, tabY, plusTabX + PLUS_TAB_WIDTH, tabY + tabBarHeight, isPlusTabHovered ? highlightColor : elementBg);
         drawInnerBorder(context, plusTabX, tabY, PLUS_TAB_WIDTH, tabBarHeight, isPlusTabHovered ? elementBorderHover : elementBorder);
-        context.drawText(this.textRenderer, Text.literal("+"), plusTabX + PLUS_TAB_WIDTH / 2 - textRenderer.getWidth("+") / 2, tabY + 5, isPlusTabHovered ? elementSelectedBorder : textColor, Config.shadow);
+        context.drawText(this.textRenderer, Text.literal("+"), plusTabX + PLUS_TAB_WIDTH / 2 - textRenderer.getWidth("+") / 2, tabY + 5, isPlusTabHovered ? greenBright : textColor, Config.shadow);
 
         int explorerY = tabBarY + tabBarHeight + 30;
         int explorerHeight = this.height - explorerY - 10;
@@ -307,9 +307,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int fieldX = (this.width - fieldWidthDynamic) / 2;
         int fieldY = 5;
         int fieldHeight = titleBarHeight - 10;
-        int fieldColor = fieldFocused ? (currentMode == Mode.SEARCH ? redBg : elementSelectedBg) : elementBg;
+        int fieldColor = fieldFocused ? (currentMode == Mode.SEARCH ? redBg : greenDark) : elementBg;
         context.fill(fieldX, fieldY, fieldX + fieldWidthDynamic, fieldY + fieldHeight, fieldColor);
-        drawInnerBorder(context, fieldX, fieldY, fieldWidthDynamic, fieldHeight, fieldFocused ? (currentMode == Mode.SEARCH ? redBright : elementSelectedBorder) : elementBorder);
+        drawInnerBorder(context, fieldX, fieldY, fieldWidthDynamic, fieldHeight, fieldFocused ? (currentMode == Mode.SEARCH ? redBright : greenBright) : elementBorder);
 
         if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
             int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
@@ -363,12 +363,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
         int closeButtonX = this.width - buttonW - 10;
         boolean hoveredBack = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
-        Render.drawHeaderButton(context, closeButtonX, buttonY, "Close", minecraftClient, hoveredBack, false, textColor, redVeryBright);
+        Render.drawCustomButton(context, closeButtonX, buttonY, "Close", minecraftClient, hoveredBack, false, textColor, redVeryBright);
 
         int backButtonX = closeButtonX - (buttonW + 10);
         int backYLocal = 5;
         boolean hoveredClose = mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= backYLocal && mouseY <= backYLocal + buttonH;
-        Render.drawHeaderButton(context, backButtonX, backYLocal, "Back", minecraftClient, hoveredClose, false, textColor, elementSelectedBorder);
+        Render.drawCustomButton(context, backButtonX, backYLocal, "Back", minecraftClient, hoveredClose, false, textColor, greenBright);
 
         if (loading && currentTab.tabData.isRemote) {
             long currentTimeLoading = System.currentTimeMillis();
@@ -408,8 +408,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             synchronized (favoritePathsLock) {
                 isFavorite = favoritePaths.contains(entry.path);
             }
-            int bg = isSelected ? (isFavorite ? favorateBg : elementSelectedBg) : (hovered ? highlightColor : elementBg);
-            int borderWithOpacity = isFavorite ? isSelected ? favorateSelectedBorder : favorateBorder : (isSelected ? elementSelectedBorder : (hovered ? elementBorderHover : elementBorder));
+            int bg = isSelected ? (isFavorite ? goldDark : greenDark) : (hovered ? highlightColor : elementBg);
+            int borderWithOpacity = isFavorite ? isSelected ? kingsGold : paleGold : (isSelected ? greenBright : (hovered ? elementBorderHover : elementBorder));
             int textWithOpacity = textColor;
             context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
             drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
