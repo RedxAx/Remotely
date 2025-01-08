@@ -18,6 +18,11 @@ public class SpigetAPI {
     private static final String SPIGOT_API_URL = "https://api.spiget.org/v2";
     private static final HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_2).build();
     private static final String USER_AGENT = "Remotely";
+    private static String sortParam = "-rating";
+
+    public static void setSortParam(String currentSortParam) {
+        sortParam = currentSortParam;
+    }
 
     public static CompletableFuture<List<SpigetResource>> searchPlugins(String query, int limit, int page) {
         List<SpigetResource> results = new ArrayList<>();
@@ -25,7 +30,7 @@ public class SpigetAPI {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
             URI uri;
             if (!encodedQuery.isEmpty()) {
-                uri = new URI(SPIGOT_API_URL + "/search/resources/free" + encodedQuery + "?size=" + limit + "&page=" + page + "&sort=-rating");
+                uri = new URI(SPIGOT_API_URL + "/search/resources/free" + encodedQuery + "?size=" + limit + "&page=" + page + "&sort=" + sortParam);
             } else {
                 uri = new URI(SPIGOT_API_URL + "/resources/free?size=" + limit + "&page=" + page + "&sort=-rating");
             }
