@@ -25,9 +25,9 @@ public class SpigetAPI {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
             URI uri;
             if (!encodedQuery.isEmpty()) {
-                uri = new URI(SPIGOT_API_URL + "/search/resources/" + encodedQuery + "?size=" + limit + "&page=" + page + "&sort=-lastUpdate");
+                uri = new URI(SPIGOT_API_URL + "/search/resources/free" + encodedQuery + "?size=" + limit + "&page=" + page + "&sort=-rating");
             } else {
-                uri = new URI(SPIGOT_API_URL + "/resources?size=" + limit + "&page=" + page + "&sort=-lastUpdate");
+                uri = new URI(SPIGOT_API_URL + "/resources/free?size=" + limit + "&page=" + page + "&sort=-rating");
             }
             DevUtil.devPrint("uri: " + uri);
             HttpRequest request = HttpRequest.newBuilder()

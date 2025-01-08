@@ -739,6 +739,7 @@ public class PluginModManagerScreen extends Screen {
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(downloadUrl))
                         .header("User-Agent", "Remotely")
+                        .header("Content-Type", "application/octet-stream")
                         .GET()
                         .build();
                 HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
@@ -764,8 +765,9 @@ public class PluginModManagerScreen extends Screen {
             return "https://api.spiget.org/v2/resources/" + sp.getProjectId() + "/download";
         } else if (resource instanceof HangarResource) {
             HangarResource hg = (HangarResource) resource;
-            devPrint("Hangar Download: " + "https://hangar.papermc.io/api/v1/versions/" + hg.getProjectId() +  "/" + serverInfo.type.toUpperCase() + "/download");
-            return "https://hangar.papermc.io/api/v1/versions/" + hg.getProjectId() +  "/" + serverInfo.type.toUpperCase() + "/download";
+            String hgURI = "https://hangar.papermc.io/api/v1/versions/" + hg.getProjectId() +  "/" + serverInfo.type.toUpperCase() + "/download";
+            devPrint("Hangar Download: " + hgURI);
+            return followRedirect(hgURI);
         } else {
             try {
                 URI uri = URI.create("https://api.modrinth.com/v2/version/" + resource.getVersionId());
@@ -789,6 +791,24 @@ public class PluginModManagerScreen extends Screen {
             }
         }
         return "";
+    }
+
+    private String followRedirect(String url) {
+        try {
+            HttpClient client = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("User-Agent", "Remotely")
+                    .header("Content-Type", "application/octet-stream")
+                    .GET()
+                    .build();
+            HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
+            if (response.statusCode() == 301) {
+                return response.headers().firstValue("Location").orElse("");
+            }
+        } catch (Exception ignored) {
+        }
+        return url;
     }
 
     private String stripExtension(String filename) {
