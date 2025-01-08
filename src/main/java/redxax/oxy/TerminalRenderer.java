@@ -172,6 +172,9 @@ public class TerminalRenderer {
     private String removeAllControlSequences(String text) {
         if (!terminalInstance.getSSHManager().isSSH()) {
             return text.replace("\t", "    ");
+        } else if (!terminalInstance.getServerInfo().remoteSSHManager.isSSH()) {
+            DevUtil.devPrint("Detected a Remote Server. No Control Codes.");
+            return text.replace("\t", "    ");
         }
         Matcher matcher = ANSI_PATTERN.matcher(text);
         return matcher.replaceAll("").replace("\t", "    ");
@@ -179,6 +182,9 @@ public class TerminalRenderer {
 
     private String removeAllAnsiSequences(String text) {
         if (!terminalInstance.getSSHManager().isSSH()) {
+            return text.replace("\t", "    ");
+        } else if (!terminalInstance.getServerInfo().remoteSSHManager.isSSH()) {
+            DevUtil.devPrint("Detected a Remote Server. No Ansi Codes.");
             return text.replace("\t", "    ");
         }
         Matcher matcher = ANSI_PATTERN.matcher(text);

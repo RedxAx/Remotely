@@ -92,7 +92,7 @@ public class PluginModManagerScreen extends Screen {
     private TextRenderer textRenderer;
     private boolean searching = false;
 
-    private enum TabMode { MODRINTH, SPIGOT, HANGAR }
+    private enum TabMode { MODRINTH }
 
     private static class Tab {
         TabMode mode;
@@ -125,10 +125,6 @@ public class PluginModManagerScreen extends Screen {
         this.textRenderer = this.minecraftClient.textRenderer;
         tabs.clear();
         tabs.add(new Tab(TabMode.MODRINTH, "Modrinth"));
-        if (serverInfo.isPluginServer()) {
-            tabs.add(new Tab(TabMode.SPIGOT, "Spigot (Soon)"));
-            tabs.add(new Tab(TabMode.HANGAR, "Hangar (Soon)"));
-        }
         fieldText.setLength(0);
         fieldText.append("");
         cursorPosition = 0;
@@ -454,6 +450,7 @@ public class PluginModManagerScreen extends Screen {
         boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH;
         drawHeaderButton(context, closeButtonX, closeButtonY, "Close", minecraftClient, hoveredClose, false, textColor, redVeryBright);
 
+
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
         int contentY = tabBarY + tabBarHeight + 30;
         int contentHeight = this.height - contentY - 10;
@@ -574,10 +571,9 @@ public class PluginModManagerScreen extends Screen {
             smoothOffset = 0;
             targetOffset = 0;
         }
-        String cacheKey = query + "_" + loadedCount + "_" + currentTabIndex;
-        if (resourceCache.containsKey(cacheKey)) {
+        if (resourceCache.containsKey(query + "_" + loadedCount)) {
             synchronized (resources) {
-                resources.addAll(resourceCache.get(cacheKey));
+                resources.addAll(resourceCache.get(query + "_" + loadedCount));
             }
             return;
         }
@@ -586,76 +582,13 @@ public class PluginModManagerScreen extends Screen {
         CompletableFuture<List<ModrinthResource>> searchFuture;
         String serverVersion = serverInfo.getVersion();
         int limit = 30;
-
-        switch (tabs.get(currentTabIndex).mode) {
-            case MODRINTH -> {
-                if (serverInfo.isModServer()) {
-                    searchFuture = ModrinthAPI.searchMods(query, serverVersion, limit, loadedCount, serverInfo.type);
-                } else if (serverInfo.isPluginServer()) {
-                    searchFuture = ModrinthAPI.searchPlugins(query, serverVersion, limit, loadedCount, serverInfo.type);
-                } else {
-                    searchFuture = ModrinthAPI.searchModpacks(query, serverVersion, limit, loadedCount);
-                }
-            }
-            case SPIGOT -> {
-                searchFuture = SpigetAPI.searchPlugins(query, limit, loadedCount / limit).thenApply(spigetList -> {
-                    List<ModrinthResource> converted = new ArrayList<>();
-                    for (SpigetResource sp : spigetList) {
-                        if (serverVersion != null && !serverVersion.isEmpty()) {
-                            if (!sp.tag.toLowerCase(Locale.ROOT).contains(serverVersion.toLowerCase(Locale.ROOT))) {
-                                continue;
-                            }
-                        }
-                        ModrinthResource r = new ModrinthResource(
-                                sp.name,
-                                sp.tag,
-                                sp.description,
-                                sp.name + ".jar",
-                                sp.iconUrl,
-                                sp.downloads,
-                                0,
-                                sp.name,
-                                new ArrayList<>(),
-                                "",
-                                ""
-                        );
-                        converted.add(r);
-                    }
-                    return converted;
-                });
-            }
-            case HANGAR -> {
-                searchFuture = HangarAPI.searchPlugins(query, limit, loadedCount).thenApply(hangarList -> {
-                    List<ModrinthResource> converted = new ArrayList<>();
-                    for (HangarResource hr : hangarList) {
-                        if (serverVersion != null && !serverVersion.isEmpty()) {
-                            if (!hr.description.toLowerCase(Locale.ROOT).contains(serverVersion.toLowerCase(Locale.ROOT))) {
-                                continue;
-                            }
-                        }
-                        ModrinthResource r = new ModrinthResource(
-                                hr.name,
-                                "Unknown",
-                                hr.description,
-                                hr.name + ".jar",
-                                "",
-                                hr.downloads,
-                                0,
-                                hr.name,
-                                new ArrayList<>(),
-                                "",
-                                ""
-                        );
-                        converted.add(r);
-                    }
-                    return converted;
-                });
-            }
-            default -> {
-                searchFuture = CompletableFuture.completedFuture(new ArrayList<>());
-            }
+        if (serverInfo.isModServer()) {
+            searchFuture = ModrinthAPI.searchMods(query, serverVersion, limit, loadedCount, serverInfo.type);
+        } else if (serverInfo.isPluginServer()) {
+            searchFuture = ModrinthAPI.searchPlugins(query, serverVersion, limit, loadedCount, serverInfo.type);
+        } else {
+            searchFuture = ModrinthAPI.searchModpacks(query, serverVersion, limit, loadedCount);
         }
-
         searchFuture.thenAccept(fetched -> {
             if (fetched.size() < 30) hasMore = false;
             Set<String> seenSlugs = ConcurrentHashMap.newKeySet();
@@ -668,7 +601,7 @@ public class PluginModManagerScreen extends Screen {
             synchronized (resources) {
                 resources.addAll(uniqueResources);
             }
-            resourceCache.put(cacheKey, new ArrayList<>(uniqueResources));
+            resourceCache.put(query + "_" + loadedCount, new ArrayList<>(uniqueResources));
             isLoading = false;
             isLoadingMore = false;
             uniqueResources.forEach(resource -> {
