@@ -9,7 +9,7 @@ import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.explorer.FileExplorerScreen;
 import redxax.oxy.explorer.Notification;
-import redxax.oxy.servers.PluginModListScreen;
+import redxax.oxy.servers.PluginModManagerScreen;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.servers.ServerState;
 
@@ -611,7 +611,7 @@ public class MultiTerminalScreen extends Screen {
                         return true;
                     }
                     if (mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH) {
-                        minecraftClient.setScreen(new PluginModListScreen(minecraftClient, this, serverTerminal.getServerInfo()));
+                        minecraftClient.setScreen(new PluginModManagerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
                         return true;
                     }
                 }
