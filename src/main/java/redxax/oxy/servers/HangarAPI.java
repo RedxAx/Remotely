@@ -26,11 +26,12 @@ public class HangarAPI {
         List<HangarResource> results = new ArrayList<>();
         try {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
-            URI uri = new URI(HANGAR_API_URL + "/projects?" + (encodedQuery.isEmpty() ? "" : ("query=" + encodedQuery)) + "&limit=" + limit + "&offset=" + offset);
+            URI uri = new URI(HANGAR_API_URL + "/projects?" + (encodedQuery.isEmpty() ? "" : ("query=" + encodedQuery)) + "&limit=" + limit + "&offset=" + offset + "&platform=PAPER&sort=-stars");
             DevUtil.devPrint("uri: " + uri);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(uri)
                     .header("User-Agent", USER_AGENT)
+                    .header("Content-Type", "application/octet-stream")
                     .GET()
                     .build();
             return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
