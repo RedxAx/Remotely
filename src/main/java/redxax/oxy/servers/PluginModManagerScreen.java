@@ -413,7 +413,7 @@ public class PluginModManagerScreen extends Screen {
             int tabWidth = textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
             boolean isActive = (i == currentTabIndex && tab.mode != TabMode.SORT);
             boolean isHovered = mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
-            int bgColor = isActive ? greenDark : (isHovered ? highlightColor : elementBg);
+            int bgColor = isActive ? darkGreen : (isHovered ? highlightColor : elementBg);
             context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
             drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? greenBright : (isHovered ? elementBorderHover : elementBorder));
             int textX = tabX + TAB_PADDING;
@@ -427,7 +427,7 @@ public class PluginModManagerScreen extends Screen {
         int textFieldY = 5;
         int textFieldW = 200;
         int textFieldH = textFieldHeight;
-        int fieldColor = fieldFocused ? greenDark : elementBg;
+        int fieldColor = fieldFocused ? darkGreen : elementBg;
         context.fill(textFieldX, textFieldY, textFieldX + textFieldW, textFieldY + textFieldH, fieldColor);
         drawInnerBorder(context, textFieldX, textFieldY, textFieldW, textFieldH, fieldFocused ? greenBright : elementBorder);
         if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
@@ -463,7 +463,7 @@ public class PluginModManagerScreen extends Screen {
         int closeButtonX = this.width - buttonW - 10;
         int closeButtonY = 5;
         boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH;
-        drawCustomButton(context, closeButtonX, closeButtonY, "Close", minecraftClient, hoveredClose, false, textColor, redVeryBright);
+        drawCustomButton(context, closeButtonX, closeButtonY, "Close", minecraftClient, hoveredClose, false, true, textColor, redVeryBright);
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
         int contentY = tabBarY + tabBarHeight + 30;
         int contentHeight = this.height - contentY - 10;
@@ -497,7 +497,7 @@ public class PluginModManagerScreen extends Screen {
             int y = contentY + (i * (entryHeight + gapBetweenEntries)) - (int) smoothOffset;
             boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + entryHeight;
             boolean isSelected = (i == selectedIndex);
-            int bg = isSelected ? greenDark : (hovered ? highlightColor : elementBg);
+            int bg = isSelected ? darkGreen : (hovered ? highlightColor : elementBg);
             int borderColorFinal = isSelected ? greenBright : (hovered ? elementBorderHover : elementBorder);
             context.fill(contentX, y, contentX + contentWidth, y + entryHeight, bg);
             drawInnerBorder(context, contentX, y, contentWidth, entryHeight, borderColorFinal);

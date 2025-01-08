@@ -231,13 +231,13 @@ public class MultiTerminalScreen extends Screen {
                 buttonY = 5;
                 String buttonLabel = (st == ServerState.RUNNING || st == ServerState.STARTING) ? "Stop" : "Start";
                 boolean buttonHovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
-                drawCustomButton(context, buttonX, buttonY, buttonLabel, minecraftClient, buttonHovered, false, (buttonLabel.equals("Start") ? greenBright : redColor),(buttonLabel.equals("Start") ? greenBright : deleteHoverColor));
+                drawCustomButton(context, buttonX, buttonY, buttonLabel, minecraftClient, buttonHovered, false, true, (buttonLabel.equals("Start") ? greenBright : redColor),(buttonLabel.equals("Start") ? greenBright : deleteHoverColor));
 
                 //Explorer
                 explorerButtonX = buttonX - (buttonW + 10);
                 explorerButtonY = 5;
                 boolean explorerHovered = mouseX >= explorerButtonX && mouseX <= explorerButtonX + buttonW && mouseY >= explorerButtonY && mouseY <= explorerButtonY + buttonH;
-                drawCustomButton(context, explorerButtonX, explorerButtonY, "Explorer", minecraftClient, explorerHovered, false, paleGold, kingsGold);
+                drawCustomButton(context, explorerButtonX, explorerButtonY, "Explorer", minecraftClient, explorerHovered, false, true, paleGold, kingsGold);
                 boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
                 if (!isProxy) {
                     pluginButtonX = explorerButtonX - (buttonW + 10);
@@ -245,7 +245,7 @@ public class MultiTerminalScreen extends Screen {
                     String pluginLabel = (sInfo.type.equalsIgnoreCase("paper"))
                             ? "Plugins" : "Mods";
                     boolean pluginHovered = mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH;
-                    drawCustomButton(context, pluginButtonX, pluginButtonY, pluginLabel, minecraftClient, pluginHovered, false, blueColor, blueHoverColor);
+                    drawCustomButton(context, pluginButtonX, pluginButtonY, pluginLabel, minecraftClient, pluginHovered, false, true, blueColor, blueHoverColor);
                 }
             } else {
                 context.fill(0, 0, this.width, topBarHeight, lighterColor);
@@ -255,7 +255,7 @@ public class MultiTerminalScreen extends Screen {
                 buttonX = this.width - buttonW - 10;
                 buttonY = 5;
                 boolean buttonHovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
-                drawCustomButton(context, buttonX, buttonY, "Explorer", minecraftClient, buttonHovered, false, paleGold, kingsGold);
+                drawCustomButton(context, buttonX, buttonY, "Explorer", minecraftClient, buttonHovered, false, true, paleGold, kingsGold);
                 explorerButtonX = buttonX;
                 explorerButtonY = buttonY;
             }
@@ -267,7 +267,7 @@ public class MultiTerminalScreen extends Screen {
         int hideButtonX = this.width - 15 - 5;
         int hideButtonY = 5 + topBarHeight;
         hideButtonHovered = mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15;
-        drawCustomButton(context, hideButtonX, hideButtonY, "≡", minecraftClient, hideButtonHovered, true, textColor, greenBright);
+        drawCustomButton(context, hideButtonX, hideButtonY, "≡", minecraftClient, hideButtonHovered, true, true, textColor, greenBright);
         int tabOffsetY = topBarHeight + 5;
         int availableTabWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 20;
         int tabStartX = 5;
@@ -293,7 +293,7 @@ public class MultiTerminalScreen extends Screen {
             TabInfo ti = tabInfos.get(i);
             boolean tabHovered = mouseX >= renderX && mouseX <= renderX + ti.width && mouseY >= tabOffsetY && mouseY <= tabOffsetY + tabAreaHeight;
             if (tabHovered) hoveredTabIndex = i;
-            int bgColor = isTabActive(i) ? greenDark : (tabHovered ? highlightColor : elementBg);
+            int bgColor = isTabActive(i) ? darkGreen : (tabHovered ? highlightColor : elementBg);
             context.fill((int) renderX, tabOffsetY, (int) renderX + ti.width, tabOffsetY + tabAreaHeight, bgColor);
             drawInnerBorder(context, (int) renderX, tabOffsetY, ti.width, tabAreaHeight, isTabActive(i) ? greenBright : (tabHovered ? elementBorderHover : elementBorder));
 
@@ -389,7 +389,7 @@ public class MultiTerminalScreen extends Screen {
             int createButtonX = panelX + (snippetPanelWidth - createButtonWidth) / 2;
             int createButtonY = this.height - 5 - 22;
             createSnippetButtonHovered = mouseX >= createButtonX && mouseX <= createButtonX + createButtonWidth && mouseY >= createButtonY && mouseY <= createButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawCustomButton(context, createButtonX, createButtonY, createText, minecraftClient, createSnippetButtonHovered, false, textColor, greenBright);
+            drawCustomButton(context, createButtonX, createButtonY, createText, minecraftClient, createSnippetButtonHovered, false, true, textColor, greenBright);
         }
         if (snippetPopupActive) {
             renderSnippetPopup(context, mouseX, mouseY, delta);
@@ -518,19 +518,19 @@ public class MultiTerminalScreen extends Screen {
         int okW = minecraftClient.textRenderer.getWidth(okText) + 10;
         int confirmButtonX = snippetPopupX + 5;
         boolean okHover = mouseX >= confirmButtonX && mouseX <= confirmButtonX + okW && mouseY >= ButtonY && mouseY <= ButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-        drawCustomButton(context, confirmButtonX, ButtonY, okText, minecraftClient, okHover, true, textColor, greenBright);
+        drawCustomButton(context, confirmButtonX, ButtonY, okText, minecraftClient, okHover, true, true, textColor, greenBright);
 
         String cancelText = "Cancel";
         int cancelW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
         int cancelButtonX = snippetPopupX + snippetPopupWidth - (cancelW + 5);
         boolean cancelHover = mouseX >= cancelButtonX && mouseX <= cancelButtonX + cancelW && mouseY >= ButtonY && mouseY <= ButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-        drawCustomButton(context, cancelButtonX, ButtonY, cancelText, minecraftClient, cancelHover, true, textColor, blueColor);
+        drawCustomButton(context, cancelButtonX, ButtonY, cancelText, minecraftClient, cancelHover, true, true, textColor, blueColor);
         if (editingSnippet) {
             String deleteText = "Delete";
             int dw = minecraftClient.textRenderer.getWidth(deleteText) + 10;
             int deleteX = snippetPopupX + (snippetPopupWidth - dw) / 2;
             boolean delHover = mouseX >= deleteX && mouseX <= deleteX + dw && mouseY >= ButtonY && mouseY <= ButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawCustomButton(context, deleteX, ButtonY, deleteText, minecraftClient, delHover, true, deleteColor, deleteHoverColor);
+            drawCustomButton(context, deleteX, ButtonY, deleteText, minecraftClient, delHover, true, true, deleteColor, deleteHoverColor);
         }
         if (snippetCreationWarning) {
             String warning = "Name/Code cannot be empty";
@@ -543,7 +543,7 @@ public class MultiTerminalScreen extends Screen {
         int snippetHeight = selected ? calculateSnippetHeight(snippet.commands) : 30;
         int bgColor = hovered ? highlightColor : elementBg;
         if (lastClickedSnippet == index) {
-            bgColor = greenDark;
+            bgColor = darkGreen;
         }
         context.fill(snippetX, snippetY, snippetX + snippetMaxWidth, snippetY + snippetHeight, bgColor);
         drawInnerBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, lastClickedSnippet == index ? greenBright : borderColor);

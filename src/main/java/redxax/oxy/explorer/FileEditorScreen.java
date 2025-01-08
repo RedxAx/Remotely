@@ -413,7 +413,7 @@ public class FileEditorScreen extends Screen {
         int searchBarY = 5;
         int searchBarH = searchBarHeight;
         int searchBarW = searchBarWidth;
-        int searchBarColor = searchBarFocused ? greenDark : elementBg;
+        int searchBarColor = searchBarFocused ? darkGreen : elementBg;
         context.fill(searchBarX, searchBarY, searchBarX + searchBarW, searchBarY + searchBarH, searchBarColor);
         drawInnerBorder(context, searchBarX, searchBarY, searchBarW, searchBarH, searchBarFocused ? greenBright : elementBorder);
         context.drawText(this.textRenderer, Text.literal(searchText.toString()), searchBarX + 5, searchBarY + 5, textColor, Config.shadow);
@@ -453,10 +453,10 @@ public class FileEditorScreen extends Screen {
         int buttonX = this.width - buttonW - 10;
         int ButtonY = 5;
         boolean hovered = mouseX >= buttonX && mouseX <= buttonX + Render.buttonW && mouseY >= ButtonY && mouseY <= ButtonY + Render.buttonH;
-        Render.drawCustomButton(context, buttonX, ButtonY, "Save", minecraftClient, hovered, false, textColor, greenBright);
+        Render.drawCustomButton(context, buttonX, ButtonY, "Save", minecraftClient, hovered, false, true, textColor, greenBright);
         buttonX = buttonX - (buttonW + 10);
         hovered = mouseX >= buttonX && mouseX <= buttonX + Render.buttonW && mouseY >= ButtonY && mouseY <= ButtonY + Render.buttonH;
-        Render.drawCustomButton(context, buttonX, ButtonY, "Back", minecraftClient, hovered, false, textColor, greenBright);
+        Render.drawCustomButton(context, buttonX, ButtonY, "Back", minecraftClient, hovered, false, true, textColor, greenBright);
     }
 
     private void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int c) {
