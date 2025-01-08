@@ -9,12 +9,16 @@ import redxax.oxy.*;
 import redxax.oxy.explorer.FileExplorerScreen;
 
 import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.nio.file.*;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.List;
+import java.util.Comparator;
+import java.util.Date;
 import org.lwjgl.glfw.GLFW;
 
 import static redxax.oxy.ImageUtil.drawBufferedImage;
@@ -117,7 +121,6 @@ public class ServerManagerScreen extends Screen {
         }
     }
 
-
     static class TabInfo {
         String name;
         int width;
@@ -144,13 +147,11 @@ public class ServerManagerScreen extends Screen {
         drawInnerBorder(context, 0, 0, this.width, topBarHeight, 0xFF333333);
         String title = "Remotely - Server Manager";
         context.drawText(minecraftClient.textRenderer, Text.literal(title), 10, 10, textColor, Config.shadow);
-
         int closeButtonY = 5;
         int closeButtonX = this.width - 70;
         int closeButtonWidth = 60;
         boolean hoveredBack = mouseX >= closeButtonX && mouseX <= closeButtonX + closeButtonWidth && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH;
         Render.drawHeaderButton(context, closeButtonX, closeButtonY, "Close", minecraftClient, hoveredBack, false, textColor, redVeryBright);
-
         renderTabs(context, mouseX, mouseY);
         int contentYStart = topBarHeight + tabHeight + 5 + verticalPadding;
         int panelHeight = this.height - contentYStart - 5;
@@ -437,7 +438,7 @@ public class ServerManagerScreen extends Screen {
         if (serverPopupActive) {
             handleServerPopupClick(mouseX, mouseY, button, currentServers);
         }
-        if (button == 0 || button == 1) { // Handle left and right clicks
+        if (button == 0 || button == 1) {
             int plusW = 18;
             int tabOffsetY = topBarHeight + 5;
             int tabY = tabOffsetY;
@@ -498,7 +499,6 @@ public class ServerManagerScreen extends Screen {
         }
         return super.mouseClicked(mouseX, mouseY, button);
     }
-
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
@@ -614,7 +614,6 @@ public class ServerManagerScreen extends Screen {
             }
         }).start();
     }
-
 
     private List<String> getAllTabNames() {
         List<String> all = new ArrayList<>();
@@ -836,27 +835,39 @@ public class ServerManagerScreen extends Screen {
             if (mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight) {
                 if (mouseX >= yesX && mouseX <= yesX + yesW && button == 0) {
                     if (editingServerIndex >= 0 && editingServerIndex < currentServers.size()) {
-                        if (currentServers.get(editingServerIndex).isRemote) {
+                        String dateOfDeletion = new SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(new Date());
+                        Path trashDir = Paths.get(System.getProperty("user.dir"), "remotely", "trash");
+                        try {
+                            if (!Files.exists(trashDir)) Files.createDirectories(trashDir);
+                        } catch (IOException ignored) {}
+                        ServerInfo s = currentServers.get(editingServerIndex);
+                        if (s.isRemote) {
                             try {
-                                RemoteHostInfo rh = currentServers.get(editingServerIndex).remoteHost;
-                                if (rh != null && currentServers.get(editingServerIndex).remoteSSHManager != null) {
-                                    currentServers.get(editingServerIndex).remoteSSHManager.deleteRemoteDirectory(currentServers.get(editingServerIndex).path);
+                                if (s.remoteSSHManager != null) {
+                                    String newRemotePath = s.path.replace("/servers/", "/trash/");
+                                    newRemotePath += "-" + dateOfDeletion;
+                                    s.remoteSSHManager.renameRemoteFolder(s.path, newRemotePath);
                                 }
                             } catch (Exception ignored) {}
-                            currentServers.remove(editingServerIndex);
                         } else {
-                            Path folderPath = Paths.get(currentServers.get(editingServerIndex).path);
-                            try {
-                                if (Files.exists(folderPath)) {
-                                    Files.walk(folderPath).sorted(Comparator.reverseOrder()).forEach(p -> {
-                                        try {
-                                            Files.delete(p);
-                                        } catch (IOException ignored) {}
-                                    });
-                                }
-                            } catch (IOException ignored) {}
-                            currentServers.remove(editingServerIndex);
+                            Path folderPath = Paths.get(s.path);
+                            if (Files.exists(folderPath)) {
+                                String newLocalName = s.name + "-" + dateOfDeletion;
+                                Path trashSub = trashDir.resolve(newLocalName);
+                                try {
+                                    Files.move(folderPath, trashSub, StandardCopyOption.REPLACE_EXISTING);
+                                } catch (Exception ignored) {}
+                            }
                         }
+                        Path trashFile = trashDir.resolve("trash.json");
+                        String entry = "{ \"name\": \"" + s.name + "\", \"originalPath\": \"" + s.path + "\", \"date\": \"" + dateOfDeletion + "\" }\n";
+                        try {
+                            if (!Files.exists(trashFile)) {
+                                Files.createFile(trashFile);
+                            }
+                            Files.writeString(trashFile, entry, StandardOpenOption.APPEND);
+                        } catch (IOException ignored) {}
+                        currentServers.remove(editingServerIndex);
                         saveServers();
                         saveRemoteHosts();
                     }

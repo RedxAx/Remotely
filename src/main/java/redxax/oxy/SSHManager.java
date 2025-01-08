@@ -604,4 +604,20 @@ public class SSHManager {
             }
         });
     }
+
+    public void renameRemoteFolder(String path, String newRemotePath) {
+        if (!sftpConnected) return;
+        sftpExecutor.submit(() -> {
+            try {
+                if (!isRemoteDirectory(newRemotePath)) {
+                    devPrint("Rename: Directory Doesn't Exist, Creating remote directory: " + newRemotePath);
+                    prepareRemoteDirectory(newRemotePath);
+                }
+                sftpChannel.rename(path, newRemotePath);
+                devPrint("Renamed remote folder: " + path + " to " + newRemotePath);
+            } catch (Exception e) {
+                devPrint("Failed to rename remote folder: " + path + " to " + newRemotePath + ": " + e.getMessage());
+            }
+        });
+    }
 }
