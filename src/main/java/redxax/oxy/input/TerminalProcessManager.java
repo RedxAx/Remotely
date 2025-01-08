@@ -142,10 +142,9 @@ public class TerminalProcessManager {
     }
 
     private void detectServerState(ServerTerminalInstance sti, String line) {
-        // Match specific patterns for server states
         if (line.contains("Done (")) {
             sti.serverInfo.state = ServerState.RUNNING;
-        } else if (line.matches(".*\\b[Ff]atal\\b.*") || line.matches(".*\\b[Uu]nhandled exception\\b.*")) {
+        } else if (line.matches(".*\\b[Ff]atal\\b.*") || line.matches(".*\\b[Uu]nhandled exception\\b.*")  || line.contains("You need to agree to the EULA") || line.contains("Error: Unable to access jarfile") || line.contains("Failed to bind to port") || line.contains("java.lang.OutOfMemoryError") || line.contains("locked by another process")) {
             sti.serverInfo.state = ServerState.CRASHED;
         } else if (line.toLowerCase().contains("stopping server") || line.toLowerCase().contains("server stopped")) {
             sti.serverInfo.state = ServerState.STOPPED;
