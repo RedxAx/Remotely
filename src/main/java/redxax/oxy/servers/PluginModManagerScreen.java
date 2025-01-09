@@ -413,12 +413,12 @@ public class PluginModManagerScreen extends Screen {
             int tabWidth = textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
             boolean isActive = (i == currentTabIndex && tab.mode != TabMode.SORT);
             boolean isHovered = mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
-            int bgColor = isActive ? darkGreen : (isHovered ? highlightColor : elementBg);
+            int bgColor = isActive ? currentTabIndex == 0 ? darkGreen :currentTabIndex == 1 ? darkGold : blueDark : (isHovered ? highlightColor : elementBg);
             context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
-            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? greenBright : (isHovered ? elementBorderHover : elementBorder));
+            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? currentTabIndex == 0 ? greenBright :currentTabIndex == 1 ? kingsGold : blueHoverColor : (isHovered ? elementBorderHover : elementBorder));
             int textX = tabX + TAB_PADDING;
             int textY = tabY + (tabBarHeight - textRenderer.fontHeight) / 2;
-            context.drawText(textRenderer, Text.literal(tab.name), textX, textY, isHovered ? greenBright : textColor, Config.shadow);
+            context.drawText(textRenderer, Text.literal(tab.name), textX, textY, textColor, Config.shadow);
             context.fill(tabX, tabY + tabBarHeight, tabX + tabWidth, tabY + tabBarHeight + 2, isActive ? 0xFF0b0b0b : 0xFF000000);
             tabX += tabWidth + TAB_GAP;
         }
@@ -497,8 +497,8 @@ public class PluginModManagerScreen extends Screen {
             int y = contentY + (i * (entryHeight + gapBetweenEntries)) - (int) smoothOffset;
             boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + entryHeight;
             boolean isSelected = (i == selectedIndex);
-            int bg = isSelected ? darkGreen : (hovered ? highlightColor : elementBg);
-            int borderColorFinal = isSelected ? greenBright : (hovered ? elementBorderHover : elementBorder);
+            int bg = isSelected ? currentTabIndex == 0 ? darkGreen :currentTabIndex == 1 ? darkGold : blueDark : (hovered ? highlightColor : elementBg);
+            int borderColorFinal = isSelected ? currentTabIndex == 0 ? greenBright :currentTabIndex == 1 ? kingsGold : blueHoverColor : (hovered ? elementBorderHover : elementBorder);
             context.fill(contentX, y, contentX + contentWidth, y + entryHeight, bg);
             drawInnerBorder(context, contentX, y, contentWidth, entryHeight, borderColorFinal);
             context.fill(contentX, y + entryHeight + 1, contentX + contentWidth, y + entryHeight, 0xFF000000);

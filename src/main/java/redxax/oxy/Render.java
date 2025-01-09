@@ -27,6 +27,7 @@ public class Render {
     public static final int deleteColor = 0xFFff7a7a;
     public static final int deleteHoverColor = 0xFFb4202a;
     public static final int blueColor = 0xFF249fde;
+    public static final int blueDark = 0xFF17253b;
     public static final int blueHoverColor = 0xFF6cc4f1;
     public static final int redColor = 0xFFb4202a;
     public static final int redBg = 0xFF3b1725;

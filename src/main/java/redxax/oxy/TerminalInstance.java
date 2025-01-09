@@ -2,7 +2,6 @@ package redxax.oxy;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import org.jetbrains.annotations.Nullable;
 import redxax.oxy.input.InputHandler;
 import redxax.oxy.input.InputProcessor;
 import redxax.oxy.input.TerminalProcessManager;

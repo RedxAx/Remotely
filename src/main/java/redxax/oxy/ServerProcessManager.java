@@ -3,7 +3,6 @@ package redxax.oxy;
 import redxax.oxy.input.TerminalProcessManager;
 import redxax.oxy.servers.ServerState;
 import java.io.File;
-import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.FileWriter;
 import java.nio.charset.StandardCharsets;

@@ -472,7 +472,7 @@ public class TerminalRenderer {
 
     private OrderedText[] getStatusBarOrderedTexts(int scaledWidth) {
         if (tmuxStatusLine.isEmpty()) {
-            return new OrderedText[]{Text.literal("Remotely Session - BETA 0.5").asOrderedText(), Text.literal(new Date().toString()).asOrderedText()};
+            return new OrderedText[]{Text.literal("Remotely - 1.0").asOrderedText(), Text.literal(new Date().toString()).asOrderedText()};
         }
         String line = tmuxStatusLine;
         String leftText;
@@ -757,12 +757,6 @@ public class TerminalRenderer {
                 terminalInstance.parentScreen.init();
             }
         });
-    }
-
-    public int getRenderedHeight() {
-        int totalLines = getTotalLines();
-        int visibleLines = getVisibleLines(terminalHeight);
-        return Math.max(totalLines, visibleLines) * minecraftClient.textRenderer.fontHeight;
     }
 
     private static class StyleTextPair {
