@@ -949,7 +949,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             currentMode = Mode.PATH;
             updatePathInfo();
         }
-
         if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
             int explorerY = tabBarY + tabBarHeight + 30;
             int explorerHeight = this.height - explorerY - 10;
@@ -1015,7 +1014,25 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         minecraftClient.keyboard.setClipboard(entryData.path.toString());
                         showNotification("Path copied", Notification.Type.INFO);
                     }, greenBright);
-                    Render.ContextMenu.show((int) mouseX, (int) mouseY, 80);
+                    Render.ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
+                    Render.ContextMenu.addItem("Refresh", () -> {
+                        loadDirectory(currentPath, false, true);
+                    }, greenBright);
+                    Render.ContextMenu.addItem("Undo", () -> {
+                        if (serverInfo.isRemote) {
+                            showNotification("Undo not supported for remote files.", Notification.Type.ERROR);
+                        } else {
+                            fileManager.undo(currentPath);
+                        }
+                    }, greenBright);
+                    Render.ContextMenu.addItem("Search", () -> {
+                        currentMode = Mode.SEARCH;
+                        fieldFocused = true;
+                        fieldText.setLength(0);
+                        cursorPosition = 0;
+                        selectionStart = -1;
+                        selectionEnd = -1;
+                    }, greenBright);
                 }
             }
         }
