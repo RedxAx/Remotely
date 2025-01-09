@@ -526,7 +526,7 @@ public class FileEditorScreen extends Screen {
             smoothScrollOffsetHoriz += (targetScrollOffsetHoriz - smoothScrollOffsetHoriz) * scrollSpeed;
             context.enableScissor(x, y, x + width, y + height);
             int lineHeight = mc.textRenderer.fontHeight + 2;
-            int visibleLines = height / lineHeight;
+            int visibleLines = height / lineHeight + 1;
             for (int i = 0; i < visibleLines; i++) {
                 int lineIndex = (int) Math.floor(smoothScrollOffsetVert / lineHeight) + i;
                 if (lineIndex < 0 || lineIndex >= lines.size()) continue;
