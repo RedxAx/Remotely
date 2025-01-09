@@ -28,13 +28,11 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-    implementation "org.apache.commons:commons-lang3:3.12.0"
     implementation "com.twelvemonkeys.imageio:imageio-webp:3.12.0"
     implementation "com.jcraft:jsch:0.1.55"
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
 
     shadow "com.twelvemonkeys.imageio:imageio-webp:3.12.0"
-    shadow "org.apache.commons:commons-lang3:3.12.0"
     shadow "com.jcraft:jsch:0.1.55"
     shadow "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
 }
