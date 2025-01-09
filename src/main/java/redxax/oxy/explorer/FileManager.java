@@ -54,6 +54,7 @@ public class FileManager {
                     String backupPath = tempUndoDir.resolve(path.getFileName()).toString().replace("\\", "/");
                     sshManager.downloadRemotePath(remotePath, Paths.get(backupPath));
                     sshManager.deleteRemoteDirectory(remotePath);
+                    callback.refreshDirectory(currentPath);
                     deletedPaths.add(path);
                     backupPaths.add(Paths.get(backupPath));
                     toRemove.add(path);
@@ -118,10 +119,12 @@ public class FileManager {
                     String destPath = currentPath.resolve(src.getFileName()).toString().replace("\\", "/");
                     if (isCut) {
                         sshManager.runRemoteCommand("mv " + srcPath + " " + destPath);
+                        callback.refreshDirectory(currentPath);
                         pastedPaths.add(Paths.get(destPath));
                         toDelete.add(src);
                     } else {
                         sshManager.runRemoteCommand("cp -r " + srcPath + " " + destPath);
+                        callback.refreshDirectory(currentPath);
                         pastedPaths.add(Paths.get(destPath));
                     }
                 } catch (Exception e) {
@@ -271,6 +274,7 @@ public class FileManager {
                         String remotePath = path.toString().replace("\\", "/");
                         String backupPath = backup.toString().replace("\\", "/");
                         sshManager.uploadRemotePath(backupPath, remotePath);
+                        callback.refreshDirectory(path.getParent());
                         Files.deleteIfExists(backup);
                     } catch (Exception e) {
                         callback.showNotification("Error undoing delete for " + path.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);

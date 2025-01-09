@@ -1493,7 +1493,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     @Override
     public void refreshDirectory(Path path) {
-        loadDirectory(path, false, false);
+        loadDirectory(path, false, true);
     }
 
     private void saveFavorites() {
