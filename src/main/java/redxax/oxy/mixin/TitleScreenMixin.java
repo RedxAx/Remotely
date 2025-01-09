@@ -3,6 +3,7 @@ package redxax.oxy.mixin;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.resource.language.I18n;
 import net.minecraft.text.Text;
 import net.minecraft.client.MinecraftClient;
 import org.spongepowered.asm.mixin.Mixin;
@@ -24,10 +25,12 @@ public abstract class TitleScreenMixin extends Screen {
 
     @Inject(method = "init", at = @At("RETURN"))
     private void addServerManagerButton(CallbackInfo ci) {
+        String optionsButtonText = I18n.translate("menu.options");
+
         ButtonWidget optionsButton = this.children().stream()
                 .filter(child -> child instanceof ButtonWidget)
                 .map(child -> (ButtonWidget) child)
-                .filter(button -> button.getMessage().getString().contains("Options"))
+                .filter(button -> button.getMessage().getString().equals(optionsButtonText))
                 .findFirst()
                 .orElse(null);
 
@@ -35,8 +38,8 @@ public abstract class TitleScreenMixin extends Screen {
             int buttonX = optionsButton.getX();
             int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
 
-            int smallButtonWidth = 50; // Reduced width for "Servers" and "Terminal" buttons
-            int largeButtonWidth = 100; // Increased width for "File Explorer" button
+            int smallButtonWidth = 50;
+            int largeButtonWidth = 100;
             int gap = 5;
             int totalWidth = smallButtonWidth * 2 + largeButtonWidth + gap * 2;
 
@@ -70,6 +73,7 @@ public abstract class TitleScreenMixin extends Screen {
             this.addDrawableChild(terminalButton);
         }
     }
+
 
     @Unique
     private void openServerManagerScreen() {
