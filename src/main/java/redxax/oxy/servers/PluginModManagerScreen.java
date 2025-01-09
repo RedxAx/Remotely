@@ -43,13 +43,16 @@ public class PluginModManagerScreen extends Screen {
     private final List<IRemotelyResource> resources = Collections.synchronizedList(new ArrayList<>());
     private final Map<String, List<IRemotelyResource>> resourceCache = new ConcurrentHashMap<>();
     private final Map<String, BufferedImage> iconImages = new ConcurrentHashMap<>();
-    private final Map<String, BufferedImage> scaledIcons = Collections.synchronizedMap(new LinkedHashMap<String, BufferedImage>() {
-        private static final int MAX_ENTRIES = 100;
+
+    private final Map<String, BufferedImage> scaledIcons = Collections.synchronizedMap(new LinkedHashMap<String, BufferedImage>(16, 0.75f, true) {
+        private static final int MAX_ENTRIES = 10000;
+
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> eldest) {
             return size() > MAX_ENTRIES;
         }
     });
+
     private final Map<String, Boolean> installingMrPack = new ConcurrentHashMap<>();
     private final Map<String, Boolean> installingResource = new ConcurrentHashMap<>();
     private final Map<String, String> installButtonTexts = new ConcurrentHashMap<>();
@@ -88,6 +91,10 @@ public class PluginModManagerScreen extends Screen {
     private final int colorDownloadSuccess = 0xFF00FF00;
     private final int colorDownloadFail = 0xFFFF0000;
     private final int colorNotDownloaded = 0xFF999999;
+
+    // Retry mechanism variables
+    private final Map<String, Integer> imageLoadRetries = new ConcurrentHashMap<>();
+    private static final int MAX_IMAGE_LOAD_RETRIES = 3;
 
     private enum TabMode { MODRINTH, SPIGOT, HANGAR, SORT }
     private static class Tab {
@@ -583,9 +590,10 @@ public class PluginModManagerScreen extends Screen {
             resourceCache.clear();
             hasMore = true;
         }
-        if (resourceCache.containsKey(query + "_" + loadedCount + "_" + currentTabIndex)) {
+        String cacheKey = query + "_" + loadedCount + "_" + currentTabIndex;
+        if (resourceCache.containsKey(cacheKey)) {
             synchronized (resources) {
-                resources.addAll(resourceCache.get(query + "_" + loadedCount + "_" + currentTabIndex));
+                resources.addAll(resourceCache.get(cacheKey));
             }
             return;
         }
@@ -639,29 +647,12 @@ public class PluginModManagerScreen extends Screen {
             synchronized (resources) {
                 resources.addAll(uniqueResources);
             }
-            resourceCache.put(query + "_" + loadedCount + "_" + currentTabIndex, new ArrayList<>(uniqueResources));
+            resourceCache.put(cacheKey, new ArrayList<>(uniqueResources));
             isLoading = false;
             isLoadingMore = false;
             uniqueResources.forEach(resource -> {
                 if (!resource.getIconUrl().isEmpty() && !iconImages.containsKey(resource.getIconUrl())) {
-                    imageLoader.submit(() -> {
-                        try (InputStream inputStream = new URL(resource.getIconUrl()).openStream()) {
-                            BufferedImage bufferedImage = loadImage(inputStream, resource.getIconUrl());
-                            if (bufferedImage != null) {
-                                iconImages.put(resource.getIconUrl(), bufferedImage);
-                                BufferedImage scaled = new BufferedImage(30, 30, BufferedImage.TYPE_INT_ARGB);
-                                Graphics2D g2d = scaled.createGraphics();
-                                g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                                g2d.drawImage(bufferedImage, 0, 0, 30, 30, null);
-                                g2d.dispose();
-                                synchronized (scaledIcons) {
-                                    scaledIcons.put(resource.getIconUrl(), scaled);
-                                }
-                            }
-                        } catch (Exception e) {
-                            scaledIcons.put(resource.getIconUrl(), placeholderIcon);
-                        }
-                    });
+                    loadImageWithRetry(resource.getIconUrl());
                 }
             });
         }).exceptionally(e -> {
@@ -671,6 +662,41 @@ public class PluginModManagerScreen extends Screen {
             return null;
         });
         updateSortLabel();
+    }
+
+    private void loadImageWithRetry(String url) {
+        if (iconImages.containsKey(url) || scaledIcons.containsKey(url)) {
+            return;
+        }
+        imageLoadRetries.putIfAbsent(url, 0);
+        imageLoader.submit(() -> {
+            try (InputStream inputStream = new URL(url).openStream()) {
+                BufferedImage bufferedImage = loadImage(inputStream, url);
+                if (bufferedImage != null) {
+                    iconImages.put(url, bufferedImage);
+                    BufferedImage scaled = new BufferedImage(30, 30, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D g2d = scaled.createGraphics();
+                    g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    g2d.drawImage(bufferedImage, 0, 0, 30, 30, null);
+                    g2d.dispose();
+                    synchronized (scaledIcons) {
+                        scaledIcons.put(url, scaled);
+                    }
+                    imageLoadRetries.remove(url);
+                }
+            } catch (Exception e) {
+                int retries = imageLoadRetries.getOrDefault(url, 0);
+                if (retries < MAX_IMAGE_LOAD_RETRIES) {
+                    imageLoadRetries.put(url, retries + 1);
+                    devPrint("Retrying image load for URL: " + url + " (Attempt " + (retries + 1) + ")");
+                    loadImageWithRetry(url);
+                } else {
+                    devPrint("Failed to load image after " + MAX_IMAGE_LOAD_RETRIES + " attempts: " + url);
+                    scaledIcons.put(url, placeholderIcon);
+                    imageLoadRetries.remove(url);
+                }
+            }
+        });
     }
 
     private BufferedImage loadImage(InputStream inputStream, String url) throws Exception {
@@ -860,7 +886,7 @@ public class PluginModManagerScreen extends Screen {
                     .GET()
                     .build();
             HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
-            if (response.statusCode() == 301) {
+            if (response.statusCode() == 301 || response.statusCode() == 302 || response.statusCode() == 303 || response.statusCode() == 307 || response.statusCode() == 308) {
                 return response.headers().firstValue("Location").orElse("");
             }
         } catch (Exception ignored) {
