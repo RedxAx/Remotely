@@ -64,7 +64,7 @@ public class HangarAPI {
         String description = project.has("description") ? project.get("description").getAsString() : "No description";
         String owner = project.has("owner") ? project.get("owner").getAsString() : "Unknown";
         String visibility = project.has("visibility") ? project.get("visibility").getAsString() : "Public";
-        String avatarUrl = "";
+        String avatarUrl = project.has("avatarUrl") ? project.get("avatarUrl").getAsString() : "";
         int stars = 0;
         int watchers = 0;
         int downloads = 0;
@@ -73,9 +73,6 @@ public class HangarAPI {
             if (stats.has("stars")) stars = stats.get("stars").getAsInt();
             if (stats.has("watchers")) watchers = stats.get("watchers").getAsInt();
             if (stats.has("downloads")) downloads = stats.get("downloads").getAsInt();
-            if (stats.has("avatarUrl")) {
-                avatarUrl = stats.get("avatarUrl").getAsString();
-            }
         }
         return new HangarResource(id, name, description, owner, visibility, stars, watchers, downloads, avatarUrl);
     }
