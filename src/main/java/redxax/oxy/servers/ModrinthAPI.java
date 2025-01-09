@@ -62,13 +62,13 @@ public class ModrinthAPI {
                                 String slug = hit.has("slug") ? hit.get("slug").getAsString() : "unknown";
                                 String iconUrl = hit.has("icon_url") ? hit.get("icon_url").getAsString() : "";
                                 int downloads = hit.has("downloads") ? hit.get("downloads").getAsInt() : 0;
-                                CompletableFuture<Void> future = fetchProjectDetails(projectId).thenAccept(projectDetails -> {
-                                    if (projectDetails != null) {
-                                        String version = projectDetails.has("version") ? projectDetails.get("version").getAsString() : "Unknown";
-                                        int followers = projectDetails.has("followers") && !projectDetails.get("followers").isJsonNull() ? projectDetails.get("followers").getAsInt() : 0;
+                                CompletableFuture<Void> future = fetchVersionDetails(versionId).thenAccept(versionDetails -> {
+                                    if (versionDetails != null) {
+                                        String versionNumber = versionDetails.has("version_number") ? versionDetails.get("version_number").getAsString() : "Unknown";
+                                        int followers = versionDetails.has("followers") && !versionDetails.get("followers").isJsonNull() ? versionDetails.get("followers").getAsInt() : 0;
                                         ModrinthResource r = new ModrinthResource(
                                                 name,
-                                                version,
+                                                versionNumber,
                                                 description,
                                                 slug + (type.equals("plugin") ? ".jar" : ".mrpack"),
                                                 iconUrl,
@@ -100,9 +100,9 @@ public class ModrinthAPI {
         }
     }
 
-    private static CompletableFuture<JsonObject> fetchProjectDetails(String projectId) {
+    private static CompletableFuture<JsonObject> fetchVersionDetails(String versionId) {
         try {
-            URI uri = new URI(MODRINTH_API_URL + "/project/" + projectId);
+            URI uri = new URI(MODRINTH_API_URL + "/version/" + versionId);
             HttpRequest request = HttpRequest.newBuilder().uri(uri).header("User-Agent", USER_AGENT).GET().build();
             return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                     .thenApply(response -> {

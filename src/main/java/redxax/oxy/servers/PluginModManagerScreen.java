@@ -245,7 +245,7 @@ public class PluginModManagerScreen extends Screen {
                                 installButtonTexts.put(selected.getSlug(), "Install");
                             }
                             if (!installButtonTexts.get(selected.getSlug()).equalsIgnoreCase("Installed")) {
-                                if (selected.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack") && Objects.equals(serverInfo.path, "modpack")) {
+                                if (selected.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack") || Objects.equals(serverInfo.path, "modpack")) {
                                     if (!installingMrPack.containsKey(selected.getSlug()) || !installingMrPack.get(selected.getSlug())) {
                                         installingMrPack.put(selected.getSlug(), true);
                                         installButtonTexts.put(selected.getSlug(), "Installing");
@@ -753,6 +753,7 @@ public class PluginModManagerScreen extends Screen {
                         return;
                     }
                 }
+                devPrint("Modpack Installation: Running " + exePath + " " + resource.getProjectId() + " " + resource.getVersion() + " --server-dir " + serverDir + " --server-file server.jar");
                 ProcessBuilder pb = new ProcessBuilder(exePath, resource.getProjectId(), resource.getVersion(), "--server-dir", serverDir, "--server-file", "server.jar");
                 pb.directory(serverPath.toFile());
                 Process proc = pb.start();
