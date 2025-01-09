@@ -1,7 +1,8 @@
 plugins {
-    id 'fabric-loom' version '1.7-SNAPSHOT'
-    id 'maven-publish'
-    id 'com.gradleup.shadow' version '8.3.0'
+    id "fabric-loom" version "1.7-SNAPSHOT"
+    id "maven-publish"
+    id "com.gradleup.shadow" version "9.0.0-beta4"
+    id "org.jetbrains.kotlin.jvm"
 }
 
 version = project.mod_version
@@ -13,10 +14,8 @@ base {
 
 repositories {
     mavenCentral()
-    maven { url = 'https://maven.fabricmc.net/' }
-    maven { url = 'https://jitpack.io' }
+    maven { url = "https://jitpack.io" }
 }
-
 
 fabricApi {
     configureDataGeneration()
@@ -25,10 +24,19 @@ fabricApi {
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-    implementation 'org.apache.commons:commons-lang3:3.12.0'
-    implementation 'com.jcraft:jsch:0.1.55'
+
+    implementation "org.apache.commons:commons-lang3:3.12.0"
+    implementation "com.twelvemonkeys.imageio:imageio-webp:3.12.0"
+    implementation "com.jcraft:jsch:0.1.55"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+
+    shadow "com.twelvemonkeys.imageio:imageio-webp:3.12.0"
+    shadow "org.apache.commons:commons-lang3:3.12.0"
+    shadow "com.jcraft:jsch:0.1.55"
+    shadow "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
 }
 
 processResources {
@@ -40,14 +48,12 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-    it.options.release = 21
+    it.options.release = 17
+    it.options.encoding = "UTF-8"
 }
 
 java {
     withSourcesJar()
-
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
 }
 
 jar {
@@ -67,18 +73,19 @@ publishing {
     }
 }
 
-
-
 shadowJar {
-    archiveClassifier.set('all')
-    dependencies {
-        include(dependency("org.apache.commons:commons-lang3"))
-        include(dependency("com.jcraft:jsch"))
-        exclude(dependency('net.fabricmc.fabric-api:fabric-api:.*'))
-        exclude(dependency('net.fabricmc:fabric-loader:.*'))
-
-    }
+    configurations = [project.configurations.shadow]
+    exclude("META-INF")
 }
 
+remapJar {
+    dependsOn(shadowJar)
+    mustRunAfter(shadowJar)
+    inputFile = file(shadowJar.archivePath)
+}
 
 build.dependsOn shadowJar
+
+kotlin {
+    jvmToolchain(17)
+}

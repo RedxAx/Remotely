@@ -12,6 +12,7 @@ public class InputHandler {
     final TerminalProcessManager terminalProcessManager;
     private final TabCompletionHandler tabCompletionHandler;
     public final InputProcessor inputProcessor;
+    public CommandExecutor commandExecutor;
 
 
     public InputHandler(MinecraftClient client, TerminalInstance terminalInstance) {
@@ -58,5 +59,13 @@ public class InputHandler {
 
     public void loadTerminalOutput(Path path) throws IOException {
         terminalProcessManager.loadTerminalOutput(path);
+    }
+
+    public TerminalProcessManager getTerminalProcessManager() {
+        return terminalProcessManager;
+    }
+
+    public InputProcessor getInputProcessor() {
+        return inputProcessor;
     }
 }

@@ -1,0 +1,63 @@
+name: Bug Report
+description: File a bug report
+labels:
+  - bug-report
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Before reporting a crash here, please make sure you are on the latest
+        version of Remotely.
+  - type: textarea
+    attributes:
+      label: Expected behavior
+      description: What you expected to see.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Observed/Actual behavior
+      description: What you actually saw.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Steps/models to reproduce
+      description: >-
+        This may include a video or detailed instructions to help reconstruct
+        the issue.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Remotely version
+      description: The version of Remotely you are using.
+    validations:
+      required: true
+  - type: checkboxes
+    attributes:
+      label: Agreements
+      description: Please agree to the following.
+      options:
+        - label: >-
+            I am running the latest version of Remotely available from
+            https://modrinth.com/mod/remotely/versions.
+          required: true
+        - label: >-
+            I have searched for and ensured there isn't already an open issue
+            regarding this.
+          required: true
+        - label: I ticked all the boxes without actually reading them
+          required: false
+        - label: My version of Minecraft is supported by Remotely.
+          required: true
+  - type: textarea
+    attributes:
+      label: Other
+      description: >
+        Please include other helpful information below.
+
+        The more information we receive, the quicker and more effective we can
+        be at finding the solution to the issue.
+    validations:
+      required: false

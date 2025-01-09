@@ -1,0 +1,47 @@
+# Used when a release is pushed to GitHub
+# This does not make use of any caching as to ensure a clean build
+
+name: Build - Release
+on:
+  release:
+    types: [ released ]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        java: [ 21 ]
+
+    steps:
+      - name: Extract current branch name
+        shell: bash
+        # bash pattern expansion to grab branch name without slashes
+        run: ref="${GITHUB_REF#refs/heads/}" && echo "branch=${ref////-}" >> $GITHUB_OUTPUT
+        id: ref
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ matrix.java }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Build w/ Gradle Wrapper
+        run: ./gradlew build
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: 'build/libs/remotely-!(*all).jar;LICENSE'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          draft: false
+          prerelease: false
+          append_body: true
