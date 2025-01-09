@@ -53,7 +53,7 @@ public class TabCompletionHandler {
 
             if (!tabCompletions.isEmpty()) {
                 tabCompletions.sort(Comparator.naturalOrder());
-                String completion = tabCompletions.getFirst();
+                String completion = tabCompletions.get(0);
                 tabCompletionSuggestion = completion.substring(partial.length()) + separator;
             } else {
                 tabCompletionSuggestion = "";
@@ -77,7 +77,7 @@ public class TabCompletionHandler {
 
             if (!tabCompletions.isEmpty()) {
                 tabCompletions.sort(Comparator.naturalOrder());
-                String completion = tabCompletions.getFirst();
+                String completion = tabCompletions.get(0);
                 tabCompletionSuggestion = completion.substring(partial.length());
             } else {
                 tabCompletionSuggestion = "";
@@ -87,7 +87,7 @@ public class TabCompletionHandler {
 
             if (!tabCompletions.isEmpty()) {
                 tabCompletions.sort(Comparator.naturalOrder());
-                String completion = tabCompletions.getFirst();
+                String completion = tabCompletions.get(0);
 
                 if (!completion.equals(trimmedInput)) {
                     tabCompletionSuggestion = completion.substring(trimmedInput.length());
@@ -142,7 +142,7 @@ public class TabCompletionHandler {
             tabCompletions = getDirectoryCompletions(path);
 
             if (!tabCompletions.isEmpty()) {
-                String suggestion = tabCompletions.getFirst();
+                String suggestion = tabCompletions.get(0);
                 if (suggestion.startsWith(partial) && !suggestion.equals(partial)) {
                     tabCompletionSuggestion = suggestion.substring(partial.length()) + (endsWithSeparator ? separator : "");
                 } else {
@@ -166,7 +166,7 @@ public class TabCompletionHandler {
             tabCompletions = getExecutableCompletions(path);
 
             if (!tabCompletions.isEmpty()) {
-                String suggestion = tabCompletions.getFirst();
+                String suggestion = tabCompletions.get(0);
                 if (suggestion.startsWith(partial) && !suggestion.equals(partial)) {
                     tabCompletionSuggestion = suggestion.substring(partial.length());
                 } else {
@@ -179,7 +179,7 @@ public class TabCompletionHandler {
             tabCompletions = getAvailableCommands(lastToken);
 
             if (!tabCompletions.isEmpty()) {
-                String suggestion = tabCompletions.getFirst();
+                String suggestion = tabCompletions.get(0);
                 if (suggestion.startsWith(lastToken) && !suggestion.equals(lastToken)) {
                     tabCompletionSuggestion = suggestion.substring(lastToken.length());
                 } else {
