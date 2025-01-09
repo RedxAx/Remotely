@@ -77,11 +77,22 @@ public class Render {
         private static int itemHeight = 18;
         private static int gap = 1;
 
-        public static void show(int x, int y, int width) {
+        public static void show(int x, int y, int width, int screenWidth, int screenHeight) {
             open = true;
             menuX = x;
             menuY = y;
             itemWidth = width;
+            int margin = 60;
+
+            if (menuX + itemWidth > screenWidth) {
+                menuX = screenWidth - itemWidth;
+            }
+
+            int totalMenuHeight = items.size() * (itemHeight + gap) - gap;
+
+            if (menuY + totalMenuHeight > screenHeight - margin) {
+                menuY = screenHeight - totalMenuHeight - margin;
+            }
         }
 
         public static void hide() {
