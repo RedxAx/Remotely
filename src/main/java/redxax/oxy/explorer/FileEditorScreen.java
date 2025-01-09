@@ -889,6 +889,7 @@ public class FileEditorScreen extends Screen {
                 int clickedLine = (int) Math.floor(smoothScrollOffsetVert / lineHeight) + (localY / lineHeight);
                 if (clickedLine < 0) clickedLine = 0;
                 if (clickedLine >= lines.size()) clickedLine = lines.size() - 1;
+                if (lines.isEmpty()) return false;
                 int localX = (int) mouseX - (x + textPadding) + (int) smoothScrollOffsetHoriz;
                 String text = lines.get(clickedLine);
                 int cPos = 0;
@@ -940,6 +941,7 @@ public class FileEditorScreen extends Screen {
                 int dragLine = (int) Math.floor(smoothScrollOffsetVert / lineHeight) + (localY / lineHeight);
                 if (dragLine < 0) dragLine = 0;
                 if (dragLine >= lines.size()) dragLine = lines.size() - 1;
+                if (lines.isEmpty()) return false;
                 int localX = (int) mouseX - (x + textPadding) + (int) smoothScrollOffsetHoriz;
                 String text = lines.get(dragLine);
                 int cPos = 0;
