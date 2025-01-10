@@ -53,7 +53,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             ".txt", ".md", ".json", ".yml", ".yaml", ".conf", ".properties",
             ".xml", ".cfg", ".sk", ".log",  ".mcmeta", ".bat", ".sh", ".json5", ".jsonc",
             ".html", ".js", ".java", ".py", ".css", ".vsh", ".fsh", ".glsl", ".nu",
-            ".bash", ".fish", ".toml"
+            ".bash", ".fish", ".toml", ".mcfunction", ".nbt"
     );
     private final ExecutorService directoryLoader = Executors.newSingleThreadExecutor();
     private static final Map<String, List<EntryData>> remoteCache = new ConcurrentHashMap<>();
@@ -1350,6 +1350,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 loading = false;
             }
         });
+        saveFileExplorerTabs(tabs.stream().map(t -> new TabData(t.tabData.path, t.tabData.isRemote, t.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
     }
 
     private List<EntryData> loadRemoteDirectory(Path dir, boolean forceReload) {
