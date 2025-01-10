@@ -1,5 +1,9 @@
 package redxax.oxy.explorer;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonSyntaxException;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -7,15 +11,23 @@ import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.*;
 import redxax.oxy.servers.ServerInfo;
+import redxax.oxy.explorer.ResponseManager.*;
 
-import java.io.BufferedReader;
-import java.io.IOException;
+
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import static redxax.oxy.DevUtil.devPrint;
 import static redxax.oxy.Render.*;
+import static redxax.oxy.explorer.ResponseManager.parseAIResponse;
 
 public class FileEditorScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -35,25 +47,24 @@ public class FileEditorScreen extends Screen {
     private final int TAB_HEIGHT = 18;
     private final int TAB_PADDING = 5;
     private final int TAB_GAP = 5;
-    private StringBuilder searchText = new StringBuilder();
-    private boolean searchBarFocused = false;
     private List<Position> searchResults = new ArrayList<>();
     private int currentSearchIndex = 0;
     private int searchBarWidth = 200;
     private int searchBarHeight = 20;
     private int clearSearchButtonWidth = 20;
-
-    class Position {
-        int line;
-        int start;
-        int end;
-
-        Position(int line, int start, int end) {
-            this.line = line;
-            this.start = start;
-            this.end = end;
-        }
-    }
+    private boolean aiMode = false;
+    private boolean customSearchBarFocused = false;
+    private StringBuilder customSearchText = new StringBuilder();
+    private int customCursorPosition = 0;
+    private int customSelectionStart = -1;
+    private int customSelectionEnd = -1;
+    private boolean customShowCursor = true;
+    private long customLastBlinkTime = 0;
+    private float customPathScrollOffset = 0;
+    private float customPathTargetScrollOffset = 0;
+    private float customScrollSpeed = 0.2f;
+    private List<ResponseWindow> responseWindows = new ArrayList<>();
+    private static final Path AI_CONFIG_PATH = Path.of("C:/remotely/data/ai.json");
 
     class Tab {
         Path path;
@@ -62,7 +73,6 @@ public class FileEditorScreen extends Screen {
         MultiLineTextEditor textEditor;
         boolean unsaved;
         String originalContent;
-
         Tab(Path path) {
             this.path = path;
             this.name = path.getFileName() != null ? path.getFileName().toString() : path.toString();
@@ -71,11 +81,9 @@ public class FileEditorScreen extends Screen {
             loadFileContent();
             this.unsaved = false;
         }
-
         public void markUnsaved() {
             this.unsaved = true;
         }
-
         public void checkIfChanged(List<String> lines) {
             String joined = String.join("\n", lines);
             if (joined.equals(originalContent)) {
@@ -84,7 +92,6 @@ public class FileEditorScreen extends Screen {
                 this.unsaved = true;
             }
         }
-
         private void loadFileContent() {
             ArrayList<String> fileContent = new ArrayList<>();
             if (serverInfo.isRemote) {
@@ -99,6 +106,9 @@ public class FileEditorScreen extends Screen {
                     String remotePath = path.toString().replace("\\", "/");
                     String content = serverInfo.remoteSSHManager.readRemoteFile(remotePath);
                     String[] lines = content.split("\\r?\\n");
+                    for (int i = 0; i < lines.length; i++) {
+                        lines[i] = lines[i].replace("\\t", "\t");
+                    }
                     Collections.addAll(fileContent, lines);
                 } catch (Exception e) {
                     if (serverInfo.terminal != null) {
@@ -107,7 +117,10 @@ public class FileEditorScreen extends Screen {
                 }
             } else {
                 try (BufferedReader reader = Files.newBufferedReader(path)) {
-                    reader.lines().forEach(fileContent::add);
+                    reader.lines().forEach(line -> {
+                        line = line.replace("\\t", "\t");
+                        fileContent.add(line);
+                    });
                 } catch (IOException e) {
                     if (serverInfo.terminal != null) {
                         serverInfo.terminal.appendOutput("File load error: " + e.getMessage() + "\n");
@@ -117,7 +130,6 @@ public class FileEditorScreen extends Screen {
             this.textEditor = new MultiLineTextEditor(minecraftClient, fileContent, path.getFileName().toString(), this);
             this.originalContent = String.join("\n", fileContent);
         }
-
         public void saveFile() {
             ArrayList<String> newContent = new ArrayList<>(textEditor.getLines());
             if (serverInfo.isRemote) {
@@ -203,17 +215,41 @@ public class FileEditorScreen extends Screen {
     }
 
     @Override
+    public void tick() {
+        super.tick();
+        if (customSearchBarFocused) {
+            long currentTime = System.currentTimeMillis();
+            if (currentTime - customLastBlinkTime >= 500) {
+                customShowCursor = !customShowCursor;
+                customLastBlinkTime = currentTime;
+            }
+        }
+    }
+
+    @Override
     public boolean charTyped(char chr, int keyCode) {
-        if (searchBarFocused) {
+        if (customSearchBarFocused) {
             if (chr == '\n' || chr == '\r') {
                 handleSearchEnter();
                 return true;
             }
             if (chr == 27) {
-                searchBarFocused = false;
+                customSearchBarFocused = false;
+                aiMode = false;
                 return true;
             }
-            searchText.append(chr);
+            if (chr != '\b') {
+                if (customSelectionStart != -1 && customSelectionEnd != -1 && customSelectionStart != customSelectionEnd) {
+                    int selStart = Math.min(customSelectionStart, customSelectionEnd);
+                    int selEnd = Math.max(customSelectionStart, customSelectionEnd);
+                    customSearchText.delete(selStart, selEnd);
+                    customCursorPosition = selStart;
+                    customSelectionStart = -1;
+                    customSelectionEnd = -1;
+                }
+                customSearchText.insert(customCursorPosition, chr);
+                customCursorPosition++;
+            }
             updateSearchResults();
             return true;
         }
@@ -223,23 +259,63 @@ public class FileEditorScreen extends Screen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
+        boolean shiftHeld = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
         if (ctrlHeld && keyCode == GLFW.GLFW_KEY_F) {
-            searchBarFocused = true;
+            customSearchBarFocused = true;
+            aiMode = false;
             String selected = tabs.get(currentTabIndex).textEditor.getSelectedText();
             if (!selected.isEmpty()) {
-                searchText.setLength(0);
-                searchText.append(selected);
+                customSearchText.setLength(0);
+                customSearchText.append(selected);
+                customCursorPosition = customSearchText.length();
             }
+            customSelectionStart = -1;
+            customSelectionEnd = -1;
             updateSearchResults();
             return true;
         }
-        if (searchBarFocused) {
+        if (ctrlHeld && keyCode == GLFW.GLFW_KEY_G) {
+            customSearchBarFocused = true;
+            aiMode = true;
+            customSearchText.setLength(0);
+            customCursorPosition = 0;
+            customSelectionStart = -1;
+            customSelectionEnd = -1;
+            return true;
+        }
+        if (customSearchBarFocused) {
             switch (keyCode) {
                 case GLFW.GLFW_KEY_BACKSPACE -> {
-                    if (searchText.length() > 0) {
-                        searchText.deleteCharAt(searchText.length() - 1);
-                        updateSearchResults();
+                    if (customSelectionStart != -1 && customSelectionEnd != -1 && customSelectionStart != customSelectionEnd) {
+                        int selStart = Math.min(customSelectionStart, customSelectionEnd);
+                        int selEnd = Math.max(customSelectionStart, customSelectionEnd);
+                        customSearchText.delete(selStart, selEnd);
+                        customCursorPosition = selStart;
+                        customSelectionStart = -1;
+                        customSelectionEnd = -1;
+                    } else {
+                        if (customCursorPosition > 0) {
+                            customSearchText.deleteCharAt(customCursorPosition - 1);
+                            customCursorPosition--;
+                        }
                     }
+                    updateSearchResults();
+                    return true;
+                }
+                case GLFW.GLFW_KEY_DELETE -> {
+                    if (customSelectionStart != -1 && customSelectionEnd != -1 && customSelectionStart != customSelectionEnd) {
+                        int selStart = Math.min(customSelectionStart, customSelectionEnd);
+                        int selEnd = Math.max(customSelectionStart, customSelectionEnd);
+                        customSearchText.delete(selStart, selEnd);
+                        customCursorPosition = selStart;
+                        customSelectionStart = -1;
+                        customSelectionEnd = -1;
+                    } else {
+                        if (customCursorPosition < customSearchText.length()) {
+                            customSearchText.deleteCharAt(customCursorPosition);
+                        }
+                    }
+                    updateSearchResults();
                     return true;
                 }
                 case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> {
@@ -247,7 +323,47 @@ public class FileEditorScreen extends Screen {
                     return true;
                 }
                 case GLFW.GLFW_KEY_ESCAPE -> {
-                    searchBarFocused = false;
+                    customSearchBarFocused = false;
+                    aiMode = false;
+                    return true;
+                }
+                case GLFW.GLFW_KEY_LEFT -> {
+                    if (customCursorPosition > 0) {
+                        customCursorPosition--;
+                    }
+                    return true;
+                }
+                case GLFW.GLFW_KEY_RIGHT -> {
+                    if (customCursorPosition < customSearchText.length()) {
+                        customCursorPosition++;
+                    }
+                    return true;
+                }
+                case GLFW.GLFW_KEY_A -> {
+                    if (ctrlHeld) {
+                        customSelectionStart = 0;
+                        customSelectionEnd = customSearchText.length();
+                        customCursorPosition = customSearchText.length();
+                    }
+                    return true;
+                }
+                case GLFW.GLFW_KEY_V -> {
+                    if (ctrlHeld) {
+                        String clipboard = minecraftClient.keyboard.getClipboard();
+                        if (customSelectionStart != -1 && customSelectionEnd != -1 && customSelectionStart != customSelectionEnd) {
+                            int selStart = Math.min(customSelectionStart, customSelectionEnd);
+                            int selEnd = Math.max(customSelectionStart, customSelectionEnd);
+                            customSearchText.delete(selStart, selEnd);
+                            customCursorPosition = selStart;
+                            customSelectionStart = -1;
+                            customSelectionEnd = -1;
+                        }
+                        for (char c : clipboard.toCharArray()) {
+                            customSearchText.insert(customCursorPosition, c);
+                            customCursorPosition++;
+                        }
+                        updateSearchResults();
+                    }
                     return true;
                 }
             }
@@ -273,16 +389,176 @@ public class FileEditorScreen extends Screen {
     }
 
     private void handleSearchEnter() {
-        if (searchResults.isEmpty()) return;
-        currentSearchIndex = (currentSearchIndex + 1) % searchResults.size();
-        Position pos = searchResults.get(currentSearchIndex);
-        tabs.get(currentTabIndex).textEditor.setCursor(pos.line, pos.start);
+        if (aiMode) {
+            handleAIRequest();
+        } else {
+            if (searchResults.isEmpty()) return;
+            currentSearchIndex = (currentSearchIndex + 1) % searchResults.size();
+            Position pos = searchResults.get(currentSearchIndex);
+            tabs.get(currentTabIndex).textEditor.setCursor(pos.line, pos.start);
+        }
+    }
+
+    private JsonObject readAIConfig() {
+        JsonObject config = new JsonObject();
+        if (Files.exists(AI_CONFIG_PATH)) {
+            try (FileReader reader = new FileReader(AI_CONFIG_PATH.toFile())) {
+                config = JsonParser.parseReader(reader).getAsJsonObject();
+            } catch (IOException | JsonSyntaxException e) {
+                e.printStackTrace();
+            }
+        } else {
+            config.add("entryPoint", new JsonPrimitive("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"));
+            config.add("apiToken", new JsonPrimitive("your-api-token"));
+            try (FileWriter writer = new FileWriter(AI_CONFIG_PATH.toFile())) {
+                writer.write(config.toString());
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        return config;
+    }
+
+    private void handleAIRequest() {
+        JsonObject aiConfig = readAIConfig();
+        String entryPoint = aiConfig.get("entryPoint").getAsString();
+        String apiToken = aiConfig.get("apiToken").getAsString();
+
+        String userInput = customSearchText.toString();
+        if (userInput.isEmpty()) {
+            customSearchBarFocused = false;
+            aiMode = false;
+            return;
+        }
+        List<String> lines = tabs.get(currentTabIndex).textEditor.getLines();
+        int lineLimit = 1000000000;
+        List<String> limitedLines = lines.subList(0, Math.min(lineLimit, lines.size()));
+        StringBuilder enumeratedLines = new StringBuilder();
+        for (int i = 0; i < limitedLines.size(); i++) {
+            enumeratedLines.append("Line ").append(i + 1).append(": ").append(limitedLines.get(i).replace("\"", "\\\"")).append("\\n");
+        }
+        String filePathInfo = "Current file path: " + tabs.get(currentTabIndex).path.toString().replace("\"", "\\\"") + " | Name: " + tabs.get(currentTabIndex).name.replace("\"", "\\\"");
+        String instructionsForAi = "You are Remotely, an AI text / code editor assistant for Minecraft server configuration and its plugins. SURROUND ANY NON-COMMAND TEXT WITH: \"$\" AND NEVER HAVE MORE THAN 1 BLOCK OF TEXT USING THE \"$\". You can add or edit configurations, or respond normally. You can replace lines using this command: '@replace:Line <lineNumber>@newLine:some text' or '@replace:Line <lineNumber>@newLine<<multiline text>>'. Give small feedback after doing any changes. You are interacting with the editor directly. " + filePathInfo + ". The user said: \"" + userInput.replace("\"", "\\\"") + "\"\\n Lines / file with numbering:\\n";
+        String finalContext = instructionsForAi + enumeratedLines;
+        devPrint("AI request: " + finalContext );
+        int cursorLine = tabs.get(currentTabIndex).textEditor.cursorLine;
+        String currentLine = cursorLine >= 0 && cursorLine < lines.size() ? lines.get(cursorLine) : "";
+        String requestBody = "{ \"contents\": [{ \"parts\": [{\"text\": \"" + finalContext.replace("\"", "\\\"") + "\"}, {\"text\": \"\\nCurrent Line:\\n" + currentLine.replace("\"", "\\\"") + "\"}] }], \"generation_config\": { \"temperature\": 1, \"top_p\": 0.95, \"top_k\": 40, \"max_output_tokens\": 8192, \"response_mime_type\": \"text/plain\" } }";
+        CompletableFuture.runAsync(() -> {
+            try {
+                URL url = new URL(entryPoint + "?key=" + apiToken);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setDoOutput(true);
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(requestBody.getBytes());
+                    os.flush();
+                }
+                int responseCode = conn.getResponseCode();
+                if (responseCode == 200) {
+                    BufferedReader in = new BufferedReader(new java.io.InputStreamReader(conn.getInputStream()));
+                    String inputLine;
+                    StringBuilder response = new StringBuilder();
+                    while ((inputLine = in.readLine()) != null) {
+                        response.append(inputLine);
+                    }
+                    in.close();
+                    String aiResponse = parseAIResponse(response.toString());
+                    minecraftClient.execute(() -> {
+                        applyAiResponse(aiResponse);
+                        customSearchBarFocused = false;
+                        aiMode = false;
+                    });
+                } else {
+                    minecraftClient.execute(() -> {
+                        devPrint("AI request failed with response code: " + responseCode + "\n");
+                        customSearchBarFocused = false;
+                        aiMode = false;
+                    });
+                }
+            } catch (Exception e) {
+                minecraftClient.execute(() -> {
+                    devPrint("AI request error: " + e.getMessage() + "\n");
+                    customSearchBarFocused = false;
+                    aiMode = false;
+                });
+            }
+        });
+    }
+
+    private void applyAiResponse(String text) {
+        boolean replacedSomething = false;
+
+        Pattern replacePattern = Pattern.compile("@replace:Line\\s*(\\d+)@newLine(?:(<<([\\s\\S]*?)>>)|:([^@]+))");
+        Matcher replaceMatcher = replacePattern.matcher(text);
+
+        ArrayList<Integer> replacedIndices = new ArrayList<>();
+        ArrayList<String> newContents = new ArrayList<>();
+
+        while (replaceMatcher.find()) {
+            replacedSomething = true;
+            String lineNumberGroup = replaceMatcher.group(1);
+            int lineNumber = Integer.parseInt(lineNumberGroup.trim()) - 1;
+
+            String multilineGroup = replaceMatcher.group(3);
+            String singlelineGroup = replaceMatcher.group(4);
+            String replacement;
+
+            if (multilineGroup != null) {
+                replacement = multilineGroup;
+            } else if (singlelineGroup != null) {
+                replacement = singlelineGroup;
+            } else {
+                replacement = "";
+            }
+
+            replacement = replacement.replaceAll("\\$.*?\\$", "");
+
+            replacedIndices.add(lineNumber);
+            newContents.add(replacement.replace("\r", "").replace("\n", ""));
+        }
+
+        if (replacedSomething) {
+            for (int i = 0; i < replacedIndices.size(); i++) {
+                int idx = replacedIndices.get(i);
+                if (idx >= 0 && idx < tabs.get(currentTabIndex).textEditor.lines.size()) {
+                    tabs.get(currentTabIndex).textEditor.deleteSelection();
+                    tabs.get(currentTabIndex).textEditor.pushState();
+                    tabs.get(currentTabIndex).textEditor.lines.set(idx, newContents.get(i));
+                    tabs.get(currentTabIndex).textEditor.parentTab.checkIfChanged(tabs.get(currentTabIndex).textEditor.lines);
+                }
+            }
+        }
+
+        Pattern responseTextPattern = Pattern.compile("\\$(.*?)\\$", Pattern.DOTALL);
+        Matcher responseMatcher = responseTextPattern.matcher(text.trim());
+
+        while (responseMatcher.find()) {
+            String responseText = responseMatcher.group(1);
+            ResponseWindow existingWindow = findWindow();
+            if (existingWindow != null) {
+                existingWindow.text = responseText;
+            } else {
+                ResponseWindow gw = new ResponseWindow(this.width - 206, 59, responseText, 200);
+                responseWindows.add(gw);
+            }
+        }
+    }
+
+    private ResponseWindow findWindow() {
+        for (ResponseWindow w : responseWindows) {
+            if (!w.closed) {
+                return w;
+            }
+        }
+        return null;
     }
 
     private void updateSearchResults() {
         searchResults.clear();
-        String query = searchText.toString().toLowerCase();
-        if (query.isEmpty()) {
+        String query = customSearchText.toString().toLowerCase();
+        if (query.isEmpty() || aiMode) {
             textEditor.setSearchResults(searchResults);
             return;
         }
@@ -301,19 +577,29 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        for (ResponseWindow w : responseWindows) {
+            if (w.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+        }
+        responseWindows.removeIf(w -> w.closed);
         int searchBarX = (this.width - searchBarWidth) / 2;
         int searchBarY = 5;
         int clearSearchButtonX = searchBarX + searchBarWidth;
         if (mouseX >= searchBarX && mouseX <= searchBarX + searchBarWidth && mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight) {
-            searchBarFocused = true;
+            customSearchBarFocused = true;
             return true;
         } else {
             if (mouseX >= clearSearchButtonX && mouseX <= clearSearchButtonX + clearSearchButtonWidth && mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight) {
-                searchText.setLength(0);
+                customSearchText.setLength(0);
+                customCursorPosition = 0;
+                customSelectionStart = -1;
+                customSelectionEnd = -1;
                 updateSearchResults();
                 return true;
             }
-            searchBarFocused = false;
+            customSearchBarFocused = false;
+            aiMode = false;
         }
         boolean clickedTab = false;
         int titleBarHeight = 30;
@@ -370,12 +656,23 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        return tabs.get(currentTabIndex).textEditor.mouseReleased(mouseX, mouseY, button) || super.mouseReleased(mouseX, mouseY, button);
+        boolean handled = false;
+        for (ResponseWindow w : responseWindows) {
+            boolean r = w.mouseReleased(mouseX, mouseY, button);
+            if (r) handled = true;
+        }
+        responseWindows.removeIf(w -> w.closed);
+        return tabs.get(currentTabIndex).textEditor.mouseReleased(mouseX, mouseY, button) || super.mouseReleased(mouseX, mouseY, button) || handled;
     }
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        return tabs.get(currentTabIndex).textEditor.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        boolean handled = false;
+        for (ResponseWindow w : responseWindows) {
+            boolean d = w.mouseDragged(mouseX, mouseY, button);
+            if (d) handled = true;
+        }
+        return tabs.get(currentTabIndex).textEditor.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || handled;
     }
 
     @Override
@@ -408,23 +705,45 @@ public class FileEditorScreen extends Screen {
         drawInnerBorder(context, 0, 0, this.width, titleBarHeight, 0xFF333333);
         String titleText = "Remotely - File Editor";
         context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, textColor, Config.shadow);
-
         int searchBarX = (this.width - searchBarWidth) / 2;
         int searchBarY = 5;
-        int searchBarH = searchBarHeight;
-        int searchBarW = searchBarWidth;
-        int searchBarColor = searchBarFocused ? darkGreen : elementBg;
-        context.fill(searchBarX, searchBarY, searchBarX + searchBarW, searchBarY + searchBarH, searchBarColor);
-        drawInnerBorder(context, searchBarX, searchBarY, searchBarW, searchBarH, searchBarFocused ? greenBright : elementBorder);
-        context.drawText(this.textRenderer, Text.literal(searchText.toString()), searchBarX + 5, searchBarY + 5, textColor, Config.shadow);
-        if (searchBarFocused && searchText.length() == 0) {
-            context.drawText(this.textRenderer, Text.literal("Search..."), searchBarX + 5, searchBarY + 5, 0xFF888888, false);
+        int fieldColor = customSearchBarFocused ? (aiMode ? blueDark : darkGreen) : elementBg;
+        context.fill(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight, fieldColor);
+        drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, customSearchBarFocused ? (aiMode ? blueHoverColor : greenBright) : elementBorder);
+        if (customSelectionStart != -1 && customSelectionEnd != -1 && customSelectionStart != customSelectionEnd) {
+            int selStart = Math.min(customSelectionStart, customSelectionEnd);
+            int selEnd = Math.max(customSelectionStart, customSelectionEnd);
+            if (selStart < 0) selStart = 0;
+            if (selEnd > customSearchText.length()) selEnd = customSearchText.length();
+            String beforeSel = customSearchText.substring(0, selStart);
+            String sel = customSearchText.substring(selStart, selEnd);
+            int selX = searchBarX + 5 + this.textRenderer.getWidth(beforeSel) - (int) customPathScrollOffset;
+            int selWidth = this.textRenderer.getWidth(sel);
+            context.fill(selX, searchBarY + 4, selX + selWidth, searchBarY + 4 + this.textRenderer.fontHeight, 0x80FFFFFF);
         }
-        if (searchText.length() > 0) {
-            int clearButtonX = searchBarX + searchBarW;
+        String displayText = customSearchText.toString();
+        int textWidth = this.textRenderer.getWidth(displayText);
+        int cursorX = searchBarX + 5 + this.textRenderer.getWidth(displayText.substring(0, Math.min(customCursorPosition, displayText.length())));
+        float cursorMargin = 10.0f;
+        if (cursorX - customPathScrollOffset > searchBarX + searchBarWidth - 5 - cursorMargin) {
+            customPathTargetScrollOffset = cursorX - (searchBarX + searchBarWidth - 5 - cursorMargin);
+        } else if (cursorX - customPathScrollOffset < searchBarX + 5 + cursorMargin) {
+            customPathTargetScrollOffset = cursorX - (searchBarX + 5 + cursorMargin);
+        }
+        customPathTargetScrollOffset = Math.max(0, Math.min(customPathTargetScrollOffset, textWidth - (searchBarWidth - 10)));
+        customPathScrollOffset += (customPathTargetScrollOffset - customPathScrollOffset) * customScrollSpeed;
+        context.enableScissor(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight);
+        context.drawText(this.textRenderer, Text.literal(displayText), searchBarX + 5 - (int) customPathScrollOffset, searchBarY + 5, textColor, Config.shadow);
+        if (customSearchBarFocused && customShowCursor) {
+            String beforeCursor = customCursorPosition <= displayText.length() ? displayText.substring(0, customCursorPosition) : displayText;
+            int cx = searchBarX + 5 + this.textRenderer.getWidth(beforeCursor) - (int) customPathScrollOffset;
+            context.fill(cx, searchBarY + 5, cx + 1, searchBarY + 5 + this.textRenderer.fontHeight, 0xFFFFFFFF);
+        }
+        context.disableScissor();
+        if (customSearchText.length() > 0) {
+            int clearButtonX = searchBarX + searchBarWidth;
             context.drawText(this.textRenderer, Text.literal("x"), clearButtonX + 4, searchBarY + 5, redColor, true);
         }
-
         int tabBarY = titleBarHeight + 5;
         int tabBarHeight = TAB_HEIGHT;
         int tabX = 5;
@@ -436,12 +755,11 @@ public class FileEditorScreen extends Screen {
             boolean isHovered = mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
             int bgColor = isActive ? (tab.unsaved ? redBg : 0xFF0b371c) : (isHovered ? highlightColor : 0xFF2C2C2C);
             context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
-            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? (tab.unsaved ? redBright : 0xFFd6f264) : (isHovered ? 0xFF00000 : 0xFF444444));
+            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? (tab.unsaved ? redBright : 0xFFd6f264) : (isHovered ? 0xFF000000 : 0xFF444444));
             context.drawText(this.textRenderer, Text.literal(tab.unsaved ? tab.name + "*" : tab.name), tabX + TAB_PADDING, tabY + 5, isHovered ? greenBright : textColor, Config.shadow);
             context.fill(tabX, tabY + tabBarHeight, tabX + tabWidth, tabY + tabBarHeight + 2, isActive ? 0xFF0b0b0b : 0xFF000000);
             tabX += tabWidth + TAB_GAP;
         }
-
         int editorY = tabBarY + tabBarHeight + 5;
         int editorHeight = this.height - editorY - 10;
         int editorX = 5;
@@ -449,7 +767,6 @@ public class FileEditorScreen extends Screen {
         context.fill(editorX, editorY, editorX + editorWidth, editorY + editorHeight, lighterColor);
         drawInnerBorder(context, editorX, editorY, editorWidth, editorHeight, borderColor);
         tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
-
         int buttonX = this.width - buttonW - 10;
         int ButtonY = 5;
         boolean hovered = mouseX >= buttonX && mouseX <= buttonX + Render.buttonW && mouseY >= ButtonY && mouseY <= ButtonY + Render.buttonH;
@@ -457,6 +774,15 @@ public class FileEditorScreen extends Screen {
         buttonX = buttonX - (buttonW + 10);
         hovered = mouseX >= buttonX && mouseX <= buttonX + Render.buttonW && mouseY >= ButtonY && mouseY <= ButtonY + Render.buttonH;
         Render.drawCustomButton(context, buttonX, ButtonY, "Back", minecraftClient, hovered, false, true, textColor, greenBright);
+        List<ResponseWindow> toRemove = new ArrayList<>();
+        for (ResponseWindow w : responseWindows) {
+            if (w.closed) {
+                toRemove.add(w);
+                continue;
+            }
+            w.render(context, mouseX, mouseY, delta, minecraftClient);
+        }
+        responseWindows.removeAll(toRemove);
     }
 
     private void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int c) {
@@ -491,7 +817,6 @@ public class FileEditorScreen extends Screen {
         private int textPadding = 4;
         private int paddingTop = 5;
         private int paddingRight = 5;
-        private int cursor = 0xFFFF0000;
         private float cursorOpacity = 1.0f;
         private boolean cursorFadingOut = true;
         private long lastCursorBlinkTime = 0;
@@ -605,6 +930,7 @@ public class FileEditorScreen extends Screen {
 
         public boolean keyPressed(int keyCode, int modifiers) {
             boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
+            boolean shiftHeld = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
             switch (keyCode) {
                 case GLFW.GLFW_KEY_BACKSPACE -> {
                     if (ctrlHeld) {
@@ -1148,7 +1474,7 @@ public class FileEditorScreen extends Screen {
             scrollToCursor();
         }
 
-        private void pushState() {
+        public void pushState() {
             redoStack.clear();
             undoStack.push(currentState());
             parentTab.checkIfChanged(lines);
@@ -1166,7 +1492,7 @@ public class FileEditorScreen extends Screen {
             if (targetScrollOffsetVert < 0) targetScrollOffsetVert = 0;
             int maxScrollVert = Math.max(0, lines.size() * lineHeight - height);
             if (targetScrollOffsetVert > maxScrollVert) targetScrollOffsetVert = maxScrollVert;
-            String lineText = lines.get(cursorLine);
+            String lineText = cursorLine >= 0 && cursorLine < lines.size() ? lines.get(cursorLine) : "";
             int cursorX = mc.textRenderer.getWidth(lineText.substring(0, Math.min(cursorPos, lineText.length())));
             double desiredScrollHoriz = cursorX - (width / 2.0) + (3 * mc.textRenderer.getWidth("word"));
             targetScrollOffsetHoriz = desiredScrollHoriz;
@@ -1185,7 +1511,6 @@ public class FileEditorScreen extends Screen {
             private final ArrayList<String> lines;
             private final int cursorLine;
             private final int cursorPos;
-
             public EditorState(ArrayList<String> lines, int cursorLine, int cursorPos) {
                 this.lines = lines;
                 this.cursorLine = cursorLine;
@@ -1196,5 +1521,20 @@ public class FileEditorScreen extends Screen {
         public void setSearchResults(List<Position> results) {
             this.searchResults = results;
         }
+
+        public void insertTab() {
+            deleteSelection();
+            pushState();
+            if (cursorLine < 0) cursorLine = 0;
+            if (cursorLine >= lines.size()) lines.add("");
+            String line = lines.get(cursorLine);
+            int pos = Math.min(cursorPos, line.length());
+            String newLine = line.substring(0, pos) + "   " + line.substring(pos);
+            lines.set(cursorLine, newLine);
+            cursorPos++;
+            scrollToCursor();
+            parentTab.checkIfChanged(lines);
+        }
     }
 }
+
