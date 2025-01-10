@@ -1,5 +1,7 @@
 package redxax.oxy.servers;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -9,16 +11,22 @@ import redxax.oxy.*;
 import redxax.oxy.explorer.FileExplorerScreen;
 
 import java.awt.image.BufferedImage;
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URL;
 import java.nio.file.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.List;
 import java.util.Date;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+
 import org.lwjgl.glfw.GLFW;
 
+import static redxax.oxy.DevUtil.devPrint;
 import static redxax.oxy.ImageUtil.drawBufferedImage;
 import static redxax.oxy.ImageUtil.loadSpriteSheet;
 import static redxax.oxy.MultiTerminalScreen.TAB_HEIGHT;
@@ -1156,9 +1164,54 @@ public class ServerManagerScreen extends Screen {
 
     private void openModpackInstallation() {
         try {
-            minecraftClient.setScreen(new PluginModManagerScreen(minecraftClient, this, new ServerInfo("modpack")));
-        } catch (Exception ignored) {}
+            ServerInfo serverInfo = new ServerInfo("modpack");
+            serverInfo.name = "Modpack Server";
+            serverInfo.type = "modpack";
+            serverInfo.version = "latest";
+
+            if (activeTabIndex > 0 && activeTabIndex - 1 < remoteHosts.size()) {
+                RemoteHostInfo remoteHost = remoteHosts.get(activeTabIndex - 1);
+                serverInfo.isRemote = true;
+                serverInfo.remoteHost = remoteHost;
+                serverInfo.path = remoteHost.getHomeDirectory() + "/remotely/servers/" + serverInfo.name;
+
+                if (remoteHost.sshManager == null) {
+                    remoteHost.sshManager = new SSHManager(remoteHost);
+                    connectRemoteHostAsync(remoteHost);
+                }
+
+                serverInfo.remoteSSHManager = remoteHost.sshManager;
+
+                if (!remoteHost.sshManager.isSSH()) {
+                    long startTime = System.currentTimeMillis();
+                    long timeout = 10000;
+                    while (!remoteHost.sshManager.isSSH() && System.currentTimeMillis() - startTime < timeout) {
+                        try {
+                            Thread.sleep(100);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            devPrint("Thread was interrupted while waiting for SSH connection.");
+                        }
+                    }
+                    if (!remoteHost.sshManager.isSSH()) {
+                        devPrint("Failed to establish SSH connection to the remote host.");
+                    }
+                }
+            } else {
+                serverInfo.isRemote = false;
+                serverInfo.remoteHost = null;
+                serverInfo.path = "C:/remotely/servers/" + serverInfo.name;
+            }
+
+            PluginModManagerScreen modManagerScreen = new PluginModManagerScreen(minecraftClient, this, serverInfo);
+            minecraftClient.setScreen(modManagerScreen);
+        } catch (Exception e) {
+            e.printStackTrace();
+            devPrint("Failed to open modpack installation screen: " + e.getMessage());
+        }
     }
+
+
 
     public void importServerJar(Path jarPath, String folderName) {
         Path parentDir = jarPath.getParent();
@@ -1378,7 +1431,102 @@ public class ServerManagerScreen extends Screen {
                         String fullPath = entry.toAbsolutePath().toString().replace("/", "\\");
                         Path normalizedPath = Paths.get(fullPath).normalize();
                         if (!isServerRegistered(normalizedPath.toString())) {
-                            addServer(folderName, normalizedPath.toString());
+                            String type = "imported";
+                            String version = "unknown";
+                            try (ZipFile zip = new ZipFile(serverJarPath.toFile())) {
+                                Enumeration<? extends ZipEntry> entriesZip = zip.entries();
+                                boolean hasPaper = false;
+                                boolean hasFabric = false;
+                                boolean hasVanilla = false;
+                                boolean hasForge = false;
+                                boolean hasNeoforge = false;
+                                boolean hasQuilt = false;
+                                while (entriesZip.hasMoreElements()) {
+                                    ZipEntry ze = entriesZip.nextElement();
+                                    String name = ze.getName();
+                                    if (name.startsWith("io/papermc/")) {
+                                        hasPaper = true;
+                                    }
+                                    if (name.equals("install.properties")) {
+                                        hasFabric = true;
+                                    }
+                                    if (name.startsWith("net/minecraftforge/")) {
+                                        hasForge = true;
+                                    }
+                                    if (name.startsWith("cpw/mods/")) {
+                                        hasNeoforge = true;
+                                    }
+                                    if (name.startsWith("net/minecraft/")) {
+                                        hasVanilla = true;
+                                    }
+                                    if (name.equals("lang/installer.properties")) {
+                                        hasQuilt = true;
+                                    }
+                                }
+                                if (hasPaper) {
+                                    type = "Paper";
+                                    ZipEntry versionJson = zip.getEntry("version.json");
+                                    if (versionJson != null) {
+                                        try (InputStream is = zip.getInputStream(versionJson);
+                                             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
+                                            JsonObject obj = JsonParser.parseReader(reader).getAsJsonObject();
+                                            version = obj.get("id").getAsString();
+                                        }
+                                    }
+                                } else if (hasFabric) {
+                                    type = "Fabric";
+                                    ZipEntry installProps = zip.getEntry("install.properties");
+                                    if (installProps != null) {
+                                        Properties props = new Properties();
+                                        try (InputStream is = zip.getInputStream(installProps)) {
+                                            props.load(is);
+                                            version = props.getProperty("game-version", "unknown");
+                                        }
+                                    }
+                                } else if (hasForge) {
+                                    type = "Forge";
+                                    ZipEntry versionJson = zip.getEntry("version.json");
+                                    if (versionJson != null) {
+                                        try (InputStream is = zip.getInputStream(versionJson);
+                                             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
+                                            JsonObject obj = JsonParser.parseReader(reader).getAsJsonObject();
+                                            version = obj.get("id").getAsString();
+                                        }
+                                    }
+                                } else if (hasNeoforge) {
+                                    type = "Neoforge";
+                                    ZipEntry versionJson = zip.getEntry("version.json");
+                                    if (versionJson != null) {
+                                        try (InputStream is = zip.getInputStream(versionJson);
+                                             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
+                                            JsonObject obj = JsonParser.parseReader(reader).getAsJsonObject();
+                                            version = obj.get("id").getAsString();
+                                        }
+                                    }
+                                } else if (hasQuilt) {
+                                    type = "Quilt";
+                                    ZipEntry installerProps = zip.getEntry("lang/installer.properties");
+                                    if (installerProps != null) {
+                                        Properties props = new Properties();
+                                        try (InputStream is = zip.getInputStream(installerProps)) {
+                                            props.load(is);
+                                        }
+                                    }
+                                } else if (hasVanilla) {
+                                    type = "Vanilla";
+                                    ZipEntry versionJson = zip.getEntry("version.json");
+                                    if (versionJson != null) {
+                                        try (InputStream is = zip.getInputStream(versionJson);
+                                             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
+                                            JsonObject obj = JsonParser.parseReader(reader).getAsJsonObject();
+                                            version = obj.get("id").getAsString();
+                                        }
+                                    }
+                                }
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
+                            addServer(folderName, normalizedPath.toString(), type, version);
                         }
                     }
                 }
@@ -1406,12 +1554,12 @@ public class ServerManagerScreen extends Screen {
         return false;
     }
 
-    private void addServer(String name, String path) {
+    private void addServer(String name, String path, String type, String version) {
         ServerInfo newServer = new ServerInfo(path);
         newServer.name = name;
         newServer.path = path;
-        newServer.type = "imported";
-        newServer.version = "unknown";
+        newServer.type = type;
+        newServer.version = version;
         newServer.isRunning = false;
         newServer.isRemote = false;
         localServers.add(newServer);

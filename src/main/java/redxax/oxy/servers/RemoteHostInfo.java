@@ -48,4 +48,11 @@ public class RemoteHostInfo {
     }
 
 
+    public String getHomeDirectory() {
+        if ("root".equals(this.user)) {
+            return "/root";
+        } else {
+            return "/home/" + this.user;
+        }
+    }
 }

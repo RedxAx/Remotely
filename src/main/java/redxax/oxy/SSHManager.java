@@ -1,7 +1,7 @@
 package redxax.oxy;
 
 import com.jcraft.jsch.*;
-import redxax.oxy.explorer.Notification;
+import redxax.oxy.servers.IRemotelyResource;
 import redxax.oxy.servers.RemoteHostInfo;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.servers.ServerState;
@@ -185,7 +185,47 @@ public class SSHManager {
         });
     }
 
-    private boolean remoteFileExists(String path) { //don't forget to add "/" before the file path.
+    public boolean installMrPackOnRemote(ServerInfo serverInfo, IRemotelyResource resource) {
+        if (!isSSH || sshSession == null || !sshSession.isConnected()) {
+            if (terminalInstance != null) {
+                terminalInstance.appendOutput("SSH not connected.\n");
+            }
+            return false;
+        }
+        try {
+            String user = serverInfo.remoteHost.user;
+            String homePath = user.equals("root") ? "/root/remotely/mrpack-install-linux" : "/home/" + user + "/remotely/mrpack-install-linux";
+            if (!remoteFileExists(homePath)) {
+                downloadMrPackBinary(user);
+            }
+            ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
+            StringBuilder cmd = new StringBuilder();
+            cmd.append(homePath);
+            cmd.append(" ").append(resource.getProjectId()).append(" ").append(resource.getVersion()).append(" ");
+            cmd.append(" --server-dir ").append(remoteHost.getHomeDirectory()).append("/remotely/servers/\"").append(resource.getName()).append("\"");
+            cmd.append(" --server-file server.jar");
+            devPrint("Installing MrPack on remote: " + cmd);
+            channelExec.setCommand(cmd.toString());
+            channelExec.setInputStream(null);
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            channelExec.setOutputStream(out);
+            channelExec.setErrStream(out);
+            channelExec.connect();
+            while (!channelExec.isClosed()) {
+                Thread.sleep(100);
+            }
+            String output = out.toString(StandardCharsets.UTF_8);
+            System.out.println(output);
+            channelExec.disconnect();
+            return true;
+        } catch (Exception e) {
+            System.out.println("Failed to install MrPack on remote: " + e.getMessage() + "\n");
+            return false;
+        }
+    }
+
+
+    private boolean remoteFileExists(String path) {
         devPrint("Checking if remote file exists: " + path);
         try {
             ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
