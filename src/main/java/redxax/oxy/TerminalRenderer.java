@@ -466,7 +466,7 @@ public class TerminalRenderer {
 
     private OrderedText[] getStatusBarOrderedTexts(int scaledWidth) {
         if (tmuxStatusLine.isEmpty()) {
-            return new OrderedText[]{Text.literal("Remotely - 1.0").asOrderedText(), Text.literal(new Date().toString()).asOrderedText()};
+            return new OrderedText[]{Text.literal("Remotely - 1.1").asOrderedText(), Text.literal(new Date().toString()).asOrderedText()};
         }
         String line = tmuxStatusLine;
         String leftText;
