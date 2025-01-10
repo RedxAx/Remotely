@@ -733,6 +733,17 @@ public class PluginModManagerScreen extends Screen {
     }
 
     private void installMrPack(IRemotelyResource resource) {
+        if (serverInfo.isRemote && serverInfo.remoteSSHManager != null) {
+            new Thread(() -> {
+                boolean success = serverInfo.remoteSSHManager.installMrPackOnRemote(serverInfo, resource);
+                minecraftClient.execute(() -> {
+                    installingMrPack.put(resource.getSlug(), false);
+                    installButtonTexts.put(resource.getSlug(), success ? "Installed" : "Install");
+                    resourceColors.put(resource.getSlug(), success ? colorDownloadSuccess : colorDownloadFail);
+                });
+            }).start();
+            return;
+        }
         new Thread(() -> {
             try {
                 String exePath = "C:\\remotely\\mrpack-install-windows.exe";
@@ -747,9 +758,11 @@ public class PluginModManagerScreen extends Screen {
                             Files.copy(input, exe, StandardCopyOption.REPLACE_EXISTING);
                         }
                     } catch (Exception e) {
-                        installingMrPack.put(resource.getSlug(), false);
-                        installButtonTexts.put(resource.getSlug(), "Install");
-                        resourceColors.put(resource.getSlug(), colorDownloadFail);
+                        minecraftClient.execute(() -> {
+                            installingMrPack.put(resource.getSlug(), false);
+                            installButtonTexts.put(resource.getSlug(), "Install");
+                            resourceColors.put(resource.getSlug(), colorDownloadFail);
+                        });
                         return;
                     }
                 }
