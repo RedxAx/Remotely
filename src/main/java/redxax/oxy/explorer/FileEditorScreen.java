@@ -1,9 +1,6 @@
 package redxax.oxy.explorer;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonPrimitive;
-import com.google.gson.JsonSyntaxException;
+import com.google.gson.*;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -12,7 +9,6 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.*;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.explorer.ResponseManager.*;
-
 
 import java.io.*;
 import java.net.HttpURLConnection;
@@ -409,7 +405,7 @@ public class FileEditorScreen extends Screen {
             }
         } else {
             config.add("entryPoint", new JsonPrimitive("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"));
-            config.add("apiToken", new JsonPrimitive("your-api-token"));
+            config.add("apiToken", new JsonPrimitive("your-api-token // replace this with your API token, Gemini API is the most recommended: https://aistudio.google.com/apikey"));
             try (FileWriter writer = new FileWriter(AI_CONFIG_PATH.toFile())) {
                 writer.write(config.toString());
             } catch (IOException e) {
@@ -421,8 +417,14 @@ public class FileEditorScreen extends Screen {
 
     private void handleAIRequest() {
         JsonObject aiConfig = readAIConfig();
-        String entryPoint = aiConfig.get("entryPoint").getAsString();
-        String apiToken = aiConfig.get("apiToken").getAsString();
+        String entryPoint = aiConfig.has("entryPoint") ? aiConfig.get("entryPoint").getAsString() : "";
+        String apiToken = aiConfig.has("apiToken") ? aiConfig.get("apiToken").getAsString() : "";
+
+        if (apiToken.isEmpty() || apiToken.contains("your-api-token")) {
+            customSearchText.setLength(0);
+            customSearchText.append("No API key found in ai.json");
+            return;
+        }
 
         String userInput = customSearchText.toString();
         if (userInput.isEmpty()) {
@@ -430,6 +432,7 @@ public class FileEditorScreen extends Screen {
             aiMode = false;
             return;
         }
+
         List<String> lines = tabs.get(currentTabIndex).textEditor.getLines();
         int lineLimit = 1000000000;
         List<String> limitedLines = lines.subList(0, Math.min(lineLimit, lines.size()));
@@ -437,13 +440,44 @@ public class FileEditorScreen extends Screen {
         for (int i = 0; i < limitedLines.size(); i++) {
             enumeratedLines.append("Line ").append(i + 1).append(": ").append(limitedLines.get(i).replace("\"", "\\\"")).append("\\n");
         }
+
         String filePathInfo = "Current file path: " + tabs.get(currentTabIndex).path.toString().replace("\"", "\\\"") + " | Name: " + tabs.get(currentTabIndex).name.replace("\"", "\\\"");
-        String instructionsForAi = "You are Remotely, an AI text / code editor assistant for Minecraft server configuration and its plugins. SURROUND ANY NON-COMMAND TEXT WITH: \"$\" AND NEVER HAVE MORE THAN 1 BLOCK OF TEXT USING THE \"$\". You can add or edit configurations, or respond normally. You can replace lines using this command: '@replace:Line <lineNumber>@newLine:some text' or '@replace:Line <lineNumber>@newLine<<multiline text>>'. Give small feedback after doing any changes. You are interacting with the editor directly. " + filePathInfo + ". The user said: \"" + userInput.replace("\"", "\\\"") + "\"\\n Lines / file with numbering:\\n";
+
+        String instructionsForAi = "You are Remotely, an AI text / code editor assistant for Minecraft server configuration and its plugins. SURROUND ANY NON-COMMAND TEXT WITH: \"$\" AND NEVER HAVE MORE THAN 1 BLOCK OF TEXT USING THE \"$\". You can add or edit configurations, or respond normally. You can replace lines using this command: '@replace:Line <lineNumber>@newLine:some text' or '@replace:Line <lineNumber>@newLine<<multiline text>>'. Give small feedback after doing any changes. You are interacting with the editor directly. " + filePathInfo + ". The user said: \"" + userInput + "\"\\n Lines / file with numbering:\\n";
+
         String finalContext = instructionsForAi + enumeratedLines;
-        devPrint("AI request: " + finalContext );
+
+        devPrint("AI request: " + finalContext);
+
         int cursorLine = tabs.get(currentTabIndex).textEditor.cursorLine;
         String currentLine = cursorLine >= 0 && cursorLine < lines.size() ? lines.get(cursorLine) : "";
-        String requestBody = "{ \"contents\": [{ \"parts\": [{\"text\": \"" + finalContext.replace("\"", "\\\"") + "\"}, {\"text\": \"\\nCurrent Line:\\n" + currentLine.replace("\"", "\\\"") + "\"}] }], \"generation_config\": { \"temperature\": 1, \"top_p\": 0.95, \"top_k\": 40, \"max_output_tokens\": 8192, \"response_mime_type\": \"text/plain\" } }";
+
+        JsonObject requestBodyJson = new JsonObject();
+
+        JsonArray contentsArray = new JsonArray();
+        JsonObject partObject1 = new JsonObject();
+        partObject1.addProperty("text", finalContext);
+        JsonObject partObject2 = new JsonObject();
+        partObject2.addProperty("text", "\nCurrent Line:\n" + currentLine);
+        JsonArray partsArray = new JsonArray();
+        partsArray.add(partObject1);
+        partsArray.add(partObject2);
+        JsonObject contentObject = new JsonObject();
+        contentObject.add("parts", partsArray);
+        contentsArray.add(contentObject);
+        requestBodyJson.add("contents", contentsArray);
+
+        JsonObject generationConfig = new JsonObject();
+        if (aiConfig.has("generationConfig")) {
+            generationConfig = aiConfig.getAsJsonObject("generationConfig");
+        }
+        if (!generationConfig.has("response_mime_type")) {
+            generationConfig.addProperty("response_mime_type", "text/plain");
+        }
+        requestBodyJson.add("generation_config", generationConfig);
+
+        String requestBody = requestBodyJson.toString();
+
         CompletableFuture.runAsync(() -> {
             try {
                 URL url = new URL(entryPoint + "?key=" + apiToken);
@@ -452,21 +486,24 @@ public class FileEditorScreen extends Screen {
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setDoOutput(true);
                 try (OutputStream os = conn.getOutputStream()) {
-                    os.write(requestBody.getBytes());
+                    byte[] input = requestBody.getBytes("utf-8");
+                    os.write(input, 0, input.length);
                     os.flush();
                 }
                 int responseCode = conn.getResponseCode();
                 if (responseCode == 200) {
-                    BufferedReader in = new BufferedReader(new java.io.InputStreamReader(conn.getInputStream()));
-                    String inputLine;
+                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream(), "utf-8"));
                     StringBuilder response = new StringBuilder();
+                    String inputLine;
                     while ((inputLine = in.readLine()) != null) {
-                        response.append(inputLine);
+                        response.append(inputLine.trim());
                     }
                     in.close();
                     String aiResponse = parseAIResponse(response.toString());
                     minecraftClient.execute(() -> {
                         applyAiResponse(aiResponse);
+                        customSearchText.setLength(0);
+                        customCursorPosition = 0;
                         customSearchBarFocused = false;
                         aiMode = false;
                     });
@@ -489,22 +526,17 @@ public class FileEditorScreen extends Screen {
 
     private void applyAiResponse(String text) {
         boolean replacedSomething = false;
-
         Pattern replacePattern = Pattern.compile("@replace:Line\\s*(\\d+)@newLine(?:(<<([\\s\\S]*?)>>)|:([^@]+))");
         Matcher replaceMatcher = replacePattern.matcher(text);
-
         ArrayList<Integer> replacedIndices = new ArrayList<>();
         ArrayList<String> newContents = new ArrayList<>();
-
         while (replaceMatcher.find()) {
             replacedSomething = true;
             String lineNumberGroup = replaceMatcher.group(1);
             int lineNumber = Integer.parseInt(lineNumberGroup.trim()) - 1;
-
             String multilineGroup = replaceMatcher.group(3);
             String singlelineGroup = replaceMatcher.group(4);
             String replacement;
-
             if (multilineGroup != null) {
                 replacement = multilineGroup;
             } else if (singlelineGroup != null) {
@@ -512,13 +544,10 @@ public class FileEditorScreen extends Screen {
             } else {
                 replacement = "";
             }
-
             replacement = replacement.replaceAll("\\$.*?\\$", "");
-
             replacedIndices.add(lineNumber);
             newContents.add(replacement.replace("\r", "").replace("\n", ""));
         }
-
         if (replacedSomething) {
             for (int i = 0; i < replacedIndices.size(); i++) {
                 int idx = replacedIndices.get(i);
@@ -530,10 +559,8 @@ public class FileEditorScreen extends Screen {
                 }
             }
         }
-
         Pattern responseTextPattern = Pattern.compile("\\$(.*?)\\$", Pattern.DOTALL);
         Matcher responseMatcher = responseTextPattern.matcher(text.trim());
-
         while (responseMatcher.find()) {
             String responseText = responseMatcher.group(1);
             ResponseWindow existingWindow = findWindow();
@@ -668,9 +695,16 @@ public class FileEditorScreen extends Screen {
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         boolean handled = false;
+        boolean anyWindowDragging = false;
         for (ResponseWindow w : responseWindows) {
             boolean d = w.mouseDragged(mouseX, mouseY, button);
-            if (d) handled = true;
+            if (d) {
+                handled = true;
+                anyWindowDragging = true;
+            }
+        }
+        if (anyWindowDragging) {
+            return handled;
         }
         return tabs.get(currentTabIndex).textEditor.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || handled;
     }
@@ -1282,10 +1316,36 @@ public class FileEditorScreen extends Screen {
                 cursorPos = cPos;
                 selectionEndLine = dragLine;
                 selectionEndChar = cPos;
-                scrollToCursor();
+                scrollToEdges(mouseX, mouseY, lineHeight);
                 return true;
             }
             return false;
+        }
+
+        private void scrollToEdges(double mouseX, double mouseY, int lineHeight) {
+            int topVisible = (int) Math.floor(smoothScrollOffsetVert);
+            int bottomVisible = topVisible + height - lineHeight;
+            int cursorY = cursorLine * lineHeight;
+            if (cursorY < topVisible) {
+                targetScrollOffsetVert = cursorY;
+            } else if (cursorY > bottomVisible) {
+                targetScrollOffsetVert = cursorY - (height - lineHeight);
+            }
+            if (targetScrollOffsetVert < 0) targetScrollOffsetVert = 0;
+            int maxScroll = Math.max(0, lines.size() * lineHeight - height);
+            if (targetScrollOffsetVert > maxScroll) targetScrollOffsetVert = maxScroll;
+            String lineText = cursorLine >= 0 && cursorLine < lines.size() ? lines.get(cursorLine) : "";
+            int cursorX = mc.textRenderer.getWidth(lineText.substring(0, Math.min(cursorPos, lineText.length())));
+            int leftVisible = (int) Math.floor(smoothScrollOffsetHoriz);
+            int rightVisible = leftVisible + width - 20;
+            if (cursorX < leftVisible) {
+                targetScrollOffsetHoriz = cursorX;
+            } else if (cursorX > rightVisible) {
+                targetScrollOffsetHoriz = cursorX - (width - 20);
+            }
+            if (targetScrollOffsetHoriz < 0) targetScrollOffsetHoriz = 0;
+            int maxScrollH = Math.max(0, getMaxLineWidth() - width);
+            if (targetScrollOffsetHoriz > maxScrollH) targetScrollOffsetHoriz = maxScrollH;
         }
 
         public void scrollVert(int amount) {
@@ -1485,17 +1545,28 @@ public class FileEditorScreen extends Screen {
         }
 
         private void scrollToCursor() {
+            if (cursorLine < 0 || cursorLine >= lines.size()) return;
             int lineHeight = mc.textRenderer.fontHeight + 2;
             int cursorY = cursorLine * lineHeight;
-            double desiredScrollVert = cursorY - (height / 2.0) + (3 * lineHeight) - paddingTop;
-            targetScrollOffsetVert = desiredScrollVert;
+            int topVisible = (int) smoothScrollOffsetVert;
+            int bottomVisible = topVisible + height - lineHeight;
+            if (cursorY < topVisible) {
+                targetScrollOffsetVert = cursorY;
+            } else if (cursorY > bottomVisible) {
+                targetScrollOffsetVert = cursorY - (height - lineHeight);
+            }
             if (targetScrollOffsetVert < 0) targetScrollOffsetVert = 0;
             int maxScrollVert = Math.max(0, lines.size() * lineHeight - height);
             if (targetScrollOffsetVert > maxScrollVert) targetScrollOffsetVert = maxScrollVert;
-            String lineText = cursorLine >= 0 && cursorLine < lines.size() ? lines.get(cursorLine) : "";
+            String lineText = lines.get(cursorLine);
             int cursorX = mc.textRenderer.getWidth(lineText.substring(0, Math.min(cursorPos, lineText.length())));
-            double desiredScrollHoriz = cursorX - (width / 2.0) + (3 * mc.textRenderer.getWidth("word"));
-            targetScrollOffsetHoriz = desiredScrollHoriz;
+            int leftVisible = (int) smoothScrollOffsetHoriz;
+            int rightVisible = leftVisible + width - 20;
+            if (cursorX < leftVisible) {
+                targetScrollOffsetHoriz = cursorX;
+            } else if (cursorX > rightVisible) {
+                targetScrollOffsetHoriz = cursorX - (width - 20);
+            }
             if (targetScrollOffsetHoriz < 0) targetScrollOffsetHoriz = 0;
             int maxScrollHoriz = Math.max(0, getMaxLineWidth() - width);
             if (targetScrollOffsetHoriz > maxScrollHoriz) targetScrollOffsetHoriz = maxScrollHoriz;
@@ -1521,20 +1592,5 @@ public class FileEditorScreen extends Screen {
         public void setSearchResults(List<Position> results) {
             this.searchResults = results;
         }
-
-        public void insertTab() {
-            deleteSelection();
-            pushState();
-            if (cursorLine < 0) cursorLine = 0;
-            if (cursorLine >= lines.size()) lines.add("");
-            String line = lines.get(cursorLine);
-            int pos = Math.min(cursorPos, line.length());
-            String newLine = line.substring(0, pos) + "   " + line.substring(pos);
-            lines.set(cursorLine, newLine);
-            cursorPos++;
-            scrollToCursor();
-            parentTab.checkIfChanged(lines);
-        }
     }
 }
-
