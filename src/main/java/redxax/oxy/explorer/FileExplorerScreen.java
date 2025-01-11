@@ -1,5 +1,4 @@
 package redxax.oxy.explorer;
-
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import net.minecraft.client.MinecraftClient;
@@ -11,7 +10,6 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.*;
 import redxax.oxy.servers.RemoteHostInfo;
 import redxax.oxy.servers.ServerInfo;
-
 import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.file.*;
@@ -21,10 +19,8 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
-
 import static redxax.oxy.ImageUtil.*;
 import static redxax.oxy.Render.*;
-
 public class FileExplorerScreen extends Screen implements FileManager.FileManagerCallback {
     private final MinecraftClient minecraftClient;
     private final Screen parent;
@@ -357,10 +353,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         synchronized (fileEntriesLock) {
             entriesToRender = new ArrayList<>(fileEntries);
         }
-        int visibleEntries = explorerHeight / (entryHeight + 1);
-        int startIndex = (int) Math.floor(smoothOffset / (entryHeight + 1)) - 1;
-        if (startIndex < 0) startIndex = 0;
-        int endIndex = startIndex + visibleEntries + 2;
+        int gap = 1;
+        int itemHeight = entryHeight + gap;
+        int visibleEntries = explorerHeight / itemHeight;
+        int totalHeight = entriesToRender.size() * itemHeight;
+        int startIndex = (int) Math.floor(smoothOffset / itemHeight);
+        int endIndex = startIndex + visibleEntries + 1;
         if (endIndex > entriesToRender.size()) endIndex = entriesToRender.size();
         context.enableScissor(explorerX, explorerY, explorerX + explorerWidth, explorerY + explorerHeight);
         if (entriesToRender.isEmpty() && !loading) {
@@ -376,7 +374,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         } else {
             for (int entryIndex = startIndex; entryIndex < endIndex; entryIndex++) {
                 EntryData entry = entriesToRender.get(entryIndex);
-                int entryY = explorerY + (entryIndex * (entryHeight + 1)) - (int) smoothOffset;
+                int entryY = explorerY + (entryIndex * itemHeight) - (int) smoothOffset;
                 boolean hovered = mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= entryY && mouseY < entryY + entryHeight;
                 boolean isSelected = selectedPaths.contains(entry.path);
                 boolean isFavorite;
@@ -422,7 +420,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (smoothOffset > 0) {
             context.fillGradient(explorerX, explorerY, explorerX + explorerWidth, explorerY + 10, 0x80000000, 0x00000000);
         }
-        if (smoothOffset < Math.max(0, (entriesToRender.size() * (entryHeight + 1)) - explorerHeight)) {
+        if (smoothOffset < Math.max(0, totalHeight - explorerHeight)) {
             context.fillGradient(explorerX, explorerY + explorerHeight - 10, explorerX + explorerWidth, explorerY + explorerHeight, 0x00000000, 0x80000000);
         }
         updateNotifications(delta);
@@ -795,12 +793,16 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         boolean ctrl = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) ||
                 (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
         float scrollMultiplier = ctrl ? 5.0f : 1.0f;
-        targetOffset -= (float) ((verticalAmount * entryHeight * 0.5f) * scrollMultiplier);
+        int gap = 1;
+        int itemHeight = entryHeight + gap;
+        targetOffset -= (float) (verticalAmount * itemHeight * 0.5f * scrollMultiplier);
         List<EntryData> entriesToRender;
         synchronized (fileEntriesLock) {
             entriesToRender = new ArrayList<>(fileEntries);
         }
-        targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, entriesToRender.size() * entryHeight - (this.height - 70))));
+        int explorerHeight = this.height - (30 + TAB_HEIGHT + 5 + 30 + 10);
+        int totalHeight = entriesToRender.size() * itemHeight;
+        targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, totalHeight - explorerHeight)));
         return true;
     }
     @Override
