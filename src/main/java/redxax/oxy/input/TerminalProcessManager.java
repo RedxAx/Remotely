@@ -12,6 +12,8 @@ import java.util.concurrent.Executors;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import static redxax.oxy.DevUtil.devPrint;
+
 public class TerminalProcessManager {
     public Process terminalProcess;
     public InputStream terminalInputStream;
@@ -208,12 +210,14 @@ public class TerminalProcessManager {
                 ProcessBuilder pb = new ProcessBuilder("taskkill", "/PID", Long.toString(pid), "/T", "/F");
                 Process killProcess = pb.start();
                 killProcess.waitFor();
-                terminalInstance.appendOutput("Terminal process and its child processes terminated.\n");
+                devPrint("Terminal process killed.");
             } catch (IOException | InterruptedException e) {
-                terminalInstance.appendOutput("Error shutting down terminal: " + e.getMessage() + "\n");
-                logger.log(Level.SEVERE, "Error shutting down terminal", e);
+                devPrint("Failed to kill terminal process: " + e.getMessage());
             }
             terminalProcess = null;
+        } else if (terminalInstance instanceof ServerTerminalInstance sti) {
+            devPrint("Shutting down server process...");
+            sti.processManager.shutdown();
         }
         if (sshManager != null) {
             sshManager.shutdown();
