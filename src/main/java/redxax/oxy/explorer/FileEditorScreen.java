@@ -1246,7 +1246,7 @@ public class FileEditorScreen extends Screen {
                 clearSelection();
                 int lineHeight = mc.textRenderer.fontHeight + 2;
                 int localY = (int) mouseY - y;
-                int clickedLine = (int) Math.floor(smoothScrollOffsetVert / lineHeight) + (localY / lineHeight);
+                int clickedLine = (int) ((mouseY - y + smoothScrollOffsetVert) / lineHeight);
                 if (clickedLine < 0) clickedLine = 0;
                 if (clickedLine >= lines.size()) clickedLine = lines.size() - 1;
                 if (lines.isEmpty()) return false;
@@ -1298,7 +1298,7 @@ public class FileEditorScreen extends Screen {
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 int lineHeight = mc.textRenderer.fontHeight + 2;
                 int localY = (int) mouseY - y;
-                int dragLine = (int) Math.floor(smoothScrollOffsetVert / lineHeight) + (localY / lineHeight);
+                int dragLine = (int) ((mouseY - y + smoothScrollOffsetVert) / lineHeight);
                 if (dragLine < 0) dragLine = 0;
                 if (dragLine >= lines.size()) dragLine = lines.size() - 1;
                 if (lines.isEmpty()) return false;
