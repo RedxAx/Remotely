@@ -660,4 +660,15 @@ public class SSHManager {
             }
         });
     }
+
+    public void renameRemoteFile(String replace, String replace1) {
+        if (!sftpConnected) return;
+        sftpExecutor.submit(() -> {
+            try {
+                sftpChannel.rename(replace, replace1);
+            } catch (Exception e) {
+                devPrint("Failed to rename remote file: " + replace + " to " + replace1 + ": " + e.getMessage());
+            }
+        });
+    }
 }

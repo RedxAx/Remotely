@@ -21,6 +21,12 @@ public class ServerInfo {
         this.path = path;
     }
 
+    public ServerInfo(boolean b, RemoteHostInfo remoteHostInfo, String s) {
+        this.isRemote = b;
+        this.remoteHost = remoteHostInfo;
+        this.path = s;
+    }
+
     public boolean isModServer() {
         return Objects.equals(type, "forge") || Objects.equals(type, "fabric") || Objects.equals(type, "neoforge");
     }
