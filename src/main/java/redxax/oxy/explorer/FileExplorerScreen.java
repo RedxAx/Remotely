@@ -406,6 +406,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     }
                 } else {
                     String displayName = entry.path.getFileName().toString();
+                    if (!serverInfo.isRemote) {
+                        int createdX = explorerX + explorerWidth - 100;
+                        int sizeX = createdX - 100;
+                        int maxNameWidth = sizeX - (explorerX + 30);
+                        displayName = ellipsize(displayName, maxNameWidth);
+                    }
                     context.drawText(this.textRenderer, Text.literal(displayName), explorerX + 30, entryY + 5, textWithOpacity, Config.shadow);
                 }
                 if (!serverInfo.isRemote) {
@@ -428,6 +434,17 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (ContextMenu.isOpen()) {
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
+    }
+    private String ellipsize(String text, int maxWidth) {
+        if(textRenderer.getWidth(text) <= maxWidth) return text;
+        String ellipsis = "...";
+        int avail = maxWidth - textRenderer.getWidth(ellipsis);
+        String trimmed = "";
+        for(int i = 0; i < text.length(); i++){
+            if(textRenderer.getWidth(trimmed + text.charAt(i)) > avail) break;
+            trimmed += text.charAt(i);
+        }
+        return trimmed + ellipsis;
     }
     private void updatePathInfo() {
         fieldText.setLength(0);
@@ -914,7 +931,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                                 selectedTab.tabData.path = selectedPath;
                                 selectedTab.setName(selectedPath.getFileName() != null ? selectedPath.getFileName().toString() : selectedPath.toString());
                                 targetOffset = selectedTab.tabData.scrollOffset;
-                                loadDirectory(selectedPath, true, false);
+                                loadDirectory(selectedPath, false, false);
                             } else {
                                 if (importMode && selectedPath.getFileName().toString().equalsIgnoreCase("server.jar")) {
                                     if (parent instanceof redxax.oxy.servers.ServerManagerScreen sms) {
@@ -1161,17 +1178,18 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (!history.isEmpty()) {
             Path previousPath = history.pop();
             forwardHistory.push(currentPath);
-            loadDirectory(previousPath, true, false);
             for (int i = 0; i < tabs.size(); i++) {
                 if (tabs.get(i).tabData.path.equals(previousPath)) {
                     currentTabIndex = i;
-                    Tab selectedTab = tabs.get(currentTabIndex);
-                    serverInfo.isRemote = selectedTab.tabData.isRemote;
-                    serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
-                    targetOffset = selectedTab.tabData.scrollOffset;
                     break;
                 }
             }
+            tabs.get(currentTabIndex).tabData.path = previousPath;
+            currentPath = previousPath;
+            loadDirectory(previousPath, false, false);
+            serverInfo.isRemote = tabs.get(currentTabIndex).tabData.isRemote;
+            serverInfo.remoteHost = tabs.get(currentTabIndex).tabData.remoteHostInfo;
+            targetOffset = tabs.get(currentTabIndex).tabData.scrollOffset;
             saveFileExplorerTabs(tabs.stream().map(t -> new TabData(t.tabData.path, t.tabData.isRemote, t.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
         }
     }
@@ -1188,12 +1206,14 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 Path parentPath = currentPath.getParent();
                 if (parentPath == null || parentPath.toString().isEmpty()) {
                     currentPath = Paths.get("/");
+                    currentTab.tabData.path = currentPath;
                     currentTab.tabData.scrollOffset = 0;
                     loadDirectory(currentPath, true, false);
                     currentTab.setName(currentPath.getFileName() != null ? currentPath.getFileName().toString() : currentPath.toString());
                 } else {
                     currentTab.tabData.scrollOffset = targetOffset;
                     loadDirectory(parentPath, true, false);
+                    currentTab.tabData.path = parentPath;
                     currentTab.setName(parentPath.getFileName() != null ? parentPath.getFileName().toString() : parentPath.toString());
                 }
             }
@@ -1202,6 +1222,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             if (parentPath != null && parentPath.startsWith(Paths.get(serverInfo.path).toAbsolutePath().normalize())) {
                 currentTab.tabData.scrollOffset = targetOffset;
                 loadDirectory(parentPath, true, false);
+                currentTab.tabData.path = parentPath;
                 currentTab.setName(parentPath.getFileName() != null ? parentPath.getFileName().toString() : parentPath.toString());
             } else {
                 minecraftClient.setScreen(parent);
@@ -1325,7 +1346,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         Path newPath = Paths.get(fieldText.toString()).toAbsolutePath().normalize();
         boolean isRemote = serverInfo.isRemote;
         if (Files.exists(newPath) && Files.isDirectory(newPath)) {
-            loadDirectory(newPath, true, false);
+            loadDirectory(newPath, false, false);
             for (int i = 0; i < tabs.size(); i++) {
                 if (tabs.get(i).tabData.path.equals(newPath) && tabs.get(i).tabData.isRemote == isRemote && Objects.equals(tabs.get(i).tabData.remoteHostInfo, serverInfo.remoteHost)) {
                     currentTabIndex = i;
