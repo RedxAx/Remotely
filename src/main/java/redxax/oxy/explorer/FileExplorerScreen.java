@@ -89,6 +89,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private boolean creatingNew = false;
     private Path newCreationPath = null;
     private int loadRequestId = 0;
+    private static final int CHUNK_SIZE = 500;
+    private int loadedCount = 0;
+    private boolean hasMore = false;
+    private boolean isLoadingMore = false;
+    private List<EntryData> fullEntries = new ArrayList<>();
     private static class EntryData {
         Path path;
         boolean isDirectory;
@@ -435,6 +440,34 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (ContextMenu.isOpen()) {
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
+        loadMoreIfNeeded(explorerHeight);
+    }
+    private void loadMoreIfNeeded(int explorerHeight) {
+        int gap = 1;
+        int itemHeight = entryHeight + gap;
+        int maxScroll = Math.max(0, fileEntries.size() * itemHeight - explorerHeight);
+        if (hasMore && !isLoadingMore && smoothOffset + explorerHeight >= fileEntries.size() * itemHeight - (itemHeight * 2)) {
+            isLoadingMore = true;
+            loadMoreEntries();
+        }
+        targetOffset = Math.max(0, Math.min(targetOffset, maxScroll));
+    }
+    private void loadMoreEntries() {
+        directoryLoader.submit(() -> {
+            List<EntryData> chunk = new ArrayList<>();
+            int end = Math.min(loadedCount + CHUNK_SIZE, fullEntries.size());
+            for (int i = loadedCount; i < end; i++) {
+                chunk.add(fullEntries.get(i));
+            }
+            loadedCount += chunk.size();
+            if (loadedCount >= fullEntries.size()) {
+                hasMore = false;
+            }
+            synchronized (fileEntriesLock) {
+                fileEntries.addAll(chunk);
+            }
+            isLoadingMore = false;
+        });
     }
     private String ellipsize(String text, int maxWidth) {
         if(textRenderer.getWidth(text) <= maxWidth) return text;
@@ -1429,17 +1462,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (!shouldCache) {
             remoteCache.remove(key);
         }
-        if (!serverInfo.isRemote || !shouldCache) {}
-        else {
-            if (!forceReload && remoteCache.containsKey(key)) {
-                synchronized (fileEntriesLock) {
-                    fileEntries = remoteCache.get(key);
-                }
-                currentTab.tabData.scrollOffset = targetOffset;
-                saveFileExplorerTabs(tabs.stream().map(t -> new TabData(t.tabData.path, t.tabData.isRemote, t.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
-                return;
-            }
-        }
         loading = true;
         directoryLoader.submit(() -> {
             try {
@@ -1456,8 +1478,14 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 }
                 if (thisRequestId == currentTab.tabData.requestId) {
                     synchronized (fileEntriesLock) {
-                        fileEntries = temp;
+                        fullEntries.clear();
+                        fileEntries.clear();
+                        fullEntries.addAll(temp);
+                        loadedCount = 0;
+                        hasMore = true;
+                        isLoadingMore = false;
                     }
+                    loadMoreEntries();
                     if (serverInfo.isRemote && shouldCache) {
                         remoteCache.put(key, temp);
                     }
@@ -1538,20 +1566,22 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         String query = fieldText.toString().toLowerCase();
         List<EntryData> filtered = new ArrayList<>();
         synchronized (fileEntriesLock) {
-            for (EntryData data : fileEntries) {
+            for (EntryData data : fullEntries) {
                 if (data.path.getFileName().toString().toLowerCase().contains(query)) {
                     filtered.add(data);
                 }
             }
-        }
-        synchronized (favoritePathsLock) {
             filtered.sort(Comparator.comparing((EntryData x) -> !favoritePaths.contains(x.path)));
+            filtered.sort(Comparator.comparing(x -> !x.isDirectory));
+            filtered.sort(Comparator.comparing(x -> x.path.getFileName().toString().toLowerCase()));
+            fileEntries.clear();
+            loadedCount = 0;
+            fullEntries.clear();
+            fullEntries.addAll(filtered);
+            hasMore = true;
+            isLoadingMore = false;
         }
-        filtered.sort(Comparator.comparing(x -> !x.isDirectory));
-        filtered.sort(Comparator.comparing(x -> x.path.getFileName().toString().toLowerCase()));
-        synchronized (fileEntriesLock) {
-            fileEntries = filtered;
-        }
+        loadMoreEntries();
         targetOffset = 0;
     }
     private boolean isSupportedFile(Path file) {
