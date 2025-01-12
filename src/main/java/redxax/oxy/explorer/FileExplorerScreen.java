@@ -1192,6 +1192,20 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         Path oldPath = renamePath;
         String newName = renameBuffer.toString();
         Path newPath = oldPath.getParent() != null ? oldPath.getParent().resolve(newName) : Paths.get(newName);
+        if (creatingNew && !serverInfo.isRemote) {
+            boolean newShouldBeFile = newName.contains(".");
+            boolean wasFile = Files.isRegularFile(oldPath);
+            if (newShouldBeFile != wasFile) {
+                try {
+                    Files.deleteIfExists(oldPath);
+                    if (newShouldBeFile) {
+                        Files.createFile(newPath);
+                    } else {
+                        Files.createDirectory(newPath);
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
         if (serverInfo.isRemote) {
             ensureRemoteConnected();
             try {
