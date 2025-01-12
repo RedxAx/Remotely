@@ -217,7 +217,9 @@ public class TerminalProcessManager {
             terminalProcess = null;
         } else if (terminalInstance instanceof ServerTerminalInstance sti) {
             devPrint("Shutting down server process...");
-            sti.processManager.shutdown();
+            if (sti.processManager != null) {
+                sti.processManager.shutdown();
+            }
         }
         if (sshManager != null) {
             sshManager.shutdown();
