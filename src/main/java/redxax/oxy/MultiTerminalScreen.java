@@ -199,6 +199,7 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        this.renderBackground(context, mouseX, mouseY, delta);
         long currentTime = System.currentTimeMillis();
         if (currentTime - snippetLastBlinkTime > 500) {
             snippetCursorVisible = !snippetCursorVisible;
