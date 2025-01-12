@@ -279,6 +279,10 @@ public class FileEditorScreen extends Screen {
             customSelectionEnd = -1;
             return true;
         }
+        if (ctrlHeld && keyCode == GLFW.GLFW_KEY_S) {
+            tabs.get(currentTabIndex).saveFile();
+            return true;
+        }
         if (customSearchBarFocused) {
             switch (keyCode) {
                 case GLFW.GLFW_KEY_BACKSPACE -> {
