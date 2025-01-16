@@ -1,9 +1,9 @@
-package redxax.oxy.servers;
+package redxax.oxy.api;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import redxax.oxy.DevUtil;
+import redxax.oxy.util.DevUtil;
 
 import java.net.URI;
 import java.net.URLEncoder;

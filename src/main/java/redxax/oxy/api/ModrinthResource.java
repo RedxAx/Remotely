@@ -1,4 +1,4 @@
-package redxax.oxy.servers;
+package redxax.oxy.api;
 
 import java.util.List;
 

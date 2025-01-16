@@ -1,10 +1,9 @@
-package redxax.oxy.explorer;
+package redxax.oxy.util;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.text.Text;
-import redxax.oxy.Config;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,15 +34,16 @@ public class Notification {
     private int height;
     private static final List<Notification> activeNotifications = new ArrayList<>();
 
-    public Notification(String message, Type type, int screenWidth, int screenHeight, MinecraftClient minecraftClient) {
+    public Notification(String message, Type type, MinecraftClient minecraftClient) {
         this.message = message;
         this.type = type;
         this.textRenderer = minecraftClient.textRenderer;
         this.width = textRenderer.getWidth(message) + 2 * padding;
         this.height = textRenderer.fontHeight + 2 * padding;
-        this.x = screenWidth;
-        this.y = screenHeight - height - padding - (activeNotifications.size() * (height + padding));
-        this.targetX = screenWidth - width - padding;
+        assert minecraftClient.currentScreen != null;
+        this.x = minecraftClient.currentScreen.width;
+        this.y = minecraftClient.currentScreen.height - height - padding - (activeNotifications.size() * (height + padding));
+        this.targetX = minecraftClient.currentScreen.width - width - padding;
         this.opacity = 1.0f;
         this.currentOpacity = 1.0f;
         activeNotifications.add(this);

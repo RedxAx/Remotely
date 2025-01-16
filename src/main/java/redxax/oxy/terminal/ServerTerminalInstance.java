@@ -1,9 +1,11 @@
-package redxax.oxy;
+package redxax.oxy.terminal;
 
 import net.minecraft.client.MinecraftClient;
+import redxax.oxy.SSHManager;
 import redxax.oxy.servers.ServerInfo;
+import redxax.oxy.servers.ServerProcessManager;
 import redxax.oxy.servers.ServerState;
-import redxax.oxy.input.TerminalProcessManager;
+
 import java.nio.file.Paths;
 import java.util.UUID;
 

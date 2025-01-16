@@ -1,14 +1,15 @@
-package redxax.oxy;
+package redxax.oxy.servers;
 
-import redxax.oxy.input.TerminalProcessManager;
-import redxax.oxy.servers.ServerState;
+import redxax.oxy.terminal.ServerTerminalInstance;
+import redxax.oxy.terminal.TerminalProcessManager;
+
 import java.io.File;
 import java.io.OutputStreamWriter;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
-import static redxax.oxy.DevUtil.devPrint;
+import static redxax.oxy.util.DevUtil.devPrint;
 
 public class ServerProcessManager extends TerminalProcessManager {
     private final ServerTerminalInstance serverInstance;

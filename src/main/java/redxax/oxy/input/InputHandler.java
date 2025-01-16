@@ -1,8 +1,9 @@
 package redxax.oxy.input;
 
 import redxax.oxy.SSHManager;
-import redxax.oxy.TerminalInstance;
+import redxax.oxy.terminal.TerminalInstance;
 import net.minecraft.client.MinecraftClient;
+import redxax.oxy.terminal.TerminalProcessManager;
 
 import java.io.IOException;
 import java.nio.file.Path;

@@ -1,7 +1,7 @@
 package redxax.oxy.servers;
 
 import redxax.oxy.SSHManager;
-import redxax.oxy.TerminalInstance;
+import redxax.oxy.terminal.TerminalInstance;
 
 import java.util.Objects;
 

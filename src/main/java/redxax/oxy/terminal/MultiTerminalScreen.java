@@ -1,4 +1,4 @@
-package redxax.oxy;
+package redxax.oxy.terminal;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
@@ -7,11 +7,14 @@ import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.RemotelyClient;
 import redxax.oxy.explorer.FileExplorerScreen;
-import redxax.oxy.explorer.Notification;
+import redxax.oxy.util.Notification;
 import redxax.oxy.servers.PluginModManagerScreen;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.servers.ServerState;
+import redxax.oxy.util.Config;
+import redxax.oxy.util.CursorUtils;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -27,7 +30,7 @@ public class MultiTerminalScreen extends Screen {
     private final RemotelyClient remotelyClient;
     final List<TerminalInstance> terminals;
     final List<String> tabNames;
-    int activeTerminalIndex = 0;
+    public int activeTerminalIndex = 0;
 
     public static final int TAB_HEIGHT = 18;
     public static int ContentYStart;
@@ -402,7 +405,7 @@ public class MultiTerminalScreen extends Screen {
     }
 
     public void showNotification(String message, Notification.Type type) {
-        Notification notification = new Notification(message, type, this.width, this.height, minecraftClient);
+        Notification notification = new Notification(message, type, minecraftClient);
     }
 
     private void renderSnippetPopup(DrawContext context, int mouseX, int mouseY, float delta) {

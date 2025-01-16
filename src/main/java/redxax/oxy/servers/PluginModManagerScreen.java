@@ -7,7 +7,8 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.Config;
+import redxax.oxy.api.*;
+import redxax.oxy.util.Config;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -30,10 +31,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import static redxax.oxy.DevUtil.devPrint;
-import static redxax.oxy.ImageUtil.drawBufferedImage;
-import static redxax.oxy.ImageUtil.loadResourceIcon;
-import static redxax.oxy.ImageUtil.loadSpriteSheet;
+import static redxax.oxy.util.DevUtil.devPrint;
+import static redxax.oxy.util.ImageUtil.drawBufferedImage;
+import static redxax.oxy.util.ImageUtil.loadResourceIcon;
+import static redxax.oxy.util.ImageUtil.loadSpriteSheet;
 import static redxax.oxy.Render.*;
 
 public class PluginModManagerScreen extends Screen {

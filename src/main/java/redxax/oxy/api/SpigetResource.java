@@ -1,4 +1,4 @@
-package redxax.oxy.servers;
+package redxax.oxy.api;
 
 public class SpigetResource implements IRemotelyResource {
     private final String name;

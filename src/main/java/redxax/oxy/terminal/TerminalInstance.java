@@ -1,10 +1,10 @@
-package redxax.oxy;
+package redxax.oxy.terminal;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import redxax.oxy.SSHManager;
 import redxax.oxy.input.InputHandler;
 import redxax.oxy.input.InputProcessor;
-import redxax.oxy.input.TerminalProcessManager;
 import redxax.oxy.servers.ServerInfo;
 
 import java.io.IOException;

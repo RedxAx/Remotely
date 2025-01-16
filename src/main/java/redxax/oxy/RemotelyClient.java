@@ -12,6 +12,8 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.servers.ServerManagerScreen;
+import redxax.oxy.terminal.MultiTerminalScreen;
+import redxax.oxy.terminal.TerminalInstance;
 
 import java.nio.file.*;
 import java.io.IOException;
@@ -36,9 +38,9 @@ public class RemotelyClient implements ClientModInitializer {
     public List<TerminalInstance> terminals = new ArrayList<>();
     public List<String> tabNames = new ArrayList<>();
     public int activeTerminalIndex = 0;
-    float scale = 1.0f;
-    int snippetPanelWidth = 150;
-    boolean showSnippetsPanel = false;
+    public float scale = 1.0f;
+    public int snippetPanelWidth = 150;
+    public boolean showSnippetsPanel = false;
     public static List<CommandSnippet> globalSnippets = new ArrayList<>();
     public static RemotelyClient INSTANCE;
     public final List<ServerInfo> servers = new ArrayList<>();

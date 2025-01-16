@@ -9,6 +9,9 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.*;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.explorer.ResponseManager.*;
+import redxax.oxy.util.Config;
+import redxax.oxy.util.CursorUtils;
+import redxax.oxy.util.TabTextAnimator;
 
 import java.io.*;
 import java.net.HttpURLConnection;
@@ -21,7 +24,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import static redxax.oxy.DevUtil.devPrint;
+import static redxax.oxy.util.DevUtil.devPrint;
 import static redxax.oxy.Render.*;
 import static redxax.oxy.explorer.ResponseManager.parseAIResponse;
 

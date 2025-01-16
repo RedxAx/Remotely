@@ -1,4 +1,4 @@
-package redxax.oxy.servers;
+package redxax.oxy.api;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;

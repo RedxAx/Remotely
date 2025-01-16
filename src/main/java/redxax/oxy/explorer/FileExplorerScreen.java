@@ -10,6 +10,9 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.*;
 import redxax.oxy.servers.RemoteHostInfo;
 import redxax.oxy.servers.ServerInfo;
+import redxax.oxy.util.Config;
+import redxax.oxy.util.TabTextAnimator;
+
 import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.file.*;
@@ -19,7 +22,7 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
-import static redxax.oxy.ImageUtil.*;
+import static redxax.oxy.util.ImageUtil.*;
 import static redxax.oxy.Render.*;
 public class FileExplorerScreen extends Screen implements FileManager.FileManagerCallback {
     private final MinecraftClient minecraftClient;
