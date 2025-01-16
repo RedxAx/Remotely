@@ -12,6 +12,8 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static redxax.oxy.config.Config.*;
+
 public class TerminalRenderer {
     public static TerminalRenderer instance;
     private final MinecraftClient minecraftClient;
@@ -43,24 +45,15 @@ public class TerminalRenderer {
     private int terminalY;
     private int terminalHeight;
     private String tmuxStatusLine = "";
-    private static final int BORDER_COLOR = 0xFF555555;
-    private static final int TERMINAL_BACKGROUND_COLOR = 0xFF0a0a0a;
-    private static final int BORDER_THICKNESS = 1;
-    private static final int DEFAULT_TEXT_COLOR = 0xFFFFFF;
-    private static final int INPUT_TEXT_COLOR = 0x4AF626;
-    private static final int SUGGESTION_TEXT_COLOR = 0x666666;
-    private static final int CURSOR_COLOR = 0xFFFFFFFF;
-    private static final int SELECTION_COLOR = 0x80FFFFFF;
-    private static final int STATUS_BAR_COLOR = 0xFF333333;
 
     public TerminalRenderer(MinecraftClient client, TerminalInstance terminalInstance) {
         this.minecraftClient = client;
         this.terminalInstance = terminalInstance;
         instance = this;
-        keywordColors.put("WARNING", TextColor.fromRgb(0xFFA500));
-        keywordColors.put("WARN", TextColor.fromRgb(0xFFA500));
-        keywordColors.put("ERROR", TextColor.fromRgb(0xFF0000));
-        keywordColors.put("INFO", TextColor.fromRgb(0x00FF00));
+        keywordColors.put("WARNING", TextColor.fromRgb(terminalTextWarnColor));
+        keywordColors.put("WARN", TextColor.fromRgb(terminalTextWarnColor));
+        keywordColors.put("ERROR", TextColor.fromRgb(terminalTextErrorColor));
+        keywordColors.put("INFO", TextColor.fromRgb(terminalTextInfoColor));
     }
 
     public void render(DrawContext context, int screenWidth, int screenHeight, float newScale) {
@@ -74,11 +67,11 @@ public class TerminalRenderer {
             previousTerminalWidth = this.terminalWidth;
             rewrap();
         }
-        context.fill(terminalX - BORDER_THICKNESS, terminalY - BORDER_THICKNESS, terminalX + terminalWidth + BORDER_THICKNESS, terminalY, BORDER_COLOR);
-        context.fill(terminalX - BORDER_THICKNESS, terminalY + terminalHeight, terminalX + terminalWidth + BORDER_THICKNESS, terminalY + terminalHeight + BORDER_THICKNESS, BORDER_COLOR);
-        context.fill(terminalX - BORDER_THICKNESS, terminalY, terminalX, terminalY + terminalHeight, BORDER_COLOR);
-        context.fill(terminalX + terminalWidth, terminalY, terminalX + terminalWidth + BORDER_THICKNESS, terminalY + terminalHeight, BORDER_COLOR);
-        context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, TERMINAL_BACKGROUND_COLOR);
+        context.fill(terminalX - terminalBorderThickness, terminalY - terminalBorderThickness, terminalX + terminalWidth + terminalBorderThickness, terminalY, terminalBorderColor);
+        context.fill(terminalX - terminalBorderThickness, terminalY + terminalHeight, terminalX + terminalWidth + terminalBorderThickness, terminalY + terminalHeight + terminalBorderThickness, terminalBorderColor);
+        context.fill(terminalX - terminalBorderThickness, terminalY, terminalX, terminalY + terminalHeight, terminalBorderColor);
+        context.fill(terminalX + terminalWidth, terminalY, terminalX + terminalWidth + terminalBorderThickness, terminalY + terminalHeight, terminalBorderColor);
+        context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, terminalBackgroundColor);
         int padding = 2;
         int textAreaX = terminalX + padding;
         int textAreaY = terminalY + padding;
@@ -109,7 +102,7 @@ public class TerminalRenderer {
             if (isLineSelected(i)) {
                 drawSelection(context, lineInfo, x);
             }
-            context.drawText(minecraftClient.textRenderer, lineText.orderedText, x, yStart, DEFAULT_TEXT_COLOR, Config.shadow);
+            context.drawText(minecraftClient.textRenderer, lineText.orderedText, x, yStart, terminalTextColor, Config.shadow);
             yStart += lineHeight;
         }
         context.getMatrices().pop();
@@ -117,11 +110,11 @@ public class TerminalRenderer {
         int inputY = terminalY + terminalHeight - padding - getInputFieldHeight() - getStatusBarHeight();
         String inputPrompt = terminalInstance.getSSHManager().isAwaitingPassword() ? "Password: " : "> ";
         String inputText = inputPrompt + terminalInstance.inputHandler.getInputBuffer().toString();
-        context.drawText(minecraftClient.textRenderer, Text.literal(inputText), inputX, inputY, INPUT_TEXT_COLOR, Config.shadow);
+        context.drawText(minecraftClient.textRenderer, Text.literal(inputText), inputX, inputY, terminalTextInputColor, Config.shadow);
         String suggestion = terminalInstance.inputHandler.getTabCompletionSuggestion();
         if (!suggestion.isEmpty() && !terminalInstance.inputHandler.getInputBuffer().isEmpty()) {
             int inputTextWidth = minecraftClient.textRenderer.getWidth(inputText);
-            context.drawText(minecraftClient.textRenderer, Text.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(SUGGESTION_TEXT_COLOR))), inputX + inputTextWidth, inputY, SUGGESTION_TEXT_COLOR, Config.shadow);
+            context.drawText(minecraftClient.textRenderer, Text.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(terminalTextSuggesterColor))), inputX + inputTextWidth, inputY, terminalTextSuggesterColor, Config.shadow);
         }
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastInputTime < 500) {
@@ -138,13 +131,13 @@ public class TerminalRenderer {
             context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, CursorUtils.blendColor());
         }
         int statusBarY = terminalY + terminalHeight - getStatusBarHeight();
-        context.fill(terminalX, statusBarY, terminalX + terminalWidth, statusBarY + getStatusBarHeight(), STATUS_BAR_COLOR);
+        context.fill(terminalX, statusBarY, terminalX + terminalWidth, statusBarY + getStatusBarHeight(), terminalStatusBarColor);
         OrderedText[] statusTexts = getStatusBarOrderedTexts((int) (textAreaWidth / this.scale));
         OrderedText leftStatus = statusTexts[0];
         OrderedText rightStatus = statusTexts[1];
         int rightWidth = minecraftClient.textRenderer.getWidth(rightStatus);
-        context.drawText(minecraftClient.textRenderer, leftStatus, terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, DEFAULT_TEXT_COLOR, Config.shadow);
-        context.drawText(minecraftClient.textRenderer, rightStatus, terminalX + terminalWidth - 2 - rightWidth, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, DEFAULT_TEXT_COLOR, Config.shadow);
+        context.drawText(minecraftClient.textRenderer, leftStatus, terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, terminalTextColor, Config.shadow);
+        context.drawText(minecraftClient.textRenderer, rightStatus, terminalX + terminalWidth - 2 - rightWidth, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, terminalTextColor, Config.shadow);
     }
 
     private void rewrap() {
@@ -204,7 +197,7 @@ public class TerminalRenderer {
                 result.addAll(parseAnsiAndHighlight(before));
             }
             String keyword = bracketMatcher.group(2).toUpperCase();
-            TextColor keywordColor = keywordColors.getOrDefault(keyword, TextColor.fromRgb(DEFAULT_TEXT_COLOR));
+            TextColor keywordColor = keywordColors.getOrDefault(keyword, TextColor.fromRgb(terminalTextColor));
             Style keywordStyle = Style.EMPTY.withColor(keywordColor);
             String fullMatch = "[" + bracketMatcher.group(1) + bracketMatcher.group(2) + bracketMatcher.group(3) + "]";
             result.add(new StyleTextPair(keywordStyle, null, fullMatch));
@@ -223,7 +216,7 @@ public class TerminalRenderer {
         List<StyleTextPair> result = new ArrayList<>();
         Matcher matcher = ANSI_PATTERN.matcher(text);
         int lastEnd = 0;
-        Style currentStyle = Style.EMPTY.withColor(TextColor.fromRgb(DEFAULT_TEXT_COLOR));
+        Style currentStyle = Style.EMPTY.withColor(TextColor.fromRgb(terminalTextColor));
         while (matcher.find()) {
             if (matcher.start() > lastEnd) {
                 String before = text.substring(lastEnd, matcher.start());
@@ -258,7 +251,7 @@ public class TerminalRenderer {
                 continue;
             }
             switch (codeNum) {
-                case 0 -> style = Style.EMPTY.withColor(TextColor.fromRgb(DEFAULT_TEXT_COLOR)).withItalic(false).withUnderline(false);
+                case 0 -> style = Style.EMPTY.withColor(TextColor.fromRgb(terminalTextColor)).withItalic(false).withUnderline(false);
                 case 1 -> {}
                 case 3 -> style = style.withItalic(true);
                 case 4 -> style = style.withUnderline(true);
@@ -683,7 +676,7 @@ public class TerminalRenderer {
         int selectionXStart = x + minecraftClient.textRenderer.getWidth(beforeSelection);
         int selectionWidth = minecraftClient.textRenderer.getWidth(selectionText);
         int selectionYEnd = yPosition + minecraftClient.textRenderer.fontHeight;
-        context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, selectionYEnd, SELECTION_COLOR);
+        context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, selectionYEnd, terminalSelectionColor);
     }
 
     public void copySelectionToClipboard() {
