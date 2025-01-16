@@ -6,7 +6,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
-import redxax.oxy.util.Config;
+import redxax.oxy.config.Config;
 import redxax.oxy.servers.RemoteHostInfo;
 import redxax.oxy.servers.ServerInfo;
 
@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 
+import static redxax.oxy.config.Config.*;
 import static redxax.oxy.util.ImageUtil.*;
 import static redxax.oxy.Render.*;
 
@@ -141,16 +142,16 @@ public class DeskSelectionScreen extends Screen {
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         renderBackground(context, mouseX, mouseY, delta);
-        context.fill(0, 0, this.width, 30, 0xFF222222);
-        drawInnerBorder(context, 0, 0, this.width, 30, 0xFF333333);
-        context.drawText(this.textRenderer, Text.literal("Remotely - New Tab"), 10, 10, textColor, Config.shadow);
+        context.fill(0, 0, this.width, 30, headerBackgroundColor);
+        drawInnerBorder(context, 0, 0, this.width, 30, headerBorderColor);
+        context.drawText(this.textRenderer, Text.literal("Remotely - New Tab"), 10, 10, screensTitleTextColor, Config.shadow);
         int headerY = 35;
         int gridX = spacing;
         int gridY = headerY + 10;
         int gridWidth = this.width - 2 * spacing;
         int gridHeight = this.height - gridY - 10;
-        context.fill(gridX, gridY, gridX + gridWidth, gridY + gridHeight, lighterColor);
-        drawInnerBorder(context, gridX, gridY, gridWidth, gridHeight, borderColor);
+        context.fill(gridX, gridY, gridX + gridWidth, gridY + gridHeight, deskInnerBackgroundColor);
+        drawInnerBorder(context, gridX, gridY, gridWidth, gridHeight, deskBorderColor);
         itemWidth = (gridWidth - (columns + 1) * spacing) / columns;
         int startY = gridY + spacing;
         int idx = 0;
@@ -164,9 +165,9 @@ public class DeskSelectionScreen extends Screen {
                 continue;
             }
             boolean hovered = mouseX >= drawX && mouseX <= drawX + itemWidth && mouseY >= drawY && mouseY <= drawY + itemHeight;
-            int bgColor = item.isFavorite ? darkGold : (hovered ? highlightColor : elementBg);
+            int bgColor = item.isFavorite ? explorerElementFavoriteBackgroundColor : (hovered ? explorerElementBackgroundHoverColor : explorerElementBackgroundColor);
             context.fill(drawX, drawY, drawX + itemWidth, drawY + itemHeight, bgColor);
-            drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, item.isFavorite ? kingsGold : (hovered ? elementBorderHover : elementBorder));
+            drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, item.isFavorite ? explorerElementFavoriteSelectedBorderColor : (hovered ? explorerElementBorderHoverColor : explorerElementBorderColor));
             BufferedImage icon = item.isDirectory ? folderIcon : fileIcon;
             drawBufferedImage(context, icon, drawX + 7, drawY + (itemHeight / 2) - 8, 16, 16);
             if (item.isFavorite) {
@@ -181,12 +182,12 @@ public class DeskSelectionScreen extends Screen {
                 }
                 secondLine = secondLine + "...";
             }
-            context.drawText(this.textRenderer, Text.literal(firstLine), drawX + 25, drawY + 7, textColor, Config.shadow);
-            context.drawText(this.textRenderer, Text.literal(secondLine), drawX + 25, drawY + 18, dimTextColor, Config.shadow);
+            context.drawText(this.textRenderer, Text.literal(firstLine), drawX + 25, drawY + 7, explorerElementTextColor, Config.shadow);
+            context.drawText(this.textRenderer, Text.literal(secondLine), drawX + 25, drawY + 18, explorerElementTextDimColor, Config.shadow);
             idx++;
         }
         boolean backButtonHovered = mouseX >= backButtonX && mouseX <= backButtonX + backButtonWidth && mouseY >= backButtonY && mouseY <= backButtonY + backButtonHeight;
-        drawCustomButton(context, backButtonX, backButtonY, "Back", minecraftClient, backButtonHovered, false, true, textColor, deleteColor);
+        drawCustomButton(context, backButtonX, backButtonY, "Back", minecraftClient, backButtonHovered, false, true, buttonTextColor, buttonTextDeleteColor);
     }
 
     @Override
@@ -259,7 +260,6 @@ public class DeskSelectionScreen extends Screen {
 
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor);
+        context.fillGradient(0, 0, this.width, this.height, deskScreenBackgroundColor, deskScreenBackgroundColor);
     }
 }
-//almost

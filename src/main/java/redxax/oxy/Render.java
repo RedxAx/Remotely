@@ -4,50 +4,27 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.util.Config;
+import redxax.oxy.config.Config;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import static redxax.oxy.config.Config.*;
 
 public class Render {
 
     public static int buttonW = 60;
     public static int buttonH = 18;
-    public static final int baseColor = 0xFF181818;
-    public static final int BgColor = 0xFF242424;
-    public static final int borderColor = 0xFF555555;
-    public static final int elementBg = 0xFF2C2C2C;
-    public static final int greenBright = 0xFFd6f264;
-    public static final int darkGreen = 0xFF0b371c;
-    public static final int elementBorder = 0xFF444444;
-    public static final int elementBorderHover = 0xFF9d9d9d;
-    public static final int highlightColor = 0xFF444444;
-    public static final int paleGold = 0xFFbfab61;
-    public static final int kingsGold = 0xFFffc800;
-    public static final int darkGold = 0xFF3b2d17;
-    public static final int deleteColor = 0xFFff7a7a;
-    public static final int deleteHoverColor = 0xFFb4202a;
-    public static final int blueColor = 0xFF249fde;
-    public static final int blueDark = 0xFF17253b;
-    public static final int blueHoverColor = 0xFF6cc4f1;
-    public static final int redColor = 0xFFb4202a;
-    public static final int redBg = 0xFF3b1725;
-    public static final int redBright = 0xFFdf3e23;
-    public static final int redVeryBright = 0xFFff7a7a;
-    public static final int textColor = 0xFFFFFFFF;
-    public static final int dimTextColor = 0xFFBBBBBB;
-    public static final int lighterColor = 0xFF222222;
-    private static int MenuHoverColor = greenBright;
 
     public static void drawCustomButton(DrawContext context, int x, int y, String text, MinecraftClient mc, boolean hovered, boolean dynamic, boolean centered, int txColor, int hoverColor) {
-        int bg = hovered ? highlightColor : elementBg;
+        int bg = hovered ? buttonBackgroundHoverColor : buttonBackgroundColor;
         if (dynamic) {
             buttonW = mc.textRenderer.getWidth(text) + 10;
         } else {
             buttonW = 60;
         }
         context.fill(x, y, x + buttonW, y + buttonH, bg);
-        drawInnerBorder(context, x, y, buttonW, buttonH, hovered ? elementBorderHover : elementBorder);
+        drawInnerBorder(context, x, y, buttonW, buttonH, hovered ? buttonBorderHoverColor : buttonBorderColor);
         context.fill(x, y + buttonH, x + buttonW, y + buttonH + 2, hovered ? 0xFF0b0b0b : 0xFF000000);
         int tw = mc.textRenderer.getWidth(text);
         int tx = centered ? x + (buttonW - tw) / 2 : x + 5;
@@ -63,6 +40,8 @@ public class Render {
     }
 
     public static class ContextMenu {
+        private static int MenuHoverColor = 0xFFd6f264;
+
         private static class MenuItem {
             String label;
             Runnable action;
@@ -116,7 +95,7 @@ public class Render {
             int currentY = menuY;
             for (int i = 0; i < items.size(); i++) {
                 boolean hovered = mouseX >= menuX && mouseX <= menuX + itemWidth && mouseY >= currentY && mouseY < currentY + itemHeight;
-                drawCustomButton(context, menuX, currentY, items.get(i).label, mc, hovered, false, false, textColor, MenuHoverColor);
+                drawCustomButton(context, menuX, currentY, items.get(i).label, mc, hovered, false, false, buttonTextColor, MenuHoverColor);
                 currentY += itemHeight + gap;
             }
         }

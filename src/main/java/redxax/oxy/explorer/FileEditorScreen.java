@@ -9,7 +9,7 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.*;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.explorer.ResponseManager.*;
-import redxax.oxy.util.Config;
+import redxax.oxy.config.Config;
 import redxax.oxy.util.CursorUtils;
 import redxax.oxy.util.TabTextAnimator;
 
@@ -24,6 +24,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import static redxax.oxy.config.Config.*;
 import static redxax.oxy.util.DevUtil.devPrint;
 import static redxax.oxy.Render.*;
 import static redxax.oxy.explorer.ResponseManager.parseAIResponse;
@@ -735,7 +736,7 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fillGradient(0, 0, this.width, this.height, baseColor, baseColor);
+        context.fillGradient(0, 0, this.width, this.height, editorScreenBackgroundColor, editorScreenBackgroundColor);
     }
 
     @Override
@@ -743,15 +744,15 @@ public class FileEditorScreen extends Screen {
         this.renderBackground(context, mouseX, mouseY, delta);
         super.render(context, mouseX, mouseY, delta);
         int titleBarHeight = 30;
-        context.fill(0, 0, this.width, titleBarHeight, 0xFF222222);
-        drawInnerBorder(context, 0, 0, this.width, titleBarHeight, 0xFF333333);
+        context.fill(0, 0, this.width, titleBarHeight, headerBackgroundColor);
+        drawInnerBorder(context, 0, 0, this.width, titleBarHeight, headerBorderColor);
         String titleText = "Remotely - File Editor";
-        context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, textColor, Config.shadow);
+        context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, screensTitleTextColor, Config.shadow);
         int searchBarX = (this.width - searchBarWidth) / 2;
         int searchBarY = 5;
-        int fieldColor = customSearchBarFocused ? (aiMode ? blueDark : darkGreen) : elementBg;
+        int fieldColor = customSearchBarFocused ? (aiMode ? airBarBackgroundColor : searchBarActiveBackgroundColor) : searchBarBackgroundColor;
         context.fill(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight, fieldColor);
-        drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, customSearchBarFocused ? (aiMode ? blueHoverColor : greenBright) : elementBorder);
+        drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, customSearchBarFocused ? (aiMode ? airBarBorderColor : searchBarActiveBorderColor) : searchBarBorderColor);
         if (customSelectionStart != -1 && customSelectionEnd != -1 && customSelectionStart != customSelectionEnd) {
             int selStart = Math.min(customSelectionStart, customSelectionEnd);
             int selEnd = Math.max(customSelectionStart, customSelectionEnd);
@@ -775,7 +776,7 @@ public class FileEditorScreen extends Screen {
         customPathTargetScrollOffset = Math.max(0, Math.min(customPathTargetScrollOffset, textWidth - (searchBarWidth - 10)));
         customPathScrollOffset += (customPathTargetScrollOffset - customPathScrollOffset) * customScrollSpeed;
         context.enableScissor(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight);
-        context.drawText(this.textRenderer, Text.literal(displayText), searchBarX + 5 - (int) customPathScrollOffset, searchBarY + 5, textColor, Config.shadow);
+        context.drawText(this.textRenderer, Text.literal(displayText), searchBarX + 5 - (int) customPathScrollOffset, searchBarY + 5, screensTitleTextColor, Config.shadow);
         if (customSearchBarFocused && customShowCursor) {
             String beforeCursor = customCursorPosition <= displayText.length() ? displayText.substring(0, customCursorPosition) : displayText;
             int cx = searchBarX + 5 + this.textRenderer.getWidth(beforeCursor) - (int) customPathScrollOffset;
@@ -784,7 +785,7 @@ public class FileEditorScreen extends Screen {
         context.disableScissor();
         if (customSearchText.length() > 0) {
             int clearButtonX = searchBarX + searchBarWidth;
-            context.drawText(this.textRenderer, Text.literal("x"), clearButtonX + 4, searchBarY + 5, redColor, true);
+            context.drawText(this.textRenderer, Text.literal("x"), clearButtonX + 4, searchBarY + 5, buttonTextDeleteColor, true);
         }
         int tabBarY = titleBarHeight + 5;
         int tabBarHeight = TAB_HEIGHT;
@@ -795,27 +796,27 @@ public class FileEditorScreen extends Screen {
             int tabWidth = minecraftClient.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
             boolean isActive = (i == currentTabIndex);
             boolean isHovered = mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
-            int bgColor = isActive ? (tab.unsaved ? redBg : 0xFF0b371c) : (isHovered ? highlightColor : 0xFF2C2C2C);
+            int bgColor = isActive ? (tab.unsaved ? tabUnsavedBackgroundColor : tabSelectedBackgroundColor) : (isHovered ? tabBackgroundHoverColor : tabBackgroundColor);
             context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
-            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? (tab.unsaved ? redBright : 0xFFd6f264) : (isHovered ? 0xFF000000 : 0xFF444444));
-            context.drawText(this.textRenderer, Text.literal(tab.unsaved ? tab.name + "*" : tab.name), tabX + TAB_PADDING, tabY + 5, isHovered ? greenBright : textColor, Config.shadow);
-            context.fill(tabX, tabY + tabBarHeight, tabX + tabWidth, tabY + tabBarHeight + 2, isActive ? 0xFF0b0b0b : 0xFF000000);
+            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? (tab.unsaved ? tabUnsavedBorderColor : tabSelectedBorderColor) : (isHovered ? tabBorderHoverColor : tabBorderColor));
+            context.drawText(this.textRenderer, Text.literal(tab.unsaved ? tab.name + "*" : tab.name), tabX + TAB_PADDING, tabY + 5, isHovered ? tabTextHoverColor : tabTextColor, Config.shadow);
+            context.fill(tabX, tabY + tabBarHeight, tabX + tabWidth, tabY + tabBarHeight + 2, tabBottomBorderColor);
             tabX += tabWidth + TAB_GAP;
         }
         int editorY = tabBarY + tabBarHeight + 5;
         int editorHeight = this.height - editorY - 10;
         int editorX = 5;
         int editorWidth = this.width - 10;
-        context.fill(editorX, editorY, editorX + editorWidth, editorY + editorHeight, lighterColor);
-        drawInnerBorder(context, editorX, editorY, editorWidth, editorHeight, borderColor);
+        context.fill(editorX, editorY, editorX + editorWidth, editorY + editorHeight, editorInnerBackgroundColor);
+        drawInnerBorder(context, editorX, editorY, editorWidth, editorHeight, editorBorderColor);
         tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
         int buttonX = this.width - buttonW - 10;
         int ButtonY = 5;
         boolean hovered = mouseX >= buttonX && mouseX <= buttonX + Render.buttonW && mouseY >= ButtonY && mouseY <= ButtonY + Render.buttonH;
-        Render.drawCustomButton(context, buttonX, ButtonY, "Save", minecraftClient, hovered, false, true, textColor, greenBright);
+        Render.drawCustomButton(context, buttonX, ButtonY, "Save", minecraftClient, hovered, false, true, buttonTextColor, buttonTextHoverColor);
         buttonX = buttonX - (buttonW + 10);
         hovered = mouseX >= buttonX && mouseX <= buttonX + Render.buttonW && mouseY >= ButtonY && mouseY <= ButtonY + Render.buttonH;
-        Render.drawCustomButton(context, buttonX, ButtonY, "Back", minecraftClient, hovered, false, true, textColor, greenBright);
+        Render.drawCustomButton(context, buttonX, ButtonY, "Back", minecraftClient, hovered, false, true, buttonTextColor, buttonTextHoverColor);
         List<ResponseWindow> toRemove = new ArrayList<>();
         for (ResponseWindow w : responseWindows) {
             if (w.closed) {
@@ -827,12 +828,6 @@ public class FileEditorScreen extends Screen {
         responseWindows.removeAll(toRemove);
     }
 
-    private void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int c) {
-        context.fill(x, y, x + w, y + 1, c);
-        context.fill(x, y + h - 1, x + w, y + h, c);
-        context.fill(x, y, x + 1, y + h, c);
-        context.fill(x + w - 1, y, x + w, y + h, c);
-    }
 
     private static class MultiLineTextEditor {
         private final MinecraftClient mc;
