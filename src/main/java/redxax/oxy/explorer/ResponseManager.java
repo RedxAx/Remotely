@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static redxax.oxy.Render.*;
+import static redxax.oxy.config.Config.*;
 
 public class ResponseManager {
 
@@ -59,8 +60,8 @@ public class ResponseManager {
             List<String> lines = wrapText(text, wrapWidth, minecraftClient);
             int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
             height = Math.max(30, (lines.size() * lineHeight) + 10);
-            context.fill(x, y, x + width, y + height, blueDark);
-            drawInnerBorder(context, x, y, width, height, blueHoverColor);
+            context.fill(x, y, x + width, y + height, airBarBackgroundColor);
+            drawInnerBorder(context, x, y, width, height, airBarBorderColor);
             int drawY = y + 5;
             for (String l : lines) {
                 context.drawText(minecraftClient.textRenderer, Text.literal(l), x + 5, drawY, 0xFFFFFF, Config.shadow);
@@ -68,7 +69,7 @@ public class ResponseManager {
             }
             int closeX = x + width - 10;
             int closeY = y;
-            context.drawText(minecraftClient.textRenderer, Text.literal("x"), closeX, closeY, redColor, false);
+            context.drawText(minecraftClient.textRenderer, Text.literal("x"), closeX, closeY, buttonTextDeleteHoverColor, false);
         }
 
         boolean mouseClicked(double mx, double my, int button) {
