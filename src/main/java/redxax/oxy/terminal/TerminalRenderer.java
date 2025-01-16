@@ -5,7 +5,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.*;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.util.Config;
+import redxax.oxy.config.Config;
 import redxax.oxy.util.CursorUtils;
 
 import java.util.*;
