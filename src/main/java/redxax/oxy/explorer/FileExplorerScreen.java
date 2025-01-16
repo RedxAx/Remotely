@@ -95,6 +95,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private boolean isLoadingMore = false;
     private List<EntryData> fullEntries = new ArrayList<>();
     private static final int MAX_NAME_WIDTH = 500;
+    private BufferedImage appsIcon, cssIcon, jsIcon, jsonIcon, minecraftIcon, pyIcon, javaIcon, scriptIcon, shadersIcon, textIcon;
     private static class EntryData {
         Path path;
         boolean isDirectory;
@@ -215,6 +216,16 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 BufferedImage frame = loadingAnim.getSubimage(0, i * frameHeight, frameWidth, frameHeight);
                 loadingFrames.add(frame);
             }
+            appsIcon = loadResourceIcon("/assets/remotely/icons/apps.png");
+            cssIcon = loadResourceIcon("/assets/remotely/icons/css.png");
+            jsIcon = loadResourceIcon("/assets/remotely/icons/js.png");
+            jsonIcon = loadResourceIcon("/assets/remotely/icons/json.png");
+            minecraftIcon = loadResourceIcon("/assets/remotely/icons/minecraft.png");
+            pyIcon = loadResourceIcon("/assets/remotely/icons/py.png");
+            javaIcon = loadResourceIcon("/assets/remotely/icons/java.png");
+            scriptIcon = loadResourceIcon("/assets/remotely/icons/script.png");
+            shadersIcon = loadResourceIcon("/assets/remotely/icons/shaders.png");
+            textIcon = loadResourceIcon("/assets/remotely/icons/text.png");
             List<TabData> loadedTabs = loadFileExplorerTabs().stream().distinct().toList();
             if (loadedTabs.isEmpty()) {
                 tabs.add(new Tab(new TabData(currentPath, serverInfo.isRemote, serverInfo.remoteHost)));
@@ -398,7 +409,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
                 drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
                 context.fill(explorerX, entryY + entryHeight - 1, explorerX + explorerWidth, entryY + entryHeight, borderWithOpacity);
-                BufferedImage icon = entry.isDirectory ? folderIcon : fileIcon;
+                BufferedImage icon = entry.isDirectory ? folderIcon : getIconForFile(entry.path);
                 drawBufferedImage(context, icon, explorerX + 10, entryY + 5, 16, 16);
                 if (isFavorite) {
                     drawBufferedImage(context, pinIcon,  entry.isDirectory ? explorerX  + 5 : explorerX + 7, entryY + 5, 16, 16);
@@ -441,6 +452,41 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
         loadMoreIfNeeded(explorerHeight);
+    }
+    private BufferedImage getIconForFile(Path file) {
+        String fileName = file.getFileName().toString().toLowerCase();
+        if (fileName.endsWith(".exe")) {
+            return appsIcon;
+        }
+        if (fileName.endsWith(".css")) {
+            return cssIcon;
+        }
+        if (fileName.endsWith(".js")) {
+            return jsIcon;
+        }
+        if (fileName.endsWith(".json")) {
+            return jsonIcon;
+        }
+        if (fileName.endsWith(".mcfunction") || fileName.endsWith(".mcmeta")) {
+            return minecraftIcon;
+        }
+        if (fileName.endsWith(".py")) {
+            return pyIcon;
+        }
+        if (fileName.endsWith(".java") || fileName.endsWith(".class") || fileName.endsWith(".jar")) {
+            return javaIcon;
+        }
+        if (fileName.endsWith(".bat") || fileName.endsWith(".sh") || fileName.endsWith(".bash") || fileName.endsWith(".sk")) {
+            return scriptIcon;
+        }
+        if (fileName.endsWith(".vsh") || fileName.endsWith(".fsh") || fileName.endsWith(".glsl")) {
+            return shadersIcon;
+        }
+        if (fileName.endsWith(".txt") || fileName.endsWith(".yml") || fileName.endsWith(".yaml") || fileName.endsWith(".properties") ||
+                fileName.endsWith(".toml") || fileName.endsWith(".md") || fileName.endsWith(".log") || fileName.endsWith(".html")) {
+            return textIcon;
+        }
+        return fileIcon;
     }
     private void loadMoreIfNeeded(int explorerHeight) {
         int gap = 1;
