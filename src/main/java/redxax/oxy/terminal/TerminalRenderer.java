@@ -1,10 +1,13 @@
-package redxax.oxy;
+package redxax.oxy.terminal;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.*;
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.util.Config;
+import redxax.oxy.util.CursorUtils;
+
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;

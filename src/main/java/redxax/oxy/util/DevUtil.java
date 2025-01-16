@@ -1,6 +1,6 @@
-package redxax.oxy;
+package redxax.oxy.util;
 
-import static redxax.oxy.Config.isDev;
+import static redxax.oxy.util.Config.isDev;
 
 public class DevUtil {
     public static void devPrint(String message) {

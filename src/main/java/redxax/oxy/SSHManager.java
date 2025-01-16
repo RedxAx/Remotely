@@ -1,17 +1,20 @@
 package redxax.oxy;
 
 import com.jcraft.jsch.*;
-import redxax.oxy.servers.IRemotelyResource;
+import redxax.oxy.api.IRemotelyResource;
 import redxax.oxy.servers.RemoteHostInfo;
 import redxax.oxy.servers.ServerInfo;
+import redxax.oxy.servers.ServerProcessManager;
 import redxax.oxy.servers.ServerState;
+import redxax.oxy.terminal.TerminalInstance;
+
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
 
-import static redxax.oxy.DevUtil.*;
+import static redxax.oxy.util.DevUtil.*;
 
 public class SSHManager {
     private RemoteHostInfo remoteHost = new RemoteHostInfo();

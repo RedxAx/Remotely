@@ -1,8 +1,6 @@
-package redxax.oxy.input;
+package redxax.oxy.terminal;
 
-import redxax.oxy.TerminalInstance;
 import redxax.oxy.SSHManager;
-import redxax.oxy.ServerTerminalInstance;
 import redxax.oxy.servers.ServerState;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -12,7 +10,7 @@ import java.util.concurrent.Executors;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import static redxax.oxy.DevUtil.devPrint;
+import static redxax.oxy.util.DevUtil.devPrint;
 
 public class TerminalProcessManager {
     public Process terminalProcess;

@@ -1,8 +1,8 @@
 package redxax.oxy.input;
 
 import redxax.oxy.SSHManager;
-import redxax.oxy.TerminalInstance;
-import redxax.oxy.ServerTerminalInstance;
+import redxax.oxy.terminal.TerminalInstance;
+import redxax.oxy.terminal.ServerTerminalInstance;
 import redxax.oxy.servers.ServerState;
 import org.lwjgl.glfw.GLFW;
 import net.minecraft.client.MinecraftClient;

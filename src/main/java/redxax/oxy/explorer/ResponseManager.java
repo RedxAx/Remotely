@@ -5,7 +5,7 @@ import com.google.gson.JsonParser;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.text.Text;
-import redxax.oxy.Config;
+import redxax.oxy.util.Config;
 
 import java.util.ArrayList;
 import java.util.List;

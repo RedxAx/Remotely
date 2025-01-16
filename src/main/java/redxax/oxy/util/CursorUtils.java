@@ -1,4 +1,4 @@
-package redxax.oxy;
+package redxax.oxy.util;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;

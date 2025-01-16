@@ -25,11 +25,15 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.terminal.MultiTerminalScreen;
+import redxax.oxy.terminal.ServerTerminalInstance;
+import redxax.oxy.terminal.TerminalInstance;
+import redxax.oxy.util.Config;
 
-import static redxax.oxy.DevUtil.devPrint;
-import static redxax.oxy.ImageUtil.drawBufferedImage;
-import static redxax.oxy.ImageUtil.loadSpriteSheet;
-import static redxax.oxy.MultiTerminalScreen.TAB_HEIGHT;
+import static redxax.oxy.util.DevUtil.devPrint;
+import static redxax.oxy.util.ImageUtil.drawBufferedImage;
+import static redxax.oxy.util.ImageUtil.loadSpriteSheet;
+import static redxax.oxy.terminal.MultiTerminalScreen.TAB_HEIGHT;
 import static redxax.oxy.Render.*;
 
 public class ServerManagerScreen extends Screen {

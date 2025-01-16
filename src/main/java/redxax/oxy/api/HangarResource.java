@@ -1,4 +1,4 @@
-package redxax.oxy.servers;
+package redxax.oxy.api;
 
 public class HangarResource implements IRemotelyResource {
     private final String id;

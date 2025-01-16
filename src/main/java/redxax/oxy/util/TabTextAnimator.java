@@ -1,4 +1,4 @@
-package redxax.oxy;
+package redxax.oxy.util;
 
 import java.util.Timer;
 import java.util.TimerTask;

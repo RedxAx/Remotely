@@ -6,7 +6,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
-import redxax.oxy.Config;
+import redxax.oxy.util.Config;
 import redxax.oxy.servers.RemoteHostInfo;
 import redxax.oxy.servers.ServerInfo;
 
@@ -19,7 +19,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 
-import static redxax.oxy.ImageUtil.*;
+import static redxax.oxy.util.ImageUtil.*;
 import static redxax.oxy.Render.*;
 
 public class DeskSelectionScreen extends Screen {

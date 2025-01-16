@@ -1,16 +1,17 @@
 package redxax.oxy.input;
 
-import redxax.oxy.TerminalInstance;
+import redxax.oxy.terminal.TerminalInstance;
 import redxax.oxy.SSHManager;
-import redxax.oxy.ServerTerminalInstance;
+import redxax.oxy.terminal.ServerTerminalInstance;
 import redxax.oxy.servers.ServerInfo;
 import redxax.oxy.servers.ServerState;
+import redxax.oxy.terminal.TerminalProcessManager;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.Writer;
 
-import static redxax.oxy.DevUtil.devPrint;
+import static redxax.oxy.util.DevUtil.devPrint;
 
 public class CommandExecutor {
     private final TerminalInstance terminalInstance;

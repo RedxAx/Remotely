@@ -1,4 +1,4 @@
-package redxax.oxy;
+package redxax.oxy.util;
 
 import net.minecraft.client.gui.DrawContext;
 
