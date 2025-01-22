@@ -1194,7 +1194,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         fileManager.deleteSelected(selectedPaths, currentPath);
                     }, buttonTextDeleteHoverColor);
                     Render.ContextMenu.addItem("Copy Path", () -> {
-                        minecraftClient.keyboard.setClipboard(entryData.path.toString());
+                        String quotedPath = "\"" + entryData.path.toString() + "\"";
+                        minecraftClient.keyboard.setClipboard(quotedPath); 
                         showNotification("Path copied", Notification.Type.INFO);
                     }, buttonTextHoverColor);
                     Render.ContextMenu.addItem("Refresh", () -> {
