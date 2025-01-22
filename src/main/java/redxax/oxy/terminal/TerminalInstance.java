@@ -115,6 +115,9 @@ public class TerminalInstance {
     public SSHManager getSSHManager() {
         return sshManager;
     }
+    public TerminalRenderer getRenderer() {
+        return renderer;
+    }
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         return renderer.mouseClicked(mouseX, mouseY, button);

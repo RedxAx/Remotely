@@ -5,13 +5,17 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.*;
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.GL11;
 import redxax.oxy.config.Config;
 import redxax.oxy.util.CursorUtils;
+import redxax.oxy.Render.*;
 
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static redxax.oxy.Render.drawInnerBorder;
+import static redxax.oxy.Render.drawOuterBorder;
 import static redxax.oxy.config.Config.*;
 
 public class TerminalRenderer {
@@ -26,15 +30,14 @@ public class TerminalRenderer {
     private int previousTerminalWidth = 0;
     private static final float MIN_SCALE = 0.1f;
     private static final float MAX_SCALE = 2.0f;
-    private int scrollOffset = 0;
+    private float scrollOffset = 0f;
     private long lastBlinkTime = 0;
     private boolean cursorVisible = true;
     private long lastInputTime = 0;
-    private static final int SCROLL_STEP = 1;
+    private static final float SCROLL_STEP = 5f;
     private final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-?]*[ -/]*[@-~]");
     private static final Pattern TMUX_STATUS_PATTERN = Pattern.compile("^\\[\\d+].*");
     private final Pattern BRACKET_KEYWORD_PATTERN = Pattern.compile("\\[(.*?)\\b(WARNING|WARN|ERROR|INFO)\\b(.*?)]");
-    private final Map<String, TextColor> keywordColors = new HashMap<>();
     private final List<LineInfo> lineInfos = new ArrayList<>();
     private boolean isSelecting = false;
     private int selectionStartLine = -1;
@@ -50,10 +53,6 @@ public class TerminalRenderer {
         this.minecraftClient = client;
         this.terminalInstance = terminalInstance;
         instance = this;
-        keywordColors.put("WARNING", TextColor.fromRgb(terminalTextWarnColor));
-        keywordColors.put("WARN", TextColor.fromRgb(terminalTextWarnColor));
-        keywordColors.put("ERROR", TextColor.fromRgb(terminalTextErrorColor));
-        keywordColors.put("INFO", TextColor.fromRgb(terminalTextInfoColor));
     }
 
     public void render(DrawContext context, int screenWidth, int screenHeight, float newScale) {
@@ -67,11 +66,9 @@ public class TerminalRenderer {
             previousTerminalWidth = this.terminalWidth;
             rewrap();
         }
-        context.fill(terminalX - terminalBorderThickness, terminalY - terminalBorderThickness, terminalX + terminalWidth + terminalBorderThickness, terminalY, terminalBorderColor);
-        context.fill(terminalX - terminalBorderThickness, terminalY + terminalHeight, terminalX + terminalWidth + terminalBorderThickness, terminalY + terminalHeight + terminalBorderThickness, terminalBorderColor);
-        context.fill(terminalX - terminalBorderThickness, terminalY, terminalX, terminalY + terminalHeight, terminalBorderColor);
-        context.fill(terminalX + terminalWidth, terminalY, terminalX + terminalWidth + terminalBorderThickness, terminalY + terminalHeight, terminalBorderColor);
         context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, terminalBackgroundColor);
+        drawInnerBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, terminalBorderColor);
+        drawOuterBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, tabBottomBorderColor);
         int padding = 2;
         int textAreaX = terminalX + padding;
         int textAreaY = terminalY + padding;
@@ -82,28 +79,28 @@ public class TerminalRenderer {
         context.getMatrices().scale(this.scale, this.scale, 1.0f);
         int scaledWidth = (int) (textAreaWidth / this.scale);
         int scaledHeight = (int) (textAreaHeight / this.scale);
-        int x = 0;
-        int yStart = 0;
         List<LineText> allWrappedLines;
         synchronized (wrappedLinesCache) {
             allWrappedLines = new ArrayList<>(wrappedLinesCache);
         }
+        int lineHeight = minecraftClient.textRenderer.fontHeight;
         int totalLines = allWrappedLines.size();
-        int visibleLines = getVisibleLines(scaledHeight);
-        scrollOffset = Math.min(scrollOffset, Math.max(0, totalLines - visibleLines));
-        int startLine = Math.max(0, totalLines - visibleLines - scrollOffset);
-        int endLine = Math.min(totalLines, startLine + visibleLines);
+        int totalContentHeight = totalLines * lineHeight;
+        float clampedScroll = Math.max(0, Math.min(scrollOffset, totalContentHeight - scaledHeight));
+        scrollOffset = clampedScroll;
+        int firstLine = (int) (scrollOffset / lineHeight);
+        int yOffset = -(int) (scrollOffset % lineHeight);
         lineInfos.clear();
-        for (int i = startLine; i < endLine; i++) {
+        int y = yOffset;
+        for (int i = firstLine; i < totalLines && y < scaledHeight; i++) {
             LineText lineText = allWrappedLines.get(i);
-            int lineHeight = minecraftClient.textRenderer.fontHeight;
-            LineInfo lineInfo = new LineInfo(i, yStart, lineHeight, lineText.orderedText, lineText.plainText);
+            LineInfo lineInfo = new LineInfo(i, y, lineHeight, lineText.orderedText, lineText.plainText);
             lineInfos.add(lineInfo);
             if (isLineSelected(i)) {
-                drawSelection(context, lineInfo, x);
+                drawSelection(context, lineInfo, 0);
             }
-            context.drawText(minecraftClient.textRenderer, lineText.orderedText, x, yStart, terminalTextColor, Config.shadow);
-            yStart += lineHeight;
+            context.drawText(minecraftClient.textRenderer, lineText.orderedText, 0, y, terminalTextColor, Config.shadow);
+            y += lineHeight;
         }
         context.getMatrices().pop();
         int inputX = terminalX + padding;
@@ -197,7 +194,16 @@ public class TerminalRenderer {
                 result.addAll(parseAnsiAndHighlight(before));
             }
             String keyword = bracketMatcher.group(2).toUpperCase();
-            TextColor keywordColor = keywordColors.getOrDefault(keyword, TextColor.fromRgb(terminalTextColor));
+            TextColor keywordColor;
+            if (keyword.equals("WARNING") || keyword.equals("WARN")) {
+                keywordColor = TextColor.fromRgb(terminalTextWarnColor);
+            } else if (keyword.equals("ERROR")) {
+                keywordColor = TextColor.fromRgb(terminalTextErrorColor);
+            } else if (keyword.equals("INFO")) {
+                keywordColor = TextColor.fromRgb(terminalTextInfoColor);
+            } else {
+                keywordColor = TextColor.fromRgb(terminalTextColor);
+            }
             Style keywordStyle = Style.EMPTY.withColor(keywordColor);
             String fullMatch = "[" + bracketMatcher.group(1) + bracketMatcher.group(2) + bracketMatcher.group(3) + "]";
             result.add(new StyleTextPair(keywordStyle, null, fullMatch));
@@ -516,27 +522,28 @@ public class TerminalRenderer {
     }
 
     public void scroll(int direction, int scaledHeight) {
+        int lineHeight = minecraftClient.textRenderer.fontHeight;
         int totalLines = getTotalLines();
-        int visibleLines = getVisibleLines(scaledHeight);
-        int scrollMultiplier = InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) ||
-                InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) ? 5 : 1;
-        int scrollAmount = SCROLL_STEP * scrollMultiplier;
-        if (direction > 0) {
-            if (scrollOffset < totalLines - visibleLines) {
-                scrollOffset += scrollAmount;
-            }
-        } else if (direction < 0) {
-            if (scrollOffset > 0) {
-                scrollOffset -= scrollAmount;
-            }
+        int totalContentHeight = totalLines * lineHeight;
+        int visibleHeight = scaledHeight;
+        float scrollAmount = SCROLL_STEP;
+        if (InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) ||
+                InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT)) {
+            scrollAmount *= 5;
         }
-        scrollOffset = Math.max(0, Math.min(scrollOffset, totalLines - visibleLines));
+        if (direction > 0) {
+            scrollOffset = Math.min(scrollOffset + scrollAmount, totalContentHeight - visibleHeight);
+        } else if (direction < 0) {
+            scrollOffset = Math.max(scrollOffset - scrollAmount, 0);
+        }
     }
 
     public void scrollToTop(int scaledHeight) {
+        int lineHeight = minecraftClient.textRenderer.fontHeight;
         int totalLines = getTotalLines();
-        int visibleLines = getVisibleLines(scaledHeight);
-        scrollOffset = totalLines - visibleLines;
+        int totalContentHeight = totalLines * lineHeight;
+        int visibleHeight = scaledHeight;
+        scrollOffset = totalContentHeight - visibleHeight;
         scrollOffset = Math.max(0, scrollOffset);
     }
 
@@ -602,6 +609,15 @@ public class TerminalRenderer {
             selectionEndLine = lineIndex;
             selectionEndChar = charIndex;
         }
+    }
+
+    public void refreshTerminal() {
+        rewrap();
+        minecraftClient.execute(() -> {
+            if (terminalInstance.parentScreen != null) {
+                terminalInstance.parentScreen.init();
+            }
+        });
     }
 
     private int getLineIndexAtPosition(double mouseY) {

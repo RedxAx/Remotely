@@ -25,7 +25,7 @@ public class Render {
         }
         context.fill(x, y, x + buttonW, y + buttonH, bg);
         drawInnerBorder(context, x, y, buttonW, buttonH, hovered ? buttonBorderHoverColor : buttonBorderColor);
-        context.fill(x, y + buttonH, x + buttonW, y + buttonH + 2, hovered ? 0xFF0b0b0b : 0xFF000000);
+        drawOuterBorder(context, x, y, buttonW, buttonH, tabBottomBorderColor);
         int tw = mc.textRenderer.getWidth(text);
         int tx = centered ? x + (buttonW - tw) / 2 : x + 5;
         int ty = y + (buttonH - mc.textRenderer.fontHeight) / 2;
@@ -37,6 +37,13 @@ public class Render {
         context.fill(x, y + buttonH - 1, x + buttonW, y + buttonH, i);
         context.fill(x, y, x + 1, y + buttonH, i);
         context.fill(x + buttonW - 1, y, x + buttonW, y + buttonH, i);
+    }
+
+    public static void drawOuterBorder(DrawContext context, int x, int y, int width, int height, int color) {
+        context.fill(x - 1, y - 1, x + width + 1, y, color);
+        context.fill(x - 1, y + height, x + width + 1, y + height + 2, color);
+        context.fill(x - 1, y, x, y + height, color);
+        context.fill(x + width, y, x + width + 1, y + height, color);
     }
 
     public static class ContextMenu {
