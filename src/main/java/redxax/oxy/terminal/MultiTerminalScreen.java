@@ -270,7 +270,7 @@ public class MultiTerminalScreen extends Screen {
             if (activeTerminal instanceof ServerTerminalInstance serverTerminal) {
                 context.fill(0, 0, this.width, topBarHeight, headerBackgroundColor);
                 drawInnerBorder(context, 0, 0, this.width, topBarHeight, headerBorderColor);
-                drawOuterBorder(context, 0, 0, this.width, topBarHeight, tabBottomBorderColor);
+                drawOuterBorder(context, 0, 0, this.width, topBarHeight, globalBottomBorder);
                 ServerInfo sInfo = serverTerminal.getServerInfo();
                 ServerState st = sInfo.state;
                 String stateText = switch (st) {
@@ -308,7 +308,7 @@ public class MultiTerminalScreen extends Screen {
             } else {
                 context.fill(0, 0, this.width, topBarHeight, headerBackgroundColor);
                 drawInnerBorder(context, 0, 0, this.width, topBarHeight, headerBorderColor);
-                drawOuterBorder(context, 0, 0, this.width, topBarHeight, tabBottomBorderColor);
+                drawOuterBorder(context, 0, 0, this.width, topBarHeight, globalBottomBorder);
                 String titleText = "Remotely Terminal";
                 context.drawText(minecraftClient.textRenderer, Text.literal(titleText), 10, 10, screensTitleTextColor, Config.shadow);
                 buttonX = this.width - buttonW - 10;
@@ -362,7 +362,7 @@ public class MultiTerminalScreen extends Screen {
             int bgColor = isTabActive(i) ? tabSelectedBackgroundColor : (tabHovered ? tabBackgroundHoverColor : Config.tabBackgroundColor);
             context.fill((int) renderX, tabOffsetY, (int) renderX + ti.width, tabOffsetY + tabAreaHeight, bgColor);
             drawInnerBorder(context, (int) renderX, tabOffsetY, ti.width, tabAreaHeight, isTabActive(i) ? tabSelectedBorderColor : (tabHovered ? tabBorderHoverColor : tabBorderColor));
-            drawOuterBorder(context, (int) renderX, tabOffsetY, ti.width, tabAreaHeight, tabBottomBorderColor);
+            drawOuterBorder(context, (int) renderX, tabOffsetY, ti.width, tabAreaHeight, globalBottomBorder);
 
             String displayName = ti.name;
             int tx;
@@ -412,7 +412,7 @@ public class MultiTerminalScreen extends Screen {
         int plusBg = plusButtonHovered ? tabBackgroundHoverColor : tabBackgroundColor;
         context.fill((int) renderX, tabOffsetY, (int) renderX + plusW, tabOffsetY + tabAreaHeight, plusBg);
         drawInnerBorder(context, (int) renderX, tabOffsetY, plusW, tabAreaHeight, plusButtonHovered ? tabBorderHoverColor : tabBorderColor);
-        drawOuterBorder(context, (int) renderX, tabOffsetY, plusW, tabAreaHeight, tabBottomBorderColor);
+        drawOuterBorder(context, (int) renderX, tabOffsetY, plusW, tabAreaHeight, globalBottomBorder);
         String plus = "+";
         int pw = minecraftClient.textRenderer.getWidth(plus);
         int ptx = (int) renderX + (plusW - pw) / 2;
@@ -441,7 +441,7 @@ public class MultiTerminalScreen extends Screen {
             context.fill(panelX, panelY, panelX, panelY + panelHeight, snippetPanelBorderColor);
             context.fill(panelX, panelY, panelX + snippetPanelWidth, panelY + panelHeight, snippetPanelBackgroundColor);
             drawInnerBorder(context, panelX, panelY, snippetPanelWidth, panelHeight, snippetPanelBorderColor);
-            drawOuterBorder(context, panelX, panelY, snippetPanelWidth, panelHeight, tabBottomBorderColor);
+            drawOuterBorder(context, panelX, panelY, snippetPanelWidth, panelHeight, globalBottomBorder);
 
             renderSidePanelTabs(context, panelX, panelY, snippetPanelWidth, mouseX, mouseY);
 
@@ -470,14 +470,14 @@ public class MultiTerminalScreen extends Screen {
         if (snippetPopupY + snippetPopupHeight > this.height) snippetPopupY = this.height - snippetPopupHeight - 5;
         context.fill(snippetPopupX, snippetPopupY, snippetPopupX + snippetPopupWidth, snippetPopupY + snippetPopupHeight, terminalScreenBackgroundColor);
         drawInnerBorder(context, snippetPopupX, snippetPopupY, snippetPopupWidth, snippetPopupHeight, snippetElementBorderColor);
-        drawOuterBorder(context, snippetPopupX, snippetPopupY, snippetPopupWidth, snippetPopupHeight, tabBottomBorderColor);
+        drawOuterBorder(context, snippetPopupX, snippetPopupY, snippetPopupWidth, snippetPopupHeight, globalBottomBorder);
         int nameLabelY = snippetPopupY + 5;
         trimAndDrawText(context, "Name:", snippetPopupX + 5, nameLabelY, snippetPopupWidth - 10, screensTitleTextColor);
         int nameBoxY = nameLabelY + 12;
         int nameBoxHeight = 12;
         int nameBoxWidth = snippetPopupWidth - 10;
         context.fill(snippetPopupX + 5, nameBoxY, snippetPopupX + 5 + nameBoxWidth, nameBoxY + nameBoxHeight, snippetNameFocused ? popupFieldSelectedBackgroundColor : popupFieldBackgroundColor);
-        drawOuterBorder(context, snippetPopupX + 5, nameBoxY, nameBoxWidth, nameBoxHeight, tabBottomBorderColor);
+        drawOuterBorder(context, snippetPopupX + 5, nameBoxY, nameBoxWidth, nameBoxHeight, globalBottomBorder);
         String fullName = snippetNameBuffer.toString();
         int wBeforeCursor = minecraftClient.textRenderer.getWidth(fullName.substring(0, Math.min(snippetNameCursorPos, fullName.length())));
         if (wBeforeCursor < snippetNameScrollOffset) snippetNameScrollOffset = wBeforeCursor;
@@ -515,7 +515,7 @@ public class MultiTerminalScreen extends Screen {
         if (commandsBoxHeight < 20) commandsBoxHeight = 20;
         int commandsBoxWidth = snippetPopupWidth - 10;
         context.fill(snippetPopupX + 5, commandsBoxY, snippetPopupX + 5 + commandsBoxWidth, commandsBoxY + commandsBoxHeight, !snippetNameFocused ? popupFieldSelectedBackgroundColor : popupFieldBackgroundColor);
-        drawOuterBorder(context, snippetPopupX + 5, commandsBoxY, commandsBoxWidth, commandsBoxHeight, tabBottomBorderColor);
+        drawOuterBorder(context, snippetPopupX + 5, commandsBoxY, commandsBoxWidth, commandsBoxHeight, globalBottomBorder);
         String fullCommands = snippetCommandsBuffer.toString();
         fullCommands = ensureCursorBounds(fullCommands);
         String[] cmdLines = fullCommands.split("\n", -1);
@@ -562,7 +562,7 @@ public class MultiTerminalScreen extends Screen {
         int shortcutBoxHight = 12;
         int shortcutBoxWidth = snippetPopupWidth - 10;
         context.fill(snippetPopupX + 5, shortcutBoxY, snippetPopupX + 5 + shortcutBoxWidth, shortcutBoxY + shortcutBoxHight, popupFieldBackgroundColor);
-        drawOuterBorder(context, snippetPopupX + 5, shortcutBoxY, shortcutBoxWidth, shortcutBoxHight, tabBottomBorderColor);
+        drawOuterBorder(context, snippetPopupX + 5, shortcutBoxY, shortcutBoxWidth, shortcutBoxHight, globalBottomBorder);
         String shortcutText = snippetShortcutBuffer.isEmpty() ? "No Shortcut" : snippetShortcutBuffer.toString();
         shortcutText = trimTextToWidthWithEllipsis(shortcutText, shortcutBoxWidth - 2);
         context.drawText(minecraftClient.textRenderer, Text.literal(shortcutText), snippetPopupX + 8, shortcutBoxY + 2, screensTitleTextColor, Config.shadow);
@@ -666,7 +666,7 @@ public class MultiTerminalScreen extends Screen {
             int bgColor = hovered ? snippetElementBackgroundHoverColor : snippetElementBackgroundColor;
             context.fill(tX, tY, tX + tW, tY + themeBoxHeight, bgColor);
             drawInnerBorder(context, tX, tY, tW, themeBoxHeight, hovered ? snippetElementBorderHoverColor : snippetElementBorderColor);
-            drawOuterBorder(context, tX, tY, tW, themeBoxHeight, tabBottomBorderColor);
+            drawOuterBorder(context, tX, tY, tW, themeBoxHeight, globalBottomBorder);
             String displayName = trimTextToWidthWithEllipsis(theme.name, tW - 10);
             context.drawText(minecraftClient.textRenderer, Text.literal(displayName), tX + 5, tY + 8, snippetElementTextColor, Config.shadow);
             yOffset += themeBoxHeight + 5;
@@ -681,7 +681,7 @@ public class MultiTerminalScreen extends Screen {
         }
         context.fill(snippetX, snippetY, snippetX + snippetMaxWidth, snippetY + snippetHeight, bgColor);
         drawInnerBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, lastClickedSnippet == index ? snippetElementSelectedBorderColor : hovered ? snippetElementBorderHoverColor : snippetElementBorderColor);
-        drawOuterBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, tabBottomBorderColor);
+        drawOuterBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, globalBottomBorder);
         String displayName = trimTextToWidthWithEllipsis(snippet.name, snippetMaxWidth - 10);
         context.drawText(minecraftClient.textRenderer, Text.literal(displayName), snippetX + 5, snippetY + 5, hovered ? snippetElementTextHoverColor : snippetElementTextColor, Config.shadow);
         context.fill(snippetX + 5, snippetY + 5 + minecraftClient.textRenderer.fontHeight + 1, snippetX + snippetMaxWidth - 5, snippetY + 5 + minecraftClient.textRenderer.fontHeight + 2, snippetElementBorderHoverColor);

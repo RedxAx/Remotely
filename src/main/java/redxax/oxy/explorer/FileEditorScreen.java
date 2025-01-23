@@ -746,6 +746,7 @@ public class FileEditorScreen extends Screen {
         int titleBarHeight = 30;
         context.fill(0, 0, this.width, titleBarHeight, headerBackgroundColor);
         drawInnerBorder(context, 0, 0, this.width, titleBarHeight, headerBorderColor);
+        drawOuterBorder(context, 0, 0, this.width, titleBarHeight, globalBottomBorder);
         String titleText = "Remotely - File Editor";
         context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, screensTitleTextColor, Config.shadow);
         int searchBarX = (this.width - searchBarWidth) / 2;
@@ -753,6 +754,7 @@ public class FileEditorScreen extends Screen {
         int fieldColor = customSearchBarFocused ? (aiMode ? airBarBackgroundColor : searchBarActiveBackgroundColor) : searchBarBackgroundColor;
         context.fill(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight, fieldColor);
         drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, customSearchBarFocused ? (aiMode ? airBarBorderColor : searchBarActiveBorderColor) : searchBarBorderColor);
+        drawOuterBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, globalBottomBorder);
         if (customSelectionStart != -1 && customSelectionEnd != -1 && customSelectionStart != customSelectionEnd) {
             int selStart = Math.min(customSelectionStart, customSelectionEnd);
             int selEnd = Math.max(customSelectionStart, customSelectionEnd);
@@ -799,8 +801,8 @@ public class FileEditorScreen extends Screen {
             int bgColor = isActive ? (tab.unsaved ? tabUnsavedBackgroundColor : tabSelectedBackgroundColor) : (isHovered ? tabBackgroundHoverColor : tabBackgroundColor);
             context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
             drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? (tab.unsaved ? tabUnsavedBorderColor : tabSelectedBorderColor) : (isHovered ? tabBorderHoverColor : tabBorderColor));
+            drawOuterBorder(context, tabX, tabY, tabWidth, tabBarHeight, globalBottomBorder);
             context.drawText(this.textRenderer, Text.literal(tab.unsaved ? tab.name + "*" : tab.name), tabX + TAB_PADDING, tabY + 5, isHovered ? tabTextHoverColor : tabTextColor, Config.shadow);
-            context.fill(tabX, tabY + tabBarHeight, tabX + tabWidth, tabY + tabBarHeight + 2, tabBottomBorderColor);
             tabX += tabWidth + TAB_GAP;
         }
         int editorY = tabBarY + tabBarHeight + 5;
@@ -809,6 +811,7 @@ public class FileEditorScreen extends Screen {
         int editorWidth = this.width - 10;
         context.fill(editorX, editorY, editorX + editorWidth, editorY + editorHeight, editorInnerBackgroundColor);
         drawInnerBorder(context, editorX, editorY, editorWidth, editorHeight, editorBorderColor);
+        drawOuterBorder(context, editorX, editorY, editorWidth, editorHeight, globalBottomBorder);
         tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
         int buttonX = this.width - buttonW - 10;
         int ButtonY = 5;

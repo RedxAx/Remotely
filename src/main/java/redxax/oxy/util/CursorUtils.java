@@ -42,12 +42,11 @@ public class CursorUtils {
     }
 
     public static int blendColor() {
-        int color = cursorColor;
         float opacity = cursorOpacity;
-        int a = (int) ((color >> 24 & 0xFF) * opacity);
-        int r = (color >> 16 & 0xFF);
-        int g = (color >> 8 & 0xFF);
-        int b = (color & 0xFF);
+        int a = (int) ((cursorColor >> 24 & 0xFF) * opacity);
+        int r = (cursorColor >> 16 & 0xFF);
+        int g = (cursorColor >> 8 & 0xFF);
+        int b = (cursorColor & 0xFF);
         return (a << 24) | (r << 16) | (g << 8) | b;
     }
 }

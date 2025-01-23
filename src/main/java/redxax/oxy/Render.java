@@ -25,7 +25,7 @@ public class Render {
         }
         context.fill(x, y, x + buttonW, y + buttonH, bg);
         drawInnerBorder(context, x, y, buttonW, buttonH, hovered ? buttonBorderHoverColor : buttonBorderColor);
-        drawOuterBorder(context, x, y, buttonW, buttonH, tabBottomBorderColor);
+        drawOuterBorder(context, x, y, buttonW, buttonH, globalBottomBorder);
         int tw = mc.textRenderer.getWidth(text);
         int tx = centered ? x + (buttonW - tw) / 2 : x + 5;
         int ty = y + (buttonH - mc.textRenderer.fontHeight) / 2;

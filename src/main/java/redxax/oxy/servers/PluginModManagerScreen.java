@@ -413,6 +413,7 @@ public class PluginModManagerScreen extends Screen {
         int titleBarHeight = 30;
         context.fill(0, 0, this.width, titleBarHeight, headerBackgroundColor);
         drawInnerBorder(context, 0, 0, this.width, titleBarHeight, headerBorderColor);
+        drawOuterBorder(context, 0, 0, this.width, titleBarHeight, globalBottomBorder);
         context.drawText(this.textRenderer, Text.literal(this.getTitle().getString()), 10, 10, screensTitleTextColor, Config.shadow);
         int tabBarY = titleBarHeight + 5;
         int tabBarHeight = TAB_HEIGHT;
@@ -426,10 +427,10 @@ public class PluginModManagerScreen extends Screen {
             int bgColor = isActive ? currentTabIndex == 0 ? ModrinthBackgroundColor :currentTabIndex == 1 ? SpigotBackgroundColor : HangarBackgroundColor : (isHovered ? tabBackgroundHoverColor : tabBackgroundColor);
             context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
             drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? currentTabIndex == 0 ? ModrinthBorderColor :currentTabIndex == 1 ? SpigotBorderColor : HangarBorderColor : (isHovered ? tabBorderHoverColor : tabBorderColor));
+            drawOuterBorder(context, tabX, tabY, tabWidth, tabBarHeight, globalBottomBorder);
             int textX = tabX + TAB_PADDING;
             int textY = tabY + (tabBarHeight - textRenderer.fontHeight) / 2;
             context.drawText(textRenderer, Text.literal(tab.name), textX, textY, isHovered ? tabTextHoverColor : tabTextColor, Config.shadow);
-            context.fill(tabX, tabY + tabBarHeight, tabX + tabWidth, tabY + tabBarHeight + 2,  tabBottomBorderColor);
             tabX += tabWidth + TAB_GAP;
         }
         int textFieldHeight = 20;
@@ -440,6 +441,7 @@ public class PluginModManagerScreen extends Screen {
         int fieldColor = fieldFocused ? searchBarActiveBackgroundColor : searchBarBackgroundColor;
         context.fill(textFieldX, textFieldY, textFieldX + textFieldW, textFieldY + textFieldH, fieldColor);
         drawInnerBorder(context, textFieldX, textFieldY, textFieldW, textFieldH, fieldFocused ? searchBarActiveBorderColor : searchBarBorderColor);
+        drawOuterBorder(context, textFieldX, textFieldY, textFieldW, textFieldH, globalBottomBorder);
         if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
             int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
             int selEnd = Math.min(fieldText.length(), Math.max(selectionStart, selectionEnd));
@@ -462,7 +464,7 @@ public class PluginModManagerScreen extends Screen {
         }
         pathTargetScrollOffset = Math.max(0, Math.min(pathTargetScrollOffset, textWidth - textFieldW + 10));
         pathScrollOffset += (pathTargetScrollOffset - pathScrollOffset) * scrollSpeed;
-        context.enableScissor(textFieldX, textFieldY, textFieldX + textFieldW, textFieldY + textFieldH);
+        context.enableScissor(textFieldX -2, textFieldY, textFieldX + textFieldW +4, textFieldY + textFieldH);
         context.drawText(textRenderer, Text.literal(displayText), textFieldX + 5 - (int) pathScrollOffset, textFieldY + 5, tabTextColor, Config.shadow);
         if (fieldFocused && showCursor) {
             String beforeCursor = cursorPosition <= displayText.length() ? displayText.substring(0, cursorPosition) : displayText;
@@ -481,6 +483,7 @@ public class PluginModManagerScreen extends Screen {
         int contentWidth = this.width - 10;
         context.fill(contentX, contentY - 25, contentX + contentWidth, contentY, headerBackgroundColor);
         drawInnerBorder(context, contentX, contentY - 25, contentWidth, 25, headerBorderColor);
+        drawOuterBorder(context, contentX, contentY - 25, contentWidth, 25, globalBottomBorder);
         context.drawText(textRenderer, Text.literal("Name"), contentX + 10, contentY - 18, screensTitleTextColor, Config.shadow);
         context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
         if (isLoading && resources.isEmpty()) {
@@ -511,7 +514,7 @@ public class PluginModManagerScreen extends Screen {
             int borderColorFinal = isSelected ? currentTabIndex == 0 ? ModrinthBorderColor :currentTabIndex == 1 ? SpigotBorderColor : HangarBorderColor : (hovered ? browserElementBorderHoverColor : browserElementBorderColor);
             context.fill(contentX, y, contentX + contentWidth, y + entryHeight, bg);
             drawInnerBorder(context, contentX, y, contentWidth, entryHeight, borderColorFinal);
-            context.fill(contentX, y + entryHeight + 1, contentX + contentWidth, y + entryHeight, tabBottomBorderColor);
+            drawOuterBorder(context, contentX, y, contentWidth, entryHeight, globalBottomBorder);
             BufferedImage scaledImage = resource.getIconUrl().isEmpty() ? placeholderIcon : scaledIcons.getOrDefault(resource.getIconUrl(), placeholderIcon);
             drawBufferedImage(context, scaledImage, contentX + 5, y + (entryHeight - 30) / 2, 30, 30);
             int colorToUse = resourceColors.getOrDefault(resource.getSlug(), colorNotDownloaded);
@@ -915,13 +918,6 @@ public class PluginModManagerScreen extends Screen {
         int lastDot = filename.lastIndexOf('.');
         if (lastDot == -1) return filename;
         return filename.substring(0, lastDot);
-    }
-
-    private void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int c) {
-        context.fill(x, y, x + w, y + 1, c);
-        context.fill(x, y + h - 1, x + w, y + h, c);
-        context.fill(x, y, x + 1, y + h, c);
-        context.fill(x + w - 1, y, x + w, y + h, c);
     }
 
     private void nextSort() {

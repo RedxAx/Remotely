@@ -66,7 +66,7 @@ public class TerminalRenderer {
         }
         context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, terminalBackgroundColor);
         drawInnerBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, terminalBorderColor);
-        drawOuterBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, tabBottomBorderColor);
+        drawOuterBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, globalBottomBorder);
         int padding = 2;
         int textAreaX = terminalX + padding;
         int textAreaY = terminalY + padding;
