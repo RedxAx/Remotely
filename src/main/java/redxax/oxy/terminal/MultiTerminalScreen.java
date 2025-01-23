@@ -476,7 +476,8 @@ public class MultiTerminalScreen extends Screen {
         int nameBoxY = nameLabelY + 12;
         int nameBoxHeight = 12;
         int nameBoxWidth = snippetPopupWidth - 10;
-        context.fill(snippetPopupX + 5, nameBoxY, snippetPopupX + 5 + nameBoxWidth, nameBoxY + nameBoxHeight, snippetNameFocused ? 0xFF444466 : 0xFF333333);
+        context.fill(snippetPopupX + 5, nameBoxY, snippetPopupX + 5 + nameBoxWidth, nameBoxY + nameBoxHeight, snippetNameFocused ? popupFieldSelectedBackgroundColor : popupFieldBackgroundColor);
+        drawOuterBorder(context, snippetPopupX + 5, nameBoxY, nameBoxWidth, nameBoxHeight, tabBottomBorderColor);
         String fullName = snippetNameBuffer.toString();
         int wBeforeCursor = minecraftClient.textRenderer.getWidth(fullName.substring(0, Math.min(snippetNameCursorPos, fullName.length())));
         if (wBeforeCursor < snippetNameScrollOffset) snippetNameScrollOffset = wBeforeCursor;
@@ -513,7 +514,8 @@ public class MultiTerminalScreen extends Screen {
         int commandsBoxHeight = snippetPopupHeight - (commandsBoxY - snippetPopupY) - 60;
         if (commandsBoxHeight < 20) commandsBoxHeight = 20;
         int commandsBoxWidth = snippetPopupWidth - 10;
-        context.fill(snippetPopupX + 5, commandsBoxY, snippetPopupX + 5 + commandsBoxWidth, commandsBoxY + commandsBoxHeight, !snippetNameFocused ? 0xFF444466 : 0xFF333333);
+        context.fill(snippetPopupX + 5, commandsBoxY, snippetPopupX + 5 + commandsBoxWidth, commandsBoxY + commandsBoxHeight, !snippetNameFocused ? popupFieldSelectedBackgroundColor : popupFieldBackgroundColor);
+        drawOuterBorder(context, snippetPopupX + 5, commandsBoxY, commandsBoxWidth, commandsBoxHeight, tabBottomBorderColor);
         String fullCommands = snippetCommandsBuffer.toString();
         fullCommands = ensureCursorBounds(fullCommands);
         String[] cmdLines = fullCommands.split("\n", -1);
@@ -559,7 +561,8 @@ public class MultiTerminalScreen extends Screen {
         int shortcutBoxY = shortcutLabelY + 12;
         int shortcutBoxHight = 12;
         int shortcutBoxWidth = snippetPopupWidth - 10;
-        context.fill(snippetPopupX + 5, shortcutBoxY, snippetPopupX + 5 + shortcutBoxWidth, shortcutBoxY + shortcutBoxHight, 0xFF333333);
+        context.fill(snippetPopupX + 5, shortcutBoxY, snippetPopupX + 5 + shortcutBoxWidth, shortcutBoxY + shortcutBoxHight, popupFieldBackgroundColor);
+        drawOuterBorder(context, snippetPopupX + 5, shortcutBoxY, shortcutBoxWidth, shortcutBoxHight, tabBottomBorderColor);
         String shortcutText = snippetShortcutBuffer.isEmpty() ? "No Shortcut" : snippetShortcutBuffer.toString();
         shortcutText = trimTextToWidthWithEllipsis(shortcutText, shortcutBoxWidth - 2);
         context.drawText(minecraftClient.textRenderer, Text.literal(shortcutText), snippetPopupX + 8, shortcutBoxY + 2, screensTitleTextColor, Config.shadow);

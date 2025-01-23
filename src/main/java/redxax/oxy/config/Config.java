@@ -110,6 +110,8 @@ public class Config {
     public static int terminalTextInfoColor = 0x00FF00;
     public static int terminalSelectionColor = 0x80FFFFFF;
 
+    public static int cursorColor = 0xFFd6f264;
+
     public static int searchBarBackgroundColor = 0xFF2C2C2C;
     public static int searchBarBorderColor = 0xFF444444;
     public static int searchBarActiveBackgroundColor = 0xFF0B371C;
@@ -118,4 +120,7 @@ public class Config {
     public static int searchBarExplorerActiveBorderColor = 0xFFDF3E23;
     public static int airBarBackgroundColor = 0xFF17253B;
     public static int airBarBorderColor = 0xFF6CC4F1;
+
+    public static int popupFieldBackgroundColor = 0xFF333333;
+    public static int popupFieldSelectedBackgroundColor = 0xFF526644;
 }
