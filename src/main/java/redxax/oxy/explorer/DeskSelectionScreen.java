@@ -74,10 +74,13 @@ public class DeskSelectionScreen extends Screen {
     private void loadObjects() {
         objectItems.clear();
         try {
-            Path favoritesFilePath = Paths.get("C:/remotely/data/favorites.dat");
+            Path favoritesFilePath = Paths.get("C:/remotely/data/favorites.json");
             Set<String> favoriteLines = new HashSet<>();
             if (Files.exists(favoritesFilePath)) {
-                favoriteLines.addAll(Files.readAllLines(favoritesFilePath));
+                BufferedReader br = new BufferedReader(new FileReader(favoritesFilePath.toFile()));
+                Gson gson = new Gson();
+                List<String> favorites = gson.fromJson(br, new TypeToken<List<String>>(){}.getType());
+                favoriteLines.addAll(favorites);
             }
             for (File root : File.listRoots()) {
                 ObjectItem item = new ObjectItem();
@@ -144,6 +147,7 @@ public class DeskSelectionScreen extends Screen {
         renderBackground(context, mouseX, mouseY, delta);
         context.fill(0, 0, this.width, 30, headerBackgroundColor);
         drawInnerBorder(context, 0, 0, this.width, 30, headerBorderColor);
+        drawOuterBorder(context, 0, 0, this.width, 30, globalBottomBorder);
         context.drawText(this.textRenderer, Text.literal("Remotely - New Tab"), 10, 10, screensTitleTextColor, Config.shadow);
         int headerY = 35;
         int gridX = spacing;
@@ -168,6 +172,7 @@ public class DeskSelectionScreen extends Screen {
             int bgColor = item.isFavorite ? explorerElementFavoriteBackgroundColor : (hovered ? explorerElementBackgroundHoverColor : explorerElementBackgroundColor);
             context.fill(drawX, drawY, drawX + itemWidth, drawY + itemHeight, bgColor);
             drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, item.isFavorite ? explorerElementFavoriteSelectedBorderColor : (hovered ? explorerElementBorderHoverColor : explorerElementBorderColor));
+            drawOuterBorder(context, drawX, drawY, itemWidth, itemHeight, globalBottomBorder);
             BufferedImage icon = item.isDirectory ? folderIcon : fileIcon;
             drawBufferedImage(context, icon, drawX + 7, drawY + (itemHeight / 2) - 8, 16, 16);
             if (item.isFavorite) {

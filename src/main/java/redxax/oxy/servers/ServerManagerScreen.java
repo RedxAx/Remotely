@@ -157,6 +157,7 @@ public class ServerManagerScreen extends Screen {
         super.render(context, mouseX, mouseY, delta);
         context.fill(0, 0, this.width, topBarHeight, headerBackgroundColor);
         drawInnerBorder(context, 0, 0, this.width, topBarHeight, headerBorderColor);
+        drawOuterBorder(context, 0, 0, this.width, topBarHeight, globalBottomBorder);
         String title = "Remotely - Server Manager";
         context.drawText(minecraftClient.textRenderer, Text.literal(title), 10, 10, screensTitleTextColor, Config.shadow);
         int closeButtonY = 5;
@@ -170,6 +171,7 @@ public class ServerManagerScreen extends Screen {
         int panelWidth = this.width - 10;
         context.fill(5, contentYStart, 5 + panelWidth, contentYStart + panelHeight, headerBackgroundColor);
         drawInnerBorder(context, 5, contentYStart, panelWidth, panelHeight, headerBorderColor);
+        drawOuterBorder(context, 5, contentYStart, panelWidth, panelHeight, globalBottomBorder);
         if (activeTabIndex == 0) {
             if (loading) {
                 if (currentTime - lastFrameTime >= 40) {
@@ -213,6 +215,7 @@ public class ServerManagerScreen extends Screen {
             serverTypePopupY = (this.height - serverTypePopupHeight) / 2;
             context.fill(serverTypePopupX, serverTypePopupY, serverTypePopupX + serverTypePopupWidth, serverTypePopupY + serverTypePopupHeight, serverScreenBackgroundColor);
             drawInnerBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, serverElementBorderColor);
+            drawOuterBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, globalBottomBorder);
             String stTitle = "Select Action";
             int stTitleW = minecraftClient.textRenderer.getWidth(stTitle);
             int stTitleX = serverTypePopupX + (serverTypePopupWidth - stTitleW) / 2;
@@ -233,6 +236,7 @@ public class ServerManagerScreen extends Screen {
             serverPopupY = (this.height - serverPopupHeight) / 2;
             context.fill(serverPopupX, serverPopupY, serverPopupX + serverPopupWidth, serverPopupY + serverPopupHeight, serverScreenBackgroundColor);
             drawInnerBorder(context, serverPopupX, serverPopupY, serverPopupWidth, serverPopupHeight, serverElementBorderColor);
+            drawOuterBorder(context, serverPopupX, serverPopupY, serverPopupWidth, serverPopupHeight, globalBottomBorder);
             if (deletingServer) {
                 renderDeletePopup(context, mouseX, mouseY);
             } else {
@@ -244,6 +248,7 @@ public class ServerManagerScreen extends Screen {
             int py = (this.height - remoteHostPopupH) / 2;
             context.fill(px, py, px + remoteHostPopupW, py + remoteHostPopupH, serverScreenBackgroundColor);
             drawInnerBorder(context, px, py, remoteHostPopupW, remoteHostPopupH, serverScreenBackgroundColor);
+            drawOuterBorder(context, px, py, remoteHostPopupW, remoteHostPopupH, globalBottomBorder);
             int labelY = py + 5;
             context.drawText(minecraftClient.textRenderer, Text.literal("Host Name:"), px + 5, labelY, buttonTextColor, false);
             int nameBoxY = labelY + 10;
@@ -338,7 +343,7 @@ public class ServerManagerScreen extends Screen {
             int bgColor = (i == activeTabIndex) ? tabSelectedBackgroundColor : (tabHovered ? tabBackgroundHoverColor : tabBackgroundColor);
             context.fill((int) renderX, tabY, (int) renderX + ti.width, tabY + tabAreaHeight, bgColor);
             drawInnerBorder(context, (int) renderX, tabY, ti.width, tabAreaHeight,(i == activeTabIndex) ? tabSelectedBorderColor : (tabHovered ? tabBorderHoverColor : tabBorderColor));
-            context.fill((int) renderX, tabY + tabAreaHeight, (int) renderX + ti.width, tabY + tabAreaHeight + 2, tabBottomBorderColor);
+            drawOuterBorder(context, (int) renderX, tabY, ti.width, tabAreaHeight, globalBottomBorder);
             int tx = (int) renderX + (ti.width - minecraftClient.textRenderer.getWidth(ti.name)) / 2;
             int ty = tabY + (tabAreaHeight - minecraftClient.textRenderer.fontHeight) / 2;
             context.drawText(minecraftClient.textRenderer, Text.literal(ti.name), tx, ty, tabHovered ? tabTextHoverColor : tabTextColor, false);
@@ -349,6 +354,7 @@ public class ServerManagerScreen extends Screen {
         int plusBg = remoteTabPlusHovered ? tabBackgroundHoverColor : tabBackgroundColor;
         context.fill((int) renderX, tabY, (int) renderX + plusW, tabY + tabAreaHeight, plusBg);
         drawInnerBorder(context, (int) renderX, tabY, plusW, tabAreaHeight, remoteTabPlusHovered ? tabBorderHoverColor : tabBorderColor);
+        drawOuterBorder(context, (int) renderX, tabY, plusW, tabAreaHeight, globalBottomBorder);
         String plus = "+";
         int pw = minecraftClient.textRenderer.getWidth(plus);
         int ptx = (int) renderX + (plusW - pw) / 2;
@@ -364,7 +370,7 @@ public class ServerManagerScreen extends Screen {
         int startIndex = (int) Math.floor(smoothOffset / (entryHeight + 1));
         int endIndex = startIndex + visibleEntries + 2;
         if (endIndex > currentServers.size()) endIndex = currentServers.size();
-        context.enableScissor(5, contentYStart, panelWidth, panelHeight);
+        context.enableScissor(5, contentYStart, panelWidth + 2, panelHeight);
         hoveredServerIndex = -1;
         for (int i = startIndex; i < endIndex; i++) {
             ServerInfo info = currentServers.get(i);
@@ -378,6 +384,7 @@ public class ServerManagerScreen extends Screen {
             context.fill(listX, serverY, listX + panelWidth - 10, serverY + entryHeight, bgColor);
             int bdr = hovered ? serverElementBorderHoverColor : serverElementBorderColor;
             drawInnerBorder(context, listX, serverY, panelWidth - 10, entryHeight, bdr);
+            drawOuterBorder(context, listX, serverY, panelWidth - 10, entryHeight, globalBottomBorder);
             String nameStr = info.name;
             context.drawText(minecraftClient.textRenderer, Text.literal(nameStr), listX + 5, serverY + 5, serverElementTextColor, false);
             String pathStr = trimTextToWidthWithEllipsis(info.path, (panelWidth - 140));
@@ -1741,6 +1748,7 @@ public class ServerManagerScreen extends Screen {
         int bg = hovered ? serverElementBackgroundHoverColor : serverElementBackgroundColor;
         context.fill(boxX, boxY, boxX + boxW, boxY + boxH, bg);
         drawInnerBorder(context, boxX, boxY, boxW, boxH, hovered ? serverElementBorderHoverColor : serverElementBorderColor);
+        drawOuterBorder(context, boxX, boxY, boxW, boxH, globalBottomBorder);
         int tw = minecraftClient.textRenderer.getWidth(text);
         int tx = boxX + (boxW - tw) / 2;
         int ty = boxY + (boxH - minecraftClient.textRenderer.fontHeight) / 2;

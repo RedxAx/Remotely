@@ -274,14 +274,15 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             int bgColor = isActive ? tabSelectedBackgroundColor : (isHovered ? tabBackgroundHoverColor : tabBackgroundColor);
             context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
             drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? tabSelectedBorderColor : isHovered ? tabBorderHoverColor : tabBorderColor);
+            drawOuterBorder(context, tabX, tabY, tabWidth, tabBarHeight, globalBottomBorder);
             context.drawText(this.textRenderer, Text.literal(tab.getAnimatedText()), tabX + TAB_PADDING, tabY + 5, isHovered ? tabTextHoverColor : tabTextColor, Config.shadow);
-            context.fill(tabX, tabY + tabBarHeight, tabX + tabWidth, tabY + tabBarHeight + 2, tabBottomBorderColor);
             tabX += tabWidth + TAB_GAP;
         }
         int plusTabX = tabX;
         boolean isPlusTabHovered = mouseX >= plusTabX && mouseX <= plusTabX + PLUS_TAB_WIDTH && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
         context.fill(plusTabX, tabY, plusTabX + PLUS_TAB_WIDTH, tabY + tabBarHeight, isPlusTabHovered ? tabBackgroundHoverColor : tabBackgroundColor);
         drawInnerBorder(context, plusTabX, tabY, PLUS_TAB_WIDTH, tabBarHeight, isPlusTabHovered ? tabBorderHoverColor : tabBorderColor);
+        drawOuterBorder(context, plusTabX, tabY, PLUS_TAB_WIDTH, tabBarHeight, globalBottomBorder);
         context.drawText(this.textRenderer, Text.literal("+"), plusTabX + PLUS_TAB_WIDTH / 2 - textRenderer.getWidth("+") / 2, tabY + 5, isPlusTabHovered ? tabTextHoverColor : tabTextColor, Config.shadow);
         int explorerY = tabBarY + tabBarHeight + 30;
         int explorerHeight = this.height - explorerY - 10;
@@ -299,6 +300,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         }
         context.fill(0, 0, this.width, titleBarHeight, headerBackgroundColor);
         drawInnerBorder(context, 0, 0, this.width, titleBarHeight, headerBorderColor);
+        drawOuterBorder(context, 0, 0, this.width, titleBarHeight, globalBottomBorder);
         String prefixText = "Remotely - File Explorer";
         context.drawText(this.textRenderer, Text.literal(prefixText), 10, 10, screensTitleTextColor, Config.shadow);
         int fieldWidthDynamic = basePathFieldWidth;
@@ -311,6 +313,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int fieldColor = fieldFocused ? (currentMode == Mode.SEARCH ? searchBarExplorerActiveBackgroundColor : searchBarActiveBackgroundColor) : searchBarBackgroundColor;
         context.fill(fieldX, fieldY, fieldX + fieldWidthDynamic, fieldY + fieldHeight, fieldColor);
         drawInnerBorder(context, fieldX, fieldY, fieldWidthDynamic, fieldHeight, fieldFocused ? (currentMode == Mode.SEARCH ? searchBarExplorerActiveBorderColor : searchBarActiveBorderColor) : searchBarBorderColor);
+        drawOuterBorder(context, fieldX, fieldY, fieldWidthDynamic, fieldHeight, globalBottomBorder);
         if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
             int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
             int selEnd = Math.min(fieldText.length(), Math.max(selectionStart, selectionEnd));
@@ -385,7 +388,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int visibleEntries = explorerHeight / itemHeight;
         int totalHeight = entriesToRender.size() * itemHeight;
         int startIndex = (int) Math.floor(smoothOffset / itemHeight);
-        int endIndex = startIndex + visibleEntries + 1;
+        int endIndex = startIndex + visibleEntries + 3;
         if (endIndex > entriesToRender.size()) endIndex = entriesToRender.size();
         context.enableScissor(explorerX, explorerY, explorerX + explorerWidth, explorerY + explorerHeight);
         if (entriesToRender.isEmpty() && !loading) {
@@ -411,6 +414,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 int bg = isSelected ? (isFavorite ? explorerElementFavoriteBackgroundColor : explorerElementSelectedBackgroundColor) : (hovered ? explorerElementBackgroundHoverColor : explorerElementBackgroundColor);
                 int borderWithOpacity = isFavorite ? isSelected ? explorerElementFavoriteSelectedBorderColor : explorerElementFavoriteBorderColor : (isSelected ? explorerElementSelectedBorderColor : (hovered ? explorerElementBorderHoverColor : explorerElementBorderColor));
                 int textWithOpacity = explorerElementTextColor;
+                drawOuterBorder(context, explorerX, entryY, explorerWidth, entryHeight, globalBottomBorder);
                 context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
                 drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
                 context.fill(explorerX, entryY + entryHeight - 1, explorerX + explorerWidth, entryY + entryHeight, borderWithOpacity);
@@ -425,6 +429,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     int renameBoxWidth = Math.max(100, textRenderer.getWidth(renameBuffer.toString()) + 20);
                     context.fill(renameBoxX, renameBoxY, renameBoxX + renameBoxWidth, renameBoxY + textRenderer.fontHeight + 4, explorerElementBackgroundColor);
                     drawInnerBorder(context, renameBoxX, renameBoxY, renameBoxWidth, textRenderer.fontHeight + 4, explorerElementBorderColor);
+                    drawOuterBorder(context, renameBoxX, renameBoxY, renameBoxWidth, textRenderer.fontHeight + 4, globalBottomBorder);
                     String displayed = renameBuffer.toString();
                     int renameCursorX = renameBoxX + 2 + textRenderer.getWidth(displayed.substring(0, Math.min(renameCursorPos, displayed.length())));
                     context.drawText(this.textRenderer, Text.literal(displayed), renameBoxX + 2, renameBoxY + 2, textWithOpacity, false);
@@ -1763,6 +1768,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
             context.fill((int) x, (int) y, (int) x + width, (int) y + height, color);
             drawInnerBorder(context, (int) x, (int) y, width, height, blendColor(0xFF000000, currentOpacity));
+            drawOuterBorder(context, (int) x, (int) y, width, height, globalBottomBorder);
             context.drawText(textRenderer, Text.literal(message), (int) x + padding, (int) y + padding, blendColor(0xFFFFFFFF, currentOpacity), Config.shadow);
         }
         private int blendColor(int color, float opacity) {

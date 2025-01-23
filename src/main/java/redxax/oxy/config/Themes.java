@@ -96,7 +96,7 @@ public class Themes {
                 case "tabUnsavedBackgroundColor" -> Config.tabUnsavedBackgroundColor = entry.getValue();
                 case "tabUnsavedBorderColor" -> Config.tabUnsavedBorderColor = entry.getValue();
                 case "tabBorderHoverColor" -> Config.tabBorderHoverColor = entry.getValue();
-                case "tabBottomBorderColor" -> Config.tabBottomBorderColor = entry.getValue();
+                case "globalBottomBorder" -> Config.globalBottomBorder = entry.getValue();
                 case "screensTitleTextColor" -> Config.screensTitleTextColor = entry.getValue();
                 case "terminalScreenBackgroundColor" -> Config.terminalScreenBackgroundColor = entry.getValue();
                 case "explorerScreenBackgroundColor" -> Config.explorerScreenBackgroundColor = entry.getValue();
@@ -188,6 +188,9 @@ public class Themes {
                 case "buttonTextStartColor" -> Config.buttonTextStartColor = entry.getValue();
                 case "buttonTextStopColor" -> Config.buttonTextStopColor = entry.getValue();
                 case "buttonTextCancelColor" -> Config.buttonTextCancelColor = entry.getValue();
+                case "cursorColor" -> Config.cursorColor = entry.getValue();
+                case "popupFieldBackgroundColor" -> Config.popupFieldBackgroundColor = entry.getValue();
+                case "popupFieldSelectedBackgroundColor" -> Config.popupFieldSelectedBackgroundColor = entry.getValue();
                 default -> devPrint("Unknown theme key: " + entry.getKey());
             }
         }

@@ -62,6 +62,7 @@ public class ResponseManager {
             height = Math.max(30, (lines.size() * lineHeight) + 10);
             context.fill(x, y, x + width, y + height, airBarBackgroundColor);
             drawInnerBorder(context, x, y, width, height, airBarBorderColor);
+            drawOuterBorder(context, x, y, width, height, globalBottomBorder);
             int drawY = y + 5;
             for (String l : lines) {
                 context.drawText(minecraftClient.textRenderer, Text.literal(l), x + 5, drawY, 0xFFFFFF, Config.shadow);

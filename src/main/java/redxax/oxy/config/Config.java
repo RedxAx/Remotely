@@ -14,7 +14,7 @@ public class Config {
     public static int tabBackgroundHoverColor = 0xFF444444;
     public static int tabTextColor = 0xFFFFFFFF;
     public static int tabTextHoverColor = 0xFFd6f264;
-    public static int tabBottomBorderColor = 0xFF000000;
+    public static int globalBottomBorder = 0xFF000000;
 
     public static int ModrinthBorderColor = 0xFFd6f264;
     public static int ModrinthBackgroundColor = 0xFF0b371c;
