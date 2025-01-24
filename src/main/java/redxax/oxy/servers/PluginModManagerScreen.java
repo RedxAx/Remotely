@@ -94,14 +94,13 @@ public class PluginModManagerScreen extends Screen {
     private final int colorDownloadFail = 0xFFFF0000;
     private final int colorNotDownloaded = 0xFF999999;
 
-    // Retry mechanism variables
     private final Map<String, Integer> imageLoadRetries = new ConcurrentHashMap<>();
     private static final int MAX_IMAGE_LOAD_RETRIES = 3;
 
     private enum TabMode { MODRINTH, SPIGOT, HANGAR, SORT }
-    private static class Tab {
+    public static class Tab {
         TabMode mode;
-        String name;
+        public String name;
         float scrollOffset;
         Tab(TabMode mode, String name) {
             this.mode = mode;
@@ -417,61 +416,28 @@ public class PluginModManagerScreen extends Screen {
         context.drawText(this.textRenderer, Text.literal(this.getTitle().getString()), 10, 10, screensTitleTextColor, Config.shadow);
         int tabBarY = titleBarHeight + 5;
         int tabBarHeight = TAB_HEIGHT;
-        int tabX = 5;
-        int tabY = tabBarY;
-        for (int i = 0; i < tabs.size(); i++) {
-            Tab tab = tabs.get(i);
-            int tabWidth = textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
-            boolean isActive = (i == currentTabIndex && tab.mode != TabMode.SORT);
-            boolean isHovered = mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
-            int bgColor = isActive ? currentTabIndex == 0 ? ModrinthBackgroundColor :currentTabIndex == 1 ? SpigotBackgroundColor : HangarBackgroundColor : (isHovered ? tabBackgroundHoverColor : tabBackgroundColor);
-            context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
-            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? currentTabIndex == 0 ? ModrinthBorderColor :currentTabIndex == 1 ? SpigotBorderColor : HangarBorderColor : (isHovered ? tabBorderHoverColor : tabBorderColor));
-            drawOuterBorder(context, tabX, tabY, tabWidth, tabBarHeight, globalBottomBorder);
-            int textX = tabX + TAB_PADDING;
-            int textY = tabY + (tabBarHeight - textRenderer.fontHeight) / 2;
-            context.drawText(textRenderer, Text.literal(tab.name), textX, textY, isHovered ? tabTextHoverColor : tabTextColor, Config.shadow);
-            tabX += tabWidth + TAB_GAP;
-        }
-        int textFieldHeight = 20;
-        int textFieldX = (this.width / 2) - 100;
-        int textFieldY = 5;
-        int textFieldW = 200;
-        int textFieldH = textFieldHeight;
-        int fieldColor = fieldFocused ? searchBarActiveBackgroundColor : searchBarBackgroundColor;
-        context.fill(textFieldX, textFieldY, textFieldX + textFieldW, textFieldY + textFieldH, fieldColor);
-        drawInnerBorder(context, textFieldX, textFieldY, textFieldW, textFieldH, fieldFocused ? searchBarActiveBorderColor : searchBarBorderColor);
-        drawOuterBorder(context, textFieldX, textFieldY, textFieldW, textFieldH, globalBottomBorder);
-        if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
-            int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
-            int selEnd = Math.min(fieldText.length(), Math.max(selectionStart, selectionEnd));
-            if (selStart < 0) selStart = 0;
-            if (selEnd > fieldText.length()) selEnd = fieldText.length();
-            String beforeSelection = fieldText.substring(0, selStart);
-            String selectedText = fieldText.substring(selStart, selEnd);
-            int selX = textFieldX + 5 + textRenderer.getWidth(beforeSelection);
-            int selWidth = textRenderer.getWidth(selectedText);
-            context.fill(selX, textFieldY + 4, selX + selWidth, textFieldY + 4 + textRenderer.fontHeight, 0x80FFFFFF);
-        }
-        String displayText = fieldText.toString();
-        int textWidth = textRenderer.getWidth(displayText);
-        int cursorX = textFieldX + 5 + textRenderer.getWidth(displayText.substring(0, Math.min(cursorPosition, displayText.length())));
-        float cursorMargin = 50.0f;
-        if (cursorX - pathScrollOffset > textFieldX + textFieldW - 5 - cursorMargin) {
-            pathTargetScrollOffset = cursorX - (textFieldX + textFieldW - 5 - cursorMargin);
-        } else if (cursorX - pathScrollOffset < textFieldX + 5 + cursorMargin) {
-            pathTargetScrollOffset = cursorX - (textFieldX + 5 + cursorMargin);
-        }
-        pathTargetScrollOffset = Math.max(0, Math.min(pathTargetScrollOffset, textWidth - textFieldW + 10));
-        pathScrollOffset += (pathTargetScrollOffset - pathScrollOffset) * scrollSpeed;
-        context.enableScissor(textFieldX -2, textFieldY, textFieldX + textFieldW +4, textFieldY + textFieldH);
-        context.drawText(textRenderer, Text.literal(displayText), textFieldX + 5 - (int) pathScrollOffset, textFieldY + 5, tabTextColor, Config.shadow);
-        if (fieldFocused && showCursor) {
-            String beforeCursor = cursorPosition <= displayText.length() ? displayText.substring(0, cursorPosition) : displayText;
-            int curX = textFieldX + 5 + textRenderer.getWidth(beforeCursor) - (int) pathScrollOffset;
-            context.fill(curX, textFieldY + 5, curX + 1, textFieldY + 5 + textRenderer.fontHeight, 0xFFFFFFFF);
-        }
-        context.disableScissor();
+        drawTabs(
+                context,
+                this.textRenderer,
+                tabs,
+                currentTabIndex,
+                mouseX,
+                mouseY
+        );
+        drawSearchBar(
+                context,
+                textRenderer,
+                fieldText,
+                fieldFocused,
+                cursorPosition,
+                selectionStart,
+                selectionEnd,
+                pathScrollOffset,
+                pathTargetScrollOffset,
+                showCursor,
+                false,
+                "PluginModManagerScreen"
+        );
         int closeButtonX = this.width - buttonW - 10;
         int closeButtonY = 5;
         boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH;
@@ -510,8 +476,8 @@ public class PluginModManagerScreen extends Screen {
             int y = contentY + (i * (entryHeight + gapBetweenEntries)) - (int) smoothOffset;
             boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + entryHeight;
             boolean isSelected = (i == selectedIndex);
-            int bg = isSelected ? currentTabIndex == 0 ? ModrinthBackgroundColor :currentTabIndex == 1 ? SpigotBackgroundColor : HangarBackgroundColor : (hovered ? browserElementBackgroundHoverColor : browserElementBackgroundColor);
-            int borderColorFinal = isSelected ? currentTabIndex == 0 ? ModrinthBorderColor :currentTabIndex == 1 ? SpigotBorderColor : HangarBorderColor : (hovered ? browserElementBorderHoverColor : browserElementBorderColor);
+            int bg = isSelected ? (currentTabIndex == 0 ? ModrinthBackgroundColor : currentTabIndex == 1 ? SpigotBackgroundColor : HangarBackgroundColor) : (hovered ? browserElementBackgroundHoverColor : browserElementBackgroundColor);
+            int borderColorFinal = isSelected ? (currentTabIndex == 0 ? ModrinthBorderColor : currentTabIndex == 1 ? SpigotBorderColor : HangarBorderColor) : (hovered ? browserElementBorderHoverColor : browserElementBorderColor);
             context.fill(contentX, y, contentX + contentWidth, y + entryHeight, bg);
             drawInnerBorder(context, contentX, y, contentWidth, entryHeight, borderColorFinal);
             drawOuterBorder(context, contentX, y, contentWidth, entryHeight, globalBottomBorder);

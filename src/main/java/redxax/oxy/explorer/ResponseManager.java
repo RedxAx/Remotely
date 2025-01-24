@@ -68,7 +68,7 @@ public class ResponseManager {
                 context.drawText(minecraftClient.textRenderer, Text.literal(l), x + 5, drawY, 0xFFFFFF, Config.shadow);
                 drawY += lineHeight;
             }
-            int closeX = x + width - 10;
+            int closeX = x + width - 7;
             int closeY = y;
             context.drawText(minecraftClient.textRenderer, Text.literal("x"), closeX, closeY, buttonTextDeleteHoverColor, false);
         }

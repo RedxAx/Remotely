@@ -111,4 +111,8 @@ public class TabTextAnimator {
         }
         return i;
     }
+
+    public boolean hasCompleted() {
+        return hasCompleted;
+    }
 }

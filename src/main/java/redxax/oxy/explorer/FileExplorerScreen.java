@@ -23,9 +23,9 @@ import java.util.List;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
+import static redxax.oxy.Render.*;
 import static redxax.oxy.config.Config.*;
 import static redxax.oxy.util.ImageUtil.*;
-import static redxax.oxy.Render.*;
 public class FileExplorerScreen extends Screen implements FileManager.FileManagerCallback {
     private final MinecraftClient minecraftClient;
     private final Screen parent;
@@ -129,7 +129,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             this.requestId = -1;
         }
     }
-    class Tab {
+    public class Tab {
         TabData tabData;
         String name;
         TabTextAnimator textAnimator;
@@ -263,34 +263,22 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         super.render(context, mouseX, mouseY, delta);
         int titleBarHeight = 30;
         int tabBarY = titleBarHeight + 5;
-        int tabBarHeight = TAB_HEIGHT;
-        int tabX = 5;
-        int tabY = tabBarY;
-        for (int i = 0; i < tabs.size(); i++) {
-            Tab tab = tabs.get(i);
-            int tabWidth = tab.getCurrentWidth(textRenderer);
-            boolean isActive = (i == currentTabIndex);
-            boolean isHovered = mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
-            int bgColor = isActive ? tabSelectedBackgroundColor : (isHovered ? tabBackgroundHoverColor : tabBackgroundColor);
-            context.fill(tabX, tabY, tabX + tabWidth, tabY + tabBarHeight, bgColor);
-            drawInnerBorder(context, tabX, tabY, tabWidth, tabBarHeight, isActive ? tabSelectedBorderColor : isHovered ? tabBorderHoverColor : tabBorderColor);
-            drawOuterBorder(context, tabX, tabY, tabWidth, tabBarHeight, globalBottomBorder);
-            context.drawText(this.textRenderer, Text.literal(tab.getAnimatedText()), tabX + TAB_PADDING, tabY + 5, isHovered ? tabTextHoverColor : tabTextColor, Config.shadow);
-            tabX += tabWidth + TAB_GAP;
-        }
-        int plusTabX = tabX;
-        boolean isPlusTabHovered = mouseX >= plusTabX && mouseX <= plusTabX + PLUS_TAB_WIDTH && mouseY >= tabY && mouseY <= tabY + tabBarHeight;
-        context.fill(plusTabX, tabY, plusTabX + PLUS_TAB_WIDTH, tabY + tabBarHeight, isPlusTabHovered ? tabBackgroundHoverColor : tabBackgroundColor);
-        drawInnerBorder(context, plusTabX, tabY, PLUS_TAB_WIDTH, tabBarHeight, isPlusTabHovered ? tabBorderHoverColor : tabBorderColor);
-        drawOuterBorder(context, plusTabX, tabY, PLUS_TAB_WIDTH, tabBarHeight, globalBottomBorder);
-        context.drawText(this.textRenderer, Text.literal("+"), plusTabX + PLUS_TAB_WIDTH / 2 - textRenderer.getWidth("+") / 2, tabY + 5, isPlusTabHovered ? tabTextHoverColor : tabTextColor, Config.shadow);
-        int explorerY = tabBarY + tabBarHeight + 30;
+        drawTabs(
+                context,
+                this.textRenderer,
+                tabs,
+                currentTabIndex,
+                mouseX,
+                mouseY
+        );
+        int explorerY = tabBarY + TAB_HEIGHT + 30;
         int explorerHeight = this.height - explorerY - 10;
         int explorerX = 5;
         int explorerWidth = this.width - 10;
         int headerY = explorerY - 25;
         context.fill(explorerX, headerY, explorerX + explorerWidth, headerY + 25, headerBackgroundColor);
         drawInnerBorder(context, explorerX, headerY, explorerWidth, 25, headerBorderColor);
+        drawOuterBorder(context, explorerX, headerY, explorerWidth, 25, globalBottomBorder);
         context.drawText(this.textRenderer, Text.literal("Name"), explorerX + 10, headerY + 5, screensTitleTextColor, Config.shadow);
         if (!serverInfo.isRemote) {
             int createdX = explorerX + explorerWidth - 100;
@@ -303,59 +291,20 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         drawOuterBorder(context, 0, 0, this.width, titleBarHeight, globalBottomBorder);
         String prefixText = "Remotely - File Explorer";
         context.drawText(this.textRenderer, Text.literal(prefixText), 10, 10, screensTitleTextColor, Config.shadow);
-        int fieldWidthDynamic = basePathFieldWidth;
-        if (currentMode == Mode.SEARCH) {
-            fieldWidthDynamic = searchBarWidth;
-        }
-        int fieldX = (this.width - fieldWidthDynamic) / 2;
-        int fieldY = 5;
-        int fieldHeight = titleBarHeight - 10;
-        int fieldColor = fieldFocused ? (currentMode == Mode.SEARCH ? searchBarExplorerActiveBackgroundColor : searchBarActiveBackgroundColor) : searchBarBackgroundColor;
-        context.fill(fieldX, fieldY, fieldX + fieldWidthDynamic, fieldY + fieldHeight, fieldColor);
-        drawInnerBorder(context, fieldX, fieldY, fieldWidthDynamic, fieldHeight, fieldFocused ? (currentMode == Mode.SEARCH ? searchBarExplorerActiveBorderColor : searchBarActiveBorderColor) : searchBarBorderColor);
-        drawOuterBorder(context, fieldX, fieldY, fieldWidthDynamic, fieldHeight, globalBottomBorder);
-        if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
-            int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
-            int selEnd = Math.min(fieldText.length(), Math.max(selectionStart, selectionEnd));
-            if (selStart < 0) selStart = 0;
-            if (selEnd > fieldText.length()) selEnd = fieldText.length();
-            String beforeSelection = fieldText.substring(0, selStart);
-            String selectedText = fieldText.substring(selStart, selEnd);
-            int selX = fieldX + 5 + textRenderer.getWidth(beforeSelection);
-            int selWidth = textRenderer.getWidth(selectedText);
-            context.fill(selX, fieldY + 5, selX + selWidth, fieldY + 5 + textRenderer.fontHeight, 0x80FFFFFF);
-        }
-        String displayText = fieldFocused ? fieldText.toString() : pathTextAnimator.getCurrentText();
-        int displayWidth = fieldWidthDynamic - 10;
-        int textWidth = textRenderer.getWidth(displayText);
-        int cursorX = fieldX + 5 + textRenderer.getWidth(displayText.substring(0, Math.min(cursorPosition, displayText.length())));
-        float cursorMargin = 50.0f;
-        if (cursorX - pathScrollOffset > fieldX + fieldWidthDynamic - 5 - cursorMargin) {
-            pathTargetScrollOffset = cursorX - (fieldX + fieldWidthDynamic - 5 - cursorMargin);
-        } else if (cursorX - pathScrollOffset < fieldX + 5 + cursorMargin) {
-            pathTargetScrollOffset = cursorX - (fieldX + 5 + cursorMargin);
-        }
-        pathTargetScrollOffset = Math.max(0, Math.min(pathTargetScrollOffset, textWidth - displayWidth));
-        pathScrollOffset += (pathTargetScrollOffset - pathScrollOffset) * scrollSpeed;
-        Tab currentTab = tabs.get(currentTabIndex);
-        currentTab.tabData.scrollOffset = targetOffset;
-        context.enableScissor(fieldX, fieldY, fieldX + fieldWidthDynamic, fieldY + fieldHeight);
-        context.drawText(this.textRenderer, Text.literal(displayText), fieldX + 5 - (int) pathScrollOffset, fieldY + 5, screensTitleTextColor, Config.shadow);
-        if (currentMode == Mode.SEARCH && fieldFocused && fieldText.length() == 0) {
-            context.drawText(this.textRenderer, Text.literal("Search..."), fieldX + 5 - (int) pathScrollOffset, fieldY + 5, explorerElementTextDimColor, false);
-        }
-        long currentTime = System.currentTimeMillis();
-        if (currentTime - lastBlinkTime >= 500) {
-            showCursor = !showCursor;
-            lastBlinkTime = currentTime;
-        }
-        if (fieldFocused && showCursor) {
-            String beforeCursor = cursorPosition <= displayText.length() ? displayText.substring(0, cursorPosition) : displayText;
-            int cursorPosX = fieldX + 5 + textRenderer.getWidth(beforeCursor) - (int) pathScrollOffset;
-            int blendedCursorColor = blendColor(0xFFFFFFFF, 1.0f);
-            context.fill(cursorPosX, fieldY + 5, cursorPosX + 2, fieldY + 5 + textRenderer.fontHeight, blendedCursorColor);
-        }
-        context.disableScissor();
+        drawSearchBar(
+                context,
+                textRenderer,
+                fieldText,
+                fieldFocused,
+                cursorPosition,
+                selectionStart,
+                selectionEnd,
+                pathScrollOffset,
+                pathTargetScrollOffset,
+                showCursor,
+                currentMode == Mode.SEARCH,
+                "FileExplorerScreen"
+        );
         int closeButtonX = this.width - buttonW - 10;
         boolean hoveredBack = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
         drawCustomButton(context, closeButtonX, buttonY, "Close", minecraftClient, hoveredBack, false, true, buttonTextColor, buttonTextDeleteColor);
@@ -363,7 +312,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int backYLocal = 5;
         boolean hoveredClose = mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= backYLocal && mouseY <= backYLocal + buttonH;
         drawCustomButton(context, backButtonX, backYLocal, "Back", minecraftClient, hoveredClose, false, true, buttonTextColor, buttonTextHoverColor);
-        if (loading && currentTab.tabData.isRemote) {
+        if (loading && tabs.get(currentTabIndex).tabData.isRemote) {
             long currentTimeLoading = System.currentTimeMillis();
             if (currentTimeLoading - lastFrameTime >= 40) {
                 currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
@@ -421,7 +370,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 BufferedImage icon = entry.isDirectory ? folderIcon : getIconForFile(entry.path);
                 drawBufferedImage(context, icon, explorerX + 10, entryY + 5, 16, 16);
                 if (isFavorite) {
-                    drawBufferedImage(context, pinIcon,  entry.isDirectory ? explorerX  + 5 : explorerX + 7, entryY + 5, 16, 16);
+                    drawBufferedImage(context, pinIcon, entry.isDirectory ? explorerX + 5 : explorerX + 7, entryY + 5, 16, 16);
                 }
                 if (renamePath != null && renamePath.equals(entry.path)) {
                     int renameBoxX = explorerX + 30;
@@ -434,7 +383,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     int renameCursorX = renameBoxX + 2 + textRenderer.getWidth(displayed.substring(0, Math.min(renameCursorPos, displayed.length())));
                     context.drawText(this.textRenderer, Text.literal(displayed), renameBoxX + 2, renameBoxY + 2, textWithOpacity, false);
                     if (showCursor) {
-                        context.fill(renameCursorX, renameBoxY + 2, renameCursorX + 1, renameBoxY + 2 + textRenderer.fontHeight, blendColor(0xFFFFFFFF, 1.0f));
+                        context.fill(renameCursorX, renameBoxY + 2, renameCursorX + 1, renameBoxY + 2 + textRenderer.fontHeight, 0xFFFFFFFF);
                     }
                 } else {
                     if (!serverInfo.isRemote) {
@@ -463,6 +412,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         }
         loadMoreIfNeeded(explorerHeight);
     }
+
     private BufferedImage getIconForFile(Path file) {
         String fileName = file.getFileName().toString().toLowerCase();
         if (fileName.endsWith(".exe")) {
@@ -1122,8 +1072,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     EntryData entryData = entriesToRender.get(clickedIndex);
                     selectedPaths.clear();
                     selectedPaths.add(entryData.path);
-                    Render.ContextMenu.hide();
-                    Render.ContextMenu.addItem("Open New", () -> {
+                    ContextMenu.hide();
+                    ContextMenu.addItem("Open New", () -> {
                         if (entryData.isDirectory) {
                             TabData newTabData = new TabData(entryData.path, serverInfo.isRemote, serverInfo.remoteHost);
                             tabs.add(new Tab(newTabData));
@@ -1137,7 +1087,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                             }
                         }
                     }, buttonTextHoverColor);
-                    Render.ContextMenu.addItem("New", () -> {
+                    ContextMenu.addItem("New", () -> {
                         String defaultName = "NewFileOrFolder";
                         newCreationPath = currentPath.resolve(defaultName);
                         creatingNew = true;
@@ -1164,17 +1114,17 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         } catch (Exception ignored) {}
                         loadDirectory(currentPath, false, true);
                     }, buttonTextHoverColor);
-                    Render.ContextMenu.addItem("Rename", () -> {
+                    ContextMenu.addItem("Rename", () -> {
                         renamePath = entryData.path;
                         renameBuffer.setLength(0);
                         renameBuffer.append(renamePath.getFileName().toString());
                         renameCursorPos = renameBuffer.length();
                     }, buttonTextHoverColor);
-                    Render.ContextMenu.addItem("Copy", () -> {
+                    ContextMenu.addItem("Copy", () -> {
                         fileManager.copySelected(selectedPaths);
                         showNotification("Copied to clipboard", Notification.Type.INFO);
                     }, buttonTextHoverColor);
-                    Render.ContextMenu.addItem("Favorite", () -> {
+                    ContextMenu.addItem("Favorite", () -> {
                         synchronized (favoritePathsLock) {
                             for (Path p : selectedPaths) {
                                 if (!favoritePaths.contains(p)) {
@@ -1187,33 +1137,33 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         }
                         showNotification("Favorites updated", Notification.Type.INFO);
                     }, buttonTextHoverColor);
-                    Render.ContextMenu.addItem("Cut", () -> {
+                    ContextMenu.addItem("Cut", () -> {
                         fileManager.cutSelected(selectedPaths);
                         showNotification("Cut to clipboard", Notification.Type.INFO);
                     }, buttonTextHoverColor);
-                    Render.ContextMenu.addItem("Paste", () -> {
+                    ContextMenu.addItem("Paste", () -> {
                         fileManager.paste(currentPath);
                         showNotification("Pasted to " + currentPath, Notification.Type.INFO);
                     }, buttonTextHoverColor);
-                    Render.ContextMenu.addItem("Delete", () -> {
+                    ContextMenu.addItem("Delete", () -> {
                         fileManager.deleteSelected(selectedPaths, currentPath);
                     }, buttonTextDeleteHoverColor);
-                    Render.ContextMenu.addItem("Copy Path", () -> {
+                    ContextMenu.addItem("Copy Path", () -> {
                         String quotedPath = "\"" + entryData.path.toString() + "\"";
                         minecraftClient.keyboard.setClipboard(quotedPath); 
                         showNotification("Path copied", Notification.Type.INFO);
                     }, buttonTextHoverColor);
-                    Render.ContextMenu.addItem("Refresh", () -> {
+                    ContextMenu.addItem("Refresh", () -> {
                         loadDirectory(currentPath, false, true);
                     }, buttonTextHoverColor);
-                    Render.ContextMenu.addItem("Undo", () -> {
+                    ContextMenu.addItem("Undo", () -> {
                         if (serverInfo.isRemote) {
                             showNotification("Undo not supported for remote files.", Notification.Type.ERROR);
                         } else {
                             fileManager.undo(currentPath);
                         }
                     }, buttonTextHoverColor);
-                    Render.ContextMenu.addItem("Search", () -> {
+                    ContextMenu.addItem("Search", () -> {
                         currentMode = Mode.SEARCH;
                         fieldFocused = true;
                         fieldText.setLength(0);
@@ -1221,7 +1171,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         selectionStart = -1;
                         selectionEnd = -1;
                     }, buttonTextHoverColor);
-                    Render.ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
+                    ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
                 }
             }
         }
