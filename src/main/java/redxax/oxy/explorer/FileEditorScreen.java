@@ -1348,25 +1348,37 @@ public class FileEditorScreen extends Screen {
 
         private int moveCursorLeftWord() {
             if (cursorLine < 0 || cursorLine >= lines.size()) return 0;
+            if (cursorPos == 0) {
+                if (cursorLine > 0) {
+                    cursorLine--;
+                    cursorPos = lines.get(cursorLine).length();
+                    return cursorPos;
+                }
+                return cursorPos;
+            }
             String line = lines.get(cursorLine);
-            int index = Math.min(cursorPos - 1, line.length() - 1);
+            int index = cursorPos - 1;
             while (index >= 0 && Character.isWhitespace(line.charAt(index))) {
                 index--;
             }
             while (index >= 0 && !Character.isWhitespace(line.charAt(index))) {
                 index--;
             }
-            if (index < 0 && cursorLine > 0) {
-                cursorLine--;
-                cursorPos = lines.get(cursorLine).length();
-                return cursorPos;
-            }
-            return Math.max(0, index + 1);
+            cursorPos = Math.max(0, index + 1);
+            return cursorPos;
         }
 
         private int moveCursorRightWord() {
             if (cursorLine < 0 || cursorLine >= lines.size()) return 0;
             String line = lines.get(cursorLine);
+            if (cursorPos >= line.length()) {
+                if (cursorLine < lines.size() - 1) {
+                    cursorLine++;
+                    cursorPos = 0;
+                    return cursorPos;
+                }
+                return cursorPos;
+            }
             int index = cursorPos;
             while (index < line.length() && Character.isWhitespace(line.charAt(index))) {
                 index++;
@@ -1374,27 +1386,30 @@ public class FileEditorScreen extends Screen {
             while (index < line.length() && !Character.isWhitespace(line.charAt(index))) {
                 index++;
             }
-            if (index >= line.length() && cursorLine < lines.size() - 1) {
-                cursorLine++;
-                cursorPos = 0;
-                return cursorPos;
-            }
-            return index;
+            cursorPos = index;
+            return cursorPos;
         }
 
         private void deleteWord() {
             if (cursorLine < 0 || cursorLine >= lines.size()) return;
             String line = lines.get(cursorLine);
-            int startPos = cursorPos;
-            while (startPos > 0 && Character.isWhitespace(line.charAt(startPos - 1))) {
+            if (cursorPos == 0) return;
+            int startPos = cursorPos - 1;
+            int spaceCount = 0;
+            while (startPos >= 0 && line.charAt(startPos) == ' ') {
+                spaceCount++;
                 startPos--;
             }
-            while (startPos > 0 && !Character.isWhitespace(line.charAt(startPos - 1))) {
-                startPos--;
+            if (spaceCount > 1) {
+                lines.set(cursorLine, line.substring(0, startPos + 1) + line.substring(cursorPos));
+                cursorPos = startPos + 1;
+            } else if (spaceCount == 1) {
+                while (startPos >= 0 && !Character.isWhitespace(line.charAt(startPos))) {
+                    startPos--;
+                }
+                lines.set(cursorLine, line.substring(0, startPos + 1) + line.substring(cursorPos));
+                cursorPos = startPos + 1;
             }
-            String newLine = line.substring(0, startPos) + line.substring(cursorPos);
-            lines.set(cursorLine, newLine);
-            cursorPos = startPos;
             scrollToCursor();
         }
 
