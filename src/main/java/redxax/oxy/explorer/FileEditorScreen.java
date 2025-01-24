@@ -30,6 +30,7 @@ import static redxax.oxy.Render.*;
 import static redxax.oxy.explorer.ResponseManager.parseAIResponse;
 
 public class FileEditorScreen extends Screen {
+    private static final Map<Path, SavedTabState> SAVED_TABS = new HashMap<>();
     private final MinecraftClient minecraftClient;
     private MultiLineTextEditor textEditor;
     private final Screen parent;
@@ -66,6 +67,26 @@ public class FileEditorScreen extends Screen {
     private List<ResponseWindow> responseWindows = new ArrayList<>();
     private static final Path AI_CONFIG_PATH = Path.of("C:/remotely/data/ai.json");
 
+    private static class SavedTabState {
+        ArrayList<String> lines;
+        ArrayDeque<MultiLineTextEditor.EditorState> undoStack;
+        ArrayDeque<MultiLineTextEditor.EditorState> redoStack;
+        int cursorLine;
+        int cursorPos;
+        boolean unsaved;
+        String originalContent;
+        int selectionStartLine;
+        int selectionStartChar;
+        int selectionEndLine;
+        int selectionEndChar;
+
+        SavedTabState() {
+            lines = new ArrayList<>();
+            undoStack = new ArrayDeque<>();
+            redoStack = new ArrayDeque<>();
+        }
+    }
+
     class Tab {
         Path path;
         String name;
@@ -73,17 +94,32 @@ public class FileEditorScreen extends Screen {
         MultiLineTextEditor textEditor;
         boolean unsaved;
         String originalContent;
+
         Tab(Path path) {
             this.path = path;
             this.name = path.getFileName() != null ? path.getFileName().toString() : path.toString();
             this.textAnimator = new TabTextAnimator(this.name, 0, 30);
             this.textAnimator.start();
-            loadFileContent();
-            this.unsaved = false;
+            if (SAVED_TABS.containsKey(path)) {
+                SavedTabState st = SAVED_TABS.get(path);
+                this.textEditor = new MultiLineTextEditor(minecraftClient, new ArrayList<>(st.lines), this.name, this);
+                this.textEditor.undoStack.clear();
+                this.textEditor.undoStack.addAll(st.undoStack);
+                this.textEditor.redoStack.clear();
+                this.textEditor.redoStack.addAll(st.redoStack);
+                this.textEditor.cursorLine = st.cursorLine;
+                this.textEditor.cursorPos = st.cursorPos;
+                this.textEditor.selectionStartLine = st.selectionStartLine;
+                this.textEditor.selectionStartChar = st.selectionStartChar;
+                this.textEditor.selectionEndLine = st.selectionEndLine;
+                this.textEditor.selectionEndChar = st.selectionEndChar;
+                this.originalContent = st.originalContent;
+                this.unsaved = st.unsaved;
+            } else {
+                loadFileContent();
+            }
         }
-        public void markUnsaved() {
-            this.unsaved = true;
-        }
+
         public void checkIfChanged(List<String> lines) {
             String joined = String.join("\n", lines);
             if (joined.equals(originalContent)) {
@@ -92,6 +128,7 @@ public class FileEditorScreen extends Screen {
                 this.unsaved = true;
             }
         }
+
         private void loadFileContent() {
             ArrayList<String> fileContent = new ArrayList<>();
             if (serverInfo.isRemote) {
@@ -129,7 +166,9 @@ public class FileEditorScreen extends Screen {
             }
             this.textEditor = new MultiLineTextEditor(minecraftClient, fileContent, path.getFileName().toString(), this);
             this.originalContent = String.join("\n", fileContent);
+            this.unsaved = false;
         }
+
         public void saveFile() {
             ArrayList<String> newContent = new ArrayList<>(textEditor.getLines());
             if (serverInfo.isRemote) {
@@ -210,8 +249,27 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public void close() {
+        for (Tab t : tabs) {
+            saveTabState(t);
+        }
         RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
         minecraftClient.setScreen(parent);
+    }
+
+    private void saveTabState(Tab tab) {
+        SavedTabState st = new SavedTabState();
+        st.lines.addAll(tab.textEditor.getLines());
+        st.undoStack.addAll(tab.textEditor.undoStack);
+        st.redoStack.addAll(tab.textEditor.redoStack);
+        st.cursorLine = tab.textEditor.cursorLine;
+        st.cursorPos = tab.textEditor.cursorPos;
+        st.selectionStartLine = tab.textEditor.selectionStartLine;
+        st.selectionStartChar = tab.textEditor.selectionStartChar;
+        st.selectionEndLine = tab.textEditor.selectionEndLine;
+        st.selectionEndChar = tab.textEditor.selectionEndChar;
+        st.unsaved = tab.unsaved;
+        st.originalContent = tab.originalContent;
+        SAVED_TABS.put(tab.path, st);
     }
 
     @Override
@@ -224,6 +282,7 @@ public class FileEditorScreen extends Screen {
                 customLastBlinkTime = currentTime;
             }
         }
+        tabs.get(currentTabIndex).textEditor.tickDragScroll();
     }
 
     @Override
@@ -647,6 +706,7 @@ public class FileEditorScreen extends Screen {
             int tabWidth = minecraftClient.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
             if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight) {
                 if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
+                    SAVED_TABS.remove(tab.path);
                     tabs.remove(i);
                     if (i == currentTabIndex) {
                         currentTabIndex = Math.max(0, currentTabIndex - 1);
@@ -660,9 +720,6 @@ public class FileEditorScreen extends Screen {
                     return true;
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                     if (currentTabIndex != i) {
-                        if (tabs.get(currentTabIndex).unsaved) {
-                            tabs.get(currentTabIndex).saveFile();
-                        }
                         currentTabIndex = i;
                         this.textEditor = tabs.get(currentTabIndex).textEditor;
                         RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
@@ -831,7 +888,6 @@ public class FileEditorScreen extends Screen {
         responseWindows.removeAll(toRemove);
     }
 
-
     private static class MultiLineTextEditor {
         private final MinecraftClient mc;
         private final Tab parentTab;
@@ -846,14 +902,14 @@ public class FileEditorScreen extends Screen {
         private double targetScrollOffsetVert = 0;
         private double targetScrollOffsetHoriz = 0;
         private double scrollSpeed = 0.3;
-        private int cursorLine;
-        private int cursorPos;
-        private int selectionStartLine = -1;
-        private int selectionStartChar = -1;
-        private int selectionEndLine = -1;
-        private int selectionEndChar = -1;
-        private final ArrayDeque<EditorState> undoStack = new ArrayDeque<>();
-        private final ArrayDeque<EditorState> redoStack = new ArrayDeque<>();
+        public int cursorLine;
+        public int cursorPos;
+        public int selectionStartLine = -1;
+        public int selectionStartChar = -1;
+        public int selectionEndLine = -1;
+        public int selectionEndChar = -1;
+        public final ArrayDeque<EditorState> undoStack = new ArrayDeque<>();
+        public final ArrayDeque<EditorState> redoStack = new ArrayDeque<>();
         private int textPadding = 4;
         private int paddingTop = 5;
         private int paddingRight = 5;
@@ -864,6 +920,9 @@ public class FileEditorScreen extends Screen {
         private static long lastLeftClickTime = 0;
         private static int clickCount = 0;
         private List<Position> searchResults = new ArrayList<>();
+        private boolean isDraggingSelection = false;
+        private double lastDragX;
+        private double lastDragY;
 
         public MultiLineTextEditor(MinecraftClient mc, ArrayList<String> content, String fileName, Tab parentTab) {
             this.mc = mc;
@@ -917,6 +976,31 @@ public class FileEditorScreen extends Screen {
                 }
             }
             context.disableScissor();
+        }
+
+        public void tickDragScroll() {
+            if (!isDraggingSelection) return;
+            int lineHeight = mc.textRenderer.fontHeight + 2;
+            int localY = (int) lastDragY - y;
+            int dragLine = (int) ((lastDragY - y + smoothScrollOffsetVert) / lineHeight);
+            if (dragLine < 0) dragLine = 0;
+            if (dragLine >= lines.size()) dragLine = lines.size() - 1;
+            if (lines.isEmpty()) return;
+            int localX = (int) lastDragX - (x + textPadding) + (int) smoothScrollOffsetHoriz;
+            String text = lines.get(dragLine);
+            int cPos = 0;
+            int widthSum = 0;
+            for (char c : text.toCharArray()) {
+                int charWidth = mc.textRenderer.getWidth(String.valueOf(c));
+                if (widthSum + charWidth / 2 >= localX) break;
+                widthSum += charWidth;
+                cPos++;
+            }
+            cursorLine = dragLine;
+            cursorPos = cPos;
+            selectionEndLine = dragLine;
+            selectionEndChar = cPos;
+            scrollToEdges(lastDragX, lastDragY, lineHeight);
         }
 
         private int getMaxLineWidth() {
@@ -1007,23 +1091,23 @@ public class FileEditorScreen extends Screen {
                 }
                 case GLFW.GLFW_KEY_LEFT -> {
                     if (ctrlHeld) {
-                        if ((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 && !hasSelection()) {
+                        if (shiftHeld && !hasSelection()) {
                             selectionStartLine = cursorLine;
                             selectionStartChar = cursorPos;
-                        } else if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
+                        } else if (!shiftHeld) {
                             clearSelection();
                         }
                         int newPos = moveCursorLeftWord();
                         cursorPos = newPos;
-                        if ((modifiers & GLFW.GLFW_MOD_SHIFT) != 0) {
+                        if (shiftHeld) {
                             selectionEndLine = cursorLine;
                             selectionEndChar = cursorPos;
                         }
                     } else {
-                        if ((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 && !hasSelection()) {
+                        if (shiftHeld && !hasSelection()) {
                             selectionStartLine = cursorLine;
                             selectionStartChar = cursorPos;
-                        } else if (modifiers == 0) {
+                        } else if (!shiftHeld) {
                             clearSelection();
                         }
                         if (cursorPos > 0) {
@@ -1034,7 +1118,7 @@ public class FileEditorScreen extends Screen {
                                 cursorPos = lines.get(cursorLine).length();
                             }
                         }
-                        if ((modifiers & GLFW.GLFW_MOD_SHIFT) != 0) {
+                        if (shiftHeld) {
                             selectionEndLine = cursorLine;
                             selectionEndChar = cursorPos;
                         }
@@ -1044,23 +1128,23 @@ public class FileEditorScreen extends Screen {
                 }
                 case GLFW.GLFW_KEY_RIGHT -> {
                     if (ctrlHeld) {
-                        if ((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 && !hasSelection()) {
+                        if (shiftHeld && !hasSelection()) {
                             selectionStartLine = cursorLine;
                             selectionStartChar = cursorPos;
-                        } else if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
+                        } else if (!shiftHeld) {
                             clearSelection();
                         }
                         int newPos = moveCursorRightWord();
                         cursorPos = newPos;
-                        if ((modifiers & GLFW.GLFW_MOD_SHIFT) != 0) {
+                        if (shiftHeld) {
                             selectionEndLine = cursorLine;
                             selectionEndChar = cursorPos;
                         }
                     } else {
-                        if ((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 && !hasSelection()) {
+                        if (shiftHeld && !hasSelection()) {
                             selectionStartLine = cursorLine;
                             selectionStartChar = cursorPos;
-                        } else if (modifiers == 0) {
+                        } else if (!shiftHeld) {
                             clearSelection();
                         }
                         if (cursorPos < lines.get(cursorLine).length()) {
@@ -1071,7 +1155,7 @@ public class FileEditorScreen extends Screen {
                                 cursorPos = 0;
                             }
                         }
-                        if ((modifiers & GLFW.GLFW_MOD_SHIFT) != 0) {
+                        if (shiftHeld) {
                             selectionEndLine = cursorLine;
                             selectionEndChar = cursorPos;
                         }
@@ -1081,15 +1165,15 @@ public class FileEditorScreen extends Screen {
                 }
                 case GLFW.GLFW_KEY_DOWN -> {
                     if (cursorLine < lines.size() - 1) {
-                        if ((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 && !hasSelection()) {
+                        if (shiftHeld && !hasSelection()) {
                             selectionStartLine = cursorLine;
                             selectionStartChar = cursorPos;
-                        } else if (modifiers == 0) {
+                        } else if (!shiftHeld) {
                             clearSelection();
                         }
                         cursorLine++;
                         cursorPos = Math.min(cursorPos, lines.get(cursorLine).length());
-                        if ((modifiers & GLFW.GLFW_MOD_SHIFT) != 0) {
+                        if (shiftHeld) {
                             selectionEndLine = cursorLine;
                             selectionEndChar = cursorPos;
                         }
@@ -1099,15 +1183,15 @@ public class FileEditorScreen extends Screen {
                 }
                 case GLFW.GLFW_KEY_UP -> {
                     if (cursorLine > 0) {
-                        if ((modifiers & GLFW.GLFW_MOD_SHIFT) != 0 && !hasSelection()) {
+                        if (shiftHeld && !hasSelection()) {
                             selectionStartLine = cursorLine;
                             selectionStartChar = cursorPos;
-                        } else if (modifiers == 0) {
+                        } else if (!shiftHeld) {
                             clearSelection();
                         }
                         cursorLine--;
                         cursorPos = Math.min(cursorPos, lines.get(cursorLine).length());
-                        if ((modifiers & GLFW.GLFW_MOD_SHIFT) != 0) {
+                        if (shiftHeld) {
                             selectionEndLine = cursorLine;
                             selectionEndChar = cursorPos;
                         }
@@ -1117,22 +1201,12 @@ public class FileEditorScreen extends Screen {
                 }
                 case GLFW.GLFW_KEY_V -> {
                     if (ctrlHeld) {
-                        parentTab.markUnsaved();
                         deleteSelection();
                         pushState();
                         String clipboard = mc.keyboard.getClipboard();
-                        for (char c : clipboard.toCharArray()) {
-                            if (c == '\n' || c == '\r') {
-                                if (cursorLine < lines.size()) {
-                                    String oldLine = lines.get(cursorLine);
-                                    String beforeCursor = oldLine.substring(0, Math.min(cursorPos, oldLine.length()));
-                                    String afterCursor = oldLine.substring(Math.min(cursorPos, oldLine.length()));
-                                    lines.set(cursorLine, beforeCursor);
-                                    lines.add(cursorLine + 1, afterCursor);
-                                }
-                                cursorLine++;
-                                cursorPos = 0;
-                            } else {
+                        String[] splitted = clipboard.replace("\r\n", "\n").split("\n");
+                        for (int i = 0; i < splitted.length; i++) {
+                            for (char c : splitted[i].toCharArray()) {
                                 if (cursorLine < 0) cursorLine = 0;
                                 if (cursorLine >= lines.size()) lines.add("");
                                 String line = lines.get(cursorLine);
@@ -1141,30 +1215,43 @@ public class FileEditorScreen extends Screen {
                                 lines.set(cursorLine, newLine);
                                 cursorPos++;
                             }
+                            if (i < splitted.length - 1) {
+                                if (cursorLine < lines.size()) {
+                                    String oldLine = lines.get(cursorLine);
+                                    String beforeCursor = oldLine.substring(0, cursorPos);
+                                    String afterCursor = oldLine.substring(cursorPos);
+                                    lines.set(cursorLine, beforeCursor);
+                                    lines.add(cursorLine + 1, afterCursor);
+                                }
+                                cursorLine++;
+                                cursorPos = 0;
+                            }
                         }
                         scrollToCursor();
+                        parentTab.checkIfChanged(lines);
                         return true;
                     }
                 }
                 case GLFW.GLFW_KEY_C -> {
                     if (ctrlHeld && hasSelection()) {
-                        parentTab.markUnsaved();
                         copySelectionToClipboard();
+                        clearSelection();
                     }
                     return true;
                 }
                 case GLFW.GLFW_KEY_X -> {
                     if (ctrlHeld && hasSelection()) {
-                        parentTab.markUnsaved();
                         copySelectionToClipboard();
                         deleteSelection();
+                        clearSelection();
                         pushState();
                         scrollToCursor();
+                        parentTab.checkIfChanged(lines);
                     }
                     return true;
                 }
                 case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> {
-                    parentTab.markUnsaved();
+                    parentTab.checkIfChanged(lines);
                     deleteSelection();
                     pushState();
                     if (cursorLine < 0) {
@@ -1184,8 +1271,79 @@ public class FileEditorScreen extends Screen {
                     scrollToCursor();
                     return true;
                 }
+                case GLFW.GLFW_KEY_TAB -> {
+                    parentTab.checkIfChanged(lines);
+                    if (!shiftHeld) {
+                        deleteSelection();
+                        pushState();
+                        if (hasSelection()) {
+                            indentSelection();
+                        } else {
+                            insertChar('\t');
+                        }
+                        scrollToCursor();
+                    } else {
+                        deleteSelection();
+                        pushState();
+                        if (hasSelection()) {
+                            unindentSelection();
+                        } else {
+                            removeIndentFromLine(cursorLine);
+                        }
+                        scrollToCursor();
+                    }
+                    parentTab.checkIfChanged(lines);
+                    return true;
+                }
             }
             return false;
+        }
+
+        private void indentSelection() {
+            int startLine = Math.min(selectionStartLine, selectionEndLine);
+            int endLine = Math.max(selectionStartLine, selectionEndLine);
+            if (!hasSelection()) {
+                insertChar('\t');
+                return;
+            }
+            for (int i = startLine; i <= endLine; i++) {
+                if (i < 0 || i >= lines.size()) continue;
+                String line = lines.get(i);
+                lines.set(i, "\t" + line);
+            }
+            int newStartChar = selectionStartChar + 1;
+            int newEndChar = selectionEndChar + 1;
+            selectionStartChar = newStartChar;
+            selectionEndChar = newEndChar;
+        }
+
+        private void unindentSelection() {
+            int startLine = Math.min(selectionStartLine, selectionEndLine);
+            int endLine = Math.max(selectionStartLine, selectionEndLine);
+            for (int i = startLine; i <= endLine; i++) {
+                removeIndentFromLine(i);
+            }
+        }
+
+        private void removeIndentFromLine(int i) {
+            if (i < 0 || i >= lines.size()) return;
+            String line = lines.get(i);
+            if (line.startsWith("\t")) {
+                lines.set(i, line.substring(1));
+            } else if (line.startsWith("    ")) {
+                lines.set(i, line.substring(4));
+            }
+        }
+
+        private void insertChar(char c) {
+            if (cursorLine < 0) cursorLine = 0;
+            if (cursorLine >= lines.size()) lines.add("");
+            String line = lines.get(cursorLine);
+            int pos = Math.min(cursorPos, line.length());
+            String newLine = line.substring(0, pos) + c + line.substring(pos);
+            lines.set(cursorLine, newLine);
+            cursorPos++;
+            parentTab.checkIfChanged(lines);
         }
 
         private int moveCursorLeftWord() {
@@ -1251,7 +1409,6 @@ public class FileEditorScreen extends Screen {
                 lastLeftClickTime = currentTime;
                 clearSelection();
                 int lineHeight = mc.textRenderer.fontHeight + 2;
-                int localY = (int) mouseY - y;
                 int clickedLine = (int) ((mouseY - y + smoothScrollOffsetVert) / lineHeight);
                 if (clickedLine < 0) clickedLine = 0;
                 if (clickedLine >= lines.size()) clickedLine = lines.size() - 1;
@@ -1292,18 +1449,27 @@ public class FileEditorScreen extends Screen {
                     selectionEndLine = cursorLine;
                     selectionEndChar = cursorPos;
                 }
+                if (clickCount == 1) {
+                    isDraggingSelection = true;
+                    lastDragX = mouseX;
+                    lastDragY = mouseY;
+                }
             }
             return false;
         }
 
         public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                isDraggingSelection = false;
+            }
             return false;
         }
 
         public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && isDraggingSelection) {
+                lastDragX = mouseX;
+                lastDragY = mouseY;
                 int lineHeight = mc.textRenderer.fontHeight + 2;
-                int localY = (int) mouseY - y;
                 int dragLine = (int) ((mouseY - y + smoothScrollOffsetVert) / lineHeight);
                 if (dragLine < 0) dragLine = 0;
                 if (dragLine >= lines.size()) dragLine = lines.size() - 1;
@@ -1320,8 +1486,8 @@ public class FileEditorScreen extends Screen {
                 }
                 cursorLine = dragLine;
                 cursorPos = cPos;
-                selectionEndLine = dragLine;
-                selectionEndChar = cPos;
+                selectionEndLine = cursorLine;
+                selectionEndChar = cursorPos;
                 scrollToEdges(mouseX, mouseY, lineHeight);
                 return true;
             }
@@ -1451,7 +1617,6 @@ public class FileEditorScreen extends Screen {
             if (!selectedText.isEmpty()) {
                 mc.keyboard.setClipboard(selectedText);
             }
-            clearSelection();
         }
 
         public String getSelectedText() {
@@ -1584,11 +1749,12 @@ public class FileEditorScreen extends Screen {
             scrollToCursor();
         }
 
-        private static class EditorState {
-            private final ArrayList<String> lines;
-            private final int cursorLine;
-            private final int cursorPos;
-            public EditorState(ArrayList<String> lines, int cursorLine, int cursorPos) {
+        static class EditorState {
+            final ArrayList<String> lines;
+            final int cursorLine;
+            final int cursorPos;
+
+            EditorState(ArrayList<String> lines, int cursorLine, int cursorPos) {
                 this.lines = lines;
                 this.cursorLine = cursorLine;
                 this.cursorPos = cursorPos;
