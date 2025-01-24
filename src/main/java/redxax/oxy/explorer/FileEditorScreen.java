@@ -806,28 +806,9 @@ public class FileEditorScreen extends Screen {
         drawOuterBorder(context, 0, 0, this.width, titleBarHeight, globalBottomBorder);
         String titleText = "Remotely - File Editor";
         context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, screensTitleTextColor, Config.shadow);
-        drawSearchBar(
-                context,
-                textRenderer,
-                customSearchText,
-                customSearchBarFocused,
-                customCursorPosition,
-                customSelectionStart,
-                customSelectionEnd,
-                customPathScrollOffset,
-                customPathTargetScrollOffset,
-                customShowCursor,
-                aiMode,
-                "FileEditorScreen"
+        drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, customShowCursor, aiMode, "FileEditorScreen"
         );
-        drawTabs(
-                context,
-                this.textRenderer,
-                tabs,
-                currentTabIndex,
-                mouseX,
-                mouseY
-        );
+        drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false);
         int editorY = titleBarHeight + 5 + TAB_HEIGHT + 5;
         int editorHeight = this.height - editorY - 10;
         int editorX = 5;

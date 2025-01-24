@@ -422,8 +422,8 @@ public class PluginModManagerScreen extends Screen {
                 tabs,
                 currentTabIndex,
                 mouseX,
-                mouseY
-        );
+                mouseY,
+                false);
         drawSearchBar(
                 context,
                 textRenderer,

@@ -25,16 +25,15 @@ public class Render {
     private static String previousFieldText = "";
     private static boolean isAnimating = false;
 
-    public static void drawTabs(DrawContext context, TextRenderer textRenderer, List<?> tabs, int currentTabIndex, int mouseX, int mouseY) {
+    public static void drawTabs(DrawContext context, TextRenderer textRenderer, List<?> tabs, int currentTabIndex, int mouseX, int mouseY, boolean hasPlus) {
         int tabBarX = 5;
         int tabBarY = 35;
         int tabBarHeight = 18;
         boolean shadow = Config.shadow;
         int tabPadding = 5;
         int tabGap = 5;
-        int plusTabWidth = 0;
-        String plusSign = "";
-        boolean isPlusTab = false;
+        int plusTabWidth = 18;
+        String plusSign = "+";
         int x = tabBarX;
         for (int i = 0; i < tabs.size(); i++) {
             Object tab = tabs.get(i);
@@ -65,7 +64,7 @@ public class Render {
             } else if (tab instanceof PluginModManagerScreen.Tab) {
                 tabWidth = textRenderer.getWidth(name) + 2 * tabPadding;
             } else if (tab instanceof MultiTerminalScreen.TabInfo) {
-                tabWidth = ((MultiTerminalScreen.TabInfo) tab).width;
+                tabWidth = textRenderer.getWidth(name) + 2 * tabPadding;
             } else {
                 tabWidth = textRenderer.getWidth(name) + 2 * tabPadding;
             }
@@ -79,7 +78,7 @@ public class Render {
             context.drawText(textRenderer, Text.literal(name), x + tabPadding, tabBarY + (tabBarHeight - textRenderer.fontHeight) / 2, isHovered ? tabTextHoverColor : tabTextColor, shadow);
             x += tabWidth + tabGap;
         }
-        if (isPlusTab) {
+        if (hasPlus) {
             boolean isPlusTabHovered = mouseX >= x && mouseX <= x + plusTabWidth && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight;
             context.fill(x, tabBarY, x + plusTabWidth, tabBarY + tabBarHeight, isPlusTabHovered ? tabBackgroundHoverColor : tabBackgroundColor);
             drawInnerBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, isPlusTabHovered ? tabBorderHoverColor : tabBorderColor);

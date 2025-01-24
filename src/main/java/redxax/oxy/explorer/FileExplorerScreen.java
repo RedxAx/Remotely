@@ -269,8 +269,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 tabs,
                 currentTabIndex,
                 mouseX,
-                mouseY
-        );
+                mouseY,
+                true);
         int explorerY = tabBarY + TAB_HEIGHT + 30;
         int explorerHeight = this.height - explorerY - 10;
         int explorerX = 5;
