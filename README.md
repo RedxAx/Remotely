@@ -3,6 +3,9 @@
 
 ![Replace this with a description](https://cdn.modrinth.com/data/cached_images/f84929f5f20d481344a95f13905edc07a4de1784.png)
 
+[![Lines](https://hitsofcode.com/github/RedxAx/Remotely?branch=main&label=Lines:)](https://hitsofcode.com/github/RedxAx/Remotely/view?branch=main)
+
+
 # Features
 ## Multi Terminal 
 ![Multi-Terminal](https://cdn.modrinth.com/data/cached_images/2a1a533d9ae1b5c612c6d2d264c416e0b83afea0.png)
