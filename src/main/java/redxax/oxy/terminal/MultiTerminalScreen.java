@@ -8,6 +8,7 @@ import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.RemotelyClient;
+import redxax.oxy.Render;
 import redxax.oxy.config.Config;
 import redxax.oxy.explorer.FileExplorerScreen;
 import redxax.oxy.servers.PluginModManagerScreen;
@@ -264,7 +265,6 @@ public class MultiTerminalScreen extends Screen {
             snippetLastBlinkTime = currentTime;
         }
         super.render(context, mouseX, mouseY, delta);
-
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
             if (activeTerminal instanceof ServerTerminalInstance serverTerminal) {
@@ -293,7 +293,6 @@ public class MultiTerminalScreen extends Screen {
                 String buttonLabel = (st == ServerState.RUNNING || st == ServerState.STARTING) ? "Stop" : "Start";
                 boolean buttonHovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
                 drawCustomButton(context, buttonX, buttonY, buttonLabel, minecraftClient, buttonHovered, false, true, (buttonLabel.equals("Start") ? buttonTextStartColor : buttonTextStopColor), (buttonLabel.equals("Start") ? buttonTextStartColor : buttonTextStopColor));
-
                 explorerButtonX = buttonX - (buttonW + 10);
                 explorerButtonY = 5;
                 boolean explorerHovered = mouseX >= explorerButtonX && mouseX <= explorerButtonX + buttonW && mouseY >= explorerButtonY && mouseY <= explorerButtonY + buttonH;
@@ -319,113 +318,25 @@ public class MultiTerminalScreen extends Screen {
                 explorerButtonY = buttonY;
             }
         }
-
         if (!warningMessage.isEmpty()) {
             context.drawText(minecraftClient.textRenderer, Text.literal(warningMessage), 5, TAB_HEIGHT + verticalPadding, 0xFFFF0000, Config.shadow);
             warningMessage = "";
         }
-
         int hideButtonX = this.width - 15 - 5;
         int hideButtonY = 5 + topBarHeight;
         hideButtonHovered = mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15;
         drawCustomButton(context, hideButtonX, hideButtonY, "≡", minecraftClient, hideButtonHovered, true, true, buttonTextColor, buttonTextHoverColor);
-
         int tabOffsetY = topBarHeight + 5;
-        int availableTabWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 20;
-        int tabStartX = 5;
         int tabAreaHeight = TAB_HEIGHT;
-        int contentXStart = 2;
-        int effectiveWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - contentXStart - 2;
-
-        List<TabInfo> tabInfos = new ArrayList<>();
-        for (int i = 0; i < terminals.size(); i++) {
-            String tName = tabNames.get(i);
-            int tw = minecraftClient.textRenderer.getWidth(tName);
-            int paddingH = 10;
-            int tabW = Math.max(tw + paddingH * 2, 45);
-            tabInfos.add(new TabInfo(tName, tabW));
-        }
-
-        int totalTabsWidth = 0;
-        for (TabInfo ti : tabInfos) totalTabsWidth += ti.width + tabPadding;
-        if (totalTabsWidth < availableTabWidth) totalTabsWidth = availableTabWidth;
-        tabScrollOffset = MathHelper.clamp(tabScrollOffset, 0, Math.max(0, totalTabsWidth - availableTabWidth));
-
-        int plusW = 20;
-        float renderX = tabStartX - tabScrollOffset;
-        hoveredTabIndex = -1;
-
-        for (int i = 0; i < tabInfos.size(); i++) {
-            TabInfo ti = tabInfos.get(i);
-            boolean tabHovered = mouseX >= renderX && mouseX <= renderX + ti.width && mouseY >= tabOffsetY && mouseY <= tabOffsetY + tabAreaHeight;
-            if (tabHovered) hoveredTabIndex = i;
-            int bgColor = isTabActive(i) ? tabSelectedBackgroundColor : (tabHovered ? tabBackgroundHoverColor : Config.tabBackgroundColor);
-            context.fill((int) renderX, tabOffsetY, (int) renderX + ti.width, tabOffsetY + tabAreaHeight, bgColor);
-            drawInnerBorder(context, (int) renderX, tabOffsetY, ti.width, tabAreaHeight, isTabActive(i) ? tabSelectedBorderColor : (tabHovered ? tabBorderHoverColor : tabBorderColor));
-            drawOuterBorder(context, (int) renderX, tabOffsetY, ti.width, tabAreaHeight, globalBottomBorder);
-
-            String displayName = ti.name;
-            int tx;
-            int ty = tabOffsetY + (tabAreaHeight - minecraftClient.textRenderer.fontHeight) / 2;
-            if (isRenaming && renamingTabIndex == i) {
-                String fullText = renameBuffer.toString();
-                int wBeforeCursor = minecraftClient.textRenderer.getWidth(fullText.substring(0, Math.min(renameCursorPos, fullText.length())));
-                if (wBeforeCursor < renameScrollOffset) renameScrollOffset = wBeforeCursor;
-                int maxTabTextWidth = ti.width - 10;
-                if (wBeforeCursor - renameScrollOffset > maxTabTextWidth) renameScrollOffset = wBeforeCursor - maxTabTextWidth;
-                if (renameScrollOffset < 0) renameScrollOffset = 0;
-                int charStart = 0;
-                while (charStart < fullText.length()) {
-                    int cw = minecraftClient.textRenderer.getWidth(fullText.substring(0, charStart));
-                    if (cw >= renameScrollOffset) break;
-                    charStart++;
-                }
-                int visibleEnd = charStart;
-                while (visibleEnd <= fullText.length()) {
-                    int cw = minecraftClient.textRenderer.getWidth(fullText.substring(charStart, visibleEnd));
-                    if (cw > maxTabTextWidth) break;
-                    visibleEnd++;
-                }
-                visibleEnd--;
-                if (visibleEnd < charStart) visibleEnd = charStart;
-                displayName = fullText.substring(charStart, visibleEnd);
-                tx = (int) renderX + 5;
-                context.drawText(minecraftClient.textRenderer, Text.literal(displayName), tx, ty, tabHovered ? tabTextHoverColor : tabTextColor, Config.shadow);
-                long cTime = System.currentTimeMillis();
-                boolean cursorShow = ((cTime - lastRenameInputTime) < 500) || (((cTime - lastRenameInputTime) > 1000) && ((cTime - lastRenameInputTime) < 1500));
-                if ((cTime - lastRenameInputTime) > 1000) {
-                    lastRenameInputTime = cTime;
-                }
-                if (cursorShow) {
-                    int cX = tx + minecraftClient.textRenderer.getWidth(displayName.substring(0, Math.min(renameCursorPos - charStart, displayName.length())));
-                    context.fill(cX, ty - 1, cX + 1, ty + minecraftClient.textRenderer.fontHeight, CursorUtils.blendColor());
-                }
-            } else {
-                int textW = minecraftClient.textRenderer.getWidth(displayName);
-                tx = (int) renderX + (ti.width - textW) / 2;
-                context.drawText(minecraftClient.textRenderer, Text.literal(displayName), tx, ty, tabHovered ? tabTextHoverColor : tabTextColor, Config.shadow);
-            }
-            renderX += ti.width + tabPadding;
-        }
-
-        plusButtonHovered = mouseX >= renderX && mouseX <= renderX + plusW && mouseY >= tabOffsetY && mouseY <= tabOffsetY + tabAreaHeight;
-        int plusBg = plusButtonHovered ? tabBackgroundHoverColor : tabBackgroundColor;
-        context.fill((int) renderX, tabOffsetY, (int) renderX + plusW, tabOffsetY + tabAreaHeight, plusBg);
-        drawInnerBorder(context, (int) renderX, tabOffsetY, plusW, tabAreaHeight, plusButtonHovered ? tabBorderHoverColor : tabBorderColor);
-        drawOuterBorder(context, (int) renderX, tabOffsetY, plusW, tabAreaHeight, globalBottomBorder);
-        String plus = "+";
-        int pw = minecraftClient.textRenderer.getWidth(plus);
-        int ptx = (int) renderX + (plusW - pw) / 2;
-        int pty = tabOffsetY + (tabAreaHeight - minecraftClient.textRenderer.fontHeight) / 2;
-        context.drawText(minecraftClient.textRenderer, Text.literal(plus), ptx, pty, plusButtonHovered ? tabTextHoverColor : tabTextColor, Config.shadow);
-
-        if (tabScrollOffset > 0) {
-            drawFade(context, 5, tabOffsetY, 15, tabOffsetY + tabAreaHeight, Config.shadow);
-        }
-        if (totalTabsWidth - tabScrollOffset > availableTabWidth) {
-            drawFade(context, this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 15, tabOffsetY, this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 5, tabOffsetY + tabAreaHeight, false);
-        }
-
+        int effectiveWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 5;
+        Render.drawTabs(
+                context,
+                this.textRenderer,
+                buildTabInfoList(),
+                activeTerminalIndex,
+                mouseX,
+                mouseY
+        );
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
             int contentYStart = tabOffsetY + tabAreaHeight + verticalPadding;
@@ -433,7 +344,6 @@ public class MultiTerminalScreen extends Screen {
             int adjustedHeight = this.height - (topBarHeight + tabAreaHeight + verticalPadding) + 60;
             activeTerminal.render(context, Math.max(effectiveWidth, 50), adjustedHeight, scale);
         }
-
         if (showSnippetsPanel) {
             int panelX = this.width - snippetPanelWidth;
             int panelY = tabOffsetY + tabAreaHeight + 7;
@@ -442,9 +352,7 @@ public class MultiTerminalScreen extends Screen {
             context.fill(panelX, panelY, panelX + snippetPanelWidth, panelY + panelHeight, snippetPanelBackgroundColor);
             drawInnerBorder(context, panelX, panelY, snippetPanelWidth, panelHeight, snippetPanelBorderColor);
             drawOuterBorder(context, panelX, panelY, snippetPanelWidth, panelHeight, globalBottomBorder);
-
             renderSidePanelTabs(context, panelX, panelY, snippetPanelWidth, mouseX, mouseY);
-
             int tabTopHeight = 20;
             int contentStartY = panelY + tabTopHeight + 5;
             int contentAvailableHeight = panelHeight - tabTopHeight - 5;
@@ -454,15 +362,25 @@ public class MultiTerminalScreen extends Screen {
                 renderThemesTab(context, panelX, contentStartY, snippetPanelWidth, contentAvailableHeight, mouseX, mouseY);
             }
         }
-
         if (snippetPopupActive) {
             renderSnippetPopup(context, mouseX, mouseY, delta);
         }
-
         for (Notification notification : Notification.getActiveNotifications()) {
             notification.update(delta);
             notification.render(context);
         }
+    }
+
+    private List<TabInfo> buildTabInfoList() {
+        List<TabInfo> tabInfos = new ArrayList<>();
+        for (int i = 0; i < terminals.size(); i++) {
+            String tName = tabNames.get(i);
+            int tw = minecraftClient.textRenderer.getWidth(tName);
+            int paddingH = 10;
+            int tabW = Math.max(tw + paddingH * 2, 45);
+            tabInfos.add(new TabInfo(tName, tabW));
+        }
+        return tabInfos;
     }
 
     private void renderSnippetPopup(DrawContext context, int mouseX, int mouseY, float delta) {
@@ -1652,9 +1570,9 @@ public class MultiTerminalScreen extends Screen {
         public Map<String, Integer> colors = new HashMap<>();
     }
 
-    static class TabInfo {
-        String name;
-        int width;
+    public static class TabInfo {
+        public String name;
+        public int width;
         TabInfo(String n, int w) {
             name = n;
             width = w;
