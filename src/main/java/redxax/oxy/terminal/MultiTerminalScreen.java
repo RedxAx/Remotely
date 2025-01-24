@@ -44,7 +44,7 @@ public class MultiTerminalScreen extends Screen {
     private static final float MIN_SCALE = 0.1f;
     private static final float MAX_SCALE = 2.0f;
 
-    boolean isRenaming = false;
+    public static boolean isRenaming = false;
     int renamingTabIndex = -1;
     StringBuilder renameBuffer = new StringBuilder();
     long lastRenameInputTime = 0;
@@ -335,8 +335,8 @@ public class MultiTerminalScreen extends Screen {
                 buildTabInfoList(),
                 activeTerminalIndex,
                 mouseX,
-                mouseY
-        );
+                mouseY,
+                true);
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
             int contentYStart = tabOffsetY + tabAreaHeight + verticalPadding;
@@ -798,12 +798,12 @@ public class MultiTerminalScreen extends Screen {
         int tabOffsetY = topBarHeight + 5;
         int tabAreaHeight = TAB_HEIGHT;
         float renderX = 5 - tabScrollOffset;
+
         for (int i = 0; i < terminals.size(); i++) {
             String tName = tabNames.get(i);
-            int tw = minecraftClient.textRenderer.getWidth(tName);
-            int paddingH = 10;
-            int tabW = Math.max(tw + paddingH * 2, 45);
-            if (mouseX >= renderX && mouseX <= renderX + tabW && mouseY >= tabOffsetY && mouseY <= tabOffsetY + tabAreaHeight) {
+            int tabW = textRenderer.getWidth(tName) + 2 * tabPadding;
+            float renderX2 = renderX + tabW;
+            if (mouseX >= renderX && mouseX <= renderX2 && mouseY >= tabOffsetY && mouseY <= tabOffsetY + tabAreaHeight) {
                 if (button == 1) {
                     isRenaming = true;
                     renamingTabIndex = i;
