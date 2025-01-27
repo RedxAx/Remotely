@@ -1,7 +1,7 @@
 plugins {
     id "fabric-loom" version "1.7-SNAPSHOT"
     id "maven-publish"
-    id "com.gradleup.shadow" version "9.0.0-beta4"
+    id "com.gradleup.shadow" version "9.0.0-beta6"
     id "org.jetbrains.kotlin.jvm"
 }
 
