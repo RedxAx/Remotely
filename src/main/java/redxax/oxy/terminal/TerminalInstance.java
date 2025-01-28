@@ -152,4 +152,7 @@ public class TerminalInstance {
         this.serverInfo = sInfo;
     }
 
+    public String getCurrentDir() {
+        return inputHandler.getCurrentDir();
+    }
 }
