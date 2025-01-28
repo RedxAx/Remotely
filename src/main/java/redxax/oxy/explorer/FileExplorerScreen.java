@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 
 import static redxax.oxy.Render.*;
 import static redxax.oxy.config.Config.*;
+import static redxax.oxy.util.DevUtil.devPrint;
 import static redxax.oxy.util.ImageUtil.*;
 public class FileExplorerScreen extends Screen implements FileManager.FileManagerCallback {
     private final MinecraftClient minecraftClient;
@@ -973,7 +974,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                                 if (isSupportedFile(selectedPath)) {
                                     minecraftClient.setScreen(new FileEditorScreen(minecraftClient, this, selectedPath, serverInfo));
                                 } else {
-                                    showNotification("Unsupported file.", Notification.Type.ERROR);
+                                    openExternally(selectedPath);
                                 }
                             }
                             lastClickedIndex = -1;
@@ -987,37 +988,30 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                                 return true;
                             }
                             lastClickedIndex = clickedIndex;
-                            if (!serverInfo.isRemote) {
-                                boolean ctrlPressed = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) ||
-                                        (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
-                                boolean shiftPressed = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS) ||
-                                        (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS);
-                                if (ctrlPressed) {
-                                    if (selectedPaths.contains(selectedPath)) {
-                                        selectedPaths.remove(selectedPath);
-                                    } else {
-                                        selectedPaths.add(selectedPath);
-                                    }
-                                    lastSelectedIndex = clickedIndex;
-                                } else if (shiftPressed && lastSelectedIndex != -1) {
-                                    int start = Math.min(lastSelectedIndex, clickedIndex);
-                                    int end = Math.max(lastSelectedIndex, clickedIndex);
-                                    for (int iIdx = start; iIdx <= end; iIdx++) {
-                                        if (iIdx >= 0 && iIdx < entriesToRender.size()) {
-                                            Path path = entriesToRender.get(iIdx).path;
-                                            if (!selectedPaths.contains(path)) {
-                                                selectedPaths.add(path);
-                                            }
+                            boolean ctrlPressed = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) || (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
+                            boolean shiftPressed = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS) || (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS);
+                            if (ctrlPressed) {
+                                if (selectedPaths.contains(selectedPath)) {
+                                    selectedPaths.remove(selectedPath);
+                                } else {
+                                    selectedPaths.add(selectedPath);
+                                }
+                                lastSelectedIndex = clickedIndex;
+                            } else if (shiftPressed && lastSelectedIndex != -1) {
+                                int start = Math.min(lastSelectedIndex, clickedIndex);
+                                int end = Math.max(lastSelectedIndex, clickedIndex);
+                                for (int iIdx = start; iIdx <= end; iIdx++) {
+                                    if (iIdx >= 0 && iIdx < entriesToRender.size()) {
+                                        Path path = entriesToRender.get(iIdx).path;
+                                        if (!selectedPaths.contains(path)) {
+                                            selectedPaths.add(path);
                                         }
                                     }
-                                } else {
-                                    selectedPaths.clear();
-                                    selectedPaths.add(selectedPath);
-                                    lastSelectedIndex = clickedIndex;
                                 }
                             } else {
                                 selectedPaths.clear();
                                 selectedPaths.add(selectedPath);
+                                lastSelectedIndex = clickedIndex;
                             }
                             return true;
                         }
@@ -1073,7 +1067,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     selectedPaths.clear();
                     selectedPaths.add(entryData.path);
                     ContextMenu.hide();
-                    ContextMenu.addItem("Open New", () -> {
+                    ContextMenu.addItem("New Tab", () -> {
                         if (entryData.isDirectory) {
                             TabData newTabData = new TabData(entryData.path, serverInfo.isRemote, serverInfo.remoteHost);
                             tabs.add(new Tab(newTabData));
@@ -1083,11 +1077,14 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                             if (isSupportedFile(entryData.path)) {
                                 minecraftClient.setScreen(new FileEditorScreen(minecraftClient, this, entryData.path, serverInfo));
                             } else {
-                                showNotification("Unsupported file.", Notification.Type.ERROR);
+                                openExternally(entryData.path);
                             }
                         }
                     }, buttonTextHoverColor);
-                    ContextMenu.addItem("New", () -> {
+                    ContextMenu.addItem("Externally", () -> {
+                        openExternally(entryData.path);
+                    }, buttonTextHoverColor);
+                    ContextMenu.addItem("Create File", () -> {
                         String defaultName = "NewFileOrFolder";
                         newCreationPath = currentPath.resolve(defaultName);
                         creatingNew = true;
@@ -1124,6 +1121,17 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         fileManager.copySelected(selectedPaths);
                         showNotification("Copied to clipboard", Notification.Type.INFO);
                     }, buttonTextHoverColor);
+                    ContextMenu.addItem("Cut", () -> {
+                        fileManager.cutSelected(selectedPaths);
+                        showNotification("Cut to clipboard", Notification.Type.INFO);
+                    }, buttonTextHoverColor);
+                    ContextMenu.addItem("Paste", () -> {
+                        fileManager.paste(currentPath);
+                        showNotification("Pasted to " + currentPath, Notification.Type.INFO);
+                    }, buttonTextHoverColor);
+                    ContextMenu.addItem("Delete", () -> {
+                        fileManager.deleteSelected(selectedPaths, currentPath);
+                    }, buttonTextDeleteHoverColor);
                     ContextMenu.addItem("Favorite", () -> {
                         synchronized (favoritePathsLock) {
                             for (Path p : selectedPaths) {
@@ -1137,20 +1145,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         }
                         showNotification("Favorites updated", Notification.Type.INFO);
                     }, buttonTextHoverColor);
-                    ContextMenu.addItem("Cut", () -> {
-                        fileManager.cutSelected(selectedPaths);
-                        showNotification("Cut to clipboard", Notification.Type.INFO);
-                    }, buttonTextHoverColor);
-                    ContextMenu.addItem("Paste", () -> {
-                        fileManager.paste(currentPath);
-                        showNotification("Pasted to " + currentPath, Notification.Type.INFO);
-                    }, buttonTextHoverColor);
-                    ContextMenu.addItem("Delete", () -> {
-                        fileManager.deleteSelected(selectedPaths, currentPath);
-                    }, buttonTextDeleteHoverColor);
                     ContextMenu.addItem("Copy Path", () -> {
                         String quotedPath = "\"" + entryData.path.toString() + "\"";
-                        minecraftClient.keyboard.setClipboard(quotedPath); 
+                        minecraftClient.keyboard.setClipboard(quotedPath);
                         showNotification("Path copied", Notification.Type.INFO);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Refresh", () -> {
@@ -1177,6 +1174,17 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         }
         return super.mouseClicked(mouseX, mouseY, button);
     }
+
+    private void openExternally(Path selectedPath) {
+        ProcessBuilder pb = new ProcessBuilder();
+        pb.command("explorer.exe", selectedPath.toString());
+        try {
+            pb.start();
+        } catch (IOException e) {
+            showNotification("Failed to open file: " + e, Notification.Type.ERROR);
+        }
+    }
+
     private void renameSelectedFile() {
         if (renamePath == null || renameBuffer.length() == 0) {
             renamePath = null;

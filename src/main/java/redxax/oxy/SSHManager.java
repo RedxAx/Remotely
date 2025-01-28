@@ -477,18 +477,42 @@ public class SSHManager {
         }
     }
 
-    public List<String> listRemoteDirectory(String dir) throws SftpException, ExecutionException, InterruptedException {
+    public List<String> listRemoteDirectory(String dir) throws SftpException, JSchException {
         if (!sftpConnected) return Collections.emptyList();
-        return sftpExecutor.submit(() -> {
-            Vector<ChannelSftp.LsEntry> list = sftpChannel.ls(dir);
-            List<String> result = new ArrayList<>();
-            for (ChannelSftp.LsEntry entry : list) {
-                if (!entry.getFilename().equals(".") && !entry.getFilename().equals("..")) {
-                    result.add(entry.getFilename());
+
+        List<String> result = new ArrayList<>();
+        ChannelSftp channel = null;
+
+        try {
+            channel = (ChannelSftp) sshSession.openChannel("sftp");
+
+            Properties config = new Properties();
+            config.put("MaxPacketSize", "131072");
+            config.put("MaxWindowSize", "131072");
+            config.put("MaxRequests", "128");
+            sshSession.setConfig(config);
+
+            sshSession.setConfig("compression.s2c", "zlib,none");
+            sshSession.setConfig("compression.c2s", "zlib,none");
+            sshSession.setConfig("CompressionLevel", "9");
+
+            channel.connect();
+
+            Vector<ChannelSftp.LsEntry> entries = channel.ls(dir);
+
+            entries.parallelStream().forEach(entry -> {
+                String filename = entry.getFilename();
+                if (!filename.equals(".") && !filename.equals("..")) {
+                    result.add(filename);
                 }
+            });
+
+        } finally {
+            if (channel != null && channel.isConnected()) {
+                channel.disconnect();
             }
-            return result;
-        }).get();
+        }
+        return result;
     }
 
     public void deleteRemoteDirectory(String remotePath) {
