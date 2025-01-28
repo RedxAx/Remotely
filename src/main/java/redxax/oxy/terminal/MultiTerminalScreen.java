@@ -671,7 +671,7 @@ public class MultiTerminalScreen extends Screen {
             } else {
                 if (button == 0) {
                     if (mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
-                        minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo("C:/")));
+                        minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo(terminals.get(activeTerminalIndex).getCurrentDir())));
                         return true;
                     }
                 }

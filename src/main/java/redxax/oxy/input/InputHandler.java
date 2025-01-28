@@ -69,4 +69,8 @@ public class InputHandler {
     public InputProcessor getInputProcessor() {
         return inputProcessor;
     }
+
+    public String getCurrentDir() {
+        return terminalProcessManager.getCurrentDirectory();
+    }
 }
