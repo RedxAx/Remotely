@@ -4,12 +4,24 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import redxax.oxy.SSHManager;
 import redxax.oxy.servers.ServerInfo;
 
 public class FileManager {
-    private List<Path> clipboard = new ArrayList<>();
+    private static class ClipboardEntry {
+        final String sourcePath;
+        final boolean isRemote;
+
+        ClipboardEntry(String sourcePath, boolean isRemote) {
+            this.sourcePath = sourcePath;
+            this.isRemote = isRemote;
+        }
+    }
+
+    private List<ClipboardEntry> clipboard = new ArrayList<>();
     private boolean isCut = false;
     private Deque<UndoableAction> undoStack = new ArrayDeque<>();
     private final FileManagerCallback callback;
@@ -23,231 +35,160 @@ public class FileManager {
         this.sshManager = sshManager;
         this.tempUndoDir = Paths.get(System.getProperty("java.io.tmpdir"), "file_explorer_undo");
         try {
-            if (!Files.exists(tempUndoDir)) {
-                Files.createDirectories(tempUndoDir);
-            }
-        } catch (IOException e) {
-            callback.showNotification("Failed to create temp undo directory: " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
-        }
+            Files.createDirectories(tempUndoDir);
+        } catch (IOException ignored) {}
     }
 
     public void copySelected(List<Path> selectedPaths) {
-        clipboard.clear();
-        clipboard.addAll(selectedPaths);
+        clipboard = selectedPaths.stream()
+                .map(p -> new ClipboardEntry(p.toString(), serverInfo.isRemote))
+                .collect(Collectors.toList());
         isCut = false;
     }
 
     public void cutSelected(List<Path> selectedPaths) {
-        clipboard.clear();
-        clipboard.addAll(selectedPaths);
+        clipboard = selectedPaths.stream()
+                .map(p -> new ClipboardEntry(p.toString(), serverInfo.isRemote))
+                .collect(Collectors.toList());
         isCut = true;
     }
 
     public void deleteSelected(List<Path> selectedPaths, Path currentPath) {
-        List<Path> toRemove = new ArrayList<>();
         List<Path> deletedPaths = new ArrayList<>();
-        List<Path> backupPaths = new ArrayList<>();
+        List<String> backupPaths = new ArrayList<>();
+
         if (serverInfo.isRemote) {
-            for (Path path : selectedPaths) {
+            String homeDir = serverInfo.remoteHost.getHomeDirectory();
+
+            selectedPaths.parallelStream().forEach(path -> {
                 try {
                     String remotePath = path.toString().replace("\\", "/");
-                    String backupPath = tempUndoDir.resolve(path.getFileName()).toString().replace("\\", "/");
-                    sshManager.downloadRemotePath(remotePath, Paths.get(backupPath));
-                    sshManager.deleteRemoteDirectory(remotePath);
-                    callback.refreshDirectory(currentPath);
-                    deletedPaths.add(path);
-                    backupPaths.add(Paths.get(backupPath));
-                    toRemove.add(path);
+                    String fileName = Paths.get(remotePath).getFileName().toString();
+                    String trashPath = homeDir + "/remotely/data/trash/" + fileName;
+
+                    sshManager.runRemoteCommand(
+                            "mkdir -p " + homeDir + "/remotely/data/trash && " +
+                                    "mv -f \"" + remotePath + "\" \"" + trashPath + "\""
+                    );
+
+                    synchronized (this) {
+                        deletedPaths.add(path);
+                        backupPaths.add(trashPath);
+                    }
                 } catch (Exception e) {
                     callback.showNotification("Error deleting " + path.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
                 }
-            }
+            });
         } else {
-            for (Path path : selectedPaths) {
+            selectedPaths.parallelStream().forEach(path -> {
                 try {
-                    Path backupPath = tempUndoDir.resolve(currentPath.relativize(path));
-                    if (Files.isDirectory(path)) {
-                        Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
-                            @Override
-                            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                                Path targetDir = backupPath.resolve(currentPath.relativize(dir));
-                                if (!Files.exists(targetDir)) {
-                                    Files.createDirectories(targetDir);
-                                }
-                                return FileVisitResult.CONTINUE;
-                            }
-
-                            @Override
-                            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                                Files.copy(file, backupPath.resolve(currentPath.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
-                                Files.delete(file);
-                                return FileVisitResult.CONTINUE;
-                            }
-
-                            @Override
-                            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                                Files.delete(dir);
-                                return FileVisitResult.CONTINUE;
-                            }
-                        });
-                    } else {
-                        Files.copy(path, backupPath, StandardCopyOption.REPLACE_EXISTING);
-                        Files.delete(path);
-                        backupPaths.add(backupPath);
+                    Path backupPath = tempUndoDir.resolve(UUID.randomUUID().toString());
+                    Files.walkFileTree(path, new RecursiveFileCopier(path, backupPath, true));
+                    synchronized (this) {
+                        deletedPaths.add(path);
+                        backupPaths.add(backupPath.toString());
                     }
-                    deletedPaths.add(path);
-                    toRemove.add(path);
                 } catch (IOException e) {
                     callback.showNotification("Error deleting " + path.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
                 }
-            }
+            });
         }
+
         if (!deletedPaths.isEmpty()) {
-            undoStack.push(new DeleteAction(deletedPaths, backupPaths));
+            undoStack.push(new DeleteAction(new ArrayList<>(deletedPaths), new ArrayList<>(backupPaths)));
+            callback.refreshDirectory(currentPath);
         }
-        callback.refreshDirectory(currentPath);
     }
 
     public void paste(Path currentPath) {
-        List<Path> toDelete = new ArrayList<>();
-        List<Path> pastedPaths = new ArrayList<>();
-        List<Path> backupPaths = new ArrayList<>();
-        if (serverInfo.isRemote) {
-            for (Path src : clipboard) {
-                try {
-                    String srcPath = src.toString().replace("\\", "/");
-                    String destPath = currentPath.resolve(src.getFileName()).toString().replace("\\", "/");
-                    if (isCut) {
-                        sshManager.runRemoteCommand("mv " + srcPath + " " + destPath);
-                        callback.refreshDirectory(currentPath);
-                        pastedPaths.add(Paths.get(destPath));
-                        toDelete.add(src);
-                    } else {
-                        sshManager.runRemoteCommand("cp -r " + srcPath + " " + destPath);
-                        callback.refreshDirectory(currentPath);
-                        pastedPaths.add(Paths.get(destPath));
-                    }
-                } catch (Exception e) {
-                    callback.showNotification("Error pasting " + src.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
-                }
-            }
-        } else {
-            for (Path src : clipboard) {
-                try {
-                    Path dest = currentPath.resolve(src.getFileName());
-                    if (Files.exists(dest)) {
-                        if (Files.isDirectory(src)) {
-                            Files.walkFileTree(src, new SimpleFileVisitor<Path>() {
-                                @Override
-                                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                                    Path targetDir = dest.resolve(src.relativize(dir));
-                                    if (!Files.exists(targetDir)) {
-                                        Files.createDirectory(targetDir);
-                                    }
-                                    return FileVisitResult.CONTINUE;
-                                }
+        List<PathOperation> operations = new ArrayList<>();
 
-                                @Override
-                                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                                    Files.copy(file, dest.resolve(src.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
-                                    pastedPaths.add(dest.resolve(src.relativize(file)));
-                                    return FileVisitResult.CONTINUE;
-                                }
-                            });
-                        } else {
-                            Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
-                            pastedPaths.add(dest);
-                        }
-                    } else {
-                        if (Files.isDirectory(src)) {
-                            Files.walkFileTree(src, new SimpleFileVisitor<Path>() {
-                                @Override
-                                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                                    Path targetDir = dest.resolve(src.relativize(dir));
-                                    if (!Files.exists(targetDir)) {
-                                        Files.createDirectory(targetDir);
-                                    }
-                                    return FileVisitResult.CONTINUE;
-                                }
+        for (ClipboardEntry entry : clipboard) {
+            try {
+                if (serverInfo.isRemote) {
+                    String remoteDest = currentPath.resolve(Paths.get(entry.sourcePath).getFileName().toString())
+                            .toString().replace("\\", "/");
 
-                                @Override
-                                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                                    Files.copy(file, dest.resolve(src.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
-                                    pastedPaths.add(dest.resolve(src.relativize(file)));
-                                    return FileVisitResult.CONTINUE;
-                                }
-                            });
+                    if (entry.isRemote) {
+                        if (isCut) {
+                            sshManager.renameRemote(entry.sourcePath, remoteDest);
                         } else {
-                            Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
-                            pastedPaths.add(dest);
+                            sshManager.runRemoteCommand("cp -rf \"" + entry.sourcePath + "\" \"" + remoteDest + "\"");
                         }
+                        operations.add(new PathOperation(entry.sourcePath, remoteDest));
+                    } else {
+                        Path localSrc = Paths.get(entry.sourcePath);
+                        sshManager.upload(localSrc, remoteDest);
+                        if (isCut) Files.delete(localSrc);
+                        operations.add(new PathOperation(entry.sourcePath, remoteDest));
                     }
-                    if (isCut && !src.toAbsolutePath().normalize().equals(dest.toAbsolutePath().normalize())) {
-                        toDelete.add(src);
+                } else {
+                    Path dest = currentPath.resolve(Paths.get(entry.sourcePath).getFileName());
+                    Files.createDirectories(dest.getParent());
+
+                    if (entry.isRemote) {
+                        sshManager.download(entry.sourcePath, dest);
+                        if (isCut) sshManager.deleteRemote(entry.sourcePath);
+                        operations.add(new PathOperation(entry.sourcePath, dest.toString()));
+                    } else {
+                        Path src = Paths.get(entry.sourcePath);
+                        if (isCut) {
+                            Files.move(src, dest, StandardCopyOption.REPLACE_EXISTING);
+                        } else {
+                            Files.walkFileTree(src, new RecursiveFileCopier(src, dest, false));
+                        }
+                        operations.add(new PathOperation(src.toString(), dest.toString()));
                     }
-                } catch (IOException e) {
-                    callback.showNotification("Error pasting " + src.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
                 }
+            } catch (Exception e) {
+                callback.showNotification("Error pasting " + Paths.get(entry.sourcePath).getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
             }
         }
-        if (!pastedPaths.isEmpty()) {
-            undoStack.push(new PasteAction(pastedPaths));
+
+        if (!operations.isEmpty()) {
+            undoStack.push(new PasteAction(operations, isCut));
+            if (isCut) clipboard.clear();
+            isCut = false;
             callback.refreshDirectory(currentPath);
-        }
-        if (serverInfo.isRemote) {
-            if (isCut) {
-                clipboard.clear();
-                isCut = false;
-            }
-        } else {
-            for (Path path : toDelete) {
-                try {
-                    Path backupPath = tempUndoDir.resolve(currentPath.relativize(path));
-                    if (Files.isDirectory(path)) {
-                        Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
-                            @Override
-                            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                                Path targetDir = backupPath.resolve(currentPath.relativize(dir));
-                                if (!Files.exists(targetDir)) {
-                                    Files.createDirectories(targetDir);
-                                }
-                                return FileVisitResult.CONTINUE;
-                            }
-
-                            @Override
-                            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                                Files.copy(file, backupPath.resolve(currentPath.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
-                                Files.delete(file);
-                                return FileVisitResult.CONTINUE;
-                            }
-
-                            @Override
-                            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                                Files.delete(dir);
-                                return FileVisitResult.CONTINUE;
-                            }
-                        });
-                    } else {
-                        Files.copy(path, backupPath, StandardCopyOption.REPLACE_EXISTING);
-                        Files.delete(path);
-                        backupPaths.add(backupPath);
-                    }
-                } catch (IOException e) {
-                    callback.showNotification("Error deleting " + path.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
-                }
-            }
-            if (isCut) {
-                clipboard.clear();
-                isCut = false;
-            }
         }
     }
 
     public void undo(Path currentPath) {
         if (!undoStack.isEmpty()) {
-            UndoableAction action = undoStack.pop();
-            action.undo();
+            undoStack.pop().undo();
             callback.refreshDirectory(currentPath);
+        }
+    }
+
+    private static class RecursiveFileCopier extends SimpleFileVisitor<Path> {
+        private final Path source;
+        private final Path target;
+        private final boolean deleteSource;
+
+        RecursiveFileCopier(Path source, Path target, boolean deleteSource) {
+            this.source = source;
+            this.target = target;
+            this.deleteSource = deleteSource;
+        }
+
+        @Override
+        public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+            Path newDir = target.resolve(source.relativize(dir));
+            Files.createDirectories(newDir);
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+            Files.copy(file, target.resolve(source.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
+            if (deleteSource) Files.delete(file);
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+            if (deleteSource) Files.delete(dir);
+            return FileVisitResult.CONTINUE;
         }
     }
 
@@ -255,108 +196,86 @@ public class FileManager {
         void undo();
     }
 
+    private record PathOperation(String source, String destination) {}
+
     class DeleteAction implements UndoableAction {
         private final List<Path> deletedPaths;
-        private final List<Path> backupPaths;
+        private final List<String> backupPaths;
 
-        DeleteAction(List<Path> deletedPaths, List<Path> backupPaths) {
-            this.deletedPaths = new ArrayList<>(deletedPaths);
-            this.backupPaths = new ArrayList<>(backupPaths);
+        DeleteAction(List<Path> deletedPaths, List<String> backupPaths) {
+            this.deletedPaths = deletedPaths;
+            this.backupPaths = backupPaths;
         }
 
         @Override
         public void undo() {
             if (serverInfo.isRemote) {
-                for (int i = 0; i < deletedPaths.size(); i++) {
-                    Path path = deletedPaths.get(i);
-                    Path backup = backupPaths.get(i);
+                backupPaths.parallelStream().forEach(backup -> {
                     try {
-                        String remotePath = path.toString().replace("\\", "/");
-                        String backupPath = backup.toString().replace("\\", "/");
-                        sshManager.uploadRemotePath(backupPath, remotePath);
-                        callback.refreshDirectory(path.getParent());
-                        Files.deleteIfExists(backup);
+                        int index = backupPaths.indexOf(backup);
+                        sshManager.runRemoteCommand("mv -f \"" + backup + "\" \"" + deletedPaths.get(index) + "\"");
                     } catch (Exception e) {
-                        callback.showNotification("Error undoing delete for " + path.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
+                        callback.showNotification("Error undoing delete: " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
                     }
-                }
+                });
             } else {
-                for (int i = 0; i < deletedPaths.size(); i++) {
-                    Path path = deletedPaths.get(i);
-                    Path backup = backupPaths.get(i);
+                IntStream.range(0, deletedPaths.size()).parallel().forEach(i -> {
                     try {
-                        if (Files.isDirectory(backup)) {
-                            Files.walkFileTree(backup, new SimpleFileVisitor<Path>() {
-                                @Override
-                                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                                    Path targetDir = path.resolve(backup.relativize(dir));
-                                    if (!Files.exists(targetDir)) {
-                                        Files.createDirectories(targetDir);
-                                    }
-                                    return FileVisitResult.CONTINUE;
-                                }
-
-                                @Override
-                                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                                    Files.copy(file, path.resolve(backup.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
-                                    return FileVisitResult.CONTINUE;
-                                }
-                            });
-                        } else {
-                            Files.copy(backup, path, StandardCopyOption.REPLACE_EXISTING);
-                        }
-                        Files.deleteIfExists(backup);
+                        Path dest = deletedPaths.get(i);
+                        Path backup = Paths.get(backupPaths.get(i));
+                        Files.walkFileTree(backup, new RecursiveFileCopier(backup, dest, true));
                     } catch (IOException e) {
-                        callback.showNotification("Error undoing delete for " + path.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
+                        callback.showNotification("Error undoing delete: " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
                     }
-                }
+                });
             }
         }
     }
 
     class PasteAction implements UndoableAction {
-        private final List<Path> pastedPaths;
+        private final List<PathOperation> operations;
+        private final boolean wasCut;
 
-        PasteAction(List<Path> pastedPaths) {
-            this.pastedPaths = new ArrayList<>(pastedPaths);
+        PasteAction(List<PathOperation> operations, boolean wasCut) {
+            this.operations = operations;
+            this.wasCut = wasCut;
         }
 
         @Override
         public void undo() {
-            if (serverInfo.isRemote) {
-                for (Path path : pastedPaths) {
-                    try {
-                        String remotePath = path.toString().replace("\\", "/");
-                        sshManager.deleteRemoteDirectory(remotePath);
-                    } catch (Exception e) {
-                        callback.showNotification("Error undoing paste for " + path.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
-                    }
-                }
-            } else {
-                for (Path path : pastedPaths) {
-                    try {
-                        if (Files.isDirectory(path)) {
-                            Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
-                                @Override
-                                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                                    Files.delete(file);
-                                    return FileVisitResult.CONTINUE;
-                                }
-
-                                @Override
-                                public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                                    Files.delete(dir);
-                                    return FileVisitResult.CONTINUE;
-                                }
-                            });
+            operations.parallelStream().forEach(op -> {
+                try {
+                    if (wasCut) {
+                        if (serverInfo.isRemote) {
+                            sshManager.renameRemote(op.destination(), op.source());
                         } else {
-                            Files.delete(path);
+                            Files.move(Paths.get(op.destination()), Paths.get(op.source()), StandardCopyOption.REPLACE_EXISTING);
                         }
-                    } catch (IOException e) {
-                        callback.showNotification("Error undoing paste for " + path.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
+                    } else {
+                        if (serverInfo.isRemote) {
+                            sshManager.deleteRemote(op.destination());
+                        } else {
+                            Files.walkFileTree(Paths.get(op.destination()), new RecursiveFileDeleter());
+                        }
                     }
+                } catch (Exception e) {
+                    callback.showNotification("Error undoing paste: " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
                 }
-            }
+            });
+        }
+    }
+
+    private static class RecursiveFileDeleter extends SimpleFileVisitor<Path> {
+        @Override
+        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+            Files.delete(file);
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+            Files.delete(dir);
+            return FileVisitResult.CONTINUE;
         }
     }
 

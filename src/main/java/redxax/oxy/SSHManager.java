@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 import static redxax.oxy.util.DevUtil.*;
 
@@ -477,88 +478,34 @@ public class SSHManager {
         }
     }
 
-    public List<String> listRemoteDirectory(String dir) throws SftpException, JSchException {
+    public List<String> listRemoteDirectory(String dir) throws Exception {
         if (!sftpConnected) return Collections.emptyList();
 
-        List<String> result = new ArrayList<>();
-        ChannelSftp channel = null;
-
-        try {
-            channel = (ChannelSftp) sshSession.openChannel("sftp");
-
-            Properties config = new Properties();
-            config.put("MaxPacketSize", "131072");
-            config.put("MaxWindowSize", "131072");
-            config.put("MaxRequests", "128");
-            sshSession.setConfig(config);
-
-            sshSession.setConfig("compression.s2c", "zlib,none");
-            sshSession.setConfig("compression.c2s", "zlib,none");
-            sshSession.setConfig("CompressionLevel", "9");
-
-            channel.connect();
-
-            Vector<ChannelSftp.LsEntry> entries = channel.ls(dir);
-
-            entries.parallelStream().forEach(entry -> {
-                String filename = entry.getFilename();
-                if (!filename.equals(".") && !filename.equals("..")) {
-                    result.add(filename);
-                }
-            });
-
-        } finally {
-            if (channel != null && channel.isConnected()) {
-                channel.disconnect();
-            }
-        }
-        return result;
+        Vector<ChannelSftp.LsEntry> entries = sftpChannel.ls(dir);
+        return entries.parallelStream()
+                .map(ChannelSftp.LsEntry::getFilename)
+                .filter(name -> !name.equals(".") && !name.equals(".."))
+                .collect(Collectors.toList());
     }
 
-    public void deleteRemoteDirectory(String remotePath) {
-        if (!sftpConnected) return;
-        sftpExecutor.submit(() -> {
-            try {
-                String command = "rm -rf " + remotePath;
-                ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
-                channelExec.setCommand(command);
-                channelExec.connect();
-                while (!channelExec.isClosed()) {
-                    Thread.sleep(100);
-                }
-                channelExec.disconnect();
-            } catch (Exception e) {
-                if (terminalInstance != null) {
-                    terminalInstance.appendOutput("Failed to delete remote directory: " + e.getMessage() + "\n");
-                }
-            }
-        });
+    public void copyRemote(String source, String dest) throws Exception {
+        runRemoteCommand("cp -r \"" + source + "\" \"" + dest + "\"");
     }
 
-    public void uploadRemotePath(String string, String remotePath) {
-        if (!sftpConnected) return;
-        sftpExecutor.submit(() -> {
-            try {
-                sftpChannel.put(string, remotePath);
-            } catch (Exception e) {
-                if (terminalInstance != null) {
-                    terminalInstance.appendOutput("Failed to upload file: " + e.getMessage() + "\n");
-                }
-            }
-        });
+    public void renameRemote(String source, String dest) throws Exception {
+        sftpChannel.rename(source, dest);
     }
 
-    public void downloadRemotePath(String remotePath, Path resolve) {
-        if (!sftpConnected) return;
-        sftpExecutor.submit(() -> {
-            try {
-                sftpChannel.get(remotePath, resolve.toString());
-            } catch (Exception e) {
-                if (terminalInstance != null) {
-                    terminalInstance.appendOutput("Failed to download file: " + e.getMessage() + "\n");
-                }
-            }
-        });
+    public void deleteRemote(String path) throws Exception {
+        runRemoteCommand("rm -rf \"" + path + "\"");
+    }
+
+    public void upload(Path local, String remote) throws Exception {
+        sftpChannel.put(local.toString(), remote);
+    }
+
+    public void download(String remote, Path local) throws Exception {
+        sftpChannel.get(remote, local.toString());
     }
 
     public void writeRemoteFile(String remotePath, String content) {
