@@ -155,4 +155,5 @@ public class TerminalInstance {
     public String getCurrentDir() {
         return inputHandler.getCurrentDir();
     }
+
 }

@@ -14,7 +14,7 @@ public class InputProcessor {
     private final MinecraftClient minecraftClient;
     private final TerminalInstance terminalInstance;
     private final SSHManager sshManager;
-    public final TabCompletionHandler tabCompletionHandler;
+    public TabCompletionHandler tabCompletionHandler;
     public final CommandExecutor commandExecutor;
 
     public InputProcessor(MinecraftClient client, TerminalInstance terminalInstance, SSHManager sshManager, TabCompletionHandler tabCompletionHandler, CommandExecutor commandExecutor) {
@@ -293,5 +293,9 @@ public class InputProcessor {
             index--;
         }
         return index + 1;
+    }
+
+    public void setCurrentDirectory(String newDirectory) {
+        tabCompletionHandler.setCurrentDirectory(newDirectory);
     }
 }

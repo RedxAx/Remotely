@@ -329,14 +329,7 @@ public class MultiTerminalScreen extends Screen {
         int tabOffsetY = topBarHeight + 5;
         int tabAreaHeight = TAB_HEIGHT;
         int effectiveWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 5;
-        Render.drawTabs(
-                context,
-                this.textRenderer,
-                buildTabInfoList(),
-                activeTerminalIndex,
-                mouseX,
-                mouseY,
-                true);
+        Render.drawTabs(context, this.textRenderer, buildTabInfoList(), activeTerminalIndex, mouseX, mouseY, true, false);
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
             int contentYStart = tabOffsetY + tabAreaHeight + verticalPadding;
