@@ -53,7 +53,6 @@ public class Config {
     public static int browserElementTextColor = 0xFFFFFFFF;
     public static int browserElementTextDimColor = 0xFFd6f264;
 
-
     public static int snippetElementBackgroundColor = 0xFF2C2C2C;
     public static int snippetElementBorderColor = 0xFF444444;
     public static int snippetElementBorderHoverColor = 0xFF9d9d9d;
@@ -73,9 +72,9 @@ public class Config {
     public static int buttonTextDeleteColor = 0xFFff7a7a;
     public static int buttonTextDeleteHoverColor = 0xFFb4202a;
     public static int buttonTextExplorerColor = 0xFFbfab61;
-    public static int buttonTextExplorerHoverColor = 0xFFffc800;
+    public static int buttonTextExplorerHoverColor = 0xFFFFC800;
     public static int buttonTextBrowseColor = 0xFF249fde;
-    public static int buttonTextBrowseHoverColor = 0xFF6cc4f1;
+    public static int buttonTextBrowseHoverColor = 0xFF6CC4F1;
     public static int buttonTextStartColor = 0xFFd6f264;
     public static int buttonTextStopColor = 0xFFff7a7a;
     public static int buttonTextCancelColor = 0xFFff7a7a;
@@ -90,24 +89,23 @@ public class Config {
     public static int browserScreenBackgroundColor = 0xFF181818;
     public static int editorScreenBackgroundColor = 0xFF181818;
     public static int editorInnerBackgroundColor = 0xFF222222;
-    public static int editorBorderColor = 0xFF555555;
+    public static int editorBorderColor = 0xFF333333;
     public static int deskScreenBackgroundColor = 0xFF181818;
     public static int deskInnerBackgroundColor = 0xFF222222;
-    public static int deskBorderColor = 0xFF555555;
+    public static int deskBorderColor = 0xFF333333;
     public static int snippetPanelBackgroundColor = 0xFF222222;
     public static int snippetPanelBorderColor = 0xFF555555;
 
-    public static int terminalBackgroundColor = 0xFF0a0a0a;
+    public static int terminalBackgroundColor = 0xFF181818;
     public static int terminalBorderColor = 0xFF555555;
-    public static int terminalBorderThickness = 1;
     public static int terminalCursorColor = 0xFFFFFFFF;
-    public static int terminalStatusBarColor = 0xFF333333;
+    public static int terminalStatusBarColor = 0xFF555555;
     public static int terminalTextColor = 0xFFFFFFFF;
-    public static int terminalTextInputColor = 0x4AF626;
-    public static int terminalTextSuggesterColor = 0x666666;
-    public static int terminalTextWarnColor = 0xFFA500;
-    public static int terminalTextErrorColor = 0xFF0000;
-    public static int terminalTextInfoColor = 0x00FF00;
+    public static int terminalTextInputColor = 0xFFd6f264;
+    public static int terminalTextSuggesterColor = 0xFF666666;
+    public static int terminalTextWarnColor = 0xFFFFA500;
+    public static int terminalTextErrorColor = 0xFFFF0000;
+    public static int terminalTextInfoColor = 0xFF00FF00;
     public static int terminalSelectionColor = 0x80FFFFFF;
 
     public static int cursorColor = 0xFFd6f264;
