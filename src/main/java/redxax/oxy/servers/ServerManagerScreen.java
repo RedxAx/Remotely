@@ -1047,13 +1047,17 @@ public class ServerManagerScreen extends Screen {
         String ver = serverVersionBuffer.toString().trim().isEmpty() ? "latest" : serverVersionBuffer.toString().trim();
         selectedServerType = serverTypes.get(selectedTypeIndex);
         String path;
-        if (activeTabIndex == 0) {
-            path = "C:/remotely/servers/" + name;
+        if (!editingServer) {
+            if (activeTabIndex == 0) {
+                path = "C:/remotely/servers/" + name;
+            } else {
+                RemoteHostInfo remoteHost = remoteHosts.get(activeTabIndex - 1);
+                String user = remoteHost.getUser();
+                String homeDir = user.equals("root") ? "/root" : "/home/" + user;
+                path = homeDir + "/remotely/servers/" + name;
+            }
         } else {
-            RemoteHostInfo remoteHost = remoteHosts.get(activeTabIndex - 1);
-            String user = remoteHost.getUser();
-            String homeDir = user.equals("root") ? "/root" : "/home/" + user;
-            path = homeDir + "/remotely/servers/" + name;
+            path = currentServers.get(editingServerIndex).path;
         }
         Path serverJarPath = Paths.get(path, "server.jar");
         if (editingServer && editingServerIndex >= 0 && editingServerIndex < currentServers.size()) {
