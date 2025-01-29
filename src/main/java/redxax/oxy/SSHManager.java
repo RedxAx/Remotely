@@ -10,12 +10,12 @@ import redxax.oxy.terminal.TerminalInstance;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
+import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
-import static redxax.oxy.util.DevUtil.*;
+import static redxax.oxy.util.DevUtil.devPrint;
 
 public class SSHManager {
     private RemoteHostInfo remoteHost = new RemoteHostInfo();
@@ -169,7 +169,6 @@ public class SSHManager {
                 if (!s.version.equalsIgnoreCase("latest")) {
                     cmd.append(" --minecraft-version ").append(s.version);
                 }
-                System.out.println("Running MrPack on remote: " + cmd);
                 cmd.append(" --server-file server.jar");
                 channelExec.setCommand(cmd.toString());
                 channelExec.setInputStream(null);
@@ -228,8 +227,7 @@ public class SSHManager {
         }
     }
 
-
-    private boolean remoteFileExists(String path) {
+    public boolean remoteFileExists(String path) {
         devPrint("Checking if remote file exists: " + path);
         try {
             ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
@@ -270,7 +268,6 @@ public class SSHManager {
                 String scriptFilePath = folder + "/start.sh";
                 if (!remoteFileExists(folder + "/start.sh")) {
                     if (terminalInstance != null) terminalInstance.appendOutput("You Don't Have a start.sh, Creating One...\n");
-
                     StringBuilder commandStr = ServerProcessManager.getCommandStr();
                     sshWriter.write("echo \"" + commandStr.toString().replace("\"", "\\\"") + "\" > " + scriptFilePath + "\n");
                     sshWriter.write("chmod +x " + scriptFilePath + "\n");
@@ -279,7 +276,6 @@ public class SSHManager {
                 }
                 sshWriter.write("cd " + folder +  " && ./start.sh \n");
                 sshWriter.flush();
-
                 readSSHOutput();
             } catch (Exception e) {
                 if (terminalInstance != null) {
@@ -480,7 +476,6 @@ public class SSHManager {
 
     public List<String> listRemoteDirectory(String dir) throws Exception {
         if (!sftpConnected) return Collections.emptyList();
-
         Vector<ChannelSftp.LsEntry> entries = sftpChannel.ls(dir);
         return entries.parallelStream()
                 .map(ChannelSftp.LsEntry::getFilename)
@@ -501,11 +496,56 @@ public class SSHManager {
     }
 
     public void upload(Path local, String remote) throws Exception {
-        sftpChannel.put(local.toString(), remote);
+        if (Files.isDirectory(local)) {
+            uploadDirectory(local, remote);
+        } else {
+            sftpChannel.put(local.toString(), remote);
+        }
+    }
+
+    private void uploadDirectory(Path localDir, String remoteDir) throws Exception {
+        try {
+            sftpChannel.stat(remoteDir);
+        } catch (SftpException e) {
+            sftpChannel.mkdir(remoteDir);
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(localDir)) {
+            for (Path entry : stream) {
+                String entryRemote = remoteDir + "/" + entry.getFileName().toString().replace("\\", "/");
+                if (Files.isDirectory(entry)) {
+                    uploadDirectory(entry, entryRemote);
+                } else {
+                    sftpChannel.put(entry.toString(), entryRemote);
+                }
+            }
+        }
     }
 
     public void download(String remote, Path local) throws Exception {
-        sftpChannel.get(remote, local.toString());
+        if (isRemoteDirectory(remote)) {
+            downloadDirectory(remote, local);
+        } else {
+            Files.createDirectories(local.getParent());
+            sftpChannel.get(remote, local.toString());
+        }
+    }
+
+    private void downloadDirectory(String remoteDir, Path localDir) throws Exception {
+        Files.createDirectories(localDir);
+        Vector<ChannelSftp.LsEntry> list = sftpChannel.ls(remoteDir);
+        for (ChannelSftp.LsEntry entry : list) {
+            String name = entry.getFilename();
+            if (".".equals(name) || "..".equals(name)) {
+                continue;
+            }
+            String remotePath = remoteDir + "/" + name;
+            Path localPath = localDir.resolve(name);
+            if (entry.getAttrs().isDir()) {
+                downloadDirectory(remotePath, localPath);
+            } else {
+                sftpChannel.get(remotePath, localPath.toString());
+            }
+        }
     }
 
     public void writeRemoteFile(String remotePath, String content) {
