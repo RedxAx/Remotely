@@ -900,7 +900,7 @@ public class FileEditorScreen extends Screen {
             for (int i = 0; i < visibleLines; i++) {
                 int lineIndex = (int) Math.floor(smoothScrollOffsetVert / lineHeight) + i;
                 if (lineIndex < 0 || lineIndex >= lines.size()) continue;
-                int renderY = y + i * lineHeight - (int) smoothScrollOffsetVert % lineHeight;
+                int renderY = y + i * lineHeight - (int) smoothScrollOffsetVert % lineHeight + 1;
                 String text = lines.get(lineIndex);
                 Text syntaxColoredLine = SyntaxHighlighter.highlight(text, fileName);
                 context.drawText(mc.textRenderer, syntaxColoredLine, x + textPadding - (int) smoothScrollOffsetHoriz, renderY, 0xFFFFFF, Config.shadow);
@@ -1486,13 +1486,15 @@ public class FileEditorScreen extends Screen {
         public void scrollVert(int amount) {
             targetScrollOffsetVert += amount * (mc.textRenderer.fontHeight + 2);
             if (targetScrollOffsetVert < 0) targetScrollOffsetVert = 0;
-            int maxScroll = Math.max(0, lines.size() * (mc.textRenderer.fontHeight + 2) - height);
+            int additionalScroll = 30 * (mc.textRenderer.fontHeight + 2);
+            int maxScroll = Math.max(0, lines.size() * (mc.textRenderer.fontHeight + 2) - height + additionalScroll);
             if (targetScrollOffsetVert > maxScroll) targetScrollOffsetVert = maxScroll;
         }
 
         public void scrollHoriz(int amount) {
             targetScrollOffsetHoriz += amount;
-            int maxScroll = Math.max(0, getMaxLineWidth() - width);
+            int additionalScroll = 100;
+            int maxScroll = Math.max(0, getMaxLineWidth() - width + additionalScroll);
             if (targetScrollOffsetHoriz < 0) targetScrollOffsetHoriz = 0;
             if (targetScrollOffsetHoriz > maxScroll) targetScrollOffsetHoriz = maxScroll;
         }
@@ -1682,29 +1684,20 @@ public class FileEditorScreen extends Screen {
             if (cursorLine < 0 || cursorLine >= lines.size()) return;
             int lineHeight = mc.textRenderer.fontHeight + 2;
             int cursorY = cursorLine * lineHeight;
-            int topVisible = (int) smoothScrollOffsetVert;
-            int bottomVisible = topVisible + height - lineHeight;
-            if (cursorY < topVisible) {
-                targetScrollOffsetVert = cursorY;
-            } else if (cursorY > bottomVisible) {
-                targetScrollOffsetVert = cursorY - (height - lineHeight);
-            }
+            int halfHeight = height / 2;
+            targetScrollOffsetVert = cursorY - halfHeight + lineHeight / 2;
             if (targetScrollOffsetVert < 0) targetScrollOffsetVert = 0;
-            int maxScrollVert = Math.max(0, lines.size() * lineHeight - height);
+            int maxScrollVert = Math.max(0, lines.size() * lineHeight - height + lineHeight);
             if (targetScrollOffsetVert > maxScrollVert) targetScrollOffsetVert = maxScrollVert;
             String lineText = lines.get(cursorLine);
             int cursorX = mc.textRenderer.getWidth(lineText.substring(0, Math.min(cursorPos, lineText.length())));
-            int leftVisible = (int) smoothScrollOffsetHoriz;
-            int rightVisible = leftVisible + width - 20;
-            if (cursorX < leftVisible) {
-                targetScrollOffsetHoriz = cursorX;
-            } else if (cursorX > rightVisible) {
-                targetScrollOffsetHoriz = cursorX - (width - 20);
-            }
+            int halfWidth = width / 2;
+            targetScrollOffsetHoriz = cursorX - halfWidth;
             if (targetScrollOffsetHoriz < 0) targetScrollOffsetHoriz = 0;
-            int maxScrollHoriz = Math.max(0, getMaxLineWidth() - width);
+            int maxScrollHoriz = Math.max(0, getMaxLineWidth() - width + 100);
             if (targetScrollOffsetHoriz > maxScrollHoriz) targetScrollOffsetHoriz = maxScrollHoriz;
         }
+
 
         public void setCursor(int line, int start) {
             cursorLine = line;
