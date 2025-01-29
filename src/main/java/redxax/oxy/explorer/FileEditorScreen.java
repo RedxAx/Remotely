@@ -1614,7 +1614,7 @@ public class FileEditorScreen extends Screen {
             int selectionXStart = x + padding + mc.textRenderer.getWidth(beforeSelection) - (int) smoothScrollOffsetHoriz;
             int selectionWidth = mc.textRenderer.getWidth(selectionText);
             int lineHeight = mc.textRenderer.fontHeight + 2;
-            context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, yPosition + lineHeight - 2, 0x804A90E2);
+            context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, yPosition + lineHeight - 2, terminalSelectionColor);
         }
 
         public void copySelectionToClipboard() {
