@@ -806,8 +806,7 @@ public class FileEditorScreen extends Screen {
         drawOuterBorder(context, 0, 0, this.width, titleBarHeight, globalBottomBorder);
         String titleText = "Remotely - File Editor";
         context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, screensTitleTextColor, Config.shadow);
-        drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, customShowCursor, aiMode, "FileEditorScreen"
-        );
+        drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, customShowCursor, aiMode, "FileEditorScreen");
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false);
         int editorY = titleBarHeight + 5 + TAB_HEIGHT + 5;
         int editorHeight = this.height - editorY - 10;
@@ -910,9 +909,11 @@ public class FileEditorScreen extends Screen {
                 }
                 for (Position pos : searchResults) {
                     if (pos.line == lineIndex) {
-                        int startX = mc.textRenderer.getWidth(text.substring(0, pos.start));
-                        int endX = mc.textRenderer.getWidth(text.substring(0, pos.end));
-                        context.fill(x + textPadding - (int) smoothScrollOffsetHoriz + startX, renderY, x + textPadding - (int) smoothScrollOffsetHoriz + endX, renderY + lineHeight - 2, 0x80d6f264);
+                        int safeStart = Math.max(0, Math.min(pos.start, text.length()));
+                        int safeEnd = Math.max(0, Math.min(pos.end, text.length()));
+                        int startX = mc.textRenderer.getWidth(text.substring(0, safeStart));
+                        int endX = mc.textRenderer.getWidth(text.substring(0, safeEnd));
+                        context.fill(x + textPadding - (int) smoothScrollOffsetHoriz + startX, renderY, x + textPadding - (int) smoothScrollOffsetHoriz + endX, renderY + lineHeight - 2, terminalSelectionColor);
                     }
                 }
                 if (lineIndex == cursorLine && !hasSelection()) {
