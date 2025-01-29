@@ -25,7 +25,7 @@ public class Render {
     private static String previousFieldText = "";
     private static boolean isAnimating = false;
 
-    public static void drawTabs(DrawContext context, TextRenderer textRenderer, List<?> tabs, int currentTabIndex, int mouseX, int mouseY, boolean hasPlus) {
+    public static void drawTabs(DrawContext context, TextRenderer textRenderer, List<?> tabs, int currentTabIndex, int mouseX, int mouseY, boolean hasPlus, boolean isUnsaved) {
         int tabBarX = 5;
         int tabBarY = 35;
         int tabBarHeight = 18;
@@ -71,9 +71,9 @@ public class Render {
             boolean isActive = (i == currentTabIndex);
             int x2 = x + tabWidth;
             boolean isHovered = mouseX >= x && mouseX <= x2 && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight;
-            int bgColor = isActive ? tabSelectedBackgroundColor : (isHovered ? tabBackgroundHoverColor : tabBackgroundColor);
+            int bgColor = isActive ? isUnsaved ? tabUnsavedBackgroundColor : tabSelectedBackgroundColor : (isHovered ? tabBackgroundHoverColor : tabBackgroundColor);
             context.fill(x, tabBarY, x2, tabBarY + tabBarHeight, bgColor);
-            drawInnerBorder(context, x, tabBarY, tabWidth, tabBarHeight, isActive ? tabSelectedBorderColor : isHovered ? tabBorderHoverColor : tabBorderColor);
+            drawInnerBorder(context, x, tabBarY, tabWidth, tabBarHeight, isActive ? isUnsaved ? tabUnsavedBorderColor : tabSelectedBorderColor :  isHovered ? tabBorderHoverColor : tabBorderColor);
             drawOuterBorder(context, x, tabBarY, tabWidth, tabBarHeight, globalBottomBorder);
             context.drawText(textRenderer, Text.literal(name), x + tabPadding, tabBarY + (tabBarHeight - textRenderer.fontHeight) / 2, isHovered ? tabTextHoverColor : tabTextColor, shadow);
             x += tabWidth + tabGap;

@@ -416,27 +416,8 @@ public class PluginModManagerScreen extends Screen {
         context.drawText(this.textRenderer, Text.literal(this.getTitle().getString()), 10, 10, screensTitleTextColor, Config.shadow);
         int tabBarY = titleBarHeight + 5;
         int tabBarHeight = TAB_HEIGHT;
-        drawTabs(
-                context,
-                this.textRenderer,
-                tabs,
-                currentTabIndex,
-                mouseX,
-                mouseY,
-                false);
-        drawSearchBar(
-                context,
-                textRenderer,
-                fieldText,
-                fieldFocused,
-                cursorPosition,
-                selectionStart,
-                selectionEnd,
-                pathScrollOffset,
-                pathTargetScrollOffset,
-                showCursor,
-                false,
-                "PluginModManagerScreen"
+        drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
+        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, showCursor, false, "PluginModManagerScreen"
         );
         int closeButtonX = this.width - buttonW - 10;
         int closeButtonY = 5;

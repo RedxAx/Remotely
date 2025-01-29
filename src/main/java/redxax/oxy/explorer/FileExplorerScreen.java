@@ -25,7 +25,6 @@ import java.util.stream.Collectors;
 
 import static redxax.oxy.Render.*;
 import static redxax.oxy.config.Config.*;
-import static redxax.oxy.util.DevUtil.devPrint;
 import static redxax.oxy.util.ImageUtil.*;
 public class FileExplorerScreen extends Screen implements FileManager.FileManagerCallback {
     private final MinecraftClient minecraftClient;
@@ -264,14 +263,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         super.render(context, mouseX, mouseY, delta);
         int titleBarHeight = 30;
         int tabBarY = titleBarHeight + 5;
-        drawTabs(
-                context,
-                this.textRenderer,
-                tabs,
-                currentTabIndex,
-                mouseX,
-                mouseY,
-                true);
+        drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, true, false);
         int explorerY = tabBarY + TAB_HEIGHT + 30;
         int explorerHeight = this.height - explorerY - 10;
         int explorerX = 5;
@@ -340,7 +332,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int startIndex = (int) Math.floor(smoothOffset / itemHeight);
         int endIndex = startIndex + visibleEntries + 3;
         if (endIndex > entriesToRender.size()) endIndex = entriesToRender.size();
-        context.enableScissor(explorerX, explorerY, explorerX + explorerWidth, explorerY + explorerHeight);
+        context.enableScissor(explorerX -2, explorerY, explorerX + explorerWidth +4, explorerY + explorerHeight);
         if (entriesToRender.isEmpty() && !loading) {
             if (!serverInfo.isRemote) {
                 context.drawText(this.textRenderer, Text.literal("No files/folders in this directory."), explorerX + explorerWidth / 2 - textRenderer.getWidth("No files/folders in this directory.") / 2, explorerY + explorerHeight / 2, 0xFFFFFFFF, false);
@@ -878,30 +870,27 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     targetOffset = selectedTab.tabData.scrollOffset;
                     loadDirectory(currentPath, false, false);
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
-                    if (tabs.size() > 1) {
-                        Tab tabToRemove = tabs.get(i);
-                        tabToRemove.textAnimator.setOnAnimationEnd(() -> {
-                            tabs.remove(tabToRemove);
-                            if (currentTabIndex >= tabs.size()) {
-                                currentTabIndex = tabs.size() - 1;
-                            }
-                            if (tabs.isEmpty()) {
-                                minecraftClient.setScreen(parent);
-                            } else {
-                                Tab selectedTab = tabs.get(currentTabIndex);
-                                currentPath = selectedTab.tabData.path;
-                                serverInfo.isRemote = selectedTab.tabData.isRemote;
-                                serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
-                                targetOffset = selectedTab.tabData.scrollOffset;
-                                loadDirectory(currentPath, false, false);
-                            }
-                            saveFileExplorerTabs(tabs.stream().map(t1 -> new TabData(t1.tabData.path, t1.tabData.isRemote, t1.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
-                        });
-                        tabToRemove.textAnimator.reverse();
-                    } else {
-                        tabs.remove(0);
-                        minecraftClient.setScreen(parent);
-                    }
+                    closeTab(i);
+                } else if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
+                    ContextMenu.hide();
+                    int finalI = i;
+                    ContextMenu.addItem("Close", () -> {
+                        closeTab(finalI);
+                    }, buttonTextHoverColor);
+                    int finalI1 = i;
+                    ContextMenu.addItem("Duplicate", () -> {
+                        TabData originalTabData = tabs.get(finalI1).tabData;
+                        TabData newTabData = new TabData(originalTabData.path, originalTabData.isRemote, originalTabData.remoteHostInfo);
+                        Tab newTab = new Tab(newTabData);
+                        tabs.add(newTab);
+                        currentTabIndex = tabs.size() - 1;
+                        loadDirectory(newTabData.path, false, false);
+                        saveFileExplorerTabs(tabs.stream().map(t1 -> new TabData(t1.tabData.path, t1.tabData.isRemote, t1.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
+                    }, buttonTextHoverColor);
+                    ContextMenu.addItem("Externally", () -> {
+                        openExternally(tabs.get(finalI1).tabData.path);
+                    }, buttonTextHoverColor);
+                    ContextMenu.show((int) mouseX, (int) mouseY, 60, this.width, this.height);
                 }
                 handled = true;
                 break;
@@ -1173,6 +1162,33 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private void closeTab(int index) {
+        if (tabs.size() > 1) {
+            Tab tabToRemove = tabs.get(index);
+            tabToRemove.textAnimator.setOnAnimationEnd(() -> {
+                tabs.remove(tabToRemove);
+                if (currentTabIndex >= tabs.size()) {
+                    currentTabIndex = tabs.size() - 1;
+                }
+                if (tabs.isEmpty()) {
+                    minecraftClient.setScreen(parent);
+                } else {
+                    Tab selectedTab = tabs.get(currentTabIndex);
+                    currentPath = selectedTab.tabData.path;
+                    serverInfo.isRemote = selectedTab.tabData.isRemote;
+                    serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
+                    targetOffset = selectedTab.tabData.scrollOffset;
+                    loadDirectory(currentPath, false, false);
+                }
+                saveFileExplorerTabs(tabs.stream().map(t1 -> new TabData(t1.tabData.path, t1.tabData.isRemote, t1.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
+            });
+            tabToRemove.textAnimator.reverse();
+        } else {
+            tabs.remove(0);
+            minecraftClient.setScreen(parent);
+        }
     }
 
     private void openExternally(Path selectedPath) {
