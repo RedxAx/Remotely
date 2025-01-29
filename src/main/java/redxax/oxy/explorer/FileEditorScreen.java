@@ -671,6 +671,12 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (ContextMenu.isOpen()) {
+            if (ContextMenu.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+        }
+        ContextMenu.hide();
         for (ResponseWindow w : responseWindows) {
             if (w.mouseClicked(mouseX, mouseY, button)) {
                 return true;
@@ -726,6 +732,36 @@ public class FileEditorScreen extends Screen {
                     }
                     clickedTab = true;
                     break;
+                } else if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
+                    ContextMenu.hide();
+                    int finalI = i;
+                    ContextMenu.addItem("Close", () -> {
+                        SAVED_TABS.remove(tab.path);
+                        tabs.remove(finalI);
+                        if (finalI == currentTabIndex) {
+                            currentTabIndex = Math.max(0, currentTabIndex - 1);
+                        }
+                        if (!tabs.isEmpty()) {
+                            this.textEditor = tabs.get(currentTabIndex).textEditor;
+                        } else {
+                            close();
+                        }
+                        RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
+                    }, buttonTextHoverColor);
+                    ContextMenu.addItem("Save", () -> {
+                        tabs.get(finalI).saveFile();
+                    }, buttonTextHoverColor);
+                    ContextMenu.addItem("Externally", () -> {
+                       ProcessBuilder pb = new ProcessBuilder("explorer.exe", tab.path.toString());
+                        try {
+                            pb.start();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }, buttonTextHoverColor);
+                    ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
+                    clickedTab = true;
+                    break;
                 }
             }
             tabX += tabWidth + TAB_GAP;
@@ -745,6 +781,7 @@ public class FileEditorScreen extends Screen {
         }
         return tabs.get(currentTabIndex).textEditor.mouseClicked(mouseX, mouseY, button) || super.mouseClicked(mouseX, mouseY, button);
     }
+
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
@@ -807,7 +844,7 @@ public class FileEditorScreen extends Screen {
         String titleText = "Remotely - File Editor";
         context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, screensTitleTextColor, Config.shadow);
         drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, customShowCursor, aiMode, "FileEditorScreen");
-        drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false);
+        drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, tabs.get(currentTabIndex).unsaved);
         int editorY = titleBarHeight + 5 + TAB_HEIGHT + 5;
         int editorHeight = this.height - editorY - 10;
         int editorX = 5;
@@ -830,6 +867,9 @@ public class FileEditorScreen extends Screen {
                 continue;
             }
             w.render(context, mouseX, mouseY, delta, minecraftClient);
+        }
+        if (ContextMenu.isOpen()) {
+            ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
         responseWindows.removeAll(toRemove);
     }
