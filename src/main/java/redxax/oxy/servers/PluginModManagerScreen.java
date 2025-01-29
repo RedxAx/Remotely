@@ -784,38 +784,50 @@ public class PluginModManagerScreen extends Screen {
                     });
                     return;
                 }
-                Path dest;
-                String baseName = stripExtension(resource.getFileName());
-                String extension = "";
-                if (serverInfo.isModServer() || serverInfo.isPluginServer()) {
-                    extension = ".jar";
-                }
-                if (serverInfo.isModServer()) {
-                    dest = Path.of(serverInfo.path, "mods", baseName + extension);
-                } else if (serverInfo.isPluginServer()) {
-                    dest = Path.of(serverInfo.path, "plugins", baseName + extension);
+                if (serverInfo.isRemote && serverInfo.remoteSSHManager != null) {
+                    String remotePath = serverInfo.path + "/" + (serverInfo.isModServer() ? "mods" : serverInfo.isPluginServer() ? "plugins" : "unknown") + "/"  + resource.getFileName();
+                    String command = "wget -O " + remotePath +  " " + downloadUrl;
+                    devPrint("Remote Download: " + command);
+                    serverInfo.remoteSSHManager.runRemoteCommand(command);
+                    minecraftClient.execute(() -> {
+                        installingResource.put(resource.getSlug(), false);
+                        installButtonTexts.put(resource.getSlug(), "Installed");
+                        resourceColors.put(resource.getSlug(), colorDownloadSuccess);
+                    });
                 } else {
-                    dest = Path.of(serverInfo.path, "unknown", resource.getFileName());
+                    Path dest;
+                    String baseName = stripExtension(resource.getFileName());
+                    String extension = "";
+                    if (serverInfo.isModServer() || serverInfo.isPluginServer()) {
+                        extension = ".jar";
+                    }
+                    if (serverInfo.isModServer()) {
+                        dest = Path.of(serverInfo.path, "mods", baseName + extension);
+                    } else if (serverInfo.isPluginServer()) {
+                        dest = Path.of(serverInfo.path, "plugins", baseName + extension);
+                    } else {
+                        dest = Path.of(serverInfo.path, "unknown", resource.getFileName());
+                    }
+                    Files.createDirectories(dest.getParent());
+                    HttpClient httpClient = HttpClient.newBuilder().executor(imageLoader).build();
+                    HttpRequest request = HttpRequest.newBuilder()
+                            .uri(URI.create(downloadUrl))
+                            .header("User-Agent", "Remotely")
+                            .header("Content-Type", "application/octet-stream")
+                            .GET()
+                            .build();
+                    HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                    devPrint("Response Code: " + response.statusCode());
+                    if (response.statusCode() == 200 || response.statusCode() == 302 || response.statusCode() == 303) {
+                        devPrint("Downloading " + downloadUrl + " to " + dest);
+                        Files.copy(response.body(), dest, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    minecraftClient.execute(() -> {
+                        installingResource.put(resource.getSlug(), false);
+                        installButtonTexts.put(resource.getSlug(), "Installed");
+                        resourceColors.put(resource.getSlug(), colorDownloadSuccess);
+                    });
                 }
-                Files.createDirectories(dest.getParent());
-                HttpClient httpClient = HttpClient.newBuilder().executor(imageLoader).build();
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(downloadUrl))
-                        .header("User-Agent", "Remotely")
-                        .header("Content-Type", "application/octet-stream")
-                        .GET()
-                        .build();
-                HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-                devPrint("Response Code: " + response.statusCode());
-                if (response.statusCode() == 200 || response.statusCode() == 302 || response.statusCode() == 303) {
-                    devPrint("Downloading " + downloadUrl + " to " + dest);
-                    Files.copy(response.body(), dest, StandardCopyOption.REPLACE_EXISTING);
-                }
-                minecraftClient.execute(() -> {
-                    installingResource.put(resource.getSlug(), false);
-                    installButtonTexts.put(resource.getSlug(), "Installed");
-                    resourceColors.put(resource.getSlug(), colorDownloadSuccess);
-                });
             } catch (Exception e) {
                 minecraftClient.execute(() -> {
                     installingResource.put(resource.getSlug(), false);

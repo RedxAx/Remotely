@@ -645,6 +645,7 @@ public class SSHManager {
             try {
                 ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
                 channelExec.setCommand(s);
+                devPrint("Running remote command: " + s);
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 channelExec.setOutputStream(out);
                 channelExec.setErrStream(out);
