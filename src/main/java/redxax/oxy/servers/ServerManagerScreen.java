@@ -846,27 +846,25 @@ public class ServerManagerScreen extends Screen {
 
     private void handleServerPopupClick(double mouseX, double mouseY, int button, List<ServerInfo> currentServers) {
         if (deletingServer) {
-            int confirmButtonY = serverPopupY + serverPopupHeight - 30;
+            int confirmButtonY = serverPopupY + serverPopupHeight - 22;
             String yesText = "Delete";
-            int yesW = minecraftClient.textRenderer.getWidth(yesText) + 10;
-            int yesX = serverPopupX + 5;
-            int cancelButtonX = serverPopupX + serverPopupWidth - (minecraftClient.textRenderer.getWidth("Cancel") + 10 + 5);
+            int yesW = minecraftClient.textRenderer.getWidth(yesText);
+            Path trashDir = Paths.get(System.getProperty("user.dir"), "remotely", "trash");
+            String cancelText = "Cancel";
+            int cancelW = minecraftClient.textRenderer.getWidth(cancelText);
+            int confirmX = serverPopupX + 5;
             if (mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight) {
-                if (mouseX >= yesX && mouseX <= yesX + yesW && button == 0) {
+                if (mouseX >= confirmX && mouseX <= confirmX + yesW && button == 0) {
                     if (editingServerIndex >= 0 && editingServerIndex < currentServers.size()) {
                         String dateOfDeletion = new SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(new Date());
-                        Path trashDir = Paths.get(System.getProperty("user.dir"), "remotely", "trash");
                         try {
                             if (!Files.exists(trashDir)) Files.createDirectories(trashDir);
                         } catch (IOException ignored) {}
                         ServerInfo s = currentServers.get(editingServerIndex);
-                        if (s.isRemote) {
+                        if (s.isRemote && s.remoteSSHManager != null) {
+                            String newRemotePath = s.path.replace("/servers/", "/trash/") + "-" + dateOfDeletion;
                             try {
-                                if (s.remoteSSHManager != null) {
-                                    String newRemotePath = s.path.replace("/servers/", "/trash/");
-                                    newRemotePath += "-" + dateOfDeletion;
-                                    s.remoteSSHManager.renameRemoteFolder(s.path, newRemotePath);
-                                }
+                                s.remoteSSHManager.renameRemoteFolder(s.path, newRemotePath);
                             } catch (Exception ignored) {}
                         } else {
                             Path folderPath = Paths.get(s.path);
@@ -893,20 +891,19 @@ public class ServerManagerScreen extends Screen {
                     closePopup();
                     return;
                 }
-                if (mouseX >= cancelButtonX && mouseX <= cancelButtonX + (minecraftClient.textRenderer.getWidth("Cancel") + 10) && button == 0) {
+                if (mouseX >= serverPopupX + serverPopupWidth - (cancelW + 5) && mouseX <= serverPopupX + serverPopupWidth - 5 && button == 0) {
                     closePopup();
                     return;
                 }
             }
             return;
         }
-        int confirmButtonY = serverPopupY + serverPopupHeight - 30;
+        int confirmButtonY = serverPopupY + serverPopupHeight - 22;
         String okText = editingServer ? "Save" : "Create";
-        int okW = minecraftClient.textRenderer.getWidth(okText) + 10;
-        int confirmButtonX = serverPopupX + 5;
-        int cancelButtonX = serverPopupX + serverPopupWidth - (minecraftClient.textRenderer.getWidth("Cancel") + 10 + 5);
+        int okW = minecraftClient.textRenderer.getWidth(okText);
+        int confirmX = serverPopupX + 5;
         if (mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight) {
-            if (mouseX >= confirmButtonX && mouseX <= confirmButtonX + okW && button == 0) {
+            if (mouseX >= confirmX && mouseX <= confirmX + okW && button == 0) {
                 if (serverNameBuffer.toString().trim().isEmpty()) {
                     serverCreationWarning = true;
                     return;
@@ -917,14 +914,14 @@ public class ServerManagerScreen extends Screen {
             }
             if (editingServer) {
                 String deleteText = "Delete Server";
-                int dw = minecraftClient.textRenderer.getWidth(deleteText) + 10;
+                int dw = minecraftClient.textRenderer.getWidth(deleteText);
                 int deleteX = serverPopupX + (serverPopupWidth - dw) / 2;
                 if (mouseX >= deleteX && mouseX <= deleteX + dw && button == 0) {
                     deletingServer = true;
                     return;
                 }
             }
-            if (mouseX >= cancelButtonX && mouseX <= cancelButtonX + (minecraftClient.textRenderer.getWidth("Cancel") + 10) && button == 0) {
+            if (mouseX >= serverPopupX + serverPopupWidth - (minecraftClient.textRenderer.getWidth("Cancel") + 10 + 5) && mouseX <= serverPopupX + serverPopupWidth - 5 && button == 0) {
                 closePopup();
                 return;
             }
@@ -936,8 +933,10 @@ public class ServerManagerScreen extends Screen {
             versionFieldFocused = false;
             return;
         }
-        int typeBoxY = serverPopupY + 30 + 35;
-        int arrowLeftX = serverPopupX + 5 + 150 + 5;
+        int typeLabelY = nameBoxY + nameBoxH + 15;
+        int typeBoxY = typeLabelY + 15;
+        int boxWidth = 150;
+        int arrowLeftX = serverPopupX + 5 + boxWidth + 5;
         int arrowRightX = arrowLeftX + 12 + 5;
         if (mouseX >= arrowLeftX && mouseX <= arrowLeftX + 12 && mouseY >= typeBoxY && mouseY <= typeBoxY + 12 && button == 0) {
             selectedTypeIndex = (selectedTypeIndex - 1 + serverTypes.size()) % serverTypes.size();
@@ -1664,7 +1663,7 @@ public class ServerManagerScreen extends Screen {
         String yesText = "Delete";
         int yesW = minecraftClient.textRenderer.getWidth(yesText) + 10;
         int confirmButtonX = serverPopupX + 5;
-        int confirmButtonY = serverPopupY + serverPopupHeight - 30;
+        int confirmButtonY = serverPopupY + serverPopupHeight - 22;
         boolean yesHover = mouseX >= confirmButtonX && mouseX <= confirmButtonX + yesW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
         drawCustomButton(context, confirmButtonX, confirmButtonY, yesText, minecraftClient, yesHover, true, true, buttonTextColor, buttonTextHoverColor);
         String cancelText = "Cancel";
