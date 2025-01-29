@@ -41,14 +41,14 @@ public class FileManager {
 
     public void copySelected(List<Path> selectedPaths) {
         clipboard = selectedPaths.stream()
-                .map(p -> new ClipboardEntry(p.toString(), serverInfo.isRemote))
+                .map(p -> new ClipboardEntry(serverInfo.isRemote ? p.toString().replace("\\", "/") : p.toString(), serverInfo.isRemote))
                 .collect(Collectors.toList());
         isCut = false;
     }
 
     public void cutSelected(List<Path> selectedPaths) {
         clipboard = selectedPaths.stream()
-                .map(p -> new ClipboardEntry(p.toString(), serverInfo.isRemote))
+                .map(p -> new ClipboardEntry(serverInfo.isRemote ? p.toString().replace("\\", "/") : p.toString(), serverInfo.isRemote))
                 .collect(Collectors.toList());
         isCut = true;
     }
@@ -64,12 +64,13 @@ public class FileManager {
                 try {
                     String remotePath = path.toString().replace("\\", "/");
                     String fileName = Paths.get(remotePath).getFileName().toString();
-                    String trashPath = homeDir + "/remotely/data/trash/" + fileName;
+                    String trashPath = homeDir + "/remotely/data/trash/\"" + fileName + "\"";
 
-                    sshManager.runRemoteCommand(
-                            "mkdir -p " + homeDir + "/remotely/data/trash && " +
-                                    "mv -f \"" + remotePath + "\" \"" + trashPath + "\""
-                    );
+                    if (sshManager.remoteFileExists(homeDir + "/remotely/data/trash")) {
+                        sshManager.runRemoteCommand("mkdir -p " + homeDir + "/remotely/data/trash " + "mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
+                    } else {
+                        sshManager.runRemoteCommand("mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
+                    }
 
                     synchronized (this) {
                         deletedPaths.add(path);
@@ -106,8 +107,10 @@ public class FileManager {
         for (ClipboardEntry entry : clipboard) {
             try {
                 if (serverInfo.isRemote) {
-                    String remoteDest = currentPath.resolve(Paths.get(entry.sourcePath).getFileName().toString())
-                            .toString().replace("\\", "/");
+                    String currentRemote = currentPath.toString().replace("\\", "/");
+                    if (!currentRemote.endsWith("/")) currentRemote += "/";
+                    String fileName = Paths.get(entry.sourcePath).getFileName().toString();
+                    String remoteDest = currentRemote + fileName;
 
                     if (entry.isRemote) {
                         if (isCut) {
@@ -119,7 +122,7 @@ public class FileManager {
                     } else {
                         Path localSrc = Paths.get(entry.sourcePath);
                         sshManager.upload(localSrc, remoteDest);
-                        if (isCut) Files.delete(localSrc);
+                        if (isCut) Files.walkFileTree(localSrc, new RecursiveFileDeleter());
                         operations.add(new PathOperation(entry.sourcePath, remoteDest));
                     }
                 } else {
@@ -188,6 +191,20 @@ public class FileManager {
         @Override
         public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
             if (deleteSource) Files.delete(dir);
+            return FileVisitResult.CONTINUE;
+        }
+    }
+
+    private static class RecursiveFileDeleter extends SimpleFileVisitor<Path> {
+        @Override
+        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+            Files.delete(file);
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+            Files.delete(dir);
             return FileVisitResult.CONTINUE;
         }
     }
@@ -262,20 +279,6 @@ public class FileManager {
                     callback.showNotification("Error undoing paste: " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
                 }
             });
-        }
-    }
-
-    private static class RecursiveFileDeleter extends SimpleFileVisitor<Path> {
-        @Override
-        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-            Files.delete(file);
-            return FileVisitResult.CONTINUE;
-        }
-
-        @Override
-        public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-            Files.delete(dir);
-            return FileVisitResult.CONTINUE;
         }
     }
 
