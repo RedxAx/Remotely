@@ -45,16 +45,13 @@ public class PluginModManagerScreen extends Screen {
     private final List<IRemotelyResource> resources = Collections.synchronizedList(new ArrayList<>());
     private final Map<String, List<IRemotelyResource>> resourceCache = new ConcurrentHashMap<>();
     private final Map<String, BufferedImage> iconImages = new ConcurrentHashMap<>();
-
     private final Map<String, BufferedImage> scaledIcons = Collections.synchronizedMap(new LinkedHashMap<String, BufferedImage>(16, 0.75f, true) {
         private static final int MAX_ENTRIES = 10000;
-
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> eldest) {
             return size() > MAX_ENTRIES;
         }
     });
-
     private final Map<String, Boolean> installingMrPack = new ConcurrentHashMap<>();
     private final Map<String, Boolean> installingResource = new ConcurrentHashMap<>();
     private final Map<String, String> installButtonTexts = new ConcurrentHashMap<>();
@@ -93,9 +90,10 @@ public class PluginModManagerScreen extends Screen {
     private final int colorDownloadSuccess = 0xFF00FF00;
     private final int colorDownloadFail = 0xFFFF0000;
     private final int colorNotDownloaded = 0xFF999999;
-
     private final Map<String, Integer> imageLoadRetries = new ConcurrentHashMap<>();
     private static final int MAX_IMAGE_LOAD_RETRIES = 3;
+    private long lastResourceClickTime = 0;
+    private int lastResourceClickIndex = -1;
 
     private enum TabMode { MODRINTH, SPIGOT, HANGAR, SORT }
     public static class Tab {
@@ -187,7 +185,6 @@ public class PluginModManagerScreen extends Screen {
         int tabBarHeight = TAB_HEIGHT;
         int tabX = 5;
         int tabY = tabBarY;
-
         for (int i = 0; i < tabs.size(); i++) {
             Tab tab = tabs.get(i);
             int tabWidth = this.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
@@ -200,7 +197,6 @@ public class PluginModManagerScreen extends Screen {
                     loadResourcesAsync(currentSearch, true);
                 }
                 handled = true;
-
                 break;
             }
             tabX += tabWidth + TAB_GAP;
@@ -263,6 +259,14 @@ public class PluginModManagerScreen extends Screen {
                                 }
                             }
                             return true;
+                        } else {
+                            long currentTime = System.currentTimeMillis();
+                            if (lastResourceClickIndex == index && (currentTime - lastResourceClickTime < 250)) {
+                                minecraftClient.setScreen(new ResourcePageScreen(minecraftClient, this, resources.get(index)));
+                                return true;
+                            }
+                            lastResourceClickIndex = index;
+                            lastResourceClickTime = currentTime;
                         }
                     }
                 }
@@ -417,8 +421,7 @@ public class PluginModManagerScreen extends Screen {
         int tabBarY = titleBarHeight + 5;
         int tabBarHeight = TAB_HEIGHT;
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
-        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, showCursor, false, "PluginModManagerScreen"
-        );
+        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, showCursor, false, "PluginModManagerScreen");
         int closeButtonX = this.width - buttonW - 10;
         int closeButtonY = 5;
         boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH;
@@ -685,7 +688,7 @@ public class PluginModManagerScreen extends Screen {
         return img;
     }
 
-    private void installMrPack(IRemotelyResource resource) {
+    public void installMrPack(IRemotelyResource resource) {
         if (serverInfo.isRemote && serverInfo.remoteSSHManager != null) {
             new Thread(() -> {
                 boolean success = serverInfo.remoteSSHManager.installMrPackOnRemote(serverInfo, resource);
@@ -753,8 +756,8 @@ public class PluginModManagerScreen extends Screen {
         }).start();
     }
 
-    private void fetchAndInstallResource(IRemotelyResource resource) {
-        Thread t = new Thread(() -> {
+    public void fetchAndInstallResource(IRemotelyResource resource) {
+        new Thread(() -> {
             try {
                 String downloadUrl = getDownloadUrlFor(resource);
                 if (downloadUrl.isEmpty()) {
@@ -816,8 +819,7 @@ public class PluginModManagerScreen extends Screen {
                     resourceColors.put(resource.getSlug(), colorDownloadFail);
                 });
             }
-        });
-        t.start();
+        }).start();
     }
 
     private String getDownloadUrlFor(IRemotelyResource resource) {
@@ -905,5 +907,9 @@ public class PluginModManagerScreen extends Screen {
             return "downloads";
         }
         return sortValues.get(mode)[currentSortIndex];
+    }
+
+    public ServerInfo getServerInfo() {
+        return serverInfo;
     }
 }

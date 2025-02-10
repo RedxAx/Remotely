@@ -1,0 +1,14 @@
+{
+    "configurations": [
+        {
+            "type": "gradle",
+            "name": "Run Minecraft",
+            "tasks": ["runClient"]
+        },
+        {
+            "type": "gradle",
+            "name": "Build",
+            "tasks": ["build"]
+        }
+    ]
+}
