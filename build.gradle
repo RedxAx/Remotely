@@ -31,6 +31,8 @@ dependencies {
     implementation "com.twelvemonkeys.imageio:imageio-webp:3.12.0"
     implementation "com.jcraft:jsch:0.1.55"
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+    implementation "com.vladsch.flexmark:flexmark:0.62.2"
+    implementation "org.jsoup:jsoup:1.15.3"
 
     shadow "com.twelvemonkeys.imageio:imageio-webp:3.12.0"
     shadow "com.jcraft:jsch:0.1.55"
