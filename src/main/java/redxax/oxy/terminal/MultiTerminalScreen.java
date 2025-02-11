@@ -231,7 +231,11 @@ public class MultiTerminalScreen extends Screen {
 
     private void closeTerminal(int index) {
         if (terminals.size() <= 1) {
-            this.close();
+            if (parent != null) {
+                minecraftClient.setScreen(parent);
+            } else {
+                this.close();
+            }
         }
         TerminalInstance terminal = terminals.get(index);
         terminal.shutdown();
