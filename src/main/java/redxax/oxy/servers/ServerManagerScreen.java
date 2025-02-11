@@ -498,7 +498,7 @@ public class ServerManagerScreen extends Screen {
         int xTask = padding;
         if (mouseY >= yTask && mouseY <= yTask + iconSize) {
             if (mouseX >= xTask && mouseX <= xTask + iconSize) {
-                minecraftClient.setScreen(new MultiTerminalScreen(minecraftClient, remotelyClient));
+                minecraftClient.setScreen(new MultiTerminalScreen(minecraftClient, this, remotelyClient));
                 return true;
             }
             xTask += iconSize + padding;
@@ -984,7 +984,7 @@ public class ServerManagerScreen extends Screen {
             info.terminal = new ServerTerminalInstance(minecraftClient, null, java.util.UUID.randomUUID(), info);
             info.isRunning = false;
         }
-        minecraftClient.setScreen(new MultiTerminalScreen(minecraftClient, remotelyClient, info));
+        minecraftClient.setScreen(new MultiTerminalScreen(minecraftClient, this, remotelyClient, info));
     }
 
     private void closePopup() {
