@@ -331,14 +331,15 @@ public class ServerManagerScreen extends Screen {
         for (int i = 0; i < currentServers.size(); i++) {
             int iconY = margin + i * (iconSize + spacing);
             if (isDragging && draggingServerIndex == i) {
-                iconY += (int) (mouseY - dragStartY);
+                iconY += mouseY - dragStartY;
             }
             serverIconRects.add(new IconRect(x, iconY, iconSize, iconSize, i, false));
             BufferedImage icon = getServerIcon(currentServers.get(i));
             ImageUtil.drawBufferedImage(context, icon, x, iconY, iconSize, iconSize);
             if (selectedDesktopIndex == i) {
-                drawInnerBorder(context, x, iconY, iconSize, iconSize, 0xFF00FF00);
-            }
+                drawInnerBorder(context, x -1, iconY -1, iconSize +2, iconSize +2, explorerElementSelectedBorderColor);
+                drawOuterBorder(context, x -1, iconY -1, iconSize +2, iconSize +2, globalBottomBorder);
+            } else drawOuterBorder(context, x, iconY, iconSize, iconSize, globalBottomBorder);
             String name = currentServers.get(i).name;
             if (selectedDesktopIndex == i) {
                 context.drawText(minecraftClient.textRenderer, Text.literal(name), x + iconSize + 5, iconY + (iconSize - minecraftClient.textRenderer.fontHeight) / 2, serverElementTextColor, Config.shadow);
@@ -485,7 +486,7 @@ public class ServerManagerScreen extends Screen {
                     Render.ContextMenu.addItem("Delete", () -> {
                         deletionPopupActive = true;
                         deletionPopupServerIndex = rect.serverIndex;
-                    }, buttonTextDeleteHoverColor);
+                    }, buttonTextHoverColor);
                     Render.ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
                     return true;
                 }
