@@ -217,6 +217,13 @@ public class FileEditorScreen extends Screen {
         this.textEditor = initialTab.textEditor;
     }
 
+    public FileEditorScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
+        super(Text.literal("File Editor"));
+        this.minecraftClient = mc;
+        this.parent = parent;
+        this.serverInfo = info;
+    }
+
     @Override
     protected void init() {
         super.init();
