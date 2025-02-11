@@ -779,6 +779,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             fileManager.deleteSelected(selectedPaths, currentPath);
             return true;
         }
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            minecraftClient.setScreen(parent);
+            return true;
+        }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
     @Override

@@ -89,7 +89,7 @@ public class RemotelyClient implements ClientModInitializer {
                 tabNames.clear();
                 tabNames.addAll(multiTabNames);
             }
-            multiTerminalScreen = new MultiTerminalScreen(client, this, terminals, tabNames);
+            multiTerminalScreen = new MultiTerminalScreen(client, null, this, terminals, tabNames);
             client.setScreen(multiTerminalScreen);
         } else {
             if (multiTerminals.isEmpty() && terminals.isEmpty()) {
@@ -101,7 +101,7 @@ public class RemotelyClient implements ClientModInitializer {
                 tabNames.clear();
                 tabNames.addAll(multiTabNames);
             }
-            multiTerminalScreen = new MultiTerminalScreen(client, this, terminals, tabNames);
+            multiTerminalScreen = new MultiTerminalScreen(client, null, this, terminals, tabNames);
             client.setScreen(multiTerminalScreen);
         }
     }

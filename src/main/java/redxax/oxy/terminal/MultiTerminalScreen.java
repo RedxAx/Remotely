@@ -114,12 +114,15 @@ public class MultiTerminalScreen extends Screen {
     private List<Theme> themes = new ArrayList<>();
     private int sidePanelTabIndex = 0;
 
-    public MultiTerminalScreen(MinecraftClient minecraftClient, RemotelyClient remotelyClient, List<TerminalInstance> terminals, List<String> tabNames) {
+    private Screen parent;
+
+    public MultiTerminalScreen(MinecraftClient minecraftClient, Screen parent, RemotelyClient remotelyClient, List<TerminalInstance> terminals, List<String> tabNames) {
         super(Text.literal("Multi Terminal"));
         this.minecraftClient = minecraftClient;
         this.remotelyClient = remotelyClient;
         this.terminals = terminals;
         this.tabNames = tabNames;
+        this.parent = parent;
         if (terminals.isEmpty()) {
             addNewTerminal();
         }
@@ -132,12 +135,12 @@ public class MultiTerminalScreen extends Screen {
         this.savedTabNames = new ArrayList<>(tabNames);
     }
 
-    public MultiTerminalScreen(MinecraftClient minecraftClient, RemotelyClient remotelyClient) {
-        this(minecraftClient, remotelyClient, new ArrayList<>(remotelyClient.multiTerminals), new ArrayList<>(remotelyClient.multiTabNames));
+    public MultiTerminalScreen(MinecraftClient minecraftClient, Screen parent, RemotelyClient remotelyClient) {
+        this(minecraftClient, parent, remotelyClient, new ArrayList<>(remotelyClient.multiTerminals), new ArrayList<>(remotelyClient.multiTabNames));
     }
 
-    public MultiTerminalScreen(MinecraftClient minecraftClient, RemotelyClient remotelyClient, ServerInfo serverInfo) {
-        this(minecraftClient, remotelyClient);
+    public MultiTerminalScreen(MinecraftClient minecraftClient,Screen parent, RemotelyClient remotelyClient, ServerInfo serverInfo) {
+        this(minecraftClient, parent, remotelyClient);
         addNewServerTab(serverInfo);
     }
 
@@ -1179,8 +1182,8 @@ public class MultiTerminalScreen extends Screen {
         }
 
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            closedViaEscape = true;
-            this.close();
+            if (parent != null) minecraftClient.setScreen(parent);
+            else { this.close(); closedViaEscape = true; }
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_PAGE_UP) {
