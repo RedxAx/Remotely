@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ImageUtil {
+    static final Map<BufferedImage, BufferedImage> scaledCache = new ConcurrentHashMap<>();
 
     public static BufferedImage loadResourceIcon(String path) throws Exception {
         try (InputStream is = ImageUtil.class.getResourceAsStream(path)) {
@@ -31,7 +32,6 @@ public class ImageUtil {
     }
 
     public static void drawBufferedImage(DrawContext context, BufferedImage image, int x, int y, int width, int height) {
-        final Map<BufferedImage, BufferedImage> scaledCache = new ConcurrentHashMap<>();
         BufferedImage scaledImage = scaledCache.get(image);
         if (scaledImage == null) {
             scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
