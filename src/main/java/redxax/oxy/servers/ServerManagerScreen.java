@@ -10,13 +10,11 @@ import redxax.oxy.RemotelyClient;
 import redxax.oxy.Render;
 import redxax.oxy.SSHManager;
 import redxax.oxy.config.Config;
-import redxax.oxy.explorer.FileEditorScreen;
 import redxax.oxy.explorer.FileExplorerScreen;
 import redxax.oxy.terminal.MultiTerminalScreen;
 import redxax.oxy.terminal.ServerTerminalInstance;
 import redxax.oxy.terminal.TerminalInstance;
 import redxax.oxy.util.ImageUtil;
-
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -39,7 +37,6 @@ import java.util.Enumeration;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
-
 import org.lwjgl.glfw.GLFW;
 import static redxax.oxy.config.Config.*;
 import static redxax.oxy.Render.drawCustomButton;
@@ -54,7 +51,6 @@ public class ServerManagerScreen extends Screen {
     private final List<RemoteHostInfo> remoteHosts = new ArrayList<>();
     private int activeTabIndex = 0;
     private boolean serverPopupActive;
-    private boolean creatingServer;
     private boolean editingServer;
     private int editingServerIndex = -1;
     private int serverPopupX;
@@ -72,19 +68,12 @@ public class ServerManagerScreen extends Screen {
     private int serverVersionCursorPos = 0;
     private int serverNameScrollOffset = 0;
     private int serverVersionScrollOffset = 0;
-    private boolean plusButtonHovered = false;
-    private int tabScrollOffset = 0;
-    private int tabPadding = 5;
-    private int tabHeight = 25;
-    private int verticalPadding = 2;
+    private final int tabHeight = 25;
+    private final int verticalPadding = 2;
     private boolean nameFieldFocused = true;
     private boolean versionFieldFocused = false;
-    private float smoothOffset = 0;
     private float targetOffset = 0;
-    private float scrollSpeed = 0.2f;
     private boolean serverTypePopupActive;
-    private boolean importingServer;
-    private boolean modpackInstallation;
     private int serverTypePopupX;
     private int serverTypePopupY;
     private final int serverTypePopupWidth = 260;
@@ -101,24 +90,29 @@ public class ServerManagerScreen extends Screen {
     private RemoteHostField remoteHostActiveField = RemoteHostField.NONE;
     private boolean isEditingHost = false;
     private BufferedImage loadingAnim;
-    private List<BufferedImage> loadingFrames = new ArrayList<>();
+    private final List<BufferedImage> loadingFrames = new ArrayList<>();
     private int currentLoadingFrame = 0;
     private long lastFrameTime = 0;
-    private boolean loading = false;
+    private final boolean loading = false;
     private final int entryHeight = 25;
     private final int topBarHeight = 30;
-    private BufferedImage terminalIcon, explorerIcon, editorIcon, defaultServerIcon, paper, vanilla, fabric, forge, neoforge, quilt;
-    private final int taskbarHeight = 30;
+    private BufferedImage terminalIcon, explorerIcon, editorIcon, terminal, serverIcon, paper, vanilla, fabric, forge, neoforge, quilt;
+    private final int taskbarHeight = 20;
     private final List<IconRect> serverIconRects = new ArrayList<>();
     private int selectedDesktopIndex = -1;
     private long lastClickTime = 0;
     private int lastClickedIndex = -1;
     private int draggingServerIndex = -1;
-    private int dragStartY = 0;
+    private int draggingStartX = 0;
+    private int draggingStartY = 0;
+    private int dragOffsetX = 0;
+    private int dragOffsetY = 0;
     private boolean isDragging = false;
     private boolean deletionPopupActive = false;
     private int deletionPopupServerIndex = -1;
-
+    private final List<Float> iconPosX = new ArrayList<>();
+    private final List<Float> iconPosY = new ArrayList<>();
+    private boolean canDrag = false;
 
     private static class IconRect {
         int x, y, width, height, serverIndex;
@@ -149,6 +143,8 @@ public class ServerManagerScreen extends Screen {
         loadSavedRemoteHosts();
         scanForUnknownServers();
         activeTabIndex = remotelyClient.getSavedTabIndex();
+        iconPosX.clear();
+        iconPosY.clear();
         try {
             loadingAnim = ImageUtil.loadSpriteSheet("/assets/remotely/icons/loadinganim.png");
             int frameWidth = 16;
@@ -159,9 +155,10 @@ public class ServerManagerScreen extends Screen {
                 loadingFrames.add(frame);
             }
             terminalIcon = ImageUtil.loadResourceIcon("/assets/remotely/icons/script.png");
+            serverIcon = ImageUtil.loadResourceIcon("/assets/remotely/icons/server.png");
             explorerIcon = ImageUtil.loadResourceIcon("/assets/remotely/icons/folder.png");
             editorIcon = ImageUtil.loadResourceIcon("/assets/remotely/icons/text.png");
-            defaultServerIcon = ImageUtil.loadResourceIcon("/assets/remotely/icons/script.png");
+            terminal = ImageUtil.loadResourceIcon("/assets/remotely/icons/script.png");
             paper = ImageUtil.loadResourceIcon("/assets/remotely/icons/paper.png");
             vanilla = ImageUtil.loadResourceIcon("/assets/remotely/icons/vanilla.png");
             fabric = ImageUtil.loadResourceIcon("/assets/remotely/icons/fabric.png");
@@ -186,6 +183,16 @@ public class ServerManagerScreen extends Screen {
             serverCursorVisible = !serverCursorVisible;
             serverLastBlinkTime = currentTime;
         }
+        if (serverPopupActive) {
+            serverPopupX = (this.width - serverPopupWidth) / 2;
+            serverPopupY = (this.height - serverPopupHeight) / 2;
+        }
+        if (serverTypePopupActive) {
+            serverTypePopupX = (this.width - serverTypePopupWidth) / 2;
+            serverTypePopupY = (this.height - serverTypePopupHeight) / 2;
+        }
+        if (remoteHostPopupActive) {
+        }
         if (loading) {
             if (currentTime - lastFrameTime >= 40) {
                 currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
@@ -203,8 +210,6 @@ public class ServerManagerScreen extends Screen {
         }
         renderTaskbar(context, mouseX, mouseY);
         if (serverTypePopupActive) {
-            serverTypePopupX = (this.width - serverTypePopupWidth) / 2;
-            serverTypePopupY = (this.height - serverTypePopupHeight) / 2;
             context.fill(serverTypePopupX, serverTypePopupY, serverTypePopupX + serverTypePopupWidth, serverTypePopupY + serverTypePopupHeight, serverScreenBackgroundColor);
             drawInnerBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, serverElementBorderColor);
             drawOuterBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, globalBottomBorder);
@@ -292,31 +297,11 @@ public class ServerManagerScreen extends Screen {
             if (remoteHostCreationWarning) {
                 String warning = isEditingHost ? "Failed to save changes" : "Invalid or Connection Failed";
                 int ww = minecraftClient.textRenderer.getWidth(warning);
-                context.drawText(minecraftClient.textRenderer, Text.literal(warning), px + (remoteHostPopupW - ww) / 2, passBoxY + 20, 0xFFFF4444, false);
+                context.drawText(minecraftClient.textRenderer, Text.literal(warning), px + (remoteHostPopupW - ww) / 2, passBoxY + 20, 0xFFFF4444, Config.shadow);
             }
         }
         if (deletionPopupActive) {
-            int popupW = serverPopupWidth;
-            int popupH = serverPopupHeight;
-            int popupX = (this.width - popupW) / 2;
-            int popupY = (this.height - popupH) / 2;
-            context.fill(popupX, popupY, popupX + popupW, popupY + popupH, serverScreenBackgroundColor);
-            drawInnerBorder(context, popupX, popupY, popupW, popupH, serverElementBorderColor);
-            drawOuterBorder(context, popupX, popupY, popupW, popupH, globalBottomBorder);
-            String warn = "Are you sure you want to delete this server?";
-            int warnW = minecraftClient.textRenderer.getWidth(warn);
-            context.drawText(minecraftClient.textRenderer, Text.literal(warn), popupX + (popupW - warnW) / 2, popupY + 20, 0xFFFF5555, false);
-            String deleteText = "Delete";
-            int delW = minecraftClient.textRenderer.getWidth(deleteText) + 10;
-            int deleteX = popupX + 5;
-            int buttonY = popupY + popupH - 30;
-            boolean hoverDelete = mouseX >= deleteX && mouseX <= deleteX + delW && mouseY >= buttonY && mouseY <= buttonY + 18;
-            drawCustomButton(context, deleteX, buttonY, deleteText, minecraftClient, hoverDelete, true, true, buttonTextColor, buttonTextHoverColor);
-            String cancelText = "Cancel";
-            int cancW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
-            int cancelX = popupX + popupW - (cancW + 5);
-            boolean hoverCancel = mouseX >= cancelX && mouseX <= cancelX + cancW && mouseY >= buttonY && mouseY <= buttonY + 18;
-            drawCustomButton(context, cancelX, buttonY, cancelText, minecraftClient, hoverCancel, true, true, buttonTextColor, buttonTextDeleteColor);
+            renderDeletePopup(context, mouseX, mouseY);
         }
         Render.ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
     }
@@ -327,84 +312,181 @@ public class ServerManagerScreen extends Screen {
         int iconSize = 32;
         int margin = 20;
         int spacing = 20;
-        int x = margin;
-        for (int i = 0; i < currentServers.size(); i++) {
-            int iconY = margin + i * (iconSize + spacing);
-            if (isDragging && draggingServerIndex == i) {
-                iconY += mouseY - dragStartY;
-            }
-            serverIconRects.add(new IconRect(x, iconY, iconSize, iconSize, i, false));
-            BufferedImage icon = getServerIcon(currentServers.get(i));
-            ImageUtil.drawBufferedImage(context, icon, x, iconY, iconSize, iconSize);
-            if (selectedDesktopIndex == i) {
-                drawInnerBorder(context, x -1, iconY -1, iconSize +2, iconSize +2, explorerElementSelectedBorderColor);
-                drawOuterBorder(context, x -1, iconY -1, iconSize +2, iconSize +2, globalBottomBorder);
-            } else drawOuterBorder(context, x, iconY, iconSize, iconSize, globalBottomBorder);
-            String name = currentServers.get(i).name;
-            if (selectedDesktopIndex == i) {
-                context.drawText(minecraftClient.textRenderer, Text.literal(name), x + iconSize + 5, iconY + (iconSize - minecraftClient.textRenderer.fontHeight) / 2, serverElementTextColor, Config.shadow);
-            } else {
-                String trimmed = trimTextToWidthWithEllipsis(name, 80);
-                int textWidth = minecraftClient.textRenderer.getWidth(trimmed);
-                int textX = x + (iconSize - textWidth) / 2;
-                context.drawText(minecraftClient.textRenderer, Text.literal(trimmed), textX, iconY + iconSize + 2, serverElementTextColor, Config.shadow);
+        int totalIcons = currentServers.size() + 1;
+        int availableHeight = this.height - taskbarHeight - 2 * margin;
+        int rows = availableHeight / (iconSize + spacing);
+        if (rows < 1) rows = 1;
+        if (iconPosX.size() < totalIcons) {
+            iconPosX.clear();
+            iconPosY.clear();
+            for (int i = 0; i < totalIcons; i++) {
+                int col = i / rows;
+                int row = i % rows;
+                iconPosX.add((float) (margin + col * (iconSize + spacing)));
+                iconPosY.add((float) (margin + row * (iconSize + spacing)));
             }
         }
-        int addY = margin + currentServers.size() * (iconSize + spacing);
-        serverIconRects.add(new IconRect(x, addY, iconSize, iconSize, -1, true));
-        ImageUtil.drawBufferedImage(context, defaultServerIcon, x, addY, iconSize, iconSize);
-        String newLabel = "New Server";
-        int labelWidth = minecraftClient.textRenderer.getWidth(newLabel);
-        int labelX = x + (iconSize - labelWidth) / 2;
-        context.drawText(minecraftClient.textRenderer, Text.literal(newLabel), labelX, addY + iconSize + 2, serverElementTextColor, Config.shadow);
+        int targetIndex = -1;
+        if (isDragging && draggingServerIndex != -1) {
+            int candidateCol = (mouseX - margin) / (iconSize + spacing);
+            int candidateRow = (mouseY - margin) / (iconSize + spacing);
+            targetIndex = candidateCol * rows + candidateRow;
+            if (targetIndex < 0) targetIndex = 0;
+            if (targetIndex >= currentServers.size()) targetIndex = currentServers.size() - 1;
+        }
+        for (int i = 0; i < totalIcons; i++) {
+            int col = i / rows;
+            int row = i % rows;
+            float baseX = margin + col * (iconSize + spacing);
+            float baseY = margin + row * (iconSize + spacing);
+            if (isDragging && i == draggingServerIndex) {
+                baseX = mouseX - dragOffsetX;
+                baseY = mouseY - dragOffsetY;
+            } else if (isDragging && draggingServerIndex != -1) {
+                if (draggingServerIndex < targetIndex && i > draggingServerIndex && i <= targetIndex) {
+                    int adjustedIndex = i - 1;
+                    int ac = adjustedIndex / rows;
+                    int ar = adjustedIndex % rows;
+                    baseX = margin + ac * (iconSize + spacing);
+                    baseY = margin + ar * (iconSize + spacing);
+                } else if (draggingServerIndex > targetIndex && i >= targetIndex && i < draggingServerIndex) {
+                    int adjustedIndex = i + 1;
+                    int ac = adjustedIndex / rows;
+                    int ar = adjustedIndex % rows;
+                    baseX = margin + ac * (iconSize + spacing);
+                    baseY = margin + ar * (iconSize + spacing);
+                }
+            }
+            float currentX = iconPosX.get(i);
+            float currentY = iconPosY.get(i);
+            currentX = lerp(currentX, baseX, 0.2f);
+            currentY = lerp(currentY, baseY, 0.2f);
+            iconPosX.set(i, currentX);
+            iconPosY.set(i, currentY);
+            serverIconRects.add(new IconRect((int) currentX, (int) currentY, iconSize, iconSize, (i < currentServers.size() ? i : -1), i == currentServers.size()));
+            if (i < currentServers.size()) {
+                ServerInfo server = currentServers.get(i);
+                BufferedImage icon = getServerIcon(server);
+                ImageUtil.drawBufferedImage(context, icon, (int) currentX, (int) currentY, iconSize, iconSize);
+                if (selectedDesktopIndex == i) {
+                    drawInnerBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, explorerElementSelectedBorderColor);
+                    drawOuterBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, globalBottomBorder);
+                } else {
+                    drawOuterBorder(context, (int) currentX, (int) currentY, iconSize, iconSize, globalBottomBorder);
+                }
+                if (mouseX >= currentX && mouseX <= currentX + iconSize && mouseY >= currentY && mouseY <= currentY + iconSize) {
+                    context.fill((int) currentX, (int) currentY, (int) currentX + iconSize, (int) currentY + iconSize, 0x40FFFFFF);
+                }
+                String name = server.name;
+                String trimmed = trimTextToWidthWithEllipsis(name, 80);
+                int textWidth = minecraftClient.textRenderer.getWidth(trimmed);
+                int textX = (int) currentX + (iconSize - textWidth) / 2;
+                context.drawText(minecraftClient.textRenderer, Text.literal(trimmed), textX, (int) currentY + iconSize + 2, serverElementTextColor, Config.shadow);
+            } else {
+                ImageUtil.drawBufferedImage(context, serverIcon, (int) currentX, (int) currentY, iconSize, iconSize);
+                if (mouseX >= currentX && mouseX <= currentX + iconSize && mouseY >= currentY && mouseY <= currentY + iconSize) {
+                    context.fill((int) currentX, (int) currentY, (int) currentX + iconSize, (int) currentY + iconSize, 0x40FFFFFF);
+                }
+                String newLabel = "New Server";
+                String trimmed = trimTextToWidthWithEllipsis(newLabel, 80);
+                int labelWidth = minecraftClient.textRenderer.getWidth(trimmed);
+                int labelX = (int) currentX + (iconSize - labelWidth) / 2;
+                context.drawText(minecraftClient.textRenderer, Text.literal(trimmed), labelX, (int) currentY + iconSize + 2, serverElementTextColor, Config.shadow);
+            }
+        }
+    }
+
+    private float lerp(float a, float b, float t) {
+        return a + (b - a) * t;
     }
 
     private void renderTaskbar(DrawContext context, int mouseX, int mouseY) {
         context.fill(0, this.height - taskbarHeight, this.width, this.height, headerBackgroundColor);
         drawInnerBorder(context, 0, this.height - taskbarHeight, this.width, taskbarHeight, headerBorderColor);
         drawOuterBorder(context, 0, this.height - taskbarHeight, this.width, taskbarHeight, globalBottomBorder);
-        int iconSize = 24;
+
+        int iconSize = 16;
         int padding = 5;
         int yTask = this.height - taskbarHeight + (taskbarHeight - iconSize) / 2;
         int xTask = padding;
+
         ImageUtil.drawBufferedImage(context, terminalIcon, xTask, yTask, iconSize, iconSize);
         xTask += iconSize + padding;
         ImageUtil.drawBufferedImage(context, explorerIcon, xTask, yTask, iconSize, iconSize);
-        xTask += iconSize + padding;
-        ImageUtil.drawBufferedImage(context, editorIcon, xTask, yTask, iconSize, iconSize);
+
         renderHostTabs(context, mouseX, mouseY);
     }
 
     private void renderHostTabs(DrawContext context, int mouseX, int mouseY) {
         List<String> tabs = getAllTabNames();
-        int tabWidth = 60;
-        int tabHeightLocal = taskbarHeight - 4;
-        int startX = this.width - 200;
-        int y = this.height - taskbarHeight + 2;
+        int height = taskbarHeight - 4;
+        int padding = 4;
+        int gap = 4;
+        int minWidth = 50;
+        int[] widths = new int[tabs.size()];
+        int totalWidth = 0;
         for (int i = 0; i < tabs.size(); i++) {
-            int x = startX + i * (tabWidth + 4);
-            boolean isActive = (i == activeTabIndex);
-            int bg = isActive ? tabSelectedBackgroundColor : tabBackgroundColor;
-            context.fill(x, y, x + tabWidth, y + tabHeightLocal, bg);
-            drawInnerBorder(context, x, y, tabWidth, tabHeightLocal, isActive ? tabSelectedBorderColor : tabBorderColor);
-            drawOuterBorder(context, x, y, tabWidth, tabHeightLocal, globalBottomBorder);
-            int textWidth = minecraftClient.textRenderer.getWidth(tabs.get(i));
-            int textX = x + (tabWidth - textWidth) / 2;
-            int textY = y + (tabHeightLocal - minecraftClient.textRenderer.fontHeight) / 2;
-            context.drawText(minecraftClient.textRenderer, Text.literal(tabs.get(i)), textX, textY, tabTextColor, Config.shadow);
+            int w = minecraftClient.textRenderer.getWidth(tabs.get(i)) + 2 * padding;
+            if (w < minWidth) w = minWidth;
+            widths[i] = w;
+            totalWidth += w;
+            if (i > 0) totalWidth += gap;
         }
-        int plusX = startX + tabs.size() * (tabWidth + 4);
+        int y = this.height - taskbarHeight + 2;
         int plusWidth = 30;
-        context.fill(plusX, y, plusX + plusWidth, y + tabHeightLocal, tabBackgroundColor);
-        drawInnerBorder(context, plusX, y, plusWidth, tabHeightLocal, tabBorderColor);
-        drawOuterBorder(context, plusX, y, plusWidth, tabHeightLocal, globalBottomBorder);
+        int startX = this.width - totalWidth - 5;
+        int plusX = startX - gap - plusWidth;
+        boolean isPlusHovered = mouseX >= plusX && mouseX <= plusX + plusWidth && mouseY >= y && mouseY <= y + height;
+        context.fill(plusX, y, plusX + plusWidth, y + height, isPlusHovered ? tabBackgroundHoverColor : tabBackgroundColor);
+        drawInnerBorder(context, plusX, y, plusWidth, height, isPlusHovered ? tabBorderHoverColor : tabBorderColor);
+        drawOuterBorder(context, plusX, y, plusWidth, height, globalBottomBorder);
         String plus = "+";
         int plusTextWidth = minecraftClient.textRenderer.getWidth(plus);
-        context.drawText(minecraftClient.textRenderer, Text.literal(plus), plusX + (plusWidth - plusTextWidth) / 2, y + (tabHeightLocal - minecraftClient.textRenderer.fontHeight) / 2, tabTextColor, Config.shadow);
+        context.drawText(minecraftClient.textRenderer, Text.literal(plus), plusX + (plusWidth - plusTextWidth) / 2, y + (height - minecraftClient.textRenderer.fontHeight) / 2, tabTextColor, Config.shadow);
+        int currentX = startX;
+        for (int i = 0; i < tabs.size(); i++) {
+            int w = widths[i];
+            boolean isActive = (i == activeTabIndex);
+            boolean isHovered = mouseX >= currentX && mouseX <= currentX + w && mouseY >= y && mouseY <= y + height;
+            int bg = isActive ? tabSelectedBackgroundColor : isHovered ? tabBackgroundHoverColor : tabBackgroundColor;
+            context.fill(currentX, y, currentX + w, y + height, bg);
+            drawInnerBorder(context, currentX, y, w, height, isActive ? tabSelectedBorderColor : isHovered ? tabBorderHoverColor : tabBorderColor);
+            drawOuterBorder(context, currentX, y, w, height, globalBottomBorder);
+            String tabText = tabs.get(i);
+            int textWidth = minecraftClient.textRenderer.getWidth(tabText);
+            int textX = currentX + (w - textWidth) / 2;
+            int textY = y + (height - minecraftClient.textRenderer.fontHeight) / 2;
+            context.drawText(minecraftClient.textRenderer, Text.literal(tabText), textX, textY, tabTextColor, Config.shadow);
+            currentX += w + gap;
+        }
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (serverPopupActive) {
+            int spx = (this.width - serverPopupWidth) / 2;
+            int spy = (this.height - serverPopupHeight) / 2;
+            if (mouseX < spx || mouseX > spx + serverPopupWidth || mouseY < spy || mouseY > spy + serverPopupHeight) {
+                closePopup();
+                return true;
+            }
+        }
+        if (serverTypePopupActive) {
+            int stpx = (this.width - serverTypePopupWidth) / 2;
+            int stpy = (this.height - serverTypePopupHeight) / 2;
+            if (mouseX < stpx || mouseX > stpx + serverTypePopupWidth || mouseY < stpy || mouseY > stpy + serverTypePopupHeight) {
+                serverTypePopupActive = false;
+                return true;
+            }
+        }
+        if (remoteHostPopupActive) {
+            int rhpx = (this.width - remoteHostPopupW) / 2;
+            int rhpy = (this.height - remoteHostPopupH) / 2;
+            if (mouseX < rhpx || mouseX > rhpx + remoteHostPopupW || mouseY < rhpy || mouseY > rhpy + remoteHostPopupH) {
+                closeRemoteHostPopup();
+                return true;
+            }
+        }
         if (deletionPopupActive) {
             int popupW = serverPopupWidth;
             int popupH = serverPopupHeight;
@@ -414,17 +496,22 @@ public class ServerManagerScreen extends Screen {
                 deletionPopupActive = false;
                 return true;
             }
-            int deleteX = popupX + 5;
-            int buttonY = popupY + popupH - 30;
-            int delW = minecraftClient.textRenderer.getWidth("Delete") + 10;
-            if (mouseX >= deleteX && mouseX <= deleteX + delW && mouseY >= buttonY && mouseY <= buttonY + 18 && button == 0) {
-                deleteServer(deletionPopupServerIndex);
+            int btnWidth = (popupW - 40) / 3;
+            int btnY = popupY + popupH - 40;
+            int deleteX = popupX + 10;
+            int removeX = deleteX + btnWidth + 10;
+            int cancelX = removeX + btnWidth + 10;
+            if (mouseX >= deleteX && mouseX <= deleteX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20 && button == 0) {
+                deleteServerTrash(deletionPopupServerIndex);
                 deletionPopupActive = false;
                 return true;
             }
-            int cancW = minecraftClient.textRenderer.getWidth("Cancel") + 10;
-            int cancelX = popupX + popupW - (cancW + 5);
-            if (mouseX >= cancelX && mouseX <= cancelX + cancW && mouseY >= buttonY && mouseY <= buttonY + 18 && button == 0) {
+            if (mouseX >= removeX && mouseX <= removeX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20 && button == 0) {
+                deleteServerRemove(deletionPopupServerIndex);
+                deletionPopupActive = false;
+                return true;
+            }
+            if (mouseX >= cancelX && mouseX <= cancelX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20 && button == 0) {
                 deletionPopupActive = false;
                 return true;
             }
@@ -449,8 +536,10 @@ public class ServerManagerScreen extends Screen {
         if (Render.ContextMenu.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
+        boolean clickedOnIcon = false;
         for (IconRect rect : serverIconRects) {
             if (mouseX >= rect.x && mouseX <= rect.x + rect.width && mouseY >= rect.y && mouseY <= rect.y + rect.height) {
+                clickedOnIcon = true;
                 if (button == 0) {
                     if (rect.isCreate) {
                         serverTypePopupActive = true;
@@ -464,6 +553,10 @@ public class ServerManagerScreen extends Screen {
                             selectedDesktopIndex = rect.serverIndex;
                             lastClickedIndex = rect.serverIndex;
                             lastClickTime = currentTime;
+                            canDrag = true;
+                            draggingServerIndex = rect.serverIndex;
+                            draggingStartX = (int) mouseX;
+                            draggingStartY = (int) mouseY;
                         }
                         return true;
                     }
@@ -492,8 +585,11 @@ public class ServerManagerScreen extends Screen {
                 }
             }
         }
+        if (!clickedOnIcon) {
+            canDrag = false;
+        }
         int taskbarY = this.height - taskbarHeight;
-        int iconSize = 24;
+        int iconSize = 16;
         int padding = 5;
         int yTask = taskbarY + (taskbarHeight - iconSize) / 2;
         int xTask = padding;
@@ -509,31 +605,48 @@ public class ServerManagerScreen extends Screen {
                 } catch (Exception ignored) {}
                 return true;
             }
-            xTask += iconSize + padding;
-            if (mouseX >= xTask && mouseX <= xTask + iconSize) {
-                minecraftClient.setScreen(new FileEditorScreen(minecraftClient, this, new ServerInfo("C:/")));
-                return true;
-            }
         }
-        int hostTabAreaX = this.width - 200;
+        int tabWidth = 50;
+        int gap = 4;
+        List<String> tabs = getAllTabNames();
+        int totalWidth = 0;
+        int[] widths = new int[tabs.size()];
+        int paddingTabs = 4;
+        for (int i = 0; i < tabs.size(); i++) {
+            int w = minecraftClient.textRenderer.getWidth(tabs.get(i)) + 2 * paddingTabs;
+            if (w < tabWidth) w = tabWidth;
+            widths[i] = w;
+            totalWidth += w;
+            if (i > 0) totalWidth += gap;
+        }
+
+        int startX = this.width - totalWidth - 5;
+        int plusWidth = 30;
+        int plusX = startX - gap - plusWidth;
+        int plusButtonY = taskbarY + 2;
+        int plusHeight = taskbarHeight - 4;
+        if (mouseX >= plusX && mouseX <= plusX + plusWidth &&
+                mouseY >= plusButtonY && mouseY <= plusButtonY + plusHeight && button == 0) {
+            remoteHostPopupActive = true;
+            return true;
+        }
+
         int hostTabAreaY = this.height - taskbarHeight + 2;
-        if (mouseX >= hostTabAreaX && mouseX <= this.width) {
-            List<String> tabs = getAllTabNames();
-            int tabWidth = 60;
-            int gap = 4;
+        if (mouseX >= startX && mouseX <= this.width) {
+            int currentX = startX;
             for (int i = 0; i < tabs.size(); i++) {
-                int tabX = hostTabAreaX + i * (tabWidth + gap);
-                if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= hostTabAreaY && mouseY <= hostTabAreaY + (taskbarHeight - 4)) {
+                if (mouseX >= currentX && mouseX <= currentX + widths[i] && mouseY >= hostTabAreaY && mouseY <= hostTabAreaY + (taskbarHeight - 4)) {
+                    int actualIndex = i;
                     if (button == 0) {
-                        activeTabIndex = i;
-                        if (i > 0) {
-                            RemoteHostInfo host = remoteHosts.get(i - 1);
+                        activeTabIndex = actualIndex;
+                        if (actualIndex > 0) {
+                            RemoteHostInfo host = remoteHosts.get(actualIndex - 1);
                             if (!host.isConnected && !host.isConnecting) {
                                 connectRemoteHostAsync(host);
                             }
                         }
-                    } else if (button == 1 && i > 0) {
-                        RemoteHostInfo host = remoteHosts.get(i - 1);
+                    } else if (button == 1 && actualIndex > 0) {
+                        RemoteHostInfo host = remoteHosts.get(actualIndex - 1);
                         remoteHostPopupActive = true;
                         isEditingHost = true;
                         remoteHostCreationWarning = false;
@@ -551,8 +664,8 @@ public class ServerManagerScreen extends Screen {
                     }
                     return true;
                 }
+                currentX += widths[i] + gap;
             }
-            int plusX = hostTabAreaX + tabs.size() * (tabWidth + gap);
             if (mouseX >= plusX && mouseX <= plusX + 30 && mouseY >= hostTabAreaY && mouseY <= hostTabAreaY + (taskbarHeight - 4)) {
                 remoteHostPopupActive = true;
                 isEditingHost = false;
@@ -572,11 +685,11 @@ public class ServerManagerScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (button == 0 && selectedDesktopIndex != -1) {
+        if (button == 0 && canDrag && draggingServerIndex != -1) {
             if (!isDragging) {
                 isDragging = true;
-                draggingServerIndex = selectedDesktopIndex;
-                dragStartY = (int) mouseY;
+                dragOffsetX = draggingStartX - (serverIconRects.get(draggingServerIndex).x);
+                dragOffsetY = draggingStartY - (serverIconRects.get(draggingServerIndex).y);
             }
             return true;
         }
@@ -588,18 +701,28 @@ public class ServerManagerScreen extends Screen {
         if (isDragging && draggingServerIndex != -1) {
             List<ServerInfo> currentServers = getCurrentServers();
             int iconSize = 32;
-            int spacing = 20;
             int margin = 20;
-            int newIndex = (int) ((mouseY - margin) / (iconSize + spacing));
+            int spacing = 20;
+            int availableHeight = this.height - taskbarHeight - 2 * margin;
+            int rows = availableHeight / (iconSize + spacing);
+            if (rows < 1) rows = 1;
+            int candidateCol = (int) ((mouseX - margin) / (iconSize + spacing));
+            int candidateRow = (int) ((mouseY - margin) / (iconSize + spacing));
+            int newIndex = candidateCol * rows + candidateRow;
             if (newIndex < 0) newIndex = 0;
             if (newIndex >= currentServers.size()) newIndex = currentServers.size() - 1;
-            ServerInfo dragged = currentServers.remove(draggingServerIndex);
-            currentServers.add(newIndex, dragged);
-            selectedDesktopIndex = newIndex;
+            if (newIndex != draggingServerIndex) {
+                ServerInfo dragged = currentServers.remove(draggingServerIndex);
+                currentServers.add(newIndex, dragged);
+                selectedDesktopIndex = newIndex;
+                iconPosX.add(newIndex, iconPosX.remove(draggingServerIndex));
+                iconPosY.add(newIndex, iconPosY.remove(draggingServerIndex));
+            }
             isDragging = false;
             draggingServerIndex = -1;
-            saveServers();
-            saveRemoteHosts();
+            dragOffsetX = 0;
+            dragOffsetY = 0;
+            canDrag = false;
             return true;
         }
         return super.mouseReleased(mouseX, mouseY, button);
@@ -736,7 +859,7 @@ public class ServerManagerScreen extends Screen {
     private boolean handleRemoteHostPopupClick(double mouseX, double mouseY, int button) {
         int px = (this.width - remoteHostPopupW) / 2;
         int py = (this.height - remoteHostPopupH) / 2;
-        int nameBoxY = py + 5 + 10;
+        int nameBoxY = py + 15;
         int userLabelY = nameBoxY + 25;
         int userBoxY = userLabelY + 10;
         int ipLabelY = userBoxY + 25;
@@ -853,7 +976,6 @@ public class ServerManagerScreen extends Screen {
         if (button == 0) {
             if (isInsideOptionBox(mouseX, mouseY, option1, serverTypePopupX, option1Y)) {
                 serverTypePopupActive = false;
-                creatingServer = true;
                 editingServer = false;
                 editingServerIndex = -1;
                 serverPopupActive = true;
@@ -869,13 +991,11 @@ public class ServerManagerScreen extends Screen {
             }
             if (isInsideOptionBox(mouseX, mouseY, option2, serverTypePopupX, option2Y)) {
                 serverTypePopupActive = false;
-                importingServer = true;
                 openImportFileExplorer();
                 return true;
             }
             if (isInsideOptionBox(mouseX, mouseY, option3, serverTypePopupX, option3Y)) {
                 serverTypePopupActive = false;
-                modpackInstallation = true;
                 openModpackInstallation();
                 return true;
             }
@@ -990,15 +1110,12 @@ public class ServerManagerScreen extends Screen {
 
     private void closePopup() {
         serverPopupActive = false;
-        creatingServer = false;
         editingServer = false;
         editingServerIndex = -1;
         serverNameBuffer.setLength(0);
         serverVersionBuffer.setLength(0);
         serverNameCursorPos = 0;
         serverVersionCursorPos = 0;
-        importingServer = false;
-        modpackInstallation = false;
     }
 
     private void closeRemoteHostPopup() {
@@ -1018,8 +1135,8 @@ public class ServerManagerScreen extends Screen {
         String name = serverNameBuffer.toString().trim();
         String ver = serverVersionBuffer.toString().trim().isEmpty() ? "latest" : serverVersionBuffer.toString().trim();
         selectedServerType = serverTypes.get(selectedTypeIndex);
-        String path;
         if (!editingServer) {
+            String path;
             if (activeTabIndex == 0) {
                 path = "C:/remotely/servers/" + name;
             } else {
@@ -1028,30 +1145,6 @@ public class ServerManagerScreen extends Screen {
                 String homeDir = user.equals("root") ? "/root" : "/home/" + user;
                 path = homeDir + "/remotely/servers/" + name;
             }
-        } else {
-            path = currentServers.get(editingServerIndex).path;
-        }
-        Path serverJarPath = Paths.get(path, "server.jar");
-        if (editingServer && editingServerIndex >= 0 && editingServerIndex < currentServers.size()) {
-            ServerInfo s = currentServers.get(editingServerIndex);
-            s.name = name;
-            s.path = path;
-            s.type = selectedServerType;
-            s.version = ver;
-            if (activeTabIndex != 0) {
-                s.isRemote = true;
-                s.remoteHost = remoteHosts.get(activeTabIndex - 1);
-                if (s.remoteSSHManager == null) {
-                    s.remoteSSHManager = new SSHManager(s.remoteHost);
-                    s.remoteSSHManager.connectToRemoteHost(s.remoteHost.getUser(), s.remoteHost.getIp(), s.remoteHost.getPort(), s.remoteHost.getPassword());
-                }
-            } else {
-                s.isRemote = false;
-                s.remoteHost = null;
-            }
-            saveServers();
-            saveRemoteHosts();
-        } else {
             ServerInfo newInfo = new ServerInfo(path);
             newInfo.name = name;
             newInfo.path = path;
@@ -1062,6 +1155,7 @@ public class ServerManagerScreen extends Screen {
                 newInfo.isRemote = false;
                 newInfo.remoteHost = null;
                 currentServers.add(newInfo);
+                Path serverJarPath = Paths.get(path, "server.jar");
                 if (!Files.exists(serverJarPath)) {
                     runMrPackInstaller(newInfo);
                 }
@@ -1077,6 +1171,24 @@ public class ServerManagerScreen extends Screen {
                 }
                 runMrPackInstallerRemote(newInfo, newInfo.remoteHost);
                 currentServers.add(newInfo);
+            }
+            saveServers();
+            saveRemoteHosts();
+        } else {
+            ServerInfo s = currentServers.get(editingServerIndex);
+            s.name = name;
+            s.type = selectedServerType;
+            s.version = ver;
+            if (activeTabIndex != 0) {
+                s.isRemote = true;
+                s.remoteHost = remoteHosts.get(activeTabIndex - 1);
+                if (s.remoteSSHManager == null) {
+                    s.remoteSSHManager = new SSHManager(s.remoteHost);
+                    s.remoteSSHManager.connectToRemoteHost(s.remoteHost.getUser(), s.remoteHost.getIp(), s.remoteHost.getPort(), s.remoteHost.getPassword());
+                }
+            } else {
+                s.isRemote = false;
+                s.remoteHost = null;
             }
             saveServers();
             saveRemoteHosts();
@@ -1617,21 +1729,24 @@ public class ServerManagerScreen extends Screen {
     }
 
     private void renderDeletePopup(DrawContext context, int mouseX, int mouseY) {
-        int labelY = serverPopupY + 10;
+        int popupW = serverPopupWidth;
+        int popupH = serverPopupHeight;
+        int popupX = (this.width - popupW) / 2;
+        int popupY = (this.height - popupH) / 2;
+        context.fill(popupX, popupY, popupX + popupW, popupY + popupH, serverScreenBackgroundColor);
+        drawInnerBorder(context, popupX, popupY, popupW, popupH, serverElementBorderColor);
+        drawOuterBorder(context, popupX, popupY, popupW, popupH, globalBottomBorder);
         String warn = "Are you sure you want to delete this server?";
-        int ww = minecraftClient.textRenderer.getWidth(warn);
-        context.drawText(minecraftClient.textRenderer, Text.literal(warn), serverPopupX + (serverPopupWidth - ww) / 2, labelY, 0xFFFF5555, shadow);
-        String yesText = "Delete";
-        int yesW = minecraftClient.textRenderer.getWidth(yesText) + 10;
-        int confirmButtonX = serverPopupX + 5;
-        int confirmButtonY = serverPopupY + serverPopupHeight - 22;
-        boolean yesHover = mouseX >= confirmButtonX && mouseX <= confirmButtonX + yesW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-        drawCustomButton(context, confirmButtonX, confirmButtonY, yesText, minecraftClient, yesHover, true, true, buttonTextColor, buttonTextHoverColor);
-        String cancelText = "Cancel";
-        int cancelW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
-        int cancelButtonX = serverPopupX + serverPopupWidth - (cancelW + 5);
-        boolean cancelHover = mouseX >= cancelButtonX && mouseX <= cancelButtonX + cancelW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-        drawCustomButton(context, cancelButtonX, confirmButtonY, cancelText, minecraftClient, cancelHover, true, true, buttonTextColor, buttonTextDeleteColor);
+        int warnW = minecraftClient.textRenderer.getWidth(warn);
+        context.drawText(minecraftClient.textRenderer, Text.literal(warn), popupX + (popupW - warnW) / 2, popupY + 20, 0xFFFF5555, Config.shadow);
+        int btnWidth = (popupW - 40) / 3;
+        int btnY = popupY + popupH - 40;
+        int deleteX = popupX + 10;
+        int removeX = deleteX + btnWidth + 10;
+        int cancelX = removeX + btnWidth + 10;
+        drawCustomButton(context, deleteX, btnY, "Delete", minecraftClient, (mouseX >= deleteX && mouseX <= deleteX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, buttonTextColor, buttonTextHoverColor);
+        drawCustomButton(context, removeX, btnY, "Remove", minecraftClient, (mouseX >= removeX && mouseX <= removeX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, buttonTextColor, buttonTextHoverColor);
+        drawCustomButton(context, cancelX, btnY, "Cancel", minecraftClient, (mouseX >= cancelX && mouseX <= cancelX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, buttonTextColor, buttonTextDeleteColor);
     }
 
     private String[] splitJsonObjects(String json) {
@@ -1782,11 +1897,11 @@ public class ServerManagerScreen extends Screen {
             case "neoforge" -> neoforge;
             case "quilt" -> quilt;
             case "modpack" -> vanilla;
-            default -> defaultServerIcon;
+            default -> terminal;
         };
     }
 
-    private void deleteServer(int index) {
+    private void deleteServerTrash(int index) {
         List<ServerInfo> currentServers = getCurrentServers();
         if (index >= 0 && index < currentServers.size()) {
             ServerInfo s = currentServers.get(index);
@@ -1812,13 +1927,17 @@ public class ServerManagerScreen extends Screen {
         }
     }
 
+    private void deleteServerRemove(int index) {
+        List<ServerInfo> currentServers = getCurrentServers();
+        if (index >= 0 && index < currentServers.size()) {
+            currentServers.remove(index);
+            saveServers();
+            saveRemoteHosts();
+        }
+    }
+
     private enum RemoteHostField {
         NONE, NAME, USER, IP, PORT, PASSWORD
     }
 
-    private void drawCenteredString(DrawContext context, String text, int centerX, int centerY, int color) {
-        int w = minecraftClient.textRenderer.getWidth(text);
-        int x = centerX - (w / 2);
-        context.drawText(minecraftClient.textRenderer, Text.literal(text), x, centerY, color, false);
-    }
 }
