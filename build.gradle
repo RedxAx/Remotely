@@ -37,6 +37,8 @@ dependencies {
     shadow "com.twelvemonkeys.imageio:imageio-webp:3.12.0"
     shadow "com.jcraft:jsch:0.1.55"
     shadow "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+    shadow "com.vladsch.flexmark:flexmark:0.62.2"
+    shadow "org.jsoup:jsoup:1.15.3"
 }
 
 processResources {

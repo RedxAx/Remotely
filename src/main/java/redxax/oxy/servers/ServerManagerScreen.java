@@ -374,7 +374,7 @@ public class ServerManagerScreen extends Screen {
                 } else {
                     drawOuterBorder(context, (int) currentX, (int) currentY, iconSize, iconSize, globalBottomBorder);
                 }
-                if (mouseX >= currentX && mouseX <= currentX + iconSize && mouseY >= currentY && mouseY <= currentY + iconSize) {
+                if (mouseX >= currentX && mouseX <= currentX + iconSize && mouseY >= currentY && mouseY <= currentY + iconSize || isDragging && i == draggingServerIndex) {
                     context.fill((int) currentX, (int) currentY, (int) currentX + iconSize, (int) currentY + iconSize, 0x40FFFFFF);
                 }
                 String name = server.name;
