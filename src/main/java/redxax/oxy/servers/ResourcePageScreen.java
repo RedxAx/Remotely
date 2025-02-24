@@ -23,13 +23,14 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 import static redxax.oxy.Render.*;
 import static redxax.oxy.config.Config.*;
 import static redxax.oxy.util.DevUtil.devPrint;
@@ -47,6 +48,9 @@ public class ResourcePageScreen extends Screen {
     private final Map<String, BufferedImage> imageCache = new HashMap<>();
     private final Map<String, BufferedImage> scaledImageCache = new HashMap<>();
     private final List<LinkRegion> linkRegions = new LinkedList<>();
+    private int cachedContentHeight = -1;
+    private int cachedEditorWidth = -1;
+    private List<HTMLRenderer.RenderCommand> cachedRenderCommands = null;
 
     public ResourcePageScreen(MinecraftClient mc, PluginModManagerScreen parent, IRemotelyResource resource) {
         super(Text.literal(resource.getName()));
@@ -223,41 +227,104 @@ public class ResourcePageScreen extends Screen {
         int padding = 10;
         int contentX = editorX + padding;
         int contentWidth = editorWidth - 2 * padding;
+        if (cachedEditorWidth != editorWidth || cachedRenderCommands == null) {
+            HTMLRenderer.RenderResult result = HTMLRenderer.buildRenderCommands(htmlDocument, contentX, editorY + padding, contentWidth, minecraftClient.textRenderer, imageCache, scaledImageCache, padding);
+            cachedRenderCommands = result.commands;
+            cachedContentHeight = result.totalHeight;
+            cachedEditorWidth = editorWidth;
+        }
+        int maxScrollOffset = Math.max(0, cachedContentHeight - (editorHeight - padding * 2));
+        targetScrollOffset = Math.min(targetScrollOffset, maxScrollOffset);
         context.enableScissor(editorX, editorY, editorX + editorWidth, editorY + editorHeight);
-        int contentY = editorY + padding - (int) scrollOffset;
-        HTMLRenderer.renderHtml(context, htmlDocument, contentX, contentY, contentWidth, minecraftClient.textRenderer, linkRegions, imageCache, scaledImageCache, padding);
+        for (HTMLRenderer.RenderCommand cmd : cachedRenderCommands) {
+            int drawY = cmd.y - (int) scrollOffset;
+            if (drawY + cmd.height < editorY || drawY > editorY + editorHeight) continue;
+            switch(cmd.type) {
+                case 0:
+                    context.drawText(minecraftClient.textRenderer, Text.literal(cmd.format + cmd.text), cmd.x, drawY, cmd.color, Config.shadow);
+                    break;
+                case 1:
+                    context.fill(cmd.x, drawY, cmd.x + cmd.width, drawY + cmd.height, cmd.color);
+                    break;
+                case 2:
+                    drawBufferedImage(context, cmd.image, cmd.x, drawY, cmd.width, cmd.height);
+                    break;
+                case 3:
+                    context.fill(cmd.x, drawY, cmd.x + cmd.width, drawY + cmd.height, cmd.color);
+                    context.drawText(minecraftClient.textRenderer, Text.literal(cmd.text), cmd.x + 5, drawY + 5, 0xFFFFFFFF, Config.shadow);
+                    break;
+                default:
+                    break;
+            }
+            if(cmd.href != null && !cmd.href.isEmpty()){
+                linkRegions.add(new LinkRegion(cmd.x, drawY, cmd.width, cmd.height, cmd.href));
+            }
+        }
         context.disableScissor();
     }
 
     private static class HTMLRenderer {
+        private static final Pattern TOKEN_PATTERN = Pattern.compile("\\S+|\\s+");
         static class InlineState {
             int x, y;
             InlineState(int x, int y) { this.x = x; this.y = y; }
         }
-        static int renderHtml(DrawContext context, Document doc, int x, int y, int maxWidth, TextRenderer renderer, List<LinkRegion> links, Map<String, BufferedImage> imageCache, Map<String, BufferedImage> scaledCache, int padding) {
-            int currentY = y;
+        static class RenderCommand {
+            int type;
+            int x, y, width, height;
+            String text = "";
+            int color;
+            boolean shadow;
+            String format = "";
+            BufferedImage image;
+            String href = "";
+        }
+        static class RenderResult {
+            List<RenderCommand> commands;
+            int totalHeight;
+        }
+        static RenderResult buildRenderCommands(Document doc, int startX, int startY, int maxWidth, TextRenderer renderer, Map<String, BufferedImage> imageCache, Map<String, BufferedImage> scaledCache, int padding) {
+            List<RenderCommand> commands = new LinkedList<>();
+            int currentY = startY;
             for (Element elem : doc.body().children()) {
-                currentY = renderBlock(context, elem, x, currentY, maxWidth, renderer, links, imageCache, scaledCache);
+                currentY = buildBlockCommands(elem, startX, currentY, maxWidth, renderer, commands, imageCache, scaledCache, padding);
                 currentY += 5;
             }
-            return currentY - y;
+            RenderResult result = new RenderResult();
+            result.commands = commands;
+            result.totalHeight = currentY - startY;
+            return result;
         }
-        static int renderBlock(DrawContext context, Element element, int x, int y, int maxWidth, TextRenderer renderer, List<LinkRegion> links, Map<String, BufferedImage> imageCache, Map<String, BufferedImage> scaledCache) {
+        static int buildBlockCommands(Element element, int x, int y, int maxWidth, TextRenderer renderer, List<RenderCommand> commands, Map<String, BufferedImage> imageCache, Map<String, BufferedImage> scaledCache, int padding) {
             String tag = element.tagName();
             if (tag.equals("br")) {
                 return y + renderer.fontHeight;
             }
             if (tag.equals("hr")) {
-                context.fill(x, y + renderer.fontHeight / 2, x + maxWidth, y + renderer.fontHeight / 2 + 1, 0xFFAAAAAA);
+                RenderCommand cmd = new RenderCommand();
+                cmd.type = 1;
+                cmd.x = x;
+                cmd.y = y + renderer.fontHeight / 2;
+                cmd.width = maxWidth;
+                cmd.height = 1;
+                cmd.color = 0xFFAAAAAA;
+                commands.add(cmd);
                 return y + renderer.fontHeight;
             }
-            if (tag.equals("img")) {
+            if (tag.equalsIgnoreCase("img")) {
                 String src = element.attr("src");
                 BufferedImage img = loadImage(src, imageCache, maxWidth, scaledCache);
                 if (img != null) {
                     int imgW = Math.min(img.getWidth(), maxWidth);
                     int imgH = img.getHeight() * imgW / img.getWidth();
-                    drawBufferedImage(context, img, x, y, imgW, imgH);
+                    RenderCommand cmd = new RenderCommand();
+                    cmd.type = 2;
+                    cmd.x = x;
+                    cmd.y = y;
+                    cmd.width = imgW;
+                    cmd.height = imgH;
+                    cmd.image = imgW < img.getWidth() ? loadImage(src, imageCache, maxWidth, scaledCache) : img;
+                    commands.add(cmd);
                     return y + imgH + 5;
                 }
                 return y;
@@ -266,45 +333,246 @@ public class ResourcePageScreen extends Screen {
                 int index = 1;
                 for (Element li : element.children()) {
                     String bullet = tag.equals("ul") ? "• " : index + ". ";
-                    context.drawText(renderer, Text.literal(bullet), x, y, 0xFFFFFFFF, Config.shadow);
-                    InlineState state = renderInline(context, li.childNodes(), x + renderer.getWidth(bullet), x + renderer.getWidth(bullet), y, maxWidth - renderer.getWidth(bullet), renderer, links, "", imageCache, scaledCache);
+                    RenderCommand bulletCmd = new RenderCommand();
+                    bulletCmd.type = 0;
+                    bulletCmd.x = x;
+                    bulletCmd.y = y;
+                    bulletCmd.text = bullet;
+                    bulletCmd.format = "";
+                    bulletCmd.color = 0xFFFFFFFF;
+                    bulletCmd.width = renderer.getWidth(Text.literal(bullet));
+                    commands.add(bulletCmd);
+                    int bulletWidth = renderer.getWidth(Text.literal(bullet));
+                    InlineState state = buildInlineCommands(li.childNodes(), x + bulletWidth, x + bulletWidth, y, maxWidth - bulletWidth, renderer, commands, "", imageCache, scaledCache, false);
                     y = state.y + renderer.fontHeight;
                     index++;
                 }
                 return y;
             }
-            if (tag.equals("table")) {
-                for (Element row : element.select("tr")) {
-                    StringBuilder rowText = new StringBuilder();
-                    for (Element cell : row.children()) {
-                        rowText.append(cell.text()).append(" | ");
-                    }
-                    if (rowText.length() >= 3) {
-                        rowText.setLength(rowText.length() - 3);
-                    }
-                    context.drawText(renderer, Text.literal(rowText.toString()), x, y, 0xFFFFFFFF, Config.shadow);
-                    y += renderer.fontHeight;
+            if (tag.equalsIgnoreCase("pre")) {
+                String codeText;
+                Element codeElem = element.selectFirst("code");
+                if(codeElem != null) {
+                    codeText = codeElem.wholeText();
+                } else {
+                    codeText = element.wholeText();
                 }
-                return y;
+                String[] lines = codeText.split("\\r?\\n");
+                int blockHeight = lines.length * renderer.fontHeight + 4;
+                RenderCommand bgCmd = new RenderCommand();
+                bgCmd.type = 1;
+                bgCmd.x = x;
+                bgCmd.y = y;
+                bgCmd.width = maxWidth;
+                bgCmd.height = blockHeight;
+                bgCmd.color = 0xFF2E2E2E;
+                commands.add(bgCmd);
+                for (int i = 0; i < lines.length; i++) {
+                    RenderCommand textCmd = new RenderCommand();
+                    textCmd.type = 0;
+                    textCmd.x = x + 2;
+                    textCmd.y = y + 2 + i * renderer.fontHeight;
+                    textCmd.text = lines[i];
+                    textCmd.format = "";
+                    textCmd.color = 0xFFFFFFFF;
+                    textCmd.width = renderer.getWidth(Text.literal(lines[i]));
+                    commands.add(textCmd);
+                }
+                return y + blockHeight + 5;
             }
-            if (tag.matches("h[1-6]")) {
-                int level = Integer.parseInt(tag.substring(1));
-                float scale = 2.0f - (level - 1) * 0.2f;
-                String newFormat = "§l";
-                InlineState state = renderInline(context, element.childNodes(), x, x, y, maxWidth, renderer, links, newFormat, imageCache, scaledCache);
-                y = state.y + (int) (renderer.fontHeight * scale) + 4;
-                context.fill(x, y, x + maxWidth, y + 1, 0xFFAAAAAA);
-                return y + 5;
+            if (tag.equalsIgnoreCase("table") || tag.equalsIgnoreCase("thead") || tag.equalsIgnoreCase("tbody") || tag.equalsIgnoreCase("tfoot")) {
+                List<List<Element>> tableRows = new LinkedList<>();
+                for (Element row : element.select("tr")) {
+                    List<Element> cells = new LinkedList<>();
+                    for (Element cell : row.children()) {
+                        cells.add(cell);
+                    }
+                    tableRows.add(cells);
+                }
+                if(tableRows.isEmpty()) return y;
+                int numCols = 0;
+                for(List<Element> row : tableRows) {
+                    numCols = Math.max(numCols, row.size());
+                }
+                int border = 1;
+                int cellPadding = 5;
+                int headerExtra = 3;
+                int[][] naturalWidths = new int[tableRows.size()][numCols];
+                int[][] naturalHeights = new int[tableRows.size()][numCols];
+                for (int i = 0; i < tableRows.size(); i++) {
+                    List<Element> row = tableRows.get(i);
+                    for (int j = 0; j < numCols; j++) {
+                        if(j < row.size()){
+                            Element cell = row.get(j);
+                            boolean isHeader = cell.tagName().equalsIgnoreCase("th");
+                            int localPadding = isHeader ? cellPadding + headerExtra : cellPadding;
+                            List<RenderCommand> temp = new LinkedList<>();
+                            buildInlineCommands(cell.childNodes(), 0, 0, 0, 1000, renderer, temp, "", imageCache, scaledCache, false);
+                            int cellW = 0;
+                            for(RenderCommand cmd : temp){
+                                cellW = Math.max(cellW, cmd.x + cmd.width);
+                            }
+                            int cellH = renderer.fontHeight;
+                            naturalWidths[i][j] = cellW + 2 * localPadding;
+                            naturalHeights[i][j] = cellH + 2 * localPadding;
+                        } else {
+                            naturalWidths[i][j] = 0;
+                            naturalHeights[i][j] = renderer.fontHeight + 2 * cellPadding;
+                        }
+                    }
+                }
+                int[] naturalColWidths = new int[numCols];
+                for (int j = 0; j < numCols; j++){
+                    int maxCol = 0;
+                    for (int i = 0; i < tableRows.size(); i++){
+                        maxCol = Math.max(maxCol, naturalWidths[i][j]);
+                    }
+                    naturalColWidths[j] = maxCol;
+                }
+                int totalNaturalWidth = (numCols + 1) * border;
+                for (int j = 0; j < numCols; j++){
+                    totalNaturalWidth += naturalColWidths[j];
+                }
+                boolean needWrap = totalNaturalWidth > maxWidth;
+                int[] colWidths = new int[numCols];
+                if (needWrap) {
+                    int newColWidth = (maxWidth - (numCols + 1) * border) / numCols;
+                    for (int j = 0; j < numCols; j++){
+                        colWidths[j] = newColWidth;
+                    }
+                } else {
+                    for (int j = 0; j < numCols; j++){
+                        colWidths[j] = naturalColWidths[j];
+                    }
+                }
+                int[][] cellHeights = new int[tableRows.size()][numCols];
+                List<List<List<RenderCommand>>> cellCommands = new LinkedList<>();
+                for (int i = 0; i < tableRows.size(); i++){
+                    List<Element> row = tableRows.get(i);
+                    List<List<RenderCommand>> rowCommands = new LinkedList<>();
+                    for (int j = 0; j < numCols; j++){
+                        List<RenderCommand> cmds = new LinkedList<>();
+                        if(j < row.size()){
+                            Element cell = row.get(j);
+                            boolean isHeader = cell.tagName().equalsIgnoreCase("th");
+                            int localPadding = isHeader ? cellPadding + headerExtra : cellPadding;
+                            InlineState st = buildInlineCommands(cell.childNodes(), 0, 0, 0, colWidths[j] - 2 * localPadding, renderer, cmds, "", imageCache, scaledCache, false);
+                            int usedHeight = st.y + renderer.fontHeight;
+                            if (usedHeight < renderer.fontHeight) {
+                                usedHeight = renderer.fontHeight;
+                            }
+                            cellHeights[i][j] = usedHeight + 2 * localPadding;
+                        } else {
+                            cellHeights[i][j] = renderer.fontHeight + 2 * cellPadding;
+                        }
+                        rowCommands.add(cmds);
+                    }
+                    cellCommands.add(rowCommands);
+                }
+                int[] rowHeights = new int[tableRows.size()];
+                for (int i = 0; i < tableRows.size(); i++){
+                    int maxRow = 0;
+                    for (int j = 0; j < numCols; j++){
+                        maxRow = Math.max(maxRow, cellHeights[i][j]);
+                    }
+                    rowHeights[i] = maxRow;
+                }
+                int tableX = x;
+                int tableY = y;
+                int tableWidth = (numCols + 1) * border;
+                for (int j = 0; j < numCols; j++){
+                    tableWidth += colWidths[j];
+                }
+                int tableHeight = (tableRows.size() + 1) * border;
+                for (int i = 0; i < tableRows.size(); i++){
+                    tableHeight += rowHeights[i];
+                }
+                RenderCommand tableBg = new RenderCommand();
+                tableBg.type = 1;
+                tableBg.x = tableX;
+                tableBg.y = tableY;
+                tableBg.width = tableWidth;
+                tableBg.height = tableHeight;
+                tableBg.color = 0xFF888888;
+                commands.add(tableBg);
+                int currentY = tableY + border;
+                int rowIndex = 0;
+                for (List<Element> row : tableRows){
+                    int currentX = tableX + border;
+                    List<List<RenderCommand>> rowCmds = cellCommands.get(rowIndex);
+                    for (int j = 0; j < numCols; j++){
+                        int cellW = colWidths[j];
+                        int cellH = rowHeights[rowIndex];
+                        RenderCommand cellBg = new RenderCommand();
+                        cellBg.type = 1;
+                        cellBg.x = currentX;
+                        cellBg.y = currentY;
+                        cellBg.width = cellW;
+                        cellBg.height = cellH;
+                        cellBg.color = 0xFF444444;
+                        commands.add(cellBg);
+                        if(j < row.size()){
+                            boolean isHeader = row.get(j).tagName().equalsIgnoreCase("th");
+                            int localPadding = isHeader ? cellPadding + headerExtra : cellPadding;
+                            List<RenderCommand> cmds = rowCmds.get(j);
+                            for (RenderCommand cmd : cmds){
+                                cmd.x += currentX + localPadding;
+                                cmd.y += currentY + localPadding;
+                                commands.add(cmd);
+                            }
+                        }
+                        RenderCommand vBorder = new RenderCommand();
+                        vBorder.type = 1;
+                        vBorder.x = currentX - border;
+                        vBorder.y = currentY;
+                        vBorder.width = border;
+                        vBorder.height = cellH;
+                        vBorder.color = 0xFF888888;
+                        commands.add(vBorder);
+                        currentX += cellW + border;
+                    }
+                    RenderCommand vBorder = new RenderCommand();
+                    vBorder.type = 1;
+                    vBorder.x = currentX - border;
+                    vBorder.y = currentY;
+                    vBorder.width = border;
+                    vBorder.height = rowHeights[rowIndex];
+                    vBorder.color = 0xFF888888;
+                    commands.add(vBorder);
+                    currentY += rowHeights[rowIndex] + border;
+                    RenderCommand hBorder = new RenderCommand();
+                    hBorder.type = 1;
+                    hBorder.x = tableX;
+                    hBorder.y = currentY - border;
+                    hBorder.width = tableWidth;
+                    hBorder.height = border;
+                    hBorder.color = 0xFF888888;
+                    commands.add(hBorder);
+                    rowIndex++;
+                }
+                return tableY + tableHeight + 5;
             }
-            InlineState state = renderInline(context, element.childNodes(), x, x, y, maxWidth, renderer, links, "", imageCache, scaledCache);
+            if (hasTableChild(element)) {
+                InlineState state = new InlineState(x, y);
+                for (Node child : element.childNodes()) {
+                    if (child instanceof Element && isTableElement((Element) child)) {
+                        if (state.x > x) { state.y += renderer.fontHeight; state.x = x; }
+                        state.y = buildBlockCommands((Element) child, x, state.y, maxWidth, renderer, commands, imageCache, scaledCache, padding);
+                    } else {
+                        state = buildInlineCommands(Collections.singletonList(child), x, state.x, state.y, maxWidth, renderer, commands, "", imageCache, scaledCache, false);
+                    }
+                }
+                return state.y;
+            }
+            InlineState state = buildInlineCommands(element.childNodes(), x, x, y, maxWidth, renderer, commands, "", imageCache, scaledCache, false);
             return state.y + renderer.fontHeight;
         }
-        static InlineState renderInline(DrawContext context, List<Node> nodes, int startX, int x, int y, int maxWidth, TextRenderer renderer, List<LinkRegion> links, String format, Map<String, BufferedImage> imageCache, Map<String, BufferedImage> scaledCache) {
+        static InlineState buildInlineCommands(List<Node> nodes, int startX, int x, int y, int maxWidth, TextRenderer renderer, List<RenderCommand> commands, String format, Map<String, BufferedImage> imageCache, Map<String, BufferedImage> scaledCache, boolean insideLink) {
             InlineState state = new InlineState(x, y);
             for (Node node : nodes) {
                 if (node instanceof TextNode) {
                     String text = ((TextNode) node).text();
-                    state = renderTextWithWrap(context, text, startX, state, maxWidth, renderer, format);
+                    state = buildTextWithWrap(text, startX, state, maxWidth, renderer, commands, format);
                 } else if (node instanceof Element) {
                     Element elem = (Element) node;
                     String tag = elem.tagName();
@@ -315,57 +583,177 @@ public class ResourcePageScreen extends Screen {
                         if (img != null) {
                             int imgW = Math.min(img.getWidth(), maxWidth);
                             int imgH = img.getHeight() * imgW / img.getWidth();
+                            RenderCommand imgCmd = new RenderCommand();
+                            imgCmd.type = 2;
+                            imgCmd.x = startX;
+                            imgCmd.y = state.y;
+                            imgCmd.width = imgW;
+                            imgCmd.height = imgH;
+                            imgCmd.image = img;
+                            commands.add(imgCmd);
+                            if (insideLink) {
+                                imgCmd.href = elem.parent().attr("href");
+                            }
                             state.x = startX;
-                            drawBufferedImage(context, img, startX, state.y, imgW, imgH);
                             state.y += imgH + 5;
-                            state.x = startX;
                         }
                         continue;
                     } else if (tag.equals("a")) {
-                        newFormat += "§n§9";
-                        int linkStartX = state.x;
-                        int linkStartY = state.y;
-                        InlineState innerState = renderInline(context, elem.childNodes(), startX, state.x, state.y, maxWidth, renderer, links, newFormat, imageCache, scaledCache);
-                        int linkWidth = innerState.x - linkStartX;
-                        if(linkWidth > 0) {
-                            links.add(new LinkRegion(linkStartX, linkStartY, linkWidth, renderer.fontHeight, elem.attr("href")));
+                        String href = elem.attr("href");
+                        if (elem.select("img").size() > 0) {
+                            for (Element childImg : elem.select("img")) {
+                                BufferedImage img = loadImage(childImg.attr("src"), imageCache, maxWidth, scaledCache);
+                                if (img != null) {
+                                    int imgW = Math.min(img.getWidth(), maxWidth);
+                                    int imgH = img.getHeight() * imgW / img.getWidth();
+                                    RenderCommand imgCmd = new RenderCommand();
+                                    imgCmd.type = 2;
+                                    imgCmd.x = startX;
+                                    imgCmd.y = state.y;
+                                    imgCmd.width = imgW;
+                                    imgCmd.height = imgH;
+                                    imgCmd.image = img;
+                                    imgCmd.href = href;
+                                    commands.add(imgCmd);
+                                    state.x = startX;
+                                    state.y += imgH + 5;
+                                }
+                            }
+                            List<Node> nonImageNodes = new LinkedList<>();
+                            for (Node child : elem.childNodes()) {
+                                if (child instanceof Element && ((Element) child).tagName().equals("img")) continue;
+                                nonImageNodes.add(child);
+                            }
+                            if (!nonImageNodes.isEmpty()) {
+                                state = buildInlineCommands(nonImageNodes, startX, state.x, state.y, maxWidth, renderer, commands, newFormat + "§n§9", imageCache, scaledCache, true);
+                            }
+                        } else {
+                            int linkStartX = state.x;
+                            int linkStartY = state.y;
+                            state = buildInlineCommands(elem.childNodes(), startX, state.x, state.y, maxWidth, renderer, commands, newFormat + "§n§9", imageCache, scaledCache, true);
+                            int linkWidth = state.x - linkStartX;
+                            if (linkWidth <= 0) {
+                                linkWidth = renderer.getWidth(Text.literal(elem.text()));
+                            }
+                            if (linkWidth > 0) {
+                                RenderCommand linkCmd = new RenderCommand();
+                                linkCmd.type = 0;
+                                linkCmd.x = linkStartX;
+                                linkCmd.y = linkStartY;
+                                linkCmd.width = linkWidth;
+                                linkCmd.height = renderer.fontHeight;
+                                linkCmd.href = href;
+                                commands.add(linkCmd);
+                            }
                         }
-                        state = innerState;
+                    } else if (tag.equals("iframe") || tag.equals("embed")) {
+                        RenderCommand rectCmd = new RenderCommand();
+                        rectCmd.type = 1;
+                        rectCmd.x = startX;
+                        rectCmd.y = state.y;
+                        rectCmd.width = maxWidth;
+                        rectCmd.height = renderer.fontHeight * 3;
+                        rectCmd.color = 0xFF555555;
+                        commands.add(rectCmd);
+                        RenderCommand textCmd = new RenderCommand();
+                        textCmd.type = 0;
+                        textCmd.x = startX + 5;
+                        textCmd.y = state.y + 5;
+                        textCmd.text = "Embedded content";
+                        textCmd.format = "";
+                        textCmd.color = 0xFFFFFFFF;
+                        commands.add(textCmd);
+                        state.x = startX;
+                        state.y += renderer.fontHeight * 3 + 5;
                     } else if (tag.equals("code")) {
-                        newFormat += "§7";
-                        state = renderInline(context, elem.childNodes(), startX, state.x, state.y, maxWidth, renderer, links, newFormat, imageCache, scaledCache);
-                    } else if (tag.equals("strong") || tag.equals("b")) {
-                        newFormat += "§l";
-                        state = renderInline(context, elem.childNodes(), startX, state.x, state.y, maxWidth, renderer, links, newFormat, imageCache, scaledCache);
-                    } else if (tag.equals("em") || tag.equals("i")) {
-                        newFormat += "§o";
-                        state = renderInline(context, elem.childNodes(), startX, state.x, state.y, maxWidth, renderer, links, newFormat, imageCache, scaledCache);
+                        state = buildCodeTextWithWrap(elem.text(), startX, state, maxWidth, renderer, commands);
                     } else {
-                        state = renderInline(context, elem.childNodes(), startX, state.x, state.y, maxWidth, renderer, links, newFormat, imageCache, scaledCache);
+                        state = buildInlineCommands(elem.childNodes(), startX, state.x, state.y, maxWidth, renderer, commands, newFormat, imageCache, scaledCache, insideLink);
                     }
                 }
             }
             return state;
         }
-        static InlineState renderTextWithWrap(DrawContext context, String text, int startX, InlineState state, int maxWidth, TextRenderer renderer, String format) {
-            Pattern pattern = Pattern.compile("\\S+|\\s+");
-            Matcher matcher = pattern.matcher(text);
-            while (matcher.find()) {
-                String token = matcher.group();
-                int baseWidth = renderer.getWidth(Text.literal(token));
-                if(format.contains("§l")) {
-                    baseWidth += token.length();
-                }
-                if (state.x + baseWidth > startX + maxWidth) {
+        static InlineState buildTextWithWrap(String text, int startX, InlineState state, int maxWidth, TextRenderer renderer, List<RenderCommand> commands, String format) {
+            if (text.indexOf(' ') == -1) {
+                int textWidth = renderer.getWidth(Text.literal(format + text));
+                if (state.x + textWidth > startX + maxWidth) {
                     state.x = startX;
                     state.y += renderer.fontHeight;
                 }
-                context.drawText(renderer, Text.literal(format + token), state.x, state.y, 0xFFFFFFFF, Config.shadow);
-                int tokenWidth = renderer.getWidth(Text.literal(token));
-                if(format.contains("§l")) {
-                    tokenWidth += token.length();
+                RenderCommand cmd = new RenderCommand();
+                cmd.type = 0;
+                cmd.x = state.x;
+                cmd.y = state.y;
+                cmd.text = text;
+                cmd.format = format;
+                cmd.color = 0xFFFFFFFF;
+                cmd.width = textWidth;
+                commands.add(cmd);
+                state.x += textWidth;
+                return state;
+            }
+            Matcher matcher = TOKEN_PATTERN.matcher(text);
+            while (matcher.find()) {
+                String token = matcher.group();
+                int tokenWidth = renderer.getWidth(Text.literal(format + token));
+                if (state.x + tokenWidth > startX + maxWidth) {
+                    state.x = startX;
+                    state.y += renderer.fontHeight;
                 }
+                RenderCommand cmd = new RenderCommand();
+                cmd.type = 0;
+                cmd.x = state.x;
+                cmd.y = state.y;
+                cmd.text = token;
+                cmd.format = format;
+                cmd.color = 0xFFFFFFFF;
+                cmd.width = tokenWidth;
+                commands.add(cmd);
                 state.x += tokenWidth;
+            }
+            return state;
+        }
+        static InlineState buildCodeTextWithWrap(String text, int startX, InlineState state, int maxWidth, TextRenderer renderer, List<RenderCommand> commands) {
+            while(!text.isEmpty()){
+                int remainingWidth = startX + maxWidth - state.x;
+                int fitLength = 0;
+                for (int i = 1; i <= text.length(); i++){
+                    int w = renderer.getWidth(Text.literal(text.substring(0, i)));
+                    if(w > remainingWidth){
+                        break;
+                    }
+                    fitLength = i;
+                }
+                if(fitLength == 0){
+                    state.x = startX;
+                    state.y += renderer.fontHeight;
+                    continue;
+                }
+                String line = text.substring(0, fitLength);
+                RenderCommand bgCmd = new RenderCommand();
+                bgCmd.type = 1;
+                bgCmd.x = state.x - 2;
+                bgCmd.y = state.y - 2;
+                bgCmd.width = renderer.getWidth(Text.literal(line)) + 4;
+                bgCmd.height = renderer.fontHeight + 4;
+                bgCmd.color = 0xFF2E2E2E;
+                commands.add(bgCmd);
+                RenderCommand codeCmd = new RenderCommand();
+                codeCmd.type = 0;
+                codeCmd.x = state.x;
+                codeCmd.y = state.y;
+                codeCmd.text = "§7" + line;
+                codeCmd.format = "";
+                codeCmd.color = 0xFFFFFFFF;
+                codeCmd.width = renderer.getWidth(Text.literal(line));
+                commands.add(codeCmd);
+                state.x += renderer.getWidth(Text.literal(line));
+                text = text.substring(fitLength);
+                if(!text.isEmpty()){
+                    state.x = startX;
+                    state.y += renderer.fontHeight;
+                }
             }
             return state;
         }
@@ -416,6 +804,18 @@ public class ResourcePageScreen extends Screen {
             } catch (Exception e) {
                 return null;
             }
+        }
+        private static boolean isTableElement(Element elem) {
+            String tag = elem.tagName();
+            return tag.equalsIgnoreCase("table") || tag.equalsIgnoreCase("thead") || tag.equalsIgnoreCase("tbody") || tag.equalsIgnoreCase("tfoot");
+        }
+        private static boolean hasTableChild(Element element) {
+            for (Node node : element.childNodes()) {
+                if (node instanceof Element && isTableElement((Element)node)) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 

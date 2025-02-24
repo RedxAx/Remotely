@@ -1,16 +1,19 @@
 package redxax.oxy.util;
 
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-
+import net.minecraft.client.texture.NativeImage;
+import net.minecraft.client.texture.NativeImageBackedTexture;
+import net.minecraft.util.Identifier;
 import javax.imageio.ImageIO;
-import java.awt.*;
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ImageUtil {
-    static final Map<BufferedImage, BufferedImage> scaledCache = new ConcurrentHashMap<>();
+    static final Map<BufferedImage, Identifier> textureCache = new ConcurrentHashMap<>();
 
     public static BufferedImage loadResourceIcon(String path) throws Exception {
         try (InputStream is = ImageUtil.class.getResourceAsStream(path)) {
@@ -32,35 +35,28 @@ public class ImageUtil {
     }
 
     public static void drawBufferedImage(DrawContext context, BufferedImage image, int x, int y, int width, int height) {
-        BufferedImage scaledImage = scaledCache.get(image);
-        if (scaledImage == null) {
-            scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Identifier textureId = textureCache.get(image);
+        if (textureId == null) {
+            BufferedImage scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g2d = scaledImage.createGraphics();
             g2d.drawImage(image, 0, 0, width, height, null);
             g2d.dispose();
-            scaledCache.put(image, scaledImage);
-        }
-        int[] pixels = scaledImage.getRGB(0, 0, width, height, null, 0, width);
-        for (int py = 0; py < height; py++) {
-            int rowStart = py * width;
-            int lastCol = -1;
-            int lastColor = 0;
-            for (int px = 0; px < width; px++) {
-                int color = pixels[rowStart + px];
-                if (px == 0) {
-                    lastCol = 0;
-                    lastColor = color;
-                } else if (color != lastColor) {
-                    if ((lastColor >>> 24) != 0) {
-                        context.fill(x + lastCol, y + py, x + px, y + py + 1, lastColor);
-                    }
-                    lastCol = px;
-                    lastColor = color;
+            NativeImage nativeImage = new NativeImage(width, height, true);
+            for (int i = 0; i < width; i++) {
+                for (int j = 0; j < height; j++) {
+                    int argb = scaledImage.getRGB(i, j);
+                    int a = (argb >> 24) & 0xFF;
+                    int r = (argb >> 16) & 0xFF;
+                    int g = (argb >> 8) & 0xFF;
+                    int b = argb & 0xFF;
+                    int abgr = (a << 24) | (b << 16) | (g << 8) | r;
+                    nativeImage.setColor(i, j, abgr);
                 }
             }
-            if ((lastColor >>> 24) != 0) {
-                context.fill(x + lastCol, y + py, x + width, y + py + 1, lastColor);
-            }
+            NativeImageBackedTexture texture = new NativeImageBackedTexture(nativeImage);
+            textureId = MinecraftClient.getInstance().getTextureManager().registerDynamicTexture("image_" + image.hashCode(), texture);
+            textureCache.put(image, textureId);
         }
+        context.drawTexture(textureId, x, y, 0, 0, width, height, width, height);
     }
 }
