@@ -242,7 +242,9 @@ public class PluginModManagerScreen extends Screen {
                                 installButtonTexts.put(selected.getSlug(), "Install");
                             }
                             if (!installButtonTexts.get(selected.getSlug()).equalsIgnoreCase("Installed")) {
-                                if (selected.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack") || Objects.equals(serverInfo.path, "modpack")) {
+                                boolean isModpack = !serverInfo.isModServer() && !serverInfo.isPluginServer();
+                                devPrint("Selected resource: " + selected.getName() + " Is Plugin Server? " + serverInfo.isPluginServer() + " Is Mod Server? " + serverInfo.isModServer() + " Is Modpack? " + isModpack);
+                                if (isModpack) {
                                     if (!installingMrPack.containsKey(selected.getSlug()) || !installingMrPack.get(selected.getSlug())) {
                                         installingMrPack.put(selected.getSlug(), true);
                                         installButtonTexts.put(selected.getSlug(), "Installing");
@@ -779,19 +781,23 @@ public class PluginModManagerScreen extends Screen {
                         resourceColors.put(resource.getSlug(), colorDownloadSuccess);
                     });
                 } else {
-                    Path dest;
-                    String baseName = stripExtension(resource.getFileName());
+                    String fileName = Path.of(resource.getFileName()).getFileName().toString();
+                    String baseName = stripExtension(fileName);
                     String extension = "";
+
                     if (serverInfo.isModServer() || serverInfo.isPluginServer()) {
-                        extension = ".jar";
+                        extension = fileName.toLowerCase().endsWith(".jar") ? "" : ".jar";
                     }
+
+                    Path dest;
                     if (serverInfo.isModServer()) {
                         dest = Path.of(serverInfo.path, "mods", baseName + extension);
                     } else if (serverInfo.isPluginServer()) {
                         dest = Path.of(serverInfo.path, "plugins", baseName + extension);
                     } else {
-                        dest = Path.of(serverInfo.path, "unknown", resource.getFileName());
+                        dest = Path.of("C:\\remotely\\servers", resource.getName(), fileName);
                     }
+
                     Files.createDirectories(dest.getParent());
                     HttpClient httpClient = HttpClient.newBuilder().executor(imageLoader).build();
                     HttpRequest request = HttpRequest.newBuilder()
@@ -821,7 +827,6 @@ public class PluginModManagerScreen extends Screen {
             }
         }).start();
     }
-
     private String getDownloadUrlFor(IRemotelyResource resource) {
         if (resource instanceof SpigetResource) {
             SpigetResource sp = (SpigetResource) resource;
