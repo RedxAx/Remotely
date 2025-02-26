@@ -1,5 +1,8 @@
 package redxax.oxy.servers;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.vladsch.flexmark.html.HtmlRenderer;
 import com.vladsch.flexmark.parser.Parser;
@@ -14,6 +17,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Node;
 import org.jsoup.nodes.TextNode;
+import redxax.oxy.Render;
 import redxax.oxy.api.IRemotelyResource;
 import redxax.oxy.config.Config;
 import javax.imageio.ImageIO;
@@ -21,18 +25,20 @@ import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Collections;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
-import java.util.regex.Pattern;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.*;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import static redxax.oxy.Render.*;
 import static redxax.oxy.config.Config.*;
+import static redxax.oxy.servers.PluginModManagerScreen.formatDownloads;
 import static redxax.oxy.util.DevUtil.devPrint;
 import static redxax.oxy.util.ImageUtil.drawBufferedImage;
 
@@ -43,30 +49,46 @@ public class ResourcePageScreen extends Screen {
     private String htmlContent = "";
     private Document htmlDocument;
     private boolean isLoadingMarkdown = true;
-    private float scrollOffset = 0;
-    private float targetScrollOffset = 0;
+    private float descScrollOffset = 0;
+    private float descTargetScrollOffset = 0;
+    private float versionsScrollOffset = 0;
+    private float versionsTargetScrollOffset = 0;
     private final Map<String, BufferedImage> imageCache = new HashMap<>();
     private final Map<String, BufferedImage> scaledImageCache = new HashMap<>();
     private final List<LinkRegion> linkRegions = new LinkedList<>();
     private int cachedContentHeight = -1;
     private int cachedEditorWidth = -1;
     private List<HTMLRenderer.RenderCommand> cachedRenderCommands = null;
+    private List<Tab> tabs = new ArrayList<>();
+    private int currentTabIndex = 0;
+    private List<Version> versions = new ArrayList<>();
+    private List<VersionButtonRegion> versionButtonRegions = new ArrayList<>();
+    private static ServerInfo serverInfo;
 
-    public ResourcePageScreen(MinecraftClient mc, PluginModManagerScreen parent, IRemotelyResource resource) {
+    public ResourcePageScreen(MinecraftClient mc, PluginModManagerScreen parent, IRemotelyResource resource, ServerInfo serverInfo) {
         super(Text.literal(resource.getName()));
         this.minecraftClient = mc;
         this.parentScreen = parent;
         this.resource = resource;
+        ResourcePageScreen.serverInfo = serverInfo;
         loadMarkdown();
+        initTabs();
+        fetchVersions();
     }
-
+    private void initTabs() {
+        tabs.clear();
+        tabs.add(new Tab(TabType.DESCRIPTION, "Description"));
+        tabs.add(new Tab(TabType.VERSIONS, "Versions"));
+        currentTabIndex = 0;
+    }
     private void loadMarkdown() {
         new Thread(() -> {
             String markdownContent = "";
             try {
                 String url;
                 if (resource.getSlug().startsWith("spigot_")) {
-                    url = "https://www.spigotmc.org/resources/" + resource.getSlug().replace("spigot_", "") + "/readme";
+                    url = "https://api.spiget.org/v2/resources/" + resource.getProjectId();
+                    devPrint("Trying to read: " + url);
                     HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
                     conn.setRequestProperty("User-Agent", "Remotely");
                     conn.setConnectTimeout(5000);
@@ -78,9 +100,10 @@ public class ResourcePageScreen extends Screen {
                         sb.append((char) ch);
                     }
                     in.close();
-                    markdownContent = sb.toString();
+                    markdownContent = new String(Base64.getDecoder().decode(JsonParser.parseString(sb.toString()).getAsJsonObject().get("description").getAsString()));
                 } else if (resource.getSlug().startsWith("hangar_")) {
-                    url = "https://hangar.papermc.io/api/v1/projects/" + resource.getSlug().replace("hangar_", "") + "/readme";
+                    url = "https://hangar.papermc.io/api/v1/pages/main/" + resource.getProjectId();
+                    devPrint("Trying to read: " + url);
                     HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
                     conn.setRequestProperty("User-Agent", "Remotely");
                     conn.setConnectTimeout(5000);
@@ -101,7 +124,8 @@ public class ResourcePageScreen extends Screen {
                     conn.setReadTimeout(5000);
                     InputStream in = conn.getInputStream();
                     InputStreamReader reader = new InputStreamReader(in);
-                    markdownContent = JsonParser.parseReader(reader).getAsJsonObject().get("body").getAsString();
+                    JsonObject obj = JsonParser.parseReader(reader).getAsJsonObject();
+                    markdownContent = obj.has("body") ? obj.get("body").getAsString() : "";
                     in.close();
                 }
             } catch (Exception e) {
@@ -122,22 +146,128 @@ public class ResourcePageScreen extends Screen {
             minecraftClient.execute(() -> {});
         }).start();
     }
-
+    private void fetchVersions() {
+        new Thread(() -> {
+            List<Version> fetched = new ArrayList<>();
+            try {
+                String url = "";
+                if (resource.getSlug().startsWith("spigot_")) {
+                    url = "https://api.spiget.org/v2/resources/" + resource.getProjectId() + "/versions";
+                } else if (resource.getSlug().startsWith("hangar_")) {
+                    url = "https://hangar.papermc.io/api/v1/projects/" + resource.getProjectId() + "/versions";
+                } else {
+                    url = "https://api.modrinth.com/v2/project/" + resource.getProjectId() + "/version";
+                }
+                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setRequestProperty("User-Agent", "Remotely");
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                InputStream in = conn.getInputStream();
+                StringBuilder sb = new StringBuilder();
+                int ch;
+                while((ch = in.read()) != -1){
+                    sb.append((char) ch);
+                }
+                in.close();
+                JsonElement elem = JsonParser.parseString(sb.toString());
+                JsonArray arr = null;
+                if(elem.isJsonArray()){
+                    arr = elem.getAsJsonArray();
+                } else if(elem.isJsonObject()){
+                    JsonObject obj = elem.getAsJsonObject();
+                    if(obj.has("versions")){
+                        arr = obj.getAsJsonArray("versions");
+                    }
+                }
+                if(arr != null){
+                    for(JsonElement je : arr){
+                        JsonObject verObj = je.getAsJsonObject();
+                        String verNum = verObj.has("version_number") ? verObj.get("version_number").getAsString() : (verObj.has("name") ? verObj.get("name").getAsString() : "Unknown");
+                        JsonArray mcArr = verObj.has("game_versions") ? verObj.getAsJsonArray("game_versions") : (verObj.has("minecraftVersions") ? verObj.getAsJsonArray("minecraftVersions") : new JsonArray());
+                        List<String> mcVersions = new ArrayList<>();
+                        for(JsonElement mc : mcArr){
+                            mcVersions.add(mc.getAsString());
+                        }
+                        String dateUploaded = verObj.has("date_published") ? verObj.get("date_published").getAsString() : (verObj.has("releaseDate") ? verObj.get("releaseDate").getAsString() : "Unknown");
+                        String fileUrl = "";
+                        if(verObj.has("files")){
+                            JsonArray files = verObj.getAsJsonArray("files");
+                            if(files.size() > 0){
+                                JsonObject fileObj = files.get(0).getAsJsonObject();
+                                fileUrl = fileObj.has("url") ? fileObj.get("url").getAsString() : "";
+                            }
+                        } else if(verObj.has("downloadUrl")){
+                            fileUrl = verObj.get("downloadUrl").getAsString();
+                        }
+                        int downloads = verObj.has("downloads") ? verObj.get("downloads").getAsInt() : 0;
+                        fetched.add(new Version(verNum, String.join(", ", mcVersions), dateUploaded, fileUrl, downloads));
+                    }
+                }
+                if(resource.getSlug().startsWith("spigot_")){
+                    Collections.reverse(fetched);
+                }
+            } catch(Exception e){}
+            versions = fetched;
+            minecraftClient.execute(() -> {});
+        }).start();
+    }
     @Override
     public void tick() {
         super.tick();
     }
-
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        targetScrollOffset -= verticalAmount * 30;
-        targetScrollOffset = Math.max(0, targetScrollOffset);
+        int headerHeight = 30;
+        int tabAreaHeight = 18;
+        int contentY = headerHeight + tabAreaHeight + 5;
+        int contentHeight = this.height - contentY - 10;
+        if(mouseY >= contentY && mouseY <= contentY + contentHeight){
+            if(getCurrentTabType() == TabType.DESCRIPTION){
+                descTargetScrollOffset -= verticalAmount * 30;
+                int max = Math.max(0, cachedContentHeight - (contentHeight - 20));
+                descTargetScrollOffset = Math.max(0, Math.min(descTargetScrollOffset, max));
+            } else if(getCurrentTabType() == TabType.VERSIONS){
+                int itemHeight = 35;
+                int gap = 2;
+                int totalHeight = versions.size() * (itemHeight + gap);
+                versionsTargetScrollOffset -= verticalAmount * 30;
+                int max = Math.max(0, totalHeight - contentHeight);
+                versionsTargetScrollOffset = Math.max(0, Math.min(versionsTargetScrollOffset, max));
+            }
+        }
+        int tabBarY = 35;
+        int tabBarHeight = 18;
+        if(mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight){
+            int tabBarX = 5;
+            for(int i=0;i<tabs.size();i++){
+                Tab t = tabs.get(i);
+                int tabWidth = minecraftClient.textRenderer.getWidth(t.name) + 10;
+                if(mouseX >= tabBarX && mouseX <= tabBarX + tabWidth){
+                    currentTabIndex = i;
+                    return true;
+                }
+                tabBarX += tabWidth + 5;
+            }
+        }
         return true;
     }
-
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         int headerHeight = 30;
+        int tabBarY = 35;
+        int tabBarHeight = 18;
+        if(mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight){
+            int tabBarX = 5;
+            for(int i=0;i<tabs.size();i++){
+                Tab t = tabs.get(i);
+                int tabWidth = minecraftClient.textRenderer.getWidth(t.name) + 10;
+                if(mouseX >= tabBarX && mouseX <= tabBarX + tabWidth){
+                    currentTabIndex = i;
+                    return true;
+                }
+                tabBarX += tabWidth + 5;
+            }
+        }
         int buttonW = 60;
         int buttonH = 20;
         int spacing = 10;
@@ -145,15 +275,15 @@ public class ResourcePageScreen extends Screen {
         int siteButtonX = backButtonX - (buttonW + spacing);
         int downloadButtonX = siteButtonX - (buttonW + spacing);
         int buttonY = (headerHeight - buttonH) / 2;
-        if (mouseX >= downloadButtonX && mouseX <= downloadButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+        if(mouseX >= downloadButtonX && mouseX <= downloadButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
             if (resource.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack")) {
-                parentScreen.installMrPack(resource);
+
             } else {
-                parentScreen.fetchAndInstallResource(resource);
+                downloadVersionResource((Version) resource);
             }
             return true;
         }
-        if (mouseX >= siteButtonX && mouseX <= siteButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+        if(mouseX >= siteButtonX && mouseX <= siteButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
             String siteUrl = getSiteUrlForResource();
             if (!siteUrl.isEmpty()) {
                 try {
@@ -165,39 +295,53 @@ public class ResourcePageScreen extends Screen {
             }
             return true;
         }
-        if (mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+        if(mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
             minecraftClient.setScreen(parentScreen);
             return true;
         }
-        for (LinkRegion region : linkRegions) {
-            if (mouseX >= region.x && mouseX <= region.x + region.width && mouseY >= region.y && mouseY <= region.y + region.height) {
-                try {
-                    ProcessBuilder pb = new ProcessBuilder("cmd", "/c", "start", region.url);
-                    pb.start();
-                } catch (Exception e) {
-                    devPrint("Failed to open browser: " + e.getMessage());
+        if(getCurrentTabType() == TabType.DESCRIPTION){
+            for (LinkRegion region : linkRegions) {
+                if (mouseX >= region.x && mouseX <= region.x + region.width && mouseY >= region.y && mouseY <= region.y + region.height) {
+                    try {
+                        ProcessBuilder pb = new ProcessBuilder("cmd", "/c", "start", region.url);
+                        pb.start();
+                    } catch (Exception e) {
+                        devPrint("Failed to open browser: " + e.getMessage());
+                    }
+                    return true;
                 }
-                return true;
+            }
+        }
+        if(getCurrentTabType() == TabType.VERSIONS){
+            for(VersionButtonRegion vr : versionButtonRegions){
+                if(mouseX >= vr.x && mouseX <= vr.x+vr.width && mouseY >= vr.y && mouseY <= vr.y+vr.height){
+                    downloadVersionResource(vr.version);
+                    return true;
+                }
             }
         }
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
-    private String getSiteUrlForResource() {
-        if (resource.getSlug().startsWith("spigot_")) {
-            return "https://www.spigotmc.org/resources/" + resource.getSlug().replace("spigot_", "") + "/";
-        } else if (resource.getSlug().startsWith("hangar_")) {
-            return "https://hangar.papermc.io/projects/" + resource.getProjectId();
-        } else {
-            return "https://modrinth.com/mod/" + resource.getSlug();
-        }
+    private TabType getCurrentTabType() {
+        return tabs.get(currentTabIndex).type;
     }
 
+    private String getSiteUrlForResource() {
+        String projectId = resource.getProjectId();
+        if (resource.getSlug().startsWith("spigot_")) {
+            return "https://www.spigotmc.org/resources/" + projectId;
+        } else if (resource.getSlug().startsWith("hangar_")) {
+            return "https://hangar.papermc.io/" + resource.getAuthor() + "/" + projectId;
+        } else {
+            return "https://modrinth.com/mod/" + projectId;
+        }
+    }
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        scrollOffset += (targetScrollOffset - scrollOffset) * delta * 0.2f;
-        context.fillGradient(0, 0, this.width, this.height, browserScreenBackgroundColor, browserScreenBackgroundColor);
         int headerHeight = 30;
+        int tabAreaHeight = 18;
+        context.fillGradient(0, 0, this.width, this.height, browserScreenBackgroundColor, browserScreenBackgroundColor);
         context.fill(0, 0, this.width, headerHeight, headerBackgroundColor);
         drawInnerBorder(context, 0, 0, this.width, headerHeight, headerBorderColor);
         drawOuterBorder(context, 0, 0, this.width, headerHeight, globalBottomBorder);
@@ -209,60 +353,216 @@ public class ResourcePageScreen extends Screen {
         int siteButtonX = backButtonX - (buttonW + spacing);
         int downloadButtonX = siteButtonX - (buttonW + spacing);
         int buttonY = (headerHeight - buttonH) / 2;
-        drawCustomButton(context, downloadButtonX, buttonY, "Download", minecraftClient, mouseX >= downloadButtonX && mouseX <= downloadButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH, false, true, buttonTextColor, buttonTextDeleteColor);
-        drawCustomButton(context, siteButtonX, buttonY, "Site", minecraftClient, mouseX >= siteButtonX && mouseX <= siteButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH, false, true, buttonTextColor, buttonTextDeleteColor);
+        drawCustomButton(context, downloadButtonX, buttonY, "Download", minecraftClient, mouseX >= downloadButtonX && mouseX <= downloadButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH, false, true, buttonTextColor, buttonTextHoverColor);
+        drawCustomButton(context, siteButtonX, buttonY, "Site", minecraftClient, mouseX >= siteButtonX && mouseX <= siteButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH, false, true, buttonTextColor, buttonTextBrowseHoverColor);
         drawCustomButton(context, backButtonX, buttonY, "Back", minecraftClient, mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH, false, true, buttonTextColor, buttonTextDeleteColor);
-        if (isLoadingMarkdown) {
-            context.drawText(minecraftClient.textRenderer, Text.literal("Loading..."), this.width / 2 - 20, this.height / 2, screensTitleTextColor, Config.shadow);
-            return;
-        }
-        linkRegions.clear();
-        int editorX = 10;
-        int editorY = headerHeight + 10;
-        int editorWidth = this.width - 20;
-        int editorHeight = this.height - headerHeight - 20;
-        context.fill(editorX, editorY, editorX + editorWidth, editorY + editorHeight, editorInnerBackgroundColor);
-        drawInnerBorder(context, editorX, editorY, editorWidth, editorHeight, editorBorderColor);
-        drawOuterBorder(context, editorX, editorY, editorWidth, editorHeight, globalBottomBorder);
-        int padding = 10;
-        int contentX = editorX + padding;
-        int contentWidth = editorWidth - 2 * padding;
-        if (cachedEditorWidth != editorWidth || cachedRenderCommands == null) {
-            HTMLRenderer.RenderResult result = HTMLRenderer.buildRenderCommands(htmlDocument, contentX, editorY + padding, contentWidth, minecraftClient.textRenderer, imageCache, scaledImageCache, padding);
-            cachedRenderCommands = result.commands;
-            cachedContentHeight = result.totalHeight;
-            cachedEditorWidth = editorWidth;
-        }
-        int maxScrollOffset = Math.max(0, cachedContentHeight - (editorHeight - padding * 2));
-        targetScrollOffset = Math.min(targetScrollOffset, maxScrollOffset);
-        context.enableScissor(editorX, editorY, editorX + editorWidth, editorY + editorHeight);
-        for (HTMLRenderer.RenderCommand cmd : cachedRenderCommands) {
-            int drawY = cmd.y - (int) scrollOffset;
-            if (drawY + cmd.height < editorY || drawY > editorY + editorHeight) continue;
-            switch(cmd.type) {
-                case 0:
-                    context.drawText(minecraftClient.textRenderer, Text.literal(cmd.format + cmd.text), cmd.x, drawY, cmd.color, Config.shadow);
-                    break;
-                case 1:
-                    context.fill(cmd.x, drawY, cmd.x + cmd.width, drawY + cmd.height, cmd.color);
-                    break;
-                case 2:
-                    drawBufferedImage(context, cmd.image, cmd.x, drawY, cmd.width, cmd.height);
-                    break;
-                case 3:
-                    context.fill(cmd.x, drawY, cmd.x + cmd.width, drawY + cmd.height, cmd.color);
-                    context.drawText(minecraftClient.textRenderer, Text.literal(cmd.text), cmd.x + 5, drawY + 5, 0xFFFFFFFF, Config.shadow);
-                    break;
-                default:
-                    break;
+        drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
+        int contentY = headerHeight + tabAreaHeight + 10;
+        int contentHeight = this.height - contentY - 10;
+        int contentX = 5;
+        int contentWidth = this.width - 10;
+        context.fill(contentX, contentY, contentX + contentWidth, contentY + contentHeight, editorInnerBackgroundColor);
+        drawInnerBorder(context, contentX, contentY, contentWidth, contentHeight, editorBorderColor);
+        drawOuterBorder(context, contentX, contentY, contentWidth, contentHeight, globalBottomBorder);
+        if(getCurrentTabType() == TabType.DESCRIPTION){
+            if(isLoadingMarkdown){
+                context.drawText(minecraftClient.textRenderer, Text.literal("Loading..."), this.width / 2 - 20, this.height / 2, screensTitleTextColor, Config.shadow);
+                return;
             }
-            if(cmd.href != null && !cmd.href.isEmpty()){
-                linkRegions.add(new LinkRegion(cmd.x, drawY, cmd.width, cmd.height, cmd.href));
+            linkRegions.clear();
+            if(cachedEditorWidth != contentWidth || cachedRenderCommands == null){
+                HTMLRenderer.RenderResult result = HTMLRenderer.buildRenderCommands(htmlDocument, contentX + 10, contentY + 10, contentWidth - 20, minecraftClient.textRenderer, imageCache, scaledImageCache, 10);
+                cachedRenderCommands = result.commands;
+                cachedContentHeight = result.totalHeight;
+                cachedEditorWidth = contentWidth;
+            }
+            descScrollOffset += (descTargetScrollOffset - descScrollOffset) * delta * 0.2f;
+            int maxScrollOffset = Math.max(0, cachedContentHeight - (contentHeight - 20));
+            descTargetScrollOffset = Math.min(descTargetScrollOffset, maxScrollOffset);
+            context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
+            for(HTMLRenderer.RenderCommand cmd : cachedRenderCommands){
+                int drawY = cmd.y - (int)descScrollOffset;
+                if(drawY + cmd.height < contentY || drawY > contentY + contentHeight) continue;
+                switch(cmd.type){
+                    case 0:
+                        context.drawText(minecraftClient.textRenderer, Text.literal(cmd.format + cmd.text), cmd.x, drawY, cmd.color, Config.shadow);
+                        break;
+                    case 1:
+                        context.fill(cmd.x, drawY, cmd.x + cmd.width, drawY + cmd.height, cmd.color);
+                        break;
+                    case 2:
+                        drawBufferedImage(context, cmd.image, cmd.x, drawY, cmd.width, cmd.height);
+                        break;
+                    case 3:
+                        context.fill(cmd.x, drawY, cmd.x + cmd.width, drawY + cmd.height, cmd.color);
+                        context.drawText(minecraftClient.textRenderer, Text.literal(cmd.text), cmd.x + 5, drawY + 5, 0xFFFFFFFF, Config.shadow);
+                        break;
+                    default:
+                        break;
+                }
+                if(cmd.href != null && !cmd.href.isEmpty()){
+                    linkRegions.add(new LinkRegion(cmd.x, drawY, cmd.width, cmd.height, cmd.href));
+                }
+            }
+            context.disableScissor();
+        } else if(getCurrentTabType() == TabType.VERSIONS){
+            versionButtonRegions.clear();
+            versionsScrollOffset += (versionsTargetScrollOffset - versionsScrollOffset) * delta * 0.2f;
+            int itemHeight = 35;
+            context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
+            for(int i=0;i<versions.size();i++){
+                Version ver = versions.get(i);
+                int y = contentY + i*(itemHeight + 2) - (int)versionsScrollOffset;
+                if(y + itemHeight < contentY || y > contentY + contentHeight) continue;
+                boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + itemHeight;
+                int bg = hovered ? browserElementBackgroundHoverColor : browserElementBackgroundColor;
+                int borderColor = hovered ? browserElementBorderHoverColor : browserElementBorderColor;
+                context.fill(contentX, y, contentX + contentWidth, y + itemHeight, bg);
+                drawInnerBorder(context, contentX, y, contentWidth, itemHeight, borderColor);
+                drawOuterBorder(context, contentX, y, contentWidth, itemHeight, globalBottomBorder);
+                String title = resource.getName() + ": " + ver.version;
+                context.drawText(minecraftClient.textRenderer, Text.literal(title), contentX +4, y + 3, 0xFFFFFFFF, Config.shadow);
+                String desc = formatMCVersions(ver.mcVersions);
+                context.drawText(minecraftClient.textRenderer, Text.literal(desc), contentX +4, y + 15, 0xFFAAAAAA, Config.shadow);
+                String subDesc = getRelativeTime(ver.dateUploaded) + " | " + formatDownloads(ver.downloads) + " Downloads";
+                context.drawText(minecraftClient.textRenderer, Text.literal(subDesc), contentX +4, y + 26, 0xFF777777, Config.shadow);
+                if(ver.isDownloading) {
+                    int barWidth = Render.buttonW;
+                    int barHeight = Render.buttonH;
+                    int barX = contentX + contentWidth - barWidth - 10;
+                    int barY = y + (itemHeight - barHeight) / 2;
+                    context.fill(barX, barY, barX + barWidth, barY + barHeight, browserElementBackgroundColor);
+                    int fillWidth = (int)(barWidth * ver.progress);
+                    context.fill(barX, barY, barX + fillWidth, barY + barHeight, buttonTextHoverColor);
+                    drawOuterBorder(context, barX, barY, barWidth, barHeight, globalBottomBorder);
+                    drawInnerBorder(context, barX, barY, barWidth, barHeight, browserElementBorderColor);
+                    String percentText = (int)(ver.progress * 100) + "%";
+                    context.drawText(minecraftClient.textRenderer, Text.literal(percentText), barX + barWidth/2 - minecraftClient.textRenderer.getWidth(Text.literal(percentText))/2, barY + (barHeight - minecraftClient.textRenderer.fontHeight)/2, 0xFFFFFFFF, Config.shadow);
+                    String infoText = formatBytes(ver.downloadedBytes) + "/" + formatBytes(ver.totalBytes) + " | " + formatBytes((long)ver.speed) + "/s";
+                    context.drawText(minecraftClient.textRenderer, Text.literal(infoText), barX - 5 - minecraftClient.textRenderer.getWidth(Text.literal(infoText)), barY + (barHeight - minecraftClient.textRenderer.fontHeight)/2, 0xFFCCCCCC, Config.shadow);
+                } else {
+                    int btnX = contentX + contentWidth - 70;
+                    int btnY = y + (itemHeight - 20)/2;
+                    drawCustomButton(context, btnX, btnY, ver.isInstalled, minecraftClient, mouseX >= btnX && mouseX <= btnX+60 && mouseY >= btnY && mouseY <= btnY+20, false, true, Objects.equals(ver.isInstalled, "Failed") ? buttonTextDeleteHoverColor : Objects.equals(ver.isInstalled, "Installed") ? buttonTextExplorerHoverColor : buttonTextColor, buttonTextHoverColor);
+                    versionButtonRegions.add(new VersionButtonRegion(btnX, btnY, 60, 20, ver));
+                }
+            }
+            context.disableScissor();
+        }
+    }
+    private String getRelativeTime(String dateStr) {
+        try {
+            Instant uploaded;
+            if(dateStr.matches("\\d+")) {
+                long epoch = Long.parseLong(dateStr);
+                uploaded = Instant.ofEpochSecond(epoch);
+            } else {
+                uploaded = Instant.parse(dateStr);
+            }
+            Duration duration = Duration.between(uploaded, Instant.now());
+            long days = duration.toDays();
+            if(days < 1) return "Today";
+            if(days < 30) return days + " Days Ago";
+            long months = days/30;
+            return months + " Months Ago";
+        } catch(Exception e) {
+            return dateStr;
+        }
+    }
+    private String formatMCVersions(String raw) {
+        if(raw == null || raw.isEmpty()) return "";
+        String[] parts = raw.split(",\\s*");
+        Map<String, List<Integer>> groups = new HashMap<>();
+        List<String> others = new ArrayList<>();
+        for(String ver : parts) {
+            String trimmed = ver.trim();
+            String[] nums = trimmed.split("\\.");
+            if(nums.length >= 2) {
+                String key = nums[0] + "." + nums[1];
+                int patch = 0;
+                if(nums.length >= 3) {
+                    try {
+                        patch = Integer.parseInt(nums[2]);
+                    } catch(Exception e){}
+                }
+                groups.computeIfAbsent(key, k -> new ArrayList<>()).add(patch);
+            } else {
+                others.add(trimmed);
             }
         }
-        context.disableScissor();
+        List<String> results = new ArrayList<>();
+        for(Map.Entry<String, List<Integer>> entry : groups.entrySet()){
+            List<Integer> patches = entry.getValue();
+            Collections.sort(patches);
+            if(patches.size() >= 3 && patches.get(patches.size()-1) - patches.get(0) == patches.size()-1) {
+                results.add(entry.getKey() + ".x");
+            } else if(patches.size() >= 2) {
+                String first = entry.getKey() + "." + patches.get(0);
+                String last = entry.getKey() + "." + patches.get(patches.size()-1);
+                results.add(first + " - " + last);
+            } else {
+                results.add(entry.getKey() + (patches.size() == 1 ? "." + patches.get(0) : ""));
+            }
+        }
+        results.addAll(others);
+        return String.join(", ", results);
     }
 
+    private void downloadVersionResource(Version ver) {
+        new Thread(() -> {
+            try {
+                if(ver.fileUrl.isEmpty()) {
+                    ver.isInstalled = "Failed";
+                    return;
+                }
+                URL url = new URL(ver.fileUrl);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestProperty("User-Agent", "Remotely");
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                int total = conn.getContentLength();
+                ver.totalBytes = total;
+                ver.downloadedBytes = 0;
+                ver.progress = 0.0;
+                ver.isDownloading = true;
+                long startTime = System.currentTimeMillis();
+                InputStream in = conn.getInputStream();
+                String serverDir = serverInfo.path + File.separator + (serverInfo.isModServer() ? "mods" : serverInfo.isPluginServer() ? "plugins" : "");
+                Path serverPath = Path.of(serverDir);
+                if (!Files.exists(serverPath)) Files.createDirectories(serverPath);
+                String fileName = resource.getFileName();
+                File outFile = new File(serverDir, fileName);
+                FileOutputStream fos = new FileOutputStream(outFile);
+                byte[] buffer = new byte[4096];
+                int bytesRead;
+                while((bytesRead = in.read(buffer)) != -1) {
+                    fos.write(buffer, 0, bytesRead);
+                    ver.downloadedBytes += bytesRead;
+                    long currentTime = System.currentTimeMillis();
+                    long timeElapsed = currentTime - startTime;
+                    if(timeElapsed > 0) {
+                        ver.speed = ver.downloadedBytes / (timeElapsed / 1000.0);
+                    }
+                    if(ver.totalBytes > 0) {
+                        ver.progress = (double) ver.downloadedBytes / ver.totalBytes;
+                    }
+                }
+                fos.close();
+                in.close();
+                ver.isDownloading = false;
+                ver.isInstalled = "Installed";
+            } catch(Exception e){
+                ver.isDownloading = false;
+                ver.isInstalled = "Failed";
+            }
+        }).start();
+    }
+    private String formatBytes(long bytes) {
+        if(bytes < 1024) return bytes + " B";
+        int exp = (int) (Math.log(bytes) / Math.log(1024));
+        String pre = "KMGTPE".charAt(exp-1) + "";
+        return String.format("%.1f %sB", bytes / Math.pow(1024, exp), pre);
+    }
     private static class HTMLRenderer {
         private static final Pattern TOKEN_PATTERN = Pattern.compile("\\S+|\\s+");
         static class InlineState {
@@ -781,7 +1081,15 @@ public class ResourcePageScreen extends Screen {
                     }
                 } else {
                     URL imageUrl = new URL(url);
-                    BufferedImage img = ImageIO.read(imageUrl);
+                    HttpURLConnection conn = (HttpURLConnection) imageUrl.openConnection();
+                    conn.setRequestProperty("User-Agent", "Remotely");
+                    if (url.contains("spigotmc.org")) {
+                        conn.setRequestProperty("Referer", "https://www.spigotmc.org/");
+                        conn.setRequestProperty("Cookie", "xf_csrf=1");
+                    }
+                    conn.setConnectTimeout(5000);
+                    conn.setReadTimeout(5000);
+                    BufferedImage img = ImageIO.read(conn.getInputStream());
                     if (img != null) {
                         imageCache.put(url, img);
                         if (img.getWidth() > maxWidth) {
@@ -802,6 +1110,7 @@ public class ResourcePageScreen extends Screen {
                     return null;
                 }
             } catch (Exception e) {
+                devPrint("Failed to load image: " + url + " - " + e.getMessage());
                 return null;
             }
         }
@@ -818,7 +1127,6 @@ public class ResourcePageScreen extends Screen {
             return false;
         }
     }
-
     private static class LinkRegion {
         int x, y, width, height;
         String url;
@@ -828,6 +1136,55 @@ public class ResourcePageScreen extends Screen {
             this.width = width;
             this.height = height;
             this.url = url;
+        }
+    }
+    private static class Tab {
+        TabType type;
+        String name;
+        Tab(TabType type, String name) {
+            this.type = type;
+            this.name = name;
+        }
+        public String toString() {
+            return name;
+        }
+    }
+    private enum TabType { DESCRIPTION, VERSIONS }
+    private static class Version {
+        public String isInstalled;
+        String version;
+        String mcVersions;
+        String dateUploaded;
+        String fileUrl;
+        int downloads;
+        boolean isDownloading;
+        double progress;
+        long downloadedBytes;
+        long totalBytes;
+        double speed;
+        Version(String version, String mcVersions, String dateUploaded, String fileUrl, int downloads) {
+            this.version = version;
+            this.mcVersions = mcVersions;
+            this.dateUploaded = dateUploaded;
+            this.fileUrl = fileUrl;
+            this.downloads = downloads;
+            this.isDownloading = false;
+            this.progress = 0;
+            this.downloadedBytes = 0;
+            this.totalBytes = 0;
+            this.speed = 0;
+            this.isInstalled = "Download";
+        }
+    }
+    private static class VersionButtonRegion {
+        int x, y, width, height;
+        Version version;
+        VersionButtonRegion(int x, int y, int width, int height, Version version) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+            this.version = version;
         }
     }
 }

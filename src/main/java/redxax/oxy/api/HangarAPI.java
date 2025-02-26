@@ -62,19 +62,44 @@ public class HangarAPI {
         String id = project.has("id") ? project.get("id").getAsString() : "Unknown";
         String name = project.has("name") ? project.get("name").getAsString() : "Unknown";
         String description = project.has("description") ? project.get("description").getAsString() : "No description";
-        String owner = project.has("owner") ? project.get("owner").getAsString() : "Unknown";
+        String owner = project.has("namespace") ? project.getAsJsonObject("namespace").get("owner").getAsString() : "Unknown";
         String visibility = project.has("visibility") ? project.get("visibility").getAsString() : "Public";
         String avatarUrl = project.has("avatarUrl") ? project.get("avatarUrl").getAsString() : "";
         int stars = 0;
         int watchers = 0;
         int downloads = 0;
+
         if (project.has("stats")) {
             JsonObject stats = project.getAsJsonObject("stats");
             if (stats.has("stars")) stars = stats.get("stars").getAsInt();
             if (stats.has("watchers")) watchers = stats.get("watchers").getAsInt();
             if (stats.has("downloads")) downloads = stats.get("downloads").getAsInt();
         }
-        return new HangarResource(id, name, description, owner, visibility, stars, watchers, downloads, avatarUrl);
+
+        StringBuilder mcVersions = new StringBuilder();
+        StringBuilder platforms = new StringBuilder();
+
+        if (project.has("versions")) {
+            JsonArray versions = project.getAsJsonArray("versions");
+            for (int i = 0; i < versions.size(); i++) {
+                JsonObject version = versions.get(i).getAsJsonObject();
+                if (version.has("version")) {
+                    if (mcVersions.length() > 0) mcVersions.append(", ");
+                    mcVersions.append(version.get("version").getAsString());
+                }
+            }
+        }
+
+        if (project.has("platformSupport")) {
+            JsonArray platformArray = project.getAsJsonArray("platformSupport");
+            for (int i = 0; i < platformArray.size(); i++) {
+                if (platforms.length() > 0) platforms.append(", ");
+                platforms.append(platformArray.get(i).getAsString());
+            }
+        }
+
+        return new HangarResource(id, name, description, owner, visibility, stars, watchers, downloads,
+                avatarUrl, mcVersions.toString(), platforms.toString());
     }
 }
 

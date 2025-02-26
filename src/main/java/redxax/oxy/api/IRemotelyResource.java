@@ -12,4 +12,7 @@ public interface IRemotelyResource {
     String getProjectId();
     String getVersionId();
     String getAverageRating();
+    String getAuthor();
+    String getMinecraftVersions();
+    String getLoaderPlatforms();
 }

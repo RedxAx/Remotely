@@ -56,6 +56,7 @@ public class ModrinthAPI {
                             for (int i = 0; i < hits.size(); i++) {
                                 JsonObject hit = hits.get(i).getAsJsonObject();
                                 String name = hit.has("title") ? hit.get("title").getAsString() : "Unknown";
+                                String author = hit.has("author") ? hit.get("author").getAsString() : "Unknown";
                                 String versionId = hit.has("latest_version") ? hit.get("latest_version").getAsString() : "Unknown";
                                 String projectId = hit.has("project_id") ? hit.get("project_id").getAsString() : "Unknown";
                                 String description = hit.has("description") ? hit.get("description").getAsString() : "No description";
@@ -77,7 +78,10 @@ public class ModrinthAPI {
                                                 slug,
                                                 new ArrayList<>(),
                                                 projectId,
-                                                versionId
+                                                versionId,
+                                                author,
+                                                "",
+                                                ""
                                         );
                                         results.add(r);
                                     }

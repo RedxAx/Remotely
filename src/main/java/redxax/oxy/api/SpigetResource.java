@@ -9,8 +9,11 @@ public class SpigetResource implements IRemotelyResource {
     private final double averageRating;
     private final boolean external;
     private final String fileUrl;
+    private final String author;
+    private final String mcVersions;
+    private final String platforms;
 
-    public SpigetResource(String name, String tag, String iconUrl, int downloads, int id, double averageRating, boolean external, String fileUrl) {
+    public SpigetResource(String name, String tag, String iconUrl, int downloads, int id, double averageRating, boolean external, String fileUrl, String author, String mcVersions, String platforms) {
         this.name = name;
         this.tag = tag;
         this.iconUrl = iconUrl;
@@ -19,6 +22,9 @@ public class SpigetResource implements IRemotelyResource {
         this.averageRating = averageRating;
         this.external = external;
         this.fileUrl = fileUrl;
+        this.author = author;
+        this.mcVersions = mcVersions;
+        this.platforms = platforms;
     }
 
     @Override
@@ -76,11 +82,18 @@ public class SpigetResource implements IRemotelyResource {
         return String.format("%.1f", averageRating);
     }
 
-    public boolean isExternal() {
-        return external;
+    @Override
+    public String getAuthor() {
+        return author;
     }
 
-    public String getFileUrl() {
-        return fileUrl;
+    @Override
+    public String getMinecraftVersions() {
+        return mcVersions;
+    }
+
+    @Override
+    public String getLoaderPlatforms() {
+        return platforms;
     }
 }

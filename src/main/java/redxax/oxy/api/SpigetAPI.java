@@ -1,5 +1,6 @@
 package redxax.oxy.api;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import redxax.oxy.util.DevUtil;
@@ -78,19 +79,36 @@ public class SpigetAPI {
         }
         boolean external = false;
         String fileUrl = "";
-        if (resource.has("external") && resource.get("external").isJsonPrimitive()) {
+        if (resource.has("external")) {
             external = resource.get("external").getAsBoolean();
         }
         if (resource.has("file") && resource.get("file").isJsonObject()) {
             JsonObject fileObj = resource.getAsJsonObject("file");
-            if (external) {
-                if (fileObj.has("url")) {
-                    fileUrl = "https://www.spigotmc.org/" + fileObj.get("url").getAsString();
-                }
-            } else {
-                fileUrl = "";
+            if (external && fileObj.has("url")) {
+                fileUrl = "https://www.spigotmc.org/" + fileObj.get("url").getAsString();
             }
         }
-        return new SpigetResource(name, tag, iconUrl, downloads, id, averageRating, external, fileUrl);
+
+        StringBuilder mcVersions = new StringBuilder();
+        if (resource.has("testedVersions")) {
+            JsonArray versions = resource.getAsJsonArray("testedVersions");
+            for (int i = 0; i < versions.size(); i++) {
+                if (mcVersions.length() > 0) mcVersions.append(", ");
+                mcVersions.append(versions.get(i).getAsString());
+            }
+        }
+
+        StringBuilder platforms = new StringBuilder("Bukkit, Spigot, Paper");
+
+        String author = "Unknown";
+        if (resource.has("author")) {
+            JsonObject authorObj = resource.getAsJsonObject("author");
+            if (authorObj.has("name")) {
+                author = authorObj.get("name").getAsString();
+            }
+        }
+
+        return new SpigetResource(name, tag, iconUrl, downloads, id, averageRating, external, fileUrl, author,
+                mcVersions.toString(), platforms.toString());
     }
 }

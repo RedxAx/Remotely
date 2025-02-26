@@ -68,6 +68,7 @@ public class ServerManagerScreen extends Screen {
     private int serverVersionCursorPos = 0;
     private int serverNameScrollOffset = 0;
     private int serverVersionScrollOffset = 0;
+    private BufferedImage windowsBackground;
     private final int tabHeight = 25;
     private final int verticalPadding = 2;
     private boolean nameFieldFocused = true;
@@ -168,11 +169,21 @@ public class ServerManagerScreen extends Screen {
         } catch (Exception e) {
             e.printStackTrace();
         }
+        try {
+            String bgPath = System.getProperty("user.home") + "/AppData/Roaming/Microsoft/Windows/Themes/TranscodedWallpaper";
+            windowsBackground = ImageIO.read(new File(bgPath));
+        } catch (Exception e) {
+            devPrint("Failed to load Windows background: " + e.getMessage());
+        }
     }
 
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fillGradient(0, 0, this.width, this.height, serverScreenBackgroundColor, serverScreenBackgroundColor);
+        if (windowsBackground != null && Config.wallpaper) {
+            ImageUtil.drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
+        } else {
+            context.fillGradient(0, 0, this.width, this.height, serverScreenBackgroundColor, serverScreenBackgroundColor);
+        }
     }
 
     @Override
