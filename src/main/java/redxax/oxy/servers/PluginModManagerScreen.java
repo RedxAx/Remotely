@@ -115,6 +115,15 @@ public class PluginModManagerScreen extends Screen {
     private final Map<TabMode, String[]> sortLabels = new HashMap<>();
     private final Map<TabMode, String[]> sortValues = new HashMap<>();
 
+    private static boolean hasSavedState = false;
+    private static List<IRemotelyResource> savedResources = new ArrayList<>();
+    private static float savedSmoothOffset = 0;
+    private static float savedTargetOffset = 0;
+    private static int savedLoadedCount = 0;
+    private static String savedSearch = "";
+    private static int savedCurrentTabIndex = 0;
+    private static Map<String, List<IRemotelyResource>> savedResourceCache = new ConcurrentHashMap<>();
+
     public PluginModManagerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
         super(Text.literal(info.isModServer() ? "Remotely - Mods Browser" : (info.isPluginServer() ? "Remotely - Plugins Browser" : "Remotely - Modpacks Browser")));
         this.minecraftClient = mc;
@@ -140,8 +149,21 @@ public class PluginModManagerScreen extends Screen {
         sortLabels.put(TabMode.HANGAR, new String[]{"Most Stars", "Most Views", "Most Downloads", "Last Updated", "Newest"});
         sortValues.put(TabMode.HANGAR, new String[]{"stars", "views", "downloads", "updated", "newest"});
         fieldText.setLength(0);
-        fieldText.append("");
-        cursorPosition = 0;
+        if(hasSavedState) {
+            fieldText.append(savedSearch);
+            cursorPosition = fieldText.length();
+            currentTabIndex = savedCurrentTabIndex;
+            resources.addAll(savedResources);
+            smoothOffset = savedSmoothOffset;
+            targetOffset = savedTargetOffset;
+            loadedCount = savedLoadedCount;
+            resourceCache.putAll(savedResourceCache);
+            hasSavedState = false;
+        } else {
+            fieldText.append("");
+            cursorPosition = 0;
+            loadResourcesAsync("", true);
+        }
         try {
             installIcon = loadResourceIcon("/assets/remotely/icons/download.png");
             installingIcon = loadResourceIcon("/assets/remotely/icons/loading.png");
@@ -157,7 +179,6 @@ public class PluginModManagerScreen extends Screen {
         } catch (Exception e) {
             e.printStackTrace();
         }
-        loadResourcesAsync("", true);
     }
 
     @Override
@@ -171,6 +192,7 @@ public class PluginModManagerScreen extends Screen {
             }
         }
     }
+
     private void updateSortLabel() {
         TabMode mode = getPreviousMode();
         String sortLabel = sortLabels.get(mode)[currentSortIndex];
@@ -784,11 +806,9 @@ public class PluginModManagerScreen extends Screen {
                     String fileName = Path.of(resource.getFileName()).getFileName().toString();
                     String baseName = stripExtension(fileName);
                     String extension = "";
-
                     if (serverInfo.isModServer() || serverInfo.isPluginServer()) {
                         extension = fileName.toLowerCase().endsWith(".jar") ? "" : ".jar";
                     }
-
                     Path dest;
                     if (serverInfo.isModServer()) {
                         dest = Path.of(serverInfo.path, "mods", baseName + extension);
@@ -797,7 +817,6 @@ public class PluginModManagerScreen extends Screen {
                     } else {
                         dest = Path.of("C:\\remotely\\servers", resource.getName(), fileName);
                     }
-
                     Files.createDirectories(dest.getParent());
                     HttpClient httpClient = HttpClient.newBuilder().executor(imageLoader).build();
                     HttpRequest request = HttpRequest.newBuilder()
@@ -827,6 +846,7 @@ public class PluginModManagerScreen extends Screen {
             }
         }).start();
     }
+
     private String getDownloadUrlFor(IRemotelyResource resource) {
         if (resource instanceof SpigetResource) {
             SpigetResource sp = (SpigetResource) resource;
@@ -916,5 +936,18 @@ public class PluginModManagerScreen extends Screen {
 
     public ServerInfo getServerInfo() {
         return serverInfo;
+    }
+
+    @Override
+    public void removed() {
+        hasSavedState = true;
+        savedResources = new ArrayList<>(resources);
+        savedSmoothOffset = smoothOffset;
+        savedTargetOffset = targetOffset;
+        savedLoadedCount = loadedCount;
+        savedSearch = currentSearch;
+        savedCurrentTabIndex = currentTabIndex;
+        savedResourceCache = new ConcurrentHashMap<>(resourceCache);
+        super.removed();
     }
 }
