@@ -64,6 +64,7 @@ public class ResourcePageScreen extends Screen {
     private List<Version> versions = new ArrayList<>();
     private List<VersionButtonRegion> versionButtonRegions = new ArrayList<>();
     private static ServerInfo serverInfo;
+    private Version headerDownloadVersion;
 
     public ResourcePageScreen(MinecraftClient mc, PluginModManagerScreen parent, IRemotelyResource resource, ServerInfo serverInfo) {
         super(Text.literal(resource.getName()));
@@ -211,6 +212,20 @@ public class ResourcePageScreen extends Screen {
             minecraftClient.execute(() -> {});
         }).start();
     }
+    private Version getLatestCompatibleVersion() {
+        if (versions == null || versions.isEmpty()) return null;
+        for (Version ver : versions) {
+            if (ver.mcVersions.contains(serverInfo.version) && ver.fileUrl.toLowerCase().contains(serverInfo.type.toLowerCase())) {
+                return ver;
+            }
+        }
+        for (Version ver : versions) {
+            if (ver.mcVersions.contains(serverInfo.version)) {
+                return ver;
+            }
+        }
+        return versions.get(0);
+    }
     @Override
     public void tick() {
         super.tick();
@@ -277,9 +292,13 @@ public class ResourcePageScreen extends Screen {
         int buttonY = (headerHeight - buttonH) / 2;
         if(mouseX >= downloadButtonX && mouseX <= downloadButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
             if (resource.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack")) {
-
+                parentScreen.installMrPack(resource);
             } else {
-                downloadVersionResource((Version) resource);
+                Version compVersion = getLatestCompatibleVersion();
+                if(compVersion != null) {
+                    headerDownloadVersion = compVersion;
+                    downloadVersionResource(compVersion);
+                }
             }
             return true;
         }
@@ -353,7 +372,21 @@ public class ResourcePageScreen extends Screen {
         int siteButtonX = backButtonX - (buttonW + spacing);
         int downloadButtonX = siteButtonX - (buttonW + spacing);
         int buttonY = (headerHeight - buttonH) / 2;
-        drawCustomButton(context, downloadButtonX, buttonY, "Download", minecraftClient, mouseX >= downloadButtonX && mouseX <= downloadButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH, false, true, buttonTextColor, buttonTextHoverColor);
+        if(headerDownloadVersion != null && headerDownloadVersion.isDownloading) {
+            int barWidth = buttonW;
+            int barHeight = buttonH;
+            int barX = downloadButtonX;
+            int barY = buttonY;
+            context.fill(barX, barY, barX + barWidth, barY + barHeight, browserElementBackgroundColor);
+            int fillWidth = (int)(barWidth * headerDownloadVersion.progress);
+            context.fill(barX, barY, barX + fillWidth, barY + barHeight, buttonTextHoverColor);
+            drawOuterBorder(context, barX, barY, barWidth, barHeight, globalBottomBorder);
+            drawInnerBorder(context, barX, barY, barWidth, barHeight, browserElementBorderColor);
+            String percentText = (int)(headerDownloadVersion.progress * 100) + "%";
+            context.drawText(minecraftClient.textRenderer, Text.literal(percentText), barX + barWidth/2 - minecraftClient.textRenderer.getWidth(Text.literal(percentText))/2, barY + (barHeight - minecraftClient.textRenderer.fontHeight)/2, 0xFFFFFFFF, Config.shadow);
+        } else {
+            drawCustomButton(context, downloadButtonX, buttonY, "Download", minecraftClient, mouseX >= downloadButtonX && mouseX <= downloadButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH, false, true, buttonTextColor, buttonTextHoverColor);
+        }
         drawCustomButton(context, siteButtonX, buttonY, "Site", minecraftClient, mouseX >= siteButtonX && mouseX <= siteButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH, false, true, buttonTextColor, buttonTextBrowseHoverColor);
         drawCustomButton(context, backButtonX, buttonY, "Back", minecraftClient, mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH, false, true, buttonTextColor, buttonTextDeleteColor);
         drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
