@@ -2,6 +2,7 @@ package redxax.oxy.config;
 
 public class Config {
     public static boolean shadow = false;
+    public static boolean wallpaper = false;
     public static boolean isDev = true;
 
     public static int tabBorderColor = 0xFF444444;

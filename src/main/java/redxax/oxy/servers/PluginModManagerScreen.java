@@ -264,7 +264,7 @@ public class PluginModManagerScreen extends Screen {
                         } else {
                             long currentTime = System.currentTimeMillis();
                             if (lastResourceClickIndex == index && (currentTime - lastResourceClickTime < 250)) {
-                                minecraftClient.setScreen(new ResourcePageScreen(minecraftClient, this, resources.get(index)));
+                                minecraftClient.setScreen(new ResourcePageScreen(minecraftClient, this, resources.get(index), serverInfo));
                                 return true;
                             }
                             lastResourceClickIndex = index;
@@ -520,7 +520,7 @@ public class PluginModManagerScreen extends Screen {
         loadMoreIfNeeded();
     }
 
-    private static String formatDownloads(int n) {
+    static String formatDownloads(int n) {
         if (n >= 1_000_000) {
             return String.format("%.1fM", n / 1_000_000.0);
         } else if (n >= 1000) {

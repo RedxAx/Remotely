@@ -14,8 +14,11 @@ public class ModrinthResource implements IRemotelyResource {
     private final List<String> dependencies;
     private final String projectId;
     private final String versionId;
+    private final String author;
+    private final String mcVersions;
+    private final String loaderPlatforms;
 
-    public ModrinthResource(String name, String version, String description, String fileName, String iconUrl, int downloads, int followers, String slug, List<String> dependencies, String projectId, String versionId) {
+    public ModrinthResource(String name, String version, String description, String fileName, String iconUrl, int downloads, int followers, String slug, List<String> dependencies, String projectId, String versionId, String author, String mcVersions, String loaderPlatforms) {
         this.name = name;
         this.version = version;
         this.description = description;
@@ -27,6 +30,9 @@ public class ModrinthResource implements IRemotelyResource {
         this.dependencies = dependencies;
         this.projectId = projectId;
         this.versionId = versionId;
+        this.author = author;
+        this.mcVersions = mcVersions;
+        this.loaderPlatforms = loaderPlatforms;
     }
 
     @Override
@@ -82,5 +88,20 @@ public class ModrinthResource implements IRemotelyResource {
     @Override
     public String getAverageRating() {
         return "";
+    }
+
+    @Override
+    public String getAuthor() {
+        return author;
+    }
+
+    @Override
+    public String getMinecraftVersions() {
+        return mcVersions;
+    }
+
+    @Override
+    public String getLoaderPlatforms() {
+        return loaderPlatforms;
     }
 }

@@ -10,8 +10,11 @@ public class HangarResource implements IRemotelyResource {
     private final int watchers;
     private final int downloads;
     private final String avatarUrl;
+    private final String author;
+    private final String mcVersions;
+    private final String platforms;
 
-    public HangarResource(String id, String name, String description, String owner, String visibility, int stars, int watchers, int downloads, String avatarUrl) {
+    public HangarResource(String id, String name, String description, String owner, String visibility, int stars, int watchers, int downloads, String avatarUrl, String mcVersions, String platforms) {
         this.id = id;
         this.name = name;
         this.description = description;
@@ -21,6 +24,9 @@ public class HangarResource implements IRemotelyResource {
         this.watchers = watchers;
         this.downloads = downloads;
         this.avatarUrl = avatarUrl;
+        this.author = owner;
+        this.mcVersions = mcVersions;
+        this.platforms = platforms;
     }
 
     @Override
@@ -76,5 +82,20 @@ public class HangarResource implements IRemotelyResource {
     @Override
     public String getAverageRating() {
         return "";
+    }
+
+    @Override
+    public String getAuthor() {
+        return owner;
+    }
+
+    @Override
+    public String getMinecraftVersions() {
+        return mcVersions;
+    }
+
+    @Override
+    public String getLoaderPlatforms() {
+        return platforms;
     }
 }
