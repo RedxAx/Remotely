@@ -52,13 +52,6 @@ public class PluginModManagerScreen extends Screen {
             return size() > MAX_ENTRIES;
         }
     });
-    private final Map<String, Boolean> installingMrPack = new ConcurrentHashMap<>();
-    private final Map<String, Boolean> installingResource = new ConcurrentHashMap<>();
-    private final Map<String, String> installButtonTexts = new ConcurrentHashMap<>();
-    private final Map<String, Integer> resourceColors = new ConcurrentHashMap<>();
-    private BufferedImage installIcon;
-    private BufferedImage installingIcon;
-    private BufferedImage installedIcon;
     private BufferedImage loadingAnim;
     private List<BufferedImage> loadingFrames = new ArrayList<>();
     private int currentLoadingFrame = 0;
@@ -87,9 +80,6 @@ public class PluginModManagerScreen extends Screen {
     private float pathTargetScrollOffset = 0;
     private TextRenderer textRenderer;
     private boolean searching = false;
-    private final int colorDownloadSuccess = 0xFF00FF00;
-    private final int colorDownloadFail = 0xFFFF0000;
-    private final int colorNotDownloaded = 0xFF999999;
     private final Map<String, Integer> imageLoadRetries = new ConcurrentHashMap<>();
     private static final int MAX_IMAGE_LOAD_RETRIES = 3;
     private long lastResourceClickTime = 0;
@@ -165,9 +155,6 @@ public class PluginModManagerScreen extends Screen {
             loadResourcesAsync("", true);
         }
         try {
-            installIcon = loadResourceIcon("/assets/remotely/icons/download.png");
-            installingIcon = loadResourceIcon("/assets/remotely/icons/loading.png");
-            installedIcon = loadResourceIcon("/assets/remotely/icons/installed.png");
             loadingAnim = loadSpriteSheet("/assets/remotely/icons/loadinganim.png");
             int frameWidth = 16;
             int frameHeight = 16;
@@ -255,43 +242,13 @@ public class PluginModManagerScreen extends Screen {
                     int index = relativeY / (entryHeight + gapBetweenEntries);
                     if (index >= 0 && index < resources.size()) {
                         selectedIndex = index;
-                        int iconX = contentX + 5;
-                        int iconY = contentY + (index * (entryHeight + gapBetweenEntries)) - (int) smoothOffset + (entryHeight - 30) / 2;
-                        int iconSize = 30;
-                        if (mouseX >= iconX && mouseX <= iconX + iconSize && mouseY >= iconY && mouseY <= iconY + iconSize) {
-                            IRemotelyResource selected = resources.get(index);
-                            if (!installButtonTexts.containsKey(selected.getSlug())) {
-                                installButtonTexts.put(selected.getSlug(), "Install");
-                            }
-                            if (!installButtonTexts.get(selected.getSlug()).equalsIgnoreCase("Installed")) {
-                                boolean isModpack = !serverInfo.isModServer() && !serverInfo.isPluginServer();
-                                devPrint("Selected resource: " + selected.getName() + " Is Plugin Server? " + serverInfo.isPluginServer() + " Is Mod Server? " + serverInfo.isModServer() + " Is Modpack? " + isModpack);
-                                if (isModpack) {
-                                    if (!installingMrPack.containsKey(selected.getSlug()) || !installingMrPack.get(selected.getSlug())) {
-                                        installingMrPack.put(selected.getSlug(), true);
-                                        installButtonTexts.put(selected.getSlug(), "Installing");
-                                        resourceColors.put(selected.getSlug(), colorNotDownloaded);
-                                        installMrPack(selected);
-                                    }
-                                } else {
-                                    if (!installingResource.containsKey(selected.getSlug()) || !installingResource.get(selected.getSlug())) {
-                                        installingResource.put(selected.getSlug(), true);
-                                        installButtonTexts.put(selected.getSlug(), "Installing");
-                                        resourceColors.put(selected.getSlug(), colorNotDownloaded);
-                                        fetchAndInstallResource(selected);
-                                    }
-                                }
-                            }
+                        long currentTime = System.currentTimeMillis();
+                        if (lastResourceClickIndex == index && (currentTime - lastResourceClickTime < 250)) {
+                            minecraftClient.setScreen(new ResourcePageScreen(minecraftClient, this, resources.get(index), serverInfo));
                             return true;
-                        } else {
-                            long currentTime = System.currentTimeMillis();
-                            if (lastResourceClickIndex == index && (currentTime - lastResourceClickTime < 250)) {
-                                minecraftClient.setScreen(new ResourcePageScreen(minecraftClient, this, resources.get(index), serverInfo));
-                                return true;
-                            }
-                            lastResourceClickIndex = index;
-                            lastResourceClickTime = currentTime;
                         }
+                        lastResourceClickIndex = index;
+                        lastResourceClickTime = currentTime;
                     }
                 }
             }
@@ -491,9 +448,8 @@ public class PluginModManagerScreen extends Screen {
             drawOuterBorder(context, contentX, y, contentWidth, entryHeight, globalBottomBorder);
             BufferedImage scaledImage = resource.getIconUrl().isEmpty() ? placeholderIcon : scaledIcons.getOrDefault(resource.getIconUrl(), placeholderIcon);
             drawBufferedImage(context, scaledImage, contentX + 5, y + (entryHeight - 30) / 2, 30, 30);
-            int colorToUse = resourceColors.getOrDefault(resource.getSlug(), colorNotDownloaded);
             String resourceName = resource.getName();
-            context.drawText(textRenderer, Text.literal(resourceName), contentX + 40, y + 5, colorToUse, Config.shadow);
+            context.drawText(textRenderer, Text.literal(resourceName), contentX + 40, y + 5, 0xFFFFFFFF, Config.shadow);
             String resourceDesc = resource.getDescription();
             int descMaxWidth = contentWidth - 50;
             if (textRenderer.getWidth(resourceDesc) > descMaxWidth) {
@@ -512,23 +468,6 @@ public class PluginModManagerScreen extends Screen {
                 context.drawText(textRenderer, Text.literal(spInfo), contentX + 40, y + 30, browserElementTextDimColor, Config.shadow);
             } else if (tabs.get(currentTabIndex).mode == TabMode.HANGAR) {
                 context.drawText(textRenderer, Text.literal(hgInfo), contentX + 40, y + 30, browserElementTextDimColor, Config.shadow);
-            }
-            int buttonX = contentX + 5;
-            int buttonY = y + (entryHeight - 30) / 2;
-            int buttonSize = 30;
-            boolean isHoveringInstall = mouseX >= buttonX && mouseX <= buttonX + buttonSize && mouseY >= buttonY && mouseY <= buttonY + buttonSize;
-            if (isHoveringInstall) {
-                context.fill(buttonX, buttonY, buttonX + buttonSize, buttonY + buttonSize, 0x80000000);
-                BufferedImage buttonIcon = installIcon;
-                String status = installButtonTexts.getOrDefault(resource.getSlug(), "Install");
-                if (status.equals("Installing")) {
-                    buttonIcon = installingIcon;
-                } else if (status.equals("Installed")) {
-                    buttonIcon = installedIcon;
-                }
-                if (buttonIcon != null) {
-                    drawBufferedImage(context, buttonIcon, buttonX, buttonY, buttonSize, buttonSize);
-                }
             }
         }
         context.disableScissor();
@@ -712,208 +651,6 @@ public class PluginModManagerScreen extends Screen {
         return img;
     }
 
-    public void installMrPack(IRemotelyResource resource) {
-        if (serverInfo.isRemote && serverInfo.remoteSSHManager != null) {
-            new Thread(() -> {
-                boolean success = serverInfo.remoteSSHManager.installMrPackOnRemote(serverInfo, resource);
-                minecraftClient.execute(() -> {
-                    installingMrPack.put(resource.getSlug(), false);
-                    installButtonTexts.put(resource.getSlug(), success ? "Installed" : "Install");
-                    resourceColors.put(resource.getSlug(), success ? colorDownloadSuccess : colorDownloadFail);
-                });
-            }).start();
-            return;
-        }
-        new Thread(() -> {
-            try {
-                String exePath = "C:\\remotely\\mrpack-install-windows.exe";
-                String serverDir = "C:\\remotely\\servers\\" + resource.getName();
-                Path exe = Path.of(exePath);
-                Path serverPath = Path.of(serverDir);
-                if (!Files.exists(serverPath)) Files.createDirectories(serverPath);
-                if (!Files.exists(exe)) {
-                    try {
-                        URL url = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-windows.exe");
-                        try (InputStream input = url.openStream()) {
-                            Files.copy(input, exe, StandardCopyOption.REPLACE_EXISTING);
-                        }
-                    } catch (Exception e) {
-                        minecraftClient.execute(() -> {
-                            installingMrPack.put(resource.getSlug(), false);
-                            installButtonTexts.put(resource.getSlug(), "Install");
-                            resourceColors.put(resource.getSlug(), colorDownloadFail);
-                        });
-                        return;
-                    }
-                }
-                devPrint("Modpack Installation: Running " + exePath + " " + resource.getProjectId() + " " + resource.getVersion() + " --server-dir " + serverDir + " --server-file server.jar");
-                ProcessBuilder pb = new ProcessBuilder(exePath, resource.getProjectId(), resource.getVersion(), "--server-dir", serverDir, "--server-file", "server.jar");
-                pb.directory(serverPath.toFile());
-                Process proc = pb.start();
-                ExecutorService executor = Executors.newFixedThreadPool(2);
-                executor.submit(() -> {
-                    try (InputStream is = proc.getInputStream()) {
-                        is.transferTo(System.out);
-                    } catch (Exception ignored) {
-                    }
-                });
-                executor.submit(() -> {
-                    try (InputStream is = proc.getErrorStream()) {
-                        is.transferTo(System.err);
-                    } catch (Exception ignored) {
-                    }
-                });
-                proc.waitFor();
-                executor.shutdown();
-                minecraftClient.execute(() -> {
-                    installingMrPack.put(resource.getSlug(), false);
-                    installButtonTexts.put(resource.getSlug(), "Installed");
-                    resourceColors.put(resource.getSlug(), colorDownloadSuccess);
-                });
-            } catch (Exception e) {
-                minecraftClient.execute(() -> {
-                    installingMrPack.put(resource.getSlug(), false);
-                    installButtonTexts.put(resource.getSlug(), "Install");
-                    resourceColors.put(resource.getSlug(), colorDownloadFail);
-                });
-            }
-        }).start();
-    }
-
-    public void fetchAndInstallResource(IRemotelyResource resource) {
-        new Thread(() -> {
-            try {
-                String downloadUrl = getDownloadUrlFor(resource);
-                if (downloadUrl.isEmpty()) {
-                    minecraftClient.execute(() -> {
-                        installingResource.put(resource.getSlug(), false);
-                        installButtonTexts.put(resource.getSlug(), "Install");
-                        resourceColors.put(resource.getSlug(), colorDownloadFail);
-                    });
-                    return;
-                }
-                if (serverInfo.isRemote && serverInfo.remoteSSHManager != null) {
-                    String remotePath = serverInfo.path + "/" + (serverInfo.isModServer() ? "mods" : serverInfo.isPluginServer() ? "plugins" : "unknown") + "/"  + resource.getFileName();
-                    String command = "wget -O " + remotePath +  " " + downloadUrl;
-                    devPrint("Remote Download: " + command);
-                    serverInfo.remoteSSHManager.runRemoteCommand(command);
-                    minecraftClient.execute(() -> {
-                        installingResource.put(resource.getSlug(), false);
-                        installButtonTexts.put(resource.getSlug(), "Installed");
-                        resourceColors.put(resource.getSlug(), colorDownloadSuccess);
-                    });
-                } else {
-                    String fileName = Path.of(resource.getFileName()).getFileName().toString();
-                    String baseName = stripExtension(fileName);
-                    String extension = "";
-                    if (serverInfo.isModServer() || serverInfo.isPluginServer()) {
-                        extension = fileName.toLowerCase().endsWith(".jar") ? "" : ".jar";
-                    }
-                    Path dest;
-                    if (serverInfo.isModServer()) {
-                        dest = Path.of(serverInfo.path, "mods", baseName + extension);
-                    } else if (serverInfo.isPluginServer()) {
-                        dest = Path.of(serverInfo.path, "plugins", baseName + extension);
-                    } else {
-                        dest = Path.of("C:\\remotely\\servers", resource.getName(), fileName);
-                    }
-                    Files.createDirectories(dest.getParent());
-                    HttpClient httpClient = HttpClient.newBuilder().executor(imageLoader).build();
-                    HttpRequest request = HttpRequest.newBuilder()
-                            .uri(URI.create(downloadUrl))
-                            .header("User-Agent", "Remotely")
-                            .header("Content-Type", "application/octet-stream")
-                            .GET()
-                            .build();
-                    HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-                    devPrint("Response Code: " + response.statusCode());
-                    if (response.statusCode() == 200 || response.statusCode() == 302 || response.statusCode() == 303) {
-                        devPrint("Downloading " + downloadUrl + " to " + dest);
-                        Files.copy(response.body(), dest, StandardCopyOption.REPLACE_EXISTING);
-                    }
-                    minecraftClient.execute(() -> {
-                        installingResource.put(resource.getSlug(), false);
-                        installButtonTexts.put(resource.getSlug(), "Installed");
-                        resourceColors.put(resource.getSlug(), colorDownloadSuccess);
-                    });
-                }
-            } catch (Exception e) {
-                minecraftClient.execute(() -> {
-                    installingResource.put(resource.getSlug(), false);
-                    installButtonTexts.put(resource.getSlug(), "Install");
-                    resourceColors.put(resource.getSlug(), colorDownloadFail);
-                });
-            }
-        }).start();
-    }
-
-    private String getDownloadUrlFor(IRemotelyResource resource) {
-        if (resource instanceof SpigetResource) {
-            SpigetResource sp = (SpigetResource) resource;
-            devPrint("External Spiget Download: " + "https://api.spiget.org/v2/resources/" + sp.getProjectId() + "/download");
-            return "https://api.spiget.org/v2/resources/" + sp.getProjectId() + "/download";
-        } else if (resource instanceof HangarResource) {
-            HangarResource hg = (HangarResource) resource;
-            String hgURI = "https://hangar.papermc.io/api/v1/versions/" + hg.getProjectId() +  "/" + serverInfo.type.toUpperCase() + "/download";
-            devPrint("Hangar Download: " + hgURI);
-            return followRedirect(hgURI);
-        } else {
-            try {
-                URI uri = URI.create("https://api.modrinth.com/v2/version/" + resource.getVersionId());
-                HttpClient client = HttpClient.newHttpClient();
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(uri)
-                        .header("User-Agent", "Remotely")
-                        .header("Content-Type", "application/octet-stream")
-                        .GET()
-                        .build();
-                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() == 200) {
-                    var version = JsonParser.parseString(response.body()).getAsJsonObject();
-                    var files = version.getAsJsonArray("files");
-                    if (!files.isEmpty()) {
-                        var file = files.get(0).getAsJsonObject();
-                        return file.get("url").getAsString();
-                    }
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        return "";
-    }
-
-    private String followRedirect(String url) {
-        try {
-            HttpClient client = HttpClient.newHttpClient();
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("User-Agent", "Remotely")
-                    .header("Content-Type", "application/octet-stream")
-                    .GET()
-                    .build();
-            HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
-            if (response.statusCode() == 301 || response.statusCode() == 302 || response.statusCode() == 303 || response.statusCode() == 307 || response.statusCode() == 308) {
-                return response.headers().firstValue("Location").orElse("");
-            }
-        } catch (Exception ignored) {
-        }
-        return url;
-    }
-
-    private String stripExtension(String filename) {
-        int lastDot = filename.lastIndexOf('.');
-        if (lastDot == -1) return filename;
-        return filename.substring(0, lastDot);
-    }
-
-    private void nextSort() {
-        TabMode mode = getPreviousMode();
-        currentSortIndex++;
-        if (currentSortIndex >= sortValues.get(mode).length) {
-            currentSortIndex = 0;
-        }
-    }
-
     private TabMode getPreviousMode() {
         if (currentTabIndex == 0) {
             return TabMode.MODRINTH;
@@ -932,6 +669,14 @@ public class PluginModManagerScreen extends Screen {
             return "downloads";
         }
         return sortValues.get(mode)[currentSortIndex];
+    }
+
+    private void nextSort() {
+        TabMode mode = getPreviousMode();
+        currentSortIndex++;
+        if (currentSortIndex >= sortValues.get(mode).length) {
+            currentSortIndex = 0;
+        }
     }
 
     public ServerInfo getServerInfo() {
