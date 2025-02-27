@@ -156,9 +156,9 @@ public class ResourcePageScreen extends Screen {
         new Thread(() -> {
             List<Version> fetched = new ArrayList<>();
             try {
-                String url = "";
+                String url;
                 if (resource.getSlug().startsWith("spigot_")) {
-                    url = "https://api.spiget.org/v2/resources/" + resource.getProjectId() + "/versions";
+                    url = "https://api.spiget.org/v2/resources/" + resource.getProjectId() + "/versions?size=10000&sort=-releaseDate";
                 } else if (resource.getSlug().startsWith("hangar_")) {
                     url = "https://hangar.papermc.io/api/v1/projects/" + resource.getProjectId() + "/versions";
                 } else {
@@ -208,9 +208,6 @@ public class ResourcePageScreen extends Screen {
                         int downloads = verObj.has("downloads") ? verObj.get("downloads").getAsInt() : 0;
                         fetched.add(new Version(verNum, String.join(", ", mcVersions), dateUploaded, fileUrl, downloads));
                     }
-                }
-                if(resource.getSlug().startsWith("spigot_")){
-                    Collections.reverse(fetched);
                 }
             } catch(Exception e){}
             versions = fetched;
@@ -583,7 +580,7 @@ public class ResourcePageScreen extends Screen {
                     ver.totalBytes = total;
                     String remoteDir = serverInfo.path + File.separator + (serverInfo.isModServer() ? "mods" : serverInfo.isPluginServer() ? "plugins" : "");
                     String remotePath = remoteDir + File.separator + resource.getFileName();
-                    String command = "wget -O " + remotePath.replace("\\", "/") + " " + ver.fileUrl;
+                    String command = "wget -O \"" + remotePath.replace("\\", "/") + "\" \"" + ver.fileUrl + "\"";
                     devPrint("Remote Download: " + command);
                     serverInfo.remoteSSHManager.runRemoteCommand(command);
                     ver.isDownloading = true;
