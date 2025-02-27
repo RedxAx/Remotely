@@ -20,6 +20,7 @@ import org.jsoup.nodes.TextNode;
 import redxax.oxy.Render;
 import redxax.oxy.api.IRemotelyResource;
 import redxax.oxy.config.Config;
+
 import javax.imageio.ImageIO;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
@@ -36,6 +37,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
 import static redxax.oxy.Render.*;
 import static redxax.oxy.config.Config.*;
 import static redxax.oxy.servers.PluginModManagerScreen.formatDownloads;
@@ -65,6 +67,8 @@ public class ResourcePageScreen extends Screen {
     private List<VersionButtonRegion> versionButtonRegions = new ArrayList<>();
     private static ServerInfo serverInfo;
     private Version headerDownloadVersion;
+    private boolean isDownloadingMrpack = false;
+    private double mrpackProgress = 0.0;
 
     public ResourcePageScreen(MinecraftClient mc, PluginModManagerScreen parent, IRemotelyResource resource, ServerInfo serverInfo) {
         super(Text.literal(resource.getName()));
@@ -76,12 +80,14 @@ public class ResourcePageScreen extends Screen {
         initTabs();
         fetchVersions();
     }
+
     private void initTabs() {
         tabs.clear();
         tabs.add(new Tab(TabType.DESCRIPTION, "Description"));
         tabs.add(new Tab(TabType.VERSIONS, "Versions"));
         currentTabIndex = 0;
     }
+
     private void loadMarkdown() {
         new Thread(() -> {
             String markdownContent = "";
@@ -89,7 +95,6 @@ public class ResourcePageScreen extends Screen {
                 String url;
                 if (resource.getSlug().startsWith("spigot_")) {
                     url = "https://api.spiget.org/v2/resources/" + resource.getProjectId();
-                    devPrint("Trying to read: " + url);
                     HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
                     conn.setRequestProperty("User-Agent", "Remotely");
                     conn.setConnectTimeout(5000);
@@ -104,7 +109,6 @@ public class ResourcePageScreen extends Screen {
                     markdownContent = new String(Base64.getDecoder().decode(JsonParser.parseString(sb.toString()).getAsJsonObject().get("description").getAsString()));
                 } else if (resource.getSlug().startsWith("hangar_")) {
                     url = "https://hangar.papermc.io/api/v1/pages/main/" + resource.getProjectId();
-                    devPrint("Trying to read: " + url);
                     HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
                     conn.setRequestProperty("User-Agent", "Remotely");
                     conn.setConnectTimeout(5000);
@@ -147,6 +151,7 @@ public class ResourcePageScreen extends Screen {
             minecraftClient.execute(() -> {});
         }).start();
     }
+
     private void fetchVersions() {
         new Thread(() -> {
             List<Version> fetched = new ArrayList<>();
@@ -212,6 +217,7 @@ public class ResourcePageScreen extends Screen {
             minecraftClient.execute(() -> {});
         }).start();
     }
+
     private Version getLatestCompatibleVersion() {
         if (versions == null || versions.isEmpty()) return null;
         for (Version ver : versions) {
@@ -226,10 +232,12 @@ public class ResourcePageScreen extends Screen {
         }
         return versions.get(0);
     }
+
     @Override
     public void tick() {
         super.tick();
     }
+
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         int headerHeight = 30;
@@ -266,6 +274,7 @@ public class ResourcePageScreen extends Screen {
         }
         return true;
     }
+
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         int headerHeight = 30;
@@ -292,7 +301,7 @@ public class ResourcePageScreen extends Screen {
         int buttonY = (headerHeight - buttonH) / 2;
         if(mouseX >= downloadButtonX && mouseX <= downloadButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
             if (resource.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack")) {
-                parentScreen.installMrPack(resource);
+                downloadMrpackResource();
             } else {
                 Version compVersion = getLatestCompatibleVersion();
                 if(compVersion != null) {
@@ -356,6 +365,7 @@ public class ResourcePageScreen extends Screen {
             return "https://modrinth.com/mod/" + projectId;
         }
     }
+
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         int headerHeight = 30;
@@ -383,6 +393,18 @@ public class ResourcePageScreen extends Screen {
             drawOuterBorder(context, barX, barY, barWidth, barHeight, globalBottomBorder);
             drawInnerBorder(context, barX, barY, barWidth, barHeight, browserElementBorderColor);
             String percentText = (int)(headerDownloadVersion.progress * 100) + "%";
+            context.drawText(minecraftClient.textRenderer, Text.literal(percentText), barX + barWidth/2 - minecraftClient.textRenderer.getWidth(Text.literal(percentText))/2, barY + (barHeight - minecraftClient.textRenderer.fontHeight)/2, 0xFFFFFFFF, Config.shadow);
+        } else if(isDownloadingMrpack) {
+            int barWidth = buttonW;
+            int barHeight = buttonH;
+            int barX = downloadButtonX;
+            int barY = buttonY;
+            context.fill(barX, barY, barX + barWidth, barY + barHeight, browserElementBackgroundColor);
+            int fillWidth = (int)(barWidth * mrpackProgress);
+            context.fill(barX, barY, barX + fillWidth, barY + barHeight, buttonTextHoverColor);
+            drawOuterBorder(context, barX, barY, barWidth, barHeight, globalBottomBorder);
+            drawInnerBorder(context, barX, barY, barWidth, barHeight, browserElementBorderColor);
+            String percentText = (int)(mrpackProgress * 100) + "%";
             context.drawText(minecraftClient.textRenderer, Text.literal(percentText), barX + barWidth/2 - minecraftClient.textRenderer.getWidth(Text.literal(percentText))/2, barY + (barHeight - minecraftClient.textRenderer.fontHeight)/2, 0xFFFFFFFF, Config.shadow);
         } else {
             drawCustomButton(context, downloadButtonX, buttonY, "Download", minecraftClient, mouseX >= downloadButtonX && mouseX <= downloadButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH, false, true, buttonTextColor, buttonTextHoverColor);
@@ -483,6 +505,7 @@ public class ResourcePageScreen extends Screen {
             context.disableScissor();
         }
     }
+
     private String getRelativeTime(String dateStr) {
         try {
             Instant uploaded;
@@ -502,6 +525,7 @@ public class ResourcePageScreen extends Screen {
             return dateStr;
         }
     }
+
     private String formatMCVersions(String raw) {
         if(raw == null || raw.isEmpty()) return "";
         String[] parts = raw.split(",\\s*");
@@ -548,6 +572,18 @@ public class ResourcePageScreen extends Screen {
                     ver.isInstalled = "Failed";
                     return;
                 }
+                if(serverInfo.isRemote && serverInfo.remoteSSHManager != null) {
+                    String remoteDir = serverInfo.path + File.separator + (serverInfo.isModServer() ? "mods" : serverInfo.isPluginServer() ? "plugins" : "");
+                    String remotePath = remoteDir + File.separator + resource.getFileName();
+                    String command = "wget -O " + remotePath.replace("\\", "/") + " " + ver.fileUrl;
+                    devPrint("Remote Download: " + command);
+                    serverInfo.remoteSSHManager.runRemoteCommand(command);
+                    minecraftClient.execute(() -> {
+                        ver.isDownloading = false;
+                        ver.isInstalled = "Installed";
+                    });
+                    return;
+                }
                 URL url = new URL(ver.fileUrl);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestProperty("User-Agent", "Remotely");
@@ -590,12 +626,58 @@ public class ResourcePageScreen extends Screen {
             }
         }).start();
     }
+
+    private void downloadMrpackResource() {
+        new Thread(() -> {
+            try {
+                if(serverInfo.isRemote && serverInfo.remoteSSHManager != null) {
+                    boolean success = serverInfo.remoteSSHManager.installMrPackOnRemote(serverInfo, resource);
+                    minecraftClient.execute(() -> {
+                        isDownloadingMrpack = false;
+                    });
+                    return;
+                }
+                String exePath = "C:\\remotely\\mrpack-install-windows.exe";
+                String serverDir = "C:\\remotely\\servers\\" + resource.getName();
+                Path exe = Path.of(exePath);
+                Path serverPath = Path.of(serverDir);
+                if (!Files.exists(serverPath)) Files.createDirectories(serverPath);
+                if (!Files.exists(exe)) {
+                    try {
+                        URL url = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-windows.exe");
+                        try (InputStream input = url.openStream()) {
+                            Files.copy(input, exe, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    } catch (Exception e) {
+                        minecraftClient.execute(() -> {
+                            isDownloadingMrpack = false;
+                        });
+                        return;
+                    }
+                }
+                isDownloadingMrpack = true;
+                ProcessBuilder pb = new ProcessBuilder(exePath, resource.getProjectId(), resource.getVersion(), "--server-dir", serverDir, "--server-file", "server.jar");
+                pb.directory(serverPath.toFile());
+                Process proc = pb.start();
+                proc.waitFor();
+                minecraftClient.execute(() -> {
+                    isDownloadingMrpack = false;
+                });
+            } catch(Exception e){
+                minecraftClient.execute(() -> {
+                    isDownloadingMrpack = false;
+                });
+            }
+        }).start();
+    }
+
     private String formatBytes(long bytes) {
         if(bytes < 1024) return bytes + " B";
         int exp = (int) (Math.log(bytes) / Math.log(1024));
         String pre = "KMGTPE".charAt(exp-1) + "";
         return String.format("%.1f %sB", bytes / Math.pow(1024, exp), pre);
     }
+
     private static class HTMLRenderer {
         private static final Pattern TOKEN_PATTERN = Pattern.compile("\\S+|\\s+");
         static class InlineState {
@@ -1160,6 +1242,7 @@ public class ResourcePageScreen extends Screen {
             return false;
         }
     }
+
     private static class LinkRegion {
         int x, y, width, height;
         String url;
@@ -1171,6 +1254,7 @@ public class ResourcePageScreen extends Screen {
             this.url = url;
         }
     }
+
     private static class Tab {
         TabType type;
         String name;
@@ -1182,7 +1266,9 @@ public class ResourcePageScreen extends Screen {
             return name;
         }
     }
+
     private enum TabType { DESCRIPTION, VERSIONS }
+
     private static class Version {
         public String isInstalled;
         String version;
@@ -1209,6 +1295,7 @@ public class ResourcePageScreen extends Screen {
             this.isInstalled = "Download";
         }
     }
+
     private static class VersionButtonRegion {
         int x, y, width, height;
         Version version;
