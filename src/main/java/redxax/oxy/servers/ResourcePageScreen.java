@@ -573,11 +573,42 @@ public class ResourcePageScreen extends Screen {
                     return;
                 }
                 if(serverInfo.isRemote && serverInfo.remoteSSHManager != null) {
+                    URL url = new URL(ver.fileUrl);
+                    HttpURLConnection headConn = (HttpURLConnection) url.openConnection();
+                    headConn.setRequestProperty("User-Agent", "Remotely");
+                    headConn.setRequestMethod("HEAD");
+                    headConn.setConnectTimeout(5000);
+                    headConn.setReadTimeout(5000);
+                    int total = headConn.getContentLength();
+                    ver.totalBytes = total;
                     String remoteDir = serverInfo.path + File.separator + (serverInfo.isModServer() ? "mods" : serverInfo.isPluginServer() ? "plugins" : "");
                     String remotePath = remoteDir + File.separator + resource.getFileName();
                     String command = "wget -O " + remotePath.replace("\\", "/") + " " + ver.fileUrl;
                     devPrint("Remote Download: " + command);
                     serverInfo.remoteSSHManager.runRemoteCommand(command);
+                    ver.isDownloading = true;
+                    long startTime = System.currentTimeMillis();
+                    while (true) {
+                        String sizeCommand = "stat -c%s " + remotePath.replace("\\", "/");
+                        String sizeOutput = serverInfo.remoteSSHManager.runRemoteCommandWithOutput(sizeCommand);
+                        long remoteSize = 0;
+                        try {
+                            remoteSize = Long.parseLong(sizeOutput.trim());
+                        } catch(Exception e){}
+                        ver.downloadedBytes = remoteSize;
+                        if(total > 0) {
+                            ver.progress = (double) remoteSize / total;
+                        }
+                        long currentTime = System.currentTimeMillis();
+                        long timeElapsed = currentTime - startTime;
+                        if(timeElapsed > 0) {
+                            ver.speed = remoteSize / (timeElapsed / 1000.0);
+                        }
+                        if(remoteSize >= total && total > 0) {
+                            break;
+                        }
+                        Thread.sleep(500);
+                    }
                     minecraftClient.execute(() -> {
                         ver.isDownloading = false;
                         ver.isInstalled = "Installed";

@@ -686,4 +686,37 @@ public class SSHManager {
             }
         });
     }
+
+    public String runRemoteCommandWithOutput(String sizeCommand) {
+        if (!isSSH || sshSession == null || !sshSession.isConnected()) {
+            if (terminalInstance != null) {
+                devPrint("SSH not connected.");
+            }
+            return "";
+        }
+        try {
+            return executorService.submit(() -> {
+                try {
+                    ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
+                    channelExec.setCommand(sizeCommand);
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    channelExec.setOutputStream(out);
+                    channelExec.setErrStream(out);
+                    channelExec.connect();
+                    while (!channelExec.isClosed()) {
+                        Thread.sleep(100);
+                    }
+                    String output = out.toString(StandardCharsets.UTF_8);
+                    channelExec.disconnect();
+                    return output;
+                } catch (Exception e) {
+                    devPrint("Failed to run remote command: " + sizeCommand + ": " + e.getMessage());
+                    return "";
+                }
+            }).get();
+        } catch (Exception e) {
+            devPrint("Failed to run remote command: " + sizeCommand + ": " + e.getMessage());
+            return "";
+        }
+    }
 }
