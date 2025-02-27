@@ -30,6 +30,8 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -160,7 +162,9 @@ public class ResourcePageScreen extends Screen {
                 if (resource.getSlug().startsWith("spigot_")) {
                     url = "https://api.spiget.org/v2/resources/" + resource.getProjectId() + "/versions?size=10000&sort=-releaseDate";
                 } else if (resource.getSlug().startsWith("hangar_")) {
-                    url = "https://hangar.papermc.io/api/v1/projects/" + resource.getAuthor() + "/" + resource.getProjectId() + "/versions";
+                    int offset = 0;
+                    url = "https://hangar.papermc.io/api/v1/projects/" + resource.getProjectId() + "/versions?includeHiddenChannels=true&channel=Release&platform=PAPER&limit=25&offset=" + offset;
+                    devPrint("Hangar Versions URL: " + url);
                 } else {
                     url = "https://api.modrinth.com/v2/project/" + resource.getProjectId() + "/version";
                 }
@@ -171,48 +175,72 @@ public class ResourcePageScreen extends Screen {
                 InputStream in = conn.getInputStream();
                 StringBuilder sb = new StringBuilder();
                 int ch;
-                while((ch = in.read()) != -1){
+                while ((ch = in.read()) != -1) {
                     sb.append((char) ch);
                 }
                 in.close();
                 JsonElement elem = JsonParser.parseString(sb.toString());
                 JsonArray arr = null;
-                if(elem.isJsonArray()){
-                    arr = elem.getAsJsonArray();
-                } else if(elem.isJsonObject()){
-                    JsonObject obj = elem.getAsJsonObject();
-                    if(obj.has("versions")){
-                        arr = obj.getAsJsonArray("versions");
+                if (resource.getSlug().startsWith("hangar_")) {
+                    if (elem.isJsonObject()) {
+                        JsonObject obj = elem.getAsJsonObject();
+                        if (obj.has("result")) {
+                            arr = obj.getAsJsonArray("result");
+                        }
+                    }
+                } else {
+                    if (elem.isJsonArray()) {
+                        arr = elem.getAsJsonArray();
+                    } else if (elem.isJsonObject()) {
+                        JsonObject obj = elem.getAsJsonObject();
+                        if (obj.has("versions")) {
+                            arr = obj.getAsJsonArray("versions");
+                        }
                     }
                 }
-                if(arr != null){
-                    for(JsonElement je : arr){
+                if (arr != null) {
+                    for (JsonElement je : arr) {
                         JsonObject verObj = je.getAsJsonObject();
-                        String verNum = verObj.has("version_number") ? verObj.get("version_number").getAsString() : (verObj.has("name") ? verObj.get("name").getAsString() : "Unknown");
-                        JsonArray mcArr = verObj.has("game_versions") ? verObj.getAsJsonArray("game_versions") : (verObj.has("minecraftVersions") ? verObj.getAsJsonArray("minecraftVersions") : new JsonArray());
-                        List<String> mcVersions = new ArrayList<>();
-                        for(JsonElement mc : mcArr){
-                            mcVersions.add(mc.getAsString());
-                        }
-                        String dateUploaded = verObj.has("date_published") ? verObj.get("date_published").getAsString() : (verObj.has("releaseDate") ? verObj.get("releaseDate").getAsString() : "Unknown");
+                        String verNum = verObj.has("version_number")
+                                ? verObj.get("version_number").getAsString()
+                                : (verObj.has("name") ? verObj.get("name").getAsString() : "Unknown");
+                        String mcVersions = "";
+                        String dateUploaded = verObj.has("createdAt")
+                                ? verObj.get("createdAt").getAsString()
+                                : (verObj.has("date_published") ? verObj.get("date_published").getAsString() : "Unknown");
                         String fileUrl = "";
-                        if(verObj.has("files")){
+                        if (resource.getSlug().startsWith("hangar_")) {
+                            if (verObj.has("downloads")) {
+                                JsonObject downloads = verObj.getAsJsonObject("downloads");
+                                if (downloads.has("PAPER")) {
+                                    JsonObject paperObj = downloads.getAsJsonObject("PAPER");
+                                    fileUrl = paperObj.has("downloadUrl") ? paperObj.get("downloadUrl").getAsString() : "";
+                                }
+                            }
+                        } else if (verObj.has("files")) {
                             JsonArray files = verObj.getAsJsonArray("files");
-                            if(files.size() > 0){
+                            if (files.size() > 0) {
                                 JsonObject fileObj = files.get(0).getAsJsonObject();
                                 fileUrl = fileObj.has("url") ? fileObj.get("url").getAsString() : "";
                             }
-                        } else if(verObj.has("downloadUrl")){
+                        } else if (verObj.has("downloadUrl")) {
                             fileUrl = verObj.get("downloadUrl").getAsString();
                         }
-                        if(resource.getSlug().startsWith("spigot_") && fileUrl.isEmpty() && verObj.has("id")){
-                            fileUrl = "https://api.spiget.org/v2/resources/" + resource.getProjectId() + "/download?version=" + verObj.get("id").getAsString();
+                        int downloadsCount = 0;
+                        if (resource.getSlug().startsWith("hangar_")) {
+                            if (verObj.has("stats")) {
+                                JsonObject stats = verObj.getAsJsonObject("stats");
+                                downloadsCount = stats.has("totalDownloads") ? stats.get("totalDownloads").getAsInt() : 0;
+                            }
+                        } else {
+                            downloadsCount = verObj.has("downloads") ? verObj.get("downloads").getAsInt() : 0;
                         }
-                        int downloads = verObj.has("downloads") ? verObj.get("downloads").getAsInt() : 0;
-                        fetched.add(new Version(verNum, String.join(", ", mcVersions), dateUploaded, fileUrl, downloads));
+                        fetched.add(new Version(verNum, mcVersions, dateUploaded, fileUrl, downloadsCount));
                     }
                 }
-            } catch(Exception e){}
+            } catch (Exception e) {
+                devPrint("Failed to fetch versions: " + e.getMessage());
+            }
             versions = fetched;
             minecraftClient.execute(() -> {});
         }).start();
@@ -1205,8 +1233,11 @@ public class ResourcePageScreen extends Screen {
         }
         static BufferedImage loadImage(String url, Map<String, BufferedImage> imageCache, int maxWidth, Map<String, BufferedImage> scaledCache) {
             try {
-                if(url.startsWith("//")){
-                    url = "https:" + url;
+                if(!url.startsWith("http")){
+                    return null;
+                }
+                if(url.contains("proxy.spigotmc.org") && url.contains("?url=")) {
+                    url = URLDecoder.decode(url.substring(url.indexOf("?url=") + 5), StandardCharsets.UTF_8);
                 }
                 if (imageCache.containsKey(url)) {
                     BufferedImage img = imageCache.get(url);
