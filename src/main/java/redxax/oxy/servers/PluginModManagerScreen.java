@@ -402,8 +402,8 @@ public class PluginModManagerScreen extends Screen {
             context.fill(contentX, y, contentX + contentWidth, y + entryHeight, bg);
             drawInnerBorder(context, contentX, y, contentWidth, entryHeight, borderColorFinal);
             drawOuterBorder(context, contentX, y, contentWidth, entryHeight, globalBottomBorder);
-            BufferedImage scaledImage = resource.getIconUrl().isEmpty() ? placeholderIcon : scaledIcons.getOrDefault(resource.getIconUrl(), placeholderIcon);
-            drawBufferedImage(context, scaledImage, contentX + 5, y + (entryHeight - 30) / 2, 30, 30);
+            BufferedImage icon = resource.getIconUrl().isEmpty() ? placeholderIcon : iconImages.getOrDefault(resource.getIconUrl(), placeholderIcon);
+            drawBufferedImage(context, icon, contentX + 5, y + (entryHeight - 30) / 2, 30, 30);
             String resourceName = resource.getName();
             context.drawText(textRenderer, Text.literal(resourceName), contentX + 40, y + 5, 0xFFFFFFFF, Config.shadow);
             String resourceDesc = resource.getDescription();
@@ -528,7 +528,7 @@ public class PluginModManagerScreen extends Screen {
     }
 
     private void loadImageWithRetry(String url) {
-        if (iconImages.containsKey(url) || scaledIcons.containsKey(url)) {
+        if (iconImages.containsKey(url)) {
             return;
         }
         imageLoadRetries.putIfAbsent(url, 0);
@@ -537,14 +537,6 @@ public class PluginModManagerScreen extends Screen {
                 BufferedImage bufferedImage = loadImage(inputStream, url);
                 if (bufferedImage != null) {
                     iconImages.put(url, bufferedImage);
-                    BufferedImage scaled = new BufferedImage(30, 30, BufferedImage.TYPE_INT_ARGB);
-                    Graphics2D g2d = scaled.createGraphics();
-                    g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                    g2d.drawImage(bufferedImage, 0, 0, 30, 30, null);
-                    g2d.dispose();
-                    synchronized (scaledIcons) {
-                        scaledIcons.put(url, scaled);
-                    }
                     imageLoadRetries.remove(url);
                 }
             } catch (Exception e) {
@@ -555,12 +547,13 @@ public class PluginModManagerScreen extends Screen {
                     loadImageWithRetry(url);
                 } else {
                     devPrint("Failed to load image after " + MAX_IMAGE_LOAD_RETRIES + " attempts: " + url);
-                    scaledIcons.put(url, placeholderIcon);
+                    iconImages.put(url, placeholderIcon);
                     imageLoadRetries.remove(url);
                 }
             }
         });
     }
+
 
     private BufferedImage loadImage(InputStream inputStream, String url) throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();

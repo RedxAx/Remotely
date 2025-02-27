@@ -666,7 +666,6 @@ public class ResourcePageScreen extends Screen {
                         if(remoteSize >= total && total > 0) {
                             break;
                         }
-                        Thread.sleep(500);
                     }
                     minecraftClient.execute(() -> {
                         ver.isDownloading = false;
