@@ -64,7 +64,7 @@ public class FileManager {
                 try {
                     String remotePath = path.toString().replace("\\", "/");
                     String fileName = Paths.get(remotePath).getFileName().toString();
-                    String trashPath = homeDir + "/remotely/data/trash/\"" + fileName + "\"";
+                    String trashPath = homeDir + "/remotely/data/trash/" + fileName;
 
                     if (sshManager.remoteFileExists(homeDir + "/remotely/data/trash")) {
                         sshManager.runRemoteCommand("mkdir -p " + homeDir + "/remotely/data/trash " + "mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
