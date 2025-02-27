@@ -17,6 +17,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Node;
 import org.jsoup.nodes.TextNode;
+import org.lwjgl.glfw.GLFW;
 import redxax.oxy.Render;
 import redxax.oxy.api.IRemotelyResource;
 import redxax.oxy.config.Config;
@@ -204,10 +205,31 @@ public class ResourcePageScreen extends Screen {
                         String verNum = verObj.has("version_number")
                                 ? verObj.get("version_number").getAsString()
                                 : (verObj.has("name") ? verObj.get("name").getAsString() : "Unknown");
-                        String mcVersions = "";
-                        String dateUploaded = verObj.has("createdAt")
-                                ? verObj.get("createdAt").getAsString()
-                                : (verObj.has("date_published") ? verObj.get("date_published").getAsString() : "Unknown");
+                        String mcVersions;
+                        if (resource.getSlug().startsWith("spigot_")) {
+                            mcVersions = verObj.has("testedVersions") ? verObj.get("testedVersions").getAsString() : "";
+                        } else if (resource.getSlug().startsWith("hangar_")) {
+                            mcVersions = verObj.has("gameVersion") ? verObj.get("gameVersion").getAsString() : "Unknown";
+                        } else {
+                            if (verObj.has("game_versions") && verObj.get("game_versions").isJsonArray()) {
+                                JsonArray gameVersionsArray = verObj.getAsJsonArray("game_versions");
+                                List<String> versionsList = new ArrayList<>();
+                                for (JsonElement v : gameVersionsArray) {
+                                    versionsList.add(v.getAsString());
+                                }
+                                mcVersions = String.join(", ", versionsList);
+                            } else {
+                                mcVersions = "Unknown";
+                            }
+                        }
+                        String dateUploaded;
+                        if (resource.getSlug().startsWith("spigot_")) {
+                            dateUploaded = verObj.has("releaseDate") ? verObj.get("releaseDate").getAsString() : "Unknown";
+                        } else {
+                            dateUploaded = verObj.has("createdAt")
+                                    ? verObj.get("createdAt").getAsString()
+                                    : (verObj.has("date_published") ? verObj.get("date_published").getAsString() : "Unknown");
+                        }
                         String fileUrl = "";
                         if (resource.getSlug().startsWith("hangar_")) {
                             if (verObj.has("downloads")) {
@@ -340,7 +362,7 @@ public class ResourcePageScreen extends Screen {
             return true;
         }
         if(mouseX >= siteButtonX && mouseX <= siteButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
-            String siteUrl = getSiteUrlForResource();
+            String siteUrl = getCurrentTabType() == TabType.DESCRIPTION ? getSiteUrlForResource() : getSiteUrlForResource() + (resource.getSlug().startsWith("spigot_") ? "/history" : resource.getSlug().startsWith("hangar_") ? "/versions" : "/changelog");
             if (!siteUrl.isEmpty()) {
                 try {
                     ProcessBuilder pb = new ProcessBuilder("cmd", "/c", "start", siteUrl);
@@ -377,6 +399,15 @@ public class ResourcePageScreen extends Screen {
             }
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            minecraftClient.setScreen(parentScreen);
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     private TabType getCurrentTabType() {
