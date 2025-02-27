@@ -37,14 +37,12 @@ public class ImageUtil {
     public static void drawBufferedImage(DrawContext context, BufferedImage image, int x, int y, int width, int height) {
         Identifier textureId = textureCache.get(image);
         if (textureId == null) {
-            BufferedImage scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g2d = scaledImage.createGraphics();
-            g2d.drawImage(image, 0, 0, width, height, null);
-            g2d.dispose();
-            NativeImage nativeImage = new NativeImage(width, height, true);
-            for (int i = 0; i < width; i++) {
-                for (int j = 0; j < height; j++) {
-                    int argb = scaledImage.getRGB(i, j);
+            int imgWidth = image.getWidth();
+            int imgHeight = image.getHeight();
+            NativeImage nativeImage = new NativeImage(imgWidth, imgHeight, true);
+            for (int i = 0; i < imgWidth; i++) {
+                for (int j = 0; j < imgHeight; j++) {
+                    int argb = image.getRGB(i, j);
                     int a = (argb >> 24) & 0xFF;
                     int r = (argb >> 16) & 0xFF;
                     int g = (argb >> 8) & 0xFF;

@@ -704,7 +704,7 @@ public class SSHManager {
                     channelExec.setErrStream(out);
                     channelExec.connect();
                     while (!channelExec.isClosed()) {
-                        Thread.sleep(100);
+                        Thread.sleep(50);
                     }
                     String output = out.toString(StandardCharsets.UTF_8);
                     channelExec.disconnect();
