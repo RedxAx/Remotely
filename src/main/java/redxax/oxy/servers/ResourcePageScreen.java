@@ -160,7 +160,7 @@ public class ResourcePageScreen extends Screen {
                 if (resource.getSlug().startsWith("spigot_")) {
                     url = "https://api.spiget.org/v2/resources/" + resource.getProjectId() + "/versions?size=10000&sort=-releaseDate";
                 } else if (resource.getSlug().startsWith("hangar_")) {
-                    url = "https://hangar.papermc.io/api/v1/projects/" + resource.getProjectId() + "/versions";
+                    url = "https://hangar.papermc.io/api/v1/projects/" + resource.getAuthor() + "/" + resource.getProjectId() + "/versions";
                 } else {
                     url = "https://api.modrinth.com/v2/project/" + resource.getProjectId() + "/version";
                 }
@@ -204,6 +204,9 @@ public class ResourcePageScreen extends Screen {
                             }
                         } else if(verObj.has("downloadUrl")){
                             fileUrl = verObj.get("downloadUrl").getAsString();
+                        }
+                        if(resource.getSlug().startsWith("spigot_") && fileUrl.isEmpty() && verObj.has("id")){
+                            fileUrl = "https://api.spiget.org/v2/resources/" + resource.getProjectId() + "/download?version=" + verObj.get("id").getAsString();
                         }
                         int downloads = verObj.has("downloads") ? verObj.get("downloads").getAsInt() : 0;
                         fetched.add(new Version(verNum, String.join(", ", mcVersions), dateUploaded, fileUrl, downloads));
@@ -320,7 +323,7 @@ public class ResourcePageScreen extends Screen {
             }
             return true;
         }
-        if(mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+        if(mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH){
             minecraftClient.setScreen(parentScreen);
             return true;
         }
@@ -1202,6 +1205,9 @@ public class ResourcePageScreen extends Screen {
         }
         static BufferedImage loadImage(String url, Map<String, BufferedImage> imageCache, int maxWidth, Map<String, BufferedImage> scaledCache) {
             try {
+                if(url.startsWith("//")){
+                    url = "https:" + url;
+                }
                 if (imageCache.containsKey(url)) {
                     BufferedImage img = imageCache.get(url);
                     if (img.getWidth() > maxWidth) {
