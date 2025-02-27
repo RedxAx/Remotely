@@ -1,6 +1,5 @@
 package redxax.oxy.servers;
 
-import com.google.gson.JsonParser;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
@@ -16,14 +15,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.net.URI;
 import java.net.URL;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -34,8 +26,6 @@ import java.util.concurrent.Executors;
 import static redxax.oxy.config.Config.*;
 import static redxax.oxy.util.DevUtil.devPrint;
 import static redxax.oxy.util.ImageUtil.drawBufferedImage;
-import static redxax.oxy.util.ImageUtil.loadResourceIcon;
-import static redxax.oxy.util.ImageUtil.loadSpriteSheet;
 import static redxax.oxy.Render.*;
 
 public class PluginModManagerScreen extends Screen {
@@ -45,23 +35,19 @@ public class PluginModManagerScreen extends Screen {
     private final List<IRemotelyResource> resources = Collections.synchronizedList(new ArrayList<>());
     private final Map<String, List<IRemotelyResource>> resourceCache = new ConcurrentHashMap<>();
     private final Map<String, BufferedImage> iconImages = new ConcurrentHashMap<>();
-    private final Map<String, BufferedImage> scaledIcons = Collections.synchronizedMap(new LinkedHashMap<String, BufferedImage>(16, 0.75f, true) {
+    private final Map<String, BufferedImage> scaledIcons = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
         private static final int MAX_ENTRIES = 10000;
+
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> eldest) {
             return size() > MAX_ENTRIES;
         }
     });
-    private BufferedImage loadingAnim;
-    private List<BufferedImage> loadingFrames = new ArrayList<>();
-    private int currentLoadingFrame = 0;
-    private long lastFrameTime = 0;
     private final ExecutorService imageLoader = Executors.newFixedThreadPool(4);
     private final BufferedImage placeholderIcon = createPlaceholderIcon();
     private float smoothOffset = 0;
     private float targetOffset = 0;
-    private float scrollSpeed = 0.2f;
-    private int entryHeight = 40;
+    private final int entryHeight = 40;
     private final int gapBetweenEntries = 2;
     private int selectedIndex = -1;
     private volatile boolean isLoading = false;
@@ -70,16 +56,13 @@ public class PluginModManagerScreen extends Screen {
     private int loadedCount = 0;
     private String currentSearch = "";
     private boolean fieldFocused = false;
-    private StringBuilder fieldText = new StringBuilder();
+    private final StringBuilder fieldText = new StringBuilder();
     private int cursorPosition = 0;
     private int selectionStart = -1;
     private int selectionEnd = -1;
     private long lastBlinkTime = 0;
     private boolean showCursor = true;
-    private float pathScrollOffset = 0;
-    private float pathTargetScrollOffset = 0;
     private TextRenderer textRenderer;
-    private boolean searching = false;
     private final Map<String, Integer> imageLoadRetries = new ConcurrentHashMap<>();
     private static final int MAX_IMAGE_LOAD_RETRIES = 3;
     private long lastResourceClickTime = 0;
@@ -89,7 +72,7 @@ public class PluginModManagerScreen extends Screen {
     public static class Tab {
         TabMode mode;
         public String name;
-        float scrollOffset;
+
         Tab(TabMode mode, String name) {
             this.mode = mode;
             this.name = name;
@@ -98,9 +81,6 @@ public class PluginModManagerScreen extends Screen {
     private final List<Tab> tabs = new ArrayList<>();
     private int currentTabIndex = 0;
     private final int TAB_HEIGHT = 18;
-    private final int TAB_PADDING = 5;
-    private final int TAB_GAP = 5;
-    private final int PLUS_TAB_WIDTH = 18;
     private int currentSortIndex = 0;
     private final Map<TabMode, String[]> sortLabels = new HashMap<>();
     private final Map<TabMode, String[]> sortValues = new HashMap<>();
@@ -150,21 +130,8 @@ public class PluginModManagerScreen extends Screen {
             resourceCache.putAll(savedResourceCache);
             hasSavedState = false;
         } else {
-            fieldText.append("");
             cursorPosition = 0;
             loadResourcesAsync("", true);
-        }
-        try {
-            loadingAnim = loadSpriteSheet("/assets/remotely/icons/loadinganim.png");
-            int frameWidth = 16;
-            int frameHeight = 16;
-            int rows = loadingAnim.getHeight() / frameHeight;
-            for (int i = 0; i < rows; i++) {
-                BufferedImage frame = loadingAnim.getSubimage(0, i * frameHeight, frameWidth, frameHeight);
-                loadingFrames.add(frame);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 
@@ -193,11 +160,11 @@ public class PluginModManagerScreen extends Screen {
         int tabBarY = titleBarHeight + 5;
         int tabBarHeight = TAB_HEIGHT;
         int tabX = 5;
-        int tabY = tabBarY;
         for (int i = 0; i < tabs.size(); i++) {
             Tab tab = tabs.get(i);
+            int TAB_PADDING = 5;
             int tabWidth = this.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
-            if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight) {
+            if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight) {
                 if (tab.mode == TabMode.SORT) {
                     nextSort();
                     loadResourcesAsync(currentSearch, true);
@@ -208,11 +175,13 @@ public class PluginModManagerScreen extends Screen {
                 handled = true;
                 break;
             }
+            int TAB_GAP = 5;
             tabX += tabWidth + TAB_GAP;
         }
         int plusTabX = tabX;
         if (!handled) {
-            if (mouseX >= plusTabX && mouseX <= plusTabX + PLUS_TAB_WIDTH && mouseY >= tabY && mouseY <= tabY + tabBarHeight) {
+            int PLUS_TAB_WIDTH = 18;
+            if (mouseX >= plusTabX && mouseX <= plusTabX + PLUS_TAB_WIDTH && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight) {
                 handled = true;
             }
         }
@@ -272,7 +241,6 @@ public class PluginModManagerScreen extends Screen {
             }
             fieldText.insert(cursorPosition, chr);
             cursorPosition++;
-            searching = true;
             currentSearch = fieldText.toString();
             return true;
         }
@@ -301,7 +269,6 @@ public class PluginModManagerScreen extends Screen {
                         cursorPosition--;
                     }
                 }
-                searching = true;
                 currentSearch = fieldText.toString();
                 return true;
             }
@@ -318,7 +285,6 @@ public class PluginModManagerScreen extends Screen {
                         fieldText.deleteCharAt(cursorPosition);
                     }
                 }
-                searching = true;
                 currentSearch = fieldText.toString();
                 return true;
             }
@@ -341,7 +307,6 @@ public class PluginModManagerScreen extends Screen {
             }
             if (ctrl && keyCode == GLFW.GLFW_KEY_V) {
                 pasteClipboard();
-                searching = true;
                 currentSearch = fieldText.toString();
                 return true;
             }
@@ -374,13 +339,13 @@ public class PluginModManagerScreen extends Screen {
                 cursorPosition += clipboard.length();
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            devPrint("Failed to paste clipboard: " + e.getMessage());
         }
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        targetOffset -= verticalAmount * entryHeight * 2;
+        targetOffset -= (float) (verticalAmount * entryHeight * 2);
         targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, resources.size() * (entryHeight + gapBetweenEntries) - (this.height - 70))));
         return true;
     }
@@ -400,15 +365,17 @@ public class PluginModManagerScreen extends Screen {
         drawOuterBorder(context, 0, 0, this.width, titleBarHeight, globalBottomBorder);
         context.drawText(this.textRenderer, Text.literal(this.getTitle().getString()), 10, 10, screensTitleTextColor, Config.shadow);
         int tabBarY = titleBarHeight + 5;
-        int tabBarHeight = TAB_HEIGHT;
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
+        float pathScrollOffset = 0;
+        float pathTargetScrollOffset = 0;
         drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, showCursor, false, "PluginModManagerScreen");
         int closeButtonX = this.width - buttonW - 10;
         int closeButtonY = 5;
         boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH;
         drawCustomButton(context, closeButtonX, closeButtonY, "Close", minecraftClient, hoveredClose, false, true, buttonTextColor, buttonTextDeleteColor);
+        float scrollSpeed = 0.2f;
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
-        int contentY = tabBarY + tabBarHeight + 30;
+        int contentY = tabBarY + TAB_HEIGHT + 30;
         int contentHeight = this.height - contentY - 10;
         int contentX = 5;
         int contentWidth = this.width - 10;
@@ -418,18 +385,7 @@ public class PluginModManagerScreen extends Screen {
         context.drawText(textRenderer, Text.literal("Name"), contentX + 10, contentY - 18, screensTitleTextColor, Config.shadow);
         context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
         if (isLoading && resources.isEmpty()) {
-            long currentTime = System.currentTimeMillis();
-            if (currentTime - lastFrameTime >= 40) {
-                currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
-                lastFrameTime = currentTime;
-            }
-            BufferedImage currentFrame = loadingFrames.get(currentLoadingFrame);
-            int scale = 8;
-            int imgWidth = currentFrame.getWidth() * scale;
-            int imgHeight = currentFrame.getHeight() * scale;
-            int centerX = (this.width - imgWidth) / 2;
-            int centerY = (this.height - imgHeight) / 2;
-            drawBufferedImage(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
+            drawLoading(context, super.height, super.width);
             context.disableScissor();
             return;
         }
@@ -525,34 +481,22 @@ public class PluginModManagerScreen extends Screen {
         if (tabMode == TabMode.MODRINTH) {
             if (serverInfo.isModServer()) {
                 searchFuture = ModrinthAPI.searchMods(query, serverVersion, limit, loadedCount, serverInfo.type, sortParam)
-                        .thenApply(list -> new ArrayList<>(list));
+                        .thenApply(ArrayList::new);
             } else if (serverInfo.isPluginServer()) {
                 searchFuture = ModrinthAPI.searchPlugins(query, serverVersion, limit, loadedCount, serverInfo.type, sortParam)
-                        .thenApply(list -> new ArrayList<>(list));
+                        .thenApply(ArrayList::new);
             } else {
                 searchFuture = ModrinthAPI.searchModpacks(query, serverVersion, limit, loadedCount, sortParam)
-                        .thenApply(list -> new ArrayList<>(list));
+                        .thenApply(ArrayList::new);
             }
         } else if (tabMode == TabMode.SPIGOT) {
             int page = loadedCount / limit;
             searchFuture = SpigetAPI.searchPlugins(query, limit, page, sortParam)
-                    .thenApply(list -> {
-                        List<IRemotelyResource> mapped = new ArrayList<>();
-                        for (SpigetResource sr : list) {
-                            mapped.add(sr);
-                        }
-                        return mapped;
-                    });
+                    .thenApply(ArrayList::new);
         } else {
             int offset = loadedCount;
             searchFuture = HangarAPI.searchPlugins(query, limit, offset, sortParam)
-                    .thenApply(list -> {
-                        List<IRemotelyResource> mapped = new ArrayList<>();
-                        for (HangarResource hr : list) {
-                            mapped.add(hr);
-                        }
-                        return mapped;
-                    });
+                    .thenApply(ArrayList::new);
         }
         searchFuture.thenAccept(fetched -> {
             if (fetched.size() < limit) hasMore = false;
@@ -575,7 +519,7 @@ public class PluginModManagerScreen extends Screen {
                 }
             });
         }).exceptionally(e -> {
-            e.printStackTrace();
+            devPrint("Failed to load resources: " + e.getMessage());
             isLoading = false;
             isLoadingMore = false;
             return null;

@@ -480,7 +480,7 @@ public class ResourcePageScreen extends Screen {
         drawOuterBorder(context, contentX, contentY, contentWidth, contentHeight, globalBottomBorder);
         if(getCurrentTabType() == TabType.DESCRIPTION){
             if(isLoadingMarkdown){
-                context.drawText(minecraftClient.textRenderer, Text.literal("Loading..."), this.width / 2 - 20, this.height / 2, screensTitleTextColor, Config.shadow);
+                drawLoading(context, super.height, super.width);
                 return;
             }
             linkRegions.clear();

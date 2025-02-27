@@ -12,10 +12,14 @@ import redxax.oxy.explorer.FileEditorScreen;
 import redxax.oxy.servers.PluginModManagerScreen;
 import redxax.oxy.util.TabTextAnimator;
 
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 
 import static redxax.oxy.config.Config.*;
+import static redxax.oxy.util.DevUtil.devPrint;
+import static redxax.oxy.util.ImageUtil.drawBufferedImage;
+import static redxax.oxy.util.ImageUtil.loadSpriteSheet;
 
 public class Render {
 
@@ -24,6 +28,10 @@ public class Render {
     private static TabTextAnimator searchTextAnimator = new TabTextAnimator("", 2, 30);
     private static String previousFieldText = "";
     private static boolean isAnimating = false;
+    private static BufferedImage loadingAnim;
+    private static final List<BufferedImage> loadingFrames = new ArrayList<>();
+    private static int currentLoadingFrame = 0;
+    private static long lastFrameTime = 0;
 
     public static void drawTabs(DrawContext context, TextRenderer textRenderer, List<?> tabs, int currentTabIndex, int mouseX, int mouseY, boolean hasPlus, boolean isUnsaved) {
         int tabBarX = 5;
@@ -40,8 +48,7 @@ public class Render {
             String name;
             if (tab instanceof FileExplorerScreen.Tab) {
                 name = ((FileExplorerScreen.Tab) tab).getAnimatedText();
-            } else if (tab instanceof FileEditorScreen.Tab) {
-                FileEditorScreen.Tab t = (FileEditorScreen.Tab) tab;
+            } else if (tab instanceof FileEditorScreen.Tab t) {
                 name = t.unsaved ? t.name + "*" : t.name;
             } else if (tab instanceof PluginModManagerScreen.Tab) {
                 name = ((PluginModManagerScreen.Tab) tab).name;
@@ -116,7 +123,6 @@ public class Render {
         if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
             int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
             int selEnd = Math.min(displayText.length(), Math.max(selectionStart, selectionEnd));
-            if (selStart < 0) selStart = 0;
             if (selEnd > displayText.length()) selEnd = displayText.length();
             String beforeSel = displayText.substring(0, selStart);
             String selectedText = displayText.substring(selStart, selEnd);
@@ -183,6 +189,33 @@ public class Render {
         context.fill(x + width, y, x + width + 1, y + height, color);
     }
 
+    public static void drawLoading(DrawContext context, int height, int width) {
+        try {
+            loadingAnim = loadSpriteSheet("/assets/remotely/icons/loadinganim.png");
+        } catch (Exception e) {
+            devPrint("Failed to load loading animation");
+        }
+        int frameWidth = 16;
+        int frameHeight = 16;
+        int rows = loadingAnim.getHeight() / frameHeight;
+        for (int i = 0; i < rows; i++) {
+            BufferedImage frame = loadingAnim.getSubimage(0, i * frameHeight, frameWidth, frameHeight);
+            loadingFrames.add(frame);
+        }
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastFrameTime >= 40) {
+            currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
+            lastFrameTime = currentTime;
+        }
+        BufferedImage currentFrame = loadingFrames.get(currentLoadingFrame);
+        int scale = 8;
+        int imgWidth = currentFrame.getWidth() * scale;
+        int imgHeight = currentFrame.getHeight() * scale;
+        int centerX = (width - imgWidth) / 2;
+        int centerY = (height - imgHeight) / 2;
+        drawBufferedImage(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
+    }
+
     public static class ContextMenu {
         private static int MenuHoverColor = 0xFFd6f264;
 
@@ -201,8 +234,8 @@ public class Render {
         private static int menuX;
         private static int menuY;
         private static int itemWidth;
-        private static int itemHeight = 18;
-        private static int gap = 1;
+        private static final int itemHeight = 18;
+        private static final int gap = 1;
 
         public static void show(int x, int y, int width, int screenWidth, int screenHeight) {
             open = true;
@@ -239,9 +272,9 @@ public class Render {
         public static void renderMenu(DrawContext context, MinecraftClient mc, int mouseX, int mouseY) {
             if (!open) return;
             int currentY = menuY;
-            for (int i = 0; i < items.size(); i++) {
+            for (MenuItem item : items) {
                 boolean hovered = mouseX >= menuX && mouseX <= menuX + itemWidth && mouseY >= currentY && mouseY < currentY + itemHeight;
-                drawCustomButton(context, menuX, currentY, items.get(i).label, mc, hovered, false, false, buttonTextColor, MenuHoverColor);
+                drawCustomButton(context, menuX, currentY, item.label, mc, hovered, false, false, buttonTextColor, MenuHoverColor);
                 currentY += itemHeight + gap;
             }
         }
@@ -249,10 +282,10 @@ public class Render {
         public static boolean mouseClicked(double mouseX, double mouseY, int button) {
             if (!open) return false;
             int currentY = menuY;
-            for (int i = 0; i < items.size(); i++) {
+            for (MenuItem item : items) {
                 boolean hovered = mouseX >= menuX && mouseX <= menuX + itemWidth && mouseY >= currentY && mouseY < currentY + itemHeight;
                 if (hovered && button == GLFW.GLFW_MOUSE_BUTTON_1) {
-                    items.get(i).action.run();
+                    item.action.run();
                     hide();
                     return true;
                 }
