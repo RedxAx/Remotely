@@ -33,7 +33,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private List<EntryData> fileEntries;
     private final Object fileEntriesLock = new Object();
     private float smoothOffset = 0;
-    private final int entryHeight = 25;
+    private final int entryHeight = 20;
     private Path currentPath;
     private float targetOffset = 0;
     private float scrollSpeed = 0.2f;
@@ -361,9 +361,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
                 context.fill(explorerX, entryY + entryHeight - 1, explorerX + explorerWidth, entryY + entryHeight, borderWithOpacity);
                 BufferedImage icon = entry.isDirectory ? folderIcon : getIconForFile(entry.path);
-                drawBufferedImage(context, icon, explorerX + 10, entryY + 5, 16, 16);
+                drawBufferedImage(context, icon, explorerX + 10, entryY + 2, 16, 16);
                 if (isFavorite) {
-                    drawBufferedImage(context, pinIcon, entry.isDirectory ? explorerX + 5 : explorerX + 7, entryY + 5, 16, 16);
+                    drawBufferedImage(context, pinIcon, entry.isDirectory ? explorerX + 5 : explorerX + 7, entryY + 2, 16, 16);
                 }
                 if (renamePath != null && renamePath.equals(entry.path)) {
                     int renameBoxX = explorerX + 30;
@@ -382,9 +382,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     if (!serverInfo.isRemote) {
                         int createdX = explorerX + explorerWidth - 100;
                         int sizeX = createdX - 100;
-                        context.drawText(this.textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 5, textWithOpacity, Config.shadow);
-                        context.drawText(this.textRenderer, Text.literal(entry.created), createdX, entryY + 5, textWithOpacity, Config.shadow);
-                        context.drawText(this.textRenderer, Text.literal(entry.size), sizeX, entryY + 5, textWithOpacity, Config.shadow);
+                        context.drawText(this.textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 6, textWithOpacity, Config.shadow);
+                        context.drawText(this.textRenderer, Text.literal(entry.created), createdX, entryY + 6, textWithOpacity, Config.shadow);
+                        context.drawText(this.textRenderer, Text.literal(entry.size), sizeX, entryY + 6, textWithOpacity, Config.shadow);
                     } else {
                         context.drawText(this.textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 5, textWithOpacity, Config.shadow);
                     }
