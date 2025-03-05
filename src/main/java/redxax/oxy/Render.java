@@ -18,8 +18,7 @@ import java.util.List;
 
 import static redxax.oxy.config.Config.*;
 import static redxax.oxy.util.DevUtil.devPrint;
-import static redxax.oxy.util.ImageUtil.drawBufferedImage;
-import static redxax.oxy.util.ImageUtil.loadSpriteSheet;
+import static redxax.oxy.util.ImageUtil.*;
 
 public class Render {
 
@@ -213,7 +212,7 @@ public class Render {
         int imgHeight = currentFrame.getHeight() * scale;
         int centerX = (width - imgWidth) / 2;
         int centerY = (height - imgHeight) / 2;
-        drawBufferedImage(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
+        drawPixelArt(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
     }
 
     public static class ContextMenu {

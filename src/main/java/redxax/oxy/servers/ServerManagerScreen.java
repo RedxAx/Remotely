@@ -43,6 +43,7 @@ import static redxax.oxy.Render.drawCustomButton;
 import static redxax.oxy.Render.drawInnerBorder;
 import static redxax.oxy.Render.drawOuterBorder;
 import static redxax.oxy.util.DevUtil.devPrint;
+import static redxax.oxy.util.ImageUtil.drawPixelArt;
 
 public class ServerManagerScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -180,7 +181,7 @@ public class ServerManagerScreen extends Screen {
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
         if (windowsBackground != null && Config.wallpaper) {
-            ImageUtil.drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
+            drawPixelArt(context, windowsBackground, 0, 0, this.width, this.height);
         } else {
             context.fillGradient(0, 0, this.width, this.height, serverScreenBackgroundColor, serverScreenBackgroundColor);
         }
@@ -215,7 +216,7 @@ public class ServerManagerScreen extends Screen {
             int imgHeight = currentFrame.getHeight() * scale;
             int centerX = (this.width - imgWidth) / 2;
             int centerY = (this.height - imgHeight) / 2;
-            ImageUtil.drawBufferedImage(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
+            drawPixelArt(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
         } else {
             renderDesktopIcons(context, mouseX, mouseY);
         }
@@ -378,7 +379,7 @@ public class ServerManagerScreen extends Screen {
             if (i < currentServers.size()) {
                 ServerInfo server = currentServers.get(i);
                 BufferedImage icon = getServerIcon(server);
-                ImageUtil.drawBufferedImage(context, icon, (int) currentX, (int) currentY, iconSize, iconSize);
+                drawPixelArt(context, icon, (int) currentX, (int) currentY, iconSize, iconSize);
                 if (selectedDesktopIndex == i) {
                     drawInnerBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, explorerElementSelectedBorderColor);
                     drawOuterBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, globalBottomBorder);
@@ -394,7 +395,7 @@ public class ServerManagerScreen extends Screen {
                 int textX = (int) currentX + (iconSize - textWidth) / 2;
                 context.drawText(minecraftClient.textRenderer, Text.literal(trimmed), textX, (int) currentY + iconSize + 2, serverElementTextColor, Config.shadow);
             } else {
-                ImageUtil.drawBufferedImage(context, serverIcon, (int) currentX, (int) currentY, iconSize, iconSize);
+                drawPixelArt(context, serverIcon, (int) currentX, (int) currentY, iconSize, iconSize);
                 if (mouseX >= currentX && mouseX <= currentX + iconSize && mouseY >= currentY && mouseY <= currentY + iconSize) {
                     context.fill((int) currentX, (int) currentY, (int) currentX + iconSize, (int) currentY + iconSize, 0x40FFFFFF);
                 }
@@ -421,9 +422,9 @@ public class ServerManagerScreen extends Screen {
         int yTask = this.height - taskbarHeight + (taskbarHeight - iconSize) / 2;
         int xTask = padding;
 
-        ImageUtil.drawBufferedImage(context, terminalIcon, xTask, yTask, iconSize, iconSize);
+        drawPixelArt(context, terminalIcon, xTask, yTask, iconSize, iconSize);
         xTask += iconSize + padding;
-        ImageUtil.drawBufferedImage(context, explorerIcon, xTask, yTask, iconSize, iconSize);
+        drawPixelArt(context, explorerIcon, xTask, yTask, iconSize, iconSize);
 
         renderHostTabs(context, mouseX, mouseY);
     }
