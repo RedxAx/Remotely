@@ -174,9 +174,9 @@ public class DeskSelectionScreen extends Screen {
             drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, item.isFavorite ? explorerElementFavoriteSelectedBorderColor : (hovered ? explorerElementBorderHoverColor : explorerElementBorderColor));
             drawOuterBorder(context, drawX, drawY, itemWidth, itemHeight, globalBottomBorder);
             BufferedImage icon = item.isDirectory ? folderIcon : fileIcon;
-            drawBufferedImage(context, icon, drawX + 7, drawY + (itemHeight / 2) - 8, 16, 16);
+            drawPixelArt(context, icon, drawX + 7, drawY + (itemHeight / 2) - 8, 16, 16);
             if (item.isFavorite) {
-                drawBufferedImage(context, pinIcon, item.isDirectory ? drawX + 2 : drawX + 4, drawY + (itemHeight / 2) - 8, 16, 16);
+                drawPixelArt(context, pinIcon, item.isDirectory ? drawX + 2 : drawX + 4, drawY + (itemHeight / 2) - 8, 16, 16);
             }
             String firstLine = item.displayName;
             String secondLine = item.isRemote ? (item.remoteServerPath != null ? item.remoteServerPath.toString() : "") : item.localPath.toAbsolutePath().normalize().toString();

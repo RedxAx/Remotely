@@ -317,7 +317,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             int imgHeight = currentFrame.getHeight() * scale;
             int centerX = (this.width - imgWidth) / 2;
             int centerY = (this.height - imgHeight) / 2;
-            drawBufferedImage(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
+            drawPixelArt(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
             return;
         }
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
@@ -361,9 +361,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
                 context.fill(explorerX, entryY + entryHeight - 1, explorerX + explorerWidth, entryY + entryHeight, borderWithOpacity);
                 BufferedImage icon = entry.isDirectory ? folderIcon : getIconForFile(entry.path);
-                drawBufferedImage(context, icon, explorerX + 10, entryY + 2, 16, 16);
+                drawPixelArt(context, icon, explorerX + 10, entryY + 2, 16, 16);
                 if (isFavorite) {
-                    drawBufferedImage(context, pinIcon, entry.isDirectory ? explorerX + 5 : explorerX + 7, entryY + 2, 16, 16);
+                    drawPixelArt(context, pinIcon, entry.isDirectory ? explorerX + 5 : explorerX + 7, entryY + 2, 16, 16);
                 }
                 if (renamePath != null && renamePath.equals(entry.path)) {
                     int renameBoxX = explorerX + 30;

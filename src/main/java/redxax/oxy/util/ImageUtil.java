@@ -57,4 +57,31 @@ public class ImageUtil {
         }
         context.drawTexture(textureId, x, y, 0, 0, width, height, width, height);
     }
+
+    public static void drawPixelArt(DrawContext context, BufferedImage image, int x, int y, int width, int height) {
+        Identifier textureId = textureCache.get(image);
+        if (textureId == null) {
+            BufferedImage scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2d = scaledImage.createGraphics();
+            g2d.drawImage(image, 0, 0, width, height, null);
+            g2d.dispose();
+            NativeImage nativeImage = new NativeImage(width, height, true);
+            for (int i = 0; i < width; i++) {
+                for (int j = 0; j < height; j++) {
+                    int argb = scaledImage.getRGB(i, j);
+                    int a = (argb >> 24) & 0xFF;
+                    int r = (argb >> 16) & 0xFF;
+                    int g = (argb >> 8) & 0xFF;
+                    int b = argb & 0xFF;
+                    int abgr = (a << 24) | (b << 16) | (g << 8) | r;
+                    nativeImage.setColor(i, j, abgr);
+                }
+            }
+            NativeImageBackedTexture texture = new NativeImageBackedTexture(nativeImage);
+            textureId = MinecraftClient.getInstance().getTextureManager().registerDynamicTexture("image_" + image.hashCode(), texture);
+            textureCache.put(image, textureId);
+        }
+        context.drawTexture(textureId, x, y, 0, 0, width, height, width, height);
+    }
 }
+
