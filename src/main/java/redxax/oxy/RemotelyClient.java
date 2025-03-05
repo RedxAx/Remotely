@@ -21,6 +21,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import static redxax.oxy.servers.BrowserScreen.closeAll;
+
 public class RemotelyClient implements ClientModInitializer {
 
     public ArrayList<TerminalInstance> multiTerminals;
@@ -31,7 +33,6 @@ public class RemotelyClient implements ClientModInitializer {
     private ServerManagerScreen serverManagerScreen;
     private static final Path TERMINAL_LOG_DIR = Paths.get("C:/remotely/data/remotely", "logs");
     private static final Path SNIPPETS_FILE = Paths.get("C:/remotely/data/snippets.json");
-    public static final Path FILE_EXPLORER_TABS_FILE = Paths.get("C:/remotely/data/fileExplorerTabs.json");
     private static final Path FILE_EDITOR_TABS_FILE = Paths.get("C:/remotely/data/file_editor_tabs.dat");
 
     private static final Gson GSON = new Gson();
@@ -159,6 +160,7 @@ public class RemotelyClient implements ClientModInitializer {
         } catch (IOException e) {
             System.out.println("Failed to clear terminal log files.");
         }
+        closeAll();
     }
 
     public void onMultiTerminalScreenClosed() {

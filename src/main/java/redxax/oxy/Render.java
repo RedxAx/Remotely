@@ -24,13 +24,15 @@ public class Render {
 
     public static int buttonW = 60;
     public static int buttonH = 18;
-    private static TabTextAnimator searchTextAnimator = new TabTextAnimator("", 2, 30);
+    private static TabTextAnimator searchTextAnimator = new TabTextAnimator("", 2, 3);
     private static String previousFieldText = "";
     private static boolean isAnimating = false;
     private static BufferedImage loadingAnim;
     private static final List<BufferedImage> loadingFrames = new ArrayList<>();
     private static int currentLoadingFrame = 0;
     private static long lastFrameTime = 0;
+    private static float scrollInterpolation = 0.15f;
+    private static float currentScrollOffset = 0f;
 
     public static void drawTabs(DrawContext context, TextRenderer textRenderer, List<?> tabs, int currentTabIndex, int mouseX, int mouseY, boolean hasPlus, boolean isUnsaved) {
         int tabBarX = 5;
@@ -81,7 +83,7 @@ public class Render {
             context.fill(x, tabBarY, x2, tabBarY + tabBarHeight, bgColor);
             drawInnerBorder(context, x, tabBarY, tabWidth, tabBarHeight, isActive ? isUnsaved ? tabUnsavedBorderColor : tabSelectedBorderColor :  isHovered ? tabBorderHoverColor : tabBorderColor);
             drawOuterBorder(context, x, tabBarY, tabWidth, tabBarHeight, globalBottomBorder);
-            context.drawText(textRenderer, Text.literal(name), x + tabPadding, tabBarY + (tabBarHeight - textRenderer.fontHeight) / 2, isHovered ? tabTextHoverColor : tabTextColor, shadow);
+            context.drawText(textRenderer, Text.literal(name), x + tabPadding, tabBarY + 5, isHovered ? tabTextHoverColor : tabTextColor, shadow);
             x += tabWidth + tabGap;
         }
         if (hasPlus) {
@@ -89,7 +91,7 @@ public class Render {
             context.fill(x, tabBarY, x + plusTabWidth, tabBarY + tabBarHeight, isPlusTabHovered ? tabBackgroundHoverColor : tabBackgroundColor);
             drawInnerBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, isPlusTabHovered ? tabBorderHoverColor : tabBorderColor);
             drawOuterBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, globalBottomBorder);
-            context.drawText(textRenderer, Text.literal(plusSign), x + plusTabWidth / 2 - textRenderer.getWidth(plusSign) / 2, tabBarY + (tabBarHeight - textRenderer.fontHeight) / 2, isPlusTabHovered ? tabTextHoverColor : tabTextColor, shadow);
+            context.drawText(textRenderer, Text.literal(plusSign), x + plusTabWidth / 2 - textRenderer.getWidth(plusSign) / 2, tabBarY + 5, isPlusTabHovered ? tabTextHoverColor : tabTextColor, shadow);
         }
     }
 
@@ -106,7 +108,7 @@ public class Render {
         }
         String displayText = fieldFocused ? fieldText.toString() : searchTextAnimator.getCurrentText();
         int searchBarWidth = 200;
-        int searchBarHeight = 20;
+        int searchBarHeight = 18;
         int searchBarX = (context.getScaledWindowWidth() - searchBarWidth) / 2;
         int searchBarY = 5;
         int baseColor = searchBarBackgroundColor;
@@ -134,25 +136,32 @@ public class Render {
         }
         int displayWidth = searchBarWidth - 10;
         int textWidth = textRenderer.getWidth(displayText);
-        int cursorX = searchBarX + 5 + textRenderer.getWidth(displayText.substring(0, Math.min(cursorPosition, displayText.length())));
-        float cursorMargin = 50f;
-        float localPathScrollOffset = pathScrollOffset;
-        float localPathTargetScrollOffset = pathTargetScrollOffset;
-        if (cursorX - localPathScrollOffset > searchBarX + displayWidth - 5 - cursorMargin) {
-            localPathTargetScrollOffset = cursorX - (searchBarX + displayWidth - 5 - cursorMargin);
-        } else if (cursorX - localPathScrollOffset < searchBarX + 5 + cursorMargin) {
-            localPathTargetScrollOffset = cursorX - (searchBarX + 5 + cursorMargin);
+        String beforeCursor = cursorPosition <= displayText.length() ? displayText.substring(0, cursorPosition) : displayText;
+        int cursorX = searchBarX + 5 + textRenderer.getWidth(beforeCursor);
+        float cursorMargin = 20f;
+        float targetScrollOffset = pathTargetScrollOffset;
+
+        if (cursorX - currentScrollOffset > searchBarX + displayWidth - cursorMargin) {
+            targetScrollOffset = cursorX - (searchBarX + displayWidth - cursorMargin);
+        } else if (cursorX - currentScrollOffset < searchBarX + cursorMargin) {
+            targetScrollOffset = Math.max(0, cursorX - (searchBarX + cursorMargin));
         }
-        localPathTargetScrollOffset = Math.max(0, Math.min(localPathTargetScrollOffset, textWidth - displayWidth));
-        localPathScrollOffset += (localPathTargetScrollOffset - localPathScrollOffset);
+
+        if (textWidth > displayWidth) {
+            targetScrollOffset = Math.max(0, Math.min(targetScrollOffset, textWidth - displayWidth));
+        } else {
+            targetScrollOffset = 0;
+        }
+
+        currentScrollOffset += (targetScrollOffset - currentScrollOffset) * scrollInterpolation;
+
         if (!fieldFocused && isAnimating && searchTextAnimator.hasCompleted()) {
             isAnimating = false;
         }
         context.enableScissor(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight);
-        context.drawText(textRenderer, Text.literal(displayText), searchBarX + 5 - (int) localPathScrollOffset, searchBarY + 5, textColor, shadow);
+        context.drawText(textRenderer, Text.literal(displayText), searchBarX + 5 - (int) currentScrollOffset, searchBarY + 5, textColor, shadow);
         if (fieldFocused && showCursor) {
-            String beforeCursor = cursorPosition <= displayText.length() ? displayText.substring(0, cursorPosition) : displayText;
-            int cursorPosX = searchBarX + 5 + textRenderer.getWidth(beforeCursor) - (int) localPathScrollOffset;
+            int cursorPosX = searchBarX + 5 + textRenderer.getWidth(beforeCursor) - (int) currentScrollOffset;
             context.fill(cursorPosX, searchBarY + 5, cursorPosX + 1, searchBarY + 5 + textRenderer.fontHeight, 0xFFFFFFFF);
         }
         context.disableScissor();
@@ -170,22 +179,35 @@ public class Render {
         drawOuterBorder(context, x, y, buttonW, buttonH, globalBottomBorder);
         int tw = mc.textRenderer.getWidth(text);
         int tx = centered ? x + (buttonW - tw) / 2 : x + 5;
-        int ty = y + (buttonH - mc.textRenderer.fontHeight) / 2;
+        int ty = y + 5;
         context.drawText(mc.textRenderer, Text.literal(text), tx, ty, hovered ? hoverColor : txColor, Config.shadow);
     }
 
-    public static void drawInnerBorder(DrawContext context, int x, int y, int buttonW, int buttonH, int i) {
-        context.fill(x, y, x + buttonW, y + 1, i);
-        context.fill(x, y + buttonH - 1, x + buttonW, y + buttonH, i);
-        context.fill(x, y, x + 1, y + buttonH, i);
-        context.fill(x + buttonW - 1, y, x + buttonW, y + buttonH, i);
+    public static void drawSquareButton(DrawContext context, int x, int y, MinecraftClient mc, String text, boolean hovered,  int txColor, int hoverColor) {
+        int bg = hovered ? buttonBackgroundHoverColor : buttonBackgroundColor;
+        int w = 18;
+        int h = 18;
+        context.fill(x, y, x + w, y + h, bg);
+        drawInnerBorder(context, x, y, w, h, hovered ? buttonBorderHoverColor : buttonBorderColor);
+        drawOuterBorder(context, x, y, w, h, globalBottomBorder);
+        int tw = mc.textRenderer.getWidth(text);
+        int tx =  x + (w - tw) / 2;
+        int ty = y + 5;
+        context.drawText(mc.textRenderer, Text.literal(text), tx, ty, hovered ? hoverColor : txColor, Config.shadow);
     }
 
-    public static void drawOuterBorder(DrawContext context, int x, int y, int width, int height, int color) {
-        context.fill(x - 1, y - 1, x + width + 1, y, color);
-        context.fill(x - 1, y + height, x + width + 1, y + height + 2, color);
-        context.fill(x - 1, y, x, y + height, color);
-        context.fill(x + width, y, x + width + 1, y + height, color);
+    public static void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int i) {
+        context.fill(x, y, x + w, y + 1, i);
+        context.fill(x, y + h - 1, x + w, y + h, i);
+        context.fill(x, y, x + 1, y + h, i);
+        context.fill(x + w - 1, y, x + w, y + h, i);
+    }
+
+    public static void drawOuterBorder(DrawContext context, int x, int y, int w, int h, int color) {
+        context.fill(x - 1, y - 1, x + w + 1, y, color);
+        context.fill(x - 1, y + h, x + w + 1, y + h + 2, color);
+        context.fill(x - 1, y, x, y + h, color);
+        context.fill(x + w, y, x + w + 1, y + h, color);
     }
 
     public static void drawLoading(DrawContext context, int height, int width) {

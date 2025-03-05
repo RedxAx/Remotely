@@ -38,6 +38,8 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import org.lwjgl.glfw.GLFW;
+
+import static net.minecraft.client.realms.task.LongRunningTask.setScreen;
 import static redxax.oxy.config.Config.*;
 import static redxax.oxy.Render.drawCustomButton;
 import static redxax.oxy.Render.drawInnerBorder;
@@ -781,6 +783,8 @@ public class ServerManagerScreen extends Screen {
             handleRemoteHostTypingKey(keyCode);
             return true;
         }
+        if (keyCode == GLFW.GLFW_KEY_B)
+            setScreen(new BrowserScreen(minecraftClient, this, "www.google.com"));
         if (!serverPopupActive) return super.keyPressed(keyCode, scanCode, modifiers);
         if (nameFieldFocused) {
             if (handleTypingKey(keyCode, serverNameBuffer, true)) return true;
