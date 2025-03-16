@@ -316,45 +316,45 @@ public class Render {
         drawOuterBorder(context, 0, 0, parent.width, 30, globalBottomBorder);
 
         if (icon1 != null) {
-            boolean isIcon1Hovered = mouseX >= width - 23 && mouseX <= width - 5 && mouseY >= 5 && mouseY <= 23;
+            boolean isIcon1Hovered = mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24;
             drawSquareButton(context, width - 23, 5, minecraftClient, "", isIcon1Hovered, buttonTextColor, buttonTextCancelColor);
-            drawPixelArt(context, icon1, width - 21 -1, 6, 16, 16);
+            drawPixelArt(context, icon1, width - 22, 6, 16, 16);
         }
         if (icon2 != null) {
-            boolean isIcon2Hovered = mouseX >= width - 46 && mouseX <= width - 26 && mouseY >= 5 && mouseY <= 23;
+            boolean isIcon2Hovered = mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24;
             drawSquareButton(context, width - 46, 5, minecraftClient, "", isIcon2Hovered, buttonTextColor, buttonTextHoverColor);
-            drawPixelArt(context, icon2, width - 44 -1, 6, 16, 16);
+            drawPixelArt(context, icon2, width - 45, 6, 16, 16);
         }
         if (icon3 != null) {
-            boolean isIcon3Hovered = mouseX >= width - 69 && mouseX <= width - 49 && mouseY >= 5 && mouseY <= 23;
+            boolean isIcon3Hovered = mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24;
             drawSquareButton(context, width - 69, 5, minecraftClient, "", isIcon3Hovered, buttonTextColor, buttonTextHoverColor);
-            drawPixelArt(context, icon3, width - 67 -1, 6, 16, 16);
+            drawPixelArt(context, icon3, width - 68, 6, 16, 16);
         }
         if (icon4 != null) {
-            boolean isIcon4Hovered = mouseX >= width - 92 && mouseX <= width - 72 && mouseY >= 5 && mouseY <= 23;
+            boolean isIcon4Hovered = mouseX >= width - 92 && mouseX <= width - 75 && mouseY >= 6 && mouseY <= 24;
             drawSquareButton(context, width - 92, 5, minecraftClient, "", isIcon4Hovered, buttonTextColor, buttonTextHoverColor);
-            drawPixelArt(context, icon4, width - 90 -1, 6, 16, 16);
+            drawPixelArt(context, icon4, width - 91, 6, 16, 16);
         }
 
         if (icon5 != null) {
-            boolean isIcon5Hovered = mouseX >= 5 && mouseX <= 25 && mouseY >= 5 && mouseY <= 23;
+            boolean isIcon5Hovered = mouseX >= 5 && mouseX <= 22 && mouseY >= 6 && mouseY <= 24;
             drawSquareButton(context, 5, 5, minecraftClient, "", isIcon5Hovered, buttonTextColor, buttonTextHoverColor);
-            drawPixelArt(context, icon5, 7 -1, 6, 16, 16);
+            drawPixelArt(context, icon5, 6, 6, 16, 16);
         }
         if (icon6 != null) {
-            boolean isIcon6Hovered = mouseX >= 28 && mouseX <= 48 && mouseY >= 5 && mouseY <= 23;
+            boolean isIcon6Hovered = mouseX >= 28 && mouseX <= 45 && mouseY >= 6 && mouseY <= 24;
             drawSquareButton(context, 28, 5, minecraftClient, "", isIcon6Hovered, buttonTextColor, buttonTextHoverColor);
-            drawPixelArt(context, icon6, 30 -1, 6, 16, 16);
+            drawPixelArt(context, icon6, 29, 6, 16, 16);
         }
         if (icon7 != null) {
-            boolean isIcon7Hovered = mouseX >= 51 && mouseX <= 71 && mouseY >= 5 && mouseY <= 23;
+            boolean isIcon7Hovered = mouseX >= 51 && mouseX <= 68 && mouseY >= 6 && mouseY <= 24;
             drawSquareButton(context, 51, 5, minecraftClient, "", isIcon7Hovered, buttonTextColor, buttonTextHoverColor);
-            drawPixelArt(context, icon7, 53 -1, 6, 16, 16);
+            drawPixelArt(context, icon7, 52, 6, 16, 16);
         }
         if (icon8 != null) {
-            boolean isIcon8Hovered = mouseX >= 74 && mouseX <= 94 && mouseY >= 5 && mouseY <= 23;
+            boolean isIcon8Hovered = mouseX >= 74 && mouseX <= 91 && mouseY >= 6 && mouseY <= 24;
             drawSquareButton(context, 74, 5, minecraftClient, "", isIcon8Hovered, buttonTextColor, buttonTextHoverColor);
-            drawPixelArt(context, icon8, 76 -1, 6, 16, 16);
+            drawPixelArt(context, icon8, 75, 6, 16, 16);
         }
     }
 
