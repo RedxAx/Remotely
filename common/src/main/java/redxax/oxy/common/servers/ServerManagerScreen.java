@@ -100,7 +100,7 @@ public class ServerManagerScreen extends Screen {
     private final boolean loading = false;
     private final int entryHeight = 25;
     private final int topBarHeight = 30;
-    private BufferedImage terminalIcon, explorerIcon, editorIcon, terminal, serverIcon, paper, vanilla, fabric, forge, neoforge, quilt;
+    private BufferedImage terminalIcon, explorerIcon, editorIcon, terminal, serverIcon, paper, vanilla, fabric, forge, neoforge, quilt, browserIcon;
     private final int taskbarHeight = 20;
     private final List<IconRect> serverIconRects = new ArrayList<>();
     private int selectedDesktopIndex = -1;
@@ -117,6 +117,7 @@ public class ServerManagerScreen extends Screen {
     private final List<Float> iconPosX = new ArrayList<>();
     private final List<Float> iconPosY = new ArrayList<>();
     private boolean canDrag = false;
+    private final ArrayList<ServerSetting> settings = new ArrayList<>();
 
     public List<RemoteHostInfo> getRemoteHosts() {
         return remoteHosts;
@@ -154,6 +155,7 @@ public class ServerManagerScreen extends Screen {
         }
         loadSavedRemoteHosts();
         scanForUnknownServers();
+        defineSettings();
         activeTabIndex = remotelyClient.getSavedTabIndex();
         iconPosX.clear();
         iconPosY.clear();
@@ -177,6 +179,7 @@ public class ServerManagerScreen extends Screen {
             forge = ImageUtil.loadResourceIcon("/assets/remotely/icons/forge.png");
             neoforge = ImageUtil.loadResourceIcon("/assets/remotely/icons/neoforge.png");
             quilt = ImageUtil.loadResourceIcon("/assets/remotely/icons/quilt.png");
+            browserIcon = ImageUtil.loadResourceIcon("/assets/remotely/icons/browser.png");
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -186,6 +189,33 @@ public class ServerManagerScreen extends Screen {
         } catch (Exception e) {
             devPrint("Failed to load Windows background: " + e.getMessage());
         }
+    }
+
+    private void defineSettings() {
+        settings.clear();
+        settings.add(new ServerSetting("Server Name", "none", "server-name", ServerSettingsScreen.ServerSettingType.TEXT, "My Server", "General", "The name of your server."));
+        settings.add(new ServerSetting("End User License Agreement", "eula.txt", "eula", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "General", "Do you agree to the Minecraft EULA?"));
+        settings.add(new ServerSetting("Game Mode", "server.properties", "gamemode", ServerSettingsScreen.ServerSettingType.TAB_SWITCH, "Survival", "General", "Select the default game mode for players.", Arrays.asList("Survival", "Creative", "Adventure")));
+        settings.add(new ServerSetting("Difficulty", "server.properties", "difficulty", ServerSettingsScreen.ServerSettingType.TAB_SWITCH, "Normal", "General", "Set the difficulty level of the server.", Arrays.asList("Peaceful", "Easy", "Normal", "Hard")));
+        settings.add(new ServerSetting("PvP", "server.properties", "pvp", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "General", "Toggle player vs player combat."));
+        settings.add(new ServerSetting("Hardcore", "server.properties", "hardcore", ServerSettingsScreen.ServerSettingType.TOGGLE, "false", "General", "Toggle hardcore mode (one life)."));
+        settings.add(new ServerSetting("Server Type", "none", "server-type", ServerSettingsScreen.ServerSettingType.DROP_DOWN, "Paper", "General", "Choose the server software type.", Arrays.asList("Paper", "Vanilla", "Fabric", "Forge", "Neoforge", "Quilt")));
+        settings.add(new ServerSetting("Server Version", "none", "server-version", ServerSettingsScreen.ServerSettingType.TEXT, minecraftClient.getGameVersion(), "General", "Specify the Minecraft server version to run."));
+        settings.add(new ServerSetting("Max Players", "server.properties", "max-players", ServerSettingsScreen.ServerSettingType.SLIDER, "20", "Advanced", "Max online players limit.", 1, 200));
+        settings.add(new ServerSetting("MOTD", "server.properties", "motd", ServerSettingsScreen.ServerSettingType.TEXT, minecraftClient.getSession().getUsername() + "'s Server", "Advanced", "Description for the server list."));
+        settings.add(new ServerSetting("Seed", "server.properties", "level-seed", ServerSettingsScreen.ServerSettingType.TEXT, "", "Advanced", "Enter a specific seed (optional)."));
+        settings.add(new ServerSetting("Spawn Protection", "server.properties", "spawn-protection", ServerSettingsScreen.ServerSettingType.SLIDER, "16", "Advanced", "Set the radius of spawn protection (set 0 to disable).", 0, 32));
+        settings.add(new ServerSetting("Max Build Height", "server.properties", "max-build-height", ServerSettingsScreen.ServerSettingType.SLIDER, "320", "Advanced", "Set the maximum height players can build to.", 0, 2048));
+        settings.add(new ServerSetting("Generate Structures", "server.properties", "generate-structures", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "Advanced", "Toggle whether structures are generated in the world."));
+        settings.add(new ServerSetting("Port", "server.properties", "server-port", ServerSettingsScreen.ServerSettingType.TEXT, "25565", "Advanced", "Set the port number on which the server will run."));
+        settings.add(new ServerSetting("Online Mode", "server.properties", "online-mode", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "Advanced", "Authenticate with Minecraft (Secure)."));
+        settings.add(new ServerSetting("Whitelist", "server.properties", "white-list", ServerSettingsScreen.ServerSettingType.TOGGLE, "false", "Advanced", "Enable or disable the server whitelist."));
+        settings.add(new ServerSetting("Hide Online Players", "server.properties", "hide-online-players", ServerSettingsScreen.ServerSettingType.TOGGLE, "false", "Advanced", "Hide online players from the server list."));
+        settings.add(new ServerSetting("Allow Nether", "server.properties", "allow-nether", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "Advanced", "Toggle whether the Nether dimension is accessible."));
+        settings.add(new ServerSetting("Allow End", "bukkit.yml", "allow-end", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "Advanced", "Toggle whether the End dimension is accessible."));
+        settings.add(new ServerSetting("View Distance", "server.properties", "view-distance", ServerSettingsScreen.ServerSettingType.SLIDER, "8", "Performance", "Adjust the number of chunks visible to players.", 1, 64));
+        settings.add(new ServerSetting("Simulation Distance", "server.properties", "simulation-distance", ServerSettingsScreen.ServerSettingType.SLIDER, "8", "Performance", "Set the simulation distance (server tick radius).", 1, 64));
+        settings.add(new ServerSetting("Extra Paper Setting", "paper-settings.txt", "paper-extra", ServerSettingsScreen.ServerSettingType.TEXT, "default", "Paper", "A setting only for Paper servers.", "simulation-distance", "9"));
     }
 
     @Override
@@ -426,16 +456,15 @@ public class ServerManagerScreen extends Screen {
         context.fill(0, this.height - taskbarHeight, this.width, this.height, headerBackgroundColor);
         drawInnerBorder(context, 0, this.height - taskbarHeight, this.width, taskbarHeight, headerBorderColor);
         drawOuterBorder(context, 0, this.height - taskbarHeight, this.width, taskbarHeight, globalBottomBorder);
-
         int iconSize = 16;
         int padding = 5;
         int yTask = this.height - taskbarHeight + (taskbarHeight - iconSize) / 2;
         int xTask = padding;
-
         drawPixelArt(context, terminalIcon, xTask, yTask, iconSize, iconSize);
         xTask += iconSize + padding;
         drawPixelArt(context, explorerIcon, xTask, yTask, iconSize, iconSize);
-
+        xTask += iconSize + padding;
+        drawPixelArt(context, browserIcon, xTask, yTask, iconSize, iconSize);
         renderHostTabs(context, mouseX, mouseY);
     }
 
@@ -485,22 +514,6 @@ public class ServerManagerScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (serverPopupActive) {
-            int spx = (this.width - serverPopupWidth) / 2;
-            int spy = (this.height - serverPopupHeight) / 2;
-            if (mouseX < spx || mouseX > spx + serverPopupWidth || mouseY < spy || mouseY > spy + serverPopupHeight) {
-                closePopup();
-                return true;
-            }
-        }
-        if (serverTypePopupActive) {
-            int stpx = (this.width - serverTypePopupWidth) / 2;
-            int stpy = (this.height - serverTypePopupHeight) / 2;
-            if (mouseX < stpx || mouseX > stpx + serverTypePopupWidth || mouseY < stpy || mouseY > stpy + serverTypePopupHeight) {
-                serverTypePopupActive = false;
-                return true;
-            }
-        }
         if (remoteHostPopupActive) {
             int rhpx = (this.width - remoteHostPopupW) / 2;
             int rhpy = (this.height - remoteHostPopupH) / 2;
@@ -539,17 +552,6 @@ public class ServerManagerScreen extends Screen {
             }
             return true;
         }
-        if (serverPopupActive) {
-            if (mouseX < serverPopupX || mouseX > serverPopupX + serverPopupWidth || mouseY < serverPopupY || mouseY > serverPopupY + serverPopupHeight) {
-                closePopup();
-                return true;
-            }
-            handleServerPopupClick(mouseX, mouseY, button, getCurrentServers());
-            return true;
-        }
-        if (remoteHostPopupActive) {
-            return handleRemoteHostPopupClick(mouseX, mouseY, button);
-        }
         if (serverTypePopupActive) {
             if (handleServerTypePopupClick(mouseX, mouseY, button)) {
                 return true;
@@ -558,13 +560,14 @@ public class ServerManagerScreen extends Screen {
         if (Render.ContextMenu.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
-        boolean clickedOnIcon = false;
+        if (remoteHostPopupActive) {
+            return handleRemoteHostPopupClick(mouseX, mouseY, button);
+        }
         for (IconRect rect : serverIconRects) {
             if (mouseX >= rect.x && mouseX <= rect.x + rect.width && mouseY >= rect.y && mouseY <= rect.y + rect.height) {
-                clickedOnIcon = true;
                 if (button == 0) {
                     if (rect.isCreate) {
-                        serverTypePopupActive = true;
+                        minecraftClient.setScreen(new ServerSettingsScreen(minecraftClient, "createServer", this, Path.of("C:/remotely/servers/").toString(), settings));
                         return true;
                     } else {
                         long currentTime = System.currentTimeMillis();
@@ -585,18 +588,8 @@ public class ServerManagerScreen extends Screen {
                 } else if (button == 1 && !rect.isCreate) {
                     Render.ContextMenu.hide();
                     Render.ContextMenu.addItem("Edit", () -> {
-                        editingServer = true;
-                        editingServerIndex = rect.serverIndex;
-                        serverPopupActive = true;
                         ServerInfo info = getCurrentServers().get(rect.serverIndex);
-                        serverNameBuffer.setLength(0);
-                        serverNameBuffer.append(info.name);
-                        serverVersionBuffer.setLength(0);
-                        serverVersionBuffer.append(info.version);
-                        selectedTypeIndex = serverTypes.indexOf(info.type);
-                        if (selectedTypeIndex < 0) selectedTypeIndex = 0;
-                        nameFieldFocused = false;
-                        versionFieldFocused = false;
+                        minecraftClient.setScreen(new ServerSettingsScreen(minecraftClient, "editServer", this, info.path, settings, info));
                     }, buttonTextHoverColor);
                     Render.ContextMenu.addItem("Delete", () -> {
                         deletionPopupActive = true;
@@ -606,9 +599,6 @@ public class ServerManagerScreen extends Screen {
                     return true;
                 }
             }
-        }
-        if (!clickedOnIcon) {
-            canDrag = false;
         }
         int taskbarY = this.height - taskbarHeight;
         int iconSize = 16;
@@ -627,6 +617,11 @@ public class ServerManagerScreen extends Screen {
                 } catch (Exception ignored) {}
                 return true;
             }
+            xTask += iconSize + padding;
+            if (mouseX >= xTask && mouseX <= xTask + iconSize) {
+                minecraftClient.setScreen(new BrowserScreen(minecraftClient, this, "www.google.com"));
+                return true;
+            }
         }
         int tabWidth = 50;
         int gap = 4;
@@ -641,18 +636,14 @@ public class ServerManagerScreen extends Screen {
             totalWidth += w;
             if (i > 0) totalWidth += gap;
         }
-
         int startX = this.width - totalWidth - 5;
         int plusWidth = 30;
         int plusX = startX - gap - plusWidth;
-        int plusButtonY = taskbarY + 2;
-        int plusHeight = taskbarHeight - 4;
-        if (mouseX >= plusX && mouseX <= plusX + plusWidth &&
-                mouseY >= plusButtonY && mouseY <= plusButtonY + plusHeight && button == 0) {
+        boolean isPlusHovered = mouseX >= plusX && mouseX <= plusX + plusWidth && mouseY >= this.height - taskbarHeight + 2 && mouseY <= this.height - taskbarHeight + 2 + (taskbarHeight - 4);
+        if (isPlusHovered && button == 0) {
             remoteHostPopupActive = true;
             return true;
         }
-
         int hostTabAreaY = this.height - taskbarHeight + 2;
         if (mouseX >= startX && mouseX <= this.width) {
             int currentX = startX;
@@ -793,8 +784,6 @@ public class ServerManagerScreen extends Screen {
         }
         if (keyCode == GLFW.GLFW_KEY_B)
             setScreen(new BrowserScreen(minecraftClient, this, "www.google.com"));
-        if (keyCode == GLFW.GLFW_KEY_C)
-            setScreen(new ServerSettingsScreen(minecraftClient, "createServer", this, Path.of("C:/remotely/servers/").toString()));
         if (!serverPopupActive) return super.keyPressed(keyCode, scanCode, modifiers);
         if (nameFieldFocused) {
             if (handleTypingKey(keyCode, serverNameBuffer, true)) return true;
