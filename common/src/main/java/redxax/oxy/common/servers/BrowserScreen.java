@@ -24,8 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
-import static redxax.oxy.common.util.ImageUtil.drawPixelArt;
-import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
+import static redxax.oxy.common.util.ImageUtil.*;
 
 public class BrowserScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -126,46 +125,20 @@ public class BrowserScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        if(fullScreenMode) {
-            MCEFBrowser currentBrowser = tabs.get(currentTabIndex).browser;
-            RenderSystem.disableDepthTest();
-            RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
-            RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
-            Tessellator t = Tessellator.getInstance();
-            BufferBuilder buffer = t.getBuffer();
-            buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
-            buffer.vertex(0, height, 0).texture(0.0f, 1.0f).color(255,255,255,255).next();
-            buffer.vertex(width, height, 0).texture(1.0f, 1.0f).color(255,255,255,255).next();
-            buffer.vertex(width, 0, 0).texture(1.0f, 0.0f).color(255,255,255,255).next();
-            buffer.vertex(0, 0, 0).texture(0.0f, 0.0f).color(255,255,255,255).next();
-            t.draw();
-            RenderSystem.setShaderTexture(0, 0);
-            RenderSystem.enableDepthTest();
+        MCEFBrowser currentBrowser = tabs.get(currentTabIndex).browser;
+        if (fullScreenMode) {
+            drawBrowser(currentBrowser, fullScreenMode, width, height, 0, 0);
             return;
         }
         context.fill(0, 0, width, height, 0xFF202020);
         drawHeader(context, width, height, mouseX, mouseY);
-        MCEFBrowser currentBrowser = tabs.get(currentTabIndex).browser;
-        RenderSystem.disableDepthTest();
-        RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
-        RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
-        Tessellator t = Tessellator.getInstance();
-        BufferBuilder buffer = t.getBuffer();
-        buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
-        buffer.vertex(BROWSER_DRAW_OFFSET, height - BROWSER_DRAW_OFFSET, 0).texture(0.0f, 1.0f).color(255, 255, 255, 255).next();
-        buffer.vertex(width - BROWSER_DRAW_OFFSET, height - BROWSER_DRAW_OFFSET, 0).texture(1.0f, 1.0f).color(255, 255, 255, 255).next();
-        buffer.vertex(width - BROWSER_DRAW_OFFSET, TOP_OFFSET, 0).texture(1.0f, 0.0f).color(255, 255, 255, 255).next();
-        buffer.vertex(BROWSER_DRAW_OFFSET, TOP_OFFSET, 0).texture(0.0f, 0.0f).color(255, 255, 255, 255).next();
-        t.draw();
-        RenderSystem.setShaderTexture(0, 0);
-        RenderSystem.enableDepthTest();
+        drawBrowser(currentBrowser, fullScreenMode, width, height, TOP_OFFSET, BROWSER_DRAW_OFFSET);
         drawInnerBorder(context, BROWSER_DRAW_OFFSET, TOP_OFFSET, width - BROWSER_DRAW_OFFSET * 2, height - TOP_OFFSET - BROWSER_DRAW_OFFSET, editorInnerBackgroundColor);
         drawOuterBorder(context, BROWSER_DRAW_OFFSET, TOP_OFFSET, width - BROWSER_DRAW_OFFSET * 2, height - TOP_OFFSET - BROWSER_DRAW_OFFSET, globalBottomBorder);
     }
 
     private void drawHeader(DrawContext context, int width, int height, int mouseX, int mouseY) {
         drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, fullscreenIcon, null, null, goBackIcon, goForwardIcon, null, null);
-
         drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, true, false);
         String displayUrl = urlFieldFocused ? urlFieldText.toString() : trimUrl(urlFieldText.toString());
         drawSearchBar(context, minecraftClient.textRenderer, new StringBuilder(displayUrl), urlFieldFocused, urlCursorPosition, urlSelectionStart, urlSelectionEnd, urlScrollOffset, urlTargetScrollOffset, urlShowCursor, false, "BrowserScreen");
