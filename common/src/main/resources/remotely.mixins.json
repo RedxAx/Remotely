@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "redxax.oxy.common.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "TitleScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "client": [
+    "TitleScreenMixin"
+  ]
+}

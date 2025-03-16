@@ -1,0 +1,72 @@
+plugins {
+    id 'java-library'
+    id 'fabric-loom' version '1.7-SNAPSHOT'
+    id 'com.gradleup.shadow' version '9.0.0-beta4'
+}
+
+repositories {
+    mavenCentral()
+    maven { url = "https://maven.fabricmc.net/" }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.release = 17
+}
+
+
+loom {
+    splitEnvironmentSourceSets()
+}
+
+version = project.mod_version
+
+base {
+    archivesName = project.archives_base_name
+}
+dependencies {
+    minecraft "com.mojang:minecraft:1.20"
+    mappings "net.fabricmc:yarn:1.20+build.1:v2"
+
+    modImplementation "net.fabricmc:fabric-loader:0.16.3"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.83.0+1.20"
+
+    implementation project(':common')
+    shadow(':common')
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.release = 21
+}
+
+java {
+    withSourcesJar()
+}
+
+shadowJar {
+    configurations = [project.configurations.shadow]
+    exclude("META-INF")
+}
+
+remapJar {
+    dependsOn(shadowJar)
+    mustRunAfter(shadowJar)
+    inputFile = shadowJar.archiveFile.get().asFile
+}
+
+build.dependsOn shadowJar
+
