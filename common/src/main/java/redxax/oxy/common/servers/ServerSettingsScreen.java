@@ -7,7 +7,6 @@ import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.SSHManager;
 import redxax.oxy.common.config.Config;
-
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
@@ -15,8 +14,9 @@ import java.awt.Toolkit;
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
-
 import static java.nio.file.Files.*;
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
@@ -29,9 +29,11 @@ public class ServerSettingsScreen extends Screen {
     private final ServerManagerScreen parent;
     private final String mode;
     private final String settingsRoot;
+    private final boolean editServerMode;
+    private ServerInfo serverInfo;
     private int currentTab;
     private final List<ServerSetting> settings = new ArrayList<>();
-    private final List<String> tabs;
+    private List<String> tabs = new ArrayList<>();
     private final Map<ServerSetting, Float> textInputScrollOffsets = new HashMap<>();
     private final Map<ServerSetting, Float> textInputTargetScrollOffsets = new HashMap<>();
     private final Map<ServerSetting, Integer> textSelectionStart = new HashMap<>();
@@ -44,18 +46,94 @@ public class ServerSettingsScreen extends Screen {
     private BufferedImage closeIcon, createIcon;
     public enum ServerSettingType {TOGGLE, SLIDER, DROP_DOWN, TAB_SWITCH, TEXT}
 
-    public ServerSettingsScreen(MinecraftClient mc, String mode, ServerManagerScreen parent, String settingsRoot) {
-        super(Text.literal("Create New Server"));
+    public ServerSettingsScreen(MinecraftClient mc, String mode, ServerManagerScreen parent, String settingsRoot, List<ServerSetting> customSettings) {
+        this(mc, mode, parent, settingsRoot, customSettings, null);
+    }
+
+    public ServerSettingsScreen(MinecraftClient mc, String mode, ServerManagerScreen parent, String settingsRoot, List<ServerSetting> customSettings, ServerInfo serverInfo) {
+        super(Text.literal("Server Settings"));
         this.mc = mc;
         this.parent = parent;
         this.mode = mode;
         this.settingsRoot = settingsRoot;
-        defineSettings();
-        Set<String> tabSet = new LinkedHashSet<>();
-        for (ServerSetting s : this.settings) {
-            tabSet.add(s.tab);
+        this.editServerMode = mode.equalsIgnoreCase("editServer");
+        this.serverInfo = serverInfo;
+        if (customSettings != null && !customSettings.isEmpty()) {
+            this.settings.addAll(customSettings);
+        } else {
+            settings.add(new ServerSetting("Error While Loading Settings", "none", "error", ServerSettingType.TEXT, "Hmmmmmmmmmmberger", "Error", "Please Try Again."));
         }
-        this.tabs = new ArrayList<>(tabSet);
+        if (editServerMode) {
+            loadSettingsFromFiles();
+            for (ServerSetting s : settings) {
+                if (s.key.equalsIgnoreCase("server-name")) {
+                    s.value = serverInfo.name;
+                }
+                if (s.key.equalsIgnoreCase("server-type")) {
+                    s.value = serverInfo.type;
+                }
+                if (s.key.equalsIgnoreCase("server-version")) {
+                    s.value = serverInfo.version;
+                }
+            }
+        }
+        initTextInputOffsets();
+        recalcTabs();
+    }
+
+    private void initTextInputOffsets() {
+        for (ServerSetting s : settings) {
+            if (s.type == ServerSettingType.TEXT) {
+                textInputScrollOffsets.put(s, 0f);
+                textInputTargetScrollOffsets.put(s, 0f);
+            }
+        }
+    }
+
+    private void loadSettingsFromFiles() {
+        for (ServerSetting s : settings) {
+            if (!s.file.equals("none")) {
+                try {
+                    Path filePath = Paths.get(settingsRoot, s.file);
+                    if (Files.exists(filePath)) {
+                        List<String> lines = Files.readAllLines(filePath);
+                        for (String line : lines) {
+                            if (line.startsWith(s.key + "=")) {
+                                String val = line.substring((s.key + "=").length()).trim();
+                                if (!val.isEmpty()) {
+                                    s.value = val;
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    devPrint("Error loading setting " + s.key + ": " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    private void recalcTabs() {
+        Set<String> tabSet = new LinkedHashSet<>();
+        for (ServerSetting s : settings) {
+            if (dependencySatisfied(s)) {
+                tabSet.add(s.tab);
+            }
+        }
+        tabs = new ArrayList<>(tabSet);
+        if (currentTab >= tabs.size()) {
+            currentTab = 0;
+        }
+    }
+
+    private boolean dependencySatisfied(ServerSetting s) {
+        if (s.dependencyKey == null || s.dependencyKey.isEmpty()) return true;
+        for (ServerSetting setting : settings) {
+            if (setting.key.equals(s.dependencyKey)) {
+                return setting.value.equals(s.dependencyValue);
+            }
+        }
+        return false;
     }
 
     @Override
@@ -71,39 +149,6 @@ public class ServerSettingsScreen extends Screen {
         }
     }
 
-    private void defineSettings() {
-        if (mode.equalsIgnoreCase("createServer")) {
-            settings.add(new ServerSetting("Server Name", "none", "server-name", ServerSettingType.TEXT, "My Server", "General", "The name of your server."));
-            settings.add(new ServerSetting("End User License Agreement", "eula.txt", "eula", ServerSettingType.TOGGLE, "true", "General", "Do you agree to the Minecraft EULA?"));
-            settings.add(new ServerSetting("Game Mode", "server.properties", "gamemode", ServerSettingType.TAB_SWITCH, "Survival", "General", "Select the default game mode for players.", Arrays.asList("Survival", "Creative", "Adventure")));
-            settings.add(new ServerSetting("Difficulty", "server.properties", "difficulty", ServerSettingType.TAB_SWITCH, "Normal", "General", "Set the difficulty level of the server.", Arrays.asList("Peaceful", "Easy", "Normal", "Hard")));
-            settings.add(new ServerSetting("PvP", "server.properties", "pvp", ServerSettingType.TOGGLE, "true", "General", "Toggle player vs player combat."));
-            settings.add(new ServerSetting("Hardcore", "server.properties", "hardcore", ServerSettingType.TOGGLE, "false", "General", "Toggle hardcore mode (one life)."));
-            settings.add(new ServerSetting("Server Type", "none", "none", ServerSettingType.DROP_DOWN, "Paper", "General", "Choose the server software type.", Arrays.asList("Paper", "Vanilla", "Fabric", "Forge", "Neoforge", "Quilt")));
-            settings.add(new ServerSetting("Server Version", "none", "none", ServerSettingType.TEXT, mc.getGameVersion(), "General", "Specify the Minecraft server version to run."));
-            settings.add(new ServerSetting("Max Players", "server.properties", "max-players", ServerSettingType.SLIDER, "20", "Advanced", "Max online players limit.", 1, 200));
-            settings.add(new ServerSetting("MOTD", "server.properties", "motd", ServerSettingType.TEXT, mc.getSession().getUsername() + "'s Server", "Advanced", "Description for the server list."));
-            settings.add(new ServerSetting("Seed", "server.properties", "level-seed", ServerSettingType.TEXT, "", "Advanced", "Enter a specific seed (optional)."));
-            settings.add(new ServerSetting("Spawn Protection", "server.properties", "spawn-protection", ServerSettingType.SLIDER, "16", "Advanced", "Set the radius of spawn protection (set 0 to disable).", 0, 32));
-            settings.add(new ServerSetting("Max Build Height", "server.properties", "max-build-height", ServerSettingType.SLIDER, "320", "Advanced", "Set the maximum height players can build to.", 0, 2048));
-            settings.add(new ServerSetting("Generate Structures", "server.properties", "generate-structures", ServerSettingType.TOGGLE, "true", "Advanced", "Toggle whether structures are generated in the world."));
-            settings.add(new ServerSetting("Port", "server.properties", "server-port", ServerSettingType.TEXT, "25565", "Advanced", "Set the port number on which the server will run."));
-            settings.add(new ServerSetting("Online Mode", "server.properties", "online-mode", ServerSettingType.TOGGLE, "true", "Advanced", "Authenticate with Minecraft (Secure)."));
-            settings.add(new ServerSetting("Whitelist", "server.properties", "white-list", ServerSettingType.TOGGLE, "false", "Advanced", "Enable or disable the server whitelist."));
-            settings.add(new ServerSetting("Hide Online Players", "server.properties", "hide-online-players", ServerSettingType.TOGGLE, "false", "Advanced", "Hide online players from the server list."));
-            settings.add(new ServerSetting("Allow Nether", "server.properties", "allow-nether", ServerSettingType.TOGGLE, "true", "Advanced", "Toggle whether the Nether dimension is accessible."));
-            settings.add(new ServerSetting("Allow End", "bukkit.yml", "allow-end", ServerSettingType.TOGGLE, "true", "Advanced", "Toggle whether the End dimension is accessible."));
-            settings.add(new ServerSetting("View Distance", "server.properties", "view-distance", ServerSettingType.SLIDER, "8", "Performance", "Adjust the number of chunks visible to players.", 1, 64));
-            settings.add(new ServerSetting("Simulation Distance", "server.properties", "simulation-distance", ServerSettingType.SLIDER, "8", "Performance", "Set the simulation distance (server tick radius).", 1, 64));
-        }
-        for (ServerSetting s : settings) {
-            if (s.type == ServerSettingType.TEXT) {
-                textInputScrollOffsets.put(s, 0f);
-                textInputTargetScrollOffsets.put(s, 0f);
-            }
-        }
-    }
-
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
         context.fillGradient(0, 0, this.width, this.height, Config.serverScreenBackgroundColor, Config.serverScreenBackgroundColor);
@@ -111,6 +156,7 @@ public class ServerSettingsScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        recalcTabs();
         if (Config.background) renderBackground(context, mouseX, mouseY, delta);
         int headerHeight = 30;
         context.fill(0, 0, this.width, headerHeight, Config.headerBackgroundColor);
@@ -137,7 +183,7 @@ public class ServerSettingsScreen extends Screen {
         drawOuterBorder(context, contentX, contentY, contentWidth, contentHeight, globalBottomBorder);
         List<ServerSetting> currentSettings = new ArrayList<>();
         for (ServerSetting s : settings) {
-            if (s.tab.equals(tabs.get(currentTab))) {
+            if (s.tab.equals(tabs.get(currentTab)) && dependencySatisfied(s)) {
                 currentSettings.add(s);
             }
         }
@@ -312,7 +358,7 @@ public class ServerSettingsScreen extends Screen {
                 int widgetAreaX = this.width - widgetWidth - 12;
                 List<ServerSetting> currentSettings = new ArrayList<>();
                 for (ServerSetting setting : settings) {
-                    if (setting.tab.equals(tabs.get(currentTab))) {
+                    if (setting.tab.equals(tabs.get(currentTab)) && dependencySatisfied(setting)) {
                         currentSettings.add(setting);
                     }
                 }
@@ -370,7 +416,7 @@ public class ServerSettingsScreen extends Screen {
         int contentHeight = this.height - contentY - 10;
         List<ServerSetting> currentSettings = new ArrayList<>();
         for (ServerSetting s : settings) {
-            if (s.tab.equals(tabs.get(currentTab))) currentSettings.add(s);
+            if (s.tab.equals(tabs.get(currentTab)) && dependencySatisfied(s)) currentSettings.add(s);
         }
         int totalContentHeight = currentSettings.size() * rowHeight;
         targetSettingsScroll -= (float) (verticalAmount * 20);
@@ -570,49 +616,66 @@ public class ServerSettingsScreen extends Screen {
             String homeDir = user.equals("root") ? "/root" : "/home/" + user;
             path = homeDir + "/" + settingsRoot + "/" + serverName;
         }
-        ServerInfo newInfo = new ServerInfo(path);
-        newInfo.name = serverName;
-        newInfo.path = path;
-        newInfo.type = serverType;
-        newInfo.version = serverVersion;
-        newInfo.isRunning = false;
-        if (tabIndex == 0) {
-            newInfo.isRemote = false;
-            newInfo.remoteHost = null;
+        if (editServerMode && serverInfo != null) {
+            serverInfo.name = serverName;
+            serverInfo.type = serverType;
+            serverInfo.version = serverVersion;
             try {
-                Path dir = Paths.get(path);
+                Path dir = Paths.get(serverInfo.path);
                 if (!exists(dir)) {
                     createDirectories(dir);
                 }
                 writeSettingsToDirectory(dir);
-                Path jar = dir.resolve("server.jar");
-                if (!exists(jar)) {
-                    parent.runMrPackInstaller(newInfo);
-                }
             } catch (Exception e) {
-                devPrint("Failed to create server: " + e.getMessage());
+                devPrint("Failed to update server: " + e.getMessage());
             }
-            currentServers.add(newInfo);
-            parent.saveServers();
-        } else {
-            newInfo.isRemote = true;
-            RemoteHostInfo rh = parent.getRemoteHosts().get(tabIndex - 1);
-            newInfo.remoteHost = rh;
-            try {
-                newInfo.remoteSSHManager = new SSHManager(rh);
-                newInfo.remoteSSHManager.connectToRemoteHost(rh.getUser(), rh.getIp(), rh.getPort(), rh.getPassword());
-                if (!newInfo.remoteSSHManager.isSFTPConnected()) {
-                    newInfo.remoteSSHManager.connectSFTP();
-                }
-                newInfo.remoteSSHManager.prepareRemoteDirectory(newInfo.path);
-                writeSettingsRemote(newInfo.remoteSSHManager, newInfo.path);
-                parent.runMrPackInstallerRemote(newInfo, rh);
-            } catch (Exception e) {
-                devPrint("Failed to create remote server: " + e.getMessage());
-            }
-            currentServers.add(newInfo);
             parent.saveServers();
             parent.saveRemoteHosts();
+        } else {
+            ServerInfo newInfo = new ServerInfo(path);
+            newInfo.name = serverName;
+            newInfo.path = path;
+            newInfo.type = serverType;
+            newInfo.version = serverVersion;
+            newInfo.isRunning = false;
+            if (tabIndex == 0) {
+                newInfo.isRemote = false;
+                newInfo.remoteHost = null;
+                try {
+                    Path dir = Paths.get(path);
+                    if (!exists(dir)) {
+                        createDirectories(dir);
+                    }
+                    writeSettingsToDirectory(dir);
+                    Path jar = dir.resolve("server.jar");
+                    if (!exists(jar)) {
+                        parent.runMrPackInstaller(newInfo);
+                    }
+                } catch (Exception e) {
+                    devPrint("Failed to create server: " + e.getMessage());
+                }
+                currentServers.add(newInfo);
+                parent.saveServers();
+            } else {
+                newInfo.isRemote = true;
+                RemoteHostInfo rh = parent.getRemoteHosts().get(tabIndex - 1);
+                newInfo.remoteHost = rh;
+                try {
+                    newInfo.remoteSSHManager = new SSHManager(rh);
+                    newInfo.remoteSSHManager.connectToRemoteHost(rh.getUser(), rh.getIp(), rh.getPort(), rh.getPassword());
+                    if (!newInfo.remoteSSHManager.isSFTPConnected()) {
+                        newInfo.remoteSSHManager.connectSFTP();
+                    }
+                    newInfo.remoteSSHManager.prepareRemoteDirectory(newInfo.path);
+                    writeSettingsRemote(newInfo.remoteSSHManager, newInfo.path);
+                    parent.runMrPackInstallerRemote(newInfo, rh);
+                } catch (Exception e) {
+                    devPrint("Failed to create remote server: " + e.getMessage());
+                }
+                currentServers.add(newInfo);
+                parent.saveServers();
+                parent.saveRemoteHosts();
+            }
         }
         onClose();
     }
@@ -620,7 +683,7 @@ public class ServerSettingsScreen extends Screen {
     private void writeSettingsToDirectory(Path dir) throws Exception {
         Map<String, List<ServerSetting>> fileGroups = new HashMap<>();
         for (ServerSetting st : settings) {
-            if (!st.file.equals("none")) {
+            if (!st.file.equals("none") && dependencySatisfied(st)) {
                 fileGroups.computeIfAbsent(st.file, k -> new ArrayList<>()).add(st);
             }
         }
@@ -637,14 +700,14 @@ public class ServerSettingsScreen extends Screen {
                     lines.add(st.key + "=" + st.value);
                 }
             }
-            write(filePath, lines, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+            write(filePath, lines, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         }
     }
 
     private void writeSettingsRemote(SSHManager manager, String basePath) {
         Map<String, List<ServerSetting>> fileGroups = new HashMap<>();
         for (ServerSetting st : settings) {
-            if (!st.file.equals("none")) {
+            if (!st.file.equals("none") && dependencySatisfied(st)) {
                 fileGroups.computeIfAbsent(st.file, k -> new ArrayList<>()).add(st);
             }
         }

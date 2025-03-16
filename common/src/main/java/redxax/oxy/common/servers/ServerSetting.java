@@ -17,7 +17,8 @@ public class ServerSetting {
     public int min;
     public int max;
     public int index;
-
+    public String dependencyKey;
+    public String dependencyValue;
     public ServerSetting(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description) {
         this.name = name;
         this.file = file;
@@ -30,18 +31,20 @@ public class ServerSetting {
         this.cursorPos = this.value.length();
         this.index = 0;
     }
-
     public ServerSetting(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, List<String> options) {
         this(name, file, key, type, defaultValue, tab, description);
         this.options = options;
     }
-
     public ServerSetting(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, int min, int max) {
         this(name, file, key, type, defaultValue, tab, description);
         this.min = min;
         this.max = max;
     }
-
+    public ServerSetting(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, String dependencyKey, String dependencyValue) {
+        this(name, file, key, type, defaultValue, tab, description);
+        this.dependencyKey = dependencyKey;
+        this.dependencyValue = dependencyValue;
+    }
     public int getIntValue() {
         try {
             return Integer.parseInt(value);
@@ -49,7 +52,6 @@ public class ServerSetting {
             return min;
         }
     }
-
     public int getSelectedIndex() {
         if (options == null || options.isEmpty()) return 0;
         for (int i = 0; i < options.size(); i++) {
@@ -59,7 +61,6 @@ public class ServerSetting {
         }
         return 0;
     }
-
     public void setOption(int newIndex) {
         if (options == null || options.isEmpty()) return;
         if (newIndex < 0 || newIndex >= options.size()) return;
