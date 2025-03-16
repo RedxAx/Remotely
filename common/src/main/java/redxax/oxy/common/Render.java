@@ -310,7 +310,7 @@ public class Render {
         }
     }
 
-    public static void drawScreenHeader(DrawContext context, int width, int height, int mouseX, int mouseY, Screen parent, MinecraftClient minecraftClient, BufferedImage icon1, BufferedImage icon2, BufferedImage icon3, BufferedImage icon4, BufferedImage icon5, BufferedImage icon6, BufferedImage icon7, BufferedImage icon8) {
+    public static void drawScreenHeader(DrawContext context, int width, int height, int mouseX, int mouseY, Screen parent, MinecraftClient minecraftClient, BufferedImage icon1, BufferedImage icon2, BufferedImage icon3, BufferedImage icon4, BufferedImage icon5, BufferedImage icon6, BufferedImage icon7, BufferedImage icon8, BufferedImage specialIcon) {
         context.fill(0, 0, parent.width, 30, headerBackgroundColor);
         drawInnerBorder(context, 0, 0, parent.width, 30, headerBorderColor);
         drawOuterBorder(context, 0, 0, parent.width, 30, globalBottomBorder);
@@ -355,6 +355,14 @@ public class Render {
             boolean isIcon8Hovered = mouseX >= 74 && mouseX <= 91 && mouseY >= 6 && mouseY <= 24;
             drawSquareButton(context, 74, 5, minecraftClient, "", isIcon8Hovered, buttonTextColor, buttonTextHoverColor);
             drawPixelArt(context, icon8, 75, 6, 16, 16);
+        }
+
+        if (specialIcon != null) {
+            int searchBarWidth = 200;
+            int specialIconX = (width - searchBarWidth) / 2 - 23;
+            boolean isSpecialIconHovered = mouseX >= specialIconX && mouseX <= specialIconX + 17 && mouseY >= 6 && mouseY <= 24;
+            drawSquareButton(context, specialIconX, 5, minecraftClient, "", isSpecialIconHovered, buttonTextColor, buttonTextHoverColor);
+            drawPixelArt(context, specialIcon, specialIconX + 1, 6, 16, 16);
         }
     }
 

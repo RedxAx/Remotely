@@ -2,15 +2,9 @@ package redxax.oxy.common.servers;
 
 import com.cinemamod.mcef.MCEFBrowser;
 import com.cinemamod.mcef.MCEF;
-import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.render.BufferBuilder;
-import net.minecraft.client.render.GameRenderer;
-import net.minecraft.client.render.Tessellator;
-import net.minecraft.client.render.VertexFormat;
-import net.minecraft.client.render.VertexFormats;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.util.TabTextAnimator;
@@ -138,7 +132,7 @@ public class BrowserScreen extends Screen {
     }
 
     private void drawHeader(DrawContext context, int width, int height, int mouseX, int mouseY) {
-        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, fullscreenIcon, null, null, goBackIcon, goForwardIcon, null, null);
+        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, fullscreenIcon, null, null, goBackIcon, goForwardIcon, null, null, reloadIcon);
         drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, true, false);
         String displayUrl = urlFieldFocused ? urlFieldText.toString() : trimUrl(urlFieldText.toString());
         drawSearchBar(context, minecraftClient.textRenderer, new StringBuilder(displayUrl), urlFieldFocused, urlCursorPosition, urlSelectionStart, urlSelectionEnd, urlScrollOffset, urlTargetScrollOffset, urlShowCursor, false, "BrowserScreen");
@@ -200,51 +194,6 @@ public class BrowserScreen extends Screen {
                 urlSelectionStart = pos;
                 urlSelectionEnd = pos;
                 return true;
-            } else if(button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-                Render.ContextMenu.addItem("Cut", () -> {
-                    if(urlFieldFocused && urlFieldText.length() > 0 && hasSelection()) {
-                        int start = Math.min(urlSelectionStart, urlSelectionEnd);
-                        int end = Math.max(urlSelectionStart, urlSelectionEnd);
-                        urlFieldText.delete(start, end);
-                        urlCursorPosition = start;
-                        clearSelection();
-                    }
-                }, buttonTextColor);
-                Render.ContextMenu.addItem("Copy", () -> {
-                    if(urlFieldFocused && urlFieldText.length() > 0 && hasSelection()) {
-                        int start = Math.min(urlSelectionStart, urlSelectionEnd);
-                        int end = Math.max(urlSelectionStart, urlSelectionEnd);
-                        String copyText = urlFieldText.substring(start, end);
-                        try {
-                            java.awt.datatransfer.StringSelection selection = new java.awt.datatransfer.StringSelection(copyText);
-                            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
-                        } catch(Exception e) {}
-                    }
-                }, buttonTextColor);
-                Render.ContextMenu.addItem("Paste", () -> {
-                    try {
-                        java.awt.datatransfer.Clipboard clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
-                        String data = (String) clipboard.getData(java.awt.datatransfer.DataFlavor.stringFlavor);
-                        if(data != null) {
-                            if(hasSelection()){
-                                int start = Math.min(urlSelectionStart, urlSelectionEnd);
-                                int end = Math.max(urlSelectionStart, urlSelectionEnd);
-                                urlFieldText.delete(start, end);
-                                urlCursorPosition = start;
-                                clearSelection();
-                            }
-                            urlFieldText.insert(urlCursorPosition, data);
-                            urlCursorPosition += data.length();
-                        }
-                    } catch(Exception e) {}
-                }, buttonTextColor);
-                Render.ContextMenu.addItem("Select All", () -> {
-                    urlSelectionStart = 0;
-                    urlSelectionEnd = urlFieldText.length();
-                    urlCursorPosition = urlFieldText.length();
-                }, buttonTextColor);
-                Render.ContextMenu.show((int)mouseX, (int)mouseY, 100, width, height);
-                return true;
             }
         } else {
             urlFieldFocused = false;
@@ -262,32 +211,32 @@ public class BrowserScreen extends Screen {
             tabs.get(currentTabIndex).browser.setFocus(true);
             return true;
         }
-        boolean backButton = mouseY >= 5 && mouseY <= 23;
-        if(backButton) {
-            if(mouseX >= BROWSER_DRAW_OFFSET && mouseX <= BROWSER_DRAW_OFFSET + 18) {
+        boolean yArea = mouseY >= 6 && mouseY <= 24;
+        if(yArea) {
+            boolean backButton = mouseX >= 5 && mouseX <= 22;
+            if(backButton) {
                 tabs.get(currentTabIndex).browser.goBack();
                 return true;
             }
-            boolean forwardButton = mouseX >= BROWSER_DRAW_OFFSET + 23 && mouseX <= BROWSER_DRAW_OFFSET + 41;
+            boolean forwardButton = mouseX >= 28 && mouseX <= 45;
             if(forwardButton) {
                 tabs.get(currentTabIndex).browser.goForward();
                 return true;
             }
-            int reloadXStart = (width - SEARCH_BAR_WIDTH) / 2 - 23;
-            int reloadXEnd = (width - SEARCH_BAR_WIDTH) / 2 - 5;
-            boolean reloadButton = mouseX >= reloadXStart && mouseX <= reloadXEnd;
+            int specialIconX = (width - SEARCH_BAR_WIDTH) / 2 - 23;
+            boolean reloadButton = mouseX >= specialIconX && mouseX <= specialIconX + 17;
             if(reloadButton) {
                 tabs.get(currentTabIndex).browser.reload();
                 resizeBrowser(tabs.get(currentTabIndex).browser);
                 return true;
             }
-            boolean fullscreenButton = mouseX >= width - 46 && mouseX <= width - 26;
+            boolean fullscreenButton = mouseX >= width - 46 && mouseX <= width - 29;
             if(fullscreenButton) {
                 fullScreenMode = true;
                 resizeBrowser(tabs.get(currentTabIndex).browser);
                 return true;
             }
-            boolean closeButton = mouseX >= width - 23 && mouseX <= width - 5;
+            boolean closeButton = mouseX >= width - 23 && mouseX <= width - 6;
             if(closeButton) {
                 minecraftClient.setScreen(null);
                 return true;
@@ -541,7 +490,7 @@ public class BrowserScreen extends Screen {
                     new URL(url);
                 } catch(Exception e) {
                     try {
-                        url = "https://www.google.com/search?q=" + URLEncoder.encode(url, StandardCharsets.UTF_8.toString());
+                        url = "https://www.google.com/search?q=" + URLEncoder.encode(url, StandardCharsets.UTF_8);
                     } catch(Exception ex) {}
                 }
                 tabs.get(currentTabIndex).url = url;
