@@ -29,6 +29,7 @@ import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.explorer.ResponseManager.parseAIResponse;
+import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class FileEditorScreen extends Screen {
     private static final Map<Path, SavedTabState> SAVED_TABS = new HashMap<>();
@@ -695,10 +696,12 @@ public class FileEditorScreen extends Screen {
         int searchBarY = 5;
         int clearSearchButtonX = searchBarX + searchBarWidth;
         if (mouseX >= searchBarX && mouseX <= searchBarX + searchBarWidth && mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight) {
+            playClick();
             customSearchBarFocused = true;
             return true;
         } else {
             if (mouseX >= clearSearchButtonX && mouseX <= clearSearchButtonX + clearSearchButtonWidth && mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight) {
+                playClick();
                 customSearchText.setLength(0);
                 customCursorPosition = 0;
                 customSelectionStart = -1;
@@ -720,6 +723,7 @@ public class FileEditorScreen extends Screen {
             int tabWidth = minecraftClient.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
             if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight) {
                 if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
+                    playClick();
                     SAVED_TABS.remove(tab.path);
                     tabs.remove(i);
                     if (i == currentTabIndex) {
@@ -733,6 +737,7 @@ public class FileEditorScreen extends Screen {
                     RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
                     return true;
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                    playClick();
                     if (currentTabIndex != i) {
                         currentTabIndex = i;
                         this.textEditor = tabs.get(currentTabIndex).textEditor;
@@ -741,6 +746,7 @@ public class FileEditorScreen extends Screen {
                     clickedTab = true;
                     break;
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
+                    playClick();
                     ContextMenu.hide();
                     int finalI = i;
                     ContextMenu.addItem("Close", () -> {
@@ -779,11 +785,13 @@ public class FileEditorScreen extends Screen {
         }
         boolean clickedSave = mouseX >= saveButtonX && mouseX <= saveButtonX + btnW && mouseY >= saveButtonY && mouseY <= saveButtonY + btnH && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
         if (clickedSave) {
+            playClick();
             tabs.get(currentTabIndex).saveFile();
             return true;
         }
         boolean clickedBack = mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
         if (clickedBack) {
+            playClick();
             close();
             return true;
         }

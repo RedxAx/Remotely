@@ -19,6 +19,7 @@ import java.util.List;
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.ImageUtil.*;
+import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class BrowserScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -175,8 +176,9 @@ public class BrowserScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         int searchBarX = (width - SEARCH_BAR_WIDTH) / 2;
         int searchBarY = 5;
-        if(mouseX >= searchBarX && mouseX <= searchBarX + SEARCH_BAR_WIDTH && mouseY >= searchBarY && mouseY <= searchBarY + SEARCH_BAR_HEIGHT) { // Search bar
+        if(mouseX >= searchBarX && mouseX <= searchBarX + SEARCH_BAR_WIDTH && mouseY >= searchBarY && mouseY <= searchBarY + SEARCH_BAR_HEIGHT) {
             if(button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                playClick();
                 urlFieldFocused = true;
                 int clickX = (int)mouseX - searchBarX - 5 + (int)urlScrollOffset;
                 int pos = 0;
@@ -198,50 +200,55 @@ public class BrowserScreen extends Screen {
         } else {
             urlFieldFocused = false;
         }
-        if(button == 3) {
-            tabs.get(currentTabIndex).browser.goBack();
+
+        if(button == 3 || button == 4) {
+            playClick();
+            if(button == 3) {
+                tabs.get(currentTabIndex).browser.goBack();
+            } else {
+                tabs.get(currentTabIndex).browser.goForward();
+            }
             return true;
         }
-        if(button == 4) {
-            tabs.get(currentTabIndex).browser.goForward();
-            return true;
-        }
+
         if(fullScreenMode) {
             tabs.get(currentTabIndex).browser.sendMousePress(convertMouseX(mouseX), convertMouseY(mouseY), button);
             tabs.get(currentTabIndex).browser.setFocus(true);
             return true;
         }
+
         boolean yArea = mouseY >= 6 && mouseY <= 24;
         if(yArea) {
-            boolean backButton = mouseX >= 5 && mouseX <= 22;
-            if(backButton) {
+            if(mouseX >= 5 && mouseX <= 22) {
+                playClick();
                 tabs.get(currentTabIndex).browser.goBack();
                 return true;
             }
-            boolean forwardButton = mouseX >= 28 && mouseX <= 45;
-            if(forwardButton) {
+            if(mouseX >= 28 && mouseX <= 45) {
+                playClick();
                 tabs.get(currentTabIndex).browser.goForward();
                 return true;
             }
             int specialIconX = (width - SEARCH_BAR_WIDTH) / 2 - 23;
-            boolean reloadButton = mouseX >= specialIconX && mouseX <= specialIconX + 17;
-            if(reloadButton) {
+            if(mouseX >= specialIconX && mouseX <= specialIconX + 17) {
+                playClick();
                 tabs.get(currentTabIndex).browser.reload();
                 resizeBrowser(tabs.get(currentTabIndex).browser);
                 return true;
             }
-            boolean fullscreenButton = mouseX >= width - 46 && mouseX <= width - 29;
-            if(fullscreenButton) {
+            if(mouseX >= width - 46 && mouseX <= width - 29) {
+                playClick();
                 fullScreenMode = true;
                 resizeBrowser(tabs.get(currentTabIndex).browser);
                 return true;
             }
-            boolean closeButton = mouseX >= width - 23 && mouseX <= width - 6;
-            if(closeButton) {
+            if(mouseX >= width - 23 && mouseX <= width - 6) {
+                playClick();
                 minecraftClient.setScreen(null);
                 return true;
             }
         }
+
         int titleBarHeight = 30;
         int tabBarHeight = 18;
         if(mouseY <= titleBarHeight + tabBarHeight + 10) {
@@ -257,6 +264,7 @@ public class BrowserScreen extends Screen {
                 int tabWidth = minecraftClient.textRenderer.getWidth(tab.getAnimatedText()) + 2 * tabPadding;
                 if(mouseX >= x && mouseX <= x + tabWidth && mouseY >= tabBarY && mouseY <= tabBarEndY) {
                     if(button == 2) {
+                        playClick();
                         if(tabs.size() > 1) {
                             tabs.get(i).browser.close();
                             tabs.remove(i);
@@ -269,6 +277,7 @@ public class BrowserScreen extends Screen {
                         }
                         return true;
                     } else {
+                        playClick();
                         currentTabIndex = i;
                         urlFieldText.setLength(0);
                         urlFieldText.append(tabs.get(currentTabIndex).url);
@@ -279,24 +288,23 @@ public class BrowserScreen extends Screen {
                 }
                 x += tabWidth + tabGap;
             }
-            if(!tabClicked) {
-                boolean plusButton = mouseX >= x && mouseX <= x + 18 && mouseY >= tabBarY && mouseY <= tabBarEndY;
-                if(plusButton) {
-                    MCEFBrowser newBrowser = MCEF.createBrowser("www.google.com", true);
-                    tabs.add(new Tab("www.google.com", newBrowser));
-                    currentTabIndex = tabs.size() - 1;
-                    urlFieldText.setLength(0);
-                    urlFieldText.append("www.google.com");
-                    urlCursorPosition = urlFieldText.length();
-                    resizeBrowser(newBrowser);
-                    return true;
-                }
+            if(!tabClicked && mouseX >= x && mouseX <= x + 18 && mouseY >= tabBarY && mouseY <= tabBarEndY) {
+                playClick();
+                MCEFBrowser newBrowser = MCEF.createBrowser("www.google.com", true);
+                tabs.add(new Tab("www.google.com", newBrowser));
+                currentTabIndex = tabs.size() - 1;
+                urlFieldText.setLength(0);
+                urlFieldText.append("www.google.com");
+                urlCursorPosition = urlFieldText.length();
+                resizeBrowser(newBrowser);
+                return true;
             }
         } else {
             Tab currentTab = tabs.get(currentTabIndex);
             currentTab.browser.sendMousePress(convertMouseX(mouseX), convertMouseY(mouseY), button);
             currentTab.browser.setFocus(true);
         }
+
         if(Render.ContextMenu.isOpen()){
             if(Render.ContextMenu.mouseClicked(mouseX, mouseY, button)){
                 return true;

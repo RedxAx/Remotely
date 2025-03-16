@@ -27,6 +27,8 @@ import java.util.stream.Collectors;
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.ImageUtil.*;
+import static redxax.oxy.common.util.SoundUtils.playClick;
+
 public class FileExplorerScreen extends Screen implements FileManager.FileManagerCallback {
     private final MinecraftClient minecraftClient;
     private final Screen parent;
@@ -866,6 +868,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             Tab tab = tabs.get(i);
             int tabWidth = tab.getCurrentWidth(textRenderer);
             if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight) {
+                playClick();
                 if (button == GLFW.GLFW_MOUSE_BUTTON_1) {
                     currentTabIndex = i;
                     Tab selectedTab = tabs.get(currentTabIndex);
@@ -905,6 +908,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (!handled) {
             int plusTabX = tabX;
             if (mouseX >= plusTabX && mouseX <= plusTabX + PLUS_TAB_WIDTH && mouseY >= tabY && mouseY <= tabY + tabBarHeight) {
+                playClick();
                 if (button == GLFW.GLFW_MOUSE_BUTTON_1) {
                     minecraftClient.setScreen(new DeskSelectionScreen(minecraftClient, this));
                 }
@@ -929,10 +933,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 int closeButtonY = 5;
                 int gap = 1;
                 if (mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= backButtonY && mouseY <= backButtonY + buttonH) {
+                    playClick();
                     navigateUp();
                     return true;
                 }
                 if (mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH) {
+                    playClick();
                     minecraftClient.setScreen(parent);
                     return true;
                 }
@@ -950,6 +956,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         EntryData entryData = entriesToRender.get(clickedIndex);
                         Path selectedPath = entryData.path;
                         if (isDoubleClick && lastClickedIndex == clickedIndex && button == GLFW.GLFW_MOUSE_BUTTON_1) {
+                            playClick();
                             if (entryData.isDirectory) {
                                 Tab selectedTab = tabs.get(currentTabIndex);
                                 selectedTab.tabData.path = selectedPath;
@@ -975,6 +982,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                             return true;
                         } else {
                             if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE && entryData.isDirectory) {
+                                playClick();
                                 TabData newTabData = new TabData(selectedPath, serverInfo.isRemote, serverInfo.remoteHost);
                                 tabs.add(new Tab(newTabData));
                                 currentTabIndex = tabs.size() - 1;
@@ -1021,6 +1029,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 int fieldY = 5;
                 int fieldHeight = titleBarHeight - 10;
                 if (mouseX >= fieldX && mouseX <= fieldX + fieldWidthDynamic && mouseY >= fieldY && mouseY <= fieldY + fieldHeight) {
+                    playClick();
                     fieldFocused = true;
                     cursorPosition = fieldText.length();
                     selectionStart = -1;
@@ -1033,9 +1042,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 }
                 return false;
             } else if (button == GLFW.GLFW_MOUSE_BUTTON_4) {
+                playClick();
                 navigateUp();
                 return true;
             } else if (button == GLFW.GLFW_MOUSE_BUTTON_5) {
+                playClick();
                 navigateBack();
                 return true;
             }
@@ -1062,6 +1073,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     selectedPaths.add(entryData.path);
                     ContextMenu.hide();
                     ContextMenu.addItem("New Tab", () -> {
+                        playClick();
                         if (entryData.isDirectory) {
                             TabData newTabData = new TabData(entryData.path, serverInfo.isRemote, serverInfo.remoteHost);
                             tabs.add(new Tab(newTabData));
@@ -1076,9 +1088,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         }
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Externally", () -> {
+                        playClick();
                         openExternally(entryData.path);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Create File", () -> {
+                        playClick();
                         String defaultName = "NewFileOrFolder";
                         newCreationPath = currentPath.resolve(defaultName);
                         creatingNew = true;
@@ -1106,27 +1120,33 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         loadDirectory(currentPath, false, true);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Rename", () -> {
+                        playClick();
                         renamePath = entryData.path;
                         renameBuffer.setLength(0);
                         renameBuffer.append(renamePath.getFileName().toString());
                         renameCursorPos = renameBuffer.length();
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Copy", () -> {
+                        playClick();
                         fileManager.copySelected(selectedPaths);
                         showNotification("Copied to clipboard", Notification.Type.INFO);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Cut", () -> {
+                        playClick();
                         fileManager.cutSelected(selectedPaths);
                         showNotification("Cut to clipboard", Notification.Type.INFO);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Paste", () -> {
+                        playClick();
                         fileManager.paste(currentPath);
                         showNotification("Pasted to " + currentPath, Notification.Type.INFO);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Delete", () -> {
+                        playClick();
                         fileManager.deleteSelected(selectedPaths, currentPath);
                     }, buttonTextDeleteHoverColor);
                     ContextMenu.addItem("Favorite", () -> {
+                        playClick();
                         synchronized (favoritePathsLock) {
                             for (Path p : selectedPaths) {
                                 if (!favoritePaths.contains(p)) {
@@ -1140,14 +1160,17 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         showNotification("Favorites updated", Notification.Type.INFO);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Copy Path", () -> {
+                        playClick();
                         String quotedPath = "\"" + entryData.path.toString() + "\"";
                         minecraftClient.keyboard.setClipboard(quotedPath);
                         showNotification("Path copied", Notification.Type.INFO);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Refresh", () -> {
+                        playClick();
                         loadDirectory(currentPath, false, true);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Undo", () -> {
+                        playClick();
                         if (serverInfo.isRemote) {
                             showNotification("Undo not supported for remote files.", Notification.Type.ERROR);
                         } else {
@@ -1155,6 +1178,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         }
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Search", () -> {
+                        playClick();
                         currentMode = Mode.SEARCH;
                         fieldFocused = true;
                         fieldText.setLength(0);

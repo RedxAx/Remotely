@@ -46,6 +46,7 @@ import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.servers.PluginModManagerScreen.formatDownloads;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.drawBufferedImage;
+import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class ResourcePageScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -336,6 +337,7 @@ public class ResourcePageScreen extends Screen {
                 Tab t = tabs.get(i);
                 int tabWidth = minecraftClient.textRenderer.getWidth(t.name) + 10;
                 if(mouseX >= tabBarX && mouseX <= tabBarX + tabWidth){
+                    playClick();
                     currentTabIndex = i;
                     return true;
                 }
@@ -350,6 +352,7 @@ public class ResourcePageScreen extends Screen {
         int downloadButtonX = siteButtonX - (buttonW + spacing);
         int buttonY = (headerHeight - buttonH) / 2;
         if(mouseX >= downloadButtonX && mouseX <= downloadButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+            playClick();
             if (resource.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack")) {
                 downloadMrpackResource();
             } else {
@@ -362,6 +365,7 @@ public class ResourcePageScreen extends Screen {
             return true;
         }
         if(mouseX >= siteButtonX && mouseX <= siteButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+            playClick();
             String siteUrl = getCurrentTabType() == TabType.DESCRIPTION ? getSiteUrlForResource() : getSiteUrlForResource() + (resource.getSlug().startsWith("spigot_") ? "/history" : resource.getSlug().startsWith("hangar_") ? "/versions" : "/changelog");
             if (!siteUrl.isEmpty()) {
                 try {
@@ -374,12 +378,14 @@ public class ResourcePageScreen extends Screen {
             return true;
         }
         if(mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH){
+            playClick();
             minecraftClient.setScreen(parentScreen);
             return true;
         }
         if(getCurrentTabType() == TabType.DESCRIPTION){
             for (LinkRegion region : linkRegions) {
                 if (mouseX >= region.x && mouseX <= region.x + region.width && mouseY >= region.y && mouseY <= region.y + region.height) {
+                    playClick();
                     try {
                         ProcessBuilder pb = new ProcessBuilder("cmd", "/c", "start", region.url);
                         pb.start();
@@ -393,6 +399,7 @@ public class ResourcePageScreen extends Screen {
         if(getCurrentTabType() == TabType.VERSIONS){
             for(VersionButtonRegion vr : versionButtonRegions){
                 if(mouseX >= vr.x && mouseX <= vr.x+vr.width && mouseY >= vr.y && mouseY <= vr.y+vr.height){
+                    playClick();
                     downloadVersionResource(vr.version);
                     return true;
                 }

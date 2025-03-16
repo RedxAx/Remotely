@@ -22,6 +22,7 @@ import java.util.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.ImageUtil.*;
 import static redxax.oxy.common.Render.*;
+import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class DeskSelectionScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -199,6 +200,7 @@ public class DeskSelectionScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0) {
             if (mouseX >= backButtonX && mouseX <= backButtonX + backButtonWidth && mouseY >= backButtonY && mouseY <= backButtonY + backButtonHeight) {
+                playClick();
                 minecraftClient.setScreen(parent);
                 return true;
             }
@@ -214,6 +216,7 @@ public class DeskSelectionScreen extends Screen {
                 int drawX = spacing + col * (itemWidth + spacing) + spacing;
                 int drawY = startY + row * (itemHeight + spacing) - scrollOffset;
                 if (mouseX >= drawX && mouseX <= drawX + itemWidth && mouseY >= drawY && mouseY <= drawY + itemHeight) {
+                    playClick();
                     selectedIndex = i;
                     if (!item.isRemote) {
                         if (item.isDirectory) {
