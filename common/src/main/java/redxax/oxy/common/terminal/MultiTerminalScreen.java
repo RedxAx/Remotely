@@ -27,6 +27,7 @@ import java.util.stream.Collectors;
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.config.Themes.*;
+import static redxax.oxy.common.util.SoundUtils.playClick;
 
 
 public class MultiTerminalScreen extends Screen {
@@ -635,6 +636,7 @@ public class MultiTerminalScreen extends Screen {
             if (activeTerminal instanceof ServerTerminalInstance serverTerminal) {
                 if (button == 0) {
                     if (mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+                        playClick();
                         ServerInfo sInfo = serverTerminal.getServerInfo();
                         if (sInfo.state == ServerState.RUNNING || sInfo.state == ServerState.STARTING) {
                             try {
@@ -660,10 +662,12 @@ public class MultiTerminalScreen extends Screen {
                         return true;
                     }
                     if (mouseX >= explorerButtonX && mouseX <= explorerButtonX + buttonW && mouseY >= explorerButtonY && mouseY <= explorerButtonY + buttonH) {
+                        playClick();
                         minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
                         return true;
                     }
                     if (mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH) {
+                        playClick();
                         minecraftClient.setScreen(new PluginModManagerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
                         return true;
                     }
@@ -671,6 +675,7 @@ public class MultiTerminalScreen extends Screen {
             } else {
                 if (button == 0) {
                     if (mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+                        playClick();
                         minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo(terminals.get(activeTerminalIndex).getCurrentDir())));
                         return true;
                     }
@@ -681,6 +686,7 @@ public class MultiTerminalScreen extends Screen {
         int hideButtonX = this.width - 15 - 5;
         int hideButtonY = 5 + topBarHeight;
         if (mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15 && button == 0) {
+            playClick();
             showSnippetsPanel = !showSnippetsPanel;
             return true;
         }
@@ -703,11 +709,13 @@ public class MultiTerminalScreen extends Screen {
             int rbSize = 12;
             int recordX = snippetPopupX + snippetPopupWidth - rbSize - 5;
             if (mouseX >= recordX && mouseX <= recordX + rbSize && mouseY >= shortcutBoxY && mouseY <= shortcutBoxY + rbSize && button == 0) {
+                playClick();
                 snippetRecordingKeys = !snippetRecordingKeys;
                 snippetShortcutBuffer.setLength(0);
                 return true;
             }
             if (editingSnippet && button == 0 && mouseX >= deleteX && mouseX <= deleteX + dw && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight) {
+                playClick();
                 if (editingSnippetIndex >= 0 && editingSnippetIndex < RemotelyClient.globalSnippets.size()) {
                     RemotelyClient.globalSnippets.remove(editingSnippetIndex);
                     remotelyClient.saveSnippets();
@@ -726,6 +734,7 @@ public class MultiTerminalScreen extends Screen {
                 return true;
             }
             if (mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight) {
+                playClick();
                 if (mouseX >= confirmButtonX && mouseX <= confirmButtonX + okW && button == 0) {
                     if (snippetNameBuffer.toString().trim().isEmpty() || snippetCommandsBuffer.toString().trim().isEmpty()) {
                         snippetCreationWarning = true;
@@ -756,6 +765,7 @@ public class MultiTerminalScreen extends Screen {
                     return true;
                 }
                 if (mouseX >= cancelButtonX && mouseX <= cancelButtonX + (minecraftClient.textRenderer.getWidth("Cancel") + 10) && button == 0) {
+                    playClick();
                     creatingSnippet = false;
                     editingSnippet = false;
                     editingSnippetIndex = -1;
@@ -776,6 +786,7 @@ public class MultiTerminalScreen extends Screen {
             commandsBoxHeight = snippetPopupHeight - (commandsBoxY - snippetPopupY) - 60;
             if (commandsBoxHeight < 20) commandsBoxHeight = 20;
             if (mouseX >= snippetPopupX + 5 && mouseX <= snippetPopupX + snippetPopupWidth - 5 && mouseY >= nameBoxY && mouseY <= nameBoxY + nameBoxHeight && button == 0) {
+                playClick();
                 snippetNameFocused = true;
                 snippetCommandsCursorPos = Math.min(snippetCommandsCursorPos, snippetCommandsBuffer.length());
                 snippetNameCursorPos = Math.min(snippetNameCursorPos, snippetNameBuffer.length());
@@ -784,6 +795,7 @@ public class MultiTerminalScreen extends Screen {
                 return true;
             }
             if (mouseX >= snippetPopupX + 5 && mouseX <= snippetPopupX + snippetPopupWidth - 5 && mouseY >= commandsBoxY && mouseY <= commandsBoxY + commandsBoxHeight && button == 0) {
+                playClick();
                 snippetNameFocused = false;
                 snippetCommandsCursorPos = 0;
                 return true;
@@ -805,6 +817,7 @@ public class MultiTerminalScreen extends Screen {
             float renderX2 = renderX + tabW;
             if (mouseX >= renderX && mouseX <= renderX2 && mouseY >= tabOffsetY && mouseY <= tabOffsetY + tabAreaHeight) {
                 if (button == 1) {
+                    playClick();
                     isRenaming = true;
                     renamingTabIndex = i;
                     renameBuffer.setLength(0);
@@ -813,9 +826,11 @@ public class MultiTerminalScreen extends Screen {
                     lastRenameInputTime = System.currentTimeMillis();
                     return true;
                 } else if (button == 2) {
+                    playClick();
                     closeTerminal(i);
                     return true;
                 } else if (button == 0) {
+                    playClick();
                     if (!isRenaming) {
                         setActiveTerminal(i);
                         return true;
@@ -826,6 +841,7 @@ public class MultiTerminalScreen extends Screen {
         }
 
         if (mouseX >= renderX && mouseX <= renderX + plusW && mouseY >= tabOffsetY && mouseY <= tabOffsetY + tabAreaHeight && button == 0) {
+            playClick();
             addNewTerminal();
             return true;
         }
@@ -857,10 +873,12 @@ public class MultiTerminalScreen extends Screen {
             boolean tab1Hovered = mouseX >= tab1X && mouseX <= (tab1X + singleTabWidth) && mouseY >= tabY && mouseY <= (tabY + tabHeight);
             boolean tab2Hovered = mouseX >= tab2X && mouseX <= (tab2X + singleTabWidth) && mouseY >= tabY && mouseY <= (tabY + tabHeight);
             if (tab1Hovered && button == 0) {
+                playClick();
                 sidePanelTabIndex = 0;
                 return true;
             }
             if (tab2Hovered && button == 0) {
+                playClick();
                 sidePanelTabIndex = 1;
                 return true;
             }
@@ -872,6 +890,7 @@ public class MultiTerminalScreen extends Screen {
                 int createButtonWidth = Math.min(ctw, Math.max(50, snippetPanelWidth - 10));
                 int createButtonX = panelX + (snippetPanelWidth - createButtonWidth) / 2;
                 if (mouseX >= createButtonX && mouseX <= createButtonX + createButtonWidth && mouseY >= createButtonY && mouseY <= createButtonY + 10 + minecraftClient.textRenderer.fontHeight && button == 0) {
+                    playClick();
                     creatingSnippet = true;
                     snippetNameBuffer.setLength(0);
                     snippetCommandsBuffer.setLength(0);
@@ -898,6 +917,7 @@ public class MultiTerminalScreen extends Screen {
                     boolean hovered = (mouseX >= snippetX && mouseX <= snippetX + snippetMaxWidth && mouseY >= snippetY && mouseY <= snippetY + snippetHeight);
                     if (hovered) {
                         if (button == 1) {
+                            playClick();
                             editingSnippet = true;
                             editingSnippetIndex = i;
                             RemotelyClient.CommandSnippet s = RemotelyClient.globalSnippets.get(i);
@@ -919,6 +939,7 @@ public class MultiTerminalScreen extends Screen {
                             return true;
                         }
                         if (button == 0) {
+                            playClick();
                             if (lastClickedSnippet == i && (System.currentTimeMillis() - lastSnippetClickTime) < 500) {
                                 TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
                                 String[] lines = RemotelyClient.globalSnippets.get(i).commands.split("\n");
@@ -956,6 +977,7 @@ public class MultiTerminalScreen extends Screen {
                     int tW = snippetPanelWidth - 10;
                     boolean hovered = mouseX >= tX && mouseX <= (tX + tW) && mouseY >= tY && mouseY <= (tY + themeBoxHeight);
                     if (hovered && button == 0) {
+                        playClick();
                         applyTheme(themes.get(i));
                         terminals.get(activeTerminalIndex).getRenderer().refreshTerminal();
                         return true;

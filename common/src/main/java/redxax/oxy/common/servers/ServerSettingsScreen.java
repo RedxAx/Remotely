@@ -7,6 +7,7 @@ import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.SSHManager;
 import redxax.oxy.common.config.Config;
+
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
@@ -23,6 +24,7 @@ import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.drawPixelArt;
 import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
+import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class ServerSettingsScreen extends Screen {
     private final MinecraftClient mc;
@@ -243,6 +245,7 @@ public class ServerSettingsScreen extends Screen {
                 for (int i = 0; i < tabs.size(); i++) {
                     int tabWidth = mc.textRenderer.getWidth(tabs.get(i)) + 10;
                     if (mouseX >= tabX && mouseX <= tabX + tabWidth) {
+                        playClick();
                         currentTab = i;
                         targetSettingsScroll = 0;
                         currentSettingsScroll = 0;
@@ -256,10 +259,12 @@ public class ServerSettingsScreen extends Screen {
             int cancelButtonX = this.width - 23;
             if (mouseY >= buttonY && mouseY <= buttonY + 18) {
                 if (mouseX >= createButtonX && mouseX <= createButtonX + 18) {
+                    playClick();
                     createServer();
                     return true;
                 }
                 if (mouseX >= cancelButtonX && mouseX <= cancelButtonX + 18) {
+                    playClick();
                     onClose();
                     return true;
                 }
@@ -286,12 +291,14 @@ public class ServerSettingsScreen extends Screen {
                         int toggleWidth = 40;
                         boolean toggleHovered = mouseX >= toggleX && mouseX <= toggleX + toggleWidth && mouseY >= rowY && mouseY <= rowY + rowHeight;
                         if (toggleHovered) {
+                            playClick();
                             s.value = s.value.equals("true") ? "false" : "true";
                         }
                     }
                     case SLIDER -> {
                         boolean sliderHovered = mouseX >= widgetAreaX && mouseX <= widgetAreaX + widgetWidth;
                         if (sliderHovered) {
+                            playClick();
                             float relativeX = (float) (mouseX - widgetAreaX);
                             relativeX = Math.max(0, Math.min(relativeX, widgetWidth));
                             float percent = relativeX / widgetWidth;
@@ -301,6 +308,7 @@ public class ServerSettingsScreen extends Screen {
                         }
                     }
                     case DROP_DOWN -> {
+                        playClick();
                         if (s.index == selectedDropDown) {
                             int ddHeight = 14;
                             int optionIndex = (int) ((mouseY - rowY - ddHeight) / ddHeight);
@@ -317,6 +325,7 @@ public class ServerSettingsScreen extends Screen {
                         double relativeX = mouseX - widgetAreaX;
                         double relativeY = mouseY - rowY;
                         if (relativeX >= 0 && relativeX <= barWidth && relativeY >= 0 && relativeY <= 18) {
+                            playClick();
                             int segmentCount = s.options.size();
                             double segmentWidth = (double)barWidth / segmentCount;
                             int newIndex = (int)(relativeX / segmentWidth);

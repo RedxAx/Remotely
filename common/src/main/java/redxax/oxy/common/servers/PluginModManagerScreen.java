@@ -30,6 +30,7 @@ import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.drawBufferedImage;
 import static redxax.oxy.common.Render.*;
+import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class PluginModManagerScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -168,6 +169,7 @@ public class PluginModManagerScreen extends Screen {
             int TAB_PADDING = 5;
             int tabWidth = this.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
             if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight) {
+                playClick();
                 if (tab.mode == TabMode.SORT) {
                     nextSort();
                     loadResourcesAsync(currentSearch, true);
@@ -193,6 +195,7 @@ public class PluginModManagerScreen extends Screen {
             int closeButtonY = 5;
             boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH;
             if (hoveredClose && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                playClick();
                 minecraftClient.setScreen(parent);
                 return true;
             }
@@ -213,6 +216,7 @@ public class PluginModManagerScreen extends Screen {
                     int relativeY = (int) mouseY - contentY + (int) smoothOffset;
                     int index = relativeY / (entryHeight + gapBetweenEntries);
                     if (index >= 0 && index < resources.size()) {
+                        playClick();
                         selectedIndex = index;
                         long currentTime = System.currentTimeMillis();
                         if (lastResourceClickIndex == index && (currentTime - lastResourceClickTime < 250)) {
