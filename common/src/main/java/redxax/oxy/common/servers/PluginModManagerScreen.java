@@ -382,7 +382,7 @@ public class PluginModManagerScreen extends Screen {
         float scrollSpeed = 0.2f;
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
         int contentY = tabBarY + TAB_HEIGHT + 30;
-        int contentHeight = this.height - contentY - 10;
+        int contentHeight = this.height - contentY - 5;
         int contentX = 5;
         int contentWidth = this.width - 10;
         context.fill(contentX, contentY - 25, contentX + contentWidth, contentY, headerBackgroundColor);
