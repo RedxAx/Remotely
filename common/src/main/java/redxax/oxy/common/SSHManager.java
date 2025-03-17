@@ -109,7 +109,10 @@ public class SSHManager {
                         sftpChannel.mkdir(current.toString());
                     }
                 }
-            } catch (Exception ignored) {}
+                devPrint("Prepared remote directory: " + path);
+            } catch (Exception e) {
+                devPrint("Failed to prepare remote directory: " + path + ": " + e.getMessage());
+            }
         });
     }
 
@@ -124,7 +127,9 @@ public class SSHManager {
             try {
                 ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
                 String homePath = user.equals("root") ? "/root/remotely/" : "/home/" + user + "/remotely/";
+                prepareRemoteDirectory(homePath);
                 String command = "wget -O " + homePath + "mrpack-install-linux https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-linux && chmod 0755 " + homePath + "mrpack-install-linux";
+                devPrint("Downloading MrPack binary: " + command);
                 channelExec.setCommand(command);
                 channelExec.setInputStream(null);
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -137,53 +142,9 @@ public class SSHManager {
                 String output = out.toString(StandardCharsets.UTF_8);
                 System.out.println(output);
                 channelExec.disconnect();
+                devPrint("Downloaded MrPack binary: " + homePath + "$mrpack-install-linux");
             } catch (Exception e) {
                 System.out.println("Failed to download MrPack: " + e.getMessage());
-            }
-        });
-    }
-
-    public void runMrPackOnRemote(ServerInfo s) {
-        if (!isSSH || sshSession == null || !sshSession.isConnected()) {
-            if (terminalInstance != null) {
-                terminalInstance.appendOutput("SSH not connected.\n");
-            }
-            return;
-        }
-        executorService.submit(() -> {
-            try {
-                String user = s.remoteHost.user;
-                String homePath = user.equals("root") ? "/root/remotely/mrpack-install-linux" : "/home/" + user + "/remotely/mrpack-install-linux";
-                if (!remoteFileExists(homePath)) {
-                    downloadMrPackBinary(user);
-                }
-                ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
-                StringBuilder cmd = new StringBuilder();
-                cmd.append(homePath).append(" server");
-                if (s.type.equalsIgnoreCase("vanilla")) {
-                    cmd.append(" vanilla");
-                } else {
-                    cmd.append(" ").append(s.type);
-                }
-                cmd.append(" --server-dir ").append(s.path.replace(" ", "\\ "));
-                if (!s.version.equalsIgnoreCase("latest")) {
-                    cmd.append(" --minecraft-version ").append(s.version);
-                }
-                cmd.append(" --server-file server.jar");
-                channelExec.setCommand(cmd.toString());
-                channelExec.setInputStream(null);
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                channelExec.setOutputStream(out);
-                channelExec.setErrStream(out);
-                channelExec.connect();
-                while (!channelExec.isClosed()) {
-                    Thread.sleep(100);
-                }
-                String output = out.toString(StandardCharsets.UTF_8);
-                System.out.println(output);
-                channelExec.disconnect();
-            } catch (Exception e) {
-                System.out.println("Failed to run MrPack on remote: " + e.getMessage() + "\n");
             }
         });
     }
