@@ -22,12 +22,10 @@ import java.io.InputStream;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.IOException;
-import java.net.URL;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -39,7 +37,6 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import org.lwjgl.glfw.GLFW;
 
-import static net.minecraft.client.realms.task.LongRunningTask.setScreen;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.Render.drawCustomButton;
 import static redxax.oxy.common.Render.drawInnerBorder;
@@ -193,7 +190,6 @@ public class ServerManagerScreen extends Screen {
     private void defineSettings() {
         settings.clear();
         settings.add(new ServerSetting("Server Name", "none", "server-name", ServerSettingsScreen.ServerSettingType.TEXT, "My Server", "General", "The name of your server."));
-        settings.add(new ServerSetting("End User License Agreement", "eula.txt", "eula", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "General", "Do you agree to the Minecraft EULA?"));
         settings.add(new ServerSetting("Game Mode", "server.properties", "gamemode", ServerSettingsScreen.ServerSettingType.TAB_SWITCH, "Survival", "General", "Select the default game mode for players.", Arrays.asList("Survival", "Creative", "Adventure")));
         settings.add(new ServerSetting("Difficulty", "server.properties", "difficulty", ServerSettingsScreen.ServerSettingType.TAB_SWITCH, "Normal", "General", "Set the difficulty level of the server.", Arrays.asList("Peaceful", "Easy", "Normal", "Hard")));
         settings.add(new ServerSetting("PvP", "server.properties", "pvp", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "General", "Toggle player vs player combat."));
@@ -212,9 +208,13 @@ public class ServerManagerScreen extends Screen {
         settings.add(new ServerSetting("Hide Online Players", "server.properties", "hide-online-players", ServerSettingsScreen.ServerSettingType.TOGGLE, "false", "Advanced", "Hide online players from the server list."));
         settings.add(new ServerSetting("Allow Nether", "server.properties", "allow-nether", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "Advanced", "Toggle whether the Nether dimension is accessible."));
         settings.add(new ServerSetting("Allow End", "bukkit.yml", "allow-end", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "Advanced", "Toggle whether the End dimension is accessible."));
+        settings.add(new ServerSetting("Use Custom Java", "none", "usecustomjava", ServerSettingsScreen.ServerSettingType.TOGGLE, "false", "Advanced", "Use a custom Java installation (Not recommended)."));
+        settings.add(new ServerSetting("Java Version", "none", "launcher.java_version", ServerSettingsScreen.ServerSettingType.TEXT, "", "Advanced", "Specify the Java version to use.", "usecustomjava", "true"));
         settings.add(new ServerSetting("View Distance", "server.properties", "view-distance", ServerSettingsScreen.ServerSettingType.SLIDER, "8", "Performance", "Adjust the number of chunks visible to players.", 1, 64));
         settings.add(new ServerSetting("Simulation Distance", "server.properties", "simulation-distance", ServerSettingsScreen.ServerSettingType.SLIDER, "8", "Performance", "Set the simulation distance (server tick radius).", 1, 64));
-        settings.add(new ServerSetting("Extra Paper Setting", "paper-settings.txt", "paper-extra", ServerSettingsScreen.ServerSettingType.TEXT, "default", "Paper", "A setting only for Paper servers.", "simulation-distance", "9"));
+        settings.add(new ServerSetting("Memory", "none", "launcher.memory", ServerSettingsScreen.ServerSettingType.TEXT, "4G", "Performance", "Set the maximum memory allocation for the server."));
+        settings.add(new ServerSetting("Aikars Flags", "none", "launcher.aikars_flags", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "Performance", "Custom flags that highly optimizes server performance."));
+        settings.add(new ServerSetting("JVM Arguments", "none", "launcher.jvm_args", ServerSettingsScreen.ServerSettingType.TEXT, "-Dnet.kyori.ansi.colorLevel=indexed256", "Advanced", "Custom JVM arguments."));
     }
 
     @Override
@@ -1004,55 +1004,6 @@ public class ServerManagerScreen extends Screen {
         return false;
     }
 
-    private void handleServerPopupClick(double mouseX, double mouseY, int button, List<ServerInfo> currentServers) {
-        int confirmButtonY = serverPopupY + serverPopupHeight - 22;
-        String okText = editingServer ? "Save" : "Create";
-        int okW = minecraftClient.textRenderer.getWidth(okText) + 10;
-        int confirmX = serverPopupX + 5;
-        if (mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight) {
-            if (mouseX >= confirmX && mouseX <= confirmX + okW && button == 0) {
-                if (serverNameBuffer.toString().trim().isEmpty()) {
-                    return;
-                }
-                createOrSaveServer();
-                return;
-            }
-            if (mouseX >= serverPopupX + serverPopupWidth - (minecraftClient.textRenderer.getWidth("Cancel") + 10 + 5) && mouseX <= serverPopupX + serverPopupWidth - 5 && button == 0) {
-                closePopup();
-                return;
-            }
-        }
-        int nameBoxY = serverPopupY + 30;
-        int nameBoxH = 12;
-        if (mouseX >= serverPopupX + 5 && mouseX <= serverPopupX + serverPopupWidth - 5 && mouseY >= nameBoxY && mouseY <= nameBoxY + nameBoxH && button == 0) {
-            nameFieldFocused = true;
-            versionFieldFocused = false;
-            return;
-        }
-        int typeLabelY = nameBoxY + nameBoxH + 15;
-        int typeBoxY = typeLabelY + 15;
-        int boxWidth = 150;
-        int arrowLeftX = serverPopupX + 5 + boxWidth + 5;
-        int arrowRightX = arrowLeftX + 12 + 5;
-        if (mouseX >= arrowLeftX && mouseX <= arrowLeftX + 12 && mouseY >= typeBoxY && mouseY <= typeBoxY + 12 && button == 0) {
-            selectedTypeIndex = (selectedTypeIndex - 1 + serverTypes.size()) % serverTypes.size();
-            selectedServerType = serverTypes.get(selectedTypeIndex);
-            return;
-        }
-        if (mouseX >= arrowRightX && mouseX <= arrowRightX + 12 && mouseY >= typeBoxY && mouseY <= typeBoxY + 12 && button == 0) {
-            selectedTypeIndex = (selectedTypeIndex + 1) % serverTypes.size();
-            selectedServerType = serverTypes.get(selectedTypeIndex);
-            return;
-        }
-        int versionLabelY = typeBoxY + 20;
-        int versionBoxY = versionLabelY + 12;
-        int versionBoxH = 12;
-        if (mouseX >= serverPopupX + 5 && mouseX <= serverPopupX + serverPopupWidth - 5 && mouseY >= versionBoxY && mouseY <= versionBoxY + versionBoxH && button == 0) {
-            nameFieldFocused = false;
-            versionFieldFocused = true;
-        }
-    }
-
     private boolean handleTypingKey(int keyCode, StringBuilder buffer, boolean isNameField) {
         if (keyCode == 259 || keyCode == 261) {
             if (isNameField) {
@@ -1126,102 +1077,6 @@ public class ServerManagerScreen extends Screen {
         remoteHostIPBuffer.setLength(0);
         remoteHostPortBuffer.setLength(0);
         remoteHostPasswordBuffer.setLength(0);
-    }
-
-    public void createOrSaveServer() {
-        List<ServerInfo> currentServers = getCurrentServers();
-        String name = serverNameBuffer.toString().trim();
-        String ver = serverVersionBuffer.toString().trim().isEmpty() ? "latest" : serverVersionBuffer.toString().trim();
-        selectedServerType = serverTypes.get(selectedTypeIndex);
-        if (!editingServer) {
-            String path;
-            if (activeTabIndex == 0) {
-                path = "C:/remotely/servers/" + name;
-            } else {
-                RemoteHostInfo remoteHost = remoteHosts.get(activeTabIndex - 1);
-                String user = remoteHost.getUser();
-                String homeDir = user.equals("root") ? "/root" : "/home/" + user;
-                path = homeDir + "/remotely/servers/" + name;
-            }
-            ServerInfo newInfo = new ServerInfo(path);
-            newInfo.name = name;
-            newInfo.path = path;
-            newInfo.type = selectedServerType;
-            newInfo.version = ver;
-            newInfo.isRunning = false;
-            if (activeTabIndex == 0) {
-                newInfo.isRemote = false;
-                newInfo.remoteHost = null;
-                currentServers.add(newInfo);
-                Path serverJarPath = Paths.get(path, "server.jar");
-                if (!Files.exists(serverJarPath)) {
-                    runMrPackInstaller(newInfo);
-                }
-            } else {
-                newInfo.isRemote = true;
-                newInfo.remoteHost = remoteHosts.get(activeTabIndex - 1);
-                newInfo.remoteSSHManager = new SSHManager(newInfo.remoteHost);
-                newInfo.remoteSSHManager.connectToRemoteHost(newInfo.remoteHost.getUser(), newInfo.remoteHost.getIp(), newInfo.remoteHost.getPort(), newInfo.remoteHost.getPassword());
-                if (!newInfo.remoteSSHManager.isSFTPConnected()) {
-                    try {
-                        newInfo.remoteSSHManager.connectSFTP();
-                    } catch (Exception ignored) {}
-                }
-                runMrPackInstallerRemote(newInfo, newInfo.remoteHost);
-                currentServers.add(newInfo);
-            }
-            saveServers();
-            saveRemoteHosts();
-        }
-        closePopup();
-    }
-
-    void runMrPackInstaller(ServerInfo serverInfo) {
-        new Thread(() -> {
-            try {
-                Path serverDir = Paths.get(serverInfo.path);
-                if (!Files.exists(serverDir)) {
-                    Files.createDirectories(serverDir);
-                }
-                String exePath = "C:/remotely/mrpack-install-windows.exe";
-                if (!Files.exists(Paths.get(exePath))) {
-                    try (InputStream in = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-windows.exe").openStream()) {
-                        Files.copy(in, Paths.get(exePath), StandardCopyOption.REPLACE_EXISTING);
-                    }
-                }
-                List<String> cmd = new ArrayList<>();
-                cmd.add(exePath);
-                cmd.add("server");
-                cmd.add(serverInfo.type.equalsIgnoreCase("vanilla") ? "vanilla" : serverInfo.type.toLowerCase());
-                cmd.add("--server-dir");
-                cmd.add(serverInfo.path);
-                if (!serverInfo.version.equalsIgnoreCase("latest")) {
-                    cmd.add("--minecraft-version");
-                    cmd.add(serverInfo.version);
-                }
-                cmd.add("--server-file");
-                cmd.add("server.jar");
-                ProcessBuilder pb = new ProcessBuilder(cmd);
-                pb.directory(serverDir.toFile());
-                pb.redirectErrorStream(true);
-                pb.start().waitFor();
-            } catch (Exception ignored) {}
-        }).start();
-    }
-
-    void runMrPackInstallerRemote(ServerInfo serverInfo, RemoteHostInfo hostInfo) {
-        try {
-            if (serverInfo.remoteSSHManager == null) {
-                serverInfo.remoteSSHManager = new SSHManager(hostInfo);
-                serverInfo.remoteSSHManager.connectToRemoteHost(hostInfo.getUser(), hostInfo.getIp(), hostInfo.getPort(), hostInfo.getPassword());
-            }
-            if (!serverInfo.remoteSSHManager.isSFTPConnected()) {
-                serverInfo.remoteSSHManager.connectSFTP();
-            }
-            serverInfo.remoteSSHManager.prepareRemoteDirectory(serverInfo.path);
-            serverInfo.remoteSSHManager.runMrPackOnRemote(serverInfo);
-        } catch (Exception e) {
-        }
     }
 
     private void openImportFileExplorer() {
@@ -1309,44 +1164,6 @@ public class ServerManagerScreen extends Screen {
     public void close() {
         remotelyClient.saveTabIndex(activeTabIndex);
         super.close();
-    }
-
-    private void drawTextField(DrawContext context, StringBuilder buffer, int cursorPos, int scrollOffset, int x, int y, int maxWidth, boolean drawCursor) {
-        String fullText = buffer.toString();
-        int wBeforeCursor = minecraftClient.textRenderer.getWidth(fullText.substring(0, Math.min(cursorPos, fullText.length())));
-        if (wBeforeCursor < scrollOffset) scrollOffset = wBeforeCursor;
-        int availableWidth = maxWidth - 6;
-        if (wBeforeCursor - scrollOffset > availableWidth) scrollOffset = wBeforeCursor - availableWidth;
-        if (scrollOffset < 0) scrollOffset = 0;
-        int charStart = 0;
-        while (charStart < fullText.length()) {
-            int cw = minecraftClient.textRenderer.getWidth(fullText.substring(0, charStart));
-            if (cw >= scrollOffset) break;
-            charStart++;
-        }
-        int visibleEnd = charStart;
-        while (visibleEnd <= fullText.length()) {
-            int cw = minecraftClient.textRenderer.getWidth(fullText.substring(charStart, visibleEnd));
-            if (cw > availableWidth) break;
-            visibleEnd++;
-        }
-        visibleEnd--;
-        if (visibleEnd < charStart) visibleEnd = charStart;
-        String visible = fullText.substring(Math.min(charStart, fullText.length()), Math.min(visibleEnd, fullText.length()));
-        context.drawText(minecraftClient.textRenderer, Text.literal(visible), x, y, buttonTextColor, false);
-        if (drawCursor) {
-            int cursorPosVisible = Math.min(cursorPos - charStart, visible.length());
-            if (cursorPosVisible < 0) cursorPosVisible = 0;
-            int cX = x + minecraftClient.textRenderer.getWidth(visible.substring(0, Math.min(cursorPosVisible, visible.length())));
-            context.fill(cX, y - 1, cX + 1, y + minecraftClient.textRenderer.fontHeight, buttonTextColor);
-        }
-        if (nameFieldFocused) serverNameScrollOffset = scrollOffset;
-        if (versionFieldFocused) serverVersionScrollOffset = scrollOffset;
-    }
-
-    private void trimAndDrawText(DrawContext context, String text, int x, int y, int maxWidth, int color) {
-        String t = trimTextToWidthWithEllipsis(text, maxWidth);
-        context.drawText(minecraftClient.textRenderer, Text.literal(t), x, y, color, false);
     }
 
     private String trimTextToWidthWithEllipsis(String text, int maxWidth) {
