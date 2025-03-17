@@ -438,18 +438,15 @@ public class ResourcePageScreen extends Screen {
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         int headerHeight = 30;
-        int tabAreaHeight = 18;
+        int tabAreaHeight = 20;
         context.fillGradient(0, 0, this.width, this.height, browserScreenBackgroundColor, browserScreenBackgroundColor);
         drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, siteIcon, downloadIcon, null , null, null, null, null, null);
-        context.drawText(minecraftClient.textRenderer, Text.literal("Remotely Browser - " + resource.getName()), 10, 10, screensTitleTextColor, Config.shadow);
+        context.drawText(minecraftClient.textRenderer, Text.literal(resource.getName()), 10, 10, screensTitleTextColor, Config.shadow);
         drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
-        int contentY = headerHeight + tabAreaHeight + 10;
-        int contentHeight = this.height - contentY - 10;
+        int contentY = headerHeight + tabAreaHeight + 15;
+        int contentHeight = this.height - contentY - 5;
         int contentX = 5;
         int contentWidth = this.width - 10;
-        context.fill(contentX, contentY, contentX + contentWidth, contentY + contentHeight, editorInnerBackgroundColor);
-        drawInnerBorder(context, contentX, contentY, contentWidth, contentHeight, editorBorderColor);
-        drawOuterBorder(context, contentX, contentY, contentWidth, contentHeight, globalBottomBorder);
         if(getCurrentTabType() == TabType.DESCRIPTION){
             if(isLoadingMarkdown){
                 drawLoading(context, super.height, super.width);

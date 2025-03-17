@@ -315,7 +315,9 @@ public class Render {
         drawInnerBorder(context, 0, 0, parent.width, 30, headerBorderColor);
         drawOuterBorder(context, 0, 0, parent.width, 30, globalBottomBorder);
 
-
+        context.fill(5, 60, width - 5, height - 5, editorInnerBackgroundColor);
+        drawInnerBorder(context, 5, 60, width - 5 * 2, height - 60 - 5, editorBorderColor);
+        drawOuterBorder(context, 5, 60, width - 5 * 2, height - 60 - 5, globalBottomBorder);
 
         if (icon1 != null) {
             boolean isIcon1Hovered = mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24;
