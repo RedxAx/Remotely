@@ -14,9 +14,11 @@ import redxax.oxy.common.config.Config;
 import redxax.oxy.common.util.CursorUtils;
 import redxax.oxy.common.util.TabTextAnimator;
 
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -29,6 +31,7 @@ import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.explorer.ResponseManager.parseAIResponse;
+import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class FileEditorScreen extends Screen {
@@ -37,37 +40,32 @@ public class FileEditorScreen extends Screen {
     private MultiLineTextEditor textEditor;
     private final Screen parent;
     private final ServerInfo serverInfo;
-    private int backButtonX;
-    private int backButtonY;
-    private int saveButtonX;
-    private int saveButtonY;
-    private int btnW;
-    private int btnH;
+
     private static final double FAST_SCROLL_FACTOR = 3.0;
     private static final double HORIZONTAL_SCROLL_FACTOR = 10.0;
-    private List<Tab> tabs = new ArrayList<>();
+    private final List<Tab> tabs = new ArrayList<>();
     private int currentTabIndex = 0;
     private final int TAB_HEIGHT = 18;
     private final int TAB_PADDING = 5;
     private final int TAB_GAP = 5;
-    private List<Position> searchResults = new ArrayList<>();
+    private final List<Position> searchResults = new ArrayList<>();
     private int currentSearchIndex = 0;
-    private int searchBarWidth = 200;
-    private int searchBarHeight = 20;
-    private int clearSearchButtonWidth = 20;
+    private final int searchBarWidth = 200;
+    private final int searchBarHeight = 20;
+    private final int clearSearchButtonWidth = 20;
     private boolean aiMode = false;
     private boolean customSearchBarFocused = false;
-    private StringBuilder customSearchText = new StringBuilder();
+    private final StringBuilder customSearchText = new StringBuilder();
     private int customCursorPosition = 0;
     private int customSelectionStart = -1;
     private int customSelectionEnd = -1;
     private boolean customShowCursor = true;
     private long customLastBlinkTime = 0;
-    private float customPathScrollOffset = 0;
-    private float customPathTargetScrollOffset = 0;
-    private float customScrollSpeed = 0.2f;
-    private List<ResponseWindow> responseWindows = new ArrayList<>();
+    private final float customPathScrollOffset = 0;
+    private final float customPathTargetScrollOffset = 0;
+    private final List<ResponseWindow> responseWindows = new ArrayList<>();
     private static final Path AI_CONFIG_PATH = Path.of("C:/remotely/data/ai.json");
+    private BufferedImage closeIcon, saveIcon;
 
     private static class SavedTabState {
         ArrayList<String> lines;
@@ -124,11 +122,7 @@ public class FileEditorScreen extends Screen {
 
         public void checkIfChanged(List<String> lines) {
             String joined = String.join("\n", lines);
-            if (joined.equals(originalContent)) {
-                this.unsaved = false;
-            } else {
-                this.unsaved = true;
-            }
+            this.unsaved = !joined.equals(originalContent);
         }
 
         private void loadFileContent() {
@@ -219,23 +213,10 @@ public class FileEditorScreen extends Screen {
         this.textEditor = initialTab.textEditor;
     }
 
-    public FileEditorScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
-        super(Text.literal("File Editor"));
-        this.minecraftClient = mc;
-        this.parent = parent;
-        this.serverInfo = info;
-    }
-
     @Override
     protected void init() {
         super.init();
-        this.textEditor.init(5, 60, this.width - 10, this.height - 70);
-        btnW = 50;
-        btnH = 20;
-        saveButtonX = this.width - 60;
-        saveButtonY = 5;
-        backButtonX = saveButtonX - (btnW + 10);
-        backButtonY = saveButtonY;
+        this.textEditor.init(5, 60, this.width - 10, this.height - 65);
         List<Path> loadedTabs = RemotelyClient.INSTANCE.loadFileEditorTabs();
         for (Path path : loadedTabs) {
             boolean tabExists = false;
@@ -248,11 +229,17 @@ public class FileEditorScreen extends Screen {
             if (!tabExists) {
                 Tab tab = new Tab(path);
                 tabs.add(tab);
-                tab.textEditor.init(5, 60, this.width - 10, this.height - 70);
+                tab.textEditor.init(5, 60, this.width - 10, this.height - 65);
             }
         }
         if (!tabs.isEmpty()) {
             this.textEditor = tabs.get(0).textEditor;
+        }
+        try {
+            closeIcon = loadResourceIcon("/assets/remotely/icons/close.png");
+            saveIcon = loadResourceIcon("/assets/remotely/icons/save.png");
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
@@ -562,13 +549,13 @@ public class FileEditorScreen extends Screen {
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setDoOutput(true);
                 try (OutputStream os = conn.getOutputStream()) {
-                    byte[] input = requestBody.getBytes("utf-8");
+                    byte[] input = requestBody.getBytes(StandardCharsets.UTF_8);
                     os.write(input, 0, input.length);
                     os.flush();
                 }
                 int responseCode = conn.getResponseCode();
                 if (responseCode == 200) {
-                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream(), "utf-8"));
+                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
                     StringBuilder response = new StringBuilder();
                     String inputLine;
                     while ((inputLine = in.readLine()) != null) {
@@ -783,13 +770,13 @@ public class FileEditorScreen extends Screen {
         if (clickedTab) {
             return true;
         }
-        boolean clickedSave = mouseX >= saveButtonX && mouseX <= saveButtonX + btnW && mouseY >= saveButtonY && mouseY <= saveButtonY + btnH && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
+        boolean clickedSave = mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24 && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
         if (clickedSave) {
             playClick();
             tabs.get(currentTabIndex).saveFile();
             return true;
         }
-        boolean clickedBack = mouseX >= backButtonX && mouseX <= backButtonX + btnW && mouseY >= backButtonY && mouseY <= backButtonY + btnH && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
+        boolean clickedBack = mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24 && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
         if (clickedBack) {
             playClick();
             close();
@@ -851,31 +838,12 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        this.renderBackground(context, mouseX, mouseY, delta);
+        if (background) this.renderBackground(context, mouseX, mouseY, delta);
         super.render(context, mouseX, mouseY, delta);
-        int titleBarHeight = 30;
-        context.fill(0, 0, this.width, titleBarHeight, headerBackgroundColor);
-        drawInnerBorder(context, 0, 0, this.width, titleBarHeight, headerBorderColor);
-        drawOuterBorder(context, 0, 0, this.width, titleBarHeight, globalBottomBorder);
-        String titleText = "Remotely - File Editor";
-        context.drawText(this.textRenderer, Text.literal(titleText), 10, 10, screensTitleTextColor, Config.shadow);
+        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, saveIcon, null, null, null, null, null, null, null);
         drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, customShowCursor, aiMode, "FileEditorScreen");
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, tabs.get(currentTabIndex).unsaved);
-        int editorY = titleBarHeight + 5 + TAB_HEIGHT + 5;
-        int editorHeight = this.height - editorY - 10;
-        int editorX = 5;
-        int editorWidth = this.width - 10;
-        context.fill(editorX, editorY, editorX + editorWidth, editorY + editorHeight, editorInnerBackgroundColor);
-        drawInnerBorder(context, editorX, editorY, editorWidth, editorHeight, editorBorderColor);
-        drawOuterBorder(context, editorX, editorY, editorWidth, editorHeight, globalBottomBorder);
         tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
-        int buttonX = this.width - buttonW - 10;
-        int buttonY = 5;
-        boolean hovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
-        drawCustomButton(context, buttonX, buttonY, "Save", minecraftClient, hovered, false, true, buttonTextColor, buttonTextHoverColor);
-        buttonX = buttonX - (buttonW + 10);
-        hovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
-        drawCustomButton(context, buttonX, buttonY, "Back", minecraftClient, hovered, false, true, buttonTextColor, buttonTextHoverColor);
         List<ResponseWindow> toRemove = new ArrayList<>();
         for (ResponseWindow w : responseWindows) {
             if (w.closed) {
@@ -903,7 +871,7 @@ public class FileEditorScreen extends Screen {
         private double smoothScrollOffsetHoriz = 0;
         private double targetScrollOffsetVert = 0;
         private double targetScrollOffsetHoriz = 0;
-        private double scrollSpeed = 0.3;
+        private final double scrollSpeed = 0.3;
         public int cursorLine;
         public int cursorPos;
         public int selectionStartLine = -1;
@@ -912,13 +880,7 @@ public class FileEditorScreen extends Screen {
         public int selectionEndChar = -1;
         public final ArrayDeque<EditorState> undoStack = new ArrayDeque<>();
         public final ArrayDeque<EditorState> redoStack = new ArrayDeque<>();
-        private int textPadding = 4;
-        private int paddingTop = 5;
-        private int paddingRight = 5;
-        private float cursorOpacity = 1.0f;
-        private boolean cursorFadingOut = true;
-        private long lastCursorBlinkTime = 0;
-        private static final long CURSOR_BLINK_INTERVAL = 30;
+        private final int textPadding = 4;
         private static long lastLeftClickTime = 0;
         private static int clickCount = 0;
         private List<Position> searchResults = new ArrayList<>();
@@ -952,7 +914,7 @@ public class FileEditorScreen extends Screen {
             smoothScrollOffsetHoriz += (targetScrollOffsetHoriz - smoothScrollOffsetHoriz) * scrollSpeed;
             context.enableScissor(x, y, x + width, y + height);
             int lineHeight = mc.textRenderer.fontHeight + 2;
-            int visibleLines = height / lineHeight + 1;
+            int visibleLines = height / lineHeight + 6;
             for (int i = 0; i < visibleLines; i++) {
                 int lineIndex = (int) Math.floor(smoothScrollOffsetVert / lineHeight) + i;
                 if (lineIndex < 0 || lineIndex >= lines.size()) continue;
@@ -985,7 +947,6 @@ public class FileEditorScreen extends Screen {
         public void tickDragScroll() {
             if (!isDraggingSelection) return;
             int lineHeight = mc.textRenderer.fontHeight + 2;
-            int localY = (int) lastDragY - y;
             int dragLine = (int) ((lastDragY - y + smoothScrollOffsetVert) / lineHeight);
             if (dragLine < 0) dragLine = 0;
             if (dragLine >= lines.size()) dragLine = lines.size() - 1;

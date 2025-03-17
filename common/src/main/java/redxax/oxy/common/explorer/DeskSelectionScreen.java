@@ -34,7 +34,7 @@ public class DeskSelectionScreen extends Screen {
     private int spacing = 2;
     private BufferedImage folderIcon;
     private BufferedImage fileIcon;
-    private BufferedImage pinIcon;
+    private BufferedImage pinIcon, closeIcon;
     private int scrollOffset = 0;
     private int maxScroll = 0;
     private int selectedIndex = -1;
@@ -66,6 +66,7 @@ public class DeskSelectionScreen extends Screen {
             folderIcon = loadResourceIcon("/assets/remotely/icons/folder.png");
             fileIcon = loadResourceIcon("/assets/remotely/icons/file.png");
             pinIcon = loadResourceIcon("/assets/remotely/icons/pin.png");
+            closeIcon = loadResourceIcon("/assets/remotely/icons/close.png");
         } catch (Exception ignored) {}
         loadObjects();
         backButtonX = this.width - backButtonWidth - 10;
@@ -145,10 +146,8 @@ public class DeskSelectionScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        renderBackground(context, mouseX, mouseY, delta);
-        context.fill(0, 0, this.width, 30, headerBackgroundColor);
-        drawInnerBorder(context, 0, 0, this.width, 30, headerBorderColor);
-        drawOuterBorder(context, 0, 0, this.width, 30, globalBottomBorder);
+        if (Config.background) renderBackground(context, mouseX, mouseY, delta);
+        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, null, null, null, null, null, null, null, null);
         context.drawText(this.textRenderer, Text.literal("Remotely - New Tab"), 10, 10, screensTitleTextColor, Config.shadow);
         int headerY = 35;
         int gridX = spacing;
@@ -192,14 +191,12 @@ public class DeskSelectionScreen extends Screen {
             context.drawText(this.textRenderer, Text.literal(secondLine), drawX + 25, drawY + 18, explorerElementTextDimColor, Config.shadow);
             idx++;
         }
-        boolean backButtonHovered = mouseX >= backButtonX && mouseX <= backButtonX + backButtonWidth && mouseY >= backButtonY && mouseY <= backButtonY + backButtonHeight;
-        drawCustomButton(context, backButtonX, backButtonY, "Back", minecraftClient, backButtonHovered, false, true, buttonTextColor, buttonTextDeleteColor);
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0) {
-            if (mouseX >= backButtonX && mouseX <= backButtonX + backButtonWidth && mouseY >= backButtonY && mouseY <= backButtonY + backButtonHeight) {
+            if (mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24) {
                 playClick();
                 minecraftClient.setScreen(parent);
                 return true;

@@ -18,6 +18,7 @@ import redxax.oxy.common.util.CursorUtils;
 import redxax.oxy.common.util.Notification;
 import redxax.oxy.common.config.Themes;
 
+import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.*;
@@ -27,6 +28,8 @@ import java.util.stream.Collectors;
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.config.Themes.*;
+import static redxax.oxy.common.util.DevUtil.devPrint;
+import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
 
@@ -116,6 +119,7 @@ public class MultiTerminalScreen extends Screen {
     private int sidePanelTabIndex = 0;
 
     private Screen parent;
+    private BufferedImage closeIcon, startIcon, stopIcon, explorerIcon, resourcesIcon;
 
     public MultiTerminalScreen(MinecraftClient minecraftClient, Screen parent, RemotelyClient remotelyClient, List<TerminalInstance> terminals, List<String> tabNames) {
         super(Text.literal("Multi Terminal"));
@@ -154,7 +158,14 @@ public class MultiTerminalScreen extends Screen {
             }
             Themes.importThemesFromJar();
             loadThemesFromDir();
-        } catch (IOException ignored) {}
+            closeIcon = loadResourceIcon("/assets/remotely/icons/close.png");
+            startIcon = loadResourceIcon("/assets/remotely/icons/start.png");
+            stopIcon = loadResourceIcon("/assets/remotely/icons/stop.png");
+            explorerIcon = loadResourceIcon("/assets/remotely/icons/explorer.png");
+            resourcesIcon = loadResourceIcon("/assets/remotely/icons/resources.png");
+        } catch (IOException ignored) {} catch (Exception e) {
+            devPrint("Error loading themes: " + e.getMessage());
+        }
     }
 
     private void loadThemesFromDir() {
@@ -276,10 +287,8 @@ public class MultiTerminalScreen extends Screen {
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
             if (activeTerminal instanceof ServerTerminalInstance serverTerminal) {
-                context.fill(0, 0, this.width, topBarHeight, headerBackgroundColor);
-                drawInnerBorder(context, 0, 0, this.width, topBarHeight, headerBorderColor);
-                drawOuterBorder(context, 0, 0, this.width, topBarHeight, globalBottomBorder);
                 ServerInfo sInfo = serverTerminal.getServerInfo();
+                boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
                 ServerState st = sInfo.state;
                 String stateText = switch (st) {
                     case RUNNING -> "Running";
@@ -287,6 +296,7 @@ public class MultiTerminalScreen extends Screen {
                     case STOPPED -> "Stopped";
                     case CRASHED -> "Crashed";
                 };
+                drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, (st == ServerState.RUNNING || st == ServerState.STARTING) ? stopIcon : startIcon, explorerIcon, isProxy ? null : resourcesIcon, null, null, null, null, null);
                 String hostStatus;
                 if (sInfo.isRemote && sInfo.remoteHost != null) {
                     boolean connected = (sInfo.remoteSSHManager != null && sInfo.remoteSSHManager.isSSH());
@@ -296,34 +306,10 @@ public class MultiTerminalScreen extends Screen {
                 }
                 String titleText = sInfo.name + " - " + stateText + " | " + hostStatus;
                 context.drawText(minecraftClient.textRenderer, Text.literal(titleText), 10, 10, screensTitleTextColor, Config.shadow);
-                buttonX = this.width - buttonW - 10;
-                buttonY = 5;
-                String buttonLabel = (st == ServerState.RUNNING || st == ServerState.STARTING) ? "Stop" : "Start";
-                boolean buttonHovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
-                drawCustomButton(context, buttonX, buttonY, buttonLabel, minecraftClient, buttonHovered, false, true, (buttonLabel.equals("Start") ? buttonTextStartColor : buttonTextStopColor), (buttonLabel.equals("Start") ? buttonTextStartColor : buttonTextStopColor));
-                explorerButtonX = buttonX - (buttonW + 10);
-                explorerButtonY = 5;
-                boolean explorerHovered = mouseX >= explorerButtonX && mouseX <= explorerButtonX + buttonW && mouseY >= explorerButtonY && mouseY <= explorerButtonY + buttonH;
-                drawCustomButton(context, explorerButtonX, explorerButtonY, "Explorer", minecraftClient, explorerHovered, false, true, buttonTextExplorerColor, buttonTextExplorerHoverColor);
-                boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
-                if (!isProxy) {
-                    pluginButtonX = explorerButtonX - (buttonW + 10);
-                    String pluginLabel = (sInfo.type.equalsIgnoreCase("paper")) ? "Plugins" : "Mods";
-                    boolean pluginHovered = mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH;
-                    drawCustomButton(context, pluginButtonX, pluginButtonY, pluginLabel, minecraftClient, pluginHovered, false, true, buttonTextBrowseColor, buttonTextBrowseHoverColor);
-                }
             } else {
-                context.fill(0, 0, this.width, topBarHeight, headerBackgroundColor);
-                drawInnerBorder(context, 0, 0, this.width, topBarHeight, headerBorderColor);
-                drawOuterBorder(context, 0, 0, this.width, topBarHeight, globalBottomBorder);
+                drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, null, null , null, null, null, null, null);
                 String titleText = "Remotely Terminal";
                 context.drawText(minecraftClient.textRenderer, Text.literal(titleText), 10, 10, screensTitleTextColor, Config.shadow);
-                buttonX = this.width - buttonW - 10;
-                buttonY = 5;
-                boolean buttonHovered = mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH;
-                drawCustomButton(context, buttonX, buttonY, "Explorer", minecraftClient, buttonHovered, false, true, buttonTextExplorerColor, buttonTextExplorerHoverColor);
-                explorerButtonX = buttonX;
-                explorerButtonY = buttonY;
             }
         }
         if (!warningMessage.isEmpty()) {
@@ -333,7 +319,7 @@ public class MultiTerminalScreen extends Screen {
         int hideButtonX = this.width - 15 - 5;
         int hideButtonY = 5 + topBarHeight;
         hideButtonHovered = mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15;
-        drawCustomButton(context, hideButtonX, hideButtonY, "≡", minecraftClient, hideButtonHovered, true, true, buttonTextColor, buttonTextHoverColor);
+        drawSquareButton(context, hideButtonX, hideButtonY,  minecraftClient, "≡", hideButtonHovered, buttonTextColor, buttonTextHoverColor);
         int tabOffsetY = topBarHeight + 5;
         int tabAreaHeight = TAB_HEIGHT;
         int effectiveWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 5;
@@ -633,9 +619,15 @@ public class MultiTerminalScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
+            if (button == 0 && mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24) {
+                playClick();
+                if (parent != null) minecraftClient.setScreen(parent);
+                else { this.close(); closedViaEscape = true; }
+                return true;
+            }
             if (activeTerminal instanceof ServerTerminalInstance serverTerminal) {
                 if (button == 0) {
-                    if (mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+                    if (mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24) {
                         playClick();
                         ServerInfo sInfo = serverTerminal.getServerInfo();
                         if (sInfo.state == ServerState.RUNNING || sInfo.state == ServerState.STARTING) {
@@ -661,12 +653,12 @@ public class MultiTerminalScreen extends Screen {
                         }
                         return true;
                     }
-                    if (mouseX >= explorerButtonX && mouseX <= explorerButtonX + buttonW && mouseY >= explorerButtonY && mouseY <= explorerButtonY + buttonH) {
+                    if (mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24) {
                         playClick();
                         minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
                         return true;
                     }
-                    if (mouseX >= pluginButtonX && mouseX <= pluginButtonX + buttonW && mouseY >= pluginButtonY && mouseY <= pluginButtonY + buttonH) {
+                    if (mouseX >= width - 92 && mouseX <= width - 75 && mouseY >= 6 && mouseY <= 24) {
                         playClick();
                         minecraftClient.setScreen(new PluginModManagerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
                         return true;
@@ -674,7 +666,7 @@ public class MultiTerminalScreen extends Screen {
                 }
             } else {
                 if (button == 0) {
-                    if (mouseX >= buttonX && mouseX <= buttonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+                    if (mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24) {
                         playClick();
                         minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo(terminals.get(activeTerminalIndex).getCurrentDir())));
                         return true;

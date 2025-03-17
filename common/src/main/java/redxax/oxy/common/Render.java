@@ -315,6 +315,8 @@ public class Render {
         drawInnerBorder(context, 0, 0, parent.width, 30, headerBorderColor);
         drawOuterBorder(context, 0, 0, parent.width, 30, globalBottomBorder);
 
+
+
         if (icon1 != null) {
             boolean isIcon1Hovered = mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24;
             drawSquareButton(context, width - 23, 5, minecraftClient, "", isIcon1Hovered, buttonTextColor, buttonTextCancelColor);
