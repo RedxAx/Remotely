@@ -128,8 +128,6 @@ public class BrowserScreen extends Screen {
         context.fill(0, 0, width, height, 0xFF202020);
         drawHeader(context, width, height, mouseX, mouseY);
         drawBrowser(currentBrowser, fullScreenMode, width, height, TOP_OFFSET, BROWSER_DRAW_OFFSET);
-        drawInnerBorder(context, BROWSER_DRAW_OFFSET, TOP_OFFSET, width - BROWSER_DRAW_OFFSET * 2, height - TOP_OFFSET - BROWSER_DRAW_OFFSET, editorInnerBackgroundColor);
-        drawOuterBorder(context, BROWSER_DRAW_OFFSET, TOP_OFFSET, width - BROWSER_DRAW_OFFSET * 2, height - TOP_OFFSET - BROWSER_DRAW_OFFSET, globalBottomBorder);
     }
 
     private void drawHeader(DrawContext context, int width, int height, int mouseX, int mouseY) {

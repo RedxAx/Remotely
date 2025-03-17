@@ -46,6 +46,7 @@ import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.servers.PluginModManagerScreen.formatDownloads;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.drawBufferedImage;
+import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class ResourcePageScreen extends Screen {
@@ -73,6 +74,7 @@ public class ResourcePageScreen extends Screen {
     private Version headerDownloadVersion;
     private boolean isDownloadingMrpack = false;
     private double mrpackProgress = 0.0;
+    private BufferedImage closeIcon, siteIcon, downloadIcon;
 
     public ResourcePageScreen(MinecraftClient mc, PluginModManagerScreen parent, IRemotelyResource resource, ServerInfo serverInfo) {
         super(Text.literal(resource.getName()));
@@ -81,15 +83,24 @@ public class ResourcePageScreen extends Screen {
         this.resource = resource;
         ResourcePageScreen.serverInfo = serverInfo;
         loadMarkdown();
-        initTabs();
+        init();
         fetchVersions();
     }
 
-    private void initTabs() {
+    public void init() {
         tabs.clear();
         tabs.add(new Tab(TabType.DESCRIPTION, "Description"));
         tabs.add(new Tab(TabType.VERSIONS, "Versions"));
         currentTabIndex = 0;
+        try {
+            closeIcon = loadResourceIcon("/assets/remotely/icons/close.png");
+            siteIcon = loadResourceIcon("/assets/remotely/icons/site.png");
+            downloadIcon = loadResourceIcon("/assets/remotely/icons/download.png");
+        } catch (Exception e) {
+            devPrint("Failed to load icons: " + e.getMessage());
+        }
+
+
     }
 
     private void loadMarkdown() {
@@ -294,7 +305,7 @@ public class ResourcePageScreen extends Screen {
         int headerHeight = 30;
         int tabAreaHeight = 18;
         int contentY = headerHeight + tabAreaHeight + 5;
-        int contentHeight = this.height - contentY - 10;
+        int contentHeight = this.height - contentY - 5;
         if(mouseY >= contentY && mouseY <= contentY + contentHeight){
             if(getCurrentTabType() == TabType.DESCRIPTION){
                 descTargetScrollOffset -= verticalAmount * 30;
@@ -328,7 +339,6 @@ public class ResourcePageScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        int headerHeight = 30;
         int tabBarY = 35;
         int tabBarHeight = 18;
         if(mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight){
@@ -344,14 +354,7 @@ public class ResourcePageScreen extends Screen {
                 tabBarX += tabWidth + 5;
             }
         }
-        int buttonW = 60;
-        int buttonH = 20;
-        int spacing = 10;
-        int backButtonX = this.width - buttonW - 10;
-        int siteButtonX = backButtonX - (buttonW + spacing);
-        int downloadButtonX = siteButtonX - (buttonW + spacing);
-        int buttonY = (headerHeight - buttonH) / 2;
-        if(mouseX >= downloadButtonX && mouseX <= downloadButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+        if(mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24) {
             playClick();
             if (resource.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack")) {
                 downloadMrpackResource();
@@ -364,9 +367,9 @@ public class ResourcePageScreen extends Screen {
             }
             return true;
         }
-        if(mouseX >= siteButtonX && mouseX <= siteButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH) {
+        if(mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24) {
             playClick();
-            String siteUrl = getCurrentTabType() == TabType.DESCRIPTION ? getSiteUrlForResource() : getSiteUrlForResource() + (resource.getSlug().startsWith("spigot_") ? "/history" : resource.getSlug().startsWith("hangar_") ? "/versions" : "/changelog");
+            String siteUrl = getCurrentTabType() == TabType.DESCRIPTION ? getSiteUrlForResource() : getSiteUrlForResource() + (resource.getSlug().startsWith("spigot_") ? "/history" : "/versions");
             if (!siteUrl.isEmpty()) {
                 try {
                     ProcessBuilder pb = new ProcessBuilder("cmd", "/c", "start", siteUrl);
@@ -377,7 +380,7 @@ public class ResourcePageScreen extends Screen {
             }
             return true;
         }
-        if(mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH){
+        if(mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24){
             playClick();
             minecraftClient.setScreen(parentScreen);
             return true;
@@ -437,46 +440,8 @@ public class ResourcePageScreen extends Screen {
         int headerHeight = 30;
         int tabAreaHeight = 18;
         context.fillGradient(0, 0, this.width, this.height, browserScreenBackgroundColor, browserScreenBackgroundColor);
-        context.fill(0, 0, this.width, headerHeight, headerBackgroundColor);
-        drawInnerBorder(context, 0, 0, this.width, headerHeight, headerBorderColor);
-        drawOuterBorder(context, 0, 0, this.width, headerHeight, globalBottomBorder);
+        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, siteIcon, downloadIcon, null , null, null, null, null, null);
         context.drawText(minecraftClient.textRenderer, Text.literal("Remotely Browser - " + resource.getName()), 10, 10, screensTitleTextColor, Config.shadow);
-        int buttonW = 60;
-        int buttonH = 20;
-        int spacing = 10;
-        int backButtonX = this.width - buttonW - 10;
-        int siteButtonX = backButtonX - (buttonW + spacing);
-        int downloadButtonX = siteButtonX - (buttonW + spacing);
-        int buttonY = (headerHeight - buttonH) / 2;
-        if(headerDownloadVersion != null && headerDownloadVersion.isDownloading) {
-            int barWidth = buttonW;
-            int barHeight = buttonH;
-            int barX = downloadButtonX;
-            int barY = buttonY;
-            context.fill(barX, barY, barX + barWidth, barY + barHeight, browserElementBackgroundColor);
-            int fillWidth = (int)(barWidth * headerDownloadVersion.progress);
-            context.fill(barX, barY, barX + fillWidth, barY + barHeight, buttonTextHoverColor);
-            drawOuterBorder(context, barX, barY, barWidth, barHeight, globalBottomBorder);
-            drawInnerBorder(context, barX, barY, barWidth, barHeight, browserElementBorderColor);
-            String percentText = (int)(headerDownloadVersion.progress * 100) + "%";
-            context.drawText(minecraftClient.textRenderer, Text.literal(percentText), barX + barWidth/2 - minecraftClient.textRenderer.getWidth(Text.literal(percentText))/2, barY + (barHeight - minecraftClient.textRenderer.fontHeight)/2, 0xFFFFFFFF, Config.shadow);
-        } else if(isDownloadingMrpack) {
-            int barWidth = buttonW;
-            int barHeight = buttonH;
-            int barX = downloadButtonX;
-            int barY = buttonY;
-            context.fill(barX, barY, barX + barWidth, barY + barHeight, browserElementBackgroundColor);
-            int fillWidth = (int)(barWidth * mrpackProgress);
-            context.fill(barX, barY, barX + fillWidth, barY + barHeight, buttonTextHoverColor);
-            drawOuterBorder(context, barX, barY, barWidth, barHeight, globalBottomBorder);
-            drawInnerBorder(context, barX, barY, barWidth, barHeight, browserElementBorderColor);
-            String percentText = (int)(mrpackProgress * 100) + "%";
-            context.drawText(minecraftClient.textRenderer, Text.literal(percentText), barX + barWidth/2 - minecraftClient.textRenderer.getWidth(Text.literal(percentText))/2, barY + (barHeight - minecraftClient.textRenderer.fontHeight)/2, 0xFFFFFFFF, Config.shadow);
-        } else {
-            drawCustomButton(context, downloadButtonX, buttonY, "Download", minecraftClient, mouseX >= downloadButtonX && mouseX <= downloadButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH, false, true, buttonTextColor, buttonTextHoverColor);
-        }
-        drawCustomButton(context, siteButtonX, buttonY, "Site", minecraftClient, mouseX >= siteButtonX && mouseX <= siteButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH, false, true, buttonTextColor, buttonTextBrowseHoverColor);
-        drawCustomButton(context, backButtonX, buttonY, "Back", minecraftClient, mouseX >= backButtonX && mouseX <= backButtonX + buttonW && mouseY >= buttonY && mouseY <= buttonY + buttonH, false, true, buttonTextColor, buttonTextDeleteColor);
         drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
         int contentY = headerHeight + tabAreaHeight + 10;
         int contentHeight = this.height - contentY - 10;

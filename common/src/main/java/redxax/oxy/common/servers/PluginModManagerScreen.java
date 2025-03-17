@@ -30,6 +30,7 @@ import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.drawBufferedImage;
 import static redxax.oxy.common.Render.*;
+import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class PluginModManagerScreen extends Screen {
@@ -71,6 +72,7 @@ public class PluginModManagerScreen extends Screen {
     private static final int MAX_IMAGE_LOAD_RETRIES = 3;
     private long lastResourceClickTime = 0;
     private int lastResourceClickIndex = -1;
+    private BufferedImage closeIcon;
 
     private enum TabMode { MODRINTH, SPIGOT, HANGAR, SORT }
     public static class Tab {
@@ -137,6 +139,11 @@ public class PluginModManagerScreen extends Screen {
             cursorPosition = 0;
             loadResourcesAsync("", true);
         }
+        try {
+            closeIcon = loadResourceIcon("/assets/remotely/icons/close.png");
+        } catch (Exception e) {
+            devPrint("Failed to load close icon: " + e.getMessage());
+        }
     }
 
     @Override
@@ -191,9 +198,7 @@ public class PluginModManagerScreen extends Screen {
             }
         }
         if (!handled) {
-            int closeButtonX = this.width - buttonW - 10;
-            int closeButtonY = 5;
-            boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH;
+            boolean hoveredClose = mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24;
             if (hoveredClose && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 playClick();
                 minecraftClient.setScreen(parent);
@@ -209,7 +214,7 @@ public class PluginModManagerScreen extends Screen {
             }
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 int contentY = tabBarY + tabBarHeight + 30;
-                int contentHeight = this.height - contentY - 10;
+                int contentHeight = this.height - contentY - 5;
                 int contentX = 5;
                 int contentWidth = this.width - 10;
                 if (mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= contentY && mouseY <= contentY + contentHeight) {
@@ -366,20 +371,14 @@ public class PluginModManagerScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         this.renderBackground(context, mouseX, mouseY, delta);
         super.render(context, mouseX, mouseY, delta);
+        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, null, null, null , null, null, null, null, null);
         int titleBarHeight = 30;
-        context.fill(0, 0, this.width, titleBarHeight, headerBackgroundColor);
-        drawInnerBorder(context, 0, 0, this.width, titleBarHeight, headerBorderColor);
-        drawOuterBorder(context, 0, 0, this.width, titleBarHeight, globalBottomBorder);
         context.drawText(this.textRenderer, Text.literal(this.getTitle().getString()), 10, 10, screensTitleTextColor, Config.shadow);
         int tabBarY = titleBarHeight + 5;
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
         float pathScrollOffset = 0;
         float pathTargetScrollOffset = 0;
         drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, showCursor, false, "PluginModManagerScreen");
-        int closeButtonX = this.width - buttonW - 10;
-        int closeButtonY = 5;
-        boolean hoveredClose = mouseX >= closeButtonX && mouseX <= closeButtonX + buttonW && mouseY >= closeButtonY && mouseY <= closeButtonY + buttonH;
-        drawCustomButton(context, closeButtonX, closeButtonY, "Close", minecraftClient, hoveredClose, false, true, buttonTextColor, buttonTextDeleteColor);
         float scrollSpeed = 0.2f;
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
         int contentY = tabBarY + TAB_HEIGHT + 30;
