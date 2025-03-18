@@ -5,6 +5,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.*;
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.common.Render;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.util.CursorUtils;
 
@@ -23,16 +24,11 @@ public class TerminalRenderer {
     private final StringBuilder terminalOutput = new StringBuilder();
     private final List<LineText> wrappedLinesCache = new ArrayList<>();
     private float scale = 1.0f;
-    private float previousScale = 1.0f;
     private int terminalWidth;
-    private int previousTerminalWidth = 0;
-    private static final float MIN_SCALE = 0.1f;
-    private static final float MAX_SCALE = 2.0f;
-    private int scrollOffset = 0;
+    public int scrollOffset = 0;
     private long lastBlinkTime = 0;
     private boolean cursorVisible = true;
     private long lastInputTime = 0;
-    private static final int SCROLL_STEP = 1;
     private final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-?]*[ -/]*[@-~]");
     private static final Pattern TMUX_STATUS_PATTERN = Pattern.compile("^\\[\\d+].*");
     private final Pattern BRACKET_KEYWORD_PATTERN = Pattern.compile("\\[(.*?)\\b(WARNING|WARN|ERROR|INFO)\\b(.*?)]");
@@ -44,8 +40,10 @@ public class TerminalRenderer {
     private int selectionEndChar = -1;
     private int terminalX;
     private int terminalY;
-    private int terminalHeight;
+    public int terminalHeight;
     private String tmuxStatusLine = "";
+    private float currentScrollOffset = 0;
+    public float targetScrollOffset = 0;
 
     public TerminalRenderer(MinecraftClient client, TerminalInstance terminalInstance) {
         this.minecraftClient = client;
@@ -53,55 +51,55 @@ public class TerminalRenderer {
         instance = this;
     }
 
-    public void render(DrawContext context, int screenWidth, int screenHeight, float newScale) {
-        this.scale = Math.max(MIN_SCALE, Math.min(newScale, MAX_SCALE));
-        this.terminalX = 5;
-        this.terminalY = MultiTerminalScreen.ContentYStart;
-        this.terminalWidth = screenWidth - 5;
-        this.terminalHeight = screenHeight - terminalY - 15;
-        if (this.scale != previousScale || this.terminalWidth != previousTerminalWidth) {
-            previousScale = this.scale;
-            previousTerminalWidth = this.terminalWidth;
-            rewrap();
-        }
+    public void render(DrawContext context, int screenWidth, int screenHeight) {
+        terminalX = 5;
+        terminalY = MultiTerminalScreen.ContentYStart;
+        terminalWidth = screenWidth - 5;
+        terminalHeight = screenHeight - terminalY - 15;
+        int padding = 2;
+        int textAreaHeight = terminalHeight - 2 * padding - getInputFieldHeight() - getStatusBarHeight();
+        int maxScrollBefore = Math.max(0, getTotalScrollHeight() - textAreaHeight);
+        rewrap();
         context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, terminalBackgroundColor);
         drawInnerBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, terminalBorderColor);
         drawOuterBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, globalBottomBorder);
-        int padding = 2;
         int textAreaX = terminalX + padding;
-        int textAreaY = terminalY + padding;
+        int textAreaY2 = terminalY + padding;
         int textAreaWidth = terminalWidth - 2 * padding;
-        int textAreaHeight = terminalHeight - 2 * padding - getInputFieldHeight() - getStatusBarHeight();
-        context.getMatrices().push();
-        context.getMatrices().translate(textAreaX, textAreaY, 0);
-        context.getMatrices().scale(this.scale, this.scale, 1.0f);
-        int scaledHeight = (int) (textAreaHeight / this.scale);
-        int x = 0;
-        int yStart = 0;
-        List<LineText> allWrappedLines;
-        synchronized (wrappedLinesCache) {
-            allWrappedLines = new ArrayList<>(wrappedLinesCache);
+        int textAreaHeight2 = terminalHeight - 2 * padding - getInputFieldHeight() - getStatusBarHeight();
+        int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
+        int totalLinesRender = getTotalLines();
+        int maxScroll = Math.max(0, totalLinesRender * lineHeight - textAreaHeight2);
+        float delta = targetScrollOffset - currentScrollOffset;
+        currentScrollOffset += delta * 0.3f;
+        if (currentScrollOffset < 0) {
+            currentScrollOffset += (-currentScrollOffset) * 0.3f;
+        } else if (currentScrollOffset > maxScroll) {
+            currentScrollOffset -= (currentScrollOffset - maxScroll) * 0.3f;
         }
-        int totalLines = allWrappedLines.size();
-        int visibleLines = getVisibleLines(scaledHeight);
-        scrollOffset = Math.min(scrollOffset, Math.max(0, totalLines - visibleLines));
-        int startLine = Math.max(0, totalLines - visibleLines - scrollOffset);
-        int endLine = Math.min(totalLines, startLine + visibleLines);
-        lineInfos.clear();
-        for (int i = startLine; i < endLine; i++) {
-            LineText lineText = allWrappedLines.get(i);
-            int lineHeight = minecraftClient.textRenderer.fontHeight;
-            LineInfo lineInfo = new LineInfo(i, yStart, lineHeight, lineText.orderedText, lineText.plainText);
-            lineInfos.add(lineInfo);
-            if (isLineSelected(i)) {
-                drawSelection(context, lineInfo, x);
+        scrollOffset = (int) currentScrollOffset;
+        context.enableScissor(textAreaX, textAreaY2, textAreaX + textAreaWidth, textAreaY2 + textAreaHeight2);
+        int firstLine = (int) Math.floor(currentScrollOffset / lineHeight);
+        int visibleLines = textAreaHeight2 / lineHeight + 7;
+        for (int i = 0; i < visibleLines; i++) {
+            int lineIndex = firstLine + i;
+            if (lineIndex < 0 || lineIndex >= totalLinesRender)
+                continue;
+            int renderY = textAreaY2 + i * lineHeight - ((int) currentScrollOffset % lineHeight);
+            LineText lineText;
+            synchronized (wrappedLinesCache) {
+                lineText = wrappedLinesCache.get(lineIndex);
             }
-            context.drawText(minecraftClient.textRenderer, lineText.orderedText, x, yStart, terminalTextColor, Config.shadow);
-            yStart += lineHeight;
+            if (isLineSelected(lineIndex)) {
+                LineInfo tempLineInfo = new LineInfo(lineIndex, renderY, minecraftClient.textRenderer.fontHeight, lineText.orderedText, lineText.plainText);
+                drawSelection(context, tempLineInfo, textAreaX);
+            }
+            context.drawText(minecraftClient.textRenderer, lineText.orderedText, textAreaX, renderY, terminalTextColor, Config.shadow);
         }
-        context.getMatrices().pop();
+        context.disableScissor();
+        int statusBarY = terminalY + terminalHeight - getStatusBarHeight();
+        int inputY = statusBarY - 2 - getInputFieldHeight();
         int inputX = terminalX + padding;
-        int inputY = terminalY + terminalHeight - padding - getInputFieldHeight() - getStatusBarHeight();
         String inputPrompt = terminalInstance.getSSHManager().isAwaitingPassword() ? "Password: " : "> ";
         String inputText = inputPrompt + terminalInstance.inputHandler.getInputBuffer().toString();
         context.drawText(minecraftClient.textRenderer, Text.literal(inputText), inputX, inputY, terminalTextInputColor, Config.shadow);
@@ -124,9 +122,8 @@ public class TerminalRenderer {
             int cursorHeight = minecraftClient.textRenderer.fontHeight;
             context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, CursorUtils.blendColor());
         }
-        int statusBarY = terminalY + terminalHeight - getStatusBarHeight();
         context.fill(terminalX, statusBarY, terminalX + terminalWidth, statusBarY + getStatusBarHeight(), terminalStatusBarColor);
-        OrderedText[] statusTexts = getStatusBarOrderedTexts((int) (textAreaWidth / this.scale));
+        OrderedText[] statusTexts = getStatusBarOrderedTexts(textAreaWidth);
         OrderedText leftStatus = statusTexts[0];
         OrderedText rightStatus = statusTexts[1];
         int rightWidth = minecraftClient.textRenderer.getWidth(rightStatus);
@@ -191,16 +188,12 @@ public class TerminalRenderer {
                 result.addAll(parseAnsiAndHighlight(before));
             }
             String keyword = bracketMatcher.group(2).toUpperCase();
-            TextColor keywordColor;
-            if (keyword.equals("WARNING") || keyword.equals("WARN")) {
-                keywordColor = TextColor.fromRgb(terminalTextWarnColor);
-            } else if (keyword.equals("ERROR")) {
-                keywordColor = TextColor.fromRgb(terminalTextErrorColor);
-            } else if (keyword.equals("INFO")) {
-                keywordColor = TextColor.fromRgb(terminalTextInfoColor);
-            } else {
-                keywordColor = TextColor.fromRgb(terminalTextColor);
-            }
+            TextColor keywordColor = switch (keyword) {
+                case "WARNING", "WARN" -> TextColor.fromRgb(terminalTextWarnColor);
+                case "ERROR" -> TextColor.fromRgb(terminalTextErrorColor);
+                case "INFO" -> TextColor.fromRgb(terminalTextInfoColor);
+                default -> TextColor.fromRgb(terminalTextColor);
+            };
             Style keywordStyle = Style.EMPTY.withColor(keywordColor);
             String fullMatch = "[" + bracketMatcher.group(1) + bracketMatcher.group(2) + bracketMatcher.group(3) + "]";
             result.add(new StyleTextPair(keywordStyle, null, fullMatch));
@@ -450,13 +443,8 @@ public class TerminalRenderer {
         }
     }
 
-    private int getVisibleLines(int scaledHeight) {
-        int visibleHeight = Math.max(scaledHeight - getInputFieldHeight(), 1);
-        return Math.max((int) Math.ceil((visibleHeight - getStatusBarHeight()) / (double) minecraftClient.textRenderer.fontHeight), 1);
-    }
-
     int getInputFieldHeight() {
-        return minecraftClient.textRenderer.fontHeight + 4;
+        return minecraftClient.textRenderer.fontHeight - 2;
     }
 
     int getStatusBarHeight() {
@@ -511,6 +499,7 @@ public class TerminalRenderer {
         synchronized (wrappedLinesCache) {
             wrappedLinesCache.addAll(newWrappedLines);
         }
+        stickToBottom();
         minecraftClient.execute(() -> {
             if (terminalInstance.parentScreen != null) {
                 terminalInstance.parentScreen.init();
@@ -518,33 +507,35 @@ public class TerminalRenderer {
         });
     }
 
-    public void scroll(int direction, int scaledHeight) {
-        int totalLines = getTotalLines();
-        int visibleLines = getVisibleLines(scaledHeight);
-        int scrollMultiplier = InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) ||
-                InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) ? 5 : 1;
-        int scrollAmount = SCROLL_STEP * scrollMultiplier;
-        if (direction > 0) {
-            if (scrollOffset < totalLines - visibleLines) {
-                scrollOffset += scrollAmount;
-            }
-        } else if (direction < 0) {
-            if (scrollOffset > 0) {
-                scrollOffset -= scrollAmount;
-            }
+    private void stickToBottom() {
+        int padding = 2;
+        int textAreaHeight = terminalHeight - 2 * padding - getInputFieldHeight() - getStatusBarHeight();
+        int maxScroll = Math.max(0, getTotalScrollHeight() - textAreaHeight);
+        int threshold = (minecraftClient.textRenderer.fontHeight + 2) * 2;
+        if (targetScrollOffset >= maxScroll - threshold) {
+            scrollToBottom();
         }
-        scrollOffset = Math.max(0, Math.min(scrollOffset, totalLines - visibleLines));
     }
 
-    public void scrollToTop(int scaledHeight) {
-        int totalLines = getTotalLines();
-        int visibleLines = getVisibleLines(scaledHeight);
-        scrollOffset = totalLines - visibleLines;
-        scrollOffset = Math.max(0, scrollOffset);
+    public void scroll(int direction, int availableHeight) {
+        int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
+        int maxScroll = Math.max(0, getTotalScrollHeight() - availableHeight);
+        int scrollMultiplier = InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) || InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) ? 5 : 1;
+        float scrollAmount = lineHeight * scrollMultiplier;
+        targetScrollOffset -= direction * scrollAmount;
+        targetScrollOffset = Math.max(0, Math.min(targetScrollOffset, maxScroll));
+    }
+
+    public void scrollToTop() {
+        targetScrollOffset = 0;
+        Render.ScrollBar.setPendingOffset(targetScrollOffset);
     }
 
     public void scrollToBottom() {
-        scrollOffset = 0;
+        int padding = 2;
+        int textAreaHeight = terminalHeight - 2 * padding - getInputFieldHeight() - getStatusBarHeight();
+        targetScrollOffset = Math.max(0, getTotalScrollHeight() - textAreaHeight);
+        Render.ScrollBar.setPendingOffset(targetScrollOffset);
     }
 
     public StringBuilder getTerminalOutput() {
@@ -577,32 +568,73 @@ public class TerminalRenderer {
     public boolean mouseDragged(double mouseX, double mouseY, int button) {
         if (isSelecting && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             updateSelectionEnd(mouseX, mouseY);
+            int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
+            scrollToEdgesTerminal(mouseY);
             return true;
         }
         return false;
     }
 
     private boolean isMouseOverTerminal(double mouseX, double mouseY) {
-        return mouseX >= terminalX + 5 && mouseX <= terminalX + terminalWidth - 5 &&
-                mouseY >= terminalY + 5 && mouseY <= terminalY + terminalHeight - getInputFieldHeight() - getStatusBarHeight() - 5;
+        int padding = 2;
+        int textAreaX = terminalX + padding;
+        int textAreaY = terminalY + padding;
+        int textAreaWidth = terminalWidth - 2 * padding;
+        int textAreaHeight = terminalHeight - 2 * padding - getInputFieldHeight() - getStatusBarHeight();
+        return mouseX >= textAreaX && mouseX <= textAreaX + textAreaWidth &&
+                mouseY >= textAreaY && mouseY <= textAreaY + textAreaHeight;
     }
 
     private void updateSelectionStart(double mouseX, double mouseY) {
-        int lineIndex = getLineIndexAtPosition(mouseY);
-        if (lineIndex != -1) {
-            int charIndex = getCharIndexAtPosition(mouseX, lineIndex);
-            selectionStartLine = lineIndex;
+        int padding = 2;
+        int textAreaX = terminalX + padding;
+        int textAreaY = terminalY + padding;
+        int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
+        int firstLine = (int) Math.floor(currentScrollOffset / lineHeight);
+        int offsetY = (int) ((mouseY - textAreaY) + (currentScrollOffset % lineHeight));
+        int clickedLine = firstLine + offsetY / lineHeight;
+        synchronized (wrappedLinesCache) {
+            if (clickedLine < 0) clickedLine = 0;
+            if (clickedLine >= wrappedLinesCache.size()) clickedLine = wrappedLinesCache.size() - 1;
+            String lineText = wrappedLinesCache.get(clickedLine).plainText;
+            int relativeX = (int) (mouseX - textAreaX);
+            int charIndex = 0;
+            int widthSum = 0;
+            while (charIndex < lineText.length()) {
+                int charWidth = minecraftClient.textRenderer.getWidth(String.valueOf(lineText.charAt(charIndex)));
+                if (widthSum + charWidth / 2 >= relativeX) break;
+                widthSum += charWidth;
+                charIndex++;
+            }
+            selectionStartLine = clickedLine;
             selectionStartChar = charIndex;
-            selectionEndLine = lineIndex;
+            selectionEndLine = clickedLine;
             selectionEndChar = charIndex;
         }
     }
 
     private void updateSelectionEnd(double mouseX, double mouseY) {
-        int lineIndex = getLineIndexAtPosition(mouseY);
-        if (lineIndex != -1) {
-            int charIndex = getCharIndexAtPosition(mouseX, lineIndex);
-            selectionEndLine = lineIndex;
+        int padding = 2;
+        int textAreaX = terminalX + padding;
+        int textAreaY = terminalY + padding;
+        int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
+        int firstLine = (int) Math.floor(currentScrollOffset / lineHeight);
+        int offsetY = (int) ((mouseY - textAreaY) + (currentScrollOffset % lineHeight));
+        int clickedLine = firstLine + offsetY / lineHeight;
+        synchronized (wrappedLinesCache) {
+            if (clickedLine < 0) clickedLine = 0;
+            if (clickedLine >= wrappedLinesCache.size()) clickedLine = wrappedLinesCache.size() - 1;
+            String lineText = wrappedLinesCache.get(clickedLine).plainText;
+            int relativeX = (int) (mouseX - textAreaX);
+            int charIndex = 0;
+            int widthSum = 0;
+            while (charIndex < lineText.length()) {
+                int charWidth = minecraftClient.textRenderer.getWidth(String.valueOf(lineText.charAt(charIndex)));
+                if (widthSum + charWidth / 2 >= relativeX) break;
+                widthSum += charWidth;
+                charIndex++;
+            }
+            selectionEndLine = clickedLine;
             selectionEndChar = charIndex;
         }
     }
@@ -616,135 +648,13 @@ public class TerminalRenderer {
         });
     }
 
-    private int getLineIndexAtPosition(double mouseY) {
-        double relativeY = mouseY - terminalY - 5;
-        relativeY /= scale;
-        for (LineInfo lineInfo : lineInfos) {
-            if (relativeY >= lineInfo.y && relativeY < lineInfo.y + lineInfo.height) {
-                return lineInfo.lineNumber;
-            }
-        }
-        return -1;
+    int getTotalScrollHeight() {
+        int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
+        return (getTotalLines() * lineHeight);
     }
 
-    private int getCharIndexAtPosition(double mouseX, int lineIndex) {
-        LineInfo lineInfo = null;
-        for (LineInfo li : lineInfos) {
-            if (li.lineNumber == lineIndex) {
-                lineInfo = li;
-                break;
-            }
-        }
-        if (lineInfo == null) return -1;
-        double relativeX = mouseX - terminalX - 5;
-        relativeX /= scale;
-        String lineText = lineInfo.plainText;
-        int charIndex = 0;
-        int x = 0;
-        for (char c : lineText.toCharArray()) {
-            int charWidth = minecraftClient.textRenderer.getWidth(String.valueOf(c));
-            if (x + (double) charWidth / 2 > relativeX) {
-                return charIndex;
-            }
-            x += charWidth;
-            charIndex++;
-        }
-        return charIndex;
-    }
-
-    private boolean isLineSelected(int lineNumber) {
-        if (selectionStartLine == -1 || selectionEndLine == -1) {
-            return false;
-        }
-        int startLine = Math.min(selectionStartLine, selectionEndLine);
-        int endLine = Math.max(selectionStartLine, selectionEndLine);
-        return lineNumber >= startLine && lineNumber <= endLine;
-    }
-
-    private void drawSelection(DrawContext context, LineInfo lineInfo, int x) {
-        int lineNumber = lineInfo.lineNumber;
-        int yPosition = lineInfo.y;
-        String lineText = lineInfo.plainText;
-        int selectionStart = 0;
-        int selectionEnd = lineText.length();
-        if (lineNumber == selectionStartLine) {
-            selectionStart = selectionStartChar;
-        }
-        if (lineNumber == selectionEndLine) {
-            selectionEnd = selectionEndChar;
-        }
-        if (selectionStart > selectionEnd) {
-            int temp = selectionStart;
-            selectionStart = selectionEnd;
-            selectionEnd = temp;
-        }
-        if (selectionStart >= lineText.length() || selectionEnd < 0) {
-            return;
-        }
-        selectionStart = Math.max(0, selectionStart);
-        selectionEnd = Math.min(lineText.length(), selectionEnd);
-        String beforeSelection = lineText.substring(0, selectionStart);
-        String selectionText = lineText.substring(selectionStart, selectionEnd);
-        int selectionXStart = x + minecraftClient.textRenderer.getWidth(beforeSelection);
-        int selectionWidth = minecraftClient.textRenderer.getWidth(selectionText);
-        int selectionYEnd = yPosition + minecraftClient.textRenderer.fontHeight;
-        context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, selectionYEnd, terminalSelectionColor);
-    }
-
-    public void copySelectionToClipboard() {
-        String selectedText = getSelectedText();
-        if (!selectedText.isEmpty()) {
-            minecraftClient.keyboard.setClipboard(selectedText);
-        }
-        selectionStartLine = -1;
-        selectionStartChar = -1;
-        selectionEndLine = -1;
-        selectionEndChar = -1;
-    }
-
-    private String getSelectedText() {
-        if (selectionStartLine == -1 || selectionEndLine == -1) {
-            return "";
-        }
-        int startLine = selectionStartLine;
-        int endLine = selectionEndLine;
-        int startChar = selectionStartChar;
-        int endChar = selectionEndChar;
-        if (startLine > endLine || (startLine == endLine && startChar > endChar)) {
-            int tempLine = startLine;
-            startLine = endLine;
-            endLine = tempLine;
-            int tempChar = startChar;
-            startChar = endChar;
-            endChar = tempChar;
-        }
-        StringBuilder sb = new StringBuilder();
-        for (int i = startLine; i <= endLine; i++) {
-            LineInfo lineInfo = null;
-            for (LineInfo li : lineInfos) {
-                if (li.lineNumber == i) {
-                    lineInfo = li;
-                    break;
-                }
-            }
-            if (lineInfo == null) continue;
-            String lineText = lineInfo.plainText;
-            int lineStartChar = (i == startLine) ? startChar : 0;
-            int lineEndChar = (i == endLine) ? endChar : lineText.length();
-            if (lineStartChar > lineEndChar) {
-                int temp = lineStartChar;
-                lineStartChar = lineEndChar;
-                lineEndChar = temp;
-            }
-            if (lineStartChar >= lineText.length() || lineEndChar < 0) {
-                continue;
-            }
-            sb.append(lineText, lineStartChar, lineEndChar);
-            if (i != endLine) {
-                sb.append("\n");
-            }
-        }
-        return sb.toString();
+    public int getScrollOffset() {
+        return scrollOffset;
     }
 
     public void clearOutput() {
@@ -788,5 +698,117 @@ public class TerminalRenderer {
             this.orderedText = orderedText;
             this.plainText = plainText;
         }
+    }
+
+    private boolean isLineSelected(int lineNumber) {
+        if (selectionStartLine == -1 || selectionEndLine == -1) {
+            return false;
+        }
+        int startLine = Math.min(selectionStartLine, selectionEndLine);
+        int endLine = Math.max(selectionStartLine, selectionEndLine);
+        return lineNumber >= startLine && lineNumber <= endLine;
+    }
+
+    private void drawSelection(DrawContext context, LineInfo lineInfo, int x) {
+        int lineNumber = lineInfo.lineNumber;
+        int yPosition = lineInfo.y;
+        String lineText = lineInfo.plainText;
+        int selectionStart = 0;
+        int selectionEnd = lineText.length();
+        if (lineNumber == selectionStartLine) {
+            selectionStart = selectionStartChar;
+        }
+        if (lineNumber == selectionEndLine) {
+            selectionEnd = selectionEndChar;
+        }
+        if (selectionStart > selectionEnd) {
+            int temp = selectionStart;
+            selectionStart = selectionEnd;
+            selectionEnd = temp;
+        }
+        if (selectionStart >= lineText.length() || selectionEnd < 0) {
+            return;
+        }
+        selectionStart = Math.max(0, selectionStart);
+        selectionEnd = Math.min(lineText.length(), selectionEnd);
+        String beforeSelection = lineText.substring(0, selectionStart);
+        String selectionText = lineText.substring(selectionStart, selectionEnd);
+        int selectionXStart = x + minecraftClient.textRenderer.getWidth(beforeSelection);
+        int selectionWidth = minecraftClient.textRenderer.getWidth(selectionText);
+        int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
+        context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, yPosition + lineHeight - 2, terminalSelectionColor);
+    }
+
+    private void scrollToEdgesTerminal(double mouseY) {
+        int padding = 2;
+        int textAreaY = terminalY + padding;
+        int textAreaHeight = terminalHeight - 2 * padding - getInputFieldHeight() - getStatusBarHeight();
+        int maxScroll = Math.max(0, getTotalScrollHeight() - textAreaHeight);
+        double speedFactor = 0.1;
+        double minDiff = 5.0;
+        if (mouseY < textAreaY) {
+            double diff = textAreaY - mouseY;
+            diff = Math.max(diff, minDiff);
+            int scrollAmount = (int) (diff * speedFactor);
+            targetScrollOffset = Math.max(0, targetScrollOffset - scrollAmount);
+        } else if (mouseY > textAreaY + textAreaHeight) {
+            double diff = mouseY - (textAreaY + textAreaHeight);
+            diff = Math.max(diff, minDiff);
+            int scrollAmount = (int) (diff * speedFactor);
+            targetScrollOffset = Math.min(maxScroll, targetScrollOffset + scrollAmount);
+        }
+    }
+
+
+    public void copySelectionToClipboard() {
+        String selectedText = getSelectedText();
+        if (!selectedText.isEmpty()) {
+            minecraftClient.keyboard.setClipboard(selectedText);
+        }
+        selectionStartLine = -1;
+        selectionStartChar = -1;
+        selectionEndLine = -1;
+        selectionEndChar = -1;
+    }
+
+    private String getSelectedText() {
+        if (selectionStartLine == -1 || selectionEndLine == -1) {
+            return "";
+        }
+        int startLine = selectionStartLine;
+        int endLine = selectionEndLine;
+        int startChar = selectionStartChar;
+        int endChar = selectionEndChar;
+        if (startLine > endLine || (startLine == endLine && startChar > endChar)) {
+            int tempLine = startLine;
+            startLine = endLine;
+            endLine = tempLine;
+            int tempChar = startChar;
+            startChar = endChar;
+            endChar = tempChar;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = startLine; i <= endLine; i++) {
+            String lineText;
+            synchronized (wrappedLinesCache) {
+                if (i < 0 || i >= wrappedLinesCache.size()) continue;
+                lineText = wrappedLinesCache.get(i).plainText;
+            }
+            int lineStartChar = (i == startLine) ? startChar : 0;
+            int lineEndChar = (i == endLine) ? endChar : lineText.length();
+            if (lineStartChar > lineEndChar) {
+                int temp = lineStartChar;
+                lineStartChar = lineEndChar;
+                lineEndChar = temp;
+            }
+            if (lineStartChar >= lineText.length() || lineEndChar < 0) {
+                continue;
+            }
+            sb.append(lineText, lineStartChar, lineEndChar);
+            if (i != endLine) {
+                sb.append("\n");
+            }
+        }
+        return sb.toString();
     }
 }
