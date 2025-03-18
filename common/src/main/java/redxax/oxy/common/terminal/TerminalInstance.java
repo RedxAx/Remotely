@@ -43,7 +43,7 @@ public class TerminalInstance {
     }
 
     public void render(DrawContext context, int screenWidth, int screenHeight, float scale) {
-        renderer.render(context, screenWidth, screenHeight, scale);
+        renderer.render(context, screenWidth, screenHeight);
     }
 
     public boolean charTyped(char chr) {
@@ -54,12 +54,8 @@ public class TerminalInstance {
         return inputHandler.keyPressed(keyCode, modifiers);
     }
 
-    public void scroll(int direction, int terminalHeight) {
-        renderer.scroll(direction, terminalHeight);
-    }
-
     public void scrollToTop(int terminalHeight) {
-        renderer.scrollToTop(terminalHeight);
+        renderer.scrollToTop();
     }
 
     public void scrollToBottom() {

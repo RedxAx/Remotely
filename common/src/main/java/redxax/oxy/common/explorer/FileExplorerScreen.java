@@ -71,6 +71,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private boolean showCursor = true;
     private final Gson GSON = new Gson();
     private boolean shiftPressed = false;
+    private boolean lineHovered;
+
     private enum Mode { PATH, SEARCH }
     private Mode currentMode = Mode.PATH;
     private final TabTextAnimator pathTextAnimator;
@@ -89,6 +91,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private final List<EntryData> fullEntries = new ArrayList<>();
     private static final int MAX_NAME_WIDTH = 500;
     private BufferedImage appsIcon, cssIcon, jsIcon, jsonIcon, minecraftIcon, pyIcon, javaIcon, scriptIcon, shadersIcon, textIcon, closeIcon, backIcon, forwardIcon, searchIcon, reloadIcon, newFileIcon, copyIcon, editIcon, favoriteIcon, winExplorerIcon;
+    private boolean scrollbarDragging = false;
+    private int scrollbarDragStartY = 0;
+    private float scrollbarInitialOffset = 0;
+
     private static class EntryData {
         Path path;
         boolean isDirectory;
@@ -329,7 +335,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int startIndex = (int) Math.floor(currentTab.tabData.smoothOffset / itemHeight);
         int endIndex = startIndex + visibleEntries + 3;
         if (endIndex > entriesToRender.size()) endIndex = entriesToRender.size();
-        context.enableScissor(explorerX -2, explorerY, explorerX + explorerWidth +4, explorerY + explorerHeight);
+        context.enableScissor(explorerX - 2, explorerY, explorerX + explorerWidth + 4, explorerY + explorerHeight);
         if (entriesToRender.isEmpty() && !loading) {
             if (!serverInfo.isRemote) {
                 context.drawText(this.textRenderer, Text.literal("No files/folders in this directory."), explorerX + explorerWidth / 2 - textRenderer.getWidth("No files/folders in this directory.") / 2, explorerY + explorerHeight / 2, 0xFFFFFFFF, false);
@@ -395,6 +401,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (currentTab.tabData.smoothOffset < Math.max(0, totalHeight - explorerHeight)) {
             context.fillGradient(explorerX, explorerY + explorerHeight - 10, explorerX + explorerWidth, explorerY + explorerHeight, 0x00000000, 0x80000000);
         }
+        ScrollBar.render(context, this,  mouseX, mouseY,  totalHeight, currentTab.tabData.smoothOffset);
+        currentTab.tabData.targetOffset = ScrollBar.getPendingOffset();
         updateNotifications(delta);
         renderNotifications(context, mouseX, mouseY, delta);
         if (ContextMenu.isOpen()) {
@@ -804,8 +812,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     }
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        boolean ctrl = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) ||
-                (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
+        boolean ctrl = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) || (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
         float scrollMultiplier = ctrl ? 5.0f : 1.0f;
         int gap = 1;
         int itemHeight = entryHeight + gap;
@@ -818,25 +825,49 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int explorerHeight = this.height - (30 + TAB_HEIGHT + 5 + 30 + 10);
         int totalHeight = entriesToRender.size() * (entryHeight + gap);
         currentTab.tabData.targetOffset = Math.max(0, Math.min(currentTab.tabData.targetOffset, Math.max(0, totalHeight - explorerHeight)));
+        ScrollBar.setPendingOffset(currentTab.tabData.targetOffset);
         return true;
     }
     @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        int gap = 1;
+        int itemHeight = entryHeight + gap;
+        int totalHeight = fileEntries.size() * itemHeight;
+        if (ScrollBar.handleMouseDragged(this, (int) mouseY, totalHeight)) {
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (ScrollBar.handleMouseReleased()) {
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+    @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        int gap = 1;
+        int itemHeight = entryHeight + gap;
+        int totalHeight = fileEntries.size() * itemHeight;
+        if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, totalHeight, tabs.get(currentTabIndex).tabData.smoothOffset)){
+            return true;
+        }
         if (ContextMenu.isOpen()) {
             if (ContextMenu.mouseClicked(mouseX, mouseY, button)) {
                 return true;
             }
         }
         boolean handled = false;
-        int titleBarHeight = 30;
-        int tabBarY = titleBarHeight + 5;
+        int titleBarHeightLocal = 30;
+        int tabBarYLocal = titleBarHeightLocal + 5;
         int tabBarHeight = TAB_HEIGHT;
         int tabX = 5;
         Tab currentTab = tabs.get(currentTabIndex);
         for (int i = 0; i < tabs.size(); i++) {
             Tab tab = tabs.get(i);
             int tabWidth = tab.getCurrentWidth(textRenderer);
-            if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight) {
+            if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabBarYLocal && mouseY <= tabBarYLocal + tabBarHeight) {
                 playClick();
                 if (button == GLFW.GLFW_MOUSE_BUTTON_1) {
                     currentTabIndex = i;
@@ -872,11 +903,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 break;
             }
             int TAB_GAP = 5;
-            tabX += tabWidth + TAB_GAP;
+            tabX += tab.getCurrentWidth(textRenderer) + TAB_GAP;
         }
         if (!handled) {
             int PLUS_TAB_WIDTH = 18;
-            if (mouseX >= tabX && mouseX <= tabX + PLUS_TAB_WIDTH && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight) {
+            if (mouseX >= tabX && mouseX <= tabX + PLUS_TAB_WIDTH && mouseY >= tabBarYLocal && mouseY <= tabBarYLocal + tabBarHeight) {
                 playClick();
                 if (button == GLFW.GLFW_MOUSE_BUTTON_1) {
                     minecraftClient.setScreen(new DeskSelectionScreen(minecraftClient, this));
@@ -889,11 +920,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 long currentTime = System.currentTimeMillis();
                 boolean isDoubleClick = lastClickedIndex != -1 && (currentTime - lastClickTime) < DOUBLE_CLICK_INTERVAL;
                 lastClickTime = currentTime;
-                int explorerY = tabBarY + tabBarHeight + 30;
-                int explorerHeight = this.height - explorerY - 10;
-                int explorerX = 5;
-                int explorerWidth = this.width - 10;
-                int gap = 1;
+                int explorerYLocal = tabBarYLocal + tabBarHeight + 30;
+                int explorerHeightLocal = this.height - explorerYLocal - 10;
+                int explorerXLocal = 5;
+                int explorerWidthLocal = this.width - 10;
+                int gapLocal = 1;
                 if (mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24) {
                     playClick();
                     minecraftClient.setScreen(parent);
@@ -972,9 +1003,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         refreshDirectory(currentPath);
                     }
                 }
-                if (mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
-                    int relativeY = (int) mouseY - explorerY + (int) currentTab.tabData.smoothOffset;
-                    int clickedIndex = relativeY / (entryHeight + gap);
+                if (mouseX >= explorerXLocal && mouseX <= explorerXLocal + explorerWidthLocal && mouseY >= explorerYLocal && mouseY <= explorerYLocal + explorerHeightLocal) {
+                    int relativeY = (int) mouseY - explorerYLocal + (int) currentTab.tabData.smoothOffset;
+                    int clickedIndex = relativeY / (entryHeight + gapLocal);
                     List<EntryData> entriesToRender;
                     synchronized (fileEntriesLock) {
                         entriesToRender = new ArrayList<>(fileEntries);
@@ -1032,6 +1063,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                                 int end = Math.max(currentTab.tabData.lastSelectedIndex, clickedIndex);
                                 for (int iIdx = start; iIdx <= end; iIdx++) {
                                     if (iIdx >= 0 && iIdx < entriesToRender.size()) {
+                                        playClick();
                                         Path path = entriesToRender.get(iIdx).path;
                                         if (!currentTab.tabData.selectedPaths.contains(path)) {
                                             currentTab.tabData.selectedPaths.add(path);
@@ -1050,7 +1082,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 int fieldWidthDynamic = 200;
                 int fieldX = (this.width - fieldWidthDynamic) / 2;
                 int fieldY = 5;
-                int fieldHeight = titleBarHeight - 10;
+                int fieldHeight = titleBarHeightLocal - 10;
                 if (mouseX >= fieldX && mouseX <= fieldX + fieldWidthDynamic && mouseY >= fieldY && mouseY <= fieldY + fieldHeight) {
                     playClick();
                     fieldFocused = true;
@@ -1080,12 +1112,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             updatePathInfo();
         }
         if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
-            int explorerY = tabBarY + tabBarHeight + 30;
-            int explorerHeight = this.height - explorerY - 10;
-            int explorerX = 5;
-            int explorerWidth = this.width - 10;
-            if (mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
-                int relativeY = (int) mouseY - explorerY + (int) currentTab.tabData.smoothOffset;
+            int explorerYLocal = tabBarYLocal + tabBarHeight + 30;
+            int explorerHeightLocal = this.height - explorerYLocal - 10;
+            int explorerXLocal = 5;
+            int explorerWidthLocal = this.width - 10;
+            if (mouseX >= explorerXLocal && mouseX <= explorerXLocal + explorerWidthLocal && mouseY >= explorerYLocal && mouseY <= explorerYLocal + explorerHeightLocal) {
+                int relativeY = (int) mouseY - explorerYLocal + (int) currentTab.tabData.smoothOffset;
                 int clickedIndex = relativeY / (entryHeight + 1);
                 List<EntryData> entriesToRender;
                 synchronized (fileEntriesLock) {
@@ -1741,7 +1773,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         private float x;
         private final float y;
         private final float targetX;
-        private float currentOpacity = 0.0f;
+        private float currentOpacity;
         private float elapsedTime = 0.0f;
         private boolean fadingOut = false;
         private final int padding = 10;

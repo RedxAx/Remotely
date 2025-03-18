@@ -303,38 +303,47 @@ public class ResourcePageScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         int headerHeight = 30;
-        int tabAreaHeight = 18;
-        int contentY = headerHeight + tabAreaHeight + 5;
+        int tabAreaHeight = 20;
+        int contentY = headerHeight + tabAreaHeight + 10;
         int contentHeight = this.height - contentY - 5;
-        if(mouseY >= contentY && mouseY <= contentY + contentHeight){
-            if(getCurrentTabType() == TabType.DESCRIPTION){
-                descTargetScrollOffset -= verticalAmount * 30;
-                int max = Math.max(0, cachedContentHeight - (contentHeight - 20));
+        if(mouseY >= contentY && mouseY <= contentY + contentHeight) {
+            if(getCurrentTabType() == TabType.DESCRIPTION) {
+                descTargetScrollOffset -= (float) (verticalAmount * 30);
+                int max = Math.max(0, cachedContentHeight + 20 - contentHeight);
                 descTargetScrollOffset = Math.max(0, Math.min(descTargetScrollOffset, max));
-            } else if(getCurrentTabType() == TabType.VERSIONS){
+            } else if(getCurrentTabType() == TabType.VERSIONS) {
                 int itemHeight = 35;
                 int gap = 2;
-                int totalHeight = versions.size() * (itemHeight + gap);
-                versionsTargetScrollOffset -= verticalAmount * 30;
-                int max = Math.max(0, totalHeight - contentHeight);
+                int total = versions.size() * (itemHeight + gap);
+                versionsTargetScrollOffset -= (float) (verticalAmount * 30);
+                int max = Math.max(0, total - contentHeight);
                 versionsTargetScrollOffset = Math.max(0, Math.min(versionsTargetScrollOffset, max));
             }
         }
-        int tabBarY = 35;
-        int tabBarHeight = 18;
-        if(mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight){
-            int tabBarX = 5;
-            for(int i=0;i<tabs.size();i++){
-                Tab t = tabs.get(i);
-                int tabWidth = minecraftClient.textRenderer.getWidth(t.name) + 10;
-                if(mouseX >= tabBarX && mouseX <= tabBarX + tabWidth){
-                    currentTabIndex = i;
-                    return true;
-                }
-                tabBarX += tabWidth + 5;
+        return true;
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if(getCurrentTabType() == TabType.DESCRIPTION) {
+            if(Render.ScrollBar.handleMouseDragged(this, (int) mouseY, cachedContentHeight)) {
+                return true;
+            }
+        } else if(getCurrentTabType() == TabType.VERSIONS) {
+            int totalVersionHeight = versions.size() * (35);
+            if(Render.ScrollBar.handleMouseDragged(this, (int) mouseY, totalVersionHeight)) {
+                return true;
             }
         }
-        return true;
+        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if(Render.ScrollBar.handleMouseReleased()){
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
@@ -440,33 +449,33 @@ public class ResourcePageScreen extends Screen {
         int headerHeight = 30;
         int tabAreaHeight = 20;
         context.fillGradient(0, 0, this.width, this.height, browserScreenBackgroundColor, browserScreenBackgroundColor);
-        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, siteIcon, downloadIcon, null , null, null, null, null, null);
+        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, siteIcon, downloadIcon, null, null, null, null, null, null);
         context.drawText(minecraftClient.textRenderer, Text.literal(resource.getName()), 10, 10, screensTitleTextColor, Config.shadow);
         drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
-        int contentY = headerHeight + tabAreaHeight + 15;
+        int contentY = headerHeight + tabAreaHeight + 10;
         int contentHeight = this.height - contentY - 5;
         int contentX = 5;
         int contentWidth = this.width - 10;
-        if(getCurrentTabType() == TabType.DESCRIPTION){
-            if(isLoadingMarkdown){
+        if(getCurrentTabType() == TabType.DESCRIPTION) {
+            if(isLoadingMarkdown) {
                 drawLoading(context, super.height, super.width);
                 return;
             }
             linkRegions.clear();
-            if(cachedEditorWidth != contentWidth || cachedRenderCommands == null){
+            if(cachedEditorWidth != contentWidth || cachedRenderCommands == null) {
                 HTMLRenderer.RenderResult result = HTMLRenderer.buildRenderCommands(htmlDocument, contentX + 10, contentY + 10, contentWidth - 20, minecraftClient.textRenderer, imageCache, scaledImageCache, 10);
                 cachedRenderCommands = result.commands;
                 cachedContentHeight = result.totalHeight;
                 cachedEditorWidth = contentWidth;
             }
             descScrollOffset += (descTargetScrollOffset - descScrollOffset) * delta * 0.2f;
-            int maxScrollOffset = Math.max(0, cachedContentHeight - (contentHeight - 20));
+            int maxScrollOffset = Math.max(0, cachedContentHeight + 20 - contentHeight);
             descTargetScrollOffset = Math.min(descTargetScrollOffset, maxScrollOffset);
             context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
-            for(HTMLRenderer.RenderCommand cmd : cachedRenderCommands){
+            for(HTMLRenderer.RenderCommand cmd : cachedRenderCommands) {
                 int drawY = cmd.y - (int)descScrollOffset;
                 if(drawY + cmd.height < contentY || drawY > contentY + contentHeight) continue;
-                switch(cmd.type){
+                switch(cmd.type) {
                     case 0:
                         context.drawText(minecraftClient.textRenderer, Text.literal(cmd.format + cmd.text), cmd.x, drawY, cmd.color, Config.shadow);
                         break;
@@ -483,19 +492,19 @@ public class ResourcePageScreen extends Screen {
                     default:
                         break;
                 }
-                if(cmd.href != null && !cmd.href.isEmpty()){
+                if(cmd.href != null && !cmd.href.isEmpty()) {
                     linkRegions.add(new LinkRegion(cmd.x, drawY, cmd.width, cmd.height, cmd.href));
                 }
             }
             context.disableScissor();
-        } else if(getCurrentTabType() == TabType.VERSIONS){
+        } else if(getCurrentTabType() == TabType.VERSIONS) {
             versionButtonRegions.clear();
             versionsScrollOffset += (versionsTargetScrollOffset - versionsScrollOffset) * delta * 0.2f;
             int itemHeight = 35;
             context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
-            for(int i=0;i<versions.size();i++){
+            for(int i = 0; i < versions.size(); i++) {
                 Version ver = versions.get(i);
-                int y = contentY + i*(itemHeight + 2) - (int)versionsScrollOffset;
+                int y = contentY + i * (itemHeight + 2) - (int)versionsScrollOffset;
                 if(y + itemHeight < contentY || y > contentY + contentHeight) continue;
                 boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + itemHeight;
                 int bg = hovered ? browserElementBackgroundHoverColor : browserElementBackgroundColor;
@@ -504,11 +513,11 @@ public class ResourcePageScreen extends Screen {
                 drawInnerBorder(context, contentX, y, contentWidth, itemHeight, borderColor);
                 drawOuterBorder(context, contentX, y, contentWidth, itemHeight, globalBottomBorder);
                 String title = resource.getName() + ": " + ver.version;
-                context.drawText(minecraftClient.textRenderer, Text.literal(title), contentX +4, y + 3, 0xFFFFFFFF, Config.shadow);
+                context.drawText(minecraftClient.textRenderer, Text.literal(title), contentX + 4, y + 3, 0xFFFFFFFF, Config.shadow);
                 String desc = formatMCVersions(ver.mcVersions);
-                context.drawText(minecraftClient.textRenderer, Text.literal(desc), contentX +4, y + 15, 0xFFAAAAAA, Config.shadow);
+                context.drawText(minecraftClient.textRenderer, Text.literal(desc), contentX + 4, y + 15, 0xFFAAAAAA, Config.shadow);
                 String subDesc = getRelativeTime(ver.dateUploaded) + " | " + formatDownloads(ver.downloads) + " Downloads";
-                context.drawText(minecraftClient.textRenderer, Text.literal(subDesc), contentX +4, y + 26, 0xFF777777, Config.shadow);
+                context.drawText(minecraftClient.textRenderer, Text.literal(subDesc), contentX + 4, y + 26, 0xFF777777, Config.shadow);
                 if(ver.isDownloading) {
                     int barWidth = Render.buttonW;
                     int barHeight = Render.buttonH;
@@ -525,14 +534,25 @@ public class ResourcePageScreen extends Screen {
                     context.drawText(minecraftClient.textRenderer, Text.literal(infoText), barX - 5 - minecraftClient.textRenderer.getWidth(Text.literal(infoText)), barY + (barHeight - minecraftClient.textRenderer.fontHeight)/2, 0xFFCCCCCC, Config.shadow);
                 } else {
                     int btnX = contentX + contentWidth - 70;
-                    int btnY = y + (itemHeight - 20)/2;
-                    drawCustomButton(context, btnX, btnY, ver.isInstalled, minecraftClient, mouseX >= btnX && mouseX <= btnX+60 && mouseY >= btnY && mouseY <= btnY+20, false, true, Objects.equals(ver.isInstalled, "Failed") ? buttonTextDeleteHoverColor : Objects.equals(ver.isInstalled, "Installed") ? buttonTextExplorerHoverColor : buttonTextColor, buttonTextHoverColor);
+                    int btnY = y + (itemHeight - 20) / 2;
+                    drawCustomButton(context, btnX, btnY, ver.isInstalled, minecraftClient, mouseX >= btnX && mouseX <= btnX + 60 && mouseY >= btnY && mouseY <= btnY + 20, false, true, Objects.equals(ver.isInstalled, "Failed") ? buttonTextDeleteHoverColor : Objects.equals(ver.isInstalled, "Installed") ? buttonTextExplorerHoverColor : buttonTextColor, buttonTextHoverColor);
                     versionButtonRegions.add(new VersionButtonRegion(btnX, btnY, 60, 20, ver));
                 }
             }
             context.disableScissor();
         }
+        if(getCurrentTabType() == TabType.DESCRIPTION) {
+            Render.ScrollBar.render(context, this, mouseX, mouseY,cachedContentHeight + 20, descScrollOffset);
+            if (ScrollBar.isDragging())
+                descTargetScrollOffset = Render.ScrollBar.getPendingOffset();
+        } else if(getCurrentTabType() == TabType.VERSIONS) {
+            int totalVersionHeight = versions.size() * (35 + 2);
+            Render.ScrollBar.render(context, this, mouseX, mouseY, totalVersionHeight, versionsScrollOffset);
+            if (ScrollBar.isDragging())
+                versionsTargetScrollOffset = Render.ScrollBar.getPendingOffset();
+        }
     }
+
 
     private String getRelativeTime(String dateStr) {
         try {

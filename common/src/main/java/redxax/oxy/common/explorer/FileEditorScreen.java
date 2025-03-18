@@ -43,8 +43,8 @@ public class FileEditorScreen extends Screen {
 
     private static final double FAST_SCROLL_FACTOR = 3.0;
     private static final double HORIZONTAL_SCROLL_FACTOR = 10.0;
-    private final List<Tab> tabs = new ArrayList<>();
-    private int currentTabIndex = 0;
+    private static final List<Tab> tabs = new ArrayList<>();
+    private static int currentTabIndex = 0;
     private final int TAB_HEIGHT = 18;
     private final int TAB_PADDING = 5;
     private final int TAB_GAP = 5;
@@ -667,6 +667,9 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), tabs.get(currentTabIndex).textEditor.getScrollOffset())) {
+            return true;
+        }
         if (ContextMenu.isOpen()) {
             if (ContextMenu.mouseClicked(mouseX, mouseY, button)) {
                 return true;
@@ -788,6 +791,9 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (ScrollBar.handleMouseReleased()) {
+            return true;
+        }
         boolean handled = false;
         for (ResponseWindow w : responseWindows) {
             boolean r = w.mouseReleased(mouseX, mouseY, button);
@@ -797,8 +803,12 @@ public class FileEditorScreen extends Screen {
         return tabs.get(currentTabIndex).textEditor.mouseReleased(mouseX, mouseY, button) || super.mouseReleased(mouseX, mouseY, button) || handled;
     }
 
+
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (ScrollBar.handleMouseDragged(this, (int) mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight())) {
+            return true;
+        }
         boolean handled = false;
         boolean anyWindowDragging = false;
         for (ResponseWindow w : responseWindows) {
@@ -814,6 +824,7 @@ public class FileEditorScreen extends Screen {
         return tabs.get(currentTabIndex).textEditor.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || handled;
     }
 
+
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizAmount, double vertAmount) {
         long windowHandle = minecraftClient.getWindow().getHandle();
@@ -828,8 +839,10 @@ public class FileEditorScreen extends Screen {
         } else {
             tabs.get(currentTabIndex).textEditor.scrollVert((int) (-vertAmount));
         }
+        ScrollBar.setPendingOffset((float) tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert);
         return true;
     }
+
 
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
@@ -844,6 +857,8 @@ public class FileEditorScreen extends Screen {
         drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, customShowCursor, aiMode, "FileEditorScreen");
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, tabs.get(currentTabIndex).unsaved);
         tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
+        ScrollBar.render(context, parent, mouseX, mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), (float) tabs.get(currentTabIndex).textEditor.getScrollOffset());
+        tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert = (int) ScrollBar.getPendingOffset();
         List<ResponseWindow> toRemove = new ArrayList<>();
         for (ResponseWindow w : responseWindows) {
             if (w.closed) {
@@ -857,6 +872,7 @@ public class FileEditorScreen extends Screen {
         }
         responseWindows.removeAll(toRemove);
     }
+
 
     private static class MultiLineTextEditor {
         private final MinecraftClient mc;
@@ -1498,6 +1514,7 @@ public class FileEditorScreen extends Screen {
             if (targetScrollOffsetHoriz < 0) targetScrollOffsetHoriz = 0;
             int maxScrollH = Math.max(0, getMaxLineWidth() - width);
             if (targetScrollOffsetHoriz > maxScrollH) targetScrollOffsetHoriz = maxScrollH;
+            ScrollBar.setPendingOffset((float) tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert);
         }
 
         public void scrollVert(int amount) {
@@ -1713,6 +1730,7 @@ public class FileEditorScreen extends Screen {
             if (targetScrollOffsetHoriz < 0) targetScrollOffsetHoriz = 0;
             int maxScrollHoriz = Math.max(0, getMaxLineWidth() - width + 100);
             if (targetScrollOffsetHoriz > maxScrollHoriz) targetScrollOffsetHoriz = maxScrollHoriz;
+            ScrollBar.setPendingOffset((float) tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert);
         }
 
 
@@ -1732,6 +1750,15 @@ public class FileEditorScreen extends Screen {
                 this.cursorLine = cursorLine;
                 this.cursorPos = cursorPos;
             }
+        }
+
+        public int getTotalScrollHeight() {
+            int lineHeight = mc.textRenderer.fontHeight + 2;
+            return lines.size() * lineHeight;
+        }
+
+        public int getScrollOffset() {
+            return (int) smoothScrollOffsetVert;
         }
 
         public void setSearchResults(List<Position> results) {

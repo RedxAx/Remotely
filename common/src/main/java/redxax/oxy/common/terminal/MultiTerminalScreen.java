@@ -337,8 +337,8 @@ public class MultiTerminalScreen extends Screen {
         int tabAreaHeight = TAB_HEIGHT;
         int effectiveWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 5;
         Render.drawTabs(context, this.textRenderer, buildTabInfoList(), activeTerminalIndex, mouseX, mouseY, true, false);
+        TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
         if (!terminals.isEmpty()) {
-            TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
             int contentYStart = tabOffsetY + tabAreaHeight + verticalPadding;
             ContentYStart = contentYStart + 5;
             int adjustedHeight = this.height - (topBarHeight + tabAreaHeight + verticalPadding) + 60;
@@ -361,6 +361,12 @@ public class MultiTerminalScreen extends Screen {
             } else {
                 renderThemesTab(context, panelX, contentStartY, snippetPanelWidth, contentAvailableHeight, mouseX, mouseY);
             }
+        } else {
+            int textAreaHeight =  activeTerminal.renderer.getInputFieldHeight() - activeTerminal.renderer.getStatusBarHeight();
+            int scrollableRange = Math.max(0, activeTerminal.renderer.getTotalScrollHeight() - textAreaHeight);
+            if (ScrollBar.isDragging())
+                activeTerminal.renderer.targetScrollOffset = (int) ScrollBar.getPendingOffset();
+            ScrollBar.render(context, this, mouseX, mouseY, scrollableRange, activeTerminal.renderer.getScrollOffset());
         }
         if (snippetPopupActive) {
             renderSnippetPopup(context, mouseX, mouseY, delta);
@@ -632,6 +638,9 @@ public class MultiTerminalScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
+            if (!showSnippetsPanel && ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, activeTerminal.renderer.getTotalScrollHeight(), activeTerminal.renderer.getScrollOffset())){
+                return true;
+            }
             if (button == 0 && mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24) {
                 playClick();
                 if (parent != null) minecraftClient.setScreen(parent);
@@ -1003,6 +1012,9 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (ScrollBar.handleMouseReleased()) {
+            return true;
+        }
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
             if (activeTerminal.mouseReleased(mouseX, mouseY, button)) {
@@ -1020,6 +1032,9 @@ public class MultiTerminalScreen extends Screen {
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
+            if (ScrollBar.handleMouseDragged(this, (int) mouseY, activeTerminal.renderer.getTotalScrollHeight())) {
+                return true;
+            }
             if (activeTerminal.mouseDragged(mouseX, mouseY, button)) {
                 return true;
             }
@@ -1034,11 +1049,7 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        boolean ctrlHeld = InputUtil.isKeyPressed(
-                this.minecraftClient.getWindow().getHandle(),
-                GLFW.GLFW_KEY_LEFT_CONTROL) ||
-                InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(),
-                        GLFW.GLFW_KEY_RIGHT_CONTROL);
+        boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
         int availableTabWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 20;
         int totalTabsWidth = 0;
         for (int i = 0; i < terminals.size(); i++) {
@@ -1049,7 +1060,6 @@ public class MultiTerminalScreen extends Screen {
             totalTabsWidth += tabW + tabPadding;
         }
         if (totalTabsWidth < availableTabWidth) totalTabsWidth = availableTabWidth;
-
         if (ctrlHeld) {
             scale += verticalAmount > 0 ? 0.1f : -0.1f;
             scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
@@ -1063,7 +1073,8 @@ public class MultiTerminalScreen extends Screen {
                 int commandsBoxHeight = snippetPopupHeight - (commandsBoxY - snippetPopupY) - 60;
                 if (commandsBoxHeight < 20) commandsBoxHeight = 20;
                 if (mouseY >= commandsBoxY && mouseY <= commandsBoxY + commandsBoxHeight) {
-                    snippetCommandsScrollOffset -= (int) verticalAmount;
+                    int scrollDir = verticalAmount >= 0 ? (int) Math.ceil(verticalAmount) : (int) Math.floor(verticalAmount);
+                    snippetCommandsScrollOffset -= scrollDir;
                     return true;
                 }
                 return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
@@ -1075,8 +1086,11 @@ public class MultiTerminalScreen extends Screen {
             }
             if (!terminals.isEmpty()) {
                 TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-                int adjustedHeight = this.height - (topBarHeight + TAB_HEIGHT + verticalPadding) - 5;
-                activeTerminal.scroll((int) verticalAmount, adjustedHeight);
+                int padding = 2;
+                int textAreaHeight = activeTerminal.renderer.terminalHeight - 2 * padding - activeTerminal.renderer.getInputFieldHeight() - activeTerminal.renderer.getStatusBarHeight();
+                int scrollDir = verticalAmount >= 0 ? (int) Math.ceil(verticalAmount) : (int) Math.floor(verticalAmount);
+                activeTerminal.renderer.scroll(scrollDir, textAreaHeight);
+                ScrollBar.setPendingOffset(activeTerminal.renderer.getScrollOffset());
                 return true;
             }
         }
