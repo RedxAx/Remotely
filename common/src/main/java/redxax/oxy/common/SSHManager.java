@@ -28,9 +28,9 @@ public class SSHManager {
     private String sshPassword = "";
     private TerminalInstance terminalInstance;
     private final ExecutorService executorService = Executors.newFixedThreadPool(2);
-    private final ExecutorService sftpExecutor = Executors.newSingleThreadExecutor();
+    public final ExecutorService sftpExecutor = Executors.newSingleThreadExecutor();
     private final CountDownLatch sessionInitializedLatch = new CountDownLatch(1);
-    private ChannelSftp sftpChannel;
+    public ChannelSftp sftpChannel;
     private boolean sftpConnected = false;
     private ServerInfo serverInfo;
     private List<String> remoteCommandsCache = new ArrayList<>();
@@ -637,15 +637,31 @@ public class SSHManager {
         });
     }
 
-    public void renameRemoteFile(String replace, String replace1) {
-        if (!sftpConnected) return;
-        sftpExecutor.submit(() -> {
-            try {
-                sftpChannel.rename(replace, replace1);
-            } catch (Exception e) {
-                devPrint("Failed to rename remote file: " + replace + " to " + replace1 + ": " + e.getMessage());
+    public void renameRemoteFile(String source, String dest) throws Exception {
+        if (!sftpConnected) {
+            connectSFTPSync();
+            if (!sftpConnected) {
+                throw new Exception("SFTP not connected");
             }
-        });
+        }
+        try {
+            sftpChannel.rename(source, dest);
+        } catch (Exception e) {
+            throw new Exception("Failed to rename remote file: " + source + " to " + dest + ": " + e.getMessage(), e);
+        }
+    }
+
+    public void connectSFTPSync() {
+        if (sshSession == null || !sshSession.isConnected()) return;
+        try {
+            Channel channel = sshSession.openChannel("sftp");
+            channel.connect();
+            sftpChannel = (ChannelSftp) channel;
+            sftpConnected = true;
+        } catch (Exception e) {
+            sftpConnected = false;
+            devPrint("Synchronous SFTP connection failed: " + e.getMessage());
+        }
     }
 
     public String runRemoteCommandWithOutput(String sizeCommand) {

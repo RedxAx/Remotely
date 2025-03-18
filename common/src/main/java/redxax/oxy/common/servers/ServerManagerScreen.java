@@ -820,14 +820,12 @@ public class ServerManagerScreen extends Screen {
     }
 
     private void connectRemoteHostAsync(RemoteHostInfo hostInfo) {
-        if (hostInfo.sshManager == null) {
-            hostInfo.sshManager = new SSHManager(hostInfo);
-        }
+        hostInfo.getSSHManager();
         hostInfo.isConnecting = true;
         new Thread(() -> {
             try {
-                hostInfo.sshManager.connectToRemoteHost(hostInfo.getUser(), hostInfo.getIp(), hostInfo.getPort(), hostInfo.getPassword());
-                hostInfo.sshManager.connectSFTP();
+                hostInfo.getSSHManager().connectToRemoteHost(hostInfo.getUser(), hostInfo.getIp(), hostInfo.getPort(), hostInfo.getPassword());
+                hostInfo.getSSHManager().connectSFTP();
                 hostInfo.isConnected = true;
                 hostInfo.isConnecting = false;
                 hostInfo.connectionError = null;
@@ -1109,15 +1107,12 @@ public class ServerManagerScreen extends Screen {
                 serverInfo.isRemote = true;
                 serverInfo.remoteHost = remoteHost;
                 serverInfo.path = remoteHost.getHomeDirectory() + "/remotely/servers/" + serverInfo.name;
-                if (remoteHost.sshManager == null) {
-                    remoteHost.sshManager = new SSHManager(remoteHost);
-                    connectRemoteHostAsync(remoteHost);
-                }
-                serverInfo.remoteSSHManager = remoteHost.sshManager;
-                if (!remoteHost.sshManager.isSSH()) {
+                remoteHost.getSSHManager();
+                serverInfo.remoteSSHManager = remoteHost.getSSHManager();
+                if (!remoteHost.getSSHManager().isSSH()) {
                     long startTime = System.currentTimeMillis();
                     long timeout = 10000;
-                    while (!remoteHost.sshManager.isSSH() && System.currentTimeMillis() - startTime < timeout) {
+                    while (!remoteHost.getSSHManager().isSSH() && System.currentTimeMillis() - startTime < timeout) {
                         try {
                             Thread.sleep(100);
                         } catch (InterruptedException e) {

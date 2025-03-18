@@ -7,6 +7,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import redxax.oxy.common.RemotelyClient;
 import redxax.oxy.common.SSHManager;
 import redxax.oxy.common.servers.ServerInfo;
 
@@ -32,7 +33,11 @@ public class FileManager {
     public FileManager(FileManagerCallback callback, ServerInfo serverInfo, SSHManager sshManager) {
         this.callback = callback;
         this.serverInfo = serverInfo;
-        this.sshManager = sshManager;
+        if(serverInfo.isRemote && serverInfo.remoteHost != null) {
+            this.sshManager = sshManager != null ? sshManager : RemotelyClient.INSTANCE.getSSHManagerForHost(serverInfo.remoteHost);
+        } else {
+            this.sshManager = sshManager;
+        }
         this.tempUndoDir = Paths.get(System.getProperty("java.io.tmpdir"), "file_explorer_undo");
         try {
             Files.createDirectories(tempUndoDir);
@@ -66,8 +71,8 @@ public class FileManager {
                     String fileName = Paths.get(remotePath).getFileName().toString();
                     String trashPath = homeDir + "/remotely/data/trash/" + fileName;
 
-                    if (sshManager.remoteFileExists(homeDir + "/remotely/data/trash")) {
-                        sshManager.runRemoteCommand("mkdir -p " + homeDir + "/remotely/data/trash " + "mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
+                    if (!sshManager.remoteFileExists(homeDir + "/remotely/data/trash")) {
+                        sshManager.runRemoteCommand("mkdir -p " + homeDir + "/remotely/data/trash && mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
                     } else {
                         sshManager.runRemoteCommand("mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
                     }
