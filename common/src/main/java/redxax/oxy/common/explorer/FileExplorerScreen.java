@@ -160,7 +160,18 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         this.serverInfo = info;
         this.fileEntries = new ArrayList<>();
         this.textRenderer = mc.textRenderer;
-        this.fileManager = new FileManager(this, serverInfo, serverInfo.isRemote ? serverInfo.remoteHost.getSSHManager() : null);
+        if(serverInfo.isRemote && serverInfo.remoteHost == null){
+            devPrint("[Explorer] Remote ServerInfo Has a Null RemoteHostInfo, Attempting to Remap...");
+            List<TabData> loadedTabs = loadFileExplorerTabs();
+            for(TabData td : loadedTabs){
+                if(td.remoteHostInfo != null){
+                    devPrint("[Explorer] Found a Remote Tab With a Null RemoteHostInfo, Remapping...");
+                    serverInfo.remoteHost = td.remoteHostInfo;
+                    break;
+                }
+            }
+        }
+        this.fileManager = new FileManager(this, serverInfo, serverInfo.isRemote && serverInfo.remoteHost != null ? serverInfo.remoteHost.getSSHManager() : null);
         this.importMode = importMode;
         if (serverInfo.isRemote) {
             String normalized = serverInfo.path == null ? "" : serverInfo.path.replace("\\", "/").trim();
