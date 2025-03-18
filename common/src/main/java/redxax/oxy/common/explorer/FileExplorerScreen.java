@@ -202,6 +202,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 try (Reader reader = Files.newBufferedReader(favoritesFilePath)) {
                     List<String> lines = GSON.fromJson(reader, new TypeToken<List<String>>(){}.getType());
                     synchronized (favoritePathsLock) {
+                        favoritePaths.clear();
                         for (String line : lines) {
                             Path p = serverInfo.isRemote ? Paths.get(line.replace("\\", "/")) : Paths.get(line);
                             favoritePaths.add(p);
@@ -247,7 +248,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 tabs.add(new Tab(new TabData(currentPath, serverInfo.isRemote, serverInfo.remoteHost)));
             } else {
                 for (TabData td : loadedTabs) {
-                    if (tabs.stream().noneMatch(t -> t.tabData.path.equals(td.path) && t.tabData.isRemote == td.isRemote && Objects.equals(t.tabData.remoteHostInfo, td.remoteHostInfo))) {
+                    if (tabs.stream().noneMatch(t -> t.tabData.path.equals(td.path) && t.tabData.isRemote == td.isRemote && remoteHostInfosEqual(t.tabData.remoteHostInfo, td.remoteHostInfo))) {
                         tabs.add(new Tab(td));
                     }
                 }
@@ -295,9 +296,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             context.drawText(this.textRenderer, Text.literal("Created"), createdX, headerY + 5, screensTitleTextColor, Config.shadow);
             context.drawText(this.textRenderer, Text.literal("Size"), sizeX, headerY + 5, screensTitleTextColor, Config.shadow);
         } else {
-            if (serverInfo.remoteHost != null && serverInfo.remoteHost.getSSHManager().isSFTPConnected()) {
+            if (serverInfo.remoteHost != null && serverInfo.remoteHost.getSSHManager().isSFTPConnected() && !loading && !fileEntries.isEmpty()) {
                 context.drawText(this.textRenderer, Text.literal("No files/folders in this directory."), explorerX + explorerWidth / 2 - textRenderer.getWidth("No files/folders in this directory.") / 2, explorerY + explorerHeight / 2, 0xFFFFFFFF, false);
-            } else {
+            } else if (!loading) {
                 context.drawText(this.textRenderer, Text.literal("Connection lost or SFTP error."), explorerX + explorerWidth / 2 - textRenderer.getWidth("Connection lost or SFTP error.") / 2, explorerY + explorerHeight / 2, 0xFFFFFFFF, false);
             }
         }
@@ -401,6 +402,14 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
         loadMoreIfNeeded(explorerHeight);
+    }
+    private boolean remoteHostInfosEqual(RemoteHostInfo a, RemoteHostInfo b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return Objects.equals(a.getUser(), b.getUser()) &&
+                Objects.equals(a.getIp(), b.getIp()) &&
+                a.getPort() == b.getPort() &&
+                Objects.equals(a.getPassword(), b.getPassword());
     }
     private BufferedImage getIconForFile(Path file) {
         String fileName = file.getFileName().toString().toLowerCase();
@@ -1493,6 +1502,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     }
     public void showNotification(String message, Notification.Type type) {
         notifications.add(new Notification(message, type, this.width, this.height));
+        if (type == Notification.Type.ERROR)
+            devPrint("[Notification] " + message);
     }
     private void updateNotifications(float delta) {
         Iterator<Notification> iterator = notifications.iterator();
