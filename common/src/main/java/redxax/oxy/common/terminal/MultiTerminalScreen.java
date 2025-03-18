@@ -220,6 +220,19 @@ public class MultiTerminalScreen extends Screen {
     }
 
     private void addNewServerTab(ServerInfo serverInfo) {
+        if(serverInfo.isRemote && serverInfo.remoteHost == null){
+            devPrint("[Terminal] Remote ServerInfo Has a Null RemoteHostInfo, Attempting to Remap...");
+            for (TerminalInstance terminal : terminals) {
+                if (terminal instanceof ServerTerminalInstance serverTerminal) {
+                    ServerInfo sInfo = serverTerminal.getServerInfo();
+                    if(sInfo.remoteHost != null){
+                        devPrint("[Terminal] Found a Remote Tab With a Null RemoteHostInfo, Remapping...");
+                        serverInfo.remoteHost = sInfo.remoteHost;
+                        break;
+                    }
+                }
+            }
+        }
         for (int i = 0; i < terminals.size(); i++) {
             TerminalInstance terminal = terminals.get(i);
             if (terminal instanceof ServerTerminalInstance serverTerminal) {
