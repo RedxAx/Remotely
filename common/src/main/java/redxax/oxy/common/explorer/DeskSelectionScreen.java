@@ -220,7 +220,7 @@ public class DeskSelectionScreen extends Screen {
                             FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(item.localPath.toAbsolutePath().normalize(), false, null);
                             parent.tabs.add(new FileExplorerScreen.Tab(td));
                             parent.currentTabIndex = parent.tabs.size() - 1;
-                            parent.loadDirectory(td.path, false, false);
+                            parent.loadDirectory(td.path, false, false, false);
                             minecraftClient.setScreen(parent);
                         } else {
                             minecraftClient.setScreen(new FileEditorScreen(minecraftClient, parent, item.localPath.toAbsolutePath().normalize(), new ServerInfo(false, null, item.localPath.toAbsolutePath().normalize().toString())));
@@ -231,7 +231,7 @@ public class DeskSelectionScreen extends Screen {
                                 FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(Paths.get("/"), true, item.remoteHostInfo);
                                 parent.tabs.add(new FileExplorerScreen.Tab(td));
                                 parent.currentTabIndex = parent.tabs.size() - 1;
-                                parent.loadDirectory(td.path, false, false);
+                                parent.loadDirectory(td.path, false, false, false);
                                 minecraftClient.setScreen(parent);
                             } else {
                                 minecraftClient.setScreen(new FileEditorScreen(minecraftClient, parent, Paths.get("/"), new ServerInfo(true, item.remoteHostInfo, "/")));
@@ -241,7 +241,7 @@ public class DeskSelectionScreen extends Screen {
                                 FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(item.remoteServerPath, true, item.remoteHostInfo);
                                 parent.tabs.add(new FileExplorerScreen.Tab(td));
                                 parent.currentTabIndex = parent.tabs.size() - 1;
-                                parent.loadDirectory(td.path, false, false);
+                                parent.loadDirectory(td.path, false, false, false);
                                 minecraftClient.setScreen(parent);
                             } else {
                                 minecraftClient.setScreen(new FileEditorScreen(minecraftClient, parent, item.remoteServerPath, new ServerInfo(true, item.remoteHostInfo, item.remoteServerPath.toString())));
