@@ -10,17 +10,19 @@ import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import redxax.oxy.common.servers.RemoteHostInfo;
 import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.servers.ServerManagerScreen;
 import redxax.oxy.common.terminal.MultiTerminalScreen;
 import redxax.oxy.common.terminal.TerminalInstance;
-
+import redxax.oxy.common.SSHManager;
 import java.nio.file.*;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-
+import java.util.Map;
+import java.util.HashMap;
 import static redxax.oxy.common.servers.BrowserScreen.closeAll;
 
 public class RemotelyClient implements ClientModInitializer {
@@ -46,6 +48,7 @@ public class RemotelyClient implements ClientModInitializer {
     public static RemotelyClient INSTANCE;
     public final List<ServerInfo> servers = new ArrayList<>();
     private int activeHostIndex = 0;
+    private Map<String, SSHManager> hostSSHManagers = new HashMap<>();
 
     @Override
     public void onInitializeClient() {
@@ -241,6 +244,17 @@ public class RemotelyClient implements ClientModInitializer {
             } catch (IOException e) {
                 System.out.println("Failed to load snippets: " + e.getMessage());
             }
+        }
+    }
+
+    public SSHManager getSSHManagerForHost(RemoteHostInfo host) {
+        String key = host.getIp() + ":" + host.getPort() + ":" + host.getUser();
+        if (hostSSHManagers.containsKey(key)) {
+            return hostSSHManagers.get(key);
+        } else {
+            SSHManager manager = new SSHManager(host);
+            hostSSHManagers.put(key, manager);
+            return manager;
         }
     }
 }

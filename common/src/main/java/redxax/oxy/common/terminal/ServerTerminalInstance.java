@@ -1,7 +1,6 @@
 package redxax.oxy.common.terminal;
 
 import net.minecraft.client.MinecraftClient;
-import redxax.oxy.common.SSHManager;
 import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.servers.ServerProcessManager;
 import redxax.oxy.common.servers.ServerState;
@@ -31,9 +30,7 @@ public class ServerTerminalInstance extends TerminalInstance {
     public void launchServerProcess() {
         if (serverInfo.isRemote && serverInfo.remoteHost != null) {
             serverInfo.state = ServerState.STARTING;
-            if (serverInfo.remoteSSHManager == null) {
-                serverInfo.remoteSSHManager = new SSHManager(serverInfo.remoteHost);
-            }
+            serverInfo.remoteSSHManager = serverInfo.remoteHost.getSSHManager();
             serverInfo.remoteSSHManager.setTerminalInstance(this);
             serverInfo.remoteSSHManager.connectToRemoteHost(
                     serverInfo.remoteHost.getUser(),

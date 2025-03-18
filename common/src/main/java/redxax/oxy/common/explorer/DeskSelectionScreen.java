@@ -218,7 +218,7 @@ public class DeskSelectionScreen extends Screen {
                     if (!item.isRemote) {
                         if (item.isDirectory) {
                             FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(item.localPath.toAbsolutePath().normalize(), false, null);
-                            parent.tabs.add(parent.new Tab(td));
+                            parent.tabs.add(new FileExplorerScreen.Tab(td));
                             parent.currentTabIndex = parent.tabs.size() - 1;
                             parent.loadDirectory(td.path, false, false);
                             minecraftClient.setScreen(parent);
@@ -229,7 +229,7 @@ public class DeskSelectionScreen extends Screen {
                         if (item.remoteServerPath == null || item.remoteHostInfo == null) {
                             if (item.isDirectory) {
                                 FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(Paths.get("/"), true, item.remoteHostInfo);
-                                parent.tabs.add(parent.new Tab(td));
+                                parent.tabs.add(new FileExplorerScreen.Tab(td));
                                 parent.currentTabIndex = parent.tabs.size() - 1;
                                 parent.loadDirectory(td.path, false, false);
                                 minecraftClient.setScreen(parent);
@@ -239,7 +239,7 @@ public class DeskSelectionScreen extends Screen {
                         } else {
                             if (item.isDirectory) {
                                 FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(item.remoteServerPath, true, item.remoteHostInfo);
-                                parent.tabs.add(parent.new Tab(td));
+                                parent.tabs.add(new FileExplorerScreen.Tab(td));
                                 parent.currentTabIndex = parent.tabs.size() - 1;
                                 parent.loadDirectory(td.path, false, false);
                                 minecraftClient.setScreen(parent);

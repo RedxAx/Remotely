@@ -1,6 +1,7 @@
 package redxax.oxy.common.servers;
 
 import redxax.oxy.common.SSHManager;
+import redxax.oxy.common.RemotelyClient;
 import java.util.List;
 
 public class RemoteHostInfo {
@@ -13,7 +14,6 @@ public class RemoteHostInfo {
     public boolean isConnecting = false;
     public boolean isConnected = false;
     public String connectionError = null;
-    public SSHManager sshManager;
 
     public void setUser(String user) {
         this.user = user;
@@ -47,12 +47,15 @@ public class RemoteHostInfo {
         return password;
     }
 
-
     public String getHomeDirectory() {
         if ("root".equals(this.user)) {
             return "/root";
         } else {
             return "/home/" + this.user;
         }
+    }
+
+    public SSHManager getSSHManager() {
+        return RemotelyClient.INSTANCE.getSSHManagerForHost(this);
     }
 }
