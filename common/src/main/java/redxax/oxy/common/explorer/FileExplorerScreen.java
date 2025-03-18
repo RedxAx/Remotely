@@ -32,16 +32,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private final ServerInfo serverInfo;
     private final List<EntryData> fileEntries;
     private final Object fileEntriesLock = new Object();
-    private float smoothOffset = 0;
     private final int entryHeight = 20;
     private Path currentPath;
-    private float targetOffset = 0;
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm");
-    private final List<Path> selectedPaths = new ArrayList<>();
-    private int lastSelectedIndex = -1;
     private long lastClickTime = 0;
-    private static final int DOUBLE_CLICK_INTERVAL = 500;
     private int lastClickedIndex = -1;
+    private static final int DOUBLE_CLICK_INTERVAL = 500;
     private final Deque<Path> history = new ArrayDeque<>();
     private final Deque<Path> forwardHistory = new ArrayDeque<>();
     private final List<Notification> notifications = new ArrayList<>();
@@ -111,14 +107,20 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         Path path;
         boolean isRemote;
         RemoteHostInfo remoteHostInfo;
-        float scrollOffset;
+        float smoothOffset;
+        float targetOffset;
         int requestId;
+        List<Path> selectedPaths;
+        int lastSelectedIndex;
         TabData(Path path, boolean isRemote, RemoteHostInfo remoteHostInfo) {
             this.path = path;
             this.isRemote = isRemote;
             this.remoteHostInfo = remoteHostInfo;
-            this.scrollOffset = 0;
+            this.smoothOffset = 0;
+            this.targetOffset = 0;
             this.requestId = -1;
+            this.selectedPaths = new ArrayList<>();
+            this.lastSelectedIndex = -1;
         }
     }
     public static class Tab {
@@ -261,7 +263,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     currentPath = selectedTab.tabData.path;
                     serverInfo.isRemote = selectedTab.tabData.isRemote;
                     serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
-                    loadDirectory(currentPath, false, false);
+                    selectedTab.tabData.targetOffset = 0;
+                    selectedTab.tabData.smoothOffset = 0;
+                    loadDirectory(selectedTab.tabData.path, false, false, true);
                 } else {
                     tabs.add(new Tab(new TabData(currentPath, serverInfo.isRemote, serverInfo.remoteHost)));
                 }
@@ -269,7 +273,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         } catch (Exception e) {
             devPrint("Failed to initialize: " + e);
         }
-        loadDirectory(currentPath, false, false);
+        loadDirectory(currentPath, false, false, true);
     }
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
@@ -283,7 +287,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int explorerX = 5;
         int explorerWidth = this.width - 10;
         int headerY = explorerY - 23;
-        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, (selectedPaths.isEmpty() ? null : copyIcon), (selectedPaths.isEmpty() ? null : editIcon), (selectedPaths.isEmpty() ? null : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);
+        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : copyIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : editIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);
+        Tab currentTab = tabs.get(currentTabIndex);
         float pathScrollOffset = 0;
         float pathTargetScrollOffset = 0;
         drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, showCursor, currentMode == Mode.SEARCH, "FileExplorerScreen");
@@ -295,14 +300,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             int sizeX = createdX - 100;
             context.drawText(this.textRenderer, Text.literal("Created"), createdX, headerY + 5, screensTitleTextColor, Config.shadow);
             context.drawText(this.textRenderer, Text.literal("Size"), sizeX, headerY + 5, screensTitleTextColor, Config.shadow);
-        } else {
-            if (serverInfo.remoteHost != null && serverInfo.remoteHost.getSSHManager().isSFTPConnected() && !loading && !fileEntries.isEmpty()) {
-                context.drawText(this.textRenderer, Text.literal("No files/folders in this directory."), explorerX + explorerWidth / 2 - textRenderer.getWidth("No files/folders in this directory.") / 2, explorerY + explorerHeight / 2, 0xFFFFFFFF, false);
-            } else if (!loading) {
-                context.drawText(this.textRenderer, Text.literal("Connection lost or SFTP error."), explorerX + explorerWidth / 2 - textRenderer.getWidth("Connection lost or SFTP error.") / 2, explorerY + explorerHeight / 2, 0xFFFFFFFF, false);
-            }
         }
-        if (loading && tabs.get(currentTabIndex).tabData.isRemote) {
+        if (loading && currentTab.tabData.isRemote) {
             long currentTimeLoading = System.currentTimeMillis();
             if (currentTimeLoading - lastFrameTime >= 40) {
                 currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
@@ -318,7 +317,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             return;
         }
         float scrollSpeed = 0.2f;
-        smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
+        currentTab.tabData.smoothOffset += (currentTab.tabData.targetOffset - currentTab.tabData.smoothOffset) * scrollSpeed;
         List<EntryData> entriesToRender;
         synchronized (fileEntriesLock) {
             entriesToRender = new ArrayList<>(fileEntries);
@@ -327,7 +326,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int itemHeight = entryHeight + gap;
         int visibleEntries = explorerHeight / itemHeight;
         int totalHeight = entriesToRender.size() * itemHeight;
-        int startIndex = (int) Math.floor(smoothOffset / itemHeight);
+        int startIndex = (int) Math.floor(currentTab.tabData.smoothOffset / itemHeight);
         int endIndex = startIndex + visibleEntries + 3;
         if (endIndex > entriesToRender.size()) endIndex = entriesToRender.size();
         context.enableScissor(explorerX -2, explorerY, explorerX + explorerWidth +4, explorerY + explorerHeight);
@@ -344,9 +343,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         } else {
             for (int entryIndex = startIndex; entryIndex < endIndex; entryIndex++) {
                 EntryData entry = entriesToRender.get(entryIndex);
-                int entryY = explorerY + (entryIndex * itemHeight) - (int) smoothOffset;
+                int entryY = explorerY + (entryIndex * itemHeight) - (int) currentTab.tabData.smoothOffset;
                 boolean hovered = mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= entryY && mouseY < entryY + entryHeight;
-                boolean isSelected = selectedPaths.contains(entry.path);
+                boolean isSelected = currentTab.tabData.selectedPaths.contains(entry.path);
                 boolean isFavorite;
                 synchronized (favoritePathsLock) {
                     isFavorite = favoritePaths.contains(entry.path);
@@ -390,10 +389,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
         }
         context.disableScissor();
-        if (smoothOffset > 0) {
+        if (currentTab.tabData.smoothOffset > 0) {
             context.fillGradient(explorerX, explorerY, explorerX + explorerWidth, explorerY + 10, 0x80000000, 0x00000000);
         }
-        if (smoothOffset < Math.max(0, totalHeight - explorerHeight)) {
+        if (currentTab.tabData.smoothOffset < Math.max(0, totalHeight - explorerHeight)) {
             context.fillGradient(explorerX, explorerY + explorerHeight - 10, explorerX + explorerWidth, explorerY + explorerHeight, 0x00000000, 0x80000000);
         }
         updateNotifications(delta);
@@ -450,11 +449,15 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int gap = 1;
         int itemHeight = entryHeight + gap;
         int maxScroll = Math.max(0, fileEntries.size() * itemHeight - explorerHeight);
-        if (hasMore && !isLoadingMore && smoothOffset + explorerHeight >= fileEntries.size() * itemHeight - (itemHeight * 2)) {
+        Tab currentTab = tabs.get(currentTabIndex);
+        if (hasMore && !isLoadingMore && currentTab.tabData.smoothOffset + explorerHeight >= fileEntries.size() * itemHeight - (itemHeight * 2)) {
             isLoadingMore = true;
             loadMoreEntries();
         }
-        targetOffset = Math.max(0, Math.min(targetOffset, maxScroll));
+        currentTab.tabData.targetOffset = Math.max(0, Math.min(currentTab.tabData.targetOffset, Math.max(0, totalHeight(fileEntries, itemHeight) - explorerHeight)));
+    }
+    private int totalHeight(List<EntryData> entries, int itemHeight) {
+        return entries.size() * itemHeight;
     }
     private void loadMoreEntries() {
         directoryLoader.submit(() -> {
@@ -487,6 +490,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
         shiftPressed = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
+        Tab currentTab = tabs.get(currentTabIndex);
         if (renamePath != null) {
             if (keyCode == GLFW.GLFW_KEY_ENTER) {
                 renameSelectedFile();
@@ -682,12 +686,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         }
         if (ctrl) {
             if (keyCode == GLFW.GLFW_KEY_C) {
-                fileManager.copySelected(selectedPaths);
+                fileManager.copySelected(currentTab.tabData.selectedPaths);
                 showNotification("Copied to clipboard", Notification.Type.INFO);
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_X) {
-                fileManager.cutSelected(selectedPaths);
+                fileManager.cutSelected(currentTab.tabData.selectedPaths);
                 showNotification("Cut to clipboard", Notification.Type.INFO);
                 return true;
             }
@@ -717,12 +721,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_R) {
-                loadDirectory(currentPath, false, true);
+                loadDirectory(currentPath, false, true, true);
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_T) {
                 synchronized (favoritePathsLock) {
-                    for (Path p : selectedPaths) {
+                    for (Path p : currentTab.tabData.selectedPaths) {
                         if (!favoritePaths.contains(p)) {
                             favoritePaths.add(p);
                         } else {
@@ -737,8 +741,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 return createFile();
             }
             if (keyCode == GLFW.GLFW_KEY_E) {
-                if (!selectedPaths.isEmpty()) {
-                    renamePath = selectedPaths.get(0);
+                if (!currentTab.tabData.selectedPaths.isEmpty()) {
+                    renamePath = currentTab.tabData.selectedPaths.get(0);
                     renameBuffer.setLength(0);
                     renameBuffer.append(renamePath.getFileName().toString());
                     renameCursorPos = renameBuffer.length();
@@ -747,7 +751,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
         }
         if (currentMode == Mode.PATH && keyCode == GLFW.GLFW_KEY_DELETE) {
-            fileManager.deleteSelected(selectedPaths, currentPath);
+            fileManager.deleteSelected(currentTab.tabData.selectedPaths, currentPath);
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
@@ -805,14 +809,15 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         float scrollMultiplier = ctrl ? 5.0f : 1.0f;
         int gap = 1;
         int itemHeight = entryHeight + gap;
-        targetOffset -= (float) (verticalAmount * itemHeight * 0.5f * scrollMultiplier);
+        Tab currentTab = tabs.get(currentTabIndex);
+        currentTab.tabData.targetOffset -= (float) (verticalAmount * itemHeight * 0.5f * scrollMultiplier);
         List<EntryData> entriesToRender;
         synchronized (fileEntriesLock) {
             entriesToRender = new ArrayList<>(fileEntries);
         }
         int explorerHeight = this.height - (30 + TAB_HEIGHT + 5 + 30 + 10);
         int totalHeight = entriesToRender.size() * (entryHeight + gap);
-        targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, totalHeight - explorerHeight)));
+        currentTab.tabData.targetOffset = Math.max(0, Math.min(currentTab.tabData.targetOffset, Math.max(0, totalHeight - explorerHeight)));
         return true;
     }
     @Override
@@ -827,6 +832,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int tabBarY = titleBarHeight + 5;
         int tabBarHeight = TAB_HEIGHT;
         int tabX = 5;
+        Tab currentTab = tabs.get(currentTabIndex);
         for (int i = 0; i < tabs.size(); i++) {
             Tab tab = tabs.get(i);
             int tabWidth = tab.getCurrentWidth(textRenderer);
@@ -838,8 +844,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     currentPath = selectedTab.tabData.path;
                     serverInfo.isRemote = selectedTab.tabData.isRemote;
                     serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
-                    targetOffset = selectedTab.tabData.scrollOffset;
-                    loadDirectory(selectedTab.tabData.path, false, false);
+                    loadDirectory(selectedTab.tabData.path, false, false, true);
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
                     closeTab(i);
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
@@ -855,7 +860,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         Tab newTab = new Tab(newTabData);
                         tabs.add(newTab);
                         currentTabIndex = tabs.size() - 1;
-                        loadDirectory(newTabData.path, false, false);
+                        loadDirectory(newTabData.path, false, false, false);
                         saveFileExplorerTabs(tabs.stream().map(t1 -> new TabData(t1.tabData.path, t1.tabData.isRemote, t1.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Externally", () -> {
@@ -896,14 +901,14 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 }
                 if (mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24) {
                     playClick();
-                    fileManager.copySelected(selectedPaths);
+                    fileManager.copySelected(currentTab.tabData.selectedPaths);
                     showNotification("Copied to clipboard", Notification.Type.INFO);
                     return true;
                 }
                 if (mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24) {
                     playClick();
-                    if (!selectedPaths.isEmpty()) {
-                        renamePath = selectedPaths.get(0);
+                    if (!currentTab.tabData.selectedPaths.isEmpty()) {
+                        renamePath = currentTab.tabData.selectedPaths.get(0);
                         renameBuffer.setLength(0);
                         renameBuffer.append(renamePath.getFileName().toString());
                         renameCursorPos = renameBuffer.length();
@@ -913,7 +918,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 if (mouseX >= width - 92 && mouseX <= width - 75 && mouseY >= 6 && mouseY <= 24) {
                     playClick();
                     synchronized (favoritePathsLock) {
-                        for (Path p : selectedPaths) {
+                        for (Path p : currentTab.tabData.selectedPaths) {
                             if (!favoritePaths.contains(p)) {
                                 favoritePaths.add(p);
                             } else {
@@ -968,7 +973,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     }
                 }
                 if (mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
-                    int relativeY = (int) mouseY - explorerY + (int) smoothOffset;
+                    int relativeY = (int) mouseY - explorerY + (int) currentTab.tabData.smoothOffset;
                     int clickedIndex = relativeY / (entryHeight + gap);
                     List<EntryData> entriesToRender;
                     synchronized (fileEntriesLock) {
@@ -986,8 +991,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                                 Tab selectedTab = tabs.get(currentTabIndex);
                                 selectedTab.tabData.path = selectedPath;
                                 selectedTab.setName(selectedPath.getFileName() != null ? selectedPath.getFileName().toString() : selectedPath.toString());
-                                targetOffset = selectedTab.tabData.scrollOffset;
-                                loadDirectory(selectedPath, false, false);
+                                loadDirectory(selectedPath, false, false, false);
                             } else {
                                 if (importMode && selectedPath.getFileName().toString().equalsIgnoreCase("server.jar")) {
                                     if (parent instanceof ServerManagerScreen sms) {
@@ -1011,33 +1015,33 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                                 TabData newTabData = new TabData(selectedPath, serverInfo.isRemote, serverInfo.remoteHost);
                                 tabs.add(new Tab(newTabData));
                                 currentTabIndex = tabs.size() - 1;
-                                loadDirectory(newTabData.path, false, false);
+                                loadDirectory(newTabData.path, false, false, true);
                                 return true;
                             }
                             lastClickedIndex = clickedIndex;
                             boolean ctrlPressed = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) || (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
                             if (ctrlPressed) {
-                                if (selectedPaths.contains(selectedPath)) {
-                                    selectedPaths.remove(selectedPath);
+                                if (currentTab.tabData.selectedPaths.contains(selectedPath)) {
+                                    currentTab.tabData.selectedPaths.remove(selectedPath);
                                 } else {
-                                    selectedPaths.add(selectedPath);
+                                    currentTab.tabData.selectedPaths.add(selectedPath);
                                 }
-                                lastSelectedIndex = clickedIndex;
-                            } else if (shiftPressed && lastSelectedIndex != -1) {
-                                int start = Math.min(lastSelectedIndex, clickedIndex);
-                                int end = Math.max(lastSelectedIndex, clickedIndex);
+                                currentTab.tabData.lastSelectedIndex = clickedIndex;
+                            } else if (shiftPressed && currentTab.tabData.lastSelectedIndex != -1) {
+                                int start = Math.min(currentTab.tabData.lastSelectedIndex, clickedIndex);
+                                int end = Math.max(currentTab.tabData.lastSelectedIndex, clickedIndex);
                                 for (int iIdx = start; iIdx <= end; iIdx++) {
                                     if (iIdx >= 0 && iIdx < entriesToRender.size()) {
                                         Path path = entriesToRender.get(iIdx).path;
-                                        if (!selectedPaths.contains(path)) {
-                                            selectedPaths.add(path);
+                                        if (!currentTab.tabData.selectedPaths.contains(path)) {
+                                            currentTab.tabData.selectedPaths.add(path);
                                         }
                                     }
                                 }
                             } else {
-                                selectedPaths.clear();
-                                selectedPaths.add(selectedPath);
-                                lastSelectedIndex = clickedIndex;
+                                currentTab.tabData.selectedPaths.clear();
+                                currentTab.tabData.selectedPaths.add(selectedPath);
+                                currentTab.tabData.lastSelectedIndex = clickedIndex;
                             }
                             return true;
                         }
@@ -1058,6 +1062,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     fieldFocused = false;
                     currentMode = Mode.PATH;
                     updatePathInfo();
+                    currentTab.tabData.selectedPaths.clear();
                 }
                 return false;
             } else if (button == GLFW.GLFW_MOUSE_BUTTON_4) {
@@ -1080,7 +1085,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             int explorerX = 5;
             int explorerWidth = this.width - 10;
             if (mouseX >= explorerX && mouseX <= explorerX + explorerWidth && mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
-                int relativeY = (int) mouseY - explorerY + (int) smoothOffset;
+                int relativeY = (int) mouseY - explorerY + (int) currentTab.tabData.smoothOffset;
                 int clickedIndex = relativeY / (entryHeight + 1);
                 List<EntryData> entriesToRender;
                 synchronized (fileEntriesLock) {
@@ -1088,8 +1093,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 }
                 if (clickedIndex >= 0 && clickedIndex < entriesToRender.size()) {
                     EntryData entryData = entriesToRender.get(clickedIndex);
-                    selectedPaths.clear();
-                    selectedPaths.add(entryData.path);
+                    currentTab.tabData.selectedPaths.clear();
+                    currentTab.tabData.selectedPaths.add(entryData.path);
                     ContextMenu.hide();
                     ContextMenu.addItem("New Tab", () -> {
                         playClick();
@@ -1097,7 +1102,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                             TabData newTabData = new TabData(entryData.path, serverInfo.isRemote, serverInfo.remoteHost);
                             tabs.add(new Tab(newTabData));
                             currentTabIndex = tabs.size() - 1;
-                            loadDirectory(newTabData.path, false, false);
+                            loadDirectory(newTabData.path, false, false, true);
                         } else {
                             if (isSupportedFile(entryData.path)) {
                                 minecraftClient.setScreen(new FileEditorScreen(minecraftClient, this, entryData.path, serverInfo));
@@ -1127,7 +1132,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                                 serverInfo.remoteHost.getSSHManager().prepareRemoteDirectory(newCreationPath.toString().replace("\\", "/"));
                             }
                         } catch (Exception ignored) {}
-                        loadDirectory(currentPath, false, true);
+                        loadDirectory(currentPath, false, true, true);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Rename", () -> {
                         playClick();
@@ -1138,12 +1143,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Copy", () -> {
                         playClick();
-                        fileManager.copySelected(selectedPaths);
+                        fileManager.copySelected(currentTab.tabData.selectedPaths);
                         showNotification("Copied to clipboard", Notification.Type.INFO);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Cut", () -> {
                         playClick();
-                        fileManager.cutSelected(selectedPaths);
+                        fileManager.cutSelected(currentTab.tabData.selectedPaths);
                         showNotification("Cut to clipboard", Notification.Type.INFO);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Paste", () -> {
@@ -1153,12 +1158,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Delete", () -> {
                         playClick();
-                        fileManager.deleteSelected(selectedPaths, currentPath);
+                        fileManager.deleteSelected(currentTab.tabData.selectedPaths, currentPath);
                     }, buttonTextDeleteHoverColor);
                     ContextMenu.addItem("Favorite", () -> {
                         playClick();
                         synchronized (favoritePathsLock) {
-                            for (Path p : selectedPaths) {
+                            for (Path p : currentTab.tabData.selectedPaths) {
                                 if (!favoritePaths.contains(p)) {
                                     favoritePaths.add(p);
                                 } else {
@@ -1177,7 +1182,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Refresh", () -> {
                         playClick();
-                        loadDirectory(currentPath, false, true);
+                        loadDirectory(currentPath, false, true, true);
                     }, buttonTextHoverColor);
                     ContextMenu.addItem("Undo", () -> {
                         playClick();
@@ -1204,8 +1209,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     }
     private boolean createFile() {
         String defaultName = "Name Me!";
-        if (!selectedPaths.isEmpty()) {
-            Path firstSelected = selectedPaths.get(0);
+        Tab currentTab = tabs.get(currentTabIndex);
+        if (!currentTab.tabData.selectedPaths.isEmpty()) {
+            Path firstSelected = currentTab.tabData.selectedPaths.get(0);
             if (Files.isDirectory(firstSelected)) {
                 defaultName = "Name Me!";
             }
@@ -1232,7 +1238,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
         } catch (Exception ignored) {
         }
-        loadDirectory(currentPath, false, true);
+        loadDirectory(currentPath, false, true, true);
         return true;
     }
     private void closeTab(int index) {
@@ -1250,8 +1256,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     currentPath = selectedTab.tabData.path;
                     serverInfo.isRemote = selectedTab.tabData.isRemote;
                     serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
-                    targetOffset = selectedTab.tabData.scrollOffset;
-                    loadDirectory(currentPath, false, false);
+                    loadDirectory(currentPath, false, false, true);
                 }
                 saveFileExplorerTabs(tabs.stream().map(t1 -> new TabData(t1.tabData.path, t1.tabData.isRemote, t1.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
             });
@@ -1312,7 +1317,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         renameBuffer.setLength(0);
         creatingNew = false;
         newCreationPath = null;
-        loadDirectory(currentPath, false, true);
+        loadDirectory(currentPath, false, true, true);
     }
     private void navigateBack() {
         if (!history.isEmpty()) {
@@ -1333,10 +1338,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             Tab selectedTab = tabs.get(currentTabIndex);
             selectedTab.tabData.path = previousPath;
             currentPath = previousPath;
-            loadDirectory(previousPath, false, false);
+            loadDirectory(previousPath, false, false, true);
             serverInfo.isRemote = selectedTab.tabData.isRemote;
             serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
-            targetOffset = selectedTab.tabData.scrollOffset;
+            selectedTab.tabData.targetOffset = selectedTab.tabData.targetOffset;
             saveFileExplorerTabs(tabs.stream().map(t -> new TabData(t.tabData.path, t.tabData.isRemote, t.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
         }
     }
@@ -1348,8 +1353,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         Path parentPath = currentPath.getParent();
         if (parentPath != null) {
             Tab currentTab = tabs.get(currentTabIndex);
-            currentTab.tabData.scrollOffset = targetOffset;
-            loadDirectory(parentPath, true, false);
+            loadDirectory(parentPath, true, false, true);
             currentTab.tabData.path = parentPath;
             currentTab.setName(parentPath.getFileName() != null ? parentPath.getFileName().toString() : parentPath.toString());
         } else {
@@ -1368,7 +1372,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 Map<String, Object> map = new HashMap<>();
                 map.put("path", td.path.toString());
                 map.put("isRemote", td.isRemote);
-                map.put("scrollOffset", td.scrollOffset);
+                map.put("scrollOffset", td.targetOffset);
                 if (td.isRemote && td.remoteHostInfo != null) {
                     Map<String, Object> hostMap = new HashMap<>();
                     hostMap.put("user", td.remoteHostInfo.getUser());
@@ -1413,7 +1417,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     }
                     Path p = Paths.get(pathStr);
                     TabData tabData = new TabData(p, isRemote, remoteHostInfo);
-                    tabData.scrollOffset = scrollOffset;
+                    tabData.targetOffset = scrollOffset;
                     tabsData.add(tabData);
                 }
             } catch (IOException e) {
@@ -1470,7 +1474,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         Path newPath = Paths.get(fieldText.toString()).toAbsolutePath().normalize();
         boolean isRemote = serverInfo.isRemote;
         if (Files.exists(newPath) && Files.isDirectory(newPath)) {
-            loadDirectory(newPath, false, false);
+            loadDirectory(newPath, false, false, false);
             for (int i = 0; i < tabs.size(); i++) {
                 if (tabs.get(i).tabData.path.equals(newPath) && tabs.get(i).tabData.isRemote == isRemote && Objects.equals(tabs.get(i).tabData.remoteHostInfo, serverInfo.remoteHost)) {
                     currentTabIndex = i;
@@ -1480,7 +1484,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             Tab currentTab = tabs.get(currentTabIndex);
             currentTab.tabData.path = newPath;
             currentTab.setName(newPath.getFileName() != null ? newPath.getFileName().toString() : newPath.toString());
-            currentTab.tabData.scrollOffset = 0;
+            currentTab.tabData.targetOffset = 0;
+            currentTab.tabData.smoothOffset = 0;
         } else {
             showNotification("Invalid path.", Notification.Type.ERROR);
         }
@@ -1520,17 +1525,13 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             notification.render(context);
         }
     }
-    void loadDirectory(Path dir, boolean addToHistory, boolean forceReload) {
+    void loadDirectory(Path dir, boolean addToHistory, boolean forceReload, boolean preserveState) {
         if (loading) {}
+        Tab currentTab = tabs.get(currentTabIndex);
         if (addToHistory && currentPath != null && !currentPath.equals(dir)) {
             history.push(currentPath);
             forwardHistory.clear();
-            Tab currentTab = tabs.get(currentTabIndex);
-            currentTab.tabData.scrollOffset = targetOffset;
-            targetOffset = 0;
-        }
-        if (addToHistory) {
-            targetOffset = 0;
+            currentTab.tabData.targetOffset = 0;
         }
         if (currentMode == Mode.SEARCH) {
             currentMode = Mode.PATH;
@@ -1541,13 +1542,18 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         fieldText.setLength(0);
         fieldText.append(currentPath.toString());
         cursorPosition = fieldText.length();
+        if (!preserveState) {
+            currentTab.tabData.selectedPaths.clear();
+            currentTab.tabData.targetOffset = 0;
+            currentTab.tabData.smoothOffset = 0;
+        }
+        currentTab.tabData.path = dir;
         pathTextAnimator.setOnAnimationEnd(() -> {
             pathTextAnimator.updateText(currentPath.toString());
             pathTextAnimator.setOnAnimationEnd(null);
         });
         pathTextAnimator.reverse();
         int thisRequestId = ++loadRequestId;
-        Tab currentTab = tabs.get(currentTabIndex);
         currentTab.tabData.requestId = thisRequestId;
         String key = dir.toString() + "_" + serverInfo.isRemote + (serverInfo.isRemote && serverInfo.remoteHost != null ? "_" + serverInfo.remoteHost.getIp() + "_" + serverInfo.remoteHost.getPort() : "");
         boolean shouldCache = serverInfo.isRemote && serverInfo.remoteHost != null && !serverInfo.remoteHost.getIp().equals("127.0.0.1");
@@ -1683,7 +1689,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             isLoadingMore = false;
         }
         loadMoreEntries();
-        targetOffset = 0;
+        tabs.get(currentTabIndex).tabData.targetOffset = 0;
     }
     private boolean isSupportedFile(Path file) {
         String fileName = file.getFileName().toString().toLowerCase();
@@ -1711,16 +1717,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             return "N/A";
         }
     }
-    private int blendColor(int color, float opacity) {
-        int a = (int) ((color >> 24 & 0xFF) * opacity);
-        int r = (color >> 16 & 0xFF);
-        int g = (color >> 8 & 0xFF);
-        int b = (color & 0xFF);
-        return (a << 24) | (r << 16) | (g << 8) | b;
-    }
+
     @Override
     public void refreshDirectory(Path path) {
-        loadDirectory(path, false, true);
+        loadDirectory(path, false, true, true);
     }
     private void saveFavorites() {
         try (BufferedWriter writer = Files.newBufferedWriter(favoritesFilePath)) {
