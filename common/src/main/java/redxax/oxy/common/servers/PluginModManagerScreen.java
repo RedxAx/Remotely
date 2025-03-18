@@ -166,6 +166,9 @@ public class PluginModManagerScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, resources.size() * (entryHeight + gapBetweenEntries), smoothOffset)){
+            return true;
+        }
         boolean handled = false;
         int titleBarHeight = 30;
         int tabBarY = titleBarHeight + 5;
@@ -235,6 +238,20 @@ public class PluginModManagerScreen extends Screen {
             }
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (ScrollBar.handleMouseDragged(this, (int) mouseY, resources.size() * (entryHeight + gapBetweenEntries))) {
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (ScrollBar.handleMouseReleased()) {
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
@@ -359,6 +376,7 @@ public class PluginModManagerScreen extends Screen {
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         targetOffset -= (float) (verticalAmount * entryHeight * 2);
         targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, resources.size() * (entryHeight + gapBetweenEntries) - (this.height - 70))));
+        ScrollBar.setPendingOffset(targetOffset);
         return true;
     }
 
@@ -440,8 +458,11 @@ public class PluginModManagerScreen extends Screen {
         if (smoothOffset < maxScroll) {
             context.fillGradient(contentX, contentY + contentHeight - 10, contentX + contentWidth, contentY + contentHeight, 0x00000000, 0x80000000);
         }
+        ScrollBar.render(context, parent, mouseX, mouseY, resources.size() * (entryHeight + gapBetweenEntries), smoothOffset);
+        targetOffset = ScrollBar.getPendingOffset();
         loadMoreIfNeeded();
     }
+
 
     static String formatDownloads(int n) {
         if (n >= 1_000_000) {

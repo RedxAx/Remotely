@@ -18,6 +18,7 @@ import java.util.List;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.*;
+import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class Render {
 
@@ -32,6 +33,7 @@ public class Render {
     private static long lastFrameTime = 0;
     private static float scrollInterpolation = 0.15f;
     private static float currentScrollOffset = 0f;
+    private static float animatedOffset = 0;
 
     public static void drawTabs(DrawContext context, TextRenderer textRenderer, List<?> tabs, int currentTabIndex, int mouseX, int mouseY, boolean hasPlus, boolean isUnsaved) {
         int tabBarX = 5;
@@ -307,6 +309,111 @@ public class Render {
                 hide();
             }
             return false;
+        }
+    }
+
+    public static class ScrollBar {
+        private static boolean dragging = false;
+        private static int dragStartY = 0;
+        private static float initialOffset = 0;
+        private static boolean lineHovered = false;
+        private static float pendingOffset = 0;
+
+        public static void render(DrawContext context, Screen parent, int mouseX, int mouseY, int totalHeight, float scrollOffset) {
+            int explorerY = 60;
+            int explorerHeight = parent.height - 65;
+            int screenWidth = parent.width;
+            if (totalHeight <= explorerHeight) {
+                return;
+            }
+
+            int scrollbarX = screenWidth - 3;
+            int scrollbarWidth = 2;
+            int lineWidth = 4;
+            int lineHeight = Math.max(10, (int)((float)explorerHeight * explorerHeight / totalHeight));
+
+            float targetOffset = dragging ? pendingOffset : scrollOffset;
+            animatedOffset += (targetOffset - animatedOffset) * scrollInterpolation;
+
+            float effectiveOffset = animatedOffset;
+            float scrollRatio = effectiveOffset / (float)(totalHeight - explorerHeight);
+            int lineY = explorerY + (int)((explorerHeight - lineHeight) * scrollRatio);
+            int lineX = (scrollbarX - (lineWidth - scrollbarWidth) / 2);
+
+            context.fill(scrollbarX, explorerY, scrollbarX + scrollbarWidth, lineY + lineHeight / 2, explorerElementBorderColor);
+            context.fill(scrollbarX, lineY + lineHeight / 2, scrollbarX + scrollbarWidth, explorerY + explorerHeight, explorerElementBackgroundColor);
+            drawOuterBorder(context, scrollbarX, explorerY, scrollbarWidth, explorerHeight, globalBottomBorder);
+
+            lineHovered = mouseX >= lineX && mouseX <= lineX + lineWidth && mouseY >= lineY && mouseY <= lineY + lineHeight;
+            int lineColor = dragging ? explorerElementSelectedBackgroundColor : lineHovered ? explorerElementBackgroundHoverColor : explorerElementBackgroundColor;
+            context.fill(lineX, lineY, lineX + lineWidth, lineY + lineHeight, lineColor);
+            drawInnerBorder(context, lineX, lineY, lineWidth, lineHeight, dragging ? explorerElementSelectedBorderColor : lineHovered ? explorerElementBorderHoverColor : explorerElementBorderColor);
+        }
+
+        public static boolean handleMousePressed(Screen parent, int mouseX, int mouseY, int totalHeight, float scrollOffset) {
+            playClick();
+            int explorerY = 60;
+            int explorerHeight = parent.height - 65;
+            int screenWidth = parent.width;
+            if (totalHeight <= explorerHeight) {
+                return false;
+            }
+            int scrollbarX = screenWidth - 3;
+            int scrollbarWidth = 2;
+            int lineWidth = 4;
+            int lineHeight = Math.max(10, (int)((float)explorerHeight * explorerHeight / totalHeight));
+            int lineX = (scrollbarX - (lineWidth - scrollbarWidth) / 2);
+            if (lineHovered) {
+                dragging = true;
+                dragStartY = mouseY;
+                initialOffset = scrollOffset;
+                return true;
+            }
+            if (mouseX >= lineX && mouseX <= lineX + lineWidth && mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
+                float newLineY = mouseY - lineHeight / 2.0f;
+                float newScrollRatio = (newLineY - explorerY) / (explorerHeight - lineHeight);
+                newScrollRatio = Math.max(0, Math.min(newScrollRatio, 1));
+                int maxOffset = Math.max(0, totalHeight - explorerHeight);
+                pendingOffset = newScrollRatio * maxOffset;
+                dragging = true;
+                dragStartY = mouseY;
+                initialOffset = pendingOffset;
+                return true;
+            }
+            return false;
+        }
+
+        public static boolean handleMouseDragged(Screen parent, int mouseY, int totalHeight) {
+            int explorerHeight = parent.height - 65;
+            if (!dragging) return false;
+            int lineHeight = Math.max(10, (int)((float)explorerHeight * explorerHeight / totalHeight));
+            float deltaY = mouseY - dragStartY;
+            float scrollableHeight = explorerHeight - lineHeight;
+            float scrollRatio = scrollableHeight > 0 ? deltaY / scrollableHeight : 0;
+            int maxOffset = Math.max(0, totalHeight - explorerHeight);
+            pendingOffset = initialOffset + scrollRatio * maxOffset;
+            pendingOffset = Math.max(0, Math.min(pendingOffset, maxOffset));
+            return true;
+        }
+
+        public static boolean handleMouseReleased() {
+            if (dragging) {
+                dragging = false;
+                return true;
+            }
+            return false;
+        }
+
+        public static float getPendingOffset() {
+            return pendingOffset;
+        }
+
+        public static boolean isDragging() {
+            return dragging;
+        }
+
+        public static void setPendingOffset(float value) {
+            pendingOffset = value;
         }
     }
 
