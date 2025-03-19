@@ -1,7 +1,9 @@
 package redxax.oxy.common.explorer;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import com.google.gson.stream.JsonReader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -82,8 +84,11 @@ public class DeskSelectionScreen extends Screen {
                 BufferedReader br = new BufferedReader(new FileReader(favoritesFilePath.toFile()));
                 Gson gson = new Gson();
                 List<String> favorites = gson.fromJson(br, new TypeToken<List<String>>(){}.getType());
-                favoriteLines.addAll(favorites);
+                if (favorites != null) {
+                    favoriteLines.addAll(favorites);
+                }
             }
+
             for (File root : File.listRoots()) {
                 ObjectItem item = new ObjectItem();
                 item.displayName = root.toString();
@@ -93,57 +98,103 @@ public class DeskSelectionScreen extends Screen {
                 item.isFavorite = favoriteLines.contains(root.toString());
                 objectItems.add(item);
             }
+
             Path serversJson = Paths.get(System.getProperty("user.dir"), "remotely", "servers", "remotehosts.json");
             if (Files.exists(serversJson)) {
-                BufferedReader br = new BufferedReader(new FileReader(serversJson.toFile()));
-                Gson gson = new Gson();
-                List<Map<String, Object>> data = gson.fromJson(br, new TypeToken<List<Map<String, Object>>>(){}.getType());
-                for (Map<String, Object> obj : data) {
-                    String name = (String) obj.get("name");
-                    String user = (String) obj.get("user");
-                    String ip = (String) obj.get("ip");
-                    double port = (double) obj.get("port");
-                    String password = (String) obj.get("password");
-                    RemoteHostInfo info = new RemoteHostInfo();
-                    info.setUser(user);
-                    info.setIp(ip);
-                    info.setPort((int) port);
-                    info.setPassword(password);
-                    ObjectItem hostItem = new ObjectItem();
-                    hostItem.displayName = name;
-                    hostItem.isDirectory = true;
-                    hostItem.isRemote = true;
-                    hostItem.remoteHostInfo = info;
-                    hostItem.isFavorite = false;
-                    objectItems.add(hostItem);
+                try {
+                    JsonReader reader = new JsonReader(new FileReader(serversJson.toFile()));
+                    reader.setLenient(true);
+
+                    Gson gson = new GsonBuilder()
+                            .setLenient()
+                            .create();
+
+                    List<Map<String, Object>> data = gson.fromJson(reader, new TypeToken<List<Map<String, Object>>>(){}.getType());
+                    if (data != null) {
+                        for (Map<String, Object> obj : data) {
+                            String name = (String) obj.get("name");
+                            String user = (String) obj.get("user");
+                            String ip = (String) obj.get("ip");
+                            double port = ((Number) obj.getOrDefault("port", 22.0)).doubleValue();
+                            String password = (String) obj.get("password");
+
+                            RemoteHostInfo info = new RemoteHostInfo();
+                            info.setUser(user);
+                            info.setIp(ip);
+                            info.setPort((int) port);
+                            info.setPassword(password);
+
+                            ObjectItem hostItem = new ObjectItem();
+                            hostItem.displayName = name;
+                            hostItem.isDirectory = true;
+                            hostItem.isRemote = true;
+                            hostItem.remoteHostInfo = info;
+                            hostItem.isFavorite = false;
+                            objectItems.add(hostItem);
+                        }
+                    }
+                    reader.close();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    System.err.println("Error parsing remotehosts.json. Check for invalid escape sequences in file paths.");
                 }
             }
             for (String fav : favoriteLines) {
-                Path p = Paths.get(fav);
-                if (Files.exists(p) && objectItems.stream().noneMatch(x -> p.equals(x.localPath))) {
-                    ObjectItem item = new ObjectItem();
-                    item.displayName = p.getFileName() != null ? p.getFileName().toString() : p.toString();
-                    item.isDirectory = Files.isDirectory(p);
-                    item.localPath = p;
-                    item.isRemote = false;
-                    item.isFavorite = true;
-                    objectItems.add(item);
-                } else if (!Files.exists(p) && fav.startsWith("/")) {
-                    ObjectItem item = new ObjectItem();
-                    item.displayName = fav.substring(fav.lastIndexOf('/') + 1);
-                    item.isDirectory = true;
-                    item.isRemote = true;
-                    item.remoteHostInfo = null;
-                    item.remoteServerPath = Paths.get(fav);
-                    item.isFavorite = true;
-                    objectItems.add(item);
+                if (fav.startsWith("/")) {
+                    boolean exists = false;
+                    for (ObjectItem item : objectItems) {
+                        if (item.isRemote && item.remoteServerPath != null &&
+                                item.remoteServerPath.toString().equals(fav)) {
+                            exists = true;
+                            item.isFavorite = true;
+                            break;
+                        }
+                    }
+
+                    if (!exists) {
+                        ObjectItem item = new ObjectItem();
+                        item.displayName = fav.substring(fav.lastIndexOf('/') + 1);
+                        if (item.displayName.isEmpty()) item.displayName = "/";
+                        item.isDirectory = true;
+                        item.isRemote = true;
+                        item.remoteHostInfo = null;
+                        item.remoteServerPath = Paths.get(fav);
+                        item.isFavorite = true;
+                        objectItems.add(item);
+                    }
+                } else {
+                    Path p = Paths.get(fav);
+                    if (Files.exists(p)) {
+                        boolean exists = false;
+                        String normalizedPath = p.toAbsolutePath().normalize().toString();
+
+                        for (ObjectItem item : objectItems) {
+                            if (!item.isRemote && item.localPath != null &&
+                                    item.localPath.toAbsolutePath().normalize().toString().equals(normalizedPath)) {
+                                exists = true;
+                                item.isFavorite = true;
+                                break;
+                            }
+                        }
+
+                        if (!exists) {
+                            ObjectItem item = new ObjectItem();
+                            item.displayName = p.getFileName() != null ? p.getFileName().toString() : p.toString();
+                            item.isDirectory = Files.isDirectory(p);
+                            item.localPath = p;
+                            item.isRemote = false;
+                            item.isFavorite = true;
+                            objectItems.add(item);
+                        }
+                    }
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         int rows = (int) Math.ceil((double) objectItems.size() / columns);
         maxScroll = Math.max(0, rows * (itemHeight + spacing) + spacing - (this.height - 60));
     }
-
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         if (Config.background) renderBackground(context, mouseX, mouseY, delta);
