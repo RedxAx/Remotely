@@ -4,7 +4,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import static redxax.oxy.common.config.Config.cursorColor;
+import static redxax.oxy.common.config.Config.globalCursorColor;
 
 public class CursorUtils {
     private static float cursorOpacity = 1.0f;
@@ -43,10 +43,10 @@ public class CursorUtils {
 
     public static int blendColor() {
         float opacity = cursorOpacity;
-        int a = (int) ((cursorColor >> 24 & 0xFF) * opacity);
-        int r = (cursorColor >> 16 & 0xFF);
-        int g = (cursorColor >> 8 & 0xFF);
-        int b = (cursorColor & 0xFF);
+        int a = (int) ((globalCursorColor >> 24 & 0xFF) * opacity);
+        int r = (globalCursorColor >> 16 & 0xFF);
+        int g = (globalCursorColor >> 8 & 0xFF);
+        int b = (globalCursorColor & 0xFF);
         return (a << 24) | (r << 16) | (g << 8) | b;
     }
 }

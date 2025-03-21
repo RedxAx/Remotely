@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
 import static redxax.oxy.common.Render.drawInnerBorder;
 import static redxax.oxy.common.Render.drawOuterBorder;
 import static redxax.oxy.common.config.Config.*;
+import static redxax.oxy.common.terminal.MultiTerminalScreen.isResizingSnippetPanel;
 
 public class TerminalRenderer {
     public static TerminalRenderer instance;
@@ -60,9 +61,9 @@ public class TerminalRenderer {
         int textAreaHeight = terminalHeight - 2 * padding - getInputFieldHeight() - getStatusBarHeight();
         int maxScrollBefore = Math.max(0, getTotalScrollHeight() - textAreaHeight);
         rewrap();
-        context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, terminalBackgroundColor);
-        drawInnerBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, terminalBorderColor);
-        drawOuterBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, globalBottomBorder);
+        context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, Config.backgroundColor);
+        drawInnerBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, Config.innerBorderColor);
+        drawOuterBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, globalOuterBorder);
         int textAreaX = terminalX + padding;
         int textAreaY2 = terminalY + padding;
         int textAreaWidth = terminalWidth - 2 * padding;
@@ -106,7 +107,7 @@ public class TerminalRenderer {
         String suggestion = terminalInstance.inputHandler.getTabCompletionSuggestion();
         if (!suggestion.isEmpty() && !terminalInstance.inputHandler.getInputBuffer().isEmpty()) {
             int inputTextWidth = minecraftClient.textRenderer.getWidth(inputText);
-            context.drawText(minecraftClient.textRenderer, Text.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(terminalTextSuggesterColor))), inputX + inputTextWidth, inputY, terminalTextSuggesterColor, Config.shadow);
+            context.drawText(minecraftClient.textRenderer, Text.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(Config.globalDarkTextColor))), inputX + inputTextWidth, inputY, Config.globalDarkTextColor, Config.shadow);
         }
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastInputTime < 500) {
@@ -129,6 +130,7 @@ public class TerminalRenderer {
         int rightWidth = minecraftClient.textRenderer.getWidth(rightStatus);
         context.drawText(minecraftClient.textRenderer, leftStatus, terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, terminalTextColor, Config.shadow);
         context.drawText(minecraftClient.textRenderer, rightStatus, terminalX + terminalWidth - 2 - rightWidth, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, terminalTextColor, Config.shadow);
+        if (isResizingSnippetPanel) stickToBottom();
     }
 
     private void rewrap() {
@@ -731,13 +733,20 @@ public class TerminalRenderer {
         }
         selectionStart = Math.max(0, selectionStart);
         selectionEnd = Math.min(lineText.length(), selectionEnd);
-        String beforeSelection = lineText.substring(0, selectionStart);
-        String selectionText = lineText.substring(selectionStart, selectionEnd);
-        int selectionXStart = x + minecraftClient.textRenderer.getWidth(beforeSelection);
-        int selectionWidth = minecraftClient.textRenderer.getWidth(selectionText);
+
+        int selectionXStart = x;
+        for (int i = 0; i < selectionStart; i++) {
+            selectionXStart += minecraftClient.textRenderer.getWidth(String.valueOf(lineText.charAt(i)));
+        }
+        int selectionWidth = 0;
+        for (int i = selectionStart; i < selectionEnd; i++) {
+            selectionWidth += minecraftClient.textRenderer.getWidth(String.valueOf(lineText.charAt(i)));
+        }
+
         int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
-        context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, yPosition + lineHeight - 2, terminalSelectionColor);
+        context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, yPosition + lineHeight, globalSelectionColor);
     }
+
 
     private void scrollToEdgesTerminal(double mouseY) {
         int padding = 2;

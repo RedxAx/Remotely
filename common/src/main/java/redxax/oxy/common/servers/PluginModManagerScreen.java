@@ -11,6 +11,7 @@ import redxax.oxy.common.api.IRemotelyResource;
 import redxax.oxy.common.api.ModrinthAPI;
 import redxax.oxy.common.api.SpigetAPI;
 import redxax.oxy.common.config.Config;
+import redxax.oxy.common.util.ImageUtil;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -30,7 +31,6 @@ import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.drawBufferedImage;
 import static redxax.oxy.common.Render.*;
-import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class PluginModManagerScreen extends Screen {
@@ -72,7 +72,7 @@ public class PluginModManagerScreen extends Screen {
     private static final int MAX_IMAGE_LOAD_RETRIES = 3;
     private long lastResourceClickTime = 0;
     private int lastResourceClickIndex = -1;
-    private BufferedImage closeIcon;
+    private ImageUtil.IconWithTooltip closeIcon;
 
     private enum TabMode { MODRINTH, SPIGOT, HANGAR, SORT }
     public static class Tab {
@@ -140,7 +140,7 @@ public class PluginModManagerScreen extends Screen {
             loadResourcesAsync("", true);
         }
         try {
-            closeIcon = loadResourceIcon("/assets/remotely/icons/close.png");
+            closeIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/close.png", "");
         } catch (Exception e) {
             devPrint("Failed to load close icon: " + e.getMessage());
         }
@@ -382,7 +382,7 @@ public class PluginModManagerScreen extends Screen {
 
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fillGradient(0, 0, this.width, this.height, browserScreenBackgroundColor, browserScreenBackgroundColor);
+        context.fillGradient(0, 0, this.width, this.height, Config.backgroundColor, Config.backgroundColor);
     }
 
     @Override
@@ -391,22 +391,22 @@ public class PluginModManagerScreen extends Screen {
         super.render(context, mouseX, mouseY, delta);
         drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, null, null, null , null, null, null, null, null);
         int titleBarHeight = 30;
-        context.drawText(this.textRenderer, Text.literal(this.getTitle().getString()), 10, 10, screensTitleTextColor, Config.shadow);
+        context.drawText(this.textRenderer, Text.literal(this.getTitle().getString()), 10, 10, globalTextColor, Config.shadow);
         int tabBarY = titleBarHeight + 5;
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
         float pathScrollOffset = 0;
         float pathTargetScrollOffset = 0;
-        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, showCursor, false, "PluginModManagerScreen");
+        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, showCursor, false, "PluginModManagerScreen", mouseX, mouseY, "Search For Resources");
         float scrollSpeed = 0.2f;
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
         int contentY = tabBarY + TAB_HEIGHT + 30;
         int contentHeight = this.height - contentY - 5;
         int contentX = 5;
         int contentWidth = this.width - 10;
-        context.fill(contentX, contentY - 25, contentX + contentWidth, contentY, headerBackgroundColor);
-        drawInnerBorder(context, contentX, contentY - 25, contentWidth, 25, headerBorderColor);
-        drawOuterBorder(context, contentX, contentY - 25, contentWidth, 25, globalBottomBorder);
-        context.drawText(textRenderer, Text.literal("Name"), contentX + 10, contentY - 18, screensTitleTextColor, Config.shadow);
+        context.fill(contentX, contentY - 25, contentX + contentWidth, contentY, Config.innerBackgroundColor);
+        drawInnerBorder(context, contentX, contentY - 25, contentWidth, 25, Config.innerBorderColor);
+        drawOuterBorder(context, contentX, contentY - 25, contentWidth, 25, globalOuterBorder);
+        context.drawText(textRenderer, Text.literal("Name"), contentX + 10, contentY - 18, globalTextColor, Config.shadow);
         context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
         if (isLoading && resources.isEmpty()) {
             drawLoading(context, super.height, super.width);
@@ -421,11 +421,11 @@ public class PluginModManagerScreen extends Screen {
             int y = contentY + (i * (entryHeight + gapBetweenEntries)) - (int) smoothOffset;
             boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + entryHeight;
             boolean isSelected = (i == selectedIndex);
-            int bg = isSelected ? (currentTabIndex == 0 ? ModrinthBackgroundColor : currentTabIndex == 1 ? SpigotBackgroundColor : HangarBackgroundColor) : (hovered ? browserElementBackgroundHoverColor : browserElementBackgroundColor);
-            int borderColorFinal = isSelected ? (currentTabIndex == 0 ? ModrinthBorderColor : currentTabIndex == 1 ? SpigotBorderColor : HangarBorderColor) : (hovered ? browserElementBorderHoverColor : browserElementBorderColor);
+            int bg = isSelected ? (currentTabIndex == 0 ? ModrinthBackgroundColor : currentTabIndex == 1 ? SpigotBackgroundColor : HangarBackgroundColor) : (hovered ? elementHoverBackgroundColor : Config.elementBackgroundColor);
+            int borderColorFinal = isSelected ? (currentTabIndex == 0 ? ModrinthBorderColor : currentTabIndex == 1 ? SpigotBorderColor : HangarBorderColor) : (hovered ? Config.elementHoverBorderColor : Config.elementBorderColor);
             context.fill(contentX, y, contentX + contentWidth, y + entryHeight, bg);
             drawInnerBorder(context, contentX, y, contentWidth, entryHeight, borderColorFinal);
-            drawOuterBorder(context, contentX, y, contentWidth, entryHeight, globalBottomBorder);
+            drawOuterBorder(context, contentX, y, contentWidth, entryHeight, globalOuterBorder);
             BufferedImage icon = resource.getIconUrl().isEmpty() ? placeholderIcon : iconImages.getOrDefault(resource.getIconUrl(), placeholderIcon);
             drawBufferedImage(context, icon, contentX + 5, y + (entryHeight - 30) / 2, 30, 30);
             String resourceName = resource.getName();
@@ -438,16 +438,16 @@ public class PluginModManagerScreen extends Screen {
                 }
                 resourceDesc += "...";
             }
-            context.drawText(textRenderer, Text.literal(resourceDesc), contentX + 40, y + 16, browserElementTextColor, Config.shadow);
+            context.drawText(textRenderer, Text.literal(resourceDesc), contentX + 40, y + 16, globalTextColor, Config.shadow);
             String mrInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getVersion()  + " | " + resource.getFollowers() + " Followers";
             String spInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getAverageRating() + " Star Rating";
             String hgInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getVersion()  + " | " + resource.getFollowers() + " Stars";
             if (tabs.get(currentTabIndex).mode == TabMode.MODRINTH) {
-                context.drawText(textRenderer, Text.literal(mrInfo), contentX + 40, y + 30, browserElementTextDimColor, Config.shadow);
+                context.drawText(textRenderer, Text.literal(mrInfo), contentX + 40, y + 30, Config.globalDarkTextColor, Config.shadow);
             } else if (tabs.get(currentTabIndex).mode == TabMode.SPIGOT) {
-                context.drawText(textRenderer, Text.literal(spInfo), contentX + 40, y + 30, browserElementTextDimColor, Config.shadow);
+                context.drawText(textRenderer, Text.literal(spInfo), contentX + 40, y + 30, Config.globalDarkTextColor, Config.shadow);
             } else if (tabs.get(currentTabIndex).mode == TabMode.HANGAR) {
-                context.drawText(textRenderer, Text.literal(hgInfo), contentX + 40, y + 30, browserElementTextDimColor, Config.shadow);
+                context.drawText(textRenderer, Text.literal(hgInfo), contentX + 40, y + 30, Config.globalDarkTextColor, Config.shadow);
             }
         }
         context.disableScissor();
