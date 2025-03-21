@@ -33,7 +33,7 @@ public class FileManager {
     public FileManager(FileManagerCallback callback, ServerInfo serverInfo, SSHManager sshManager) {
         this.callback = callback;
         this.serverInfo = serverInfo;
-        if(serverInfo.isRemote && serverInfo.remoteHost != null) {
+        if (serverInfo.isRemote && serverInfo.remoteHost != null) {
             this.sshManager = sshManager != null ? sshManager : RemotelyClient.INSTANCE.getSSHManagerForHost(serverInfo.remoteHost);
         } else {
             this.sshManager = sshManager;
@@ -64,19 +64,16 @@ public class FileManager {
 
         if (serverInfo.isRemote) {
             String homeDir = serverInfo.remoteHost.getHomeDirectory();
-
             selectedPaths.parallelStream().forEach(path -> {
                 try {
                     String remotePath = path.toString().replace("\\", "/");
                     String fileName = Paths.get(remotePath).getFileName().toString();
                     String trashPath = homeDir + "/remotely/data/trash/" + fileName;
-
                     if (!sshManager.remoteFileExists(homeDir + "/remotely/data/trash")) {
                         sshManager.runRemoteCommand("mkdir -p " + homeDir + "/remotely/data/trash && mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
                     } else {
                         sshManager.runRemoteCommand("mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
                     }
-
                     synchronized (this) {
                         deletedPaths.add(path);
                         backupPaths.add(trashPath);
@@ -89,7 +86,7 @@ public class FileManager {
             selectedPaths.parallelStream().forEach(path -> {
                 try {
                     Path backupPath = tempUndoDir.resolve(UUID.randomUUID().toString());
-                    Files.walkFileTree(path, new RecursiveFileCopier(path, backupPath, true));
+                    Files.walkFileTree(path, new RecursiveFileCopier(path, backupPath, true, null));
                     synchronized (this) {
                         deletedPaths.add(path);
                         backupPaths.add(backupPath.toString());
@@ -108,15 +105,14 @@ public class FileManager {
 
     public void paste(Path currentPath) {
         List<PathOperation> operations = new ArrayList<>();
-
         for (ClipboardEntry entry : clipboard) {
             try {
                 if (serverInfo.isRemote) {
                     String currentRemote = currentPath.toString().replace("\\", "/");
-                    if (!currentRemote.endsWith("/")) currentRemote += "/";
+                    if (!currentRemote.endsWith("/"))
+                        currentRemote += "/";
                     String fileName = Paths.get(entry.sourcePath).getFileName().toString();
                     String remoteDest = currentRemote + fileName;
-
                     if (entry.isRemote) {
                         if (isCut) {
                             sshManager.renameRemote(entry.sourcePath, remoteDest);
@@ -127,23 +123,31 @@ public class FileManager {
                     } else {
                         Path localSrc = Paths.get(entry.sourcePath);
                         sshManager.upload(localSrc, remoteDest);
-                        if (isCut) Files.walkFileTree(localSrc, new RecursiveFileDeleter());
+                        if (isCut)
+                            Files.walkFileTree(localSrc, new RecursiveFileDeleter());
                         operations.add(new PathOperation(entry.sourcePath, remoteDest));
                     }
                 } else {
-                    Path dest = currentPath.resolve(Paths.get(entry.sourcePath).getFileName());
+                    Path src = Paths.get(entry.sourcePath);
+                    Path dest = currentPath.resolve(src.getFileName());
                     Files.createDirectories(dest.getParent());
-
                     if (entry.isRemote) {
                         sshManager.download(entry.sourcePath, dest);
-                        if (isCut) sshManager.deleteRemote(entry.sourcePath);
+                        if (isCut)
+                            sshManager.deleteRemote(entry.sourcePath);
                         operations.add(new PathOperation(entry.sourcePath, dest.toString()));
                     } else {
-                        Path src = Paths.get(entry.sourcePath);
                         if (isCut) {
+                            if (dest.toAbsolutePath().startsWith(src.toAbsolutePath()))
+                                throw new IOException("Cannot move folder into its own subdirectory");
                             Files.move(src, dest, StandardCopyOption.REPLACE_EXISTING);
                         } else {
-                            Files.walkFileTree(src, new RecursiveFileCopier(src, dest, false));
+                            if (dest.toAbsolutePath().startsWith(src.toAbsolutePath())) {
+                                Files.createDirectories(dest);
+                                Files.walkFileTree(src, new RecursiveFileCopier(src, dest, false, dest));
+                            } else {
+                                Files.walkFileTree(src, new RecursiveFileCopier(src, dest, false, null));
+                            }
                         }
                         operations.add(new PathOperation(src.toString(), dest.toString()));
                     }
@@ -152,10 +156,10 @@ public class FileManager {
                 callback.showNotification("Error pasting " + Paths.get(entry.sourcePath).getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
             }
         }
-
         if (!operations.isEmpty()) {
             undoStack.push(new PasteAction(operations, isCut));
-            if (isCut) clipboard.clear();
+            if (isCut)
+                clipboard.clear();
             isCut = false;
             callback.refreshDirectory(currentPath);
         }
@@ -172,15 +176,19 @@ public class FileManager {
         private final Path source;
         private final Path target;
         private final boolean deleteSource;
+        private final Path skipPath;
 
-        RecursiveFileCopier(Path source, Path target, boolean deleteSource) {
+        RecursiveFileCopier(Path source, Path target, boolean deleteSource, Path skipPath) {
             this.source = source;
             this.target = target;
             this.deleteSource = deleteSource;
+            this.skipPath = skipPath;
         }
 
         @Override
         public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+            if (skipPath != null && dir.toAbsolutePath().startsWith(skipPath.toAbsolutePath()))
+                return FileVisitResult.SKIP_SUBTREE;
             Path newDir = target.resolve(source.relativize(dir));
             Files.createDirectories(newDir);
             return FileVisitResult.CONTINUE;
@@ -188,14 +196,18 @@ public class FileManager {
 
         @Override
         public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+            if (skipPath != null && file.toAbsolutePath().startsWith(skipPath.toAbsolutePath()))
+                return FileVisitResult.CONTINUE;
             Files.copy(file, target.resolve(source.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
-            if (deleteSource) Files.delete(file);
+            if (deleteSource)
+                Files.delete(file);
             return FileVisitResult.CONTINUE;
         }
 
         @Override
         public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-            if (deleteSource) Files.delete(dir);
+            if (deleteSource)
+                Files.delete(dir);
             return FileVisitResult.CONTINUE;
         }
     }
@@ -245,7 +257,7 @@ public class FileManager {
                     try {
                         Path dest = deletedPaths.get(i);
                         Path backup = Paths.get(backupPaths.get(i));
-                        Files.walkFileTree(backup, new RecursiveFileCopier(backup, dest, true));
+                        Files.walkFileTree(backup, new RecursiveFileCopier(backup, dest, true, null));
                     } catch (IOException e) {
                         callback.showNotification("Error undoing delete: " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
                     }
