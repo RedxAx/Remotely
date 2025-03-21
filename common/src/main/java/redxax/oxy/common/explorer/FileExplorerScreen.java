@@ -90,10 +90,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private boolean isLoadingMore = false;
     private final List<EntryData> fullEntries = new ArrayList<>();
     private static final int MAX_NAME_WIDTH = 500;
-    private BufferedImage appsIcon, cssIcon, jsIcon, jsonIcon, minecraftIcon, pyIcon, javaIcon, scriptIcon, shadersIcon, textIcon, closeIcon, backIcon, forwardIcon, searchIcon, reloadIcon, newFileIcon, copyIcon, editIcon, favoriteIcon, winExplorerIcon;
-    private boolean scrollbarDragging = false;
-    private int scrollbarDragStartY = 0;
-    private float scrollbarInitialOffset = 0;
+    private BufferedImage appsIcon, cssIcon, jsIcon, jsonIcon, minecraftIcon, pyIcon, javaIcon, scriptIcon, shadersIcon, textIcon;
+    private IconWithTooltip closeIcon, backIcon, forwardIcon, searchIcon, reloadIcon, newFileIcon, copyIcon, editIcon, favoriteIcon, winExplorerIcon;
 
     private static class EntryData {
         Path path;
@@ -241,16 +239,16 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             scriptIcon = loadResourceIcon("/assets/remotely/icons/script.png");
             shadersIcon = loadResourceIcon("/assets/remotely/icons/shaders.png");
             textIcon = loadResourceIcon("/assets/remotely/icons/text.png");
-            closeIcon = loadResourceIcon("/assets/remotely/icons/close.png");
-            backIcon = loadResourceIcon("/assets/remotely/icons/goback.png");
-            forwardIcon = loadResourceIcon("/assets/remotely/icons/goforward.png");
-            searchIcon = loadResourceIcon("/assets/remotely/icons/search.png");
-            reloadIcon = loadResourceIcon("/assets/remotely/icons/reload.png");
-            newFileIcon = loadResourceIcon("/assets/remotely/icons/newFile.png");
-            copyIcon = loadResourceIcon("/assets/remotely/icons/copy.png");
-            editIcon = loadResourceIcon("/assets/remotely/icons/edit.png");
-            favoriteIcon = loadResourceIcon("/assets/remotely/icons/favorite.png");
-            winExplorerIcon = loadResourceIcon("/assets/remotely/icons/winexplorer.png");
+            closeIcon = new IconWithTooltip("/assets/remotely/icons/close.png", "");
+            backIcon = new IconWithTooltip("/assets/remotely/icons/goback.png", "Navigate To The Previous Directory");
+            forwardIcon = new IconWithTooltip("/assets/remotely/icons/goforward.png", "Navigate To The Next Directory");
+            searchIcon = new IconWithTooltip("/assets/remotely/icons/search.png", "Search For Items");
+            reloadIcon = new IconWithTooltip("/assets/remotely/icons/reload.png", "Reload The Current Directory");
+            newFileIcon = new IconWithTooltip("/assets/remotely/icons/newFile.png", "Create a New File / Folder");
+            copyIcon = new IconWithTooltip("/assets/remotely/icons/copy.png", "Copy Selected Items");
+            editIcon = new IconWithTooltip("/assets/remotely/icons/edit.png", "Rename Selected Items");
+            favoriteIcon = new IconWithTooltip("/assets/remotely/icons/favorite.png", "Add Selected / Remove Items From Favorites");
+            winExplorerIcon = new IconWithTooltip("/assets/remotely/icons/winexplorer.png", "Open The Current Directory In Windows Explorer");
             List<TabData> loadedTabs = loadFileExplorerTabs().stream().distinct().toList();
             if (loadedTabs.isEmpty()) {
                 tabs.add(new Tab(new TabData(currentPath, serverInfo.isRemote, serverInfo.remoteHost)));
@@ -293,19 +291,18 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int explorerX = 5;
         int explorerWidth = this.width - 10;
         int headerY = explorerY - 23;
-        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : copyIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : editIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);
-        Tab currentTab = tabs.get(currentTabIndex);
+        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : copyIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : editIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);        Tab currentTab = tabs.get(currentTabIndex);
         float pathScrollOffset = 0;
         float pathTargetScrollOffset = 0;
-        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, showCursor, currentMode == Mode.SEARCH, "FileExplorerScreen");
-        context.fill(explorerX, headerY, explorerX + explorerWidth, headerY + 27, headerBackgroundColor);
-        drawInnerBorder(context, explorerX, headerY, explorerWidth, 23, headerBorderColor);
-        context.drawText(this.textRenderer, Text.literal("Name"), explorerX + 10, headerY + 5, screensTitleTextColor, Config.shadow);
+        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, showCursor, currentMode == Mode.SEARCH, "FileExplorerScreen", mouseX, mouseY, "Search For Files or Directories");
+        context.fill(explorerX, headerY, explorerX + explorerWidth, headerY + 27, Config.innerBackgroundColor);
+        drawInnerBorder(context, explorerX, headerY, explorerWidth, 23, Config.innerBorderColor);
+        context.drawText(this.textRenderer, Text.literal("Name"), explorerX + 10, headerY + 5, globalTextColor, Config.shadow);
         if (!serverInfo.isRemote) {
             int createdX = explorerX + explorerWidth - 100;
             int sizeX = createdX - 100;
-            context.drawText(this.textRenderer, Text.literal("Created"), createdX, headerY + 5, screensTitleTextColor, Config.shadow);
-            context.drawText(this.textRenderer, Text.literal("Size"), sizeX, headerY + 5, screensTitleTextColor, Config.shadow);
+            context.drawText(this.textRenderer, Text.literal("Created"), createdX, headerY + 5, globalTextColor, Config.shadow);
+            context.drawText(this.textRenderer, Text.literal("Size"), sizeX, headerY + 5, globalTextColor, Config.shadow);
         }
         if (loading && currentTab.tabData.isRemote) {
             long currentTimeLoading = System.currentTimeMillis();
@@ -356,10 +353,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 synchronized (favoritePathsLock) {
                     isFavorite = favoritePaths.contains(entry.path);
                 }
-                int bg = isSelected ? (isFavorite ? explorerElementFavoriteBackgroundColor : explorerElementSelectedBackgroundColor) : (hovered ? explorerElementBackgroundHoverColor : explorerElementBackgroundColor);
-                int borderWithOpacity = isFavorite ? isSelected ? explorerElementFavoriteSelectedBorderColor : explorerElementFavoriteBorderColor : (isSelected ? explorerElementSelectedBorderColor : (hovered ? explorerElementBorderHoverColor : explorerElementBorderColor));
-                int textWithOpacity = explorerElementTextColor;
-                drawOuterBorder(context, explorerX, entryY, explorerWidth, entryHeight, globalBottomBorder);
+                int bg = isSelected ? (isFavorite ? niceDarkAccentColor : Config.accentDarkColor) : (hovered ? Config.elementHoverBackgroundColor : Config.elementBackgroundColor);
+                int borderWithOpacity = isFavorite ? isSelected ? niceAccentColor : Config.niceAccentColor : (isSelected ? Config.accentColor : (hovered ? Config.elementHoverBorderColor : Config.elementBorderColor));
+                int textWithOpacity = Config.globalTextColor;
+                drawOuterBorder(context, explorerX, entryY, explorerWidth, entryHeight, globalOuterBorder);
                 context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
                 drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
                 context.fill(explorerX, entryY + entryHeight - 1, explorerX + explorerWidth, entryY + entryHeight, borderWithOpacity);
@@ -372,9 +369,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     int renameBoxX = explorerX + 30;
                     int renameBoxY = entryY + 5;
                     int renameBoxWidth = Math.max(100, textRenderer.getWidth(renameBuffer.toString()) + 20);
-                    context.fill(renameBoxX, renameBoxY, renameBoxX + renameBoxWidth, renameBoxY + textRenderer.fontHeight + 4, explorerElementBackgroundColor);
-                    drawInnerBorder(context, renameBoxX, renameBoxY, renameBoxWidth, textRenderer.fontHeight + 4, explorerElementBorderColor);
-                    drawOuterBorder(context, renameBoxX, renameBoxY, renameBoxWidth, textRenderer.fontHeight + 4, globalBottomBorder);
+                    context.fill(renameBoxX, renameBoxY, renameBoxX + renameBoxWidth, renameBoxY + textRenderer.fontHeight + 4, Config.elementBackgroundColor);
+                    drawInnerBorder(context, renameBoxX, renameBoxY, renameBoxWidth, textRenderer.fontHeight + 4, Config.elementBorderColor);
+                    drawOuterBorder(context, renameBoxX, renameBoxY, renameBoxWidth, textRenderer.fontHeight + 4, globalOuterBorder);
                     String displayed = renameBuffer.toString();
                     int renameCursorX = renameBoxX + 2 + textRenderer.getWidth(displayed.substring(0, Math.min(renameCursorPos, displayed.length())));
                     context.drawText(this.textRenderer, Text.literal(displayed), renameBoxX + 2, renameBoxY + 2, textWithOpacity, false);
@@ -883,7 +880,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     int finalI = i;
                     ContextMenu.addItem("Close", () -> {
                         closeTab(finalI);
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "");
                     int finalI1 = i;
                     ContextMenu.addItem("Duplicate", () -> {
                         TabData originalTabData = tabs.get(finalI1).tabData;
@@ -893,10 +890,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         currentTabIndex = tabs.size() - 1;
                         loadDirectory(newTabData.path, false, false, false);
                         saveFileExplorerTabs(tabs.stream().map(t1 -> new TabData(t1.tabData.path, t1.tabData.isRemote, t1.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "Duplicate This Tab.");
                     ContextMenu.addItem("Externally", () -> {
                         openExternally(tabs.get(finalI1).tabData.path);
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "Open In The Windows File Explorer.");
                     ContextMenu.show((int) mouseX, (int) mouseY, 60, this.width, this.height);
                 }
                 handled = true;
@@ -1142,14 +1139,14 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                                 openExternally(entryData.path);
                             }
                         }
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "Create a New Tab With This Directory.");
                     ContextMenu.addItem("Externally", () -> {
                         playClick();
                         openExternally(entryData.path);
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "Open In The Default App, or File Explorer For Folders.");
                     ContextMenu.addItem("Create File", () -> {
                         playClick();
-                        String defaultName = "NewFileOrFolder";
+                        String defaultName = "New File";
                         newCreationPath = currentPath.resolve(defaultName);
                         creatingNew = true;
                         renamePath = newCreationPath;
@@ -1165,33 +1162,33 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                             }
                         } catch (Exception ignored) {}
                         loadDirectory(currentPath, false, true, true);
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "Create a New File / Folder.");
                     ContextMenu.addItem("Rename", () -> {
                         playClick();
                         renamePath = entryData.path;
                         renameBuffer.setLength(0);
                         renameBuffer.append(renamePath.getFileName().toString());
                         renameCursorPos = renameBuffer.length();
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "Rename This File / Folder.");
                     ContextMenu.addItem("Copy", () -> {
                         playClick();
                         fileManager.copySelected(currentTab.tabData.selectedPaths);
                         showNotification("Copied to clipboard", Notification.Type.INFO);
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "");
                     ContextMenu.addItem("Cut", () -> {
                         playClick();
                         fileManager.cutSelected(currentTab.tabData.selectedPaths);
                         showNotification("Cut to clipboard", Notification.Type.INFO);
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "");
                     ContextMenu.addItem("Paste", () -> {
                         playClick();
                         fileManager.paste(currentPath);
                         showNotification("Pasted to " + currentPath, Notification.Type.INFO);
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "");
                     ContextMenu.addItem("Delete", () -> {
                         playClick();
                         fileManager.deleteSelected(currentTab.tabData.selectedPaths, currentPath);
-                    }, buttonTextDeleteHoverColor);
+                    }, Config.dangerDarkAccentColor, "");
                     ContextMenu.addItem("Favorite", () -> {
                         playClick();
                         synchronized (favoritePathsLock) {
@@ -1204,18 +1201,17 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                             }
                             saveFavorites();
                         }
-                        showNotification("Favorites updated", Notification.Type.INFO);
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "Add / Remove From Favorites.");
                     ContextMenu.addItem("Copy Path", () -> {
                         playClick();
                         String quotedPath = "\"" + entryData.path.toString() + "\"";
                         minecraftClient.keyboard.setClipboard(quotedPath);
                         showNotification("Path copied", Notification.Type.INFO);
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "");
                     ContextMenu.addItem("Refresh", () -> {
                         playClick();
                         loadDirectory(currentPath, false, true, true);
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "");
                     ContextMenu.addItem("Undo", () -> {
                         playClick();
                         if (serverInfo.isRemote) {
@@ -1223,7 +1219,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         } else {
                             fileManager.undo(currentPath);
                         }
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "");
                     ContextMenu.addItem("Search", () -> {
                         playClick();
                         currentMode = Mode.SEARCH;
@@ -1232,7 +1228,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         cursorPosition = 0;
                         selectionStart = -1;
                         selectionEnd = -1;
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "Search In This Directory.");
                     ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
                 }
             }
@@ -1524,7 +1520,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     }
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fillGradient(0, 0, this.width, this.height, explorerScreenBackgroundColor, explorerScreenBackgroundColor);
+        context.fillGradient(0, 0, this.width, this.height, Config.backgroundColor, Config.backgroundColor);
     }
     @Override
     public void tick() {
@@ -1830,7 +1826,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
             context.fill((int) x, (int) y, (int) x + width, (int) y + height, color);
             drawInnerBorder(context, (int) x, (int) y, width, height, blendColor(0xFF000000, currentOpacity));
-            drawOuterBorder(context, (int) x, (int) y, width, height, globalBottomBorder);
+            drawOuterBorder(context, (int) x, (int) y, width, height, globalOuterBorder);
             context.drawText(textRenderer, Text.literal(message), (int) x + padding, (int) y + padding, blendColor(0xFFFFFFFF, currentOpacity), Config.shadow);
         }
         private int blendColor(int color, float opacity) {

@@ -7,11 +7,12 @@ import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.SSHManager;
 import redxax.oxy.common.config.Config;
+import redxax.oxy.common.util.ImageUtil;
+
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.Toolkit;
-import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.InputStream;
 import java.net.URL;
@@ -19,12 +20,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import static java.nio.file.Files.*;
+
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.drawPixelArt;
-import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class ServerSettingsScreen extends Screen {
@@ -46,8 +46,8 @@ public class ServerSettingsScreen extends Screen {
     private float targetSettingsScroll = 0;
     private final int rowHeight = 30;
     private ServerSetting draggedSlider = null;
-    private BufferedImage closeIcon, createIcon;
-    public enum ServerSettingType {TOGGLE, SLIDER, DROP_DOWN, TAB_SWITCH, TEXT}
+    private ImageUtil.IconWithTooltip closeIcon, createIcon;
+    public enum ServerSettingType {TOGGLE, SLIDER, SCROLL_SWITCH, TAB_SWITCH, TEXT}
 
     public ServerSettingsScreen(MinecraftClient mc, String mode, ServerManagerScreen parent, String settingsRoot, List<ServerSetting> customSettings) {
         this(mc, mode, parent, settingsRoot, customSettings, null);
@@ -145,8 +145,8 @@ public class ServerSettingsScreen extends Screen {
         this.width = mc.getWindow().getScaledWidth();
         this.height = mc.getWindow().getScaledHeight();
         try {
-            closeIcon = loadResourceIcon("/assets/remotely/icons/close.png");
-            createIcon = loadResourceIcon("/assets/remotely/icons/create.png");
+            closeIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/close.png", "Cancel");
+            createIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/create.png", editServerMode ? "Apply Changes" : "Create Server");
         } catch (Exception e) {
             devPrint("Failed to load icons: " + e.getMessage());
         }
@@ -154,7 +154,7 @@ public class ServerSettingsScreen extends Screen {
 
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fillGradient(0, 0, this.width, this.height, Config.serverScreenBackgroundColor, Config.serverScreenBackgroundColor);
+        context.fillGradient(0, 0, this.width, this.height, Config.backgroundColor, Config.backgroundColor);
     }
 
     @Override
@@ -162,28 +162,28 @@ public class ServerSettingsScreen extends Screen {
         recalcTabs();
         if (Config.background) renderBackground(context, mouseX, mouseY, delta);
         int headerHeight = 30;
-        context.fill(0, 0, this.width, headerHeight, Config.headerBackgroundColor);
-        drawInnerBorder(context, 0, 0, this.width, headerHeight, Config.headerBorderColor);
-        drawOuterBorder(context, 0, 0, this.width, headerHeight, globalBottomBorder);
-        context.drawText(mc.textRenderer, Text.literal("Create New Server"), 10, 10, 0xFFFFFFFF, Config.shadow);
+        context.fill(0, 0, this.width, headerHeight, Config.innerBackgroundColor);
+        drawInnerBorder(context, 0, 0, this.width, headerHeight, Config.innerBorderColor);
+        drawOuterBorder(context, 0, 0, this.width, headerHeight, globalOuterBorder);
+        context.drawText(mc.textRenderer, Text.literal("Create New Server"), 10, 10, globalTextColor, Config.shadow);
         drawTabs(context, mc.textRenderer, tabs, currentTab, mouseX, mouseY, false, false);
         int buttonY = 5;
         int createButtonX = this.width - 46;
         boolean isCreateHovered = mouseX >= createButtonX && mouseX <= createButtonX + 18 && mouseY >= buttonY && mouseY <= buttonY + 18;
-        drawSquareButton(context, createButtonX, buttonY, mc, "", isCreateHovered, buttonTextColor, buttonTextHoverColor);
-        drawPixelArt(context, createIcon, width - 44 - 1, 6, 16, 16);
+        drawSquareButton(context, createButtonX, buttonY, mc, "", isCreateHovered, globalTextColor, globalHoverTextColor, mouseX, mouseY, editServerMode ? "Apply Changes" : "Create Server");
+        drawPixelArt(context, createIcon.getImage(), width - 44 - 1, 6, 16, 16);
         int cancelButtonX = this.width - 23;
         boolean isCancelHovered = mouseX >= cancelButtonX && mouseX <= cancelButtonX + 18 && mouseY >= buttonY && mouseY <= buttonY + 18;
-        drawSquareButton(context, cancelButtonX, buttonY, mc, "", isCancelHovered, buttonTextColor, buttonTextCancelColor);
-        drawPixelArt(context, closeIcon, width - 21 - 1, 6, 16, 16);
+        drawSquareButton(context, cancelButtonX, buttonY, mc, "", isCancelHovered, globalTextColor, Config.dangerLightAccentColor, mouseX, mouseY, "Cancel");
+        drawPixelArt(context, closeIcon.getImage(), width - 21 - 1, 6, 16, 16);
         int tabAreaHeight = 18;
         int contentY = headerHeight + tabAreaHeight + 10;
         int contentX = 5;
         int contentWidth = this.width - 10;
         int contentHeight = this.height - contentY - 10;
-        context.fill(contentX, contentY, contentX + contentWidth, contentY + contentHeight, editorInnerBackgroundColor);
-        drawInnerBorder(context, contentX, contentY, contentWidth, contentHeight, editorBorderColor);
-        drawOuterBorder(context, contentX, contentY, contentWidth, contentHeight, globalBottomBorder);
+        context.fill(contentX, contentY, contentX + contentWidth, contentY + contentHeight, innerBackgroundColor);
+        drawInnerBorder(context, contentX, contentY, contentWidth, contentHeight, innerBorderColor);
+        drawOuterBorder(context, contentX, contentY, contentWidth, contentHeight, globalOuterBorder);
         List<ServerSetting> currentSettings = new ArrayList<>();
         for (ServerSetting s : settings) {
             if (s.tab.equals(tabs.get(currentTab)) && dependencySatisfied(s)) {
@@ -198,20 +198,20 @@ public class ServerSettingsScreen extends Screen {
         for (int i = 0; i < currentSettings.size(); i++) {
             int rowY = contentY + i * rowHeight - (int) currentSettingsScroll;
             if (rowY + rowHeight < contentY || rowY > contentY + contentHeight) continue;
-            context.fill(contentX, rowY, contentX + contentWidth, rowY + rowHeight - 2, 0xFF222222);
-            drawInnerBorder(context, contentX, rowY, contentWidth, rowHeight - 2, serverElementBorderColor);
-            drawOuterBorder(context, contentX, rowY, contentWidth, rowHeight - 2, globalBottomBorder);
+            context.fill(contentX, rowY, contentX + contentWidth, rowY + rowHeight - 2, elementBackgroundColor);
+            drawInnerBorder(context, contentX, rowY, contentWidth, rowHeight - 2, elementBorderColor);
+            drawOuterBorder(context, contentX, rowY, contentWidth, rowHeight - 2, globalOuterBorder);
             String name = currentSettings.get(i).name;
-            context.drawText(mc.textRenderer, Text.literal(name), contentX + 5, rowY + 5, screensTitleTextColor, Config.shadow);
-            context.drawText(mc.textRenderer, Text.literal(currentSettings.get(i).description), contentX + 5, rowY + 5 + mc.textRenderer.fontHeight + 2, 0xFFAAAAAA, Config.shadow);
+            context.drawText(mc.textRenderer, Text.literal(name), contentX + 5, rowY + 5, globalTextColor, Config.shadow);
+            context.drawText(mc.textRenderer, Text.literal(currentSettings.get(i).description), contentX + 5, rowY + 5 + mc.textRenderer.fontHeight + 2, Config.globalDarkTextColor, Config.shadow);
             ServerSetting s = currentSettings.get(i);
             int widgetY = rowY + (rowHeight - 20) / 2;
             boolean widgetHovered = mouseX >= widgetAreaX && mouseX <= widgetAreaX + widgetWidth && mouseY >= rowY && mouseY <= rowY + 18;
             boolean toggleHovered = mouseX >= this.width - 40 - 12 && mouseX <= this.width - 12 && mouseY >= rowY && mouseY <= rowY + rowHeight;
             switch (s.type) {
                 case TOGGLE -> drawToggle(context, mc, this.width - 40 - 12, widgetY - 1, "", s.value.equals("true"), toggleHovered);
-                case SLIDER -> drawSlider(context, mc, widgetAreaX, widgetY, "", s.getIntValue(), s.min, s.max, widgetHovered);
-                case DROP_DOWN -> drawDropDown(context, mc, widgetAreaX, widgetY, "", s.options, s.getSelectedIndex(), s.index == selectedDropDown, widgetHovered);
+                case SLIDER -> drawSlider(context, mc, widgetAreaX, widgetY, "", s.getIntValue(), s.min, s.max, widgetHovered, mouseX, mouseY, "Shift + Click To Input Text.");
+                case SCROLL_SWITCH -> drawScrollSelector(context, mc, widgetAreaX, widgetY, s.options, s.getSelectedIndex(), widgetHovered);
                 case TAB_SWITCH -> drawTabSwitch(context, mc, widgetAreaX, widgetY, "", s.options, s.getSelectedIndex(), mouseX, mouseY);
                 case TEXT -> {
                     float currentScroll = textInputScrollOffsets.getOrDefault(s, 0f);
@@ -310,15 +310,27 @@ public class ServerSettingsScreen extends Screen {
                             draggedSlider = s;
                         }
                     }
-                    case DROP_DOWN -> {
+                    case SCROLL_SWITCH -> {
                         playClick();
                         if (s.index == selectedDropDown) {
-                            int ddHeight = 14;
-                            int optionIndex = (int) ((mouseY - rowY - ddHeight) / ddHeight);
-                            if (optionIndex >= 0 && optionIndex < s.options.size()) {
-                                s.value = s.options.get(optionIndex);
+                            int centerX = widgetAreaX + widgetWidth / 2;
+                            if (mouseX < centerX - 10) {
+                                int currentIndex = s.getSelectedIndex();
+                                if (currentIndex > 0) {
+                                    s.value = s.options.get(currentIndex - 1);
+                                } else {
+                                    s.value = s.options.get(s.options.size() - 1);
+                                }
+                            } else if (mouseX > centerX + 10) {
+                                int currentIndex = s.getSelectedIndex();
+                                if (currentIndex < s.options.size() - 1) {
+                                    s.value = s.options.get(currentIndex + 1);
+                                } else {
+                                    s.value = s.options.get(0);
+                                }
+                            } else {
+                                selectedDropDown = -1;
                             }
-                            selectedDropDown = -1;
                         } else {
                             selectedDropDown = s.index;
                         }

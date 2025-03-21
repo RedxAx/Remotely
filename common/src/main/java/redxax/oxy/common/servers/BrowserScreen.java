@@ -10,12 +10,12 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.util.TabTextAnimator;
 import redxax.oxy.common.Render;
 
-import java.awt.image.BufferedImage;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.ImageUtil.*;
@@ -43,7 +43,11 @@ public class BrowserScreen extends Screen {
     private int previousBrowserWidth = -1;
     private int previousBrowserHeight = -1;
     private Screen parent;
-    private BufferedImage fullscreenIcon, closeIcon, reloadIcon, goBackIcon, goForwardIcon;
+    private IconWithTooltip fullscreenIcon;
+    private IconWithTooltip closeIcon;
+    private IconWithTooltip reloadIcon;
+    private IconWithTooltip goBackIcon;
+    private IconWithTooltip goForwardIcon;
 
     public BrowserScreen(MinecraftClient client, Screen parent, String url) {
         super(Text.literal("Browser"));
@@ -108,11 +112,11 @@ public class BrowserScreen extends Screen {
             resizeBrowser(newBrowser);
         }
         try {
-            fullscreenIcon = loadResourceIcon("/assets/remotely/icons/fullscreen.png");
-            closeIcon = loadResourceIcon("/assets/remotely/icons/close.png");
-            reloadIcon = loadResourceIcon("/assets/remotely/icons/reload.png");
-            goBackIcon = loadResourceIcon("/assets/remotely/icons/goback.png");
-            goForwardIcon = loadResourceIcon("/assets/remotely/icons/goforward.png");
+            fullscreenIcon = new IconWithTooltip("/assets/remotely/icons/fullscreen.png", "Toggle Fullscreen Mode");
+            closeIcon = new IconWithTooltip("/assets/remotely/icons/close.png", "");
+            reloadIcon = new IconWithTooltip("/assets/remotely/icons/reload.png", "Reload Current Page");
+            goBackIcon = new IconWithTooltip("/assets/remotely/icons/goback.png", "");
+            goForwardIcon = new IconWithTooltip("/assets/remotely/icons/goforward.png", "");
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -128,14 +132,14 @@ public class BrowserScreen extends Screen {
         context.fill(0, 0, width, height, 0xFF202020);
         drawHeader(context, width, height, mouseX, mouseY);
         drawBrowser(currentBrowser, fullScreenMode, width, height, TOP_OFFSET, BROWSER_DRAW_OFFSET);
-        drawInnerBorder(context, 5, 60, width - 5 * 2, height - 60 - 5, editorBorderColor);
+        drawInnerBorder(context, 5, 60, width - 5 * 2, height - 60 - 5, innerBorderColor);
     }
 
     private void drawHeader(DrawContext context, int width, int height, int mouseX, int mouseY) {
         drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, fullscreenIcon, null, null, goBackIcon, goForwardIcon, null, null, reloadIcon);
         drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, true, false);
         String displayUrl = urlFieldFocused ? urlFieldText.toString() : trimUrl(urlFieldText.toString());
-        drawSearchBar(context, minecraftClient.textRenderer, new StringBuilder(displayUrl), urlFieldFocused, urlCursorPosition, urlSelectionStart, urlSelectionEnd, urlScrollOffset, urlTargetScrollOffset, urlShowCursor, false, "BrowserScreen");
+        drawSearchBar(context, minecraftClient.textRenderer, new StringBuilder(displayUrl), urlFieldFocused, urlCursorPosition, urlSelectionStart, urlSelectionEnd, urlScrollOffset, urlTargetScrollOffset, urlShowCursor, false, "BrowserScreen", mouseX, mouseY, "Search In Google or Enter a URL");
     }
 
     private int convertMouseX(double x) {

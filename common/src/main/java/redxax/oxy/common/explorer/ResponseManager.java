@@ -60,9 +60,9 @@ public class ResponseManager {
             List<String> lines = wrapText(text, wrapWidth, minecraftClient);
             int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
             height = Math.max(30, (lines.size() * lineHeight) + 10);
-            context.fill(x, y, x + width, y + height, airBarBackgroundColor);
-            drawInnerBorder(context, x, y, width, height, airBarBorderColor);
-            drawOuterBorder(context, x, y, width, height, globalBottomBorder);
+            context.fill(x, y, x + width, y + height, calmDarkAccentColor);
+            drawInnerBorder(context, x, y, width, height, calmAccentColor);
+            drawOuterBorder(context, x, y, width, height, globalOuterBorder);
             int drawY = y + 5;
             for (String l : lines) {
                 context.drawText(minecraftClient.textRenderer, Text.literal(l), x + 5, drawY, 0xFFFFFF, Config.shadow);
@@ -70,7 +70,7 @@ public class ResponseManager {
             }
             int closeX = x + width - 7;
             int closeY = y;
-            context.drawText(minecraftClient.textRenderer, Text.literal("x"), closeX, closeY, buttonTextDeleteHoverColor, false);
+            context.drawText(minecraftClient.textRenderer, Text.literal("x"), closeX, closeY, Config.dangerDarkAccentColor, false);
         }
 
         boolean mouseClicked(double mx, double my, int button) {

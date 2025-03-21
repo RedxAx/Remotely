@@ -21,6 +21,7 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.Render;
 import redxax.oxy.common.api.IRemotelyResource;
 import redxax.oxy.common.config.Config;
+import static redxax.oxy.common.util.ImageUtil.*;
 
 import javax.imageio.ImageIO;
 import java.awt.Graphics2D;
@@ -46,7 +47,6 @@ import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.servers.PluginModManagerScreen.formatDownloads;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.drawBufferedImage;
-import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class ResourcePageScreen extends Screen {
@@ -74,7 +74,7 @@ public class ResourcePageScreen extends Screen {
     private Version headerDownloadVersion;
     private boolean isDownloadingMrpack = false;
     private double mrpackProgress = 0.0;
-    private BufferedImage closeIcon, siteIcon, downloadIcon;
+    private IconWithTooltip closeIcon, siteIcon, downloadIcon;
 
     public ResourcePageScreen(MinecraftClient mc, PluginModManagerScreen parent, IRemotelyResource resource, ServerInfo serverInfo) {
         super(Text.literal(resource.getName()));
@@ -93,9 +93,9 @@ public class ResourcePageScreen extends Screen {
         tabs.add(new Tab(TabType.VERSIONS, "Versions"));
         currentTabIndex = 0;
         try {
-            closeIcon = loadResourceIcon("/assets/remotely/icons/close.png");
-            siteIcon = loadResourceIcon("/assets/remotely/icons/site.png");
-            downloadIcon = loadResourceIcon("/assets/remotely/icons/download.png");
+            closeIcon = new IconWithTooltip("/assets/remotely/icons/close.png", "");
+            siteIcon = new IconWithTooltip("/assets/remotely/icons/site.png", "Open The Resource's Page In Your Default Browser.");
+            downloadIcon = new IconWithTooltip("/assets/remotely/icons/download.png", "Download The Latest Compatible Version.");
         } catch (Exception e) {
             devPrint("Failed to load icons: " + e.getMessage());
         }
@@ -448,9 +448,9 @@ public class ResourcePageScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         int headerHeight = 30;
         int tabAreaHeight = 20;
-        context.fillGradient(0, 0, this.width, this.height, browserScreenBackgroundColor, browserScreenBackgroundColor);
+        context.fillGradient(0, 0, this.width, this.height, Config.backgroundColor, Config.backgroundColor);
         drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, siteIcon, downloadIcon, null, null, null, null, null, null);
-        context.drawText(minecraftClient.textRenderer, Text.literal(resource.getName()), 10, 10, screensTitleTextColor, Config.shadow);
+        context.drawText(minecraftClient.textRenderer, Text.literal(resource.getName()), 10, 10, globalTextColor, Config.shadow);
         drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
         int contentY = headerHeight + tabAreaHeight + 10;
         int contentHeight = this.height - contentY - 5;
@@ -507,11 +507,11 @@ public class ResourcePageScreen extends Screen {
                 int y = contentY + i * (itemHeight + 2) - (int)versionsScrollOffset;
                 if(y + itemHeight < contentY || y > contentY + contentHeight) continue;
                 boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + itemHeight;
-                int bg = hovered ? browserElementBackgroundHoverColor : browserElementBackgroundColor;
-                int borderColor = hovered ? browserElementBorderHoverColor : browserElementBorderColor;
+                int bg = hovered ? elementHoverBackgroundColor : Config.elementBackgroundColor;
+                int borderColor = hovered ? Config.elementHoverBorderColor : Config.elementBorderColor;
                 context.fill(contentX, y, contentX + contentWidth, y + itemHeight, bg);
                 drawInnerBorder(context, contentX, y, contentWidth, itemHeight, borderColor);
-                drawOuterBorder(context, contentX, y, contentWidth, itemHeight, globalBottomBorder);
+                drawOuterBorder(context, contentX, y, contentWidth, itemHeight, globalOuterBorder);
                 String title = resource.getName() + ": " + ver.version;
                 context.drawText(minecraftClient.textRenderer, Text.literal(title), contentX + 4, y + 3, 0xFFFFFFFF, Config.shadow);
                 String desc = formatMCVersions(ver.mcVersions);
@@ -523,11 +523,11 @@ public class ResourcePageScreen extends Screen {
                     int barHeight = Render.buttonH;
                     int barX = contentX + contentWidth - barWidth - 10;
                     int barY = y + (itemHeight - barHeight) / 2;
-                    context.fill(barX, barY, barX + barWidth, barY + barHeight, browserElementBackgroundColor);
+                    context.fill(barX, barY, barX + barWidth, barY + barHeight, Config.elementBackgroundColor);
                     int fillWidth = (int)(barWidth * ver.progress);
-                    context.fill(barX, barY, barX + fillWidth, barY + barHeight, buttonTextHoverColor);
-                    drawOuterBorder(context, barX, barY, barWidth, barHeight, globalBottomBorder);
-                    drawInnerBorder(context, barX, barY, barWidth, barHeight, browserElementBorderColor);
+                    context.fill(barX, barY, barX + fillWidth, barY + barHeight, globalHoverTextColor);
+                    drawOuterBorder(context, barX, barY, barWidth, barHeight, globalOuterBorder);
+                    drawInnerBorder(context, barX, barY, barWidth, barHeight, Config.elementBorderColor);
                     String percentText = (int)(ver.progress * 100) + "%";
                     context.drawText(minecraftClient.textRenderer, Text.literal(percentText), barX + barWidth/2 - minecraftClient.textRenderer.getWidth(Text.literal(percentText))/2, barY + (barHeight - minecraftClient.textRenderer.fontHeight)/2, 0xFFFFFFFF, Config.shadow);
                     String infoText = formatBytes(ver.downloadedBytes) + "/" + formatBytes(ver.totalBytes) + " | " + formatBytes((long)ver.speed) + "/s";
@@ -535,7 +535,7 @@ public class ResourcePageScreen extends Screen {
                 } else {
                     int btnX = contentX + contentWidth - 70;
                     int btnY = y + (itemHeight - 20) / 2;
-                    drawCustomButton(context, btnX, btnY, ver.isInstalled, minecraftClient, mouseX >= btnX && mouseX <= btnX + 60 && mouseY >= btnY && mouseY <= btnY + 20, false, true, Objects.equals(ver.isInstalled, "Failed") ? buttonTextDeleteHoverColor : Objects.equals(ver.isInstalled, "Installed") ? buttonTextExplorerHoverColor : buttonTextColor, buttonTextHoverColor);
+                    drawCustomButton(context, btnX, btnY, ver.isInstalled, minecraftClient, mouseX >= btnX && mouseX <= btnX + 60 && mouseY >= btnY && mouseY <= btnY + 20, false, true, Objects.equals(ver.isInstalled, "Failed") ? Config.dangerDarkAccentColor : Objects.equals(ver.isInstalled, "Installed") ? Config.niceAccentColor : globalTextColor, globalHoverTextColor, mouseX , mouseY, "");
                     versionButtonRegions.add(new VersionButtonRegion(btnX, btnY, 60, 20, ver));
                 }
             }

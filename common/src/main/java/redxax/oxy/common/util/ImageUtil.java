@@ -15,8 +15,32 @@ import java.io.InputStream;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static redxax.oxy.common.util.DevUtil.devPrint;
+
 public class ImageUtil {
     static final Map<BufferedImage, Identifier> textureCache = new ConcurrentHashMap<>();
+
+    public static class IconWithTooltip {
+        private BufferedImage image;
+        private final String tooltip;
+
+        public IconWithTooltip(String imagePath, String tooltip) {
+            try {
+                this.image = loadResourceIcon(imagePath);
+            } catch (Exception e) {
+                devPrint("Failed to load icon: " + e.getMessage());
+            }
+            this.tooltip = tooltip;
+        }
+
+        public BufferedImage getImage() {
+            return image;
+        }
+
+        public String getTooltip() {
+            return tooltip;
+        }
+    }
 
     public static BufferedImage loadResourceIcon(String path) throws Exception {
         try (InputStream is = ImageUtil.class.getResourceAsStream(path)) {

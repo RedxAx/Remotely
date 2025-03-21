@@ -12,9 +12,9 @@ import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.explorer.ResponseManager.*;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.util.CursorUtils;
+import redxax.oxy.common.util.ImageUtil;
 import redxax.oxy.common.util.TabTextAnimator;
 
-import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -31,7 +31,6 @@ import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.explorer.ResponseManager.parseAIResponse;
-import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class FileEditorScreen extends Screen {
@@ -65,7 +64,7 @@ public class FileEditorScreen extends Screen {
     private final float customPathTargetScrollOffset = 0;
     private final List<ResponseWindow> responseWindows = new ArrayList<>();
     private static final Path AI_CONFIG_PATH = Path.of("C:/remotely/data/ai.json");
-    private BufferedImage closeIcon, saveIcon;
+    private ImageUtil.IconWithTooltip closeIcon, saveIcon;
 
     private static class SavedTabState {
         ArrayList<String> lines;
@@ -236,8 +235,8 @@ public class FileEditorScreen extends Screen {
             this.textEditor = tabs.get(0).textEditor;
         }
         try {
-            closeIcon = loadResourceIcon("/assets/remotely/icons/close.png");
-            saveIcon = loadResourceIcon("/assets/remotely/icons/save.png");
+            closeIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/close.png", "Close The Screen");
+            saveIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/save.png", tabs.get(currentTabIndex).unsaved ? "Save File" : "It's Already Saved");
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -751,10 +750,10 @@ public class FileEditorScreen extends Screen {
                             close();
                         }
                         RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "Close The Tab.");
                     ContextMenu.addItem("Save", () -> {
                         tabs.get(finalI).saveFile();
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, (tabs.get(finalI).unsaved ? "Save The Current File." : " It's Already Saved!"));
                     ContextMenu.addItem("Externally", () -> {
                        ProcessBuilder pb = new ProcessBuilder("explorer.exe", tab.path.toString());
                         try {
@@ -762,7 +761,7 @@ public class FileEditorScreen extends Screen {
                         } catch (IOException e) {
                             e.printStackTrace();
                         }
-                    }, buttonTextHoverColor);
+                    }, globalHoverTextColor, "Open In The Default App.");
                     ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
                     clickedTab = true;
                     break;
@@ -846,7 +845,7 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fillGradient(0, 0, this.width, this.height, editorScreenBackgroundColor, editorScreenBackgroundColor);
+        context.fillGradient(0, 0, this.width, this.height, Config.backgroundColor, Config.backgroundColor);
     }
 
     @Override
@@ -854,7 +853,7 @@ public class FileEditorScreen extends Screen {
         if (background) this.renderBackground(context, mouseX, mouseY, delta);
         super.render(context, mouseX, mouseY, delta);
         drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, saveIcon, null, null, null, null, null, null, null);
-        drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, customShowCursor, aiMode, "FileEditorScreen");
+        drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, customShowCursor, aiMode, "FileEditorScreen", mouseX, mouseY, "Search For Text In The File.");
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, tabs.get(currentTabIndex).unsaved);
         tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
         ScrollBar.render(context, parent, mouseX, mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), (float) tabs.get(currentTabIndex).textEditor.getScrollOffset());
@@ -947,7 +946,7 @@ public class FileEditorScreen extends Screen {
                         int safeEnd = Math.max(0, Math.min(pos.end, text.length()));
                         int startX = mc.textRenderer.getWidth(text.substring(0, safeStart));
                         int endX = mc.textRenderer.getWidth(text.substring(0, safeEnd));
-                        context.fill(x + textPadding - (int) smoothScrollOffsetHoriz + startX, renderY, x + textPadding - (int) smoothScrollOffsetHoriz + endX, renderY + lineHeight - 2, terminalSelectionColor);
+                        context.fill(x + textPadding - (int) smoothScrollOffsetHoriz + startX, renderY, x + textPadding - (int) smoothScrollOffsetHoriz + endX, renderY + lineHeight - 2, globalSelectionColor);
                     }
                 }
                 if (lineIndex == cursorLine && !hasSelection()) {
@@ -1608,7 +1607,7 @@ public class FileEditorScreen extends Screen {
             int selectionXStart = x + padding + mc.textRenderer.getWidth(beforeSelection) - (int) smoothScrollOffsetHoriz;
             int selectionWidth = mc.textRenderer.getWidth(selectionText);
             int lineHeight = mc.textRenderer.fontHeight + 2;
-            context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, yPosition + lineHeight - 2, terminalSelectionColor);
+            context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, yPosition + lineHeight - 2, globalSelectionColor);
         }
 
         public void copySelectionToClipboard() {

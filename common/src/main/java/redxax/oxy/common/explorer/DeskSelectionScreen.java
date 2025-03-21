@@ -29,21 +29,14 @@ import static redxax.oxy.common.util.SoundUtils.playClick;
 public class DeskSelectionScreen extends Screen {
     private final MinecraftClient minecraftClient;
     private final FileExplorerScreen parent;
-    private List<ObjectItem> objectItems = new ArrayList<>();
+    private final List<ObjectItem> objectItems = new ArrayList<>();
     private int itemWidth = 200;
-    private int itemHeight = 30;
-    private int columns = 3;
-    private int spacing = 2;
-    private BufferedImage folderIcon;
-    private BufferedImage fileIcon;
-    private BufferedImage pinIcon, closeIcon;
+    private final int itemHeight = 30;
+    private final int columns = 3;
+    private final int spacing = 2;
+    private IconWithTooltip folderIcon, fileIcon, pinIcon, closeIcon;
     private int scrollOffset = 0;
     private int maxScroll = 0;
-    private int selectedIndex = -1;
-    private int backButtonX;
-    private int backButtonY;
-    private int backButtonWidth = 60;
-    private int backButtonHeight = 20;
 
     static class ObjectItem {
         String displayName;
@@ -65,14 +58,12 @@ public class DeskSelectionScreen extends Screen {
     protected void init() {
         super.init();
         try {
-            folderIcon = loadResourceIcon("/assets/remotely/icons/folder.png");
-            fileIcon = loadResourceIcon("/assets/remotely/icons/file.png");
-            pinIcon = loadResourceIcon("/assets/remotely/icons/pin.png");
-            closeIcon = loadResourceIcon("/assets/remotely/icons/close.png");
+            folderIcon = new IconWithTooltip("/assets/remotely/icons/folder.png", "");
+            fileIcon = new IconWithTooltip("/assets/remotely/icons/file.png", "");
+            pinIcon = new IconWithTooltip("/assets/remotely/icons/pin.png", "");
+            closeIcon = new IconWithTooltip("/assets/remotely/icons/close.png", "");
         } catch (Exception ignored) {}
         loadObjects();
-        backButtonX = this.width - backButtonWidth - 10;
-        backButtonY = 5;
     }
 
     private void loadObjects() {
@@ -199,14 +190,14 @@ public class DeskSelectionScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         if (Config.background) renderBackground(context, mouseX, mouseY, delta);
         drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, null, null, null, null, null, null, null, null);
-        context.drawText(this.textRenderer, Text.literal("Remotely - New Tab"), 10, 10, screensTitleTextColor, Config.shadow);
+        context.drawText(this.textRenderer, Text.literal("Remotely - New Tab"), 10, 10, globalTextColor, Config.shadow);
         int headerY = 35;
         int gridX = spacing;
         int gridY = headerY + 10;
         int gridWidth = this.width - 2 * spacing;
         int gridHeight = this.height - gridY - 10;
-        context.fill(gridX, gridY, gridX + gridWidth, gridY + gridHeight, deskInnerBackgroundColor);
-        drawInnerBorder(context, gridX, gridY, gridWidth, gridHeight, deskBorderColor);
+        context.fill(gridX, gridY, gridX + gridWidth, gridY + gridHeight, Config.innerBackgroundColor);
+        drawInnerBorder(context, gridX, gridY, gridWidth, gridHeight, Config.innerBorderColor);
         itemWidth = (gridWidth - (columns + 1) * spacing) / columns;
         int startY = gridY + spacing;
         int idx = 0;
@@ -220,26 +211,26 @@ public class DeskSelectionScreen extends Screen {
                 continue;
             }
             boolean hovered = mouseX >= drawX && mouseX <= drawX + itemWidth && mouseY >= drawY && mouseY <= drawY + itemHeight;
-            int bgColor = item.isFavorite ? explorerElementFavoriteBackgroundColor : (hovered ? explorerElementBackgroundHoverColor : explorerElementBackgroundColor);
+            int bgColor = item.isFavorite ? niceDarkAccentColor : (hovered ? Config.elementHoverBackgroundColor : Config.elementBackgroundColor);
             context.fill(drawX, drawY, drawX + itemWidth, drawY + itemHeight, bgColor);
-            drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, item.isFavorite ? explorerElementFavoriteSelectedBorderColor : (hovered ? explorerElementBorderHoverColor : explorerElementBorderColor));
-            drawOuterBorder(context, drawX, drawY, itemWidth, itemHeight, globalBottomBorder);
-            BufferedImage icon = item.isDirectory ? folderIcon : fileIcon;
+            drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, item.isFavorite ? niceAccentColor : (hovered ? Config.elementHoverBorderColor : Config.elementBorderColor));
+            drawOuterBorder(context, drawX, drawY, itemWidth, itemHeight, globalOuterBorder);
+            BufferedImage icon = (item.isDirectory ? folderIcon.getImage() : fileIcon.getImage());
             drawPixelArt(context, icon, drawX + 7, drawY + (itemHeight / 2) - 8, 16, 16);
             if (item.isFavorite) {
-                drawPixelArt(context, pinIcon, item.isDirectory ? drawX + 2 : drawX + 4, drawY + (itemHeight / 2) - 8, 16, 16);
+                drawPixelArt(context, pinIcon.getImage(), item.isDirectory ? drawX + 2 : drawX + 4, drawY + (itemHeight / 2) - 8, 16, 16);
             }
             String firstLine = item.displayName;
             String secondLine = item.isRemote ? (item.remoteServerPath != null ? item.remoteServerPath.toString() : "") : item.localPath.toAbsolutePath().normalize().toString();
             int maxTextWidth = itemWidth - 32;
             if (textRenderer.getWidth(secondLine) > maxTextWidth) {
-                while (textRenderer.getWidth(secondLine + "...") > maxTextWidth && secondLine.length() > 0) {
+                while (textRenderer.getWidth(secondLine + "...") > maxTextWidth && !secondLine.isEmpty()) {
                     secondLine = secondLine.substring(0, secondLine.length() - 1);
                 }
                 secondLine = secondLine + "...";
             }
-            context.drawText(this.textRenderer, Text.literal(firstLine), drawX + 25, drawY + 7, explorerElementTextColor, Config.shadow);
-            context.drawText(this.textRenderer, Text.literal(secondLine), drawX + 25, drawY + 18, explorerElementTextDimColor, Config.shadow);
+            context.drawText(this.textRenderer, Text.literal(firstLine), drawX + 25, drawY + 7, Config.globalTextColor, Config.shadow);
+            context.drawText(this.textRenderer, Text.literal(secondLine), drawX + 25, drawY + 18, globalDarkTextColor, Config.shadow);
             idx++;
         }
     }
@@ -265,7 +256,6 @@ public class DeskSelectionScreen extends Screen {
                 int drawY = startY + row * (itemHeight + spacing) - scrollOffset;
                 if (mouseX >= drawX && mouseX <= drawX + itemWidth && mouseY >= drawY && mouseY <= drawY + itemHeight) {
                     playClick();
-                    selectedIndex = i;
                     if (!item.isRemote) {
                         if (item.isDirectory) {
                             FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(item.localPath.toAbsolutePath().normalize(), false, null);
@@ -308,7 +298,7 @@ public class DeskSelectionScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        scrollOffset -= verticalAmount * 10;
+        scrollOffset -= (int) (verticalAmount * 10);
         if (scrollOffset < 0) scrollOffset = 0;
         if (scrollOffset > maxScroll) scrollOffset = maxScroll;
         return true;
@@ -316,6 +306,6 @@ public class DeskSelectionScreen extends Screen {
 
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fillGradient(0, 0, this.width, this.height, deskScreenBackgroundColor, deskScreenBackgroundColor);
+        context.fillGradient(0, 0, this.width, this.height, Config.backgroundColor, Config.backgroundColor);
     }
 }
