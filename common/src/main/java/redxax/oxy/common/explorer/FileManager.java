@@ -22,7 +22,8 @@ public class FileManager {
         }
     }
 
-    private List<ClipboardEntry> clipboard = new ArrayList<>();
+
+    private static List<ClipboardEntry> clipboard = new ArrayList<>();
     private boolean isCut = false;
     private Deque<UndoableAction> undoStack = new ArrayDeque<>();
     private final FileManagerCallback callback;
@@ -113,6 +114,12 @@ public class FileManager {
                         currentRemote += "/";
                     String fileName = Paths.get(entry.sourcePath).getFileName().toString();
                     String remoteDest = currentRemote + fileName;
+
+                    // Check for duplicate and rename if needed
+                    if (!isCut && entry.isRemote && remoteDest.equals(entry.sourcePath)) {
+                        remoteDest = getUniqueRemotePath(remoteDest);
+                    }
+
                     if (entry.isRemote) {
                         if (isCut) {
                             sshManager.renameRemote(entry.sourcePath, remoteDest);
@@ -130,6 +137,12 @@ public class FileManager {
                 } else {
                     Path src = Paths.get(entry.sourcePath);
                     Path dest = currentPath.resolve(src.getFileName());
+
+                    // Check for duplicate and rename if needed
+                    if (!isCut && !entry.isRemote && src.getParent().equals(currentPath)) {
+                        dest = getUniqueLocalPath(dest);
+                    }
+
                     Files.createDirectories(dest.getParent());
                     if (entry.isRemote) {
                         sshManager.download(entry.sourcePath, dest);
@@ -163,6 +176,51 @@ public class FileManager {
             isCut = false;
             callback.refreshDirectory(currentPath);
         }
+    }
+
+    private Path getUniqueLocalPath(Path path) {
+        String origName = path.getFileName().toString();
+        String baseName = getBaseName(origName);
+        String extension = getExtension(origName);
+
+        Path uniquePath = path;
+        int counter = 2;
+        while (Files.exists(uniquePath)) {
+            String newName = baseName + " (" + counter + ")" + extension;
+            uniquePath = path.resolveSibling(newName);
+            counter++;
+        }
+        return uniquePath;
+    }
+
+    private String getUniqueRemotePath(String path) {
+        String fileName = Paths.get(path).getFileName().toString();
+        String dirPath = path.substring(0, path.length() - fileName.length());
+        String baseName = getBaseName(fileName);
+        String extension = getExtension(fileName);
+
+        int counter = 2;
+        String newPath = path;
+        try {
+            while (sshManager.remoteFileExists(newPath)) {
+                String newName = baseName + " (" + counter + ")" + extension;
+                newPath = dirPath + newName;
+                counter++;
+            }
+        } catch (Exception e) {
+            return path;
+        }
+        return newPath;
+    }
+
+    private String getBaseName(String fileName) {
+        int lastDotIndex = fileName.lastIndexOf('.');
+        return lastDotIndex > 0 ? fileName.substring(0, lastDotIndex) : fileName;
+    }
+
+    private String getExtension(String fileName) {
+        int lastDotIndex = fileName.lastIndexOf('.');
+        return lastDotIndex > 0 ? fileName.substring(lastDotIndex) : "";
     }
 
     public void undo(Path currentPath) {
@@ -298,6 +356,15 @@ public class FileManager {
             });
         }
     }
+
+    public static List<ClipboardEntry> getClipboard() {
+        return clipboard;
+    }
+
+    public static void clearClipboard() {
+        clipboard.clear();
+    }
+
 
     public interface FileManagerCallback {
         void showNotification(String message, FileExplorerScreen.Notification.Type type);
