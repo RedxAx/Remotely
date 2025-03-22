@@ -88,26 +88,14 @@ public class MultiTerminalScreen extends Screen {
     long lastSnippetClickTime = 0;
     int snippetHoverIndex = -1;
     boolean hideButtonHovered = false;
-    boolean plusButtonHovered = false;
-    int hoveredTabIndex = -1;
-    boolean createSnippetButtonHovered = false;
     int selectedSnippetIndex = -1;
     int snippetCommandsScrollOffset = 0;
     int snippetMaxVisibleLines = 1;
     private boolean shortcutConsumed = false;
     public static boolean isResizingSnippetPanel = false;
 
-    int renameScrollOffset = 0;
     int snippetNameScrollOffset = 0;
 
-    private int buttonX = 0;
-    private int buttonY = 5;
-    private int explorerButtonX = 0;
-    private int explorerButtonY = 5;
-    private int pluginButtonX = 0;
-    private final int pluginButtonY = 5;
-    private final int buttonW = 60;
-    private final int buttonH = 20;
     private final int topBarHeight = 30;
 
     private List<TerminalInstance> savedTerminals;
@@ -115,11 +103,21 @@ public class MultiTerminalScreen extends Screen {
 
     public static final Path THEMES_DIR = Paths.get("C:/remotely/themes");
     private List<Theme> themes = new ArrayList<>();
-    private int sidePanelTabIndex = 0;
 
     private Screen parent;
     private IconWithTooltip closeIcon, startIcon, stopIcon, explorerIcon, resourcesIcon;
-    private final List<Notification> notifications = new ArrayList<Notification>();
+    private float smoothSnippetListScrollOffset = 0;
+    private float targetSnippetListScrollOffset = 0;
+    private float scrollAnimationSpeed = 0.015f;
+    private int snippetListScrollOffset;
+    private Map<Integer, Float> snippetExpandProgress = new HashMap<>();
+    private float expandAnimationSpeed = 0.03f;
+    private float animatedSnippetPanelWidth = 0;
+    private final double originalMCScale ;
+    private float panelExpandAnimation = 0.2f;
+    private float targetScaleFactor = 1f;
+    private float animScaleFactor = 1f;
+    private static final float scaleAnimationSpeed = 0.30f;
 
     public MultiTerminalScreen(MinecraftClient minecraftClient, Screen parent, RemotelyClient remotelyClient, List<TerminalInstance> terminals, List<String> tabNames) {
         super(Text.literal("Multi Terminal"));
@@ -138,6 +136,8 @@ public class MultiTerminalScreen extends Screen {
         this.snippetLastBlinkTime = System.currentTimeMillis();
         this.savedTerminals = new ArrayList<>(terminals);
         this.savedTabNames = new ArrayList<>(tabNames);
+        this.originalMCScale = minecraftClient.getWindow().getScaleFactor();
+        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
     }
 
     public MultiTerminalScreen(MinecraftClient minecraftClient, Screen parent, RemotelyClient remotelyClient) {
@@ -279,10 +279,6 @@ public class MultiTerminalScreen extends Screen {
         }
     }
 
-    private boolean isTabActive(int index) {
-        return index == activeTerminalIndex;
-    }
-
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
         context.fillGradient(0, 0, this.width, this.height, backgroundColor, backgroundColor);
@@ -320,7 +316,7 @@ public class MultiTerminalScreen extends Screen {
                 String titleText = sInfo.name + " - " + stateText + " | " + hostStatus;
                 context.drawText(minecraftClient.textRenderer, Text.literal(titleText), 10, 10, globalTextColor, Config.shadow);
             } else {
-                drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, null, null , null, null, null, null, null);
+                drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, null, null, null, null, null, null, null);
                 String titleText = "Remotely Terminal";
                 context.drawText(minecraftClient.textRenderer, Text.literal(titleText), 10, 10, globalTextColor, Config.shadow);
             }
@@ -332,38 +328,34 @@ public class MultiTerminalScreen extends Screen {
         int hideButtonX = this.width - 15 - 5;
         int hideButtonY = 5 + topBarHeight;
         hideButtonHovered = mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15;
-        drawSquareButton(context, hideButtonX, hideButtonY,  minecraftClient, "≡", hideButtonHovered, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Toggle Snippets Panel");
+        drawSquareButton(context, hideButtonX, hideButtonY, minecraftClient, "≡", hideButtonHovered, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Toggle Snippets Panel");
         int tabOffsetY = topBarHeight + 5;
         int tabAreaHeight = TAB_HEIGHT;
-        int effectiveWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 5;
+        float targetPanelWidth = showSnippetsPanel ? snippetPanelWidth : 0;
+        animatedSnippetPanelWidth += (targetPanelWidth - animatedSnippetPanelWidth) * panelExpandAnimation;
+        int animatedWidth = (int) animatedSnippetPanelWidth;
+        int effectiveWidth = this.width - animatedWidth - 5;
         Render.drawTabs(context, this.textRenderer, buildTabInfoList(), activeTerminalIndex, mouseX, mouseY, true, false);
         TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
         int contentYStart = tabOffsetY + tabAreaHeight + verticalPadding;
         ContentYStart = contentYStart + 5;
         int adjustedHeight = this.height - (topBarHeight + tabAreaHeight + verticalPadding) + 60;
         activeTerminal.render(context, Math.max(effectiveWidth, 50), adjustedHeight, scale);
-        if (showSnippetsPanel) {
-            int panelX = this.width - snippetPanelWidth;
+        if (animatedWidth > 0) {
+            int panelX = this.width - animatedWidth;
             int panelY = tabOffsetY + tabAreaHeight + 7;
             int panelHeight = this.height - panelY - 5;
             context.fill(panelX, panelY, panelX, panelY + panelHeight, Config.innerBorderColor);
-            context.fill(panelX, panelY, panelX + snippetPanelWidth, panelY + panelHeight, Config.innerBackgroundColor);
-            drawInnerBorder(context, panelX, panelY, snippetPanelWidth, panelHeight, Config.innerBorderColor);
-            drawOuterBorder(context, panelX, panelY, snippetPanelWidth, panelHeight, globalOuterBorder);
-            renderSidePanelTabs(context, panelX, panelY, snippetPanelWidth, mouseX, mouseY);
-            int tabTopHeight = 20;
-            int contentStartY = panelY + tabTopHeight + 5;
-            int contentAvailableHeight = panelHeight - tabTopHeight - 5;
-            if (sidePanelTabIndex == 0) {
-                renderSnippetsTab(context, panelX, contentStartY, snippetPanelWidth, contentAvailableHeight, mouseX, mouseY);
-            } else {
-                renderThemesTab(context, panelX, contentStartY, snippetPanelWidth, contentAvailableHeight, mouseX, mouseY);
-            }
+            context.fill(panelX, panelY, panelX + animatedWidth, panelY + panelHeight, Config.innerBackgroundColor);
+            drawInnerBorder(context, panelX, panelY, animatedWidth, panelHeight, Config.innerBorderColor);
+            drawOuterBorder(context, panelX, panelY, animatedWidth, panelHeight, globalOuterBorder);
+            context.enableScissor(panelX, panelY + 1, panelX + animatedWidth, panelY + panelHeight - 1);
+            renderSnippetsPanel(context, panelX, panelY, animatedWidth, panelHeight, mouseX, mouseY);
+            context.disableScissor();
         } else {
-            int textAreaHeight =  activeTerminal.renderer.getInputFieldHeight() - activeTerminal.renderer.getStatusBarHeight();
+            int textAreaHeight = activeTerminal.renderer.getInputFieldHeight() - activeTerminal.renderer.getStatusBarHeight();
             int scrollableRange = Math.max(0, activeTerminal.renderer.getTotalScrollHeight() - textAreaHeight);
-            if (ScrollBar.isDragging())
-                activeTerminal.renderer.targetScrollOffset = (int) ScrollBar.getPendingOffset();
+            if (ScrollBar.isDragging()) activeTerminal.renderer.targetScrollOffset = (int) ScrollBar.getPendingOffset();
             ScrollBar.render(context, this, mouseX, mouseY, scrollableRange, activeTerminal.renderer.getScrollOffset());
         }
         if (snippetPopupActive) {
@@ -373,6 +365,9 @@ public class MultiTerminalScreen extends Screen {
             notification.update(delta);
             notification.render(context);
         }
+        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed;
+        minecraftClient.getWindow().setScaleFactor(animScaleFactor);
+        this.resize(minecraftClient, minecraftClient.getWindow().getScaledWidth(), minecraftClient.getWindow().getScaledHeight());
     }
 
     private List<TabInfo> buildTabInfoList() {
@@ -528,116 +523,87 @@ public class MultiTerminalScreen extends Screen {
         }
     }
 
-    private void renderSidePanelTabs(DrawContext context, int panelX, int panelY, int panelWidth, int mouseX, int mouseY) {
-        String tab1 = "Snippet";
-        String tab2 = "Themes";
-        int singleTabWidth = panelWidth / 2;
-        int tab1X = panelX;
-        int tab2X = panelX + singleTabWidth;
-        int tabY = panelY;
-        int tabHeight = 20;
-        boolean tab1Hovered = mouseX >= tab1X && mouseX <= (tab1X + singleTabWidth) && mouseY >= tabY && mouseY <= (tabY + tabHeight);
-        boolean tab2Hovered = mouseX >= tab2X && mouseX <= (tab2X + singleTabWidth) && mouseY >= tabY && mouseY <= (tabY + tabHeight);
-
-        context.fill(tab1X, tabY, tab1X + singleTabWidth, tabY + tabHeight, sidePanelTabIndex == 0 ? accentDarkColor : (tab1Hovered ? elementHoverBackgroundColor : elementBackgroundColor));
-        drawInnerBorder(context, tab1X, tabY, singleTabWidth, tabHeight, sidePanelTabIndex == 0 ? accentColor : (tab1Hovered ? elementHoverBorderColor : Config.innerBorderColor));
-        context.fill(tab2X, tabY, tab2X + singleTabWidth, tabY + tabHeight, sidePanelTabIndex == 1 ? accentDarkColor : (tab2Hovered ? elementHoverBackgroundColor : elementBackgroundColor));
-        drawInnerBorder(context, tab2X, tabY, singleTabWidth, tabHeight, sidePanelTabIndex == 1 ? accentColor : (tab2Hovered ? elementHoverBorderColor : Config.innerBorderColor));
-
-        int tab1TextW = minecraftClient.textRenderer.getWidth(tab1);
-        int tab2TextW = minecraftClient.textRenderer.getWidth(tab2);
-        int tab1TextX = tab1X + (singleTabWidth - tab1TextW) / 2;
-        int tab2TextX = tab2X + (singleTabWidth - tab2TextW) / 2;
-        int tabTextY = tabY + (tabHeight - minecraftClient.textRenderer.fontHeight) / 2;
-
-        context.drawText(minecraftClient.textRenderer, Text.literal(tab1), tab1TextX, tabTextY, sidePanelTabIndex == 0 ? globalHoverTextColor : globalTextColor, Config.shadow);
-        context.drawText(minecraftClient.textRenderer, Text.literal(tab2), tab2TextX, tabTextY, sidePanelTabIndex == 1 ? globalHoverTextColor : globalTextColor, Config.shadow);
-    }
-
-    private void renderSnippetsTab(DrawContext context, int panelX, int startY, int panelWidth, int panelHeight, int mouseX, int mouseY) {
-        int yOffset = startY + 5;
-        int snippetMaxWidth = panelWidth - 10;
+    private void renderSnippetsPanel(DrawContext context, int panelX, int startY, int panelWidth, int panelHeight, int mouseX, int mouseY) {
+        float smoothOffset = smoothSnippetListScrollOffset;
+        int yOffset = startY + 5 - (int) smoothOffset;
+        int currentSnippetMaxWidth = Math.max(0, panelWidth - 10);
         snippetHoverIndex = -1;
+        float openFactor = panelWidth / (float) snippetPanelWidth;
+        float delayPerSnippet = 0.05f;
         for (int i = 0; i < RemotelyClient.globalSnippets.size(); i++) {
             RemotelyClient.CommandSnippet snippet = RemotelyClient.globalSnippets.get(i);
             boolean selected = selectedSnippetIndex == i;
-            int snippetHeight = selected ? calculateSnippetHeight(snippet.commands) : 35;
-            int snippetX = panelX + 5;
+            float expandProgress = snippetExpandProgress.getOrDefault(i, selected ? 1.0f : 0.0f);
+            int baseHeight = 35;
+            int fullExpandedHeight = calculateSnippetHeight(snippet.commands);
+            int snippetHeight = baseHeight + (int) ((fullExpandedHeight - baseHeight) * expandProgress);
+            float effectiveSlide = (openFactor - i * delayPerSnippet) / (1.0f - i * delayPerSnippet);
+            if (effectiveSlide < 0) {
+                effectiveSlide = 0;
+            }
+            if (effectiveSlide > 1) {
+                effectiveSlide = 1;
+            }
+            int targetX = panelX + 5;
+            int startX = this.width + 5;
+            int snippetX = (int) (startX + (targetX - startX) * effectiveSlide);
             int snippetY = yOffset;
-            boolean hovered = (mouseX >= snippetX && mouseX <= snippetX + snippetMaxWidth && mouseY >= snippetY && mouseY <= snippetY + snippetHeight);
-            if (hovered) snippetHoverIndex = i;
-            renderSnippetBox(context, snippetX, snippetY, snippetMaxWidth, snippet, hovered, selected, i);
+            if (snippetY + snippetHeight < startY + 5 || snippetY > startY + panelHeight - 5) {
+                yOffset += snippetHeight + 5;
+                continue;
+            }
+            int boxTop = Math.max(snippetY, startY + 5);
+            int boxBottom = Math.min(snippetY + snippetHeight, startY + panelHeight - 5);
+            boolean hovered = mouseX >= snippetX && mouseX <= snippetX + currentSnippetMaxWidth && mouseY >= boxTop && mouseY <= boxBottom;
+            if (hovered) {
+                snippetHoverIndex = i;
+            }
+            renderSnippetBox(context, snippetX, snippetY, currentSnippetMaxWidth, snippetHeight, snippet, hovered, selected, expandProgress);
             yOffset += snippetHeight + 5;
-        }
-        String createText = "+ Snippet";
-        int ctw = minecraftClient.textRenderer.getWidth(createText) + 10;
-        int createButtonWidth = Math.min(ctw, Math.max(50, panelWidth - 10));
-        int createButtonX = panelX + (panelWidth - createButtonWidth) / 2;
-        int createButtonY = this.height - 5 - 20;
-        createSnippetButtonHovered = mouseX >= createButtonX && mouseX <= createButtonX + createButtonWidth && mouseY >= createButtonY && mouseY <= createButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-        drawCustomButton(context, createButtonX, createButtonY, createText, minecraftClient, createSnippetButtonHovered, false, true, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Create a Snippet That Executes Commands");
-    }
-
-    private void renderThemesTab(DrawContext context, int panelX, int startY, int panelWidth, int panelHeight, int mouseX, int mouseY) {
-        int yOffset = startY + 5;
-        int themeBoxHeight = 25;
-        for (int i = 0; i < themes.size(); i++) {
-            Theme theme = themes.get(i);
-            int tX = panelX + 5;
-            int tY = yOffset;
-            int tW = panelWidth - 10;
-            boolean hovered = mouseX >= tX && mouseX <= (tX + tW) && mouseY >= tY && mouseY <= (tY + themeBoxHeight);
-            int bgColor = hovered ? elementHoverBackgroundColor : Config.elementBackgroundColor;
-            context.fill(tX, tY, tX + tW, tY + themeBoxHeight, bgColor);
-            drawInnerBorder(context, tX, tY, tW, themeBoxHeight, hovered ? elementHoverBorderColor : Config.elementBorderColor);
-            drawOuterBorder(context, tX, tY, tW, themeBoxHeight, globalOuterBorder);
-            String displayName = trimTextToWidthWithEllipsis(theme.name, tW - 10);
-            context.drawText(minecraftClient.textRenderer, Text.literal(displayName), tX + 5, tY + 8, globalTextColor, Config.shadow);
-            yOffset += themeBoxHeight + 5;
+            if (Math.abs(smoothSnippetListScrollOffset - targetSnippetListScrollOffset) > 0.5f) {
+                smoothSnippetListScrollOffset += (targetSnippetListScrollOffset - smoothSnippetListScrollOffset) * scrollAnimationSpeed;
+            } else {
+                smoothSnippetListScrollOffset = targetSnippetListScrollOffset;
+            }
+            snippetListScrollOffset = (int) smoothSnippetListScrollOffset;
+            for (int j = 0; j < RemotelyClient.globalSnippets.size(); j++) {
+                float targetExpand = (selectedSnippetIndex == j) ? 1.0f : 0.0f;
+                float currentExpand = snippetExpandProgress.getOrDefault(j, targetExpand);
+                if (Math.abs(currentExpand - targetExpand) > 0.01f) {
+                    currentExpand += (targetExpand - currentExpand) * expandAnimationSpeed;
+                    snippetExpandProgress.put(j, currentExpand);
+                } else {
+                    snippetExpandProgress.put(j, targetExpand);
+                }
+            }
         }
     }
 
-    public void showNotification(String message, Notification.Type type) {
-        notifications.add(new Notification(message, type, minecraftClient));
-        if (type == Notification.Type.ERROR)
-            devPrint("[Notification] " + message);
-    }
-
-    private void renderSnippetBox(DrawContext context, int snippetX, int snippetY, int snippetMaxWidth, RemotelyClient.CommandSnippet snippet, boolean hovered, boolean selected, int index) {
-        int snippetHeight = selected ? calculateSnippetHeight(snippet.commands) : 30;
-        int bgColor = hovered ? elementHoverBackgroundColor : Config.elementBackgroundColor;
-        if (lastClickedSnippet == index) {
-            bgColor = accentDarkColor;
-        }
+    private void renderSnippetBox(DrawContext context, int snippetX, int snippetY, int snippetMaxWidth, int snippetHeight, RemotelyClient.CommandSnippet snippet, boolean hovered, boolean selected, float expandProgress) {
+        int bgColor = getElementBackgroundColor(hovered, selected);
         context.fill(snippetX, snippetY, snippetX + snippetMaxWidth, snippetY + snippetHeight, bgColor);
-        drawInnerBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, lastClickedSnippet == index ? accentColor : hovered ? elementHoverBorderColor : Config.elementBorderColor);
+        drawInnerBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, getElementBorderColor(hovered, selected));
         drawOuterBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, globalOuterBorder);
         String displayName = trimTextToWidthWithEllipsis(snippet.name, snippetMaxWidth - 10);
-        context.drawText(minecraftClient.textRenderer, Text.literal(displayName), snippetX + 5, snippetY + 5, hovered ? globalHoverTextColor : globalTextColor, Config.shadow);
-        context.fill(snippetX + 5, snippetY + 5 + minecraftClient.textRenderer.fontHeight + 1, snippetX + snippetMaxWidth - 5, snippetY + 5 + minecraftClient.textRenderer.fontHeight + 2, elementHoverBorderColor);
-        if (selected) {
-            String[] allLines = snippet.commands.split("\n");
-            int lineY = snippetY + 5 + minecraftClient.textRenderer.fontHeight + 5;
-            for (String line : allLines) {
-                context.drawText(minecraftClient.textRenderer, Text.literal(line), snippetX + 5, lineY, hovered ? globalHoverTextColor : globalTextColor, Config.shadow);
-                lineY += minecraftClient.textRenderer.fontHeight + 2;
-            }
-        } else {
-            String firstLine = snippet.commands.split("\n")[0];
-            firstLine = trimTextToWidthWithEllipsis(firstLine, snippetMaxWidth - 10);
-            context.drawText(minecraftClient.textRenderer, Text.literal(firstLine), snippetX + 5, snippetY + 20, hovered ? globalHoverTextColor : Config.globalDarkTextColor, Config.shadow);
+        context.drawText(minecraftClient.textRenderer, Text.literal(displayName), snippetX + 5, snippetY + 5, globalTextColor, Config.shadow);
+        int lineSeparatorY = snippetY + 5 + minecraftClient.textRenderer.fontHeight + 2;
+        context.fill(snippetX + 5, lineSeparatorY, snippetX + snippetMaxWidth - 5, lineSeparatorY + 1, elementHoverBorderColor);
+        int contentY = lineSeparatorY + 4;
+        context.enableScissor(snippetX + 5, contentY, snippetX + snippetMaxWidth - 5, snippetY + snippetHeight - 4);
+        String[] allLines = snippet.commands.split("\n");
+        int lineY = contentY;
+        for (String line : allLines) {
+            String trimmed = trimTextToWidthWithEllipsis(line, snippetMaxWidth - 10);
+            context.drawText(minecraftClient.textRenderer, Text.literal(trimmed), snippetX + 5, lineY, globalDarkTextColor, Config.shadow);
+            lineY += minecraftClient.textRenderer.fontHeight + 2;
         }
+        context.disableScissor();
     }
 
     private int calculateSnippetHeight(String commands) {
-        String[] lines = commands.split("\n");
-        int nonEmptyLines = 0;
-        for (String line : lines) {
-            if (!line.trim().isEmpty()) {
-                nonEmptyLines++;
-            }
-        }
-        return 1 + (minecraftClient.textRenderer.fontHeight * 2) + (nonEmptyLines * (minecraftClient.textRenderer.fontHeight + 2));
+        String[] lines = commands.split("\n", -1);
+        int fontHeight = minecraftClient.textRenderer.fontHeight;
+        return 15 + fontHeight + lines.length * (fontHeight + 2);
     }
 
     @Override
@@ -649,7 +615,9 @@ public class MultiTerminalScreen extends Screen {
             }
             if (button == 0 && mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24) {
                 playClick();
-                if (parent != null) minecraftClient.setScreen(parent);
+                if (parent != null) {
+                    minecraftClient.setScreen(parent);
+                }
                 else { this.close(); closedViaEscape = true; }
                 return true;
             }
@@ -702,7 +670,6 @@ public class MultiTerminalScreen extends Screen {
                 }
             }
         }
-
         int hideButtonX = this.width - 15 - 5;
         int hideButtonY = 5 + topBarHeight;
         if (mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15 && button == 0) {
@@ -710,7 +677,6 @@ public class MultiTerminalScreen extends Screen {
             showSnippetsPanel = !showSnippetsPanel;
             return true;
         }
-
         if (snippetPopupActive) {
             int confirmButtonY = snippetPopupY + snippetPopupHeight - 15;
             String okText = "OK";
@@ -757,7 +723,6 @@ public class MultiTerminalScreen extends Screen {
                 playClick();
                 if (mouseX >= confirmButtonX && mouseX <= confirmButtonX + okW && button == 0) {
                     if (snippetNameBuffer.toString().trim().isEmpty() || snippetCommandsBuffer.toString().trim().isEmpty()) {
-
                         return true;
                     }
                     if (creatingSnippet) {
@@ -822,7 +787,6 @@ public class MultiTerminalScreen extends Screen {
             }
             return super.mouseClicked(mouseX, mouseY, button);
         }
-
         for (int i = 0; i < terminals.size(); i++) {
             minecraftClient.textRenderer.getWidth(tabNames.get(i));
         }
@@ -830,7 +794,6 @@ public class MultiTerminalScreen extends Screen {
         int tabOffsetY = topBarHeight + 5;
         int tabAreaHeight = TAB_HEIGHT;
         float renderX = 5 - tabScrollOffset;
-
         for (int i = 0; i < terminals.size(); i++) {
             String tName = tabNames.get(i);
             int tabW = textRenderer.getWidth(tName) + 2 * tabPadding;
@@ -859,18 +822,15 @@ public class MultiTerminalScreen extends Screen {
             }
             renderX += tabW + tabPadding;
         }
-
         if (mouseX >= renderX && mouseX <= renderX + plusW && mouseY >= tabOffsetY && mouseY <= tabOffsetY + tabAreaHeight && button == 0) {
             playClick();
             addNewTerminal();
             return true;
         }
-
         if (showSnippetsPanel) {
             int panelX = this.width - snippetPanelWidth;
             int panelY = tabOffsetY + tabAreaHeight + verticalPadding;
             int panelHeight = this.height - panelY - 5;
-            int tabTopHeight = 20;
             if (Math.abs(mouseX - (panelX - 1)) < 5 && mouseY >= panelY && mouseY <= panelY + panelHeight && button == 0) {
                 isResizingSnippetPanel = true;
                 return true;
@@ -883,127 +843,88 @@ public class MultiTerminalScreen extends Screen {
                     }
                 }
             }
-
-            // Side panel tabs
-            int singleTabWidth = snippetPanelWidth / 2;
-            int tabY = panelY;
-            int tabHeight = tabTopHeight;
-            int tab1X = panelX;
-            int tab2X = panelX + singleTabWidth;
-            boolean tab1Hovered = mouseX >= tab1X && mouseX <= (tab1X + singleTabWidth) && mouseY >= tabY && mouseY <= (tabY + tabHeight);
-            boolean tab2Hovered = mouseX >= tab2X && mouseX <= (tab2X + singleTabWidth) && mouseY >= tabY && mouseY <= (tabY + tabHeight);
-            if (tab1Hovered && button == 0) {
+            int createButtonY = this.height - 5 - 20;
+            String createText = "+ Snippet";
+            int ctw = minecraftClient.textRenderer.getWidth(createText) + 10;
+            int createButtonWidth = Math.min(ctw, Math.max(50, snippetPanelWidth - 10));
+            int createButtonX = panelX + (snippetPanelWidth - createButtonWidth) / 2;
+            if (mouseX >= createButtonX && mouseX <= createButtonX + createButtonWidth && mouseY >= createButtonY && mouseY <= createButtonY + 10 + minecraftClient.textRenderer.fontHeight && button == 0) {
                 playClick();
-                sidePanelTabIndex = 0;
+                creatingSnippet = true;
+                snippetNameBuffer.setLength(0);
+                snippetCommandsBuffer.setLength(0);
+                snippetShortcutBuffer.setLength(0);
+                snippetPopupActive = true;
+                snippetPopupX = this.width / 2 - snippetPopupWidth / 2;
+                snippetPopupY = this.height / 2 - snippetPopupHeight / 2;
+                snippetNameFocused = true;
+                snippetNameCursorPos = 0;
+                snippetCommandsCursorPos = 0;
+                snippetCreationWarning = false;
+                snippetRecordingKeys = false;
+                snippetCommandsScrollOffset = 0;
                 return true;
             }
-            if (tab2Hovered && button == 0) {
-                playClick();
-                sidePanelTabIndex = 1;
-                return true;
-            }
-
-            if (sidePanelTabIndex == 0) {
-                int createButtonY = this.height - 5 - 20;
-                String createText = "+ Snippet";
-                int ctw = minecraftClient.textRenderer.getWidth(createText) + 10;
-                int createButtonWidth = Math.min(ctw, Math.max(50, snippetPanelWidth - 10));
-                int createButtonX = panelX + (snippetPanelWidth - createButtonWidth) / 2;
-                if (mouseX >= createButtonX && mouseX <= createButtonX + createButtonWidth && mouseY >= createButtonY && mouseY <= createButtonY + 10 + minecraftClient.textRenderer.fontHeight && button == 0) {
-                    playClick();
-                    creatingSnippet = true;
-                    snippetNameBuffer.setLength(0);
-                    snippetCommandsBuffer.setLength(0);
-                    snippetShortcutBuffer.setLength(0);
-                    snippetPopupActive = true;
-                    snippetPopupX = this.width / 2 - snippetPopupWidth / 2;
-                    snippetPopupY = this.height / 2 - snippetPopupHeight / 2;
-                    snippetNameFocused = true;
-                    snippetNameCursorPos = 0;
-                    snippetCommandsCursorPos = 0;
-                    snippetCreationWarning = false;
-                    snippetRecordingKeys = false;
-                    snippetCommandsScrollOffset = 0;
-                    return true;
+            int yOffset = panelY + 5 - snippetListScrollOffset;
+            int snippetMaxWidth = snippetPanelWidth - 10;
+            for (int i = 0; i < RemotelyClient.globalSnippets.size(); i++) {
+                RemotelyClient.CommandSnippet snippet = RemotelyClient.globalSnippets.get(i);
+                int snippetHeight = selectedSnippetIndex == i ? calculateSnippetHeight(snippet.commands) : 35;
+                int snippetX = panelX + 5;
+                int snippetY = yOffset;
+                if (snippetY + snippetHeight < panelY + 5 || snippetY > panelY + panelHeight - 5) {
+                    yOffset += snippetHeight + 5;
+                    continue;
                 }
-
-                int yOffset = panelY + tabTopHeight + 5;
-                int snippetMaxWidth = snippetPanelWidth - 10;
-                for (int i = 0; i < RemotelyClient.globalSnippets.size(); i++) {
-                    RemotelyClient.CommandSnippet snippet = RemotelyClient.globalSnippets.get(i);
-                    int snippetHeight = selectedSnippetIndex == i ? calculateSnippetHeight(snippet.commands) : 35;
-                    int snippetX = panelX + 5;
-                    int snippetY = yOffset;
-                    boolean hovered = (mouseX >= snippetX && mouseX <= snippetX + snippetMaxWidth && mouseY >= snippetY && mouseY <= snippetY + snippetHeight);
-                    if (hovered) {
-                        if (button == 1) {
-                            playClick();
-                            editingSnippet = true;
-                            editingSnippetIndex = i;
-                            RemotelyClient.CommandSnippet s = RemotelyClient.globalSnippets.get(i);
-                            snippetNameBuffer.setLength(0);
-                            snippetNameBuffer.append(s.name);
-                            snippetCommandsBuffer.setLength(0);
-                            snippetCommandsBuffer.append(s.commands);
-                            snippetShortcutBuffer.setLength(0);
-                            snippetShortcutBuffer.append(s.shortcut == null ? "" : s.shortcut);
-                            snippetPopupActive = true;
-                            snippetPopupX = this.width / 2 - snippetPopupWidth / 2;
-                            snippetPopupY = this.height / 2 - snippetPopupHeight / 2;
-                            snippetNameFocused = true;
-                            snippetNameCursorPos = snippetNameBuffer.length();
-                            snippetCommandsCursorPos = snippetCommandsBuffer.length();
-                            snippetCreationWarning = false;
-                            snippetRecordingKeys = false;
-                            snippetCommandsScrollOffset = 0;
-                            return true;
-                        }
-                        if (button == 0) {
-                            playClick();
-                            if (lastClickedSnippet == i && (System.currentTimeMillis() - lastSnippetClickTime) < 500) {
-                                TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-                                String[] lines = RemotelyClient.globalSnippets.get(i).commands.split("\n");
-                                for (String line : lines) {
-                                    if (!line.trim().isEmpty()) {
-                                        try {
-                                            activeTerminal.getInputHandler().commandExecutor.executeCommand(line.trim(), new StringBuilder(line.trim()));
-                                        } catch (IOException e) {
-                                            activeTerminal.appendOutput("ERROR: " + e.getMessage() + "\n");
-                                        }
-                                    }
-                                }
-                                lastClickedSnippet = -1;
-                                return true;
-                            } else {
-                                lastClickedSnippet = i;
-                                lastSnippetClickTime = System.currentTimeMillis();
-                                selectedSnippetIndex = i;
-                                return true;
-                            }
-                        }
-                    }
-                    if (selectedSnippetIndex == i) {
-                        yOffset += calculateSnippetHeight(snippet.commands) + 5;
-                    } else {
-                        yOffset += 35 + 5;
-                    }
-                }
-            } else {
-                int yOffset = panelY + tabTopHeight + 5;
-                int themeBoxHeight = 25;
-                for (int i = 0; i < themes.size(); i++) {
-                    int tX = panelX + 5;
-                    int tY = yOffset;
-                    int tW = snippetPanelWidth - 10;
-                    boolean hovered = mouseX >= tX && mouseX <= (tX + tW) && mouseY >= tY && mouseY <= (tY + themeBoxHeight);
-                    if (hovered && button == 0) {
+                boolean hovered = mouseX >= snippetX && mouseX <= snippetX + snippetMaxWidth && mouseY >= Math.max(snippetY, panelY + 5) && mouseY <= Math.min(snippetY + snippetHeight, panelY + panelHeight - 5);
+                if (hovered) {
+                    if (button == 1) {
                         playClick();
-                        applyNewTheme(themes.get(i));
-                        terminals.get(activeTerminalIndex).getRenderer().refreshTerminal();
+                        editingSnippet = true;
+                        editingSnippetIndex = i;
+                        RemotelyClient.CommandSnippet s = RemotelyClient.globalSnippets.get(i);
+                        snippetNameBuffer.setLength(0);
+                        snippetNameBuffer.append(s.name);
+                        snippetCommandsBuffer.setLength(0);
+                        snippetCommandsBuffer.append(s.commands);
+                        snippetShortcutBuffer.setLength(0);
+                        snippetShortcutBuffer.append(s.shortcut == null ? "" : s.shortcut);
+                        snippetPopupActive = true;
+                        snippetPopupX = this.width / 2 - snippetPopupWidth / 2;
+                        snippetPopupY = this.height / 2 - snippetPopupHeight / 2;
+                        snippetNameFocused = true;
+                        snippetNameCursorPos = snippetNameBuffer.length();
+                        snippetCommandsCursorPos = snippetCommandsBuffer.length();
+                        snippetCreationWarning = false;
+                        snippetRecordingKeys = false;
+                        snippetCommandsScrollOffset = 0;
                         return true;
                     }
-                    yOffset += themeBoxHeight + 5;
+                    if (button == 0) {
+                        playClick();
+                        if (lastClickedSnippet == i && (System.currentTimeMillis() - lastSnippetClickTime) < 500) {
+                            TerminalInstance t = terminals.get(activeTerminalIndex);
+                            String[] lines = RemotelyClient.globalSnippets.get(i).commands.split("\n");
+                            for (String line : lines) {
+                                if (!line.trim().isEmpty()) {
+                                    try {
+                                        t.getInputHandler().commandExecutor.executeCommand(line.trim(), new StringBuilder(line.trim()));
+                                    } catch (IOException e) {
+                                        t.appendOutput("ERROR: " + e.getMessage() + "\n");
+                                    }
+                                }
+                            }
+                            lastClickedSnippet = -1;
+                            return true;
+                        } else {
+                            lastClickedSnippet = i;
+                            lastSnippetClickTime = System.currentTimeMillis();
+                            selectedSnippetIndex = i;
+                            return true;
+                        }
+                    }
                 }
+                yOffset += snippetHeight + 5;
             }
         } else {
             if (!terminals.isEmpty()) {
@@ -1056,7 +977,8 @@ public class MultiTerminalScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
-        int availableTabWidth = this.width - (showSnippetsPanel ? snippetPanelWidth : 0) - 15 - 20;
+        boolean altHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
+        int availableTabWidth = this.width - (Math.max((int) animatedSnippetPanelWidth, 0)) - 15 - 20;
         int totalTabsWidth = 0;
         for (int i = 0; i < terminals.size(); i++) {
             String tName = tabNames.get(i);
@@ -1067,6 +989,10 @@ public class MultiTerminalScreen extends Screen {
         }
         if (totalTabsWidth < availableTabWidth) totalTabsWidth = availableTabWidth;
         if (ctrlHeld) {
+            if (altHeld) {
+                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (verticalAmount > 0 ? 1f : -1f)));
+                globalScaleFactor = targetScaleFactor;
+            }
             scale += verticalAmount > 0 ? 0.1f : -0.1f;
             scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
             return true;
@@ -1084,6 +1010,26 @@ public class MultiTerminalScreen extends Screen {
                     return true;
                 }
                 return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+            }
+            int currentPanelWidth = (int) animatedSnippetPanelWidth;
+            if (currentPanelWidth > 0) {
+                int panelX = this.width - currentPanelWidth;
+                int tabOffsetY = topBarHeight + 5;
+                int panelY = tabOffsetY + TAB_HEIGHT + 7;
+                int panelHeight = this.height - panelY - 5;
+                if (mouseX >= panelX && mouseX <= this.width && mouseY >= panelY && mouseY <= panelY + panelHeight) {
+                    int scrollDir = verticalAmount >= 0 ? (int) Math.ceil(verticalAmount * 20) : (int) Math.floor(verticalAmount * 20);
+                    targetSnippetListScrollOffset -= scrollDir;
+                    int totalHeight = 0;
+                    for (int i = 0; i < RemotelyClient.globalSnippets.size(); i++) {
+                        RemotelyClient.CommandSnippet snippet = RemotelyClient.globalSnippets.get(i);
+                        int h = (selectedSnippetIndex == i ? calculateSnippetHeight(snippet.commands) : 35) + 5;
+                        totalHeight += h;
+                    }
+                    int maxScroll = Math.max(0, totalHeight - (panelHeight - 10));
+                    targetSnippetListScrollOffset = MathHelper.clamp(targetSnippetListScrollOffset, 0, maxScroll);
+                    return true;
+                }
             }
             if (mouseY <= topBarHeight + TAB_HEIGHT + 10) {
                 tabScrollOffset -= (float) (verticalAmount * 20);
@@ -1628,6 +1574,7 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public void removed() {
+        minecraftClient.getWindow().setScaleFactor(originalMCScale);
         remotelyClient.activeTerminalIndex = this.activeTerminalIndex;
         remotelyClient.scale = this.scale;
         remotelyClient.snippetPanelWidth = this.snippetPanelWidth;

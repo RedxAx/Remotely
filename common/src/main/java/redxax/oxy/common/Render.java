@@ -12,7 +12,8 @@ import redxax.oxy.common.terminal.MultiTerminalScreen;
 import redxax.oxy.common.explorer.FileExplorerScreen;
 import redxax.oxy.common.explorer.FileEditorScreen;
 import redxax.oxy.common.servers.PluginModManagerScreen;
-import redxax.oxy.common.util.TabTextAnimator;
+import redxax.oxy.common.util.TextAnimator;
+
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +27,7 @@ public class Render {
 
     public static int buttonW = 60;
     public static int buttonH = 18;
-    private static TabTextAnimator searchTextAnimator = new TabTextAnimator("", 2, 3);
+    private static TextAnimator searchTextAnimator = new TextAnimator("", 2, 3);
     private static String previousFieldText = "";
     private static boolean isAnimating = false;
     private static BufferedImage loadingAnim;
@@ -359,7 +360,7 @@ public class Render {
                 searchTextAnimator.updateText(fieldText.toString());
                 isAnimating = true;
             } else {
-                searchTextAnimator = new TabTextAnimator(fieldText.toString(), 0, 10);
+                searchTextAnimator = new TextAnimator(fieldText.toString(), 0, 10);
                 isAnimating = false;
             }
             previousFieldText = fieldText.toString();
@@ -489,7 +490,7 @@ public class Render {
         drawInnerBorder(context, 0, 0, parent.width, 30, Config.innerBorderColor);
         drawOuterBorder(context, 0, 0, parent.width, 30, globalOuterBorder);
         if (!(parent instanceof MultiTerminalScreen)) {
-            if (!(parent instanceof FileExplorerScreen)) {
+            if (!(parent instanceof FileExplorerScreen && !(((FileExplorerScreen) parent).isCanScroll()))) {
                 if (!(parent instanceof PluginModManagerScreen)) {
                     if (!(parent instanceof ServerSettingsScreen)) {
                         context.fill(5, 60, width - 5, height - 5, innerBackgroundColor);
