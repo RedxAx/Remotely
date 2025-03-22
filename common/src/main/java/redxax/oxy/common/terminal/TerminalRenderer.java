@@ -45,6 +45,9 @@ public class TerminalRenderer {
     private String tmuxStatusLine = "";
     private float currentScrollOffset = 0;
     public float targetScrollOffset = 0;
+    private int animatedCharCount = 0;
+    private long lastAnimationTime = 0;
+    private long animationInterval = 15;
 
     public TerminalRenderer(MinecraftClient client, TerminalInstance terminalInstance) {
         this.minecraftClient = client;
@@ -109,7 +112,6 @@ public class TerminalRenderer {
             int inputTextWidth = minecraftClient.textRenderer.getWidth(inputText);
             context.drawText(minecraftClient.textRenderer, Text.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(Config.globalDarkTextColor))), inputX + inputTextWidth, inputY, Config.globalDarkTextColor, Config.shadow);
         }
-        long currentTime = System.currentTimeMillis();
         if (currentTime - lastInputTime < 500) {
             cursorVisible = true;
         } else if (currentTime - lastBlinkTime > 500) {
@@ -588,6 +590,11 @@ public class TerminalRenderer {
     }
 
     private void updateSelectionStart(double mouseX, double mouseY) {
+        int size;
+        synchronized (wrappedLinesCache) {
+            size = wrappedLinesCache.size();
+        }
+        if (size == 0) return;
         int padding = 2;
         int textAreaX = terminalX + padding;
         int textAreaY = terminalY + padding;
@@ -616,6 +623,11 @@ public class TerminalRenderer {
     }
 
     private void updateSelectionEnd(double mouseX, double mouseY) {
+        int size;
+        synchronized (wrappedLinesCache) {
+            size = wrappedLinesCache.size();
+        }
+        if (size == 0) return;
         int padding = 2;
         int textAreaX = terminalX + padding;
         int textAreaY = terminalY + padding;
@@ -677,6 +689,7 @@ public class TerminalRenderer {
         final Style style;
         final TextColor backgroundColor;
         final String text;
+
         StyleTextPair(Style style, TextColor backgroundColor, String text) {
             this.style = style;
             this.backgroundColor = backgroundColor;
@@ -693,6 +706,7 @@ public class TerminalRenderer {
         final int height;
         final OrderedText orderedText;
         final String plainText;
+
         LineInfo(int lineNumber, int y, int height, OrderedText orderedText, String plainText) {
             this.lineNumber = lineNumber;
             this.y = y;
@@ -733,7 +747,6 @@ public class TerminalRenderer {
         }
         selectionStart = Math.max(0, selectionStart);
         selectionEnd = Math.min(lineText.length(), selectionEnd);
-
         int selectionXStart = x;
         for (int i = 0; i < selectionStart; i++) {
             selectionXStart += minecraftClient.textRenderer.getWidth(String.valueOf(lineText.charAt(i)));
@@ -742,11 +755,9 @@ public class TerminalRenderer {
         for (int i = selectionStart; i < selectionEnd; i++) {
             selectionWidth += minecraftClient.textRenderer.getWidth(String.valueOf(lineText.charAt(i)));
         }
-
         int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
         context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, yPosition + lineHeight, globalSelectionColor);
     }
-
 
     private void scrollToEdgesTerminal(double mouseY) {
         int padding = 2;
@@ -767,7 +778,6 @@ public class TerminalRenderer {
             targetScrollOffset = Math.min(maxScroll, targetScrollOffset + scrollAmount);
         }
     }
-
 
     public void copySelectionToClipboard() {
         String selectedText = getSelectedText();
