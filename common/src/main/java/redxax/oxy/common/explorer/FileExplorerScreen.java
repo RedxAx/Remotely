@@ -88,10 +88,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private int loadedCount = 0;
     private boolean hasMore = false;
     private boolean isLoadingMore = false;
+    boolean canScroll = false;
     private final List<EntryData> fullEntries = new ArrayList<>();
     private static final int MAX_NAME_WIDTH = 500;
     private BufferedImage appsIcon, cssIcon, jsIcon, jsonIcon, minecraftIcon, pyIcon, javaIcon, scriptIcon, shadersIcon, textIcon;
-    private IconWithTooltip closeIcon, backIcon, forwardIcon, searchIcon, reloadIcon, newFileIcon, copyIcon, editIcon, favoriteIcon, winExplorerIcon;
+    private IconWithTooltip closeIcon, backIcon, forwardIcon, searchIcon, reloadIcon, newFileIcon, copyIcon, editIcon, favoriteIcon, winExplorerIcon, pasteIcon, deleteIcon, cutIcon;
 
     private static class EntryData {
         Path path;
@@ -240,15 +241,18 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             shadersIcon = loadResourceIcon("/assets/remotely/icons/shaders.png");
             textIcon = loadResourceIcon("/assets/remotely/icons/text.png");
             closeIcon = new IconWithTooltip("/assets/remotely/icons/close.png", "");
-            backIcon = new IconWithTooltip("/assets/remotely/icons/goback.png", "Navigate To The Previous Directory");
-            forwardIcon = new IconWithTooltip("/assets/remotely/icons/goforward.png", "Navigate To The Next Directory");
-            searchIcon = new IconWithTooltip("/assets/remotely/icons/search.png", "Search For Items");
-            reloadIcon = new IconWithTooltip("/assets/remotely/icons/reload.png", "Reload The Current Directory");
-            newFileIcon = new IconWithTooltip("/assets/remotely/icons/newFile.png", "Create a New File / Folder");
-            copyIcon = new IconWithTooltip("/assets/remotely/icons/copy.png", "Copy Selected Items");
-            editIcon = new IconWithTooltip("/assets/remotely/icons/edit.png", "Rename Selected Items");
-            favoriteIcon = new IconWithTooltip("/assets/remotely/icons/favorite.png", "Add Selected / Remove Items From Favorites");
-            winExplorerIcon = new IconWithTooltip("/assets/remotely/icons/winexplorer.png", "Open The Current Directory In Windows Explorer");
+            backIcon = new IconWithTooltip("/assets/remotely/icons/goback.png", "");
+            forwardIcon = new IconWithTooltip("/assets/remotely/icons/goforward.png", "");
+            searchIcon = new IconWithTooltip("/assets/remotely/icons/search.png", "§6Search §rFor Items");
+            reloadIcon = new IconWithTooltip("/assets/remotely/icons/reload.png", "§bReload §rThe Current Directory");
+            newFileIcon = new IconWithTooltip("/assets/remotely/icons/newFile.png", "§aCreate §ra New File / Folder");
+            copyIcon = new IconWithTooltip("/assets/remotely/icons/copy.png", "§6Copy §rSelected Items");
+            editIcon = new IconWithTooltip("/assets/remotely/icons/edit.png", "§6Rename §rSelected Items");
+            favoriteIcon = new IconWithTooltip("/assets/remotely/icons/favorite.png", "Toggle §6Favorites §rFor Selected Items");
+            winExplorerIcon = new IconWithTooltip("/assets/remotely/icons/winexplorer.png", "Open The Current Directory In §bWindows §6Explorer");
+            pasteIcon = new IconWithTooltip("/assets/remotely/icons/paste.png", "§6Paste §rCopied Items");
+            deleteIcon = new IconWithTooltip("/assets/remotely/icons/delete.png", "§cDelete §rSelected Items");
+            cutIcon = new IconWithTooltip("/assets/remotely/icons/cut.png", "§6Cut §rSelected Items");
             List<TabData> loadedTabs = loadFileExplorerTabs().stream().distinct().toList();
             if (loadedTabs.isEmpty()) {
                 tabs.add(new Tab(new TabData(currentPath, serverInfo.isRemote, serverInfo.remoteHost)));
@@ -291,7 +295,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int explorerX = 5;
         int explorerWidth = this.width - 10;
         int headerY = explorerY - 23;
-        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : copyIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : editIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);        Tab currentTab = tabs.get(currentTabIndex);
+        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? !FileManager.getClipboard().isEmpty() ? pasteIcon : null : shiftPressed ? pasteIcon  : copyIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? deleteIcon : editIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? cutIcon : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);
+        Tab currentTab = tabs.get(currentTabIndex);
         float pathScrollOffset = 0;
         float pathTargetScrollOffset = 0;
         drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, showCursor, currentMode == Mode.SEARCH, "FileExplorerScreen", mouseX, mouseY, "Search For Files or Directories");
@@ -392,13 +397,14 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
         }
         context.disableScissor();
-        if (currentTab.tabData.smoothOffset > 0) {
+        if (currentTab.tabData.smoothOffset > 2) {
             context.fillGradient(explorerX, explorerY, explorerX + explorerWidth, explorerY + 10, 0x80000000, 0x00000000);
         }
         if (currentTab.tabData.smoothOffset < Math.max(0, totalHeight - explorerHeight)) {
-            context.fillGradient(explorerX, explorerY + explorerHeight - 10, explorerX + explorerWidth, explorerY + explorerHeight, 0x00000000, 0x80000000);
+            context.fillGradient(explorerX, explorerY + explorerHeight - 10, explorerX + explorerWidth, explorerY + explorerHeight + 2, 0x00000000, 0x80000000);
         }
-        ScrollBar.render(context, this,  mouseX, mouseY,  totalHeight, currentTab.tabData.smoothOffset);
+        ScrollBar.render(context, this, mouseX, mouseY, totalHeight + explorerY - tabBarY - 30, currentTab.tabData.smoothOffset);
+        canScroll = visibleEntries < entriesToRender.size();
         currentTab.tabData.targetOffset = ScrollBar.getPendingOffset();
         updateNotifications(delta);
         renderNotifications(context, mouseX, mouseY, delta);
@@ -453,7 +459,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private void loadMoreIfNeeded(int explorerHeight) {
         int gap = 1;
         int itemHeight = entryHeight + gap;
-        int maxScroll = Math.max(0, fileEntries.size() * itemHeight - explorerHeight);
         Tab currentTab = tabs.get(currentTabIndex);
         if (hasMore && !isLoadingMore && currentTab.tabData.smoothOffset + explorerHeight >= fileEntries.size() * itemHeight - (itemHeight * 2)) {
             isLoadingMore = true;
@@ -830,7 +835,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int gap = 1;
         int itemHeight = entryHeight + gap;
         int totalHeight = fileEntries.size() * itemHeight;
-        if (ScrollBar.handleMouseDragged(this, (int) mouseY, totalHeight)) {
+        if (ScrollBar.handleMouseDragged(this, (int) mouseY, totalHeight + 28)) {
             return true;
         }
         return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
@@ -929,31 +934,51 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 }
                 if (mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24) {
                     playClick();
-                    fileManager.copySelected(currentTab.tabData.selectedPaths);
-                    showNotification("Copied to clipboard", Notification.Type.INFO);
+                    if (shiftPressed) {
+                        fileManager.paste(currentPath);
+                        showNotification("Pasted From Clipboard", Notification.Type.INFO);
+                    } else {
+                        if (!FileManager.getClipboard().isEmpty() && currentTab.tabData.selectedPaths.isEmpty()) {
+                           fileManager.paste(currentPath);
+                            showNotification("Pasted From Clipboard", Notification.Type.INFO);
+                        } else if (!currentTab.tabData.selectedPaths.isEmpty()) {
+                            fileManager.copySelected(currentTab.tabData.selectedPaths);
+                            showNotification("Copied To Clipboard", Notification.Type.INFO);
+                        }
+                    }
                     return true;
                 }
                 if (mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24) {
                     playClick();
-                    if (!currentTab.tabData.selectedPaths.isEmpty()) {
-                        renamePath = currentTab.tabData.selectedPaths.get(0);
-                        renameBuffer.setLength(0);
-                        renameBuffer.append(renamePath.getFileName().toString());
-                        renameCursorPos = renameBuffer.length();
+                    if (shiftPressed) {
+                        fileManager.deleteSelected(currentTab.tabData.selectedPaths, currentPath);
+                    }
+                    else {
+                        if (!currentTab.tabData.selectedPaths.isEmpty()) {
+                            renamePath = currentTab.tabData.selectedPaths.get(0);
+                            renameBuffer.setLength(0);
+                            renameBuffer.append(renamePath.getFileName().toString());
+                            renameCursorPos = renameBuffer.length();
+                        }
                     }
                     return true;
                 }
                 if (mouseX >= width - 92 && mouseX <= width - 75 && mouseY >= 6 && mouseY <= 24) {
                     playClick();
-                    synchronized (favoritePathsLock) {
-                        for (Path p : currentTab.tabData.selectedPaths) {
-                            if (!favoritePaths.contains(p)) {
-                                favoritePaths.add(p);
-                            } else {
-                                favoritePaths.remove(p);
+                    if (shiftPressed) {
+                        fileManager.cutSelected(currentTab.tabData.selectedPaths);
+                        showNotification("Cut To Clipboard", Notification.Type.INFO);
+                    } else {
+                        synchronized (favoritePathsLock) {
+                            for (Path p : currentTab.tabData.selectedPaths) {
+                                if (!favoritePaths.contains(p)) {
+                                    favoritePaths.add(p);
+                                } else {
+                                    favoritePaths.remove(p);
+                                }
                             }
+                            saveFavorites();
                         }
-                        saveFavorites();
                     }
                     return true;
                 }
@@ -1056,11 +1081,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                                 }
                                 currentTab.tabData.lastSelectedIndex = clickedIndex;
                             } else if (shiftPressed && currentTab.tabData.lastSelectedIndex != -1) {
+                                playClick();
                                 int start = Math.min(currentTab.tabData.lastSelectedIndex, clickedIndex);
                                 int end = Math.max(currentTab.tabData.lastSelectedIndex, clickedIndex);
                                 for (int iIdx = start; iIdx <= end; iIdx++) {
                                     if (iIdx >= 0 && iIdx < entriesToRender.size()) {
-                                        playClick();
                                         Path path = entriesToRender.get(iIdx).path;
                                         if (!currentTab.tabData.selectedPaths.contains(path)) {
                                             currentTab.tabData.selectedPaths.add(path);
@@ -1122,54 +1147,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 }
                 if (clickedIndex >= 0 && clickedIndex < entriesToRender.size()) {
                     EntryData entryData = entriesToRender.get(clickedIndex);
-                    currentTab.tabData.selectedPaths.clear();
-                    currentTab.tabData.selectedPaths.add(entryData.path);
                     ContextMenu.hide();
-                    ContextMenu.addItem("New Tab", () -> {
-                        playClick();
-                        if (entryData.isDirectory) {
-                            TabData newTabData = new TabData(entryData.path, serverInfo.isRemote, serverInfo.remoteHost);
-                            tabs.add(new Tab(newTabData));
-                            currentTabIndex = tabs.size() - 1;
-                            loadDirectory(newTabData.path, false, false, true);
-                        } else {
-                            if (isSupportedFile(entryData.path)) {
-                                minecraftClient.setScreen(new FileEditorScreen(minecraftClient, this, entryData.path, serverInfo));
-                            } else {
-                                openExternally(entryData.path);
-                            }
-                        }
-                    }, globalHoverTextColor, "Create a New Tab With This Directory.");
-                    ContextMenu.addItem("Externally", () -> {
-                        playClick();
-                        openExternally(entryData.path);
-                    }, globalHoverTextColor, "Open In The Default App, or File Explorer For Folders.");
-                    ContextMenu.addItem("Create File", () -> {
-                        playClick();
-                        String defaultName = "New File";
-                        newCreationPath = currentPath.resolve(defaultName);
-                        creatingNew = true;
-                        renamePath = newCreationPath;
-                        renameBuffer.setLength(0);
-                        renameBuffer.append(defaultName);
-                        renameCursorPos = renameBuffer.length();
-                        try {
-                            if (!serverInfo.isRemote) {
-                                Files.createDirectory(newCreationPath);
-                            } else {
-                                ensureRemoteConnected();
-                                serverInfo.remoteHost.getSSHManager().prepareRemoteDirectory(newCreationPath.toString().replace("\\", "/"));
-                            }
-                        } catch (Exception ignored) {}
-                        loadDirectory(currentPath, false, true, true);
-                    }, globalHoverTextColor, "Create a New File / Folder.");
-                    ContextMenu.addItem("Rename", () -> {
-                        playClick();
-                        renamePath = entryData.path;
-                        renameBuffer.setLength(0);
-                        renameBuffer.append(renamePath.getFileName().toString());
-                        renameCursorPos = renameBuffer.length();
-                    }, globalHoverTextColor, "Rename This File / Folder.");
                     ContextMenu.addItem("Copy", () -> {
                         playClick();
                         fileManager.copySelected(currentTab.tabData.selectedPaths);
@@ -1189,28 +1167,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         playClick();
                         fileManager.deleteSelected(currentTab.tabData.selectedPaths, currentPath);
                     }, Config.dangerDarkAccentColor, "");
-                    ContextMenu.addItem("Favorite", () -> {
-                        playClick();
-                        synchronized (favoritePathsLock) {
-                            for (Path p : currentTab.tabData.selectedPaths) {
-                                if (!favoritePaths.contains(p)) {
-                                    favoritePaths.add(p);
-                                } else {
-                                    favoritePaths.remove(p);
-                                }
-                            }
-                            saveFavorites();
-                        }
-                    }, globalHoverTextColor, "Add / Remove From Favorites.");
                     ContextMenu.addItem("Copy Path", () -> {
                         playClick();
                         String quotedPath = "\"" + entryData.path.toString() + "\"";
                         minecraftClient.keyboard.setClipboard(quotedPath);
                         showNotification("Path copied", Notification.Type.INFO);
-                    }, globalHoverTextColor, "");
-                    ContextMenu.addItem("Refresh", () -> {
-                        playClick();
-                        loadDirectory(currentPath, false, true, true);
                     }, globalHoverTextColor, "");
                     ContextMenu.addItem("Undo", () -> {
                         playClick();
@@ -1220,15 +1181,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                             fileManager.undo(currentPath);
                         }
                     }, globalHoverTextColor, "");
-                    ContextMenu.addItem("Search", () -> {
-                        playClick();
-                        currentMode = Mode.SEARCH;
-                        fieldFocused = true;
-                        fieldText.setLength(0);
-                        cursorPosition = 0;
-                        selectionStart = -1;
-                        selectionEnd = -1;
-                    }, globalHoverTextColor, "Search In This Directory.");
                     ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
                 }
             }
@@ -1366,10 +1318,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             Tab selectedTab = tabs.get(currentTabIndex);
             selectedTab.tabData.path = previousPath;
             currentPath = previousPath;
-            loadDirectory(previousPath, false, false, true);
+            loadDirectory(previousPath, false, false, false);
             serverInfo.isRemote = selectedTab.tabData.isRemote;
             serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
-            selectedTab.tabData.targetOffset = selectedTab.tabData.targetOffset;
             saveFileExplorerTabs(tabs.stream().map(t -> new TabData(t.tabData.path, t.tabData.isRemote, t.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
         }
     }
@@ -1381,7 +1332,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         Path parentPath = currentPath.getParent();
         if (parentPath != null) {
             Tab currentTab = tabs.get(currentTabIndex);
-            loadDirectory(parentPath, true, false, true);
+            loadDirectory(parentPath, true, false, false);
             currentTab.tabData.path = parentPath;
             currentTab.setName(parentPath.getFileName() != null ? parentPath.getFileName().toString() : parentPath.toString());
         } else {
@@ -1761,6 +1712,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             showNotification("Error saving favorites: " + e.getMessage(), Notification.Type.ERROR);
         }
     }
+
+    public boolean isCanScroll() {
+        return canScroll;
+    }
+
     public class Notification {
         private final TextRenderer textRenderer = minecraftClient.textRenderer;
         enum Type { INFO, WARN, ERROR }
