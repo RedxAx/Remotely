@@ -3,7 +3,7 @@ package redxax.oxy.common.util;
 import java.util.Timer;
 import java.util.TimerTask;
 
-public class TabTextAnimator {
+public class TextAnimator {
     private String fullText;
     private String previousText = "";
     private String currentText = "";
@@ -16,7 +16,7 @@ public class TabTextAnimator {
     private boolean hasCompleted = false;
     private Runnable onAnimationEnd;
 
-    public TabTextAnimator(String text, int delay, int period) {
+    public TextAnimator(String text, int delay, int period) {
         this.fullText = text;
         this.previousText = text;
         this.currentText = text;

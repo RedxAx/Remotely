@@ -7,7 +7,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.common.util.TabTextAnimator;
+import redxax.oxy.common.util.TextAnimator;
 import redxax.oxy.common.Render;
 
 import java.net.URL;
@@ -59,12 +59,12 @@ public class BrowserScreen extends Screen {
     public class Tab {
         public String url;
         public MCEFBrowser browser;
-        public TabTextAnimator textAnimator;
+        public TextAnimator textAnimator;
         public Tab(String url, MCEFBrowser browser) {
             this.url = url;
             String title = trimUrl(url);
             this.browser = browser;
-            this.textAnimator = new TabTextAnimator(title, 0, 30);
+            this.textAnimator = new TextAnimator(title, 0, 30);
             this.textAnimator.start();
         }
         public String getAnimatedText() {

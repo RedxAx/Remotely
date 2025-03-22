@@ -5,6 +5,16 @@ public class Config {
     public static boolean wallpaper = false;
     public static boolean isDev = true;
     public static boolean background = true;
+    public static double globalScaleFactor = 2.0;
+    public static long currentTime;
+    public static float deltaTime;
+
+    public static long lastFrameTime = System.nanoTime();
+    public static void TickTime() {
+        currentTime = System.nanoTime();
+        deltaTime = Math.min((currentTime - lastFrameTime) / 1_000_000_000.0f, 0.1f);
+        lastFrameTime = currentTime;
+    }
 
     public static int elementBackgroundColor = 0xFF2C2C2C;
     public static int elementBorderColor = 0xFF444444;
@@ -46,5 +56,15 @@ public class Config {
     public static int terminalTextWarnColor = 0xFFFFA500;
     public static int terminalTextErrorColor = 0xFFFF0000;
     public static int terminalTextInfoColor = 0xFF00FF00;
+
+
+    public static int getElementBorderColor(boolean hovered, boolean selected) {
+        return selected ? accentColor : hovered ? elementHoverBorderColor : elementBorderColor;
+    }
+
+    public static int getElementBackgroundColor(boolean hovered, boolean selected) {
+        return selected ? accentDarkColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;
+    }
+
 
 }

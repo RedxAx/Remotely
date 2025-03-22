@@ -10,8 +10,9 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.servers.RemoteHostInfo;
 import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.config.Config;
-import redxax.oxy.common.util.TabTextAnimator;
+import redxax.oxy.common.util.TextAnimator;
 import redxax.oxy.common.servers.ServerManagerScreen;
+
 import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.file.*;
@@ -75,7 +76,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     private enum Mode { PATH, SEARCH }
     private Mode currentMode = Mode.PATH;
-    private final TabTextAnimator pathTextAnimator;
+    private final TextAnimator pathTextAnimator;
     public static final Path FILE_EXPLORER_TABS_FILE = Paths.get("C:/remotely/data/fileExplorerTabs.json");
     private static final String CURRENT_TAB_INDEX_KEY = "currentTabIndex";
     private Path renamePath = null;
@@ -131,11 +132,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     public static class Tab {
         TabData tabData;
         String name;
-        TabTextAnimator textAnimator;
+        TextAnimator textAnimator;
         Tab(TabData tabData) {
             this.tabData = tabData;
             this.name = tabData.path.getFileName() != null ? tabData.path.getFileName().toString() : tabData.path.toString();
-            this.textAnimator = new TabTextAnimator(this.name, 0, 30);
+            this.textAnimator = new TextAnimator(this.name, 0, 30);
             this.textAnimator.start();
         }
         public void setName(String newName) {
@@ -194,7 +195,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         }
         this.fieldText.append(currentPath);
         this.cursorPosition = fieldText.length();
-        this.pathTextAnimator = new TabTextAnimator(currentPath.toString(), 0, 30);
+        this.pathTextAnimator = new TextAnimator(currentPath.toString(), 0, 30);
         this.pathTextAnimator.start();
         tabs.add(new Tab(new TabData(currentPath, serverInfo.isRemote, serverInfo.remoteHost)));
     }

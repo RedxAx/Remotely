@@ -112,6 +112,7 @@ public class ServerManagerScreen extends Screen {
     private final List<Float> iconPosY = new ArrayList<>();
     private boolean canDrag = false;
     private final ArrayList<ServerSetting> settings = new ArrayList<>();
+    private final ArrayList<ServerSetting> clientSettings = new ArrayList<>();
 
     public List<RemoteHostInfo> getRemoteHosts() {
         return remoteHosts;
@@ -558,7 +559,7 @@ public class ServerManagerScreen extends Screen {
                 if (button == 0) {
                     if (rect.isCreate) {
                         playClick();
-                        minecraftClient.setScreen(new ServerSettingsScreen(minecraftClient, "createServer", this, Path.of("C:/remotely/servers/").toString(), settings));
+                        serverTypePopupActive = true;
                         return true;
                     } else {
                         long currentTime = System.currentTimeMillis();
@@ -755,6 +756,10 @@ public class ServerManagerScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == GLFW.GLFW_KEY_S && modifiers == GLFW.GLFW_MOD_CONTROL) {
+            clientSettings.clear();
+            return true;
+        }
         if ((modifiers & GLFW.GLFW_MOD_CONTROL) != 0 && keyCode == GLFW.GLFW_KEY_V) {
             String clipboard = minecraftClient.keyboard.getClipboard();
             if (remoteHostPopupActive) {
@@ -974,6 +979,7 @@ public class ServerManagerScreen extends Screen {
         int option3Y = option2Y + 30;
         if (button == 0) {
             if (isInsideOptionBox(mouseX, mouseY, option1, serverTypePopupX, option1Y)) {
+                minecraftClient.setScreen(new ServerSettingsScreen(minecraftClient, "createServer", this, Path.of("C:/remotely/servers/").toString(), settings));
                 serverTypePopupActive = false;
                 editingServer = false;
                 serverNameBuffer.setLength(0);
@@ -1054,13 +1060,6 @@ public class ServerManagerScreen extends Screen {
             info.isRunning = false;
         }
         minecraftClient.setScreen(new MultiTerminalScreen(minecraftClient, this, remotelyClient, info));
-    }
-
-    private void closePopup() {
-        serverNameBuffer.setLength(0);
-        serverVersionBuffer.setLength(0);
-        serverNameCursorPos = 0;
-        serverVersionCursorPos = 0;
     }
 
     private void closeRemoteHostPopup() {

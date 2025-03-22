@@ -13,7 +13,7 @@ import redxax.oxy.common.explorer.ResponseManager.*;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.util.CursorUtils;
 import redxax.oxy.common.util.ImageUtil;
-import redxax.oxy.common.util.TabTextAnimator;
+import redxax.oxy.common.util.TextAnimator;
 
 import java.io.*;
 import java.net.HttpURLConnection;
@@ -89,7 +89,7 @@ public class FileEditorScreen extends Screen {
     public class Tab {
         Path path;
         public String name;
-        TabTextAnimator textAnimator;
+        TextAnimator textAnimator;
         MultiLineTextEditor textEditor;
         public boolean unsaved;
         String originalContent;
@@ -97,7 +97,7 @@ public class FileEditorScreen extends Screen {
         Tab(Path path) {
             this.path = path;
             this.name = path.getFileName() != null ? path.getFileName().toString() : path.toString();
-            this.textAnimator = new TabTextAnimator(this.name, 0, 30);
+            this.textAnimator = new TextAnimator(this.name, 0, 30);
             this.textAnimator.start();
             if (SAVED_TABS.containsKey(path)) {
                 SavedTabState st = SAVED_TABS.get(path);
