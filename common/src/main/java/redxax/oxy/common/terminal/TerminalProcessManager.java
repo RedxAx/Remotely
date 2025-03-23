@@ -51,7 +51,10 @@ public class TerminalProcessManager {
                     }
                 }
             }
-            ProcessBuilder processBuilder = new ProcessBuilder("cmd.exe", "/k", "powershell");
+            String os = System.getProperty("os.name").toLowerCase();
+            ProcessBuilder processBuilder;
+            if (os.contains("win")) processBuilder = new ProcessBuilder("cmd.exe", "/k", "powershell");
+            else processBuilder = new ProcessBuilder("/bin/bash", "-l");
             processBuilder.redirectErrorStream(true);
             terminalProcess = processBuilder.start();
             terminalInputStream = terminalProcess.getInputStream();
@@ -248,5 +251,4 @@ public class TerminalProcessManager {
     public void setCurrentDirectory(String currentDirectory) {
         this.currentDirectory = currentDirectory;
     }
-
 }
