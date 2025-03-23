@@ -16,6 +16,7 @@ import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.io.StringReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -93,13 +94,10 @@ public class DeskSelectionScreen extends Screen {
             Path serversJson = Paths.get(System.getProperty("user.dir"), "remotely", "servers", "remotehosts.json");
             if (Files.exists(serversJson)) {
                 try {
-                    JsonReader reader = new JsonReader(new FileReader(serversJson.toFile()));
-                    reader.setLenient(true);
-
-                    Gson gson = new GsonBuilder()
-                            .setLenient()
-                            .create();
-
+                    String content = new String(Files.readAllBytes(serversJson));
+                    content = content.replaceAll("(?<!\\\\)\\\\(?![\"\\\\/bfnrt])", "\\\\\\\\");
+                    JsonReader reader = new JsonReader(new StringReader(content));
+                    Gson gson = new GsonBuilder().setLenient().create();
                     List<Map<String, Object>> data = gson.fromJson(reader, new TypeToken<List<Map<String, Object>>>(){}.getType());
                     if (data != null) {
                         for (Map<String, Object> obj : data) {
@@ -141,7 +139,6 @@ public class DeskSelectionScreen extends Screen {
                             break;
                         }
                     }
-
                     if (!exists) {
                         ObjectItem item = new ObjectItem();
                         item.displayName = fav.substring(fav.lastIndexOf('/') + 1);
@@ -158,7 +155,6 @@ public class DeskSelectionScreen extends Screen {
                     if (Files.exists(p)) {
                         boolean exists = false;
                         String normalizedPath = p.toAbsolutePath().normalize().toString();
-
                         for (ObjectItem item : objectItems) {
                             if (!item.isRemote && item.localPath != null &&
                                     item.localPath.toAbsolutePath().normalize().toString().equals(normalizedPath)) {
@@ -167,7 +163,6 @@ public class DeskSelectionScreen extends Screen {
                                 break;
                             }
                         }
-
                         if (!exists) {
                             ObjectItem item = new ObjectItem();
                             item.displayName = p.getFileName() != null ? p.getFileName().toString() : p.toString();
@@ -186,6 +181,7 @@ public class DeskSelectionScreen extends Screen {
         int rows = (int) Math.ceil((double) objectItems.size() / columns);
         maxScroll = Math.max(0, rows * (itemHeight + spacing) + spacing - (this.height - 60));
     }
+
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         if (Config.background) renderBackground(context, mouseX, mouseY, delta);
