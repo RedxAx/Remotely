@@ -11,6 +11,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -75,6 +76,7 @@ public class ResourcePageScreen extends Screen {
     private boolean isDownloadingMrpack = false;
     private double mrpackProgress = 0.0;
     private IconWithTooltip closeIcon, siteIcon, downloadIcon;
+    private float targetScaleFactor = globalScaleFactor;
 
     public ResourcePageScreen(MinecraftClient mc, PluginModManagerScreen parent, IRemotelyResource resource, ServerInfo serverInfo) {
         super(Text.literal(resource.getName()));
@@ -85,7 +87,9 @@ public class ResourcePageScreen extends Screen {
         loadMarkdown();
         init();
         fetchVersions();
-    }
+        originalMCScale = minecraftClient.getWindow().getScaleFactor();
+        targetScaleFactor = globalScaleFactor;
+        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);    }
 
     public void init() {
         tabs.clear();
@@ -301,7 +305,14 @@ public class ResourcePageScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {        boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
+        boolean altHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
+        if (ctrlHeld) {
+            if (altHeld) {
+                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (verticalAmount > 0 ? 1f : -1f)));
+            }
+            return true;
+        }
         int headerHeight = 30;
         int tabAreaHeight = 20;
         int contentY = headerHeight + tabAreaHeight + 10;
@@ -554,6 +565,14 @@ public class ResourcePageScreen extends Screen {
             if (ScrollBar.isDragging())
                 versionsTargetScrollOffset = Render.ScrollBar.getPendingOffset();
         }
+        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
+        animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
+        if (globalScaleFactor != animScaleFactor) {
+            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
+            this.width = minecraftClient.getWindow().getScaledWidth();
+            this.height = minecraftClient.getWindow().getScaledHeight();
+            globalScaleFactor = animScaleFactor;
+        }
     }
 
 
@@ -757,6 +776,12 @@ public class ResourcePageScreen extends Screen {
         int exp = (int) (Math.log(bytes) / Math.log(1024));
         String pre = "KMGTPE".charAt(exp-1) + "";
         return String.format("%.1f %sB", bytes / Math.pow(1024, exp), pre);
+    }
+
+    @Override
+    public void removed() {
+        minecraftClient.getWindow().setScaleFactor(originalMCScale);
+        targetScaleFactor = globalScaleFactor = animScaleFactor;
     }
 
     private static class HTMLRenderer {

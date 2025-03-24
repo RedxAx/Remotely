@@ -4,6 +4,7 @@ import com.google.gson.*;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.RemotelyClient;
@@ -65,6 +66,7 @@ public class FileEditorScreen extends Screen {
     private final List<ResponseWindow> responseWindows = new ArrayList<>();
     private static final Path AI_CONFIG_PATH = Path.of("C:/remotely/data/ai.json");
     private ImageUtil.IconWithTooltip closeIcon, saveIcon;
+    private float targetScaleFactor = globalScaleFactor;
 
     private static class SavedTabState {
         ArrayList<String> lines;
@@ -210,7 +212,9 @@ public class FileEditorScreen extends Screen {
         Tab initialTab = new Tab(filePath);
         tabs.add(initialTab);
         this.textEditor = initialTab.textEditor;
-    }
+        originalMCScale = minecraftClient.getWindow().getScaleFactor();
+        targetScaleFactor = globalScaleFactor;
+        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);    }
 
     @Override
     protected void init() {
@@ -826,10 +830,18 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizAmount, double vertAmount) {
+        boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
+        boolean altHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
+        if (ctrlHeld) {
+            if (altHeld) {
+                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (vertAmount > 0 ? 1f : -1f)));
+            }
+            return true;
+        }
         long windowHandle = minecraftClient.getWindow().getHandle();
         boolean shiftHeld = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS ||
                 GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
-        boolean ctrlHeld = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS ||
+        ctrlHeld = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS ||
                 GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
         if (shiftHeld) {
             tabs.get(currentTabIndex).textEditor.scrollHoriz((int) (-vertAmount) * (int) HORIZONTAL_SCROLL_FACTOR);
@@ -856,7 +868,7 @@ public class FileEditorScreen extends Screen {
         drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, customShowCursor, aiMode, "FileEditorScreen", mouseX, mouseY, "Search For Text In The File.");
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, tabs.get(currentTabIndex).unsaved);
         tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
-        ScrollBar.render(context, parent, mouseX, mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), (float) tabs.get(currentTabIndex).textEditor.getScrollOffset());
+        ScrollBar.render(context, this, mouseX, mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), (float) tabs.get(currentTabIndex).textEditor.getScrollOffset());
         tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert = (int) ScrollBar.getPendingOffset();
         List<ResponseWindow> toRemove = new ArrayList<>();
         for (ResponseWindow w : responseWindows) {
@@ -870,8 +882,21 @@ public class FileEditorScreen extends Screen {
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
         responseWindows.removeAll(toRemove);
+        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
+        animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
+        if (globalScaleFactor != animScaleFactor) {
+            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
+            this.width = minecraftClient.getWindow().getScaledWidth();
+            this.height = minecraftClient.getWindow().getScaledHeight();
+            globalScaleFactor = animScaleFactor;
+        }
     }
 
+    @Override
+    public void removed() {
+        minecraftClient.getWindow().setScaleFactor(originalMCScale);
+        targetScaleFactor = globalScaleFactor = animScaleFactor;
+    }
 
     private static class MultiLineTextEditor {
         private final MinecraftClient mc;

@@ -9,6 +9,7 @@ public class Config {
     public static boolean isDev = true;
     public static boolean background = true;
     public static float globalScaleFactor = 2.0f;
+    public static double originalMCScale = 2.0;
     public static long currentTime;
     public static float deltaTime;
     public static float snippetAnimationSpeed = 10f;

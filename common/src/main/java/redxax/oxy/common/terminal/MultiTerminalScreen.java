@@ -107,7 +107,6 @@ public class MultiTerminalScreen extends Screen {
     private float snippetListScrollOffset;
     private final Map<Integer, Float> snippetExpandProgress = new HashMap<>();
     private float animatedSnippetPanelWidth = 0;
-    private final double originalMCScale ;
     private float targetScaleFactor = 1f;
     private int draggingSnippetIndex = -1;
     private boolean isDraggingSnippet = false;
@@ -133,7 +132,7 @@ public class MultiTerminalScreen extends Screen {
         this.snippetPanelWidth = remotelyClient.snippetPanelWidth;
         this.showSnippetsPanel = remotelyClient.showSnippetsPanel;
         this.snippetLastBlinkTime = System.currentTimeMillis();
-        this.originalMCScale = minecraftClient.getWindow().getScaleFactor();
+        originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
         minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
         if (!globalSnippets.contains(CREATE_SNIPPET)) {
