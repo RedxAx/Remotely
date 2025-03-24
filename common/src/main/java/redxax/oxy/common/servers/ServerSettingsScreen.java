@@ -170,11 +170,11 @@ public class ServerSettingsScreen extends Screen {
         int buttonY = 5;
         int createButtonX = this.width - 46;
         boolean isCreateHovered = mouseX >= createButtonX && mouseX <= createButtonX + 18 && mouseY >= buttonY && mouseY <= buttonY + 18;
-        drawSquareButton(context, createButtonX, buttonY, mc, "", isCreateHovered, globalTextColor, globalHoverTextColor, mouseX, mouseY, editServerMode ? "Apply Changes" : "Create Server");
+        drawSquareButton(context, createButtonX, buttonY, mc, isCreateHovered, mouseX, mouseY, editServerMode ? "Apply Changes" : "Create Server");
         drawPixelArt(context, createIcon.getImage(), width - 44 - 1, 6, 16, 16);
         int cancelButtonX = this.width - 23;
         boolean isCancelHovered = mouseX >= cancelButtonX && mouseX <= cancelButtonX + 18 && mouseY >= buttonY && mouseY <= buttonY + 18;
-        drawSquareButton(context, cancelButtonX, buttonY, mc, "", isCancelHovered, globalTextColor, Config.dangerLightAccentColor, mouseX, mouseY, "Cancel");
+        drawSquareButton(context, cancelButtonX, buttonY, mc, isCancelHovered, mouseX, mouseY, "Cancel");
         drawPixelArt(context, closeIcon.getImage(), width - 21 - 1, 6, 16, 16);
         int tabAreaHeight = 18;
         int contentY = headerHeight + tabAreaHeight + 10;

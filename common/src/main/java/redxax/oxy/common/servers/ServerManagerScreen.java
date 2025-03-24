@@ -34,10 +34,8 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import org.lwjgl.glfw.GLFW;
 
+import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
-import static redxax.oxy.common.Render.drawCustomButton;
-import static redxax.oxy.common.Render.drawInnerBorder;
-import static redxax.oxy.common.Render.drawOuterBorder;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.drawPixelArt;
 import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
@@ -409,7 +407,7 @@ public class ServerManagerScreen extends Screen {
                 BufferedImage icon = getServerIcon(server);
                 drawPixelArt(context, icon, (int) currentX, (int) currentY, iconSize, iconSize);
                 if (selectedDesktopIndex == i) {
-                    drawInnerBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, Config.accentColor);
+                    drawInnerBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, accentColor);
                     drawOuterBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, globalOuterBorder);
                 } else {
                     drawOuterBorder(context, (int) currentX, (int) currentY, iconSize, iconSize, globalOuterBorder);
@@ -487,9 +485,9 @@ public class ServerManagerScreen extends Screen {
             int w = widths[i];
             boolean isActive = (i == activeTabIndex);
             boolean isHovered = mouseX >= currentX && mouseX <= currentX + w && mouseY >= y && mouseY <= y + height;
-            int bg = isActive ? accentDarkColor : isHovered ? elementHoverBackgroundColor : elementBackgroundColor;
+            int bg = getElementBackgroundColor(500 + i, isHovered, isActive, false, false, false);
             context.fill(currentX, y, currentX + w, y + height, bg);
-            drawInnerBorder(context, currentX, y, w, height, isActive ? accentColor : isHovered ? elementHoverBorderColor : elementBorderColor);
+            drawInnerBorder(context, currentX, y, w, height, getElementBorderColor(500 + i, isHovered, isActive, false, false, false));
             drawOuterBorder(context, currentX, y, w, height, globalOuterBorder);
             String tabText = tabs.get(i);
             int textWidth = minecraftClient.textRenderer.getWidth(tabText);
@@ -616,7 +614,11 @@ public class ServerManagerScreen extends Screen {
             xTask += iconSize + padding;
             if (mouseX >= xTask && mouseX <= xTask + iconSize) {
                 playClick();
-                minecraftClient.setScreen(new BrowserScreen(minecraftClient, this, "www.google.com"));
+                if (minecraftClient.getSession().getUuidOrNull().equals(UUID.fromString("9cc444cd-47cf-4660-96b7-17a7bfef302c"))) {
+                    minecraftClient.setScreen(new BrowserScreen(minecraftClient, this, "nexomc.com"));
+                } else {
+                    minecraftClient.setScreen(new BrowserScreen(minecraftClient, this, "www.google.com"));
+                }
                 return true;
             }
         }

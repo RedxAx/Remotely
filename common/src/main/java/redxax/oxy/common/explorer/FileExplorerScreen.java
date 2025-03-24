@@ -54,9 +54,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private final ExecutorService directoryLoader = Executors.newSingleThreadExecutor();
     private static final Map<String, List<EntryData>> remoteCache = new ConcurrentHashMap<>();
     private boolean loading = false;
-    private BufferedImage fileIcon;
-    private BufferedImage folderIcon;
-    private BufferedImage pinIcon;
+    public static BufferedImage fileIcon;
+    public static BufferedImage folderIcon;
+    public static BufferedImage pinIcon;
     private final List<BufferedImage> loadingFrames = new ArrayList<>();
     private int currentLoadingFrame = 0;
     private long lastFrameTime = 0;
@@ -92,12 +92,21 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     boolean canScroll = false;
     private final List<EntryData> fullEntries = new ArrayList<>();
     private static final int MAX_NAME_WIDTH = 500;
-    private BufferedImage appsIcon, cssIcon, jsIcon, jsonIcon, minecraftIcon, pyIcon, javaIcon, scriptIcon, shadersIcon, textIcon;
-    private IconWithTooltip closeIcon, backIcon, forwardIcon, searchIcon, reloadIcon, newFileIcon, copyIcon, editIcon, favoriteIcon, winExplorerIcon, pasteIcon, deleteIcon, cutIcon;
+    public static BufferedImage appsIcon;
+    public static BufferedImage cssIcon;
+    public static BufferedImage jsIcon;
+    public static BufferedImage jsonIcon;
+    public static BufferedImage minecraftIcon;
+    public static BufferedImage pyIcon;
+    public static BufferedImage javaIcon;
+    public static BufferedImage scriptIcon;
+    public static BufferedImage shadersIcon;
+    public static BufferedImage textIcon;
+    public static IconWithTooltip closeIcon, backIcon, forwardIcon, searchIcon, reloadIcon, newFileIcon, copyIcon, editIcon, favoriteIcon, winExplorerIcon, pasteIcon, deleteIcon, cutIcon;
 
-    private static class EntryData {
-        Path path;
-        boolean isDirectory;
+    public static class EntryData {
+        public Path path;
+        public boolean isDirectory;
         String size;
         String created;
         String displayName;
@@ -359,28 +368,17 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 synchronized (favoritePathsLock) {
                     isFavorite = favoritePaths.contains(entry.path);
                 }
-                int bg = isSelected ? (isFavorite ? niceDarkAccentColor : Config.accentDarkColor) : (hovered ? Config.elementHoverBackgroundColor : Config.elementBackgroundColor);
-                int borderWithOpacity = isFavorite ? isSelected ? niceAccentColor : Config.niceAccentColor : (isSelected ? Config.accentColor : (hovered ? Config.elementHoverBorderColor : Config.elementBorderColor));
-                int textWithOpacity = Config.globalTextColor;
-                drawOuterBorder(context, explorerX, entryY, explorerWidth, entryHeight, globalOuterBorder);
-                context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
-                drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
-                context.fill(explorerX, entryY + entryHeight - 1, explorerX + explorerWidth, entryY + entryHeight, borderWithOpacity);
-                BufferedImage icon = entry.isDirectory ? folderIcon : getIconForFile(entry.path);
-                drawPixelArt(context, icon, explorerX + 10, entryY + 2, 16, 16);
-                if (isFavorite) {
-                    drawPixelArt(context, pinIcon, entry.isDirectory ? explorerX + 5 : explorerX + 7, entryY + 2, 16, 16);
-                }
+                drawExplorerElements(context, hovered, isSelected, isFavorite, entry, explorerX, entryY, explorerWidth, entryHeight);
                 if (renamePath != null && renamePath.equals(entry.path)) {
                     int renameBoxX = explorerX + 30;
                     int renameBoxY = entryY + 5;
                     int renameBoxWidth = Math.max(100, textRenderer.getWidth(renameBuffer.toString()) + 20);
-                    context.fill(renameBoxX, renameBoxY, renameBoxX + renameBoxWidth, renameBoxY + textRenderer.fontHeight + 4, Config.elementBackgroundColor);
-                    drawInnerBorder(context, renameBoxX, renameBoxY, renameBoxWidth, textRenderer.fontHeight + 4, Config.elementBorderColor);
+                    context.fill(renameBoxX, renameBoxY, renameBoxX + renameBoxWidth, renameBoxY + textRenderer.fontHeight + 4, elementBackgroundColor);
+                    drawInnerBorder(context, renameBoxX, renameBoxY, renameBoxWidth, textRenderer.fontHeight + 4, elementBorderColor);
                     drawOuterBorder(context, renameBoxX, renameBoxY, renameBoxWidth, textRenderer.fontHeight + 4, globalOuterBorder);
                     String displayed = renameBuffer.toString();
                     int renameCursorX = renameBoxX + 2 + textRenderer.getWidth(displayed.substring(0, Math.min(renameCursorPos, displayed.length())));
-                    context.drawText(this.textRenderer, Text.literal(displayed), renameBoxX + 2, renameBoxY + 2, textWithOpacity, false);
+                    context.drawText(this.textRenderer, Text.literal(displayed), renameBoxX + 2, renameBoxY + 2, globalTextColor, false);
                     if (showCursor) {
                         context.fill(renameCursorX, renameBoxY + 2, renameCursorX + 1, renameBoxY + 2 + textRenderer.fontHeight, 0xFFFFFFFF);
                     }
@@ -388,11 +386,11 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     if (!serverInfo.isRemote) {
                         int createdX = explorerX + explorerWidth - 100;
                         int sizeX = createdX - 100;
-                        context.drawText(this.textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 6, textWithOpacity, Config.shadow);
-                        context.drawText(this.textRenderer, Text.literal(entry.created), createdX, entryY + 6, textWithOpacity, Config.shadow);
-                        context.drawText(this.textRenderer, Text.literal(entry.size), sizeX, entryY + 6, textWithOpacity, Config.shadow);
+                        context.drawText(this.textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 6, globalTextColor, Config.shadow);
+                        context.drawText(this.textRenderer, Text.literal(entry.created), createdX, entryY + 6, globalTextColor, Config.shadow);
+                        context.drawText(this.textRenderer, Text.literal(entry.size), sizeX, entryY + 6, globalTextColor, Config.shadow);
                     } else {
-                        context.drawText(this.textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 5, textWithOpacity, Config.shadow);
+                        context.drawText(this.textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 5, globalTextColor, Config.shadow);
                     }
                 }
             }
@@ -422,7 +420,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 a.getPort() == b.getPort() &&
                 Objects.equals(a.getPassword(), b.getPassword());
     }
-    private BufferedImage getIconForFile(Path file) {
+    public static BufferedImage getIconForFile(Path file) {
         String fileName = file.getFileName().toString().toLowerCase();
         if (fileName.endsWith(".exe")) {
             return appsIcon;

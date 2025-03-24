@@ -614,13 +614,16 @@ public class MultiTerminalScreen extends Screen {
             if (hovered) {
                 snippetHoverIndex = i;
             }
-            renderSnippetBox(context, snippetX, snippetY, currentSnippetMaxWidth, snippetHeight, snippet, hovered, selected);
+            renderSnippetBox(context, snippetX, snippetY, currentSnippetMaxWidth, snippetHeight, snippet, hovered, selected, minecraftClient);
         }
         if (isDraggingSnippet && draggingSnippetIndex >= 0 && draggingSnippetIndex < globalSnippets.size()) {
             RemotelyClient.CommandSnippet draggedSnippet = globalSnippets.get(draggingSnippetIndex);
             int draggedHeight = (selectedSnippetIndex == draggingSnippetIndex ? calculateSnippetHeight(draggedSnippet.commands) : 35);
             int drawY = (int) (draggingCurrentY - draggedHeight / 2.0f - snippetListScrollOffset);
-            renderSnippetBox(context, panelX + 5, drawY, currentSnippetMaxWidth, draggedHeight, draggedSnippet, false, false);
+            context.getMatrices().push();
+            context.getMatrices().translate(0, 0, 499);
+            renderSnippetBox(context, panelX + 5, drawY, currentSnippetMaxWidth, draggedHeight, draggedSnippet, false, false, minecraftClient);
+            context.getMatrices().pop();
         }
         for (int j = 0; j < globalSnippets.size(); j++) {
             float targetExpand = (selectedSnippetIndex == j) ? 1.0f : 0.0f;
@@ -632,29 +635,6 @@ public class MultiTerminalScreen extends Screen {
                 snippetExpandProgress.put(j, targetExpand);
             }
         }
-    }
-
-    private void renderSnippetBox(DrawContext context, int snippetX, int snippetY, int snippetMaxWidth, int snippetHeight, RemotelyClient.CommandSnippet snippet, boolean hovered, boolean selected) {
-        int bgColor = getElementBackgroundColor(hovered, selected, false, false, false);
-        context.getMatrices().push();
-        context.getMatrices().translate(0, 0, 499);
-        context.fill(snippetX, snippetY, snippetX + snippetMaxWidth, snippetY + snippetHeight, bgColor);
-        drawInnerBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, getElementBorderColor(hovered, selected, false, false, false));
-        drawOuterBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, globalOuterBorder);
-        String displayName = trimTextToWidthWithEllipsis(snippet.name, snippetMaxWidth - 10);
-        context.drawText(minecraftClient.textRenderer, Text.literal(displayName), snippetX + 5, snippetY + 5, globalTextColor, shadow);
-        int lineSeparatorY = snippetY + 5 + minecraftClient.textRenderer.fontHeight + 2;
-        context.fill(snippetX + 5, lineSeparatorY, snippetX + snippetMaxWidth - 5, lineSeparatorY + 1, elementHoverBorderColor);
-        int contentY = lineSeparatorY + 4;
-        context.enableScissor(snippetX + 5, contentY, snippetX + snippetMaxWidth - 5, snippetY + snippetHeight - 4);
-        String[] allLines = snippet.commands.split("\n");
-        int lineY = contentY;
-        for (String line : allLines) {
-            String trimmed = trimTextToWidthWithEllipsis(line, snippetMaxWidth - 10);
-            context.drawText(minecraftClient.textRenderer, Text.literal(trimmed), snippetX + 5, lineY, globalDarkTextColor, shadow);
-            lineY += minecraftClient.textRenderer.fontHeight + 2;
-        }
-        context.disableScissor();
     }
 
     private int calculateSnippetHeight(String commands) {
