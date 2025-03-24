@@ -3,6 +3,7 @@ package redxax.oxy.common.servers;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.SSHManager;
@@ -48,6 +49,7 @@ public class ServerSettingsScreen extends Screen {
     private ServerSetting draggedSlider = null;
     private ImageUtil.IconWithTooltip closeIcon, createIcon;
     public enum ServerSettingType {TOGGLE, SLIDER, SCROLL_SWITCH, TAB_SWITCH, TEXT}
+    private float targetScaleFactor = globalScaleFactor;
 
     public ServerSettingsScreen(MinecraftClient mc, String mode, ServerManagerScreen parent, String settingsRoot, List<ServerSetting> customSettings) {
         this(mc, mode, parent, settingsRoot, customSettings, null);
@@ -82,7 +84,9 @@ public class ServerSettingsScreen extends Screen {
         }
         initTextInputOffsets();
         recalcTabs();
-    }
+        originalMCScale = mc.getWindow().getScaleFactor();
+        targetScaleFactor = globalScaleFactor;
+        mc.getWindow().setScaleFactor(globalScaleFactor);    }
 
     private void initTextInputOffsets() {
         for (ServerSetting s : settings) {
@@ -232,6 +236,13 @@ public class ServerSettingsScreen extends Screen {
         if ((int) currentSettingsScroll < maxScroll) {
             context.fillGradient(contentX, contentY + contentHeight - 10, contentX + contentWidth, contentY + contentHeight, 0x00000000, 0x55000000);
         }
+        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
+        animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
+        if (globalScaleFactor != animScaleFactor) {
+            mc.getWindow().setScaleFactor(animScaleFactor);
+            this.resize(mc, mc.getWindow().getScaledWidth(), mc.getWindow().getScaledHeight());
+            globalScaleFactor = animScaleFactor;
+        }
     }
 
     @Override
@@ -336,13 +347,12 @@ public class ServerSettingsScreen extends Screen {
                         }
                     }
                     case TAB_SWITCH -> {
-                        int barWidth = widgetWidth;
                         double relativeX = mouseX - widgetAreaX;
                         double relativeY = mouseY - rowY;
-                        if (relativeX >= 0 && relativeX <= barWidth && relativeY >= 0 && relativeY <= 18) {
+                        if (relativeX >= 0 && relativeX <= widgetWidth && relativeY >= 0 && relativeY <= 18) {
                             playClick();
                             int segmentCount = s.options.size();
-                            double segmentWidth = (double) barWidth / segmentCount;
+                            double segmentWidth = (double) widgetWidth / segmentCount;
                             int newIndex = (int) (relativeX / segmentWidth);
                             s.setOption(newIndex);
                         }
@@ -434,6 +444,14 @@ public class ServerSettingsScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        boolean ctrlHeld = InputUtil.isKeyPressed(this.mc.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.mc.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
+        boolean altHeld = InputUtil.isKeyPressed(this.mc.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.mc.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
+        if (ctrlHeld) {
+            if (altHeld) {
+                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (verticalAmount > 0 ? 1f : -1f)));
+            }
+            return true;
+        }
         int headerHeight = 30;
         int tabAreaHeight = 18;
         int contentY = headerHeight + tabAreaHeight + 10;
@@ -834,7 +852,7 @@ public class ServerSettingsScreen extends Screen {
                     String updateOutput = ssh.runRemoteCommandWithOutput(cmdUpdate);
                     devPrint("Remote update output: " + updateOutput);
                     writeSettings(ssh, remoteServersPath + "/" + serverName);
-                    String cmdBuild = "cd " + remoteServersPath + "/" + serverName + " && " + remoteMcmanPath + " build --output .";
+                    String cmdBuild = "cd " + remoteServersPath + "/" + serverName + " && " + "chmod +x " + remoteMcmanPath + " && " + remoteMcmanPath + " build --output .";
                     devPrint("Executing remote build command: " + cmdBuild);
                     String buildOutput = ssh.runRemoteCommandWithOutput(cmdBuild);
                     devPrint("Remote build output: " + buildOutput);
@@ -847,6 +865,12 @@ public class ServerSettingsScreen extends Screen {
             devPrint("Failed to create/update server: " + e.getMessage());
         }
         onClose();
+    }
+
+    @Override
+    public void removed() {
+        mc.getWindow().setScaleFactor(originalMCScale);
+        targetScaleFactor = globalScaleFactor = animScaleFactor;
     }
 
     public void onClose() {

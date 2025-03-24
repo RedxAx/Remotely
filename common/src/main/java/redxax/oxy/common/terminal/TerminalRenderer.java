@@ -395,7 +395,7 @@ public class TerminalRenderer {
 
     private OrderedText[] getStatusBarOrderedTexts(int scaledWidth) {
         if (tmuxStatusLine.isEmpty()) {
-            return new OrderedText[]{Text.literal("Remotely - 2.0 DevBuild 24/3/2025").asOrderedText(), Text.literal(new Date().toString()).asOrderedText()};
+            return new OrderedText[]{Text.literal("Remotely - 2.0 DevBuild 25/3/2025").asOrderedText(), Text.literal(new Date().toString()).asOrderedText()};
         }
         String line = tmuxStatusLine;
         String leftText;

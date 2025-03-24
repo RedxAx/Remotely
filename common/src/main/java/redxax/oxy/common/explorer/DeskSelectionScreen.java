@@ -7,7 +7,9 @@ import com.google.gson.stream.JsonReader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
+import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.servers.RemoteHostInfo;
 import redxax.oxy.common.servers.ServerInfo;
@@ -38,6 +40,7 @@ public class DeskSelectionScreen extends Screen {
     private IconWithTooltip folderIcon, fileIcon, pinIcon, closeIcon;
     private int scrollOffset = 0;
     private int maxScroll = 0;
+    private float targetScaleFactor = globalScaleFactor;
 
     static class ObjectItem {
         String displayName;
@@ -53,7 +56,9 @@ public class DeskSelectionScreen extends Screen {
         super(Text.literal("Desks/Servers"));
         this.minecraftClient = minecraftClient;
         this.parent = parent;
-    }
+        originalMCScale = minecraftClient.getWindow().getScaleFactor();
+        targetScaleFactor = globalScaleFactor;
+        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);    }
 
     @Override
     protected void init() {
@@ -229,6 +234,13 @@ public class DeskSelectionScreen extends Screen {
             context.drawText(this.textRenderer, Text.literal(secondLine), drawX + 25, drawY + 18, globalDarkTextColor, Config.shadow);
             idx++;
         }
+        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
+        animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
+        if (globalScaleFactor != animScaleFactor) {
+            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
+            this.resize(minecraftClient, minecraftClient.getWindow().getScaledWidth(), minecraftClient.getWindow().getScaledHeight());
+            globalScaleFactor = animScaleFactor;
+        }
     }
 
     @Override
@@ -294,6 +306,14 @@ public class DeskSelectionScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
+        boolean altHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
+        if (ctrlHeld) {
+            if (altHeld) {
+                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (verticalAmount > 0 ? 1f : -1f)));
+            }
+            return true;
+        }
         scrollOffset -= (int) (verticalAmount * 10);
         if (scrollOffset < 0) scrollOffset = 0;
         if (scrollOffset > maxScroll) scrollOffset = maxScroll;
@@ -303,5 +323,11 @@ public class DeskSelectionScreen extends Screen {
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
         context.fillGradient(0, 0, this.width, this.height, Config.backgroundColor, Config.backgroundColor);
+    }
+
+    @Override
+    public void removed() {
+        minecraftClient.getWindow().setScaleFactor(originalMCScale);
+        targetScaleFactor = globalScaleFactor = animScaleFactor;
     }
 }

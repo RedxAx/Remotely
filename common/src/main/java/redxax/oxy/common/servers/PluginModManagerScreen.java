@@ -4,6 +4,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.api.HangarAPI;
@@ -99,13 +100,16 @@ public class PluginModManagerScreen extends Screen {
     private static String savedSearch = "";
     private static int savedCurrentTabIndex = 0;
     private static Map<String, List<IRemotelyResource>> savedResourceCache = new ConcurrentHashMap<>();
+    private float targetScaleFactor = globalScaleFactor;
 
     public PluginModManagerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
         super(Text.literal(info.isModServer() ? "Remotely - Mods Browser" : (info.isPluginServer() ? "Remotely - Plugins Browser" : "Remotely - Modpacks Browser")));
         this.minecraftClient = mc;
         this.parent = parent;
         this.serverInfo = info;
-    }
+        originalMCScale = minecraftClient.getWindow().getScaleFactor();
+        targetScaleFactor = globalScaleFactor;
+        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);    }
 
     @Override
     protected void init() {
@@ -374,6 +378,14 @@ public class PluginModManagerScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        boolean ctrl = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) || (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
+        boolean altHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
+        if (ctrl) {
+            if (altHeld) {
+                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (verticalAmount > 0 ? 1f : -1f)));
+            }
+            return true;
+        }
         targetOffset -= (float) (verticalAmount * entryHeight * 2);
         targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, resources.size() * (entryHeight + gapBetweenEntries) - (this.height - 70))));
         ScrollBar.setPendingOffset(targetOffset);
@@ -458,9 +470,17 @@ public class PluginModManagerScreen extends Screen {
         if (smoothOffset < maxScroll) {
             context.fillGradient(contentX, contentY + contentHeight - 10, contentX + contentWidth, contentY + contentHeight, 0x00000000, 0x80000000);
         }
-        ScrollBar.render(context, parent, mouseX, mouseY, resources.size() * (entryHeight + gapBetweenEntries), smoothOffset);
+        ScrollBar.render(context, this, mouseX, mouseY, resources.size() * (entryHeight + gapBetweenEntries), smoothOffset);
         targetOffset = ScrollBar.getPendingOffset();
         loadMoreIfNeeded();
+        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
+        animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
+        if (globalScaleFactor != animScaleFactor) {
+            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
+            this.width = minecraftClient.getWindow().getScaledWidth();
+            this.height = minecraftClient.getWindow().getScaledHeight();
+            globalScaleFactor = animScaleFactor;
+        }
     }
 
 
