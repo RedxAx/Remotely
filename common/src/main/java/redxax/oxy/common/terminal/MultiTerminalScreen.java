@@ -28,6 +28,7 @@ import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.config.Themes.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
+import static redxax.oxy.common.util.ImageUtil.drawPixelArt;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
 
@@ -101,7 +102,7 @@ public class MultiTerminalScreen extends Screen {
     private List<Theme> themes = new ArrayList<>();
 
     private final Screen parent;
-    private IconWithTooltip closeIcon, startIcon, stopIcon, explorerIcon, resourcesIcon;
+    private IconWithTooltip closeIcon, startIcon, stopIcon, explorerIcon, resourcesIcon, snippetsIcon;
     private float targetSnippetListScrollOffset = 0;
     private float snippetListScrollOffset;
     private final Map<Integer, Float> snippetExpandProgress = new HashMap<>();
@@ -169,6 +170,7 @@ public class MultiTerminalScreen extends Screen {
             stopIcon = new IconWithTooltip("/assets/remotely/icons/stop.png", "Stop The Server");
             explorerIcon = new IconWithTooltip("/assets/remotely/icons/explorer.png", "Open File Explorer In The Current Path");
             resourcesIcon = new IconWithTooltip("/assets/remotely/icons/resources.png", "Open Plugins/Mods Manager");
+            snippetsIcon = new IconWithTooltip("/assets/remotely/icons/snippets.png", "");
         } catch (IOException ignored) {} catch (Exception e) {
             devPrint("Error loading themes: " + e.getMessage());
         }
@@ -331,10 +333,11 @@ public class MultiTerminalScreen extends Screen {
             context.drawText(minecraftClient.textRenderer, Text.literal(warningMessage), 5, TAB_HEIGHT + verticalPadding, 0xFFFF0000, shadow);
             warningMessage = "";
         }
-        int hideButtonX = this.width - 15 - 5;
+        int hideButtonX = this.width - 22;
         int hideButtonY = 5 + topBarHeight;
         hideButtonHovered = mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15;
         drawSquareButton(context, hideButtonX, hideButtonY, minecraftClient, hideButtonHovered, mouseX, mouseY, "Toggle Snippets Panel");
+        drawPixelArt(context, snippetsIcon.getImage(), hideButtonX + 1, hideButtonY + 1, 16, 16);
         int tabOffsetY = topBarHeight + 5;
         int tabAreaHeight = TAB_HEIGHT;
         float targetPanelWidth = showSnippetsPanel ? snippetPanelWidth : 0;

@@ -209,10 +209,10 @@ public class ServerSettingsScreen extends Screen {
             boolean widgetHovered = mouseX >= widgetAreaX && mouseX <= widgetAreaX + widgetWidth && mouseY >= rowY && mouseY <= rowY + 18;
             boolean toggleHovered = mouseX >= this.width - 40 - 12 && mouseX <= this.width - 12 && mouseY >= rowY && mouseY <= rowY + rowHeight;
             switch (s.type) {
-                case TOGGLE -> drawToggle(context, mc, this.width - 40 - 12, widgetY - 1, "", s.value.equals("true"), toggleHovered);
-                case SLIDER -> drawSlider(context, mc, widgetAreaX, widgetY, "", s.getIntValue(), s.min, s.max, widgetHovered, mouseX, mouseY, "Shift + Click To Input Text.");
+                case TOGGLE -> drawToggle(context, mc, this.width - 40 - 12, widgetY - 1, s.name + s.key + s.description, s.value.equals("true"), toggleHovered);
+                case SLIDER -> drawSlider(context, mc, widgetAreaX, widgetY, s.name + s.key + s.description + s.max + s.min, s.getIntValue(), s.min, s.max, widgetHovered, mouseX, mouseY, "Shift + Click To Input Text.");
                 case SCROLL_SWITCH -> drawScrollSelector(context, mc, widgetAreaX, widgetY, s.options, s.getSelectedIndex(), widgetHovered);
-                case TAB_SWITCH -> drawTabSwitch(context, mc, widgetAreaX, widgetY, "", s.options, s.getSelectedIndex(), mouseX, mouseY);
+                case TAB_SWITCH -> drawTabSwitch(context, mc, widgetAreaX, widgetY, s.name + s.key + s.description, s.options, s.getSelectedIndex(), mouseX, mouseY);
                 case TEXT -> {
                     float currentScroll = textInputScrollOffsets.getOrDefault(s, 0f);
                     float targetScroll = textInputTargetScrollOffsets.getOrDefault(s, 0f);
