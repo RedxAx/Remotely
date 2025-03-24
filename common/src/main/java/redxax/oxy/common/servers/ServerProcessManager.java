@@ -8,6 +8,7 @@ import java.io.OutputStreamWriter;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 
 import static redxax.oxy.common.util.DevUtil.devPrint;
 
@@ -23,7 +24,8 @@ public class ServerProcessManager extends TerminalProcessManager {
     public static StringBuilder getCommandStr() {
         commandStr = new StringBuilder();
         commandStr.append("java ");
-        commandStr.append("-D_server=root.Remotely ");
+        commandStr.append("-Djline.terminal=jline.UnsupportedTerminal ");
+        commandStr.append("-Dnet.kyori.ansi.colorLevel=indexed256 ");
         commandStr.append("-Xms4G ");
         commandStr.append("-Xmx4G ");
         commandStr.append("-jar server.jar ");
@@ -34,7 +36,6 @@ public class ServerProcessManager extends TerminalProcessManager {
     @Override
     public void launchTerminal() {
         try {
-            // If an old process is alive, shut it down first.
             if (terminalProcess != null && terminalProcess.isAlive()) {
                 shutdown();
             }
@@ -42,9 +43,21 @@ public class ServerProcessManager extends TerminalProcessManager {
             File workingDir = new File(serverInstance.serverJarPath).getParentFile();
             File scriptFile = new File(workingDir, "start.bat");
 
-            if (!scriptFile.exists()) {
+            if (scriptFile.exists()) {
+                String content = Files.readString(scriptFile.toPath());
+                if (!content.contains("-Djline.terminal=jline.UnsupportedTerminal")) {
+                    content = content.replaceFirst("(?i)^(java\\s+)", "$1-Djline.terminal=jline.UnsupportedTerminal ");
+                    Files.writeString(scriptFile.toPath(), content);
+                    devPrint("Added jline terminal flag to start.bat.");
+                }
+                if (!content.contains("-Dnet.kyori.ansi.colorLevel=indexed256")) {
+                    content = content.replaceFirst("(?i)^(java\\s+)", "$1-Dnet.kyori.ansi.colorLevel=indexed256 ");
+                    Files.writeString(scriptFile.toPath(), content);
+                    devPrint("Added ANSI color flag to start.bat.");
+                }
+            } else {
                 if (terminalInstance != null) {
-                    terminalInstance.appendOutput("You don't have a start.bat, creating one...\n");
+                    terminalInstance.appendOutput("No start.bat found, creating one with the required flag...\n");
                 }
                 commandStr = getCommandStr();
                 try (FileWriter fw = new FileWriter(scriptFile)) {
@@ -53,7 +66,10 @@ public class ServerProcessManager extends TerminalProcessManager {
                 scriptFile.setExecutable(true);
             }
 
-            ProcessBuilder pb = new ProcessBuilder("cmd.exe", "/k", "powershell", ".\\start.bat");
+            String os = System.getProperty("os.name").toLowerCase();
+            ProcessBuilder pb;
+            if (os.contains("win")) pb = new ProcessBuilder("cmd.exe", "/k", "powershell", ".\\start.bat");
+            else pb = new ProcessBuilder("/bin/bash", "-l", "-c", "./start.sh");
             pb.directory(workingDir);
             pb.redirectErrorStream(true);
             terminalProcess = pb.start();
@@ -61,7 +77,6 @@ public class ServerProcessManager extends TerminalProcessManager {
             terminalErrorStream = terminalProcess.getErrorStream();
             writer = new OutputStreamWriter(terminalProcess.getOutputStream(), StandardCharsets.UTF_8);
             startReaders();
-            serverInstance.appendOutput("Server process started.\n");
         } catch (Exception e) {
             serverInstance.serverInfo.state = ServerState.CRASHED;
             serverInstance.appendOutput("Failed to launch server process: " + e.getMessage() + "\n");

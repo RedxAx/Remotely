@@ -7,6 +7,7 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.config.Config;
+import redxax.oxy.common.mixin.MinecraftClientMixin;
 import redxax.oxy.common.servers.ServerSettingsScreen;
 import redxax.oxy.common.terminal.MultiTerminalScreen;
 import redxax.oxy.common.explorer.FileExplorerScreen;
@@ -16,9 +17,12 @@ import redxax.oxy.common.util.TextAnimator;
 
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static redxax.oxy.common.config.Config.*;
+import static redxax.oxy.common.explorer.FileExplorerScreen.getIconForFile;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.*;
 import static redxax.oxy.common.util.SoundUtils.playClick;
@@ -27,7 +31,7 @@ public class Render {
 
     public static int buttonW = 60;
     public static int buttonH = 18;
-    private static TextAnimator searchTextAnimator = new TextAnimator("", 2, 3);
+    private static TextAnimator searchTextAnimator = new TextAnimator("", 2, 10);
     private static String previousFieldText = "";
     private static boolean isAnimating = false;
     private static BufferedImage loadingAnim;
@@ -37,11 +41,10 @@ public class Render {
     private static float scrollInterpolation = 0.15f;
     private static float currentScrollOffset = 0f;
     private static float animatedOffset = 0;
-    private static float currentScrollSelectorOffset = 0;
-    private static int previousScrollSelectedIndex = 0;
-    private static final float OFFSET_STEP = 20f;
     private static float scrollSelectorIndexFloat = 0f;
     private static int previousScrollSelectorIndex = -1;
+    private static Map<String, Float> tabWidths;
+    private static int previousTabCount = 0;
 
     public static class CustomTooltip {
         private static String tooltipText = "";
@@ -76,32 +79,23 @@ public class Render {
 
         public static void renderTooltip(DrawContext context, TextRenderer tr, int screenWidth, int screenHeight) {
             if(!visible) return;
-
             float scaleFactor = 1.0f;
-
             int padding = 3;
             int textWidth = (int) (tr.getWidth(tooltipText) / scaleFactor);
             int textHeight = (int) (tr.fontHeight / scaleFactor);
             int boxWidth = textWidth + padding * 2;
             int boxHeight = textHeight + padding * 2;
-
             int drawX = targetX;
             int drawY = targetY;
-
             context.getMatrices().push();
             context.getMatrices().scale(scaleFactor, scaleFactor, 1.0f);
-
             context.getMatrices().translate(0, 0, 500);
-
             int scaledX = (int)(drawX / scaleFactor);
             int scaledY = (int)(drawY / scaleFactor);
-
             context.fill(scaledX, scaledY, scaledX + boxWidth, scaledY + boxHeight, elementBackgroundColor);
             drawInnerBorder(context, scaledX, scaledY, boxWidth, boxHeight, elementBorderColor);
             drawOuterBorder(context, scaledX, scaledY, boxWidth, boxHeight, globalOuterBorder);
-
             context.drawText(tr, Text.literal(tooltipText), scaledX + padding, scaledY + padding, globalTextColor, Config.shadow);
-
             context.getMatrices().pop();
         }
     }
@@ -167,6 +161,7 @@ public class Render {
                 drawCustomButton(context, menuX, currentY, item.label, mc, hovered, false, false, globalTextColor, MenuHoverColor, mouseX, mouseY, item.tooltipText);
                 currentY += itemHeight + gap;
             }
+            context.getMatrices().pop();
         }
 
         public static boolean mouseClicked(double mouseX, double mouseY, int button) {
@@ -202,28 +197,23 @@ public class Render {
             if (totalHeight <= explorerHeight) {
                 return;
             }
-
             int scrollbarX = screenWidth - 3;
             int scrollbarWidth = 2;
             int lineWidth = 4;
             int lineHeight = Math.max(10, (int)((float)explorerHeight * explorerHeight / totalHeight));
-
             float targetOffset = dragging ? pendingOffset : scrollOffset;
             animatedOffset += (targetOffset - animatedOffset) * scrollInterpolation;
-
             float effectiveOffset = animatedOffset;
             float scrollRatio = effectiveOffset / (float)(totalHeight - explorerHeight);
             int lineY = explorerY + (int)((explorerHeight - lineHeight) * scrollRatio);
             int lineX = (scrollbarX - (lineWidth - scrollbarWidth) / 2);
-
-            context.fill(scrollbarX, explorerY, scrollbarX + scrollbarWidth, lineY + lineHeight / 2, elementBorderColor);
-            context.fill(scrollbarX, lineY + lineHeight / 2, scrollbarX + scrollbarWidth, explorerY + explorerHeight, Config.elementBackgroundColor);
+            context.fill(scrollbarX, explorerY, scrollbarX + scrollbarWidth, lineY + lineHeight / 2, Config.getElementBackgroundColor(3000, true, dragging, false, false, false));
+            context.fill(scrollbarX, lineY + lineHeight / 2, scrollbarX + scrollbarWidth, explorerY + explorerHeight, Config.getElementBackgroundColor(3000, dragging, false, false, false, false));
             drawOuterBorder(context, scrollbarX, explorerY, scrollbarWidth, explorerHeight, globalOuterBorder);
-
             lineHovered = mouseX >= lineX && mouseX <= lineX + lineWidth && mouseY >= lineY && mouseY <= lineY + lineHeight;
-            int lineColor = dragging ? Config.accentDarkColor : lineHovered ? Config.elementHoverBackgroundColor : elementBackgroundColor;
+            int lineColor = Config.getElementBackgroundColor(3000, lineHovered, dragging, false, false, false);
             context.fill(lineX, lineY, lineX + lineWidth, lineY + lineHeight, lineColor);
-            drawInnerBorder(context, lineX, lineY, lineWidth, lineHeight, dragging ? Config.accentColor : lineHovered ? Config.elementHoverBorderColor : elementBorderColor);
+            drawInnerBorder(context, lineX, lineY, lineWidth, lineHeight, Config.getElementBorderColor(3000, lineHovered, dragging, false, false, false));
         }
 
         public static boolean handleMousePressed(Screen parent, int mouseX, int mouseY, int totalHeight, float scrollOffset) {
@@ -303,6 +293,13 @@ public class Render {
         int plusTabWidth = 18;
         String plusSign = "+";
         int x = tabBarX;
+        if (tabWidths == null) {
+            tabWidths = new HashMap<>();
+        }
+        if (previousTabCount != tabs.size()) {
+            tabWidths.clear();
+            previousTabCount = tabs.size();
+        }
         for (int i = 0; i < tabs.size(); i++) {
             Object tab = tabs.get(i);
             String name;
@@ -323,34 +320,35 @@ public class Render {
                     name = "Tab";
                 }
             }
-            int tabWidth;
-            if (tab instanceof FileExplorerScreen.Tab) {
-                tabWidth = textRenderer.getWidth(name) + 2 * tabPadding;
-            } else if (tab instanceof FileEditorScreen.Tab) {
-                tabWidth = textRenderer.getWidth(name) + 2 * tabPadding;
-            } else if (tab instanceof PluginModManagerScreen.Tab) {
-                tabWidth = textRenderer.getWidth(name) + 2 * tabPadding;
-            } else if (tab instanceof MultiTerminalScreen.TabInfo) {
-                tabWidth = textRenderer.getWidth(name) + 2 * tabPadding;
-            } else {
-                tabWidth = textRenderer.getWidth(name) + 2 * tabPadding;
-            }
+
+            int targetWidth = textRenderer.getWidth(name) + 2 * tabPadding;
+            String tabId = "tab_" + i + "_" + tab.hashCode();
+            float currentWidth = tabWidths.getOrDefault(tabId, (float)targetWidth);
+            float animatedWidth = currentWidth + (targetWidth - currentWidth) * 0.15f;
+            tabWidths.put(tabId, animatedWidth);
+            int tabWidth = (int)animatedWidth;
             boolean isActive = (i == currentTabIndex);
             int x2 = x + tabWidth;
             boolean isHovered = mouseX >= x && mouseX <= x2 && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight;
-            int bgColor = isActive ? isUnsaved ? dangerAccentColor : accentDarkColor : (isHovered ? elementHoverBackgroundColor : elementBackgroundColor);
+            int bgColor = Config.getElementBackgroundColor(1000 + i, isHovered, isActive, isUnsaved, false, false);
             context.fill(x, tabBarY, x2, tabBarY + tabBarHeight, bgColor);
-            drawInnerBorder(context, x, tabBarY, tabWidth, tabBarHeight, isActive ? isUnsaved ? dangerDarkAccentColor : accentColor :  isHovered ? elementHoverBorderColor : elementBorderColor);
+            drawInnerBorder(context, x, tabBarY, tabWidth, tabBarHeight, Config.getElementBorderColor(1000 + i, isHovered, isActive, isUnsaved, false, false));
             drawOuterBorder(context, x, tabBarY, tabWidth, tabBarHeight, globalOuterBorder);
-            context.drawText(textRenderer, Text.literal(name), x + tabPadding, tabBarY + 5, isHovered ? globalHoverTextColor : globalTextColor, shadow);
+
+            context.enableScissor(x + 1, tabBarY, x2 - 1, tabBarY + tabBarHeight);
+            context.drawText(textRenderer, Text.literal(name), x + tabPadding, tabBarY + 5, getTextColor(isHovered, false), shadow);
+            context.disableScissor();
+
             x += tabWidth + tabGap;
         }
+
         if (hasPlus) {
             boolean isPlusTabHovered = mouseX >= x && mouseX <= x + plusTabWidth && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight;
-            context.fill(x, tabBarY, x + plusTabWidth, tabBarY + tabBarHeight, isPlusTabHovered ? elementHoverBackgroundColor : elementBackgroundColor);
-            drawInnerBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, isPlusTabHovered ? elementHoverBorderColor : elementBorderColor);
+            int bgColor = Config.getElementBackgroundColor(1000 + tabs.size(), isPlusTabHovered, false, isUnsaved, false, false);
+            context.fill(x, tabBarY, x + plusTabWidth, tabBarY + tabBarHeight, bgColor);
+            drawInnerBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, Config.getElementBorderColor(1000 + tabs.size(), isPlusTabHovered, false, false, false, false));
             drawOuterBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, globalOuterBorder);
-            context.drawText(textRenderer, Text.literal(plusSign), x + plusTabWidth / 2 - textRenderer.getWidth(plusSign) / 2, tabBarY + 5, isPlusTabHovered ? globalHoverTextColor : globalTextColor, shadow);
+            context.drawText(textRenderer, Text.literal(plusSign), x + plusTabWidth / 2 - textRenderer.getWidth(plusSign) / 2, tabBarY + 5, getTextColor(isPlusTabHovered, false), shadow);
         }
     }
 
@@ -371,15 +369,11 @@ public class Render {
         int searchBarX = (context.getScaledWindowWidth() - searchBarWidth) / 2;
         int searchBarY = 5;
         boolean hovered = mouseX >= searchBarX && mouseX <= searchBarX + searchBarWidth && mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight;
-        int baseColor = hovered ? elementHoverBackgroundColor : elementBackgroundColor;
-        int activeColor = isSpecialMode ? (caller.equals("FileExplorerScreen") ? Config.niceDarkAccentColor : calmDarkAccentColor) : Config.accentDarkColor;
-        int activeBorderColor = isSpecialMode ? (caller.equals("FileExplorerScreen") ? Config.niceAccentColor : calmAccentColor) : Config.accentColor;
-        int borderColor = hovered ? elementHoverBorderColor : elementBorderColor;
-        int textColor = hovered ? globalHoverTextColor : globalTextColor;
         boolean shadow = Config.shadow;
         String hint = caller.equals("FileExplorerScreen") ? "Search..." : "Ask Remotely AI...";
-        context.fill(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight, fieldFocused ? activeColor : baseColor);
-        drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, fieldFocused ? activeBorderColor : borderColor);
+        int id = 2000;
+        context.fill(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight, Config.getElementBackgroundColor(id, hovered, fieldFocused, false, false, false));
+        drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, Config.getElementBorderColor(id, hovered, fieldFocused, false, false, false));
         drawOuterBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, Config.globalOuterBorder);
         if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
             int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
@@ -392,7 +386,7 @@ public class Render {
             context.fill(selX, searchBarY + 4, selX + selW, searchBarY + 4 + textRenderer.fontHeight, 0x80FFFFFF);
         }
         if (fieldFocused && isSpecialMode && displayText.isEmpty()) {
-            context.drawText(textRenderer, Text.literal(hint), searchBarX + 5, searchBarY + 5, textColor, false);
+            context.drawText(textRenderer, Text.literal(hint), searchBarX + 5, searchBarY + 5, Config.getTextColor(hovered, true), false);
         }
         int displayWidth = searchBarWidth - 10;
         int textWidth = textRenderer.getWidth(displayText);
@@ -415,7 +409,7 @@ public class Render {
             isAnimating = false;
         }
         context.enableScissor(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight);
-        context.drawText(textRenderer, Text.literal(displayText), searchBarX + 5 - (int) currentScrollOffset, searchBarY + 5, textColor, shadow);
+        context.drawText(textRenderer, Text.literal(displayText), searchBarX + 5 - (int) currentScrollOffset, searchBarY + 5, Config.getTextColor(hovered, fieldFocused), shadow);
         if (fieldFocused && showCursor) {
             int cursorPosX = searchBarX + 5 + textRenderer.getWidth(beforeCursor) - (int) currentScrollOffset;
             context.fill(cursorPosX, searchBarY + 5, cursorPosX + 1, searchBarY + 5 + textRenderer.fontHeight, 0xFFFFFFFF);
@@ -425,15 +419,50 @@ public class Render {
         CustomTooltip.renderTooltip(context, textRenderer, context.getScaledWindowWidth(), context.getScaledWindowHeight());
     }
 
+    public static void drawExplorerElements(DrawContext context, boolean hovered, boolean isSelected, boolean isFavorite, FileExplorerScreen.EntryData entry, int explorerX, int entryY, int explorerWidth, int entryHeight) {
+        int bg = Config.getElementBackgroundColor(entry.hashCode(), hovered, isSelected, isFavorite, false, false);
+        int borderWithOpacity = Config.getElementBorderColor(entry.hashCode(), hovered, isSelected, isFavorite, false, false);
+        drawOuterBorder(context, explorerX, entryY, explorerWidth, entryHeight, globalOuterBorder);
+        context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
+        drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
+        context.fill(explorerX, entryY + entryHeight - 1, explorerX + explorerWidth, entryY + entryHeight, borderWithOpacity);
+        BufferedImage icon = entry.isDirectory ? FileExplorerScreen.folderIcon : getIconForFile(entry.path);
+        drawPixelArt(context, icon, explorerX + 10, entryY + 2, 16, 16);
+        if (isFavorite) {
+            drawPixelArt(context, FileExplorerScreen.pinIcon, entry.isDirectory ? explorerX + 5 : explorerX + 7, entryY + 2, 16, 16);
+        }
+    }
+
+    public static void renderSnippetBox(DrawContext context, int snippetX, int snippetY, int snippetMaxWidth, int snippetHeight, RemotelyClient.CommandSnippet snippet, boolean hovered, boolean selected, MinecraftClient minecraftClient) {
+        int bgColor = Config.getElementBackgroundColor(snippet.hashCode(), hovered, selected, false, false, false);
+        context.fill(snippetX, snippetY, snippetX + snippetMaxWidth, snippetY + snippetHeight, bgColor);
+        drawInnerBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, Config.getElementBorderColor(snippet.hashCode(), hovered, selected, false, false, false));
+        drawOuterBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, globalOuterBorder);
+        String displayName = trimTextToWidthWithEllipsis(snippet.name, snippetMaxWidth - 10);
+        context.drawText(minecraftClient.textRenderer, Text.literal(displayName), snippetX + 5, snippetY + 5, globalTextColor, shadow);
+        int lineSeparatorY = snippetY + 5 + minecraftClient.textRenderer.fontHeight + 2;
+        context.fill(snippetX + 5, lineSeparatorY, snippetX + snippetMaxWidth - 5, lineSeparatorY + 1, elementHoverBorderColor);
+        int contentY = lineSeparatorY + 4;
+        context.enableScissor(snippetX + 5, contentY, snippetX + snippetMaxWidth - 5, snippetY + snippetHeight - 4);
+        String[] allLines = snippet.commands.split("\n");
+        int lineY = contentY;
+        for (String line : allLines) {
+            String trimmed = trimTextToWidthWithEllipsis(line, snippetMaxWidth - 10);
+            context.drawText(minecraftClient.textRenderer, Text.literal(trimmed), snippetX + 5, lineY, globalDarkTextColor, shadow);
+            lineY += minecraftClient.textRenderer.fontHeight + 2;
+        }
+        context.disableScissor();
+    }
+
     public static void drawCustomButton(DrawContext context, int x, int y, String text, MinecraftClient mc, boolean hovered, boolean dynamic, boolean centered, int txColor, int hoverColor, int mouseX, int mouseY, String tooltipText) {
-        int bg = hovered ? elementHoverBackgroundColor : elementBackgroundColor;
         if (dynamic) {
             buttonW = mc.textRenderer.getWidth(text) + 10;
         } else {
             buttonW = 60;
         }
-        context.fill(x, y, x + buttonW, y + buttonH, bg);
-        drawInnerBorder(context, x, y, buttonW, buttonH, hovered ? elementHoverBorderColor : elementBorderColor);
+        int id = (text.hashCode() * 31 + x) * 31 + y;
+        context.fill(x, y, x + buttonW, y + buttonH, Config.getElementBackgroundColor(id, hovered, false, false, false, false));
+        drawInnerBorder(context, x, y, buttonW, buttonH, Config.getElementBorderColor(id, hovered, false, false, false, false));
         drawOuterBorder(context, x, y, buttonW, buttonH, globalOuterBorder);
         int tw = mc.textRenderer.getWidth(text);
         int tx = centered ? x + (buttonW - tw) / 2 : x + 5;
@@ -443,17 +472,13 @@ public class Render {
         CustomTooltip.renderTooltip(context, mc.textRenderer, context.getScaledWindowWidth(), context.getScaledWindowHeight());
     }
 
-    public static void drawSquareButton(DrawContext context, int x, int y, MinecraftClient mc, String text, boolean hovered, int txColor, int hoverColor, int mouseX, int mouseY, String tooltipText) {
-        int bg = hovered ? elementHoverBackgroundColor : elementBackgroundColor;
+    public static void drawSquareButton(DrawContext context, int x, int y, MinecraftClient mc, boolean hovered, int mouseX, int mouseY, String tooltipText) {
         int w = 18;
         int h = 18;
-        context.fill(x, y, x + w, y + h, bg);
-        drawInnerBorder(context, x, y, w, h, hovered ? elementHoverBorderColor : elementBorderColor);
+        int id = ("square" + x + y).hashCode();
+        context.fill(x, y, x + w, y + h, Config.getElementBackgroundColor(id, hovered, false, false, false, false));
+        drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, false, false, false));
         drawOuterBorder(context, x, y, w, h, globalOuterBorder);
-        int tw = mc.textRenderer.getWidth(text);
-        int tx = x + (w - tw) / 2;
-        int ty = y + 5;
-        context.drawText(mc.textRenderer, Text.literal(text), tx, ty, hovered ? hoverColor : txColor, Config.shadow);
         CustomTooltip.show(tooltipText, mouseX, mouseY, context.getScaledWindowWidth(), context.getScaledWindowHeight(), mc.textRenderer, hovered);
         CustomTooltip.renderTooltip(context, mc.textRenderer, context.getScaledWindowWidth(), context.getScaledWindowHeight());
     }
@@ -502,49 +527,49 @@ public class Render {
         }
         if (icon1 != null) {
             boolean isIcon1Hovered = mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, width - 23, 5, minecraftClient, "", isIcon1Hovered, globalTextColor, Config.dangerLightAccentColor, mouseX, mouseY, icon1.getTooltip());
+            drawSquareButton(context, width - 23, 5, minecraftClient, isIcon1Hovered, mouseX, mouseY, icon1.getTooltip());
             drawPixelArt(context, icon1.getImage(), width - 22, 6, 16, 16);
         }
         if (icon2 != null) {
             boolean isIcon2Hovered = mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, width - 46, 5, minecraftClient, "", isIcon2Hovered, globalTextColor, globalHoverTextColor, mouseX, mouseY, icon2.getTooltip());
+            drawSquareButton(context, width - 46, 5, minecraftClient, isIcon2Hovered, mouseX, mouseY, icon2.getTooltip());
             drawPixelArt(context, icon2.getImage(), width - 45, 6, 16, 16);
         }
         if (icon3 != null) {
             boolean isIcon3Hovered = mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, width - 69, 5, minecraftClient, "", isIcon3Hovered, globalTextColor, globalHoverTextColor, mouseX, mouseY, icon3.getTooltip());
+            drawSquareButton(context, width - 69, 5, minecraftClient, isIcon3Hovered, mouseX, mouseY, icon3.getTooltip());
             drawPixelArt(context, icon3.getImage(), width - 68, 6, 16, 16);
         }
         if (icon4 != null) {
             boolean isIcon4Hovered = mouseX >= width - 92 && mouseX <= width - 75 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, width - 92, 5, minecraftClient, "", isIcon4Hovered, globalTextColor, globalHoverTextColor, mouseX, mouseY, icon4.getTooltip());
+            drawSquareButton(context, width - 92, 5, minecraftClient, isIcon4Hovered, mouseX, mouseY, icon4.getTooltip());
             drawPixelArt(context, icon4.getImage(), width - 91, 6, 16, 16);
         }
         if (icon5 != null) {
             boolean isIcon5Hovered = mouseX >= 5 && mouseX <= 22 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, 5, 5, minecraftClient, "", isIcon5Hovered, globalTextColor, globalHoverTextColor, mouseX, mouseY, icon5.getTooltip());
+            drawSquareButton(context, 5, 5, minecraftClient, isIcon5Hovered, mouseX, mouseY, icon5.getTooltip());
             drawPixelArt(context, icon5.getImage(), 6, 6, 16, 16);
         }
         if (icon6 != null) {
             boolean isIcon6Hovered = mouseX >= 28 && mouseX <= 45 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, 28, 5, minecraftClient, "", isIcon6Hovered, globalTextColor, globalHoverTextColor, mouseX, mouseY, icon6.getTooltip());
+            drawSquareButton(context, 28, 5, minecraftClient, isIcon6Hovered, mouseX, mouseY, icon6.getTooltip());
             drawPixelArt(context, icon6.getImage(), 29, 6, 16, 16);
         }
         if (icon7 != null) {
             boolean isIcon7Hovered = mouseX >= 51 && mouseX <= 68 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, 51, 5, minecraftClient, "", isIcon7Hovered, globalTextColor, globalHoverTextColor, mouseX, mouseY, icon7.getTooltip());
+            drawSquareButton(context, 51, 5, minecraftClient, isIcon7Hovered, mouseX, mouseY, icon7.getTooltip());
             drawPixelArt(context, icon7.getImage(), 52, 6, 16, 16);
         }
         if (icon8 != null) {
             boolean isIcon8Hovered = mouseX >= 74 && mouseX <= 91 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, 74, 5, minecraftClient, "", isIcon8Hovered, globalTextColor, globalHoverTextColor, mouseX, mouseY, icon8.getTooltip());
+            drawSquareButton(context, 74, 5, minecraftClient, isIcon8Hovered, mouseX, mouseY, icon8.getTooltip());
             drawPixelArt(context, icon8.getImage(), 75, 6, 16, 16);
         }
         if (specialIcon != null) {
             int searchBarWidth = 200;
             int specialIconX = (width - searchBarWidth) / 2 - 23;
             boolean isSpecialIconHovered = mouseX >= specialIconX && mouseX <= specialIconX + 17 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, specialIconX, 5, minecraftClient, "", isSpecialIconHovered, globalTextColor, globalHoverTextColor, mouseX, mouseY, specialIcon.getTooltip());
+            drawSquareButton(context, specialIconX, 5, minecraftClient, isSpecialIconHovered, mouseX, mouseY, specialIcon.getTooltip());
             drawPixelArt(context, specialIcon.getImage(), specialIconX + 1, 6, 16, 16);
         }
     }
@@ -568,9 +593,10 @@ public class Render {
         int sliderWidth = 180;
         int sliderHeight = 18;
         context.drawText(mc.textRenderer, Text.literal(label), x, y + 3, globalTextColor, false);
-        int bg = hovered ? elementHoverBackgroundColor : elementBackgroundColor;
+        int id = ("slider" + x + y + label).hashCode();
+        int bg = Config.getElementBackgroundColor(id, hovered, false, false, false, false);
         context.fill(x, y, x + sliderWidth, y + sliderHeight, bg);
-        drawInnerBorder(context, x, y, sliderWidth, sliderHeight, hovered ? elementHoverBorderColor : elementBorderColor);
+        drawInnerBorder(context, x, y, sliderWidth, sliderHeight, Config.getElementBorderColor(id, hovered, false, false, false, false));
         drawOuterBorder(context, x, y, sliderWidth, sliderHeight, globalOuterBorder);
         float ratio = (float)(currentValue - minValue) / (float)(maxValue - minValue);
         int fillWidth = (int)(ratio * (sliderWidth - 2));
@@ -597,9 +623,10 @@ public class Render {
         scrollSelectorIndexFloat += (selectedIndex - scrollSelectorIndexFloat) * 0.15f;
         int w = 180;
         int h = 18;
-        int bg = hovered ? elementHoverBackgroundColor : elementBackgroundColor;
+        int id = ("scrollSelector" + x + y).hashCode();
+        int bg = Config.getElementBackgroundColor(id, hovered, false, false, false, false);
         context.fill(x, y, x + w, y + h, bg);
-        drawInnerBorder(context, x, y, w, h, hovered ? elementHoverBorderColor : elementBorderColor);
+        drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, false, false, false));
         drawOuterBorder(context, x, y, w, h, globalOuterBorder);
         int contentX = x + 1;
         int contentWidth = x + w - contentX - 1;
@@ -627,6 +654,7 @@ public class Render {
             context.fill(x + i + 1, y + 2, x + i + 2, y + h - 1, color);
             context.fill(x + w - i - 2, y + 1, x + w - i - 1, y + h - 2, color);
         }
+        context.getMatrices().pop();
     }
 
     public static void drawTabSwitch(DrawContext context, MinecraftClient mc, int x, int y, String label, List<String> options, int currentIndex, int mouseX, int mouseY) {
@@ -645,9 +673,10 @@ public class Render {
             int segW = (i == segmentCount - 1) ? (x + barWidth - segX) : segmentWidth;
             hovered = mouseX >= segX && mouseX < segX + segW && mouseY >= segY && mouseY < segY + barHeight;
             boolean selected = i == currentIndex;
-            int color = selected ? accentDarkColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;
+            int id = ("tabSwitch" + x + i).hashCode();
+            int color = Config.getElementBackgroundColor(id, hovered, selected, false, false, false);
             context.fill(segX, segY, segX + segW, segY + barHeight, color);
-            drawInnerBorder(context, segX, segY, segW, barHeight, selected ? accentColor : hovered ? elementHoverBorderColor : elementBorderColor);
+            drawInnerBorder(context, segX, segY, segW, barHeight, Config.getElementBorderColor(id, hovered, selected, false, false, false));
             int textWidth = mc.textRenderer.getWidth(options.get(i));
             int textX = segX + (segW - textWidth) / 2;
             int textY = (segY + (barHeight - mc.textRenderer.fontHeight) / 2) + 1;
@@ -659,25 +688,22 @@ public class Render {
         int inputWidth = 180;
         int inputHeight = 18;
         context.drawText(mc.textRenderer, Text.literal(label), x, y + 3, globalTextColor, Config.shadow);
-        int bg = hovered ? elementHoverBackgroundColor : elementBackgroundColor;
+        int id = ("textInput" + x + y + label).hashCode();
+        int bg = Config.getElementBackgroundColor(id, hovered, focused, false, false, false);
         context.fill(x, y, x + inputWidth, y + inputHeight, bg);
-        drawInnerBorder(context, x, y, inputWidth, inputHeight, hovered ? elementHoverBorderColor : elementBorderColor);
+        drawInnerBorder(context, x, y, inputWidth, inputHeight, Config.getElementBorderColor(id, hovered, focused, false, false, false));
         drawOuterBorder(context, x, y, inputWidth, inputHeight, globalOuterBorder);
-
         int displayWidth = inputWidth - 10;
         int textWidth = mc.textRenderer.getWidth(textValue);
         String beforeCursor = cursorPos <= textValue.length() ? textValue.substring(0, cursorPos) : textValue;
         int cursorX = x + 5 + mc.textRenderer.getWidth(beforeCursor);
-
         float scrollOffset = 0;
         if (textWidth > displayWidth) {
             if (cursorX > x + displayWidth) {
                 scrollOffset = cursorX - (x + displayWidth);
             }
         }
-
         context.enableScissor(x, y, x + inputWidth, y + inputHeight);
-
         if (textValue.isEmpty()) {
             context.drawText(mc.textRenderer, Text.literal("Type..."), x + 5, y + 5, Config.globalDarkTextColor, Config.shadow);
         } else {
@@ -692,7 +718,6 @@ public class Render {
             }
             context.drawText(mc.textRenderer, Text.literal(textValue), x + 5 - (int)scrollOffset, y + 5, globalTextColor, Config.shadow);
         }
-
         if (focused && (System.currentTimeMillis() / 500) % 2 == 0) {
             int cursorPosX = x + 5 + mc.textRenderer.getWidth(beforeCursor) - (int)scrollOffset;
             context.fill(cursorPosX, y + 4, cursorPosX + 1, y + 4 + mc.textRenderer.fontHeight, globalTextColor);

@@ -208,6 +208,7 @@ public class SSHManager {
         }
     }
 
+    // Java
     public void launchRemoteServer(String folder, String jarPath) {
         if (!isSSH || sshSession == null || !sshSession.isConnected()) {
             if (terminalInstance != null) {
@@ -227,15 +228,21 @@ public class SSHManager {
                     terminalInstance.appendOutput("Remote server starting...\n");
                 }
                 String scriptFilePath = folder + "/start.sh";
-                if (!remoteFileExists(folder + "/start.sh")) {
-                    if (terminalInstance != null) terminalInstance.appendOutput("You Don't Have a start.sh, Creating One...\n");
+                if (remoteFileExists(scriptFilePath)) {
+                    String content = readRemoteFile(scriptFilePath);
+                    if (!content.contains("-Dnet.kyori.ansi.colorLevel=indexed256")) {
+                        StringBuilder commandStr = ServerProcessManager.getCommandStr();
+                        writeRemoteFile(scriptFilePath, commandStr.toString());
+                        devPrint("Added ANSI color flag to start.sh.");
+                    }
+                } else {
+                    if (terminalInstance != null) {
+                        terminalInstance.appendOutput("start.sh not found, creating one with the required flag...\n");
+                    }
                     StringBuilder commandStr = ServerProcessManager.getCommandStr();
-                    sshWriter.write("echo \"" + commandStr.toString().replace("\"", "\\\"") + "\" > " + scriptFilePath + "\n");
-                    sshWriter.write("chmod +x " + scriptFilePath + "\n");
-                    if (terminalInstance != null)
-                        terminalInstance.appendOutput("start.sh Created, Starting Server...\n");
+                    writeRemoteFile(scriptFilePath, commandStr.toString());
                 }
-                sshWriter.write("cd " + folder +  " && ./start.sh \n");
+                sshWriter.write("cd " + folder + " && ./start.sh\n");
                 sshWriter.flush();
                 readSSHOutput();
             } catch (Exception e) {
