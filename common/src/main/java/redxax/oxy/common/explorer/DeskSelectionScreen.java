@@ -207,9 +207,9 @@ public class DeskSelectionScreen extends Screen {
                 continue;
             }
             boolean hovered = mouseX >= drawX && mouseX <= drawX + itemWidth && mouseY >= drawY && mouseY <= drawY + itemHeight;
-            int bgColor = item.isFavorite ? niceDarkAccentColor : (hovered ? Config.elementHoverBackgroundColor : Config.elementBackgroundColor);
+            int bgColor = getElementBackgroundColor(item.hashCode(), hovered, item.isFavorite, false, false, false);
             context.fill(drawX, drawY, drawX + itemWidth, drawY + itemHeight, bgColor);
-            drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, item.isFavorite ? niceAccentColor : (hovered ? Config.elementHoverBorderColor : Config.elementBorderColor));
+            drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, getElementBorderColor(item.hashCode(), hovered, item.isFavorite, false, false, false));
             drawOuterBorder(context, drawX, drawY, itemWidth, itemHeight, globalOuterBorder);
             BufferedImage icon = (item.isDirectory ? folderIcon.getImage() : fileIcon.getImage());
             drawPixelArt(context, icon, drawX + 7, drawY + (itemHeight / 2) - 8, 16, 16);

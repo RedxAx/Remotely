@@ -577,30 +577,31 @@ public class Render {
     public static void drawToggle(DrawContext context, MinecraftClient mc, int x, int y, String label, boolean value, boolean hovered) {
         int trackWidth = 40;
         int trackHeight = 20;
-        int trackColor = value ? globalHoverTextColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;
+        int id = ("toggle" + label ).hashCode();
+        int trackColor = getElementBackgroundColor(id, hovered, value, false, false, false);
         context.fill(x, y, x + trackWidth, y + trackHeight, trackColor);
         context.fill(x, y + (int)(trackHeight * 0.75), x + trackWidth, y + trackHeight, 0x20000000);
-        drawInnerBorder(context, x, y, trackWidth, trackHeight, hovered ? elementHoverBorderColor : elementBorderColor);
+        drawInnerBorder(context, x, y, trackWidth, trackHeight, getElementBorderColor(id, hovered, value, false, false, false));
         drawOuterBorder(context, x, y, trackWidth, trackHeight, globalOuterBorder);
         int knobDiameter = trackHeight - 4;
         int knobX = value ? x + trackWidth - knobDiameter - 2 : x + 2;
         int knobY = y + 2;
-        context.fill(knobX, knobY, knobX + knobDiameter, knobY + knobDiameter, elementBackgroundColor);
-        drawInnerBorder(context, knobX, knobY, knobDiameter, knobDiameter, elementBorderColor);
+        context.fill(knobX, knobY, knobX + knobDiameter, knobY + knobDiameter, getElementBackgroundColor(id, hovered, false, false, false, false));
+        drawInnerBorder(context, knobX, knobY, knobDiameter, knobDiameter, getElementBorderColor(id, hovered, false, false, false, false));
     }
 
     public static void drawSlider(DrawContext context, MinecraftClient mc, int x, int y, String label, int currentValue, int minValue, int maxValue, boolean hovered, int mouseX, int mouseY, String toolTipText) {
         int sliderWidth = 180;
         int sliderHeight = 18;
-        context.drawText(mc.textRenderer, Text.literal(label), x, y + 3, globalTextColor, false);
-        int id = ("slider" + x + y + label).hashCode();
+        int id = ("slider" + label).hashCode();
         int bg = Config.getElementBackgroundColor(id, hovered, false, false, false, false);
         context.fill(x, y, x + sliderWidth, y + sliderHeight, bg);
-        drawInnerBorder(context, x, y, sliderWidth, sliderHeight, Config.getElementBorderColor(id, hovered, false, false, false, false));
-        drawOuterBorder(context, x, y, sliderWidth, sliderHeight, globalOuterBorder);
+
         float ratio = (float)(currentValue - minValue) / (float)(maxValue - minValue);
         int fillWidth = (int)(ratio * (sliderWidth - 2));
-        context.fill(x + 1, y + 1, x + 1 + fillWidth, y + sliderHeight - 1, globalHoverTextColor);
+        context.fill(x + 1, y + 1, x + 1 + fillWidth, y + sliderHeight - 1, getElementBorderColor(id, hovered, true, false, false, false));
+        drawInnerBorder(context, x, y, sliderWidth, sliderHeight, getElementBorderColor(id, hovered, false, false, false, false));
+        drawOuterBorder(context, x, y, sliderWidth, sliderHeight, globalOuterBorder);
         context.fill(x + 1, y + sliderHeight - (int)(sliderHeight * 0.25), x + 1 + fillWidth, y + sliderHeight - 1, 0x20000000);
         String text = String.valueOf(currentValue);
         int tw = mc.textRenderer.getWidth(text);
@@ -623,7 +624,7 @@ public class Render {
         scrollSelectorIndexFloat += (selectedIndex - scrollSelectorIndexFloat) * 0.15f;
         int w = 180;
         int h = 18;
-        int id = ("scrollSelector" + x + y).hashCode();
+        int id = ("scrollSelector" + options).hashCode();
         int bg = Config.getElementBackgroundColor(id, hovered, false, false, false, false);
         context.fill(x, y, x + w, y + h, bg);
         drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, false, false, false));
@@ -640,8 +641,8 @@ public class Render {
             float offsetX = centerSlot + ringIndex * slotSpacing;
             String s = options.get(i);
             int textW = mc.textRenderer.getWidth(s);
-            float textX = offsetX - textW / 2f;
-            float textY = y + (h - mc.textRenderer.fontHeight) / 2f;
+            float textX = offsetX - textW / 2f -2;
+            float textY = (y + (h - mc.textRenderer.fontHeight) / 2f) +1;
             context.drawText(mc.textRenderer, Text.literal(s), (int) textX, (int) textY, globalTextColor, Config.shadow);
         }
         context.disableScissor();
@@ -658,7 +659,6 @@ public class Render {
     }
 
     public static void drawTabSwitch(DrawContext context, MinecraftClient mc, int x, int y, String label, List<String> options, int currentIndex, int mouseX, int mouseY) {
-        context.drawText(mc.textRenderer, Text.literal(label), x, y + 3, globalTextColor, false);
         int barWidth = 180;
         int barHeight = 18;
         context.fill(x, y, x + barWidth, y + barHeight, elementBackgroundColor);
@@ -673,10 +673,10 @@ public class Render {
             int segW = (i == segmentCount - 1) ? (x + barWidth - segX) : segmentWidth;
             hovered = mouseX >= segX && mouseX < segX + segW && mouseY >= segY && mouseY < segY + barHeight;
             boolean selected = i == currentIndex;
-            int id = ("tabSwitch" + x + i).hashCode();
-            int color = Config.getElementBackgroundColor(id, hovered, selected, false, false, false);
+            int id = ("tabSwitch" + label + options.get(i)).hashCode();
+            int color = getElementBackgroundColor(id, hovered, selected, false, false, false);
             context.fill(segX, segY, segX + segW, segY + barHeight, color);
-            drawInnerBorder(context, segX, segY, segW, barHeight, Config.getElementBorderColor(id, hovered, selected, false, false, false));
+            drawInnerBorder(context, segX, segY, segW, barHeight, getElementBorderColor(id, hovered, selected, false, false, false));
             int textWidth = mc.textRenderer.getWidth(options.get(i));
             int textX = segX + (segW - textWidth) / 2;
             int textY = (segY + (barHeight - mc.textRenderer.fontHeight) / 2) + 1;
@@ -688,7 +688,7 @@ public class Render {
         int inputWidth = 180;
         int inputHeight = 18;
         context.drawText(mc.textRenderer, Text.literal(label), x, y + 3, globalTextColor, Config.shadow);
-        int id = ("textInput" + x + y + label).hashCode();
+        int id = ("textInput" + label + textValue + cursorPos + selectionStart + selectionEnd).hashCode();
         int bg = Config.getElementBackgroundColor(id, hovered, focused, false, false, false);
         context.fill(x, y, x + inputWidth, y + inputHeight, bg);
         drawInnerBorder(context, x, y, inputWidth, inputHeight, Config.getElementBorderColor(id, hovered, focused, false, false, false));

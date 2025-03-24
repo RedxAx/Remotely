@@ -421,8 +421,8 @@ public class PluginModManagerScreen extends Screen {
             int y = contentY + (i * (entryHeight + gapBetweenEntries)) - (int) smoothOffset;
             boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + entryHeight;
             boolean isSelected = (i == selectedIndex);
-            int bg = isSelected ? (currentTabIndex == 0 ? ModrinthBackgroundColor : currentTabIndex == 1 ? SpigotBackgroundColor : HangarBackgroundColor) : (hovered ? elementHoverBackgroundColor : Config.elementBackgroundColor);
-            int borderColorFinal = isSelected ? (currentTabIndex == 0 ? ModrinthBorderColor : currentTabIndex == 1 ? SpigotBorderColor : HangarBorderColor) : (hovered ? Config.elementHoverBorderColor : Config.elementBorderColor);
+            int bg = getElementBackgroundColor(resource.hashCode(), hovered, isSelected, false, false, false);
+            int borderColorFinal = getElementBorderColor(resource.hashCode(), hovered, isSelected, false, false, false);
             context.fill(contentX, y, contentX + contentWidth, y + entryHeight, bg);
             drawInnerBorder(context, contentX, y, contentWidth, entryHeight, borderColorFinal);
             drawOuterBorder(context, contentX, y, contentWidth, entryHeight, globalOuterBorder);

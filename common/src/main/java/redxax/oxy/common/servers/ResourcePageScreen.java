@@ -326,7 +326,7 @@ public class ResourcePageScreen extends Screen {
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         if(getCurrentTabType() == TabType.DESCRIPTION) {
-            if(Render.ScrollBar.handleMouseDragged(this, (int) mouseY, cachedContentHeight)) {
+            if(Render.ScrollBar.handleMouseDragged(this, (int) mouseY, cachedContentHeight + 20)) {
                 return true;
             }
         } else if(getCurrentTabType() == TabType.VERSIONS) {
@@ -348,6 +348,9 @@ public class ResourcePageScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, getCurrentTabType() == TabType.DESCRIPTION ? cachedContentHeight + 20 : versions.size() * 35, getCurrentTabType() == TabType.DESCRIPTION ? descScrollOffset : versionsScrollOffset)) {
+            return true;
+        }
         int tabBarY = 35;
         int tabBarHeight = 18;
         if(mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight){
@@ -507,8 +510,8 @@ public class ResourcePageScreen extends Screen {
                 int y = contentY + i * (itemHeight + 2) - (int)versionsScrollOffset;
                 if(y + itemHeight < contentY || y > contentY + contentHeight) continue;
                 boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + itemHeight;
-                int bg = hovered ? elementHoverBackgroundColor : Config.elementBackgroundColor;
-                int borderColor = hovered ? Config.elementHoverBorderColor : Config.elementBorderColor;
+                int bg = getElementBackgroundColor(ver.hashCode(), hovered, false, false, false, false);
+                int borderColor = getElementBorderColor(ver.hashCode(), hovered, false, false, false, false);
                 context.fill(contentX, y, contentX + contentWidth, y + itemHeight, bg);
                 drawInnerBorder(context, contentX, y, contentWidth, itemHeight, borderColor);
                 drawOuterBorder(context, contentX, y, contentWidth, itemHeight, globalOuterBorder);
@@ -523,11 +526,11 @@ public class ResourcePageScreen extends Screen {
                     int barHeight = Render.buttonH;
                     int barX = contentX + contentWidth - barWidth - 10;
                     int barY = y + (itemHeight - barHeight) / 2;
-                    context.fill(barX, barY, barX + barWidth, barY + barHeight, Config.elementBackgroundColor);
+                    context.fill(barX, barY, barX + barWidth, barY + barHeight, getElementBackgroundColor(ver.hashCode(), hovered, true, false, false, false));
                     int fillWidth = (int)(barWidth * ver.progress);
                     context.fill(barX, barY, barX + fillWidth, barY + barHeight, globalHoverTextColor);
                     drawOuterBorder(context, barX, barY, barWidth, barHeight, globalOuterBorder);
-                    drawInnerBorder(context, barX, barY, barWidth, barHeight, Config.elementBorderColor);
+                    drawInnerBorder(context, barX, barY, barWidth, barHeight, getElementBorderColor(ver.hashCode(), hovered, true, false, false, false));
                     String percentText = (int)(ver.progress * 100) + "%";
                     context.drawText(minecraftClient.textRenderer, Text.literal(percentText), barX + barWidth/2 - minecraftClient.textRenderer.getWidth(Text.literal(percentText))/2, barY + (barHeight - minecraftClient.textRenderer.fontHeight)/2, 0xFFFFFFFF, Config.shadow);
                     String infoText = formatBytes(ver.downloadedBytes) + "/" + formatBytes(ver.totalBytes) + " | " + formatBytes((long)ver.speed) + "/s";

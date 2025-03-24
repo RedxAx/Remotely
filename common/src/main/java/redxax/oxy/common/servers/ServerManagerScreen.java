@@ -1615,9 +1615,9 @@ public class ServerManagerScreen extends Screen {
         int boxH = 16 + minecraftClient.textRenderer.fontHeight;
         int boxX = popupX + (serverTypePopupWidth - boxW) / 2;
         boolean hovered = mouseX >= boxX && mouseX <= boxX + boxW && mouseY >= boxY && mouseY <= boxY + boxH;
-        int bg = hovered ? Config.elementHoverBackgroundColor : Config.elementBackgroundColor;
+        int bg = getElementBackgroundColor(text.hashCode(), hovered, false, false, false, false);
         context.fill(boxX, boxY, boxX + boxW, boxY + boxH, bg);
-        drawInnerBorder(context, boxX, boxY, boxW, boxH, hovered ? Config.elementHoverBorderColor : Config.elementBorderColor);
+        drawInnerBorder(context, boxX, boxY, boxW, boxH, getElementBorderColor(text.hashCode(), hovered, false, false, false, false));
         drawOuterBorder(context, boxX, boxY, boxW, boxH, globalOuterBorder);
         int tw = minecraftClient.textRenderer.getWidth(text);
         int tx = boxX + (boxW - tw) / 2;
