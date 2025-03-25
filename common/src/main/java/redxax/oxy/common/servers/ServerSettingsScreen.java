@@ -14,13 +14,16 @@ import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.Toolkit;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
@@ -86,7 +89,8 @@ public class ServerSettingsScreen extends Screen {
         recalcTabs();
         originalMCScale = mc.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
-        mc.getWindow().setScaleFactor(globalScaleFactor);    }
+        mc.getWindow().setScaleFactor(globalScaleFactor);
+    }
 
     private void initTextInputOffsets() {
         for (ServerSetting s : settings) {
@@ -686,24 +690,57 @@ public class ServerSettingsScreen extends Screen {
             }
         }
         for (String fileName : fileGroups.keySet()) {
-            List<String> lines = new ArrayList<>();
-            for (ServerSetting st : fileGroups.get(fileName)) {
-                if (st.key.equalsIgnoreCase("gamemode") || st.key.equalsIgnoreCase("difficulty")) {
-                    lines.add(st.key + "=" + st.value.toLowerCase());
-                } else {
-                    if (dependencySatisfied(st) && !st.value.isEmpty())
-                        lines.add(st.key + "=" + st.value);
-                }
-            }
             if (manager == null) {
                 try {
                     Path filePath = Paths.get(basePath, fileName);
-                    Files.write(filePath, String.join("\n", lines).getBytes());
+                    List<String> originalLines = new ArrayList<>();
+                    if (Files.exists(filePath)) {
+                        originalLines = Files.readAllLines(filePath);
+                    }
+                    Map<String, String> newSettings = new LinkedHashMap<>();
+                    for (ServerSetting st : fileGroups.get(fileName)) {
+                        String value = st.value;
+                        if (st.key.equalsIgnoreCase("gamemode") || st.key.equalsIgnoreCase("difficulty")) {
+                            value = value.toLowerCase();
+                        }
+                        newSettings.put(st.key, st.key + "=" + value);
+                    }
+                    List<String> updatedLines = new ArrayList<>();
+                    Set<String> keysUpdated = new HashSet<>();
+                    for (String line : originalLines) {
+                        boolean found = false;
+                        for (String key : newSettings.keySet()) {
+                            if (line.startsWith(key + "=")) {
+                                updatedLines.add(newSettings.get(key));
+                                keysUpdated.add(key);
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            updatedLines.add(line);
+                        }
+                    }
+                    for (String key : newSettings.keySet()) {
+                        if (!keysUpdated.contains(key)) {
+                            updatedLines.add(newSettings.get(key));
+                        }
+                    }
+                    Files.write(filePath, String.join("\n", updatedLines).getBytes());
                     devPrint("Wrote settings to local file: " + filePath);
                 } catch (Exception e) {
                     devPrint("Error writing local settings to file " + fileName + ": " + e.getMessage());
                 }
             } else {
+                List<String> lines = new ArrayList<>();
+                for (ServerSetting st : fileGroups.get(fileName)) {
+                    if (st.key.equalsIgnoreCase("gamemode") || st.key.equalsIgnoreCase("difficulty")) {
+                        lines.add(st.key + "=" + st.value.toLowerCase());
+                    } else {
+                        if (dependencySatisfied(st) && !st.value.isEmpty())
+                            lines.add(st.key + "=" + st.value);
+                    }
+                }
                 manager.writeRemoteFile(basePath + "/" + fileName, String.join("\n", lines));
                 devPrint("Wrote settings to remote file: " + basePath + "/" + fileName);
             }
@@ -711,160 +748,237 @@ public class ServerSettingsScreen extends Screen {
     }
 
 
-    private void createServer() {
+    public void createServer() {
         String serverName = "";
         String serverType = "";
         String serverVersion = "";
         for (ServerSetting s : settings) {
-            if (s.name.equals("Server Name")) serverName = s.value.trim();
-            if (s.name.equals("Server Type")) serverType = s.value.trim();
-            if (s.name.equals("Server Version")) serverVersion = s.value.trim();
+            if (s.name.equals("Server Name"))
+                serverName = s.value.trim();
+            if (s.name.equals("Server Type"))
+                serverType = s.value.trim();
+            if (s.name.equals("Server Version"))
+                serverVersion = s.value.trim();
         }
-        if (serverName.isEmpty()) serverName = "MyServer";
-        if (serverVersion.isEmpty()) serverVersion = "latest";
-        int tabIndex = parent.getActiveTabIndex();
-        List<ServerInfo> currentServers = parent.getCurrentServers();
+        if (serverName.isEmpty())
+            serverName = "MyServer";
+        if (serverVersion.isEmpty())
+            serverVersion = "latest";
+        if (editServerMode && serverInfo != null) {
+            editServer(serverName, serverType.toLowerCase(), serverVersion.toLowerCase());
+        } else {
+            createNewServer(serverName, serverType.toLowerCase(), serverVersion.toLowerCase());
+        }
+        onClose();
+    }
+
+    private void editServer(String serverName, String serverType, String serverVersion) {
+        boolean shouldRebuild = !serverInfo.version.equals(serverVersion) || !serverInfo.type.equalsIgnoreCase(serverType);
         try {
-            if (editServerMode && serverInfo != null) {
-                devPrint("Editing server: " + serverName);
-                if (!serverInfo.isRemote) {
-                    String mcmanPath = ensureLocalMcman();
-                    devPrint("Running local edit command...");
-                    ProcessBuilder pb = new ProcessBuilder(mcmanPath, "init", "--edit", "--name", serverName);
-                    pb.directory(new File(settingsRoot));
-                    Process proc = pb.start();
-                    proc.waitFor();
-                    ProcessBuilder pbBuild = new ProcessBuilder(mcmanPath, "build", "--output", ".");
-                    pbBuild.directory(new File(settingsRoot + File.separator + serverName));
-                    Process procBuild = pbBuild.start();
-                    procBuild.waitFor();
-                    devPrint("Local server edited and built.");
-                } else {
-                    RemoteHostInfo rh = serverInfo.remoteHost;
-                    String remoteHome = rh.getHomeDirectory();
-                    String remoteMcmanPath = remoteHome + "/remotely/mcman";
-                    String remoteServersPath = remoteHome + "/remotely/servers";
-                    SSHManager ssh = new SSHManager(rh);
-                    ssh.connectToRemoteHost(rh.getUser(), rh.getIp(), rh.getPort(), rh.getPassword());
-                    while (!ssh.isSFTPConnected()) {
-                        Thread.sleep(100);
+            if (!serverInfo.isRemote) {
+                String mcmanPath = ensureLocalMcman();
+                File serverDir = new File(settingsRoot);
+                devPrint("Running local init command...");
+                ProcessBuilder pb = new ProcessBuilder(mcmanPath, "init", "--name", serverName);
+                pb.directory(serverDir);
+                pb.redirectErrorStream(true);
+                Process proc = pb.start();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+                StringBuilder output = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line).append("\n");
+                }
+                boolean finished = proc.waitFor(10, TimeUnit.SECONDS);
+                if (!finished) {
+                    proc.destroyForcibly();
+                    devPrint("mcman init process timed out and was terminated.");
+                }
+                devPrint("mcman init process exited with code: " + proc.exitValue() + " With output: " + output);
+                writeSettings(null, serverDir.getAbsolutePath());
+                Path serverToml = Paths.get(serverDir.getAbsolutePath(), "server.toml");
+                List<String> tomlLines = new ArrayList<>();
+                tomlLines.add("name = \"" + serverName + "\"");
+                tomlLines.add("mc_version = \"" + serverVersion + "\"");
+                tomlLines.add("[jar]");
+                tomlLines.add("type = \"" + serverType.toLowerCase() + "\"");
+                for (ServerSetting s : settings) {
+                    if (s.key.startsWith("launcher.")) {
+                        String key = s.key.substring("launcher.".length());
+                        tomlLines.add(key + " = \"" + s.value + "\"");
                     }
-                    devPrint("Preparing remote directories for edit...");
-                    ssh.prepareRemoteDirectory(remoteHome + "/remotely");
-                    ssh.prepareRemoteDirectory(remoteServersPath);
-                    ensureRemoteMcman(ssh, remoteHome);
-                    String cmdMkdir = "mkdir -p " + remoteServersPath + "/" + serverName;
-                    devPrint("Executing remote mkdir command: " + cmdMkdir);
-                    String mkdirOutput = ssh.runRemoteCommandWithOutput(cmdMkdir);
-                    devPrint("Remote mkdir output: " + mkdirOutput);
-                    String cmdUpdate = "cd " + remoteServersPath + "/" + serverName +
-                            " && echo 'name = \"" + serverName + "\"' > server.toml" +
-                            " && echo 'mc_version = \"" + serverVersion + "\"' >> server.toml" +
-                            " && echo '[jar]' >> server.toml" +
-                            " && echo 'type = \"" + serverType.toLowerCase() + "\"' >> server.toml" + getMcmanSettings();
-                    devPrint("Executing remote update command: " + cmdUpdate);
-                    String updateOutput = ssh.runRemoteCommandWithOutput(cmdUpdate);
-                    devPrint("Remote update output: " + updateOutput);
-                    writeSettings(ssh, remoteServersPath + "/" + serverName);
+                }
+                Files.write(serverToml, String.join("\n", tomlLines).getBytes());
+                if (shouldRebuild) {
+                    ProcessBuilder pbBuild = new ProcessBuilder(mcmanPath, "build", "--output", ".");
+                    pbBuild.directory(serverDir);
+                    pbBuild.redirectErrorStream(true);
+                    Process procBuild = pbBuild.start();
+                    BufferedReader readerBuild = new BufferedReader(new InputStreamReader(procBuild.getInputStream()));
+                    String lineBuild;
+                    while ((lineBuild = readerBuild.readLine()) != null) {
+                        devPrint(lineBuild);
+                    }
+                    boolean finishedBuild = procBuild.waitFor(10, TimeUnit.SECONDS);
+                    if (!finishedBuild) {
+                        procBuild.destroyForcibly();
+                        devPrint("mcman build process timed out and was terminated.");
+                    }
+                    devPrint("mcman build process exited with code: " + procBuild.exitValue());
+                } else {
+                    devPrint("Local server edited without rebuilding.");
+                }
+            } else {
+                RemoteHostInfo rh = serverInfo.remoteHost;
+                String remoteHome = rh.getHomeDirectory();
+                String remoteMcmanPath = remoteHome + "/remotely/mcman";
+                String remoteServersPath = remoteHome + "/remotely/servers";
+                SSHManager ssh = new SSHManager(rh);
+                ssh.connectToRemoteHost(rh.getUser(), rh.getIp(), rh.getPort(), rh.getPassword());
+                while (!ssh.isSFTPConnected()) {
+                    Thread.sleep(100);
+                }
+                devPrint("Preparing remote directories for edit...");
+                ssh.prepareRemoteDirectory(remoteHome + "/remotely");
+                ssh.prepareRemoteDirectory(remoteServersPath);
+                ensureRemoteMcman(ssh, remoteHome);
+                String cmdMkdir = "mkdir -p " + remoteServersPath + "/" + serverName;
+                devPrint("Executing remote mkdir command: " + cmdMkdir);
+                String mkdirOutput = ssh.runRemoteCommandWithOutput(cmdMkdir);
+                devPrint("Remote mkdir output: " + mkdirOutput);
+                String cmdUpdate = "cd " + remoteServersPath + "/" + serverName +
+                        " && echo 'name = \"" + serverName + "\"' > server.toml" +
+                        " && echo 'mc_version = \"" + serverVersion + "\"' >> server.toml" +
+                        " && echo '[jar]' >> server.toml" +
+                        " && echo 'type = \"" + serverType.toLowerCase() + "\"' >> server.toml" + getMcmanSettings();
+                devPrint("Executing remote update command: " + cmdUpdate);
+                String updateOutput = ssh.runRemoteCommandWithOutput(cmdUpdate);
+                devPrint("Remote update output: " + updateOutput);
+                writeSettings(ssh, remoteServersPath + "/" + serverName);
+                if (shouldRebuild) {
                     String cmdBuild = "cd " + remoteServersPath + "/" + serverName + " && " + remoteMcmanPath + " build --output .";
                     devPrint("Executing remote build command: " + cmdBuild);
                     String buildOutput = ssh.runRemoteCommandWithOutput(cmdBuild);
-                    devPrint("Remote build output: " + buildOutput);
+                    for (String l : buildOutput.split("\n")) {
+                        devPrint(l);
+                    }
+                } else {
+                    devPrint("Remote server edited without rebuilding.");
                 }
-                serverInfo.name = serverName;
-                serverInfo.type = serverType;
-                serverInfo.version = serverVersion;
+            }
+            serverInfo.name = serverName;
+            serverInfo.type = serverType;
+            serverInfo.version = serverVersion;
+            parent.saveServers();
+            parent.saveRemoteHosts();
+        } catch (Exception e) {
+            devPrint("Failed to update server: " + e.getMessage());
+        }
+    }
+
+    private void createNewServer(String serverName, String serverType, String serverVersion) {
+        int tabIndex = parent.getActiveTabIndex();
+        List<ServerInfo> currentServers = parent.getCurrentServers();
+        try {
+            if (tabIndex == 0) {
+                devPrint("Creating new local server: " + serverName);
+                String mcmanPath = ensureLocalMcman();
+                String serverDirPath = settingsRoot + File.separator + serverName;
+                File serverDir = new File(serverDirPath);
+                if (!serverDir.exists()) {
+                    serverDir.mkdirs();
+                }
+                StringBuilder sb = new StringBuilder();
+                sb.append("name = \"").append(serverName).append("\"\n");
+                sb.append("mc_version = \"").append(serverVersion).append("\"\n");
+                sb.append("[jar]\n");
+                sb.append("type = \"").append(serverType.toLowerCase()).append("\"\n");
+                for (ServerSetting s : settings) {
+                    if (s.key.startsWith("launcher.")) {
+                        String key = s.key.substring("launcher.".length());
+                        sb.append(key).append(" = \"").append(s.value).append("\"\n");
+                    }
+                }
+                Path serverToml = Paths.get(serverDirPath, "server.toml");
+                Files.write(serverToml, sb.toString().getBytes());
+                writeSettings(null, serverDirPath);
+                ProcessBuilder pbBuild = new ProcessBuilder(mcmanPath, "build", "--output", ".");
+                pbBuild.directory(serverDir);
+                pbBuild.redirectErrorStream(true);
+                Process procBuild = pbBuild.start();
+                BufferedReader readerBuild = new BufferedReader(new InputStreamReader(procBuild.getInputStream()));
+                StringBuilder outputBuild = new StringBuilder();
+                String lineBuild;
+                while ((lineBuild = readerBuild.readLine()) != null) {
+                    devPrint(lineBuild);
+                    outputBuild.append(lineBuild).append("\n");
+                }
+                boolean finishedBuild = procBuild.waitFor(10, TimeUnit.SECONDS);
+                if (!finishedBuild) {
+                    procBuild.destroyForcibly();
+                    devPrint("mcman Build process timed out and was terminated.");
+                }
+                devPrint("mcman Build process exited with code: " + procBuild.exitValue() + " With output: " + outputBuild.toString());
+                String path = serverDirPath;
+                ServerInfo newInfo = new ServerInfo(path);
+                newInfo.name = serverName;
+                newInfo.path = path;
+                newInfo.type = serverType.toLowerCase();
+                newInfo.version = serverVersion;
+                newInfo.isRunning = false;
+                newInfo.isRemote = false;
+                newInfo.remoteHost = null;
+                currentServers.add(newInfo);
+                devPrint("Created new local server: " + newInfo.name + " at " + newInfo.path);
+                parent.saveServers();
+            } else {
+                devPrint("Creating new remote server: " + serverName);
+                RemoteHostInfo rh = parent.getRemoteHosts().get(tabIndex - 1);
+                String remoteHome = rh.getHomeDirectory();
+                String remoteMcmanPath = remoteHome + "/remotely/mcman";
+                String remoteServersPath = remoteHome + "/remotely/servers";
+                String path = remoteServersPath + "/" + serverName;
+                ServerInfo newInfo = new ServerInfo(path);
+                newInfo.name = serverName;
+                newInfo.path = path;
+                newInfo.type = serverType.toLowerCase();
+                newInfo.version = serverVersion;
+                newInfo.isRunning = false;
+                newInfo.isRemote = true;
+                newInfo.remoteHost = rh;
+                SSHManager ssh = new SSHManager(rh);
+                ssh.connectToRemoteHost(rh.getUser(), rh.getIp(), rh.getPort(), rh.getPassword());
+                while (!ssh.isSFTPConnected()) {
+                    Thread.sleep(100);
+                }
+                devPrint("Preparing remote directories for new server...");
+                ssh.prepareRemoteDirectory(remoteHome + "/remotely");
+                ssh.prepareRemoteDirectory(remoteServersPath);
+                ensureRemoteMcman(ssh, remoteHome);
+                String cmdMkdir = "mkdir -p " + remoteServersPath + "/" + serverName;
+                devPrint("Executing remote mkdir command: " + cmdMkdir);
+                String mkdirOutput = ssh.runRemoteCommandWithOutput(cmdMkdir);
+                devPrint("Remote mkdir output: " + mkdirOutput);
+                String cmdUpdate = "cd " + remoteServersPath + "/" + serverName +
+                        " && echo 'name = \"" + serverName + "\"' > server.toml" +
+                        " && echo 'mc_version = \"" + serverVersion + "\"' >> server.toml" +
+                        " && echo '[jar]' >> server.toml" +
+                        " && echo 'type = \"" + serverType.toLowerCase() + "\"' >> server.toml" + getMcmanSettings();
+                devPrint("Executing remote update command: " + cmdUpdate);
+                String updateOutput = ssh.runRemoteCommandWithOutput(cmdUpdate);
+                devPrint("Remote update output: " + updateOutput);
+                writeSettings(ssh, remoteServersPath + "/" + serverName);
+                String cmdBuild = "cd " + remoteServersPath + "/" + serverName + " && chmod +x " + remoteMcmanPath + " && " + remoteMcmanPath + " build --output .";
+                devPrint("Executing remote build command: " + cmdBuild);
+                String buildOutput = ssh.runRemoteCommandWithOutput(cmdBuild);
+                devPrint("Remote build output: " + buildOutput);
+                currentServers.add(newInfo);
                 parent.saveServers();
                 parent.saveRemoteHosts();
-            } else {
-                if (tabIndex == 0) {
-                    devPrint("Creating new local server: " + serverName);
-                    String mcmanPath = ensureLocalMcman();
-                    String serverDirPath = settingsRoot + File.separator + serverName;
-                    File serverDir = new File(serverDirPath);
-                    if (!serverDir.exists()) {
-                        serverDir.mkdirs();
-                    }
-                    StringBuilder sb = new StringBuilder();
-                    sb.append("name = \"").append(serverName).append("\"\n");
-                    sb.append("mc_version = \"").append(serverVersion).append("\"\n");
-                    sb.append("[jar]\n");
-                    sb.append("type = \"").append(serverType.toLowerCase()).append("\"\n");
-                    for (ServerSetting s : settings) {
-                        if (s.key.startsWith("launcher.")) {
-                            String key = s.key.substring("launcher.".length());
-                            sb.append(key).append(" = \"").append(s.value).append("\"\n");
-                        }
-                    }
-                    Path serverToml = Paths.get(serverDirPath, "server.toml");
-                    Files.write(serverToml, sb.toString().getBytes());
-                    writeSettings(null, serverDirPath);
-                    ProcessBuilder pbBuild = new ProcessBuilder(mcmanPath, "build", "--output", ".");
-                    pbBuild.directory(serverDir);
-                    Process procBuild = pbBuild.start();
-                    procBuild.waitFor();
-                    String path = serverDirPath;
-                    ServerInfo newInfo = new ServerInfo(path);
-                    newInfo.name = serverName;
-                    newInfo.path = path;
-                    newInfo.type = serverType.toLowerCase();
-                    newInfo.version = serverVersion;
-                    newInfo.isRunning = false;
-                    newInfo.isRemote = false;
-                    newInfo.remoteHost = null;
-                    currentServers.add(newInfo);
-                    devPrint("Created new local server: " + newInfo.name + " at " + newInfo.path);
-                    parent.saveServers();
-                } else {
-                    devPrint("Creating new remote server: " + serverName);
-                    RemoteHostInfo rh = parent.getRemoteHosts().get(tabIndex - 1);
-                    String remoteHome = rh.getHomeDirectory();
-                    String remoteMcmanPath = remoteHome + "/remotely/mcman";
-                    String remoteServersPath = remoteHome + "/remotely/servers";
-                    String path = remoteServersPath + "/" + serverName;
-                    ServerInfo newInfo = new ServerInfo(path);
-                    newInfo.name = serverName;
-                    newInfo.path = path;
-                    newInfo.type = serverType.toLowerCase();
-                    newInfo.version = serverVersion;
-                    newInfo.isRunning = false;
-                    newInfo.isRemote = true;
-                    newInfo.remoteHost = rh;
-                    SSHManager ssh = new SSHManager(rh);
-                    ssh.connectToRemoteHost(rh.getUser(), rh.getIp(), rh.getPort(), rh.getPassword());
-                    while (!ssh.isSFTPConnected()) {
-                        Thread.sleep(100);
-                    }
-                    devPrint("Preparing remote directories for new server...");
-                    ssh.prepareRemoteDirectory(remoteHome + "/remotely");
-                    ssh.prepareRemoteDirectory(remoteServersPath);
-                    ensureRemoteMcman(ssh, remoteHome);
-                    String cmdMkdir = "mkdir -p " + remoteServersPath + "/" + serverName;
-                    devPrint("Executing remote mkdir command: " + cmdMkdir);
-                    String mkdirOutput = ssh.runRemoteCommandWithOutput(cmdMkdir);
-                    devPrint("Remote mkdir output: " + mkdirOutput);
-                    String cmdUpdate = "cd " + remoteServersPath + "/" + serverName +
-                            " && echo 'name = \"" + serverName + "\"' > server.toml" +
-                            " && echo 'mc_version = \"" + serverVersion + "\"' >> server.toml" +
-                            " && echo '[jar]' >> server.toml" +
-                            " && echo 'type = \"" + serverType.toLowerCase() + "\"' >> server.toml" + getMcmanSettings();
-                    devPrint("Executing remote update command: " + cmdUpdate);
-                    String updateOutput = ssh.runRemoteCommandWithOutput(cmdUpdate);
-                    devPrint("Remote update output: " + updateOutput);
-                    writeSettings(ssh, remoteServersPath + "/" + serverName);
-                    String cmdBuild = "cd " + remoteServersPath + "/" + serverName + " && " + "chmod +x " + remoteMcmanPath + " && " + remoteMcmanPath + " build --output .";
-                    devPrint("Executing remote build command: " + cmdBuild);
-                    String buildOutput = ssh.runRemoteCommandWithOutput(cmdBuild);
-                    devPrint("Remote build output: " + buildOutput);
-                    currentServers.add(newInfo);
-                    parent.saveServers();
-                    parent.saveRemoteHosts();
-                }
             }
         } catch (Exception e) {
             devPrint("Failed to create/update server: " + e.getMessage());
         }
-        onClose();
     }
 
     @Override
