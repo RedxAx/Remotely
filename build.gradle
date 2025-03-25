@@ -1,5 +1,5 @@
 plugins {
-    id "fabric-loom" version "1.7-SNAPSHOT" apply false
+    id "fabric-loom" version "1.10-SNAPSHOT" apply false
     id "com.gradleup.shadow" version "9.0.0-beta4" apply false
 }
 dependencyLocking {
