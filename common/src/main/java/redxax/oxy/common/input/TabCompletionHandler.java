@@ -1,20 +1,26 @@
 package redxax.oxy.common.input;
 
 import redxax.oxy.common.SSHManager;
-
 import java.io.File;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class TabCompletionHandler {
-
-    private List<String> tabCompletions = new ArrayList<>();
-    private String tabCompletionSuggestion = "";
+    private List<String> completions = new ArrayList<>();
+    private int completionIndex = 0;
+    private String lastPrefix = "";
+    private String originalPrefix = "";
+    private boolean originalPrefixSet = false;
+    private String suggestion = "";
     private final SSHManager sshManager;
     private String currentDirectory;
-
     private List<String> allCommands = new ArrayList<>();
     private long commandsLastFetched = 0;
     private static final long COMMANDS_CACHE_DURATION = 60 * 1000;
+    private String currentBase = "";
 
     public TabCompletionHandler(SSHManager sshManager, String currentDirectory) {
         this.sshManager = sshManager;
@@ -22,216 +28,101 @@ public class TabCompletionHandler {
     }
 
     public void handleTabCompletion(StringBuilder inputBuffer, int cursorPosition) {
-        tabCompletions.clear();
-        String currentInput = inputBuffer.toString();
-        String trimmedInput = currentInput.substring(0, cursorPosition).trim();
-
-        if (trimmedInput.isEmpty()) {
+        String input = inputBuffer.toString();
+        String textBeforeCursor = input.substring(0, cursorPosition);
+        if (textBeforeCursor.trim().isEmpty()) {
+            resetTabCompletion();
             return;
         }
-
-        String[] tokens = trimmedInput.split("\\s+");
-        String command = tokens[0];
-
-        if (command.equals("cd")) {
-            String path = trimmedInput.substring(trimmedInput.indexOf("cd") + 2).trim();
-            String separator = getPathSeparator();
-
-            String basePath;
-            String partial;
-
-            int lastSeparatorIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-            if (lastSeparatorIndex != -1) {
-                basePath = path.substring(0, lastSeparatorIndex + 1);
-                partial = path.substring(lastSeparatorIndex + 1);
+        String[] tokens = textBeforeCursor.split("\\s+");
+        if (tokens.length == 0) {
+            resetTabCompletion();
+            return;
+        }
+        if (tokens[0].equals("cd")) {
+            String pathPart = textBeforeCursor.substring(textBeforeCursor.indexOf("cd") + 2).trim();
+            String base = "";
+            String partial = "";
+            int lastSep = Math.max(pathPart.lastIndexOf('/'), pathPart.lastIndexOf('\\'));
+            if (lastSep != -1) {
+                base = pathPart.substring(0, lastSep + 1);
+                partial = pathPart.substring(lastSep + 1);
             } else {
-                basePath = "";
-                partial = path;
+                partial = pathPart;
             }
-
-            tabCompletions = getDirectoryCompletions(basePath + partial);
-
-            if (!tabCompletions.isEmpty()) {
-                tabCompletions.sort(Comparator.naturalOrder());
-                String completion = tabCompletions.get(0);
-                tabCompletionSuggestion = completion.substring(partial.length()) + separator;
-            } else {
-                tabCompletionSuggestion = "";
+            currentBase = base;
+            if (!originalPrefixSet) {
+                originalPrefix = partial;
+                originalPrefixSet = true;
             }
-        } else if (trimmedInput.startsWith("./") || trimmedInput.startsWith(".\\")) {
-            String path = trimmedInput.substring(2).trim();
-
-            String basePath;
-            String partial;
-
-            int lastSeparatorIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-            if (lastSeparatorIndex != -1) {
-                basePath = path.substring(0, lastSeparatorIndex + 1);
-                partial = path.substring(lastSeparatorIndex + 1);
-            } else {
-                basePath = "";
-                partial = path;
-            }
-
-            tabCompletions = getExecutableCompletions(basePath + partial);
-
-            if (!tabCompletions.isEmpty()) {
-                tabCompletions.sort(Comparator.naturalOrder());
-                String completion = tabCompletions.get(0);
-                tabCompletionSuggestion = completion.substring(partial.length());
-            } else {
-                tabCompletionSuggestion = "";
-            }
+            List<String> dirs = sshManager.isSSH() ? getRemoteDirectoryCompletions(base, originalPrefix)
+                    : getLocalDirectoryCompletions(base, originalPrefix);
+            cycleCompletion(originalPrefix, dirs);
         } else {
-            tabCompletions = getAvailableCommands(trimmedInput);
-
-            if (!tabCompletions.isEmpty()) {
-                tabCompletions.sort(Comparator.naturalOrder());
-                String completion = tabCompletions.get(0);
-
-                if (!completion.equals(trimmedInput)) {
-                    tabCompletionSuggestion = completion.substring(trimmedInput.length());
-                } else {
-                    tabCompletionSuggestion = "";
-                }
-            } else {
-                tabCompletionSuggestion = "";
+            if (!originalPrefixSet) {
+                originalPrefix = tokens[tokens.length - 1];
+                originalPrefixSet = true;
             }
+            currentBase = "";
+            List<String> cmds = getAvailableCommands(originalPrefix);
+            cycleCompletion(originalPrefix, cmds);
         }
     }
 
-    public void resetTabCompletion() {
-        tabCompletions.clear();
-        tabCompletionSuggestion = "";
-    }
-
-    public void updateTabCompletionSuggestion(StringBuilder inputBuffer) {
-        tabCompletions.clear();
-        if (inputBuffer.isEmpty()) {
-            tabCompletionSuggestion = "";
+    private void cycleCompletion(String prefix, List<String> options) {
+        if (options.isEmpty()) {
+            suggestion = "";
+            completions.clear();
+            lastPrefix = "";
+            completionIndex = 0;
             return;
         }
-
-        String currentInput = inputBuffer.toString();
-        String[] tokens = currentInput.trim().split("\\s+");
-        String lastToken = tokens.length > 0 ? tokens[tokens.length - 1] : "";
-
-        if (tokens.length == 1 && tokens[0].equals("cd")) {
-            tabCompletionSuggestion = "";
-            return;
-        }
-
-        if (tokens.length >= 1 && tokens[0].equals("cd")) {
-            String path = currentInput.substring(currentInput.indexOf("cd") + 2).trim();
-            String separator = getPathSeparator();
-
-            boolean endsWithSeparator = path.endsWith("/") || path.endsWith("\\");
-            String partial;
-
-            if (endsWithSeparator) {
-                partial = "";
-            } else {
-                int lastSeparatorIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-                if (lastSeparatorIndex != -1) {
-                    partial = path.substring(lastSeparatorIndex + 1);
-                } else {
-                    partial = path;
-                }
-            }
-
-            tabCompletions = getDirectoryCompletions(path);
-
-            if (!tabCompletions.isEmpty()) {
-                String suggestion = tabCompletions.get(0);
-                if (suggestion.startsWith(partial) && !suggestion.equals(partial)) {
-                    tabCompletionSuggestion = suggestion.substring(partial.length()) + (endsWithSeparator ? separator : "");
-                } else {
-                    tabCompletionSuggestion = "";
-                }
-            } else {
-                tabCompletionSuggestion = "";
-            }
-        } else if (lastToken.startsWith("./") || lastToken.startsWith(".\\")) {
-            String path = lastToken.substring(2).trim();
-
-            int lastSeparatorIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-            String partial;
-
-            if (lastSeparatorIndex != -1) {
-                partial = path.substring(lastSeparatorIndex + 1);
-            } else {
-                partial = path;
-            }
-
-            tabCompletions = getExecutableCompletions(path);
-
-            if (!tabCompletions.isEmpty()) {
-                String suggestion = tabCompletions.get(0);
-                if (suggestion.startsWith(partial) && !suggestion.equals(partial)) {
-                    tabCompletionSuggestion = suggestion.substring(partial.length());
-                } else {
-                    tabCompletionSuggestion = "";
-                }
-            } else {
-                tabCompletionSuggestion = "";
-            }
+        completions = options;
+        if (!prefix.equals(lastPrefix)) {
+            completionIndex = 0;
+            lastPrefix = prefix;
         } else {
-            tabCompletions = getAvailableCommands(lastToken);
-
-            if (!tabCompletions.isEmpty()) {
-                String suggestion = tabCompletions.get(0);
-                if (suggestion.startsWith(lastToken) && !suggestion.equals(lastToken)) {
-                    tabCompletionSuggestion = suggestion.substring(lastToken.length());
-                } else {
-                    tabCompletionSuggestion = "";
-                }
-            } else {
-                tabCompletionSuggestion = "";
-            }
+            completionIndex = (completionIndex + 1) % completions.size();
+        }
+        String candidate = completions.get(completionIndex);
+        if (candidate.toLowerCase().startsWith(prefix.toLowerCase())) {
+            suggestion = candidate.substring(prefix.length());
+        } else {
+            suggestion = candidate;
         }
     }
 
     public String getTabCompletionSuggestion() {
-        return tabCompletionSuggestion;
+        return suggestion;
+    }
+
+    public String getOriginalPrefix() {
+        if (!currentBase.isEmpty()) {
+            return currentBase + originalPrefix;
+        }
+        return originalPrefix;
+    }
+
+    public void resetTabCompletion() {
+        completions.clear();
+        suggestion = "";
+        lastPrefix = "";
+        completionIndex = 0;
+        originalPrefix = "";
+        originalPrefixSet = false;
+        currentBase = "";
     }
 
     public void setCurrentDirectory(String currentDirectory) {
         this.currentDirectory = currentDirectory;
     }
 
-    private synchronized void refreshAvailableCommands() {
-        if (sshManager.isSSH()) {
-            return;
-        }
-        if (System.currentTimeMillis() - commandsLastFetched < COMMANDS_CACHE_DURATION) {
-            return;
-        }
-        commandsLastFetched = System.currentTimeMillis();
-        Set<String> commandsSet = new HashSet<>();
-        String pathEnv = System.getenv("PATH");
-        if (pathEnv != null) {
-            String[] pathDirs = pathEnv.split(File.pathSeparator);
-            for (String dir : pathDirs) {
-                File dirFile = new File(dir);
-                if (dirFile.isDirectory()) {
-                    File[] files = dirFile.listFiles();
-                    if (files != null) {
-                        for (File file : files) {
-                            if (file.isFile() && isExecutable(file) && !file.isHidden()) {
-                                String fileName = file.getName();
-                                commandsSet.add(fileName);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        allCommands = new ArrayList<>(commandsSet);
-    }
-
     private List<String> getAvailableCommands(String prefix) {
         if (sshManager.isSSH()) {
-            return sshManager.getSSHCommands(prefix);
+            return sshManager.getSSHCommands(prefix).stream()
+                    .filter(cmd -> cmd.toLowerCase().startsWith(prefix.toLowerCase()))
+                    .sorted(String.CASE_INSENSITIVE_ORDER)
+                    .collect(Collectors.toList());
         }
         refreshAvailableCommands();
         List<String> result = new ArrayList<>();
@@ -244,23 +135,38 @@ public class TabCompletionHandler {
         return result;
     }
 
-    private List<String> getDirectoryCompletions(String path) {
-        File dir;
-        String partial = "";
-        if (path.endsWith("/") || path.endsWith("\\")) {
-            dir = new File(currentDirectory, path);
-        } else {
-            int lastSeparatorIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-            if (lastSeparatorIndex != -1) {
-                String basePath = path.substring(0, lastSeparatorIndex + 1);
-                partial = path.substring(lastSeparatorIndex + 1);
-                dir = new File(currentDirectory, basePath);
-            } else {
-                dir = new File(currentDirectory);
-                partial = path;
+    private synchronized void refreshAvailableCommands() {
+        if (sshManager.isSSH()) {
+            return;
+        }
+        if (System.currentTimeMillis() - commandsLastFetched < COMMANDS_CACHE_DURATION) {
+            return;
+        }
+        commandsLastFetched = System.currentTimeMillis();
+        Set<String> cmds = new HashSet<>();
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv != null) {
+            String[] dirs = pathEnv.split(File.pathSeparator);
+            for (String dir : dirs) {
+                File d = new File(dir);
+                if (d.isDirectory()) {
+                    File[] files = d.listFiles();
+                    if (files != null) {
+                        for (File file : files) {
+                            if (file.isFile() && file.canExecute() && !file.isHidden()) {
+                                cmds.add(file.getName());
+                            }
+                        }
+                    }
+                }
             }
         }
-        List<String> directories = new ArrayList<>();
+        allCommands = new ArrayList<>(cmds);
+    }
+
+    private List<String> getLocalDirectoryCompletions(String base, String partial) {
+        File dir = base.isEmpty() ? new File(currentDirectory) : new File(currentDirectory, base);
+        List<String> dirs = new ArrayList<>();
         if (dir.isDirectory()) {
             File[] files = dir.listFiles();
             if (files != null) {
@@ -268,60 +174,34 @@ public class TabCompletionHandler {
                     if (f.isDirectory() && !f.isHidden()) {
                         String name = f.getName();
                         if (name.toLowerCase().startsWith(partial.toLowerCase())) {
-                            directories.add(name);
+                            dirs.add(name);
                         }
                     }
                 }
-                directories.sort(String.CASE_INSENSITIVE_ORDER);
             }
         }
-        return directories;
+        dirs.sort(String.CASE_INSENSITIVE_ORDER);
+        return dirs;
     }
 
-    private List<String> getExecutableCompletions(String partialPath) {
-        File dir;
-        String partial = "";
-        if (partialPath.endsWith("/") || partialPath.endsWith("\\")) {
-            dir = new File(currentDirectory, partialPath);
-        } else {
-            int lastSeparatorIndex = Math.max(partialPath.lastIndexOf('/'), partialPath.lastIndexOf('\\'));
-            if (lastSeparatorIndex != -1) {
-                String basePath = partialPath.substring(0, lastSeparatorIndex + 1);
-                partial = partialPath.substring(lastSeparatorIndex + 1);
-                dir = new File(currentDirectory, basePath);
-            } else {
-                dir = new File(currentDirectory);
-                partial = partialPath;
-            }
-        }
-        List<String> executables = new ArrayList<>();
-        if (dir.isDirectory()) {
-            File[] files = dir.listFiles();
-            if (files != null) {
-                for (File f : files) {
-                    if (f.isFile() && isExecutable(f) && !f.isHidden()) {
-                        String name = f.getName();
-                        if (name.toLowerCase().startsWith(partial.toLowerCase())) {
-                            executables.add(name);
-                        }
-                    }
+    private List<String> getRemoteDirectoryCompletions(String base, String partial) {
+        List<String> dirs = new ArrayList<>();
+        try {
+            String remotePath = base.isEmpty() ? currentDirectory : currentDirectory + "/" + base;
+            List<String> entries = sshManager.listRemoteDirectory(remotePath);
+            for (String entry : entries) {
+                String fullPath = remotePath.endsWith("/") ? remotePath + entry : remotePath + "/" + entry;
+                if (sshManager.isRemoteDirectory(fullPath) && entry.toLowerCase().startsWith(partial.toLowerCase())) {
+                    dirs.add(entry);
                 }
-                executables.sort(String.CASE_INSENSITIVE_ORDER);
             }
+            dirs.sort(String.CASE_INSENSITIVE_ORDER);
+        } catch (Exception e) {
+            dirs.clear();
         }
-        return executables;
+        return dirs;
     }
 
-    private boolean isExecutable(File file) {
-        if (System.getProperty("os.name").toLowerCase().contains("win")) {
-            String name = file.getName().toLowerCase();
-            return name.endsWith(".exe") || name.endsWith(".bat") || name.endsWith(".cmd");
-        } else {
-            return file.canExecute();
-        }
-    }
-
-    private String getPathSeparator() {
-        return File.separator;
+    public void updateTabCompletionSuggestion(StringBuilder inputBuffer) {
     }
 }

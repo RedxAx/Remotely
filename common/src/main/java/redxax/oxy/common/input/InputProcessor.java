@@ -49,7 +49,6 @@ public class InputProcessor {
             inputBuffer.insert(cursorPosition, chr);
             cursorPosition++;
             tabCompletionHandler.resetTabCompletion();
-            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
             terminalInstance.renderer.resetCursorBlink();
             terminalInstance.scrollToBottom();
             return true;
@@ -107,13 +106,16 @@ public class InputProcessor {
         switch (keyCode) {
             case GLFW.GLFW_KEY_TAB:
                 int wordStart = findWordStart(inputBuffer, cursorPosition);
-                StringBuilder partial = new StringBuilder(inputBuffer.substring(wordStart, cursorPosition));
                 tabCompletionHandler.handleTabCompletion(inputBuffer, cursorPosition);
                 String suggestion = tabCompletionHandler.getTabCompletionSuggestion();
                 if (!suggestion.isEmpty()) {
-                    inputBuffer.replace(wordStart, cursorPosition, partial.toString() + suggestion);
-                    cursorPosition = wordStart + partial.length() + suggestion.length();
-                    tabCompletionHandler.resetTabCompletion();
+                    int tokenEnd = wordStart;
+                    while (tokenEnd < inputBuffer.length() && !Character.isWhitespace(inputBuffer.charAt(tokenEnd))) {
+                        tokenEnd++;
+                    }
+                    String newText = tabCompletionHandler.getOriginalPrefix() + suggestion;
+                    inputBuffer.replace(wordStart, tokenEnd, newText);
+                    cursorPosition = wordStart + newText.length();
                 }
                 updateTabCompletionCurrentDirectory();
                 terminalInstance.renderer.resetCursorBlink();
@@ -123,7 +125,6 @@ public class InputProcessor {
                 inputBuffer.insert(cursorPosition, ' ');
                 cursorPosition++;
                 tabCompletionHandler.resetTabCompletion();
-                tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
                 terminalInstance.renderer.resetCursorBlink();
                 terminalInstance.scrollToBottom();
                 return true;
@@ -142,7 +143,6 @@ public class InputProcessor {
                     inputBuffer.setLength(0);
                     cursorPosition = 0;
                     tabCompletionHandler.resetTabCompletion();
-                    tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
                     terminalInstance.renderer.resetCursorBlink();
                     terminalInstance.scrollToBottom();
                     terminalInstance.setHistoryIndex(terminalInstance.getCommandHistory().size());
@@ -158,7 +158,6 @@ public class InputProcessor {
                     cursorPosition = inputBuffer.length();
                 }
                 tabCompletionHandler.resetTabCompletion();
-                tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
                 terminalInstance.renderer.resetCursorBlink();
                 return true;
             case GLFW.GLFW_KEY_DOWN:
@@ -173,7 +172,6 @@ public class InputProcessor {
                     cursorPosition = 0;
                 }
                 tabCompletionHandler.resetTabCompletion();
-                tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
                 terminalInstance.renderer.resetCursorBlink();
                 return true;
             case GLFW.GLFW_KEY_BACKSPACE:
@@ -183,7 +181,6 @@ public class InputProcessor {
                         inputBuffer.delete(newCursorPos, cursorPosition);
                         cursorPosition = newCursorPos;
                         tabCompletionHandler.resetTabCompletion();
-                        tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
                         terminalInstance.renderer.resetCursorBlink();
                         terminalInstance.scrollToBottom();
                     }
@@ -192,7 +189,6 @@ public class InputProcessor {
                         inputBuffer.deleteCharAt(cursorPosition - 1);
                         cursorPosition--;
                         tabCompletionHandler.resetTabCompletion();
-                        tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
                         terminalInstance.renderer.resetCursorBlink();
                         terminalInstance.scrollToBottom();
                     }
@@ -210,7 +206,6 @@ public class InputProcessor {
                     }
                 }
                 tabCompletionHandler.resetTabCompletion();
-                tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
                 terminalInstance.renderer.resetCursorBlink();
                 return true;
             case GLFW.GLFW_KEY_RIGHT:
@@ -222,17 +217,19 @@ public class InputProcessor {
                     }
                 }
                 tabCompletionHandler.resetTabCompletion();
-                tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
                 terminalInstance.renderer.resetCursorBlink();
                 return true;
             case GLFW.GLFW_KEY_V:
                 if (ctrlHeld) {
                     String clipboard = this.minecraftClient.keyboard.getClipboard();
                     wordStart = findWordStart(inputBuffer, cursorPosition);
-                    inputBuffer.replace(wordStart, cursorPosition, clipboard);
+                    int tokenEnd = wordStart;
+                    while (tokenEnd < inputBuffer.length() && !Character.isWhitespace(inputBuffer.charAt(tokenEnd))) {
+                        tokenEnd++;
+                    }
+                    inputBuffer.replace(wordStart, tokenEnd, clipboard);
                     cursorPosition = wordStart + clipboard.length();
                     tabCompletionHandler.resetTabCompletion();
-                    tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
                     terminalInstance.renderer.resetCursorBlink();
                     terminalInstance.scrollToBottom();
                     return true;
