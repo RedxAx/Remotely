@@ -1,6 +1,8 @@
 package redxax.oxy.common.servers;
 
 import java.util.List;
+import java.util.Set;
+
 import redxax.oxy.common.servers.SettingsScreen.ServerSettingType;
 
 public class Settings {
@@ -32,6 +34,10 @@ public class Settings {
         this.index = 0;
     }
     public Settings(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, List<String> options) {
+        this(name, description, tab, file, key, type, defaultValue);
+        this.options = options;
+    }
+    public Settings(String name, String description, String tab, String file, String key, ServerSettingType type, String defaultValue, List<String> options) {
         this(name, description, tab, file, key, type, defaultValue);
         this.options = options;
     }
