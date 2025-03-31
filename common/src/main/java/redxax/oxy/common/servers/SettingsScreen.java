@@ -27,8 +27,7 @@ import java.util.concurrent.TimeUnit;
 
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
-import static redxax.oxy.common.servers.SettingsScreen.ServerSettingType.TEXT;
-import static redxax.oxy.common.servers.SettingsScreen.ServerSettingType.TOGGLE;
+import static redxax.oxy.common.servers.SettingsScreen.ServerSettingType.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.drawBufferedImage;
 import static redxax.oxy.common.util.SoundUtils.playClick;
@@ -103,6 +102,7 @@ public class SettingsScreen extends Screen {
         settings.add(new Settings("Show Minecraft Background", "Display The Minecraft Panorama As The Background.", "Appearance", "none", "background", TOGGLE, String.valueOf(background)));
         settings.add(new Settings("Show Wallpaper", "Display Your PC Wallpaper As The Background.", "Appearance", "none", "wallpaper", TOGGLE, String.valueOf(wallpaper)));
         settings.add(new Settings("Text Shadow", "Enable Text Background / Shadow Effect.", "Appearance", "none", "shadow", TOGGLE, String.valueOf(shadow)));
+        settings.add(new Settings("Main Menu Buttons Style", "Choose The Style of The Buttons In The Main Menu Screen.", "Appearance", "none", "mainMenuButtonsStyle", SCROLL_SWITCH, (mainMenuButtonsStyle == 0 ? "Vanilla" : mainMenuButtonsStyle == 1 ? "Minimal" : "Normal"), Arrays.asList("Vanilla", "Minimal", "Normal")));
 
         settings.add(new Settings("Developer Mode", "Enable Developer Mode.", "Development", "none", "isDev", TOGGLE, String.valueOf(isDev)));
     }

@@ -20,6 +20,8 @@ public class Config {
     public static float scaleAnimationSpeed = 7f;
     public static float animScaleFactor = 1f;
     public static float snippetListScrollSpeed = 10f;
+
+    public static int mainMenuButtonsStyle = 1;
     public static long lastFrameTime = System.nanoTime();
 
     public static int elementBackgroundColor = 0xFF2C2C2C;
@@ -69,8 +71,8 @@ public class Config {
     public static int terminalTextInfoColor = 0xFF00FF00;
 
     public static float colorTransitionSpeed = 10f;
-    private static final Map<Integer, Integer> animatedBackgroundColorsMap = new HashMap<>();
-    private static final Map<Integer, Integer> animatedBorderColorsMap = new HashMap<>();
+    private static final Map<Integer, float[]> animatedBackgroundColorsMap = new HashMap<>();
+    private static final Map<Integer, float[]> animatedBorderColorsMap = new HashMap<>();
 
     public static void tickTime() {
         currentTime = System.nanoTime();
@@ -78,36 +80,30 @@ public class Config {
         lastFrameTime = currentTime;
     }
 
-    public static int blendColor(int from, int to, float t) {
-        int aFrom = (from >> 24) & 0xFF;
-        int rFrom = (from >> 16) & 0xFF;
-        int gFrom = (from >> 8) & 0xFF;
-        int bFrom = from & 0xFF;
-        int aTo = (to >> 24) & 0xFF;
-        int rTo = (to >> 16) & 0xFF;
-        int gTo = (to >> 8) & 0xFF;
-        int bTo = to & 0xFF;
-        int aNew = (int)(aFrom + (aTo - aFrom) * t);
-        int rNew = (int)(rFrom + (rTo - rFrom) * t);
-        int gNew = (int)(gFrom + (gTo - gFrom) * t);
-        int bNew = (int)(bFrom + (bTo - bFrom) * t);
-        return (aNew << 24) | (rNew << 16) | (gNew << 8) | bNew;
+    private static float[] intToFloatArray(int color) {
+        float a = ((color >> 24) & 0xFF) / 255f;
+        float r = ((color >> 16) & 0xFF) / 255f;
+        float g = ((color >> 8) & 0xFF) / 255f;
+        float b = (color & 0xFF) / 255f;
+        return new float[]{a, r, g, b};
     }
 
-    private static boolean isClose(int color1, int color2) {
-        int threshold = 2;
-        int a1 = (color1 >> 24) & 0xFF;
-        int r1 = (color1 >> 16) & 0xFF;
-        int g1 = (color1 >> 8) & 0xFF;
-        int b1 = color1 & 0xFF;
-        int a2 = (color2 >> 24) & 0xFF;
-        int r2 = (color2 >> 16) & 0xFF;
-        int g2 = (color2 >> 8) & 0xFF;
-        int b2 = color2 & 0xFF;
-        return Math.abs(a1 - a2) < threshold &&
-                Math.abs(r1 - r2) < threshold &&
-                Math.abs(g1 - g2) < threshold &&
-                Math.abs(b1 - b2) < threshold;
+    private static int floatArrayToInt(float[] c) {
+        int a = Math.round(c[0] * 255);
+        int r = Math.round(c[1] * 255);
+        int g = Math.round(c[2] * 255);
+        int b = Math.round(c[3] * 255);
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    private static float[] updateColor(float[] current, float[] target, float t) {
+        for (int i = 0; i < 4; i++) {
+            current[i] = current[i] + (target[i] - current[i]) * t;
+            if (Math.abs(target[i] - current[i]) < 0.01f) {
+                current[i] = target[i];
+            }
+        }
+        return current;
     }
 
     public static int getElementBorderColor(int id, boolean hovered, boolean selected, boolean danger, boolean nice, boolean calm) {
@@ -122,16 +118,14 @@ public class Config {
             target = hovered && selected ? accentHoverColor : selected ? accentColor : hovered ? elementHoverBorderColor : elementBorderColor;
         }
         if (!animatedBorderColorsMap.containsKey(id)) {
-            animatedBorderColorsMap.put(id, target);
+            animatedBorderColorsMap.put(id, intToFloatArray(target));
         }
         float t = Math.min(colorTransitionSpeed * deltaTime, 1f);
-        int current = animatedBorderColorsMap.get(id);
-        int newColor = blendColor(current, target, t);
-        if (isClose(newColor, target)) {
-            newColor = target;
-        }
-        animatedBorderColorsMap.put(id, newColor);
-        return newColor;
+        float[] current = animatedBorderColorsMap.get(id);
+        float[] targetFloats = intToFloatArray(target);
+        float[] newColorFloats = updateColor(current, targetFloats, t);
+        animatedBorderColorsMap.put(id, newColorFloats);
+        return floatArrayToInt(newColorFloats);
     }
 
     public static int getElementBackgroundColor(int id, boolean hovered, boolean selected, boolean danger, boolean nice, boolean calm) {
@@ -146,16 +140,14 @@ public class Config {
             target = hovered && selected ? accentDarkHoverColor : selected ? accentDarkColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;
         }
         if (!animatedBackgroundColorsMap.containsKey(id)) {
-            animatedBackgroundColorsMap.put(id, target);
+            animatedBackgroundColorsMap.put(id, intToFloatArray(target));
         }
         float t = Math.min(colorTransitionSpeed * deltaTime, 1f);
-        int current = animatedBackgroundColorsMap.get(id);
-        int newColor = blendColor(current, target, t);
-        if (isClose(newColor, target)) {
-            newColor = target;
-        }
-        animatedBackgroundColorsMap.put(id, newColor);
-        return newColor;
+        float[] current = animatedBackgroundColorsMap.get(id);
+        float[] targetFloats = intToFloatArray(target);
+        float[] newColorFloats = updateColor(current, targetFloats, t);
+        animatedBackgroundColorsMap.put(id, newColorFloats);
+        return floatArrayToInt(newColorFloats);
     }
 
     public static int getTextColor(boolean hovered, boolean selected) {
