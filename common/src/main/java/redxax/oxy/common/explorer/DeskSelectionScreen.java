@@ -58,7 +58,8 @@ public class DeskSelectionScreen extends Screen {
         this.parent = parent;
         originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
-        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);    }
+        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
+    }
 
     @Override
     protected void init() {
@@ -189,7 +190,7 @@ public class DeskSelectionScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        if (Config.background) renderBackground(context, mouseX, mouseY, delta);
+        this.renderBackground(context, mouseX, mouseY, delta);
         drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, null, null, null, null, null, null, null, null);
         context.drawText(this.textRenderer, Text.literal("Remotely - New Tab"), 10, 10, globalTextColor, Config.shadow);
         int headerY = 35;
@@ -318,11 +319,6 @@ public class DeskSelectionScreen extends Screen {
         if (scrollOffset < 0) scrollOffset = 0;
         if (scrollOffset > maxScroll) scrollOffset = maxScroll;
         return true;
-    }
-
-    @Override
-    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fillGradient(0, 0, this.width, this.height, Config.backgroundColor, Config.backgroundColor);
     }
 
     @Override

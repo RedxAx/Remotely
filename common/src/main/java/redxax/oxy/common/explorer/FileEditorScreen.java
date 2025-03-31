@@ -856,13 +856,7 @@ public class FileEditorScreen extends Screen {
 
 
     @Override
-    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fillGradient(0, 0, this.width, this.height, Config.backgroundColor, Config.backgroundColor);
-    }
-
-    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        if (background) this.renderBackground(context, mouseX, mouseY, delta);
         super.render(context, mouseX, mouseY, delta);
         drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, saveIcon, null, null, null, null, null, null, null);
         drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, customShowCursor, aiMode, "FileEditorScreen", mouseX, mouseY, "Search For Text In The File.");
