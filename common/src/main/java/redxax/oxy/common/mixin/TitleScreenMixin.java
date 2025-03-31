@@ -15,6 +15,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import redxax.oxy.common.RemotelyClient;
 import redxax.oxy.common.explorer.FileExplorerScreen;
 import redxax.oxy.common.servers.ServerInfo;
+import redxax.oxy.common.servers.ServerManagerScreen;
 
 @Mixin(TitleScreen.class)
 public abstract class TitleScreenMixin extends Screen {
@@ -79,7 +80,7 @@ public abstract class TitleScreenMixin extends Screen {
     private void openServerManagerScreen() {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client != null) {
-            RemotelyClient.INSTANCE.openServerManagerGUI(client);
+            client.setScreen(new ServerManagerScreen(client, RemotelyClient.INSTANCE, RemotelyClient.INSTANCE.servers));
         }
     }
 

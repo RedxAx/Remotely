@@ -27,53 +27,57 @@ import java.util.concurrent.TimeUnit;
 
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
+import static redxax.oxy.common.servers.SettingsScreen.ServerSettingType.TEXT;
+import static redxax.oxy.common.servers.SettingsScreen.ServerSettingType.TOGGLE;
 import static redxax.oxy.common.util.DevUtil.devPrint;
-import static redxax.oxy.common.util.ImageUtil.drawPixelArt;
+import static redxax.oxy.common.util.ImageUtil.drawBufferedImage;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
-public class ServerSettingsScreen extends Screen {
+public class SettingsScreen extends Screen {
     private final MinecraftClient mc;
     private final ServerManagerScreen parent;
     private final String mode;
     private final String settingsRoot;
     private final boolean editServerMode;
+    private static boolean configMode = false;
     private ServerInfo serverInfo;
     private int currentTab;
-    private final List<ServerSetting> settings = new ArrayList<>();
+    private static final List<Settings> settings = new ArrayList<>();
     private List<String> tabs = new ArrayList<>();
-    private final Map<ServerSetting, Float> textInputScrollOffsets = new HashMap<>();
-    private final Map<ServerSetting, Float> textInputTargetScrollOffsets = new HashMap<>();
-    private final Map<ServerSetting, Integer> textSelectionStart = new HashMap<>();
-    private final Map<ServerSetting, Integer> textSelectionEnd = new HashMap<>();
+    private final Map<Settings, Float> textInputScrollOffsets = new HashMap<>();
+    private final Map<Settings, Float> textInputTargetScrollOffsets = new HashMap<>();
+    private final Map<Settings, Integer> textSelectionStart = new HashMap<>();
+    private final Map<Settings, Integer> textSelectionEnd = new HashMap<>();
     private int selectedDropDown = -1;
     private float currentSettingsScroll = 0;
     private float targetSettingsScroll = 0;
     private final int rowHeight = 30;
-    private ServerSetting draggedSlider = null;
+    private Settings draggedSlider = null;
     private ImageUtil.IconWithTooltip closeIcon, createIcon;
     public enum ServerSettingType {TOGGLE, SLIDER, SCROLL_SWITCH, TAB_SWITCH, TEXT}
     private float targetScaleFactor = globalScaleFactor;
 
-    public ServerSettingsScreen(MinecraftClient mc, String mode, ServerManagerScreen parent, String settingsRoot, List<ServerSetting> customSettings) {
+    public SettingsScreen(MinecraftClient mc, String mode, ServerManagerScreen parent, String settingsRoot, List<Settings> customSettings) {
         this(mc, mode, parent, settingsRoot, customSettings, null);
     }
 
-    public ServerSettingsScreen(MinecraftClient mc, String mode, ServerManagerScreen parent, String settingsRoot, List<ServerSetting> customSettings, ServerInfo serverInfo) {
+    public SettingsScreen(MinecraftClient mc, String mode, ServerManagerScreen parent, String settingsRoot, List<Settings> customSettings, ServerInfo serverInfo) {
         super(Text.literal("Server Settings"));
         this.mc = mc;
         this.parent = parent;
         this.mode = mode;
         this.settingsRoot = settingsRoot;
         this.editServerMode = mode.equalsIgnoreCase("editServer");
+        configMode = mode.equalsIgnoreCase("config");
         this.serverInfo = serverInfo;
         if (customSettings != null && !customSettings.isEmpty()) {
             this.settings.addAll(customSettings);
         } else {
-            settings.add(new ServerSetting("Error While Loading Settings", "none", "error", ServerSettingType.TEXT, "Hmmmmmmmmmmberger", "Error", "Please Try Again."));
+            settings.add(new Settings("Error While Loading Settings", "No Settings Found.", "404", "none", "none", TEXT, "Please Try Again."));
         }
         if (editServerMode) {
             loadSettingsFromFiles();
-            for (ServerSetting s : settings) {
+            for (Settings s : settings) {
                 if (s.key.equalsIgnoreCase("server-name")) {
                     s.value = serverInfo.name;
                 }
@@ -84,6 +88,8 @@ public class ServerSettingsScreen extends Screen {
                     s.value = serverInfo.version;
                 }
             }
+        } else if (configMode) {
+            loadClientConfiguration();
         }
         initTextInputOffsets();
         recalcTabs();
@@ -92,8 +98,17 @@ public class ServerSettingsScreen extends Screen {
         mc.getWindow().setScaleFactor(globalScaleFactor);
     }
 
+    private void loadClientConfiguration() {
+        settings.clear();
+        settings.add(new Settings("Show Minecraft Background", "Display The Minecraft Panorama As The Background.", "Appearance", "none", "background", TOGGLE, String.valueOf(background)));
+        settings.add(new Settings("Show Wallpaper", "Display Your PC Wallpaper As The Background.", "Appearance", "none", "wallpaper", TOGGLE, String.valueOf(wallpaper)));
+        settings.add(new Settings("Text Shadow", "Enable Text Background / Shadow Effect.", "Appearance", "none", "shadow", TOGGLE, String.valueOf(shadow)));
+
+        settings.add(new Settings("Developer Mode", "Enable Developer Mode.", "Development", "none", "isDev", TOGGLE, String.valueOf(isDev)));
+    }
+
     private void initTextInputOffsets() {
-        for (ServerSetting s : settings) {
+        for (Settings s : settings) {
             if (s.type == ServerSettingType.TEXT) {
                 textInputScrollOffsets.put(s, 0f);
                 textInputTargetScrollOffsets.put(s, 0f);
@@ -102,7 +117,7 @@ public class ServerSettingsScreen extends Screen {
     }
 
     private void loadSettingsFromFiles() {
-        for (ServerSetting s : settings) {
+        for (Settings s : settings) {
             if (!s.file.equals("none")) {
                 try {
                     Path filePath = Paths.get(settingsRoot, s.file);
@@ -126,7 +141,7 @@ public class ServerSettingsScreen extends Screen {
 
     private void recalcTabs() {
         Set<String> tabSet = new LinkedHashSet<>();
-        for (ServerSetting s : settings) {
+        for (Settings s : settings) {
             if (dependencySatisfied(s)) {
                 tabSet.add(s.tab);
             }
@@ -137,14 +152,90 @@ public class ServerSettingsScreen extends Screen {
         }
     }
 
-    private boolean dependencySatisfied(ServerSetting s) {
+    private boolean dependencySatisfied(Settings s) {
         if (s.dependencyKey == null || s.dependencyKey.isEmpty()) return true;
-        for (ServerSetting setting : settings) {
+        for (Settings setting : settings) {
             if (setting.key.equals(s.dependencyKey)) {
                 return setting.value.equals(s.dependencyValue);
             }
         }
         return false;
+    }
+
+    private static void updateClientConfigSetting(String key, String value) {
+        devPrint("Updated client config setting: " + key + " = " + value);
+        switch (key) {
+            case "background" -> background = Boolean.parseBoolean(value);
+            case "wallpaper" -> wallpaper = Boolean.parseBoolean(value);
+            case "shadow" -> shadow = Boolean.parseBoolean(value);
+            case "isDev" -> isDev = Boolean.parseBoolean(value);
+        }
+        saveClientConfigToJson();
+    }
+
+    public static void loadClientConfigFromJson() {
+        try {
+            String systemDir = new File("/").getAbsolutePath();
+            Path configDir = Paths.get(systemDir, "remotely", "data");
+            Path configFile = configDir.resolve("config.json");
+            if (Files.exists(configFile)) {
+                String jsonContent = new String(Files.readAllBytes(configFile));
+                jsonContent = jsonContent.trim();
+                if (jsonContent.startsWith("{") && jsonContent.endsWith("}")) {
+                    jsonContent = jsonContent.substring(1, jsonContent.length() - 1);
+                    String[] pairs = jsonContent.split(",");
+                    for (String pair : pairs) {
+                        String[] keyValue = pair.split(":");
+                        if (keyValue.length == 2) {
+                            String key = keyValue[0].trim();
+                            if (key.startsWith("\"") && key.endsWith("\"")) {
+                                key = key.substring(1, key.length() - 1);
+                            }
+                            String value = keyValue[1].trim();
+                            if (value.startsWith("\"") && value.endsWith("\"")) {
+                                value = value.substring(1, value.length() - 1);
+                            }
+                            updateClientConfigSetting(key, value);
+                        }
+                    }
+                    devPrint("Loaded client config from: " + configFile);
+                }
+            } else {
+                devPrint("Config file does not exist, using defaults");
+            }
+        } catch (Exception e) {
+            devPrint("Error loading client config: " + e.getMessage());
+        }
+    }
+
+    private static void saveClientConfigToJson() {
+        if(!configMode) return;
+        Map<String, String> configMap = new LinkedHashMap<>();
+        for(Settings s: settings) {
+            configMap.put(s.key, s.value);
+        }
+        StringBuilder json = new StringBuilder("{");
+        boolean first = true;
+        for(Map.Entry<String, String> entry : configMap.entrySet()){
+            if(!first) json.append(",");
+            json.append("\"").append(entry.getKey()).append("\":");
+            if(entry.getValue().equals("true") || entry.getValue().equals("false") || entry.getValue().matches("-?\\d+"))
+                json.append(entry.getValue());
+            else
+                json.append("\"").append(entry.getValue()).append("\"");
+            first = false;
+        }
+        json.append("}");
+        try {
+            String systemDir = new File("/").getAbsolutePath();
+            Path configDir = Paths.get(systemDir, "remotely", "data");
+            Files.createDirectories(configDir);
+            Path configFile = configDir.resolve("config.json");
+            Files.write(configFile, json.toString().getBytes());
+            devPrint("Saved client config to: " + configFile);
+        } catch(Exception e) {
+            devPrint("Error writing client config JSON: " + e.getMessage());
+        }
     }
 
     @Override
@@ -159,41 +250,32 @@ public class ServerSettingsScreen extends Screen {
             devPrint("Failed to load icons: " + e.getMessage());
         }
     }
-
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fillGradient(0, 0, this.width, this.height, Config.backgroundColor, Config.backgroundColor);
+        if (wallpaper && windowsBackground != null) {
+            drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
+        } else if (!background || MinecraftClient.getInstance().getGameVersion().startsWith("1.20")) {
+            context.fill(0, 0, width, height, backgroundColor);
+        } else {
+            super.renderBackground(context, mouseX, mouseY, delta);
+        }
     }
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        this.renderBackground(context, mouseX, mouseY, delta);
+        drawScreenHeader(context, width, height, mouseX, mouseY, this, mc, closeIcon, configMode ? null : createIcon, null, null, null, null, null, null, null);
         recalcTabs();
-        if (Config.background) renderBackground(context, mouseX, mouseY, delta);
         int headerHeight = 30;
-        context.fill(0, 0, this.width, headerHeight, Config.innerBackgroundColor);
-        drawInnerBorder(context, 0, 0, this.width, headerHeight, Config.innerBorderColor);
-        drawOuterBorder(context, 0, 0, this.width, headerHeight, globalOuterBorder);
         context.drawText(mc.textRenderer, Text.literal("Create New Server"), 10, 10, globalTextColor, Config.shadow);
         drawTabs(context, mc.textRenderer, tabs, currentTab, mouseX, mouseY, false, false);
-        int buttonY = 5;
-        int createButtonX = this.width - 46;
-        boolean isCreateHovered = mouseX >= createButtonX && mouseX <= createButtonX + 18 && mouseY >= buttonY && mouseY <= buttonY + 18;
-        drawSquareButton(context, createButtonX, buttonY, mc, isCreateHovered, mouseX, mouseY, editServerMode ? "Apply Changes" : "Create Server");
-        drawPixelArt(context, createIcon.getImage(), width - 44 - 1, 6, 16, 16);
-        int cancelButtonX = this.width - 23;
-        boolean isCancelHovered = mouseX >= cancelButtonX && mouseX <= cancelButtonX + 18 && mouseY >= buttonY && mouseY <= buttonY + 18;
-        drawSquareButton(context, cancelButtonX, buttonY, mc, isCancelHovered, mouseX, mouseY, "Cancel");
-        drawPixelArt(context, closeIcon.getImage(), width - 21 - 1, 6, 16, 16);
         int tabAreaHeight = 18;
         int contentY = headerHeight + tabAreaHeight + 10;
         int contentX = 5;
         int contentWidth = this.width - 10;
         int contentHeight = this.height - contentY - 10;
-        context.fill(contentX, contentY, contentX + contentWidth, contentY + contentHeight, innerBackgroundColor);
-        drawInnerBorder(context, contentX, contentY, contentWidth, contentHeight, innerBorderColor);
-        drawOuterBorder(context, contentX, contentY, contentWidth, contentHeight, globalOuterBorder);
-        List<ServerSetting> currentSettings = new ArrayList<>();
-        for (ServerSetting s : settings) {
+        List<Settings> currentSettings = new ArrayList<>();
+        for (Settings s : settings) {
             if (s.tab.equals(tabs.get(currentTab)) && dependencySatisfied(s)) {
                 currentSettings.add(s);
             }
@@ -212,13 +294,13 @@ public class ServerSettingsScreen extends Screen {
             String name = currentSettings.get(i).name;
             context.drawText(mc.textRenderer, Text.literal(name), contentX + 5, rowY + 5, globalTextColor, Config.shadow);
             context.drawText(mc.textRenderer, Text.literal(currentSettings.get(i).description), contentX + 5, rowY + 5 + mc.textRenderer.fontHeight + 2, Config.globalDarkTextColor, Config.shadow);
-            ServerSetting s = currentSettings.get(i);
+            Settings s = currentSettings.get(i);
             int widgetY = rowY + (rowHeight - 20) / 2;
             boolean widgetHovered = mouseX >= widgetAreaX && mouseX <= widgetAreaX + widgetWidth && mouseY >= rowY && mouseY <= rowY + 18;
             boolean toggleHovered = mouseX >= this.width - 40 - 12 && mouseX <= this.width - 12 && mouseY >= rowY && mouseY <= rowY + rowHeight;
             switch (s.type) {
-                case TOGGLE -> drawToggle(context, mc, this.width - 40 - 12, widgetY - 1, s.name + s.key + s.description, s.value.equals("true"), toggleHovered);
-                case SLIDER -> drawSlider(context, mc, widgetAreaX, widgetY, s.name + s.key + s.description + s.max + s.min, s.getIntValue(), s.min, s.max, widgetHovered, mouseX, mouseY, "Shift + Click To Input Text.");
+                case TOGGLE -> drawToggle(context, mc, this.width - 40 - 12, widgetY - 1, s.name + s.description, s.value.equals("true"), toggleHovered);
+                case SLIDER -> drawSlider(context, mc, widgetAreaX, widgetY, s.name, s.getIntValue(), s.min, s.max, widgetHovered, mouseX, mouseY, "Shift + Click To Input Text.");
                 case SCROLL_SWITCH -> drawScrollSelector(context, mc, widgetAreaX, widgetY, s.options, s.getSelectedIndex(), widgetHovered);
                 case TAB_SWITCH -> drawTabSwitch(context, mc, widgetAreaX, widgetY, s.name + s.key + s.description, s.options, s.getSelectedIndex(), mouseX, mouseY);
                 case TEXT -> {
@@ -252,7 +334,7 @@ public class ServerSettingsScreen extends Screen {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0) {
-            for (ServerSetting s : settings) {
+            for (Settings s : settings) {
                 if (s.type == ServerSettingType.TEXT) {
                     s.focused = false;
                 }
@@ -292,8 +374,8 @@ public class ServerSettingsScreen extends Screen {
             int contentY = headerH + tabH + 10;
             int widgetWidth = 180;
             int widgetAreaX = this.width - widgetWidth - 12;
-            List<ServerSetting> currentSettings = new ArrayList<>();
-            for (ServerSetting s : settings) {
+            List<Settings> currentSettings = new ArrayList<>();
+            for (Settings s : settings) {
                 if (s.tab.equals(tabs.get(currentTab))) {
                     currentSettings.add(s);
                 }
@@ -302,7 +384,7 @@ public class ServerSettingsScreen extends Screen {
                 int rowY = contentY + i * rowHeight - (int) currentSettingsScroll;
                 if (mouseX < widgetAreaX || mouseX > widgetAreaX + widgetWidth || mouseY < rowY || mouseY > rowY + rowHeight)
                     continue;
-                ServerSetting s = currentSettings.get(i);
+                Settings s = currentSettings.get(i);
                 switch (s.type) {
                     case TOGGLE -> {
                         int toggleX = this.width - 40 - 12;
@@ -311,6 +393,7 @@ public class ServerSettingsScreen extends Screen {
                         if (toggleHovered) {
                             playClick();
                             s.value = s.value.equals("true") ? "false" : "true";
+                            if (configMode) updateClientConfigSetting(s.key, s.value);
                         }
                     }
                     case SLIDER -> {
@@ -322,6 +405,7 @@ public class ServerSettingsScreen extends Screen {
                             float percent = relativeX / widgetWidth;
                             int newVal = s.min + (int) (percent * (s.max - s.min));
                             s.value = String.valueOf(newVal);
+                            if (configMode) updateClientConfigSetting(s.key, s.value);
                             draggedSlider = s;
                         }
                     }
@@ -336,6 +420,7 @@ public class ServerSettingsScreen extends Screen {
                                 } else {
                                     s.value = s.options.get(s.options.size() - 1);
                                 }
+                                if (configMode) updateClientConfigSetting(s.key, s.value);
                             } else if (mouseX > centerX + 10) {
                                 int currentIndex = s.getSelectedIndex();
                                 if (currentIndex < s.options.size() - 1) {
@@ -343,6 +428,7 @@ public class ServerSettingsScreen extends Screen {
                                 } else {
                                     s.value = s.options.get(0);
                                 }
+                                if (configMode) updateClientConfigSetting(s.key, s.value);
                             } else {
                                 selectedDropDown = -1;
                             }
@@ -359,6 +445,7 @@ public class ServerSettingsScreen extends Screen {
                             double segmentWidth = (double) widgetWidth / segmentCount;
                             int newIndex = (int) (relativeX / segmentWidth);
                             s.setOption(newIndex);
+                            if (configMode) updateClientConfigSetting(s.key, s.value);
                         }
                     }
                     case TEXT -> {
@@ -390,12 +477,12 @@ public class ServerSettingsScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        for (ServerSetting s : settings) {
+        for (Settings s : settings) {
             if (s.type == ServerSettingType.TEXT && s.focused) {
                 int widgetWidth = 180;
                 int widgetAreaX = this.width - widgetWidth - 12;
-                List<ServerSetting> currentSettings = new ArrayList<>();
-                for (ServerSetting setting : settings) {
+                List<Settings> currentSettings = new ArrayList<>();
+                for (Settings setting : settings) {
                     if (setting.tab.equals(tabs.get(currentTab)) && dependencySatisfied(setting)) {
                         currentSettings.add(setting);
                     }
@@ -420,6 +507,7 @@ public class ServerSettingsScreen extends Screen {
                     }
                     s.cursorPos = pos;
                     textSelectionEnd.put(s, pos);
+                    if(configMode) updateClientConfigSetting(s.key, s.value);
                     return true;
                 }
             }
@@ -433,6 +521,7 @@ public class ServerSettingsScreen extends Screen {
             float percent = relativeX / (float) widgetWidth;
             int newVal = draggedSlider.min + (int) (percent * (draggedSlider.max - draggedSlider.min));
             draggedSlider.value = String.valueOf(newVal);
+            if (configMode) updateClientConfigSetting(draggedSlider.key, draggedSlider.value);
             return true;
         }
         return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
@@ -460,8 +549,8 @@ public class ServerSettingsScreen extends Screen {
         int tabAreaHeight = 18;
         int contentY = headerHeight + tabAreaHeight + 10;
         int contentHeight = this.height - contentY - 10;
-        List<ServerSetting> currentSettings = new ArrayList<>();
-        for (ServerSetting s : settings) {
+        List<Settings> currentSettings = new ArrayList<>();
+        for (Settings s : settings) {
             if (s.tab.equals(tabs.get(currentTab)) && dependencySatisfied(s)) currentSettings.add(s);
         }
         int totalContentHeight = currentSettings.size() * rowHeight;
@@ -477,7 +566,7 @@ public class ServerSettingsScreen extends Screen {
             onClose();
             return true;
         }
-        for (ServerSetting s : settings) {
+        for (Settings s : settings) {
             if (s.type == ServerSettingType.TEXT && s.focused) {
                 boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
                 boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
@@ -489,6 +578,7 @@ public class ServerSettingsScreen extends Screen {
                     s.cursorPos = pos;
                     textSelectionStart.put(s, pos);
                     textSelectionEnd.put(s, pos);
+                    if (configMode) updateClientConfigSetting(s.key, s.value);
                 } else if (ctrl && keyCode == GLFW.GLFW_KEY_LEFT && s.cursorPos > 0) {
                     int pos = s.cursorPos;
                     while (pos > 0 && s.value.charAt(pos - 1) == ' ') pos--;
@@ -550,18 +640,22 @@ public class ServerSettingsScreen extends Screen {
                     s.value = s.value.substring(0, s.cursorPos) + s.value.substring(pos);
                     textSelectionStart.put(s, s.cursorPos);
                     textSelectionEnd.put(s, s.cursorPos);
+                    if (configMode) updateClientConfigSetting(s.key, s.value);
                 } else if (!ctrl && keyCode == GLFW.GLFW_KEY_DELETE && s.cursorPos < s.value.length()) {
                     s.value = s.value.substring(0, s.cursorPos) + s.value.substring(s.cursorPos + 1);
+                    if (configMode) updateClientConfigSetting(s.key, s.value);
                 } else if (keyCode == GLFW.GLFW_KEY_BACKSPACE && s.cursorPos > 0) {
                     s.value = s.value.substring(0, s.cursorPos - 1) + s.value.substring(s.cursorPos);
                     s.cursorPos--;
                     textSelectionStart.put(s, s.cursorPos);
                     textSelectionEnd.put(s, s.cursorPos);
+                    if (configMode) updateClientConfigSetting(s.key, s.value);
                 } else if (keyCode == GLFW.GLFW_KEY_BACKSPACE && ctrl) {
                     s.value = "";
                     s.cursorPos = 0;
                     textSelectionStart.put(s, 0);
                     textSelectionEnd.put(s, 0);
+                    if (configMode) updateClientConfigSetting(s.key, s.value);
                 } else if (keyCode == GLFW.GLFW_KEY_ENTER) {
                     s.focused = false;
                 } else if (ctrl && keyCode == GLFW.GLFW_KEY_A) {
@@ -578,7 +672,7 @@ public class ServerSettingsScreen extends Screen {
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
-    private void handleClipboardCopy(ServerSetting s) {
+    private void handleClipboardCopy(Settings s) {
         try {
             int start = Math.min(textSelectionStart.getOrDefault(s, s.cursorPos),
                     textSelectionEnd.getOrDefault(s, s.cursorPos));
@@ -593,7 +687,7 @@ public class ServerSettingsScreen extends Screen {
         }
     }
 
-    private void handleClipboardPaste(ServerSetting s) {
+    private void handleClipboardPaste(Settings s) {
         try {
             Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
             if (clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
@@ -605,6 +699,7 @@ public class ServerSettingsScreen extends Screen {
                     s.cursorPos = start + clipboardText.length();
                     textSelectionStart.put(s, s.cursorPos);
                     textSelectionEnd.put(s, s.cursorPos);
+                    if (configMode) updateClientConfigSetting(s.key, s.value);
                 }
             }
         } catch (Exception e) {
@@ -614,7 +709,7 @@ public class ServerSettingsScreen extends Screen {
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
-        for (ServerSetting s : settings) {
+        for (Settings s : settings) {
             if (s.type == ServerSettingType.TEXT && s.focused) {
                 int selStart = Math.min(textSelectionStart.getOrDefault(s, s.cursorPos), textSelectionEnd.getOrDefault(s, s.cursorPos));
                 int selEnd = Math.max(textSelectionStart.getOrDefault(s, s.cursorPos), textSelectionEnd.getOrDefault(s, s.cursorPos));
@@ -623,6 +718,7 @@ public class ServerSettingsScreen extends Screen {
                     s.cursorPos = selStart;
                     textSelectionStart.put(s, selStart);
                     textSelectionEnd.put(s, selStart);
+                    if (configMode) updateClientConfigSetting(s.key, s.value);
                 }
                 if (chr == 13 || chr == 27) return true;
                 if (!Character.isISOControl(chr)) {
@@ -630,6 +726,7 @@ public class ServerSettingsScreen extends Screen {
                     s.cursorPos++;
                     textSelectionStart.put(s, s.cursorPos);
                     textSelectionEnd.put(s, s.cursorPos);
+                    if (configMode) updateClientConfigSetting(s.key, s.value);
                 }
             }
         }
@@ -669,7 +766,7 @@ public class ServerSettingsScreen extends Screen {
     private String getMcmanSettings() {
         StringBuilder sb = new StringBuilder();
         boolean headerAdded = false;
-        for (ServerSetting s : settings) {
+        for (Settings s : settings) {
             if (s.key.startsWith("launcher.")) {
                 if (!headerAdded) {
                     sb.append(" && echo '[launcher]' >> server.toml");
@@ -683,8 +780,8 @@ public class ServerSettingsScreen extends Screen {
     }
 
     private void writeSettings(SSHManager manager, String basePath) {
-        Map<String, List<ServerSetting>> fileGroups = new HashMap<>();
-        for (ServerSetting st : settings) {
+        Map<String, List<Settings>> fileGroups = new HashMap<>();
+        for (Settings st : settings) {
             if (!st.file.equals("none") && dependencySatisfied(st) && !st.value.isEmpty()) {
                 fileGroups.computeIfAbsent(st.file, k -> new ArrayList<>()).add(st);
             }
@@ -698,7 +795,7 @@ public class ServerSettingsScreen extends Screen {
                         originalLines = Files.readAllLines(filePath);
                     }
                     Map<String, String> newSettings = new LinkedHashMap<>();
-                    for (ServerSetting st : fileGroups.get(fileName)) {
+                    for (Settings st : fileGroups.get(fileName)) {
                         String value = st.value;
                         if (st.key.equalsIgnoreCase("gamemode") || st.key.equalsIgnoreCase("difficulty")) {
                             value = value.toLowerCase();
@@ -733,7 +830,7 @@ public class ServerSettingsScreen extends Screen {
                 }
             } else {
                 List<String> lines = new ArrayList<>();
-                for (ServerSetting st : fileGroups.get(fileName)) {
+                for (Settings st : fileGroups.get(fileName)) {
                     if (st.key.equalsIgnoreCase("gamemode") || st.key.equalsIgnoreCase("difficulty")) {
                         lines.add(st.key + "=" + st.value.toLowerCase());
                     } else {
@@ -747,12 +844,11 @@ public class ServerSettingsScreen extends Screen {
         }
     }
 
-
     public void createServer() {
         String serverName = "";
         String serverType = "";
         String serverVersion = "";
-        for (ServerSetting s : settings) {
+        for (Settings s : settings) {
             if (s.name.equals("Server Name"))
                 serverName = s.value.trim();
             if (s.name.equals("Server Type"))
@@ -802,7 +898,7 @@ public class ServerSettingsScreen extends Screen {
                 tomlLines.add("mc_version = \"" + serverVersion + "\"");
                 tomlLines.add("[jar]");
                 tomlLines.add("type = \"" + serverType.toLowerCase() + "\"");
-                for (ServerSetting s : settings) {
+                for (Settings s : settings) {
                     if (s.key.startsWith("launcher.")) {
                         String key = s.key.substring("launcher.".length());
                         tomlLines.add(key + " = \"" + s.value + "\"");
@@ -893,7 +989,7 @@ public class ServerSettingsScreen extends Screen {
                 sb.append("mc_version = \"").append(serverVersion).append("\"\n");
                 sb.append("[jar]\n");
                 sb.append("type = \"").append(serverType.toLowerCase()).append("\"\n");
-                for (ServerSetting s : settings) {
+                for (Settings s : settings) {
                     if (s.key.startsWith("launcher.")) {
                         String key = s.key.substring("launcher.".length());
                         sb.append(key).append(" = \"").append(s.value).append("\"\n");

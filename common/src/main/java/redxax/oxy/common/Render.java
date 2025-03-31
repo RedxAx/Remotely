@@ -7,8 +7,7 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.config.Config;
-import redxax.oxy.common.mixin.MinecraftClientMixin;
-import redxax.oxy.common.servers.ServerSettingsScreen;
+import redxax.oxy.common.servers.SettingsScreen;
 import redxax.oxy.common.terminal.MultiTerminalScreen;
 import redxax.oxy.common.explorer.FileExplorerScreen;
 import redxax.oxy.common.explorer.FileEditorScreen;
@@ -511,13 +510,18 @@ public class Render {
     }
 
     public static void drawScreenHeader(DrawContext context, int width, int height, int mouseX, int mouseY, Screen parent, MinecraftClient minecraftClient, IconWithTooltip icon1, IconWithTooltip icon2, IconWithTooltip icon3, IconWithTooltip icon4, IconWithTooltip icon5, IconWithTooltip icon6, IconWithTooltip icon7, IconWithTooltip icon8, IconWithTooltip specialIcon) {
-        context.fill(0, 0, parent.width, 30, Config.innerBackgroundColor);
-        drawInnerBorder(context, 0, 0, parent.width, 30, Config.innerBorderColor);
+        if (wallpaper && windowsBackground != null) {
+            drawBufferedImage(context, windowsBackground, 0, 0, parent.width, parent.height);
+        } else if (!background) {
+            context.fill(0, 0, width, height, backgroundColor);
+        }
+        context.fill(0, 0, width, 30, innerBackgroundColor);
+        drawInnerBorder(context, 0, 0, parent.width, 30, innerBorderColor);
         drawOuterBorder(context, 0, 0, parent.width, 30, globalOuterBorder);
         if (!(parent instanceof MultiTerminalScreen)) {
             if (!(parent instanceof FileExplorerScreen && !(((FileExplorerScreen) parent).isCanScroll()))) {
                 if (!(parent instanceof PluginModManagerScreen)) {
-                    if (!(parent instanceof ServerSettingsScreen)) {
+                    if (!(parent instanceof SettingsScreen)) {
                         context.fill(5, 60, width - 5, height - 5, innerBackgroundColor);
                         drawInnerBorder(context, 5, 60, width - 10, height - 65, innerBorderColor);
                         drawOuterBorder(context, 5, 60, width - 10, height - 65, globalOuterBorder);
@@ -577,7 +581,7 @@ public class Render {
     public static void drawToggle(DrawContext context, MinecraftClient mc, int x, int y, String label, boolean value, boolean hovered) {
         int trackWidth = 40;
         int trackHeight = 20;
-        int id = ("toggle" + label ).hashCode();
+        int id = ("toggle" + label ).hashCode() + 143;
         int trackColor = getElementBackgroundColor(id, hovered, value, false, false, false);
         context.fill(x, y, x + trackWidth, y + trackHeight, trackColor);
         context.fill(x, y + (int)(trackHeight * 0.75), x + trackWidth, y + trackHeight, 0x20000000);

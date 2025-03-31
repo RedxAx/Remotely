@@ -1,9 +1,9 @@
 package redxax.oxy.common.servers;
 
 import java.util.List;
-import redxax.oxy.common.servers.ServerSettingsScreen.ServerSettingType;
+import redxax.oxy.common.servers.SettingsScreen.ServerSettingType;
 
-public class ServerSetting {
+public class Settings {
     public String name;
     public String file;
     public String key;
@@ -19,7 +19,7 @@ public class ServerSetting {
     public int index;
     public String dependencyKey;
     public String dependencyValue;
-    public ServerSetting(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description) {
+    public Settings(String name, String description, String tab, String file, String key, ServerSettingType type, String defaultValue) {
         this.name = name;
         this.file = file;
         this.key = key;
@@ -31,17 +31,17 @@ public class ServerSetting {
         this.cursorPos = this.value.length();
         this.index = 0;
     }
-    public ServerSetting(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, List<String> options) {
-        this(name, file, key, type, defaultValue, tab, description);
+    public Settings(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, List<String> options) {
+        this(name, description, tab, file, key, type, defaultValue);
         this.options = options;
     }
-    public ServerSetting(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, int min, int max) {
-        this(name, file, key, type, defaultValue, tab, description);
+    public Settings(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, int min, int max) {
+        this(name, description, tab, file, key, type, defaultValue);
         this.min = min;
         this.max = max;
     }
-    public ServerSetting(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, String dependencyKey, String dependencyValue) {
-        this(name, file, key, type, defaultValue, tab, description);
+    public Settings(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, String dependencyKey, String dependencyValue) {
+        this(name, description, tab, file, key, type, defaultValue);
         this.dependencyKey = dependencyKey;
         this.dependencyValue = dependencyValue;
     }

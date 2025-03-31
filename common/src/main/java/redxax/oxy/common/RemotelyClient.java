@@ -10,12 +10,17 @@ import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import redxax.oxy.common.config.Config;
 import redxax.oxy.common.servers.RemoteHostInfo;
 import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.servers.ServerManagerScreen;
+import redxax.oxy.common.servers.SettingsScreen;
 import redxax.oxy.common.terminal.MultiTerminalScreen;
 import redxax.oxy.common.terminal.TerminalInstance;
 import redxax.oxy.common.SSHManager;
+
+import javax.imageio.ImageIO;
+import java.io.File;
 import java.nio.file.*;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -24,6 +29,7 @@ import java.util.UUID;
 import java.util.Map;
 import java.util.HashMap;
 import static redxax.oxy.common.servers.BrowserScreen.closeAll;
+import static redxax.oxy.common.util.DevUtil.devPrint;
 
 public class RemotelyClient implements ClientModInitializer {
 
@@ -75,10 +81,17 @@ public class RemotelyClient implements ClientModInitializer {
                     openMultiTerminalGUI(client);
                 }
                 if (openServerManagerKeyBinding.wasPressed()) {
-                    openServerManagerGUI(client);
+                    client.setScreen(new ServerManagerScreen(client, RemotelyClient.INSTANCE, RemotelyClient.INSTANCE.servers));
                 }
             }
         });
+        try {
+            String bgPath = System.getProperty("user.home") + "/AppData/Roaming/Microsoft/Windows/Themes/TranscodedWallpaper";
+            Config.windowsBackground = ImageIO.read(new File(bgPath));
+        } catch (Exception e) {
+            devPrint("Failed to load Windows background: " + e.getMessage());
+        }
+        SettingsScreen.loadClientConfigFromJson();
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownAllTerminals));
     }
 
@@ -108,15 +121,6 @@ public class RemotelyClient implements ClientModInitializer {
             multiTerminalScreen = new MultiTerminalScreen(client, null, this, terminals, tabNames);
             client.setScreen(multiTerminalScreen);
         }
-    }
-
-    public void openServerManagerGUI(MinecraftClient client) {
-        if (serverManagerScreen == null) {
-            serverManagerScreen = new ServerManagerScreen(client, this, servers);
-        } else {
-            serverManagerScreen = new ServerManagerScreen(client, this, servers);
-        }
-        client.setScreen(serverManagerScreen);
     }
 
     private void loadSavedTerminals() {

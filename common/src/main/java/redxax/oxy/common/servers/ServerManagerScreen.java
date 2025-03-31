@@ -17,6 +17,9 @@ import redxax.oxy.common.terminal.ServerTerminalInstance;
 import redxax.oxy.common.terminal.TerminalInstance;
 import redxax.oxy.common.util.ImageUtil;
 
+import static redxax.oxy.common.config.Config.windowsBackground;
+import static redxax.oxy.common.servers.SettingsScreen.ServerSettingType.*;
+
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -38,8 +41,7 @@ import org.lwjgl.glfw.GLFW;
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
-import static redxax.oxy.common.util.ImageUtil.drawPixelArt;
-import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
+import static redxax.oxy.common.util.ImageUtil.*;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class ServerManagerScreen extends Screen {
@@ -49,8 +51,6 @@ public class ServerManagerScreen extends Screen {
     private final List<RemoteHostInfo> remoteHosts = new ArrayList<>();
     private int activeTabIndex = 0;
     private boolean editingServer;
-    private int serverPopupX;
-    private int serverPopupY;
     private final int serverPopupWidth = 350;
     private final int serverPopupHeight = 160;
     private final StringBuilder serverNameBuffer = new StringBuilder();
@@ -62,9 +62,6 @@ public class ServerManagerScreen extends Screen {
     private boolean serverCursorVisible = true;
     private int serverNameCursorPos = 0;
     private int serverVersionCursorPos = 0;
-    private final int serverNameScrollOffset = 0;
-    private final int serverVersionScrollOffset = 0;
-    private BufferedImage windowsBackground;
     private final int tabHeight = 25;
     private final int verticalPadding = 2;
     private boolean nameFieldFocused = true;
@@ -110,8 +107,8 @@ public class ServerManagerScreen extends Screen {
     private final List<Float> iconPosX = new ArrayList<>();
     private final List<Float> iconPosY = new ArrayList<>();
     private boolean canDrag = false;
-    private final ArrayList<ServerSetting> settings = new ArrayList<>();
-    private final ArrayList<ServerSetting> clientSettings = new ArrayList<>();
+    private final ArrayList<Settings> settings = new ArrayList<>();
+    private final ArrayList<Settings> clientSettings = new ArrayList<>();
     private float targetScaleFactor = globalScaleFactor;
 
     public List<RemoteHostInfo> getRemoteHosts() {
@@ -142,7 +139,8 @@ public class ServerManagerScreen extends Screen {
         this.localServers = servers;
         originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
-        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);    }
+        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
+    }
 
     @Override
     protected void init() {
@@ -180,50 +178,46 @@ public class ServerManagerScreen extends Screen {
         } catch (Exception e) {
             e.printStackTrace();
         }
-        try {
-            String bgPath = System.getProperty("user.home") + "/AppData/Roaming/Microsoft/Windows/Themes/TranscodedWallpaper";
-            windowsBackground = ImageIO.read(new File(bgPath));
-        } catch (Exception e) {
-            devPrint("Failed to load Windows background: " + e.getMessage());
-        }
     }
 
     private void defineSettings() {
         settings.clear();
-        settings.add(new ServerSetting("Server Name", "none", "server-name", ServerSettingsScreen.ServerSettingType.TEXT, "My Server", "General", "The name of your server."));
-        settings.add(new ServerSetting("Game Mode", "server.properties", "gamemode", ServerSettingsScreen.ServerSettingType.TAB_SWITCH, "Survival", "General", "Select the default game mode for players.", Arrays.asList("Survival", "Creative", "Adventure")));
-        settings.add(new ServerSetting("Difficulty", "server.properties", "difficulty", ServerSettingsScreen.ServerSettingType.TAB_SWITCH, "Normal", "General", "Set the difficulty level of the server.", Arrays.asList("Peaceful", "Easy", "Normal", "Hard")));
-        settings.add(new ServerSetting("PvP", "server.properties", "pvp", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "General", "Toggle player vs player combat."));
-        settings.add(new ServerSetting("Hardcore", "server.properties", "hardcore", ServerSettingsScreen.ServerSettingType.TOGGLE, "false", "General", "Toggle hardcore mode (one life)."));
-        settings.add(new ServerSetting("Server Type", "none", "server-type", ServerSettingsScreen.ServerSettingType.SCROLL_SWITCH, "Paper", "General", "Choose the server software type.", Arrays.asList("Paper", "Vanilla", "Fabric", "Forge", "Neoforge", "Quilt")));
-        settings.add(new ServerSetting("Server Version", "none", "server-version", ServerSettingsScreen.ServerSettingType.TEXT, minecraftClient.getGameVersion(), "General", "Specify the Minecraft server version to run."));
-        settings.add(new ServerSetting("Max Players", "server.properties", "max-players", ServerSettingsScreen.ServerSettingType.SLIDER, "20", "Advanced", "Max online players limit.", 1, 200));
-        settings.add(new ServerSetting("MOTD", "server.properties", "motd", ServerSettingsScreen.ServerSettingType.TEXT, minecraftClient.getSession().getUsername() + "'s Server", "Advanced", "Description for the server list."));
-        settings.add(new ServerSetting("Seed", "server.properties", "level-seed", ServerSettingsScreen.ServerSettingType.TEXT, "", "Advanced", "Enter a specific seed (optional)."));
-        settings.add(new ServerSetting("Spawn Protection", "server.properties", "spawn-protection", ServerSettingsScreen.ServerSettingType.SLIDER, "16", "Advanced", "Set the radius of spawn protection (set 0 to disable).", 0, 32));
-        settings.add(new ServerSetting("Max Build Height", "server.properties", "max-build-height", ServerSettingsScreen.ServerSettingType.SLIDER, "320", "Advanced", "Set the maximum height players can build to.", 0, 2048));
-        settings.add(new ServerSetting("Generate Structures", "server.properties", "generate-structures", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "Advanced", "Toggle whether structures are generated in the world."));
-        settings.add(new ServerSetting("Port", "server.properties", "server-port", ServerSettingsScreen.ServerSettingType.TEXT, "25565", "Advanced", "Set the port number on which the server will run."));
-        settings.add(new ServerSetting("Online Mode", "server.properties", "online-mode", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "Advanced", "Authenticate with Minecraft (Secure)."));
-        settings.add(new ServerSetting("Whitelist", "server.properties", "white-list", ServerSettingsScreen.ServerSettingType.TOGGLE, "false", "Advanced", "Enable or disable the server whitelist."));
-        settings.add(new ServerSetting("Hide Online Players", "server.properties", "hide-online-players", ServerSettingsScreen.ServerSettingType.TOGGLE, "false", "Advanced", "Hide online players from the server list."));
-        settings.add(new ServerSetting("Allow Nether", "server.properties", "allow-nether", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "Advanced", "Toggle whether the Nether dimension is accessible."));
-        settings.add(new ServerSetting("Allow End", "bukkit.yml", "allow-end", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "Advanced", "Toggle whether the End dimension is accessible."));
-        settings.add(new ServerSetting("Use Custom Java", "none", "usecustomjava", ServerSettingsScreen.ServerSettingType.TOGGLE, "false", "Advanced", "Use a custom Java installation (Not recommended)."));
-        settings.add(new ServerSetting("Java Version", "none", "launcher.java_version", ServerSettingsScreen.ServerSettingType.TEXT, "", "Advanced", "Specify the Java version to use.", "usecustomjava", "true"));
-        settings.add(new ServerSetting("View Distance", "server.properties", "view-distance", ServerSettingsScreen.ServerSettingType.SLIDER, "8", "Performance", "Adjust the number of chunks visible to players.", 1, 64));
-        settings.add(new ServerSetting("Simulation Distance", "server.properties", "simulation-distance", ServerSettingsScreen.ServerSettingType.SLIDER, "8", "Performance", "Set the simulation distance (server tick radius).", 1, 64));
-        settings.add(new ServerSetting("Memory", "none", "launcher.memory", ServerSettingsScreen.ServerSettingType.TEXT, "4G", "Performance", "Set the maximum memory allocation for the server."));
-        settings.add(new ServerSetting("Aikars Flags", "none", "launcher.aikars_flags", ServerSettingsScreen.ServerSettingType.TOGGLE, "true", "Performance", "Custom flags that highly optimizes server performance."));
-        settings.add(new ServerSetting("JVM Arguments", "none", "launcher.jvm_args", ServerSettingsScreen.ServerSettingType.TEXT, "-Dnet.kyori.ansi.colorLevel=indexed256", "Advanced", "Custom JVM arguments."));
+        settings.add(new Settings("Server Name", "The name of your server.", "General", "none", "server-name", TEXT, "My Server"));
+        settings.add(new Settings("Game Mode", "server.properties", "gamemode", TAB_SWITCH, "Survival", "General", "Select the default game mode for players.", Arrays.asList("Survival", "Creative", "Adventure")));
+        settings.add(new Settings("Difficulty", "server.properties", "difficulty", TAB_SWITCH, "Normal", "General", "Set the difficulty level of the server.", Arrays.asList("Peaceful", "Easy", "Normal", "Hard")));
+        settings.add(new Settings("PvP", "Toggle player vs player combat.", "General", "server.properties", "pvp", TOGGLE, "true"));
+        settings.add(new Settings("Hardcore", "Toggle hardcore mode (one life).", "General", "server.properties", "hardcore", TOGGLE, "false"));
+        settings.add(new Settings("Server Type", "none", "server-type", SCROLL_SWITCH, "Paper", "General", "Choose the server software type.", Arrays.asList("Paper", "Vanilla", "Fabric", "Forge", "Neoforge", "Quilt")));
+        settings.add(new Settings("Server Version", "Specify the Minecraft server version to run.", "General", "none", "server-version", TEXT, minecraftClient.getGameVersion()));
+        settings.add(new Settings("Max Players", "server.properties", "max-players", SLIDER, "20", "Advanced", "Max online players limit.", 1, 200));
+        settings.add(new Settings("MOTD", "Description for the server list.", "Advanced", "server.properties", "motd", TEXT, minecraftClient.getSession().getUsername() + "'s Server"));
+        settings.add(new Settings("Seed", "Enter a specific seed (optional).", "Advanced", "server.properties", "level-seed", TEXT, ""));
+        settings.add(new Settings("Spawn Protection", "server.properties", "spawn-protection", SLIDER, "16", "Advanced", "Set the radius of spawn protection (set 0 to disable).", 0, 32));
+        settings.add(new Settings("Max Build Height", "server.properties", "max-build-height", SLIDER, "320", "Advanced", "Set the maximum height players can build to.", 0, 2048));
+        settings.add(new Settings("Generate Structures", "Toggle whether structures are generated in the world.", "Advanced", "server.properties", "generate-structures", TOGGLE, "true"));
+        settings.add(new Settings("Port", "Set the port number on which the server will run.", "Advanced", "server.properties", "server-port", TEXT, "25565"));
+        settings.add(new Settings("Online Mode", "Authenticate with Minecraft (Secure).", "Advanced", "server.properties", "online-mode", TOGGLE, "true"));
+        settings.add(new Settings("Whitelist", "Enable or disable the server whitelist.", "Advanced", "server.properties", "white-list", TOGGLE, "false"));
+        settings.add(new Settings("Hide Online Players", "Hide online players from the server list.", "Advanced", "server.properties", "hide-online-players", TOGGLE, "false"));
+        settings.add(new Settings("Allow Nether", "Toggle whether the Nether dimension is accessible.", "Advanced", "server.properties", "allow-nether", TOGGLE, "true"));
+        settings.add(new Settings("Allow End", "Toggle whether the End dimension is accessible.", "Advanced", "bukkit.yml", "allow-end", TOGGLE, "true"));
+        settings.add(new Settings("Use Custom Java", "Use a custom Java installation (Not recommended).", "Advanced", "none", "usecustomjava", TOGGLE, "false"));
+        settings.add(new Settings("Java Version", "none", "launcher.java_version", TEXT, "", "Advanced", "Specify the Java version to use.", "usecustomjava", "true"));
+        settings.add(new Settings("View Distance", "server.properties", "view-distance", SLIDER, "8", "Performance", "Adjust the number of chunks visible to players.", 1, 64));
+        settings.add(new Settings("Simulation Distance", "server.properties", "simulation-distance", SLIDER, "8", "Performance", "Set the simulation distance (server tick radius).", 1, 64));
+        settings.add(new Settings("Memory", "Set the maximum memory allocation for the server.", "Performance", "none", "launcher.memory", TEXT, "4G"));
+        settings.add(new Settings("Aikars Flags", "Custom flags that highly optimizes server performance.", "Performance", "none", "launcher.aikars_flags", TOGGLE, "true"));
+        settings.add(new Settings("JVM Arguments", "Custom JVM arguments.", "Advanced", "none", "launcher.jvm_args", TEXT, "-Dnet.kyori.ansi.colorLevel=indexed256"));
     }
 
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        if (windowsBackground != null && Config.wallpaper) {
-            drawPixelArt(context, windowsBackground, 0, 0, this.width, this.height);
+        if (wallpaper && windowsBackground != null) {
+            drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
+        } else if (!background || MinecraftClient.getInstance().getGameVersion().startsWith("1.20")) {
+            context.fill(0, 0, width, height, backgroundColor);
         } else {
-            context.fillGradient(0, 0, this.width, this.height, Config.backgroundColor, Config.backgroundColor);
+            super.renderBackground(context, mouseX, mouseY, delta);
         }
     }
 
@@ -593,7 +587,7 @@ public class ServerManagerScreen extends Screen {
                     Render.ContextMenu.hide();
                     Render.ContextMenu.addItem("Edit", () -> {
                         ServerInfo info = getCurrentServers().get(rect.serverIndex);
-                        minecraftClient.setScreen(new ServerSettingsScreen(minecraftClient, "editServer", this, info.path, settings, info));
+                        minecraftClient.setScreen(new SettingsScreen(minecraftClient, "editServer", this, info.path, settings, info));
                     }, globalHoverTextColor, "Open The Server's Settings");
                     Render.ContextMenu.addItem("Delete", () -> {
                         deletionPopupActive = true;
@@ -780,6 +774,7 @@ public class ServerManagerScreen extends Screen {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_S && modifiers == GLFW.GLFW_MOD_CONTROL) {
             clientSettings.clear();
+            minecraftClient.setScreen(new SettingsScreen(minecraftClient, "config", this, "", null));
             return true;
         }
         if ((modifiers & GLFW.GLFW_MOD_CONTROL) != 0 && keyCode == GLFW.GLFW_KEY_V) {
@@ -1001,7 +996,7 @@ public class ServerManagerScreen extends Screen {
         int option3Y = option2Y + 30;
         if (button == 0) {
             if (isInsideOptionBox(mouseX, mouseY, option1, serverTypePopupX, option1Y)) {
-                minecraftClient.setScreen(new ServerSettingsScreen(minecraftClient, "createServer", this, Path.of("C:/remotely/servers/").toString(), settings));
+                minecraftClient.setScreen(new SettingsScreen(minecraftClient, "createServer", this, Path.of("C:/remotely/servers/").toString(), settings));
                 serverTypePopupActive = false;
                 editingServer = false;
                 serverNameBuffer.setLength(0);

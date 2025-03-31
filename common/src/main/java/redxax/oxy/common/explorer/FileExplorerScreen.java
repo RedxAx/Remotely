@@ -299,17 +299,16 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     }
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        this.renderBackground(context, mouseX, mouseY, delta);
         super.render(context, mouseX, mouseY, delta);
         int titleBarHeight = 30;
         int tabBarY = titleBarHeight + 5;
+        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? !FileManager.getClipboard().isEmpty() ? pasteIcon : null : shiftPressed ? pasteIcon  : copyIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? deleteIcon : editIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? cutIcon : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, true, false);
         int explorerY = tabBarY + TAB_HEIGHT + 30;
         int explorerHeight = this.height - explorerY - 5;
         int explorerX = 5;
         int explorerWidth = this.width - 10;
         int headerY = explorerY - 23;
-        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? !FileManager.getClipboard().isEmpty() ? pasteIcon : null : shiftPressed ? pasteIcon  : copyIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? deleteIcon : editIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? cutIcon : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);
         Tab currentTab = tabs.get(currentTabIndex);
         float pathScrollOffset = 0;
         float pathTargetScrollOffset = 0;
@@ -1486,10 +1485,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         } else {
             showNotification("Invalid path.", Notification.Type.ERROR);
         }
-    }
-    @Override
-    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        context.fillGradient(0, 0, this.width, this.height, Config.backgroundColor, Config.backgroundColor);
     }
     @Override
     public void tick() {
