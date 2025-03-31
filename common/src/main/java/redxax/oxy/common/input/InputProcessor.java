@@ -51,6 +51,7 @@ public class InputProcessor {
             tabCompletionHandler.resetTabCompletion();
             terminalInstance.renderer.resetCursorBlink();
             terminalInstance.scrollToBottom();
+            tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
             return true;
         }
         return false;
@@ -120,6 +121,7 @@ public class InputProcessor {
                 updateTabCompletionCurrentDirectory();
                 terminalInstance.renderer.resetCursorBlink();
                 terminalInstance.scrollToBottom();
+                tabCompletionHandler.clearTabCompletionSuggestion();
                 return true;
             case GLFW.GLFW_KEY_SPACE:
                 inputBuffer.insert(cursorPosition, ' ');

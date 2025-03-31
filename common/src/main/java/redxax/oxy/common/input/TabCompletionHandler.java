@@ -81,8 +81,6 @@ public class TabCompletionHandler {
         if (!prefix.equals(lastPrefix)) {
             completionIndex = 0;
             lastPrefix = prefix;
-        } else {
-            completionIndex = (completionIndex + 1) % completions.size();
         }
         String candidate = completions.get(completionIndex);
         if (candidate.toLowerCase().startsWith(prefix.toLowerCase())) {
@@ -90,6 +88,7 @@ public class TabCompletionHandler {
         } else {
             suggestion = candidate;
         }
+        completionIndex = (completionIndex + 1) % completions.size();
     }
 
     public String getTabCompletionSuggestion() {
@@ -203,5 +202,59 @@ public class TabCompletionHandler {
     }
 
     public void updateTabCompletionSuggestion(StringBuilder inputBuffer) {
+        String input = inputBuffer.toString();
+        if (input.trim().isEmpty()) {
+            suggestion = "";
+            return;
+        }
+        int wordStart = 0;
+        for (int i = input.length() - 1; i >= 0; i--) {
+            if (Character.isWhitespace(input.charAt(i))) {
+                wordStart = i + 1;
+                break;
+            }
+        }
+        String prefix = input.substring(wordStart);
+        if (input.startsWith("cd ")) {
+            String pathPart = input.substring(3).trim();
+            String base = "";
+            String partial = "";
+            int lastSep = Math.max(pathPart.lastIndexOf('/'), pathPart.lastIndexOf('\\'));
+            if (lastSep != -1) {
+                base = pathPart.substring(0, lastSep + 1);
+                partial = pathPart.substring(lastSep + 1);
+            } else {
+                partial = pathPart;
+            }
+            currentBase = base;
+            if (!originalPrefixSet) {
+                originalPrefix = partial;
+                originalPrefixSet = true;
+            }
+            List<String> dirs = sshManager.isSSH() ? getRemoteDirectoryCompletions(base, originalPrefix)
+                    : getLocalDirectoryCompletions(base, originalPrefix);
+            if (dirs.isEmpty()) {
+                suggestion = "";
+                return;
+            }
+            String candidate = dirs.get(0);
+            suggestion = candidate.toLowerCase().startsWith(originalPrefix.toLowerCase()) ? candidate.substring(originalPrefix.length()) : candidate;
+        } else {
+            if (!originalPrefixSet) {
+                originalPrefix = prefix;
+                originalPrefixSet = true;
+            }
+            List<String> cmds = getAvailableCommands(originalPrefix);
+            if (cmds.isEmpty()) {
+                suggestion = "";
+                return;
+            }
+            String candidate = cmds.get(0);
+            suggestion = candidate.toLowerCase().startsWith(originalPrefix.toLowerCase()) ? candidate.substring(originalPrefix.length()) : candidate;
+        }
+    }
+
+    public void clearTabCompletionSuggestion() {
+        suggestion = "";
     }
 }
