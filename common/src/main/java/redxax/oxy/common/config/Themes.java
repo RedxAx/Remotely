@@ -84,7 +84,7 @@ public class Themes {
         return (int) Long.parseLong(hex, 16);
     }
 
-    public static void applyNewTheme(MultiTerminalScreen.Theme theme) {
+    public static void applyTheme(MultiTerminalScreen.Theme theme) {
         devPrint("Applying theme with direct field mapping: " + theme.name);
 
         int foundKeys = 0;

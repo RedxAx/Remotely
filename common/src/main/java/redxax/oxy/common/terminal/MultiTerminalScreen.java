@@ -18,6 +18,7 @@ import redxax.oxy.common.util.Notification;
 import redxax.oxy.common.util.ImageUtil.IconWithTooltip;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
@@ -98,7 +99,7 @@ public class MultiTerminalScreen extends Screen {
 
     private final int topBarHeight = 30;
 
-    public static final Path THEMES_DIR = Paths.get("C:/remotely/themes");
+    public static final Path THEMES_DIR = Paths.get(new File("/").getAbsolutePath(), "remotely", "themes" );
     private List<Theme> themes = new ArrayList<>();
 
     private final Screen parent;
