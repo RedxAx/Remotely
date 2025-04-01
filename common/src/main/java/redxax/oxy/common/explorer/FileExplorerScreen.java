@@ -313,7 +313,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         float pathTargetScrollOffset = 0;
         drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, currentMode == Mode.SEARCH, "FileExplorerScreen", mouseX, mouseY, "Search For Files or Directories");
         context.fill(explorerX, headerY, explorerX + explorerWidth, headerY + 27, Config.innerBackgroundColor);
-        drawInnerBorder(context, explorerX, headerY, explorerWidth, 23, Config.innerBorderColor);
+        drawInnerBorder(context, explorerX, headerY, explorerWidth, 23, innerBorderColor);
+        drawOuterBorder(context, explorerX, headerY, explorerWidth, 23, globalOuterBorder);
         context.drawText(this.textRenderer, Text.literal("Name"), explorerX + 10, headerY + 5, globalTextColor, Config.shadow);
         if (!serverInfo.isRemote) {
             int createdX = explorerX + explorerWidth - 100;
@@ -336,8 +337,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             drawPixelArt(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
             return;
         }
-        float scrollSpeed = 0.2f;
-        currentTab.tabData.smoothOffset += (currentTab.tabData.targetOffset - currentTab.tabData.smoothOffset) * scrollSpeed;
+        currentTab.tabData.smoothOffset += (currentTab.tabData.targetOffset - currentTab.tabData.smoothOffset) * globalScrollSpeed * deltaTime;
         List<EntryData> entriesToRender;
         synchronized (fileEntriesLock) {
             entriesToRender = new ArrayList<>(fileEntries);

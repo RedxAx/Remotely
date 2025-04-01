@@ -403,8 +403,8 @@ public class ServerManagerScreen extends Screen {
             }
             float currentX = iconPosX.get(i);
             float currentY = iconPosY.get(i);
-            currentX = lerp(currentX, baseX, 0.2f);
-            currentY = lerp(currentY, baseY, 0.2f);
+            currentX = lerp(currentX, baseX, globalMovementSpeed * deltaTime);
+            currentY = lerp(currentY, baseY, globalMovementSpeed * deltaTime);
             iconPosX.set(i, currentX);
             iconPosY.set(i, currentY);
             serverIconRects.add(new IconRect((int) currentX, (int) currentY, iconSize, iconSize, (i < currentServers.size() ? i : -1), i == currentServers.size()));

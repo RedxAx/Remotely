@@ -79,7 +79,7 @@ public class TerminalRenderer {
         int totalLinesRender = getTotalLines();
         int maxScroll = Math.max(0, totalLinesRender * lineHeight - textAreaHeight2);
         float deltaScroll = targetScrollOffset - currentScrollOffset;
-        currentScrollOffset += deltaScroll * 8f * deltaTime;
+        currentScrollOffset += deltaScroll * globalScrollSpeed * deltaTime;
         if (currentScrollOffset < 0) {
             currentScrollOffset += (-currentScrollOffset) * 0.3f;
         } else if (currentScrollOffset > maxScroll) {

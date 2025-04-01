@@ -325,7 +325,7 @@ public class Render {
             int targetWidth = textRenderer.getWidth(name) + 2 * tabPadding;
             String tabId = "tab_" + i + "_" + tab.hashCode();
             float currentWidth = tabWidths.getOrDefault(tabId, (float)targetWidth);
-            float animatedWidth = currentWidth + (targetWidth - currentWidth) * 0.15f;
+            float animatedWidth = currentWidth + (targetWidth - currentWidth) * globalExpandSpeed * deltaTime;
             tabWidths.put(tabId, animatedWidth);
             int tabWidth = (int)animatedWidth;
             boolean isActive = (i == currentTabIndex);
