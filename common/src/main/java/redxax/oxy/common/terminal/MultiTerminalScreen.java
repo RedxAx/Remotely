@@ -9,11 +9,11 @@ import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.RemotelyClient;
+import redxax.oxy.common.config.Config;
 import redxax.oxy.common.explorer.FileExplorerScreen;
 import redxax.oxy.common.servers.PluginModManagerScreen;
 import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.servers.ServerState;
-import redxax.oxy.common.util.CursorUtils;
 import redxax.oxy.common.util.Notification;
 import redxax.oxy.common.util.ImageUtil.IconWithTooltip;
 
@@ -330,7 +330,7 @@ public class MultiTerminalScreen extends Screen {
         int tabOffsetY = topBarHeight + 5;
         int tabAreaHeight = TAB_HEIGHT;
         float targetPanelWidth = showSnippetsPanel ? snippetPanelWidth : 0;
-        animatedSnippetPanelWidth += (targetPanelWidth - animatedSnippetPanelWidth) * panelExpandAnimation * deltaTime;
+        animatedSnippetPanelWidth += (targetPanelWidth - animatedSnippetPanelWidth) * Config.globalExpandSpeed * deltaTime;
         int animatedWidth = (int) animatedSnippetPanelWidth;
         int effectiveWidth = this.width - animatedWidth - 5;
         drawTabs(context, this.textRenderer, buildTabInfoList(), activeTerminalIndex, mouseX, mouseY, true, false);
@@ -527,7 +527,7 @@ public class MultiTerminalScreen extends Screen {
     }
 
     private void renderSnippetsPanel(DrawContext context, int panelX, int startY, int panelWidth, int panelHeight, int mouseX, int mouseY) {
-        snippetListScrollOffset += (targetSnippetListScrollOffset - snippetListScrollOffset) * snippetListScrollSpeed * deltaTime;
+        snippetListScrollOffset += (targetSnippetListScrollOffset - snippetListScrollOffset) * globalScrollSpeed * deltaTime;
         int currentSnippetMaxWidth = Math.max(0, panelWidth - 10);
         snippetHoverIndex = -1;
         Map<Integer, Float> targetPositions = new HashMap<>();
@@ -621,7 +621,7 @@ public class MultiTerminalScreen extends Screen {
             float targetExpand = (selectedSnippetIndex == j) ? 1.0f : 0.0f;
             float currentExpand = snippetExpandProgress.getOrDefault(j, targetExpand);
             if (Math.abs(currentExpand - targetExpand) > 0.01f) {
-                currentExpand += (targetExpand - currentExpand) * expandAnimationSpeed * deltaTime;
+                currentExpand += (targetExpand - currentExpand) * globalExpandSpeed * deltaTime;
                 snippetExpandProgress.put(j, currentExpand);
             } else {
                 snippetExpandProgress.put(j, targetExpand);

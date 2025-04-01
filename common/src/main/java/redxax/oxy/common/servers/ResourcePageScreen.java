@@ -482,7 +482,7 @@ public class ResourcePageScreen extends Screen {
                 cachedContentHeight = result.totalHeight;
                 cachedEditorWidth = contentWidth;
             }
-            descScrollOffset += (descTargetScrollOffset - descScrollOffset) * delta * 0.2f;
+            descScrollOffset += (descTargetScrollOffset - descScrollOffset) * globalScrollSpeed * deltaTime;
             int maxScrollOffset = Math.max(0, cachedContentHeight + 20 - contentHeight);
             descTargetScrollOffset = Math.min(descTargetScrollOffset, maxScrollOffset);
             context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);

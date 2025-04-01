@@ -386,7 +386,7 @@ public class PluginModManagerScreen extends Screen {
             }
             return true;
         }
-        targetOffset -= (float) (verticalAmount * entryHeight * 2);
+        targetOffset -= (float) (verticalAmount * entryHeight);
         targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, resources.size() * (entryHeight + gapBetweenEntries) - (this.height - 70))));
         ScrollBar.setPendingOffset(targetOffset);
         return true;
@@ -403,8 +403,7 @@ public class PluginModManagerScreen extends Screen {
         float pathScrollOffset = 0;
         float pathTargetScrollOffset = 0;
         drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, false, "PluginModManagerScreen", mouseX, mouseY, "Search For Resources");
-        float scrollSpeed = 0.2f;
-        smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
+        smoothOffset += (targetOffset - smoothOffset) * globalScrollSpeed * deltaTime;
         int contentY = tabBarY + TAB_HEIGHT + 30;
         int contentHeight = this.height - contentY - 5;
         int contentX = 5;

@@ -15,11 +15,11 @@ public class Config {
     public static long currentTime;
     public static float deltaTime;
     public static float snippetAnimationSpeed = 10f;
-    public static float expandAnimationSpeed = 10f;
-    public static float panelExpandAnimation = 10f;
+    public static float globalExpandSpeed = 10f;
     public static float scaleAnimationSpeed = 7f;
     public static float animScaleFactor = 1f;
-    public static float snippetListScrollSpeed = 10f;
+    public static float globalScrollSpeed = 10f;
+    public static float globalMovementSpeed = 10f;
 
     public static int mainMenuButtonsStyle = 1;
     public static long lastFrameTime = System.nanoTime();

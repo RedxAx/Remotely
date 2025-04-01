@@ -904,7 +904,6 @@ public class FileEditorScreen extends Screen {
         private double smoothScrollOffsetHoriz = 0;
         private double targetScrollOffsetVert = 0;
         private double targetScrollOffsetHoriz = 0;
-        private final double scrollSpeed = 0.3;
         public int cursorLine;
         public int cursorPos;
         public int selectionStartLine = -1;
@@ -943,8 +942,8 @@ public class FileEditorScreen extends Screen {
         }
 
         public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-            smoothScrollOffsetVert += (targetScrollOffsetVert - smoothScrollOffsetVert) * scrollSpeed;
-            smoothScrollOffsetHoriz += (targetScrollOffsetHoriz - smoothScrollOffsetHoriz) * scrollSpeed;
+            smoothScrollOffsetVert += (targetScrollOffsetVert - smoothScrollOffsetVert) * globalScrollSpeed * deltaTime;
+            smoothScrollOffsetHoriz += (targetScrollOffsetHoriz - smoothScrollOffsetHoriz) * globalScrollSpeed + deltaTime;
             context.enableScissor(x, y, x + width, y + height);
             int lineHeight = mc.textRenderer.fontHeight + 2;
             int visibleLines = height / lineHeight + 6;
