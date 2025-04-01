@@ -743,6 +743,7 @@ public class Render {
         context.fill(x + w, y, x + w + 1, y + h, color);
         context.fill(x, y + h, x + w, y + h + 2, elementBackgroundColor);
         context.fill(x, y + h, x + w, y + h + 2, 0x40000000);
+        context.fillGradient(x, y + h + 2, x + w, y + h + 4, 0x00000000, 0x60000000);
     }
 
     public static String trimTextToWidthWithEllipsis(String text, int maxWidth) {
