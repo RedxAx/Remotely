@@ -49,7 +49,8 @@ public class Config {
     public static int globalHoverTextColor = 0xFFFFC800;
     public static int globalOuterBorder = 0xFF000000;
     public static int globalSelectionColor = 0x80FFFFFF;
-    public static int globalCursorColor = 0xFFd6f264;
+    public static int globalCursorColor = 0xFFFFC800;
+    public static int globalCursorAnimatedColor = 0xFFd6f264;
 
     public static int ModrinthBorderColor = 0xFFd6f264;
     public static int ModrinthBackgroundColor = 0xFF0b371c;
@@ -65,7 +66,7 @@ public class Config {
 
     public static int terminalStatusBarColor = 0xFF555555;
     public static int terminalTextColor = 0xFFFFFFFF;
-    public static int terminalTextInputColor = 0xFFd6f264;
+    public static int terminalTextInputColor = 0xFFFFC800;
     public static int terminalTextWarnColor = 0xFFFFA500;
     public static int terminalTextErrorColor = 0xFFFF0000;
     public static int terminalTextInfoColor = 0xFF00FF00;

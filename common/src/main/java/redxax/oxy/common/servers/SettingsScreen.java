@@ -104,8 +104,8 @@ public class SettingsScreen extends Screen {
 
     private void loadClientConfiguration() {
         loadThemesFromDir();
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.themes != null && !RemotelyClient.INSTANCE.themes.isEmpty()) {
-            for (MultiTerminalScreen.Theme theme : RemotelyClient.INSTANCE.themes) {
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.themes != null && !RemotelyClient.themes.isEmpty()) {
+            for (MultiTerminalScreen.Theme theme : RemotelyClient.themes) {
                 themeOptions.add(theme.name);
             }
         } else {

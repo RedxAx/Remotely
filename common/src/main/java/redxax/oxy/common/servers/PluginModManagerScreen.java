@@ -402,7 +402,7 @@ public class PluginModManagerScreen extends Screen {
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
         float pathScrollOffset = 0;
         float pathTargetScrollOffset = 0;
-        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, showCursor, false, "PluginModManagerScreen", mouseX, mouseY, "Search For Resources");
+        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, false, "PluginModManagerScreen", mouseX, mouseY, "Search For Resources");
         float scrollSpeed = 0.2f;
         smoothOffset += (targetOffset - smoothOffset) * scrollSpeed;
         int contentY = tabBarY + TAB_HEIGHT + 30;

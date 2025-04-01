@@ -4,6 +4,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import static redxax.oxy.common.config.Config.deltaTime;
 import static redxax.oxy.common.config.Config.globalCursorColor;
 
 public class CursorUtils {
@@ -25,14 +26,18 @@ public class CursorUtils {
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastCursorBlinkTime >= CURSOR_BLINK_INTERVAL) {
             lastCursorBlinkTime = currentTime;
+
+            float blinkSpeed = 15.0f;
+            float deltaChange = blinkSpeed * deltaTime;
+
             if (cursorFadingOut) {
-                cursorOpacity -= 0.1f;
+                cursorOpacity -= deltaChange;
                 if (cursorOpacity <= 0.0f) {
                     cursorOpacity = 0.0f;
                     cursorFadingOut = false;
                 }
             } else {
-                cursorOpacity += 0.1f;
+                cursorOpacity += deltaChange;
                 if (cursorOpacity >= 1.0f) {
                     cursorOpacity = 1.0f;
                     cursorFadingOut = true;

@@ -150,7 +150,7 @@ public class BrowserScreen extends Screen {
         drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, fullscreenIcon, null, null, goBackIcon, goForwardIcon, null, null, reloadIcon);
         drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, true, false);
         String displayUrl = urlFieldFocused ? urlFieldText.toString() : trimUrl(urlFieldText.toString());
-        drawSearchBar(context, minecraftClient.textRenderer, new StringBuilder(displayUrl), urlFieldFocused, urlCursorPosition, urlSelectionStart, urlSelectionEnd, urlScrollOffset, urlTargetScrollOffset, urlShowCursor, false, "BrowserScreen", mouseX, mouseY, "Search In Google or Enter a URL");
+        drawSearchBar(context, minecraftClient.textRenderer, new StringBuilder(displayUrl), urlFieldFocused, urlCursorPosition, urlSelectionStart, urlSelectionEnd, urlScrollOffset, urlTargetScrollOffset, false, "BrowserScreen", mouseX, mouseY, "Search In Google or Enter a URL");
     }
 
     private int convertMouseX(double x) {

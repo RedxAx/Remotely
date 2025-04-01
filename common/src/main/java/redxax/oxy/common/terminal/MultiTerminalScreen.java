@@ -75,7 +75,6 @@ public class MultiTerminalScreen extends Screen {
     int snippetPopupHeight = 150;
     boolean snippetNameFocused = true;
     long snippetLastBlinkTime = 0;
-    boolean snippetCursorVisible = true;
     long snippetLastInputTime = 0;
     int snippetNameCursorPos = 0;
     int snippetCommandsCursorPos = 0;
@@ -290,10 +289,6 @@ public class MultiTerminalScreen extends Screen {
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         long currentTime = System.currentTimeMillis();
-        if (currentTime - snippetLastBlinkTime > 500) {
-            snippetCursorVisible = !snippetCursorVisible;
-            snippetLastBlinkTime = currentTime;
-        }
         super.render(context, mouseX, mouseY, delta);
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
@@ -429,11 +424,11 @@ public class MultiTerminalScreen extends Screen {
         int nameTextX = snippetPopupX + 8;
         int nameTextY = nameBoxY + 2;
         context.drawText(minecraftClient.textRenderer, Text.literal(visibleName), nameTextX, nameTextY, globalTextColor, shadow);
-        if (snippetNameFocused && snippetCursorVisible) {
+        if (snippetNameFocused) {
             int cursorPosVisible = Math.min(snippetNameCursorPos - charStart, visibleName.length());
             if (cursorPosVisible < 0) cursorPosVisible = 0;
             int cX = nameTextX + minecraftClient.textRenderer.getWidth(visibleName.substring(0, Math.min(cursorPosVisible, visibleName.length())));
-            context.fill(cX, nameTextY - 1, cX + 1, nameTextY + minecraftClient.textRenderer.fontHeight, CursorUtils.blendColor());
+            context.fill(cX, nameTextY - 1, cX + 1, nameTextY + minecraftClient.textRenderer.fontHeight, globalCursorAnimatedColor);
         }
         int commandsLabelY = nameBoxY + nameBoxHeight + 8;
         trimAndDrawText(context, "Commands:", snippetPopupX + 5, commandsLabelY, snippetPopupWidth - 10, globalTextColor);
@@ -470,7 +465,7 @@ public class MultiTerminalScreen extends Screen {
         for (int i = 0; i < visibleCmdLines.size(); i++) {
             context.drawText(minecraftClient.textRenderer, Text.literal(visibleCmdLines.get(i)), commandsInnerX, commandsInnerY + i * (minecraftClient.textRenderer.fontHeight + 2), globalTextColor, shadow);
         }
-        if (!snippetNameFocused && snippetCursorVisible) {
+        if (!snippetNameFocused) {
             String cursorLine = cLineIndex >= 0 && cLineIndex < wrappedLines.size() ? wrappedLines.get(cLineIndex) : "";
             int cPosInLine = cursorPosInLine(snippetCommandsCursorPos, wrappedLines, cLineIndex);
             if (cPosInLine < 0) cPosInLine = 0;
@@ -481,7 +476,7 @@ public class MultiTerminalScreen extends Screen {
             if (relativeLine < 0) relativeLine = 0;
             if (relativeLine >= snippetMaxVisibleLines) relativeLine = snippetMaxVisibleLines - 1;
             int cursorY = commandsInnerY + relativeLine * (minecraftClient.textRenderer.fontHeight + 2);
-            context.fill(cursorX, cursorY - 1, cursorX + 1, cursorY + minecraftClient.textRenderer.fontHeight, CursorUtils.blendColor());
+            context.fill(cursorX, cursorY - 2, cursorX + 1, cursorY + minecraftClient.textRenderer.fontHeight, globalCursorAnimatedColor);
         }
         int shortcutLabelY = commandsBoxY + commandsBoxHeight + 8;
         trimAndDrawText(context, snippetRecordingKeys ? "Shortcut (recording):" : "Shortcut:", snippetPopupX + 5, shortcutLabelY, snippetPopupWidth - 10, globalTextColor);

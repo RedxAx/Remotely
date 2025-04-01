@@ -49,7 +49,6 @@ public class InputProcessor {
             inputBuffer.insert(cursorPosition, chr);
             cursorPosition++;
             tabCompletionHandler.resetTabCompletion();
-            terminalInstance.renderer.resetCursorBlink();
             terminalInstance.scrollToBottom();
             tabCompletionHandler.updateTabCompletionSuggestion(inputBuffer);
             return true;
@@ -119,7 +118,6 @@ public class InputProcessor {
                     cursorPosition = wordStart + newText.length();
                 }
                 updateTabCompletionCurrentDirectory();
-                terminalInstance.renderer.resetCursorBlink();
                 terminalInstance.scrollToBottom();
                 tabCompletionHandler.clearTabCompletionSuggestion();
                 return true;
@@ -127,7 +125,6 @@ public class InputProcessor {
                 inputBuffer.insert(cursorPosition, ' ');
                 cursorPosition++;
                 tabCompletionHandler.resetTabCompletion();
-                terminalInstance.renderer.resetCursorBlink();
                 terminalInstance.scrollToBottom();
                 return true;
             case GLFW.GLFW_KEY_C:
@@ -145,7 +142,6 @@ public class InputProcessor {
                     inputBuffer.setLength(0);
                     cursorPosition = 0;
                     tabCompletionHandler.resetTabCompletion();
-                    terminalInstance.renderer.resetCursorBlink();
                     terminalInstance.scrollToBottom();
                     terminalInstance.setHistoryIndex(terminalInstance.getCommandHistory().size());
                 } catch (IOException e) {
@@ -160,7 +156,6 @@ public class InputProcessor {
                     cursorPosition = inputBuffer.length();
                 }
                 tabCompletionHandler.resetTabCompletion();
-                terminalInstance.renderer.resetCursorBlink();
                 return true;
             case GLFW.GLFW_KEY_DOWN:
                 if (terminalInstance.getHistoryIndex() < terminalInstance.getCommandHistory().size() - 1) {
@@ -174,7 +169,6 @@ public class InputProcessor {
                     cursorPosition = 0;
                 }
                 tabCompletionHandler.resetTabCompletion();
-                terminalInstance.renderer.resetCursorBlink();
                 return true;
             case GLFW.GLFW_KEY_BACKSPACE:
                 if (ctrlHeld) {
@@ -183,7 +177,6 @@ public class InputProcessor {
                         inputBuffer.delete(newCursorPos, cursorPosition);
                         cursorPosition = newCursorPos;
                         tabCompletionHandler.resetTabCompletion();
-                        terminalInstance.renderer.resetCursorBlink();
                         terminalInstance.scrollToBottom();
                     }
                 } else {
@@ -191,7 +184,6 @@ public class InputProcessor {
                         inputBuffer.deleteCharAt(cursorPosition - 1);
                         cursorPosition--;
                         tabCompletionHandler.resetTabCompletion();
-                        terminalInstance.renderer.resetCursorBlink();
                         terminalInstance.scrollToBottom();
                     }
                 }
@@ -208,7 +200,6 @@ public class InputProcessor {
                     }
                 }
                 tabCompletionHandler.resetTabCompletion();
-                terminalInstance.renderer.resetCursorBlink();
                 return true;
             case GLFW.GLFW_KEY_RIGHT:
                 if (ctrlHeld) {
@@ -219,7 +210,6 @@ public class InputProcessor {
                     }
                 }
                 tabCompletionHandler.resetTabCompletion();
-                terminalInstance.renderer.resetCursorBlink();
                 return true;
             case GLFW.GLFW_KEY_V:
                 if (ctrlHeld) {
@@ -232,7 +222,6 @@ public class InputProcessor {
                     inputBuffer.replace(wordStart, tokenEnd, clipboard);
                     cursorPosition = wordStart + clipboard.length();
                     tabCompletionHandler.resetTabCompletion();
-                    terminalInstance.renderer.resetCursorBlink();
                     terminalInstance.scrollToBottom();
                     return true;
                 }
