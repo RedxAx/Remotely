@@ -353,7 +353,7 @@ public class Render {
         }
     }
 
-    public static void drawSearchBar(DrawContext context, TextRenderer textRenderer, StringBuilder fieldText, boolean fieldFocused, int cursorPosition, int selectionStart, int selectionEnd, float pathScrollOffset, float pathTargetScrollOffset, boolean showCursor, boolean isSpecialMode, String caller, int mouseX, int mouseY, String tooltipText) {
+    public static void drawSearchBar(DrawContext context, TextRenderer textRenderer, StringBuilder fieldText, boolean fieldFocused, int cursorPosition, int selectionStart, int selectionEnd, float pathScrollOffset, float pathTargetScrollOffset, boolean isSpecialMode, String caller, int mouseX, int mouseY, String tooltipText) {
         if (!fieldText.toString().equals(previousFieldText)) {
             if (!fieldFocused) {
                 searchTextAnimator.updateText(fieldText.toString());
@@ -411,9 +411,9 @@ public class Render {
         }
         context.enableScissor(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight);
         context.drawText(textRenderer, Text.literal(displayText), searchBarX + 5 - (int) currentScrollOffset, searchBarY + 5, Config.getTextColor(hovered, fieldFocused), shadow);
-        if (fieldFocused && showCursor) {
+        if (fieldFocused) {
             int cursorPosX = searchBarX + 5 + textRenderer.getWidth(beforeCursor) - (int) currentScrollOffset;
-            context.fill(cursorPosX, searchBarY + 5, cursorPosX + 1, searchBarY + 5 + textRenderer.fontHeight, 0xFFFFFFFF);
+            context.fill(cursorPosX, searchBarY + 5, cursorPosX + 1, searchBarY + 5 + textRenderer.fontHeight, globalCursorAnimatedColor);
         }
         context.disableScissor();
         CustomTooltip.show(tooltipText, mouseX, mouseY, context.getScaledWindowWidth(), context.getScaledWindowHeight(), textRenderer, hovered);
@@ -592,8 +592,8 @@ public class Render {
         int knobDiameter = trackHeight - 4;
         int knobX = value ? x + trackWidth - knobDiameter - 2 : x + 2;
         int knobY = y + 2;
-        context.fill(knobX, knobY, knobX + knobDiameter, knobY + knobDiameter, getElementBackgroundColor(id, hovered, false, false, false, false));
-        drawInnerBorder(context, knobX, knobY, knobDiameter, knobDiameter, getElementBorderColor(id, hovered, false, false, false, false));
+        context.fill(knobX, knobY, knobX + knobDiameter, knobY + knobDiameter, getElementBackgroundColor(id + "knob".hashCode(), hovered, false, false, false, false));
+        drawInnerBorder(context, knobX, knobY, knobDiameter, knobDiameter, getElementBorderColor(id + "knob".hashCode(), hovered, false, false, false, false));
     }
 
     public static void drawSlider(DrawContext context, MinecraftClient mc, int x, int y, String label, int currentValue, int minValue, int maxValue, boolean hovered, int mouseX, int mouseY, String toolTipText) {
@@ -605,7 +605,7 @@ public class Render {
 
         float ratio = (float)(currentValue - minValue) / (float)(maxValue - minValue);
         int fillWidth = (int)(ratio * (sliderWidth - 2));
-        context.fill(x + 1, y + 1, x + 1 + fillWidth, y + sliderHeight - 1, getElementBorderColor(id, hovered, true, false, false, false));
+        context.fill(x + 1, y + 1, x + 1 + fillWidth, y + sliderHeight - 1, getElementBorderColor(id + "Inner part".hashCode(), hovered, true, false, false, false));
         drawInnerBorder(context, x, y, sliderWidth, sliderHeight, getElementBorderColor(id, hovered, false, false, false, false));
         drawOuterBorder(context, x, y, sliderWidth, sliderHeight, globalOuterBorder);
         context.fill(x + 1, y + sliderHeight - (int)(sliderHeight * 0.25), x + 1 + fillWidth, y + sliderHeight - 1, 0x20000000);
@@ -659,8 +659,8 @@ public class Render {
         float slotSpacing = maxTextW + 15f;
         for (int i = 0; i < options.size(); i++) {
             float ringIndex = i - scrollIndex;
-            if (ringIndex < -options.size() / 2) ringIndex += options.size();
-            if (ringIndex > options.size() / 2) ringIndex -= options.size();
+            if (ringIndex < -options.size() / 2f) ringIndex += options.size();
+            if (ringIndex > options.size() / 2f) ringIndex -= options.size();
             float offsetX = centerSlot + ringIndex * slotSpacing;
             String s = options.get(i);
             int textW = mc.textRenderer.getWidth(s);
@@ -740,9 +740,9 @@ public class Render {
             }
             context.drawText(mc.textRenderer, Text.literal(textValue), x + 5 - (int)scrollOffset, y + 5, globalTextColor, Config.shadow);
         }
-        if (focused && (System.currentTimeMillis() / 500) % 2 == 0) {
+        if (focused) {
             int cursorPosX = x + 5 + mc.textRenderer.getWidth(beforeCursor) - (int)scrollOffset;
-            context.fill(cursorPosX, y + 4, cursorPosX + 1, y + 4 + mc.textRenderer.fontHeight, globalTextColor);
+            context.fill(cursorPosX, y + 4, cursorPosX + 1, y + 4 + mc.textRenderer.fontHeight, globalCursorAnimatedColor);
         }
         context.disableScissor();
     }

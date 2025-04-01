@@ -70,7 +70,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private int selectionStart = -1;
     private int selectionEnd = -1;
     private long lastBlinkTime = 0;
-    private boolean showCursor = true;
     private final Gson GSON = new Gson();
     private boolean shiftPressed = false;
     private boolean lineHovered;
@@ -312,7 +311,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         Tab currentTab = tabs.get(currentTabIndex);
         float pathScrollOffset = 0;
         float pathTargetScrollOffset = 0;
-        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, showCursor, currentMode == Mode.SEARCH, "FileExplorerScreen", mouseX, mouseY, "Search For Files or Directories");
+        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, currentMode == Mode.SEARCH, "FileExplorerScreen", mouseX, mouseY, "Search For Files or Directories");
         context.fill(explorerX, headerY, explorerX + explorerWidth, headerY + 27, Config.innerBackgroundColor);
         drawInnerBorder(context, explorerX, headerY, explorerWidth, 23, Config.innerBorderColor);
         context.drawText(this.textRenderer, Text.literal("Name"), explorerX + 10, headerY + 5, globalTextColor, Config.shadow);
@@ -353,12 +352,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         context.enableScissor(explorerX - 2, explorerY, explorerX + explorerWidth + 4, explorerY + explorerHeight);
         if (entriesToRender.isEmpty() && !loading) {
             if (!serverInfo.isRemote) {
-                context.drawText(this.textRenderer, Text.literal("No files/folders in this directory."), explorerX + explorerWidth / 2 - textRenderer.getWidth("No files/folders in this directory.") / 2, explorerY + explorerHeight / 2, 0xFFFFFFFF, false);
+                context.drawText(this.textRenderer, Text.literal("No files/folders in this directory."), explorerX + explorerWidth / 2 - textRenderer.getWidth("No files/folders in this directory.") / 2, explorerY + explorerHeight / 2, globalTextColor, shadow);
             } else {
                 if (serverInfo.remoteHost != null && serverInfo.remoteHost.getSSHManager().isSFTPConnected()) {
-                    context.drawText(this.textRenderer, Text.literal("No files/folders in this directory."), explorerX + explorerWidth / 2 - textRenderer.getWidth("No files/folders in this directory.") / 2, explorerY + explorerHeight / 2, 0xFFFFFFFF, false);
+                    context.drawText(this.textRenderer, Text.literal("No files/folders in this directory."), explorerX + explorerWidth / 2 - textRenderer.getWidth("No files/folders in this directory.") / 2, explorerY + explorerHeight / 2, globalTextColor, shadow);
                 } else {
-                    context.drawText(this.textRenderer, Text.literal("Connection lost or SFTP error."), explorerX + explorerWidth / 2 - textRenderer.getWidth("Connection lost or SFTP error.") / 2, explorerY + explorerHeight / 2, 0xFFFFFFFF, false);
+                    context.drawText(this.textRenderer, Text.literal("Connection lost or SFTP error."), explorerX + explorerWidth / 2 - textRenderer.getWidth("Connection lost or SFTP error.") / 2, explorerY + explorerHeight / 2, globalTextColor, shadow);
                 }
             }
         } else {
@@ -382,9 +381,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     String displayed = renameBuffer.toString();
                     int renameCursorX = renameBoxX + 2 + textRenderer.getWidth(displayed.substring(0, Math.min(renameCursorPos, displayed.length())));
                     context.drawText(this.textRenderer, Text.literal(displayed), renameBoxX + 2, renameBoxY + 2, globalTextColor, false);
-                    if (showCursor) {
-                        context.fill(renameCursorX, renameBoxY + 2, renameCursorX + 1, renameBoxY + 2 + textRenderer.fontHeight, 0xFFFFFFFF);
-                    }
+                    context.fill(renameCursorX, renameBoxY + 2, renameCursorX + 1, renameBoxY + 2 + textRenderer.fontHeight, globalCursorAnimatedColor);
+
                 } else {
                     if (!serverInfo.isRemote) {
                         int createdX = explorerX + explorerWidth - 100;
@@ -1486,17 +1484,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             showNotification("Invalid path.", Notification.Type.ERROR);
         }
     }
-    @Override
-    public void tick() {
-        super.tick();
-        if (fieldFocused) {
-            long currentTime = System.currentTimeMillis();
-            if (currentTime - lastBlinkTime >= 500) {
-                showCursor = !showCursor;
-                lastBlinkTime = currentTime;
-            }
-        }
-    }
     public void showNotification(String message, Notification.Type type) {
         notifications.add(new Notification(message, type, this.width, this.height));
         if (type == Notification.Type.ERROR)
@@ -1802,7 +1789,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             context.fill((int) x, (int) y, (int) x + width, (int) y + height, color);
             drawInnerBorder(context, (int) x, (int) y, width, height, blendColor(0xFF000000, currentOpacity));
             drawOuterBorder(context, (int) x, (int) y, width, height, globalOuterBorder);
-            context.drawText(textRenderer, Text.literal(message), (int) x + padding, (int) y + padding, blendColor(0xFFFFFFFF, currentOpacity), Config.shadow);
+            context.drawText(textRenderer, Text.literal(message), (int) x + padding, (int) y + padding, blendColor(globalTextColor, currentOpacity), Config.shadow);
         }
         private int blendColor(int color, float opacity) {
             int a = (int) ((color >> 24 & 0xFF) * opacity);

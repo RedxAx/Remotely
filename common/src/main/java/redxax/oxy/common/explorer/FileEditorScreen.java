@@ -12,7 +12,6 @@ import redxax.oxy.common.SSHManager;
 import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.explorer.ResponseManager.*;
 import redxax.oxy.common.config.Config;
-import redxax.oxy.common.util.CursorUtils;
 import redxax.oxy.common.util.ImageUtil;
 import redxax.oxy.common.util.TextAnimator;
 
@@ -859,7 +858,7 @@ public class FileEditorScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, saveIcon, null, null, null, null, null, null, null);
-        drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, customShowCursor, aiMode, "FileEditorScreen", mouseX, mouseY, "Search For Text In The File.");
+        drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, aiMode, "FileEditorScreen", mouseX, mouseY, "Search For Text In The File.");
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, tabs.get(currentTabIndex).unsaved);
         tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
         ScrollBar.render(context, this, mouseX, mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), (float) tabs.get(currentTabIndex).textEditor.getScrollOffset());
@@ -970,9 +969,8 @@ public class FileEditorScreen extends Screen {
                 }
                 if (lineIndex == cursorLine && !hasSelection()) {
                     int cursorX = mc.textRenderer.getWidth(text.substring(0, Math.min(cursorPos, text.length())));
-                    int cy = renderY;
-                    int cursorColor = CursorUtils.blendColor();
-                    context.fill(x + textPadding - (int) smoothScrollOffsetHoriz + cursorX, cy, x + textPadding - (int) smoothScrollOffsetHoriz + cursorX + 1, cy + lineHeight - 2, cursorColor);
+                    int cy = renderY -1;
+                    context.fill(x + textPadding - (int) smoothScrollOffsetHoriz + cursorX, cy, x + textPadding - (int) smoothScrollOffsetHoriz + cursorX + 1, cy + lineHeight - 2, globalCursorAnimatedColor);
                 }
             }
             context.disableScissor();

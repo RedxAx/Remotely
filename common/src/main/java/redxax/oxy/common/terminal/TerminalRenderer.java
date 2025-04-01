@@ -30,7 +30,6 @@ public class TerminalRenderer {
     private int terminalWidth;
     public int scrollOffset = 0;
     private long lastBlinkTime = 0;
-    private boolean cursorVisible = true;
     private long lastInputTime = 0;
     private static final Pattern TMUX_STATUS_PATTERN = Pattern.compile("^\\[\\d+].*");
     private final Pattern BRACKET_KEYWORD_PATTERN = Pattern.compile("\\[(.*?)\\b(WARNING|WARN|ERROR|INFO)\\b(.*?)]");
@@ -120,19 +119,15 @@ public class TerminalRenderer {
             int inputTextWidth = minecraftClient.textRenderer.getWidth(inputText);
             context.drawText(minecraftClient.textRenderer, Text.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(Config.globalDarkTextColor))), inputX + inputTextWidth, inputY, Config.globalDarkTextColor, Config.shadow);
         }
-        if (currentTime - lastInputTime < 500) {
-            cursorVisible = true;
-        } else if (currentTime - lastBlinkTime > 500) {
-            cursorVisible = !cursorVisible;
-            lastBlinkTime = currentTime;
-        }
-        if (cursorVisible) {
-            int cursorInputPosition = Math.min(terminalInstance.inputHandler.getCursorPosition(), terminalInstance.inputHandler.getInputBuffer().length());
-            String beforeCursor = inputPrompt + terminalInstance.inputHandler.getInputBuffer().substring(0, cursorInputPosition);
-            int cursorXPos = inputX + minecraftClient.textRenderer.getWidth(beforeCursor);
-            int cursorHeight = minecraftClient.textRenderer.fontHeight;
-            context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, CursorUtils.blendColor());
-        }
+        int cursorInputPosition = Math.min(terminalInstance.inputHandler.getCursorPosition(), terminalInstance.inputHandler.getInputBuffer().length());
+        String beforeCursor = inputPrompt + terminalInstance.inputHandler.getInputBuffer().substring(0, cursorInputPosition);
+        int cursorXPos = inputX + minecraftClient.textRenderer.getWidth(beforeCursor);
+        int cursorHeight = minecraftClient.textRenderer.fontHeight;
+        context.getMatrices().push();
+        context.getMatrices().translate(0, 0, 1000);
+        context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, globalCursorAnimatedColor);
+        context.getMatrices().pop();
+
         context.fill(terminalX, statusBarY, terminalX + terminalWidth, statusBarY + getStatusBarHeight(), terminalStatusBarColor);
         OrderedText[] statusTexts = getStatusBarOrderedTexts(textAreaWidth);
         OrderedText leftStatus = statusTexts[0];
@@ -184,11 +179,6 @@ public class TerminalRenderer {
         text = ANSI_PATTERN.matcher(text).replaceAll("");
         text = ANSI_PATTERN2.matcher(text).replaceAll("");
         return text.replace("\t", "    ");
-    }
-
-    public void resetCursorBlink() {
-        lastInputTime = System.currentTimeMillis();
-        cursorVisible = true;
     }
 
     private List<StyleTextPair> parseKeywordsAndHighlight(String text) {
