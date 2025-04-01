@@ -44,6 +44,8 @@ public class Render {
     private static int previousScrollSelectorIndex = -1;
     private static Map<String, Float> tabWidths;
     private static int previousTabCount = 0;
+    private static Map<Integer, Float> scrollSelectorIndexFloatMap = new HashMap<>();
+    private static Map<Integer, Integer> previousScrollSelectorIndexMap = new HashMap<>();
 
     public static class CustomTooltip {
         private static String tooltipText = "";
@@ -618,17 +620,27 @@ public class Render {
 
     public static void drawScrollSelector(DrawContext context, MinecraftClient mc, int x, int y, List<String> options, int selectedIndex, boolean hovered) {
         selectedIndex = (selectedIndex + options.size()) % options.size();
-        if (previousScrollSelectorIndex == -1) {
-            scrollSelectorIndexFloat = selectedIndex;
-            previousScrollSelectorIndex = selectedIndex;
+        int id = ("scrollSelector" + options).hashCode();
+        Float scrollIndex = scrollSelectorIndexFloatMap.get(id);
+        Integer prevIndex = previousScrollSelectorIndexMap.get(id);
+        if (scrollIndex == null || prevIndex == null) {
+            scrollIndex = (float) selectedIndex;
+            prevIndex = selectedIndex;
         }
-        if (previousScrollSelectorIndex != selectedIndex) {
-            previousScrollSelectorIndex = selectedIndex;
+        if (prevIndex != selectedIndex) {
+            prevIndex = selectedIndex;
         }
-        scrollSelectorIndexFloat += (selectedIndex - scrollSelectorIndexFloat) * 0.15f;
+        scrollIndex += (selectedIndex - scrollIndex) * 0.15f;
+        while (scrollIndex - selectedIndex > options.size() / 2f) {
+            scrollIndex -= options.size();
+        }
+        while (scrollIndex - selectedIndex < -options.size() / 2f) {
+            scrollIndex += options.size();
+        }
+        scrollSelectorIndexFloatMap.put(id, scrollIndex);
+        previousScrollSelectorIndexMap.put(id, prevIndex);
         int w = 180;
         int h = 18;
-        int id = ("scrollSelector" + options).hashCode();
         int bg = Config.getElementBackgroundColor(id, hovered, false, false, false, false);
         context.fill(x, y, x + w, y + h, bg);
         drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, false, false, false));
@@ -637,16 +649,23 @@ public class Render {
         int contentWidth = x + w - contentX - 1;
         context.enableScissor(contentX, y, contentX + contentWidth, y + h);
         float centerSlot = contentX + contentWidth / 2f;
-        float slotSpacing = 60f;
+        int maxTextW = 0;
+        for (String s : options) {
+            int textW = mc.textRenderer.getWidth(s);
+            if (textW > maxTextW) {
+                maxTextW = textW;
+            }
+        }
+        float slotSpacing = maxTextW + 15f;
         for (int i = 0; i < options.size(); i++) {
-            float ringIndex = i - scrollSelectorIndexFloat;
+            float ringIndex = i - scrollIndex;
             if (ringIndex < -options.size() / 2) ringIndex += options.size();
             if (ringIndex > options.size() / 2) ringIndex -= options.size();
             float offsetX = centerSlot + ringIndex * slotSpacing;
             String s = options.get(i);
             int textW = mc.textRenderer.getWidth(s);
-            float textX = offsetX - textW / 2f -2;
-            float textY = (y + (h - mc.textRenderer.fontHeight) / 2f) +1;
+            float textX = offsetX - textW / 2f;
+            float textY = (y + (h - mc.textRenderer.fontHeight) / 2f) + 1;
             context.drawText(mc.textRenderer, Text.literal(s), (int) textX, (int) textY, globalTextColor, Config.shadow);
         }
         context.disableScissor();
@@ -661,7 +680,6 @@ public class Render {
         }
         context.getMatrices().pop();
     }
-
     public static void drawTabSwitch(DrawContext context, MinecraftClient mc, int x, int y, String label, List<String> options, int currentIndex, int mouseX, int mouseY) {
         int barWidth = 180;
         int barHeight = 18;
