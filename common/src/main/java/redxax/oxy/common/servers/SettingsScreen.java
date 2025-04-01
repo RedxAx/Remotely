@@ -6,8 +6,11 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.common.RemotelyClient;
 import redxax.oxy.common.SSHManager;
 import redxax.oxy.common.config.Config;
+import redxax.oxy.common.config.Themes;
+import redxax.oxy.common.terminal.MultiTerminalScreen;
 import redxax.oxy.common.util.ImageUtil;
 
 import java.awt.datatransfer.Clipboard;
@@ -25,6 +28,7 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
+import static redxax.oxy.common.RemotelyClient.loadThemesFromDir;
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.servers.SettingsScreen.ServerSettingType.*;
@@ -55,6 +59,7 @@ public class SettingsScreen extends Screen {
     private ImageUtil.IconWithTooltip closeIcon, createIcon;
     public enum ServerSettingType {TOGGLE, SLIDER, SCROLL_SWITCH, TAB_SWITCH, TEXT}
     private float targetScaleFactor = globalScaleFactor;
+    List<String> themeOptions = new ArrayList<>();
 
     public SettingsScreen(MinecraftClient mc, String mode, ServerManagerScreen parent, String settingsRoot, List<Settings> customSettings) {
         this(mc, mode, parent, settingsRoot, customSettings, null);
@@ -98,11 +103,20 @@ public class SettingsScreen extends Screen {
     }
 
     private void loadClientConfiguration() {
+        loadThemesFromDir();
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.themes != null && !RemotelyClient.INSTANCE.themes.isEmpty()) {
+            for (MultiTerminalScreen.Theme theme : RemotelyClient.INSTANCE.themes) {
+                themeOptions.add(theme.name);
+            }
+        } else {
+            themeOptions.add("Default");
+        }
         settings.clear();
+        settings.add(new Settings("Theme", "Select and apply a theme on startup.", "Appearance", "none", "theme", SCROLL_SWITCH, themeOptions.get(0), themeOptions));
         settings.add(new Settings("Show Minecraft Background", "Display The Minecraft Panorama As The Background.", "Appearance", "none", "background", TOGGLE, String.valueOf(background)));
         settings.add(new Settings("Show Wallpaper", "Display Your PC Wallpaper As The Background.", "Appearance", "none", "wallpaper", TOGGLE, String.valueOf(wallpaper)));
         settings.add(new Settings("Text Shadow", "Enable Text Background / Shadow Effect.", "Appearance", "none", "shadow", TOGGLE, String.valueOf(shadow)));
-        settings.add(new Settings("Main Menu Buttons Style", "Choose The Style of The Buttons In The Main Menu Screen.", "Appearance", "none", "mainMenuButtonsStyle", SCROLL_SWITCH, (mainMenuButtonsStyle == 0 ? "Vanilla" : mainMenuButtonsStyle == 1 ? "Minimal" : "Normal"), Arrays.asList("Vanilla", "Minimal", "Normal")));
+        settings.add(new Settings("Main Menu Buttons Style", "Choose The Style of The Buttons In The Main Menu Screen.", "Appearance", "none", "mainMenuButtonsStyle", TAB_SWITCH, (mainMenuButtonsStyle == 0 ? "Vanilla" : mainMenuButtonsStyle == 1 ? "Minimal" : "Normal"), Arrays.asList("Vanilla", "Minimal", "Normal")));
 
         settings.add(new Settings("Developer Mode", "Enable Developer Mode.", "Development", "none", "isDev", TOGGLE, String.valueOf(isDev)));
     }
@@ -169,6 +183,14 @@ public class SettingsScreen extends Screen {
             case "wallpaper" -> wallpaper = Boolean.parseBoolean(value);
             case "shadow" -> shadow = Boolean.parseBoolean(value);
             case "isDev" -> isDev = Boolean.parseBoolean(value);
+        }
+        if (key.equals("theme") && RemotelyClient.INSTANCE != null) {
+            for (MultiTerminalScreen.Theme theme : RemotelyClient.INSTANCE.themes) {
+                if (theme.name.equals(value)) {
+                    Themes.applyTheme(theme);
+                    break;
+                }
+            }
         }
         saveClientConfigToJson();
     }
@@ -282,7 +304,7 @@ public class SettingsScreen extends Screen {
         }
         int totalContentHeight = currentSettings.size() * rowHeight;
         currentSettingsScroll += (targetSettingsScroll - currentSettingsScroll) * delta * 0.2f;
-        context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
+        context.enableScissor(contentX -2, contentY -2, contentX + contentWidth + 4, contentY + contentHeight);
         int widgetWidth = 180;
         int widgetAreaX = this.width - widgetWidth - 12;
         for (int i = 0; i < currentSettings.size(); i++) {
@@ -317,7 +339,7 @@ public class SettingsScreen extends Screen {
         context.disableScissor();
         int maxScroll = Math.max(0, totalContentHeight - contentHeight);
         if ((int) currentSettingsScroll > 0) {
-            context.fillGradient(contentX, contentY, contentX + contentWidth, contentY + 10, 0x55000000, 0x00000000);
+            context.fillGradient(contentX, contentY -2, contentX + contentWidth, contentY + 10, 0x55000000, 0x00000000);
         }
         if ((int) currentSettingsScroll < maxScroll) {
             context.fillGradient(contentX, contentY + contentHeight - 10, contentX + contentWidth, contentY + contentHeight, 0x00000000, 0x55000000);

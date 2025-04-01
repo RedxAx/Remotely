@@ -20,6 +20,7 @@ import redxax.oxy.common.terminal.TerminalInstance;
 import redxax.oxy.common.SSHManager;
 
 import javax.imageio.ImageIO;
+import java.io.BufferedReader;
 import java.io.File;
 import java.nio.file.*;
 import java.io.IOException;
@@ -28,7 +29,10 @@ import java.util.List;
 import java.util.UUID;
 import java.util.Map;
 import java.util.HashMap;
+
+import static redxax.oxy.common.config.Themes.parseHexColor;
 import static redxax.oxy.common.servers.BrowserScreen.closeAll;
+import static redxax.oxy.common.terminal.MultiTerminalScreen.THEMES_DIR;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 
 public class RemotelyClient implements ClientModInitializer {
@@ -42,6 +46,7 @@ public class RemotelyClient implements ClientModInitializer {
     private static final Path TERMINAL_LOG_DIR = Paths.get("C:/remotely/data/remotely", "logs");
     private static final Path SNIPPETS_FILE = Paths.get("C:/remotely/data/snippets.json");
     private static final Path FILE_EDITOR_TABS_FILE = Paths.get("C:/remotely/data/file_editor_tabs.dat");
+    public static List<MultiTerminalScreen.Theme> themes = new ArrayList<>();
 
     private static final Gson GSON = new Gson();
     public List<TerminalInstance> terminals = new ArrayList<>();
@@ -91,8 +96,51 @@ public class RemotelyClient implements ClientModInitializer {
         } catch (Exception e) {
             devPrint("Failed to load Windows background: " + e.getMessage());
         }
+        loadThemesFromDir();
         SettingsScreen.loadClientConfigFromJson();
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownAllTerminals));
+    }
+
+    public static void loadThemesFromDir() {
+        themes.clear();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(THEMES_DIR, "*.yml")) {
+            for (Path file : stream) {
+                MultiTerminalScreen.Theme theme = parseThemeFile(file);
+                if (theme != null) {
+                    themes.add(theme);
+                }
+            }
+        } catch (IOException ignored) {}
+    }
+
+    public static MultiTerminalScreen.Theme parseThemeFile(Path file) {
+        MultiTerminalScreen.Theme theme = new MultiTerminalScreen.Theme();
+        try (BufferedReader reader = Files.newBufferedReader(file)) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                String[] parts = line.split(":", 2);
+                if (parts.length < 2) continue;
+                String key = parts[0].trim();
+                String value = parts[1].trim().replace("\"", "");
+                switch (key) {
+                    case "name" -> theme.name = value;
+                    default -> {
+                        if (value.startsWith("#")) {
+                            try {
+                                theme.colors.put(key, parseHexColor(value));
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                }
+            }
+            if (theme.name == null || theme.name.isEmpty()) {
+                theme.name = file.getFileName().toString().replace(".yml", "");
+            }
+            return theme;
+        } catch (IOException ignored) {}
+        return null;
     }
 
     public void openMultiTerminalGUI(MinecraftClient client) {
