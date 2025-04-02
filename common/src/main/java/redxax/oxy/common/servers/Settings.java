@@ -41,6 +41,11 @@ public class Settings {
         this(name, description, tab, file, key, type, defaultValue);
         this.options = options;
     }
+    public Settings(String name, String description, String tab, String file, String key, ServerSettingType type, String defaultValue, int min, int max) {
+        this(name, description, tab, file, key, type, defaultValue);
+        this.min = min;
+        this.max = max;
+    }
     public Settings(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, int min, int max) {
         this(name, description, tab, file, key, type, defaultValue);
         this.min = min;
@@ -53,7 +58,7 @@ public class Settings {
     }
     public int getIntValue() {
         try {
-            return Integer.parseInt(value);
+            return Math.round(Float.parseFloat(value));
         } catch (Exception e) {
             return min;
         }

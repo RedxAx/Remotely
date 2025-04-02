@@ -16,12 +16,12 @@ public class Config {
     public static float deltaTime;
     public static float snippetAnimationSpeed = 10f;
     public static float globalExpandSpeed = 10f;
-    public static float scaleAnimationSpeed = 7f;
+    public static float scaleAnimationSpeed = 10f;
     public static float animScaleFactor = 1f;
     public static float globalScrollSpeed = 10f;
     public static float globalMovementSpeed = 10f;
 
-    public static int mainMenuButtonsStyle = 1;
+    public static String mainMenuStyle = "Minimal";
     public static long lastFrameTime = System.nanoTime();
 
     public static int elementBackgroundColor = 0xFF2C2C2C;

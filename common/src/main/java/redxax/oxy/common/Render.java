@@ -428,9 +428,9 @@ public class Render {
         drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
         context.fill(explorerX, entryY + entryHeight - 1, explorerX + explorerWidth, entryY + entryHeight, borderWithOpacity);
         BufferedImage icon = entry.isDirectory ? FileExplorerScreen.folderIcon : getIconForFile(entry.path);
-        drawPixelArt(context, icon, explorerX + 10, entryY + 2, 16, 16);
+        drawPixelArt(context, explorerX + 10, entryY + 2, 16, 16, icon);
         if (isFavorite) {
-            drawPixelArt(context, FileExplorerScreen.pinIcon, entry.isDirectory ? explorerX + 5 : explorerX + 7, entryY + 2, 16, 16);
+            drawPixelArt(context, entry.isDirectory ? explorerX + 5 : explorerX + 7, entryY + 2, 16, 16, FileExplorerScreen.pinIcon);
         }
     }
 
@@ -473,15 +473,27 @@ public class Render {
         CustomTooltip.renderTooltip(context, mc.textRenderer, context.getScaledWindowWidth(), context.getScaledWindowHeight());
     }
 
-    public static void drawSquareButton(DrawContext context, int x, int y, MinecraftClient mc, boolean hovered, int mouseX, int mouseY, String tooltipText) {
+    private static final Map<Integer, Float> elevationOffsets = new HashMap<>();
+
+    public static void drawSquareButton(DrawContext context, int x, int y, MinecraftClient mc, boolean hovered, int mouseX, int mouseY, String tooltipText, BufferedImage icon) {
         int w = 18;
         int h = 18;
         int id = ("square" + x + y).hashCode();
+        float targetOffset = hovered ? -3f : 0f;
+        float currentOffset = elevationOffsets.getOrDefault(id, 0f);
+        currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+        elevationOffsets.put(id, currentOffset);
+        context.getMatrices().push();
+        context.getMatrices().translate(0, currentOffset, 0);
         context.fill(x, y, x + w, y + h, Config.getElementBackgroundColor(id, hovered, false, false, false, false));
         drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, false, false, false));
         drawOuterBorder(context, x, y, w, h, globalOuterBorder);
+        if (icon != null) {
+            drawPixelArt(context, x + 1, y + 1, 16, 16, icon);
+        }
         CustomTooltip.show(tooltipText, mouseX, mouseY, context.getScaledWindowWidth(), context.getScaledWindowHeight(), mc.textRenderer, hovered);
         CustomTooltip.renderTooltip(context, mc.textRenderer, context.getScaledWindowWidth(), context.getScaledWindowHeight());
+        context.getMatrices().pop();
     }
 
     public static void drawLoading(DrawContext context, int height, int width) {
@@ -508,7 +520,7 @@ public class Render {
         int imgHeight = currentFrame.getHeight() * scale;
         int centerX = (width - imgWidth) / 2;
         int centerY = (height - imgHeight) / 2;
-        drawPixelArt(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
+        drawPixelArt(context, centerX, centerY, imgWidth, imgHeight, currentFrame);
     }
 
     public static void drawScreenHeader(DrawContext context, int width, int height, int mouseX, int mouseY, Screen parent, MinecraftClient minecraftClient, IconWithTooltip icon1, IconWithTooltip icon2, IconWithTooltip icon3, IconWithTooltip icon4, IconWithTooltip icon5, IconWithTooltip icon6, IconWithTooltip icon7, IconWithTooltip icon8, IconWithTooltip specialIcon) {
@@ -533,50 +545,41 @@ public class Render {
         }
         if (icon1 != null) {
             boolean isIcon1Hovered = mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, width - 23, 5, minecraftClient, isIcon1Hovered, mouseX, mouseY, icon1.getTooltip());
-            drawPixelArt(context, icon1.getImage(), width - 22, 6, 16, 16);
+            drawSquareButton(context, width - 23, 5, minecraftClient, isIcon1Hovered, mouseX, mouseY, icon1.getTooltip(), icon1.getImage());
         }
         if (icon2 != null) {
             boolean isIcon2Hovered = mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, width - 46, 5, minecraftClient, isIcon2Hovered, mouseX, mouseY, icon2.getTooltip());
-            drawPixelArt(context, icon2.getImage(), width - 45, 6, 16, 16);
+            drawSquareButton(context, width - 46, 5, minecraftClient, isIcon2Hovered, mouseX, mouseY, icon2.getTooltip(), icon2.getImage());
         }
         if (icon3 != null) {
             boolean isIcon3Hovered = mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, width - 69, 5, minecraftClient, isIcon3Hovered, mouseX, mouseY, icon3.getTooltip());
-            drawPixelArt(context, icon3.getImage(), width - 68, 6, 16, 16);
+            drawSquareButton(context, width - 69, 5, minecraftClient, isIcon3Hovered, mouseX, mouseY, icon3.getTooltip(), icon3.getImage());
         }
         if (icon4 != null) {
             boolean isIcon4Hovered = mouseX >= width - 92 && mouseX <= width - 75 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, width - 92, 5, minecraftClient, isIcon4Hovered, mouseX, mouseY, icon4.getTooltip());
-            drawPixelArt(context, icon4.getImage(), width - 91, 6, 16, 16);
+            drawSquareButton(context, width - 92, 5, minecraftClient, isIcon4Hovered, mouseX, mouseY, icon4.getTooltip(), icon4.getImage());
         }
         if (icon5 != null) {
             boolean isIcon5Hovered = mouseX >= 5 && mouseX <= 22 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, 5, 5, minecraftClient, isIcon5Hovered, mouseX, mouseY, icon5.getTooltip());
-            drawPixelArt(context, icon5.getImage(), 6, 6, 16, 16);
+            drawSquareButton(context, 5, 5, minecraftClient, isIcon5Hovered, mouseX, mouseY, icon5.getTooltip(), icon5.getImage());
         }
         if (icon6 != null) {
             boolean isIcon6Hovered = mouseX >= 28 && mouseX <= 45 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, 28, 5, minecraftClient, isIcon6Hovered, mouseX, mouseY, icon6.getTooltip());
-            drawPixelArt(context, icon6.getImage(), 29, 6, 16, 16);
+            drawSquareButton(context, 28, 5, minecraftClient, isIcon6Hovered, mouseX, mouseY, icon6.getTooltip(), icon6.getImage());
         }
         if (icon7 != null) {
             boolean isIcon7Hovered = mouseX >= 51 && mouseX <= 68 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, 51, 5, minecraftClient, isIcon7Hovered, mouseX, mouseY, icon7.getTooltip());
-            drawPixelArt(context, icon7.getImage(), 52, 6, 16, 16);
+            drawSquareButton(context, 51, 5, minecraftClient, isIcon7Hovered, mouseX, mouseY, icon7.getTooltip(), icon7.getImage());
         }
         if (icon8 != null) {
             boolean isIcon8Hovered = mouseX >= 74 && mouseX <= 91 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, 74, 5, minecraftClient, isIcon8Hovered, mouseX, mouseY, icon8.getTooltip());
-            drawPixelArt(context, icon8.getImage(), 75, 6, 16, 16);
+            drawSquareButton(context, 74, 5, minecraftClient, isIcon8Hovered, mouseX, mouseY, icon8.getTooltip(), icon8.getImage());
         }
         if (specialIcon != null) {
             int searchBarWidth = 200;
             int specialIconX = (width - searchBarWidth) / 2 - 23;
             boolean isSpecialIconHovered = mouseX >= specialIconX && mouseX <= specialIconX + 17 && mouseY >= 6 && mouseY <= 24;
-            drawSquareButton(context, specialIconX, 5, minecraftClient, isSpecialIconHovered, mouseX, mouseY, specialIcon.getTooltip());
-            drawPixelArt(context, specialIcon.getImage(), specialIconX + 1, 6, 16, 16);
+            drawSquareButton(context, specialIconX, 5, minecraftClient, isSpecialIconHovered, mouseX, mouseY, specialIcon.getTooltip(), specialIcon.getImage());
         }
     }
 

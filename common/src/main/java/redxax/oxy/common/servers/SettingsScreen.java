@@ -112,12 +112,15 @@ public class SettingsScreen extends Screen {
             themeOptions.add("Default");
         }
         settings.clear();
-        settings.add(new Settings("Theme", "Select and apply a theme on startup.", "Appearance", "none", "theme", SCROLL_SWITCH, themeOptions.get(0), themeOptions));
+        settings.add(new Settings("Theme", "Select and apply a theme on startup.", "Appearance", "none", "theme", SCROLL_SWITCH, getCurrentTheme(), themeOptions));
+        settings.add(new Settings("Main Menu Buttons Style", "Choose The Style of The Buttons In The Main Menu Screen.", "Appearance", "none", "mainMenuButtonsStyle", TAB_SWITCH, (mainMenuStyle.equals("Vanilla") ? "Vanilla" : mainMenuStyle.equals("Minimal") ? "Minimal" : mainMenuStyle.equals("Normal") ? "Normal" : "Disable"), Arrays.asList("Vanilla", "Minimal", "Normal", "Disable")));
         settings.add(new Settings("Show Minecraft Background", "Display The Minecraft Panorama As The Background.", "Appearance", "none", "background", TOGGLE, String.valueOf(background)));
         settings.add(new Settings("Show Wallpaper", "Display Your PC Wallpaper As The Background.", "Appearance", "none", "wallpaper", TOGGLE, String.valueOf(wallpaper)));
         settings.add(new Settings("Text Shadow", "Enable Text Background / Shadow Effect.", "Appearance", "none", "shadow", TOGGLE, String.valueOf(shadow)));
-        settings.add(new Settings("Main Menu Buttons Style", "Choose The Style of The Buttons In The Main Menu Screen.", "Appearance", "none", "mainMenuButtonsStyle", TAB_SWITCH, (mainMenuButtonsStyle == 0 ? "Vanilla" : mainMenuButtonsStyle == 1 ? "Minimal" : "Normal"), Arrays.asList("Vanilla", "Minimal", "Normal")));
-
+        settings.add(new Settings("Scroll Animation Speed", "Set The Global Speed of The Scrolling Animations.", "Appearance", "none", "globalScrollSpeed", SLIDER, String.valueOf(globalScrollSpeed), 1, 30));
+        settings.add(new Settings("Movement Animation Speed", "Set The Global Speed of The Movement Animations.", "Appearance", "none", "globalMovementSpeed", SLIDER, String.valueOf(globalMovementSpeed), 1, 30));
+        settings.add(new Settings("Scale Animation Speed", "Set The Global Speed of The Scale Animations.", "Appearance", "none", "scaleAnimationSpeed", SLIDER, String.valueOf(scaleAnimationSpeed), 1, 30));
+        settings.add(new Settings("Expand Animation Speed", "Set The Global Speed of The Expand/Shrink Animations.", "Appearance", "none", "globalExpandSpeed", SLIDER, String.valueOf(globalExpandSpeed).replace("f", ""), 1, 30));
         settings.add(new Settings("Developer Mode", "Enable Developer Mode.", "Development", "none", "isDev", TOGGLE, String.valueOf(isDev)));
     }
 
@@ -182,10 +185,15 @@ public class SettingsScreen extends Screen {
             case "background" -> background = Boolean.parseBoolean(value);
             case "wallpaper" -> wallpaper = Boolean.parseBoolean(value);
             case "shadow" -> shadow = Boolean.parseBoolean(value);
+            case "mainMenuButtonsStyle" -> mainMenuStyle = value;
+            case "globalScrollSpeed" -> globalScrollSpeed = Math.round(Float.parseFloat(value));
+            case "globalMovementSpeed" -> globalMovementSpeed = Math.round(Float.parseFloat(value));
+            case "globalExpandSpeed" -> globalExpandSpeed = Math.round(Float.parseFloat(value));
+            case "scaleAnimationSpeed" -> scaleAnimationSpeed = Math.round(Float.parseFloat(value));
             case "isDev" -> isDev = Boolean.parseBoolean(value);
         }
         if (key.equals("theme") && RemotelyClient.INSTANCE != null) {
-            for (MultiTerminalScreen.Theme theme : RemotelyClient.INSTANCE.themes) {
+            for (MultiTerminalScreen.Theme theme : RemotelyClient.themes) {
                 if (theme.name.equals(value)) {
                     Themes.applyTheme(theme);
                     break;
@@ -258,6 +266,15 @@ public class SettingsScreen extends Screen {
         } catch(Exception e) {
             devPrint("Error writing client config JSON: " + e.getMessage());
         }
+    }
+
+    public static String getCurrentTheme() {
+        for (Settings s : settings) {
+            if (s.key.equals("theme")) {
+                return s.value;
+            }
+        }
+        return "Default";
     }
 
     @Override
