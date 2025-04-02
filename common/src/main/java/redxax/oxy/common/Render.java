@@ -46,6 +46,7 @@ public class Render {
     private static int previousTabCount = 0;
     private static Map<Integer, Float> scrollSelectorIndexFloatMap = new HashMap<>();
     private static Map<Integer, Integer> previousScrollSelectorIndexMap = new HashMap<>();
+    public static final Map<Integer, Float> elevationOffsets = new HashMap<>();
 
     public static class CustomTooltip {
         private static String tooltipText = "";
@@ -321,35 +322,47 @@ public class Render {
                     name = "Tab";
                 }
             }
-
             int targetWidth = textRenderer.getWidth(name) + 2 * tabPadding;
             String tabId = "tab_" + i + "_" + tab.hashCode();
-            float currentWidth = tabWidths.getOrDefault(tabId, (float)targetWidth);
+            float currentWidth = tabWidths.getOrDefault(tabId, (float) targetWidth);
             float animatedWidth = currentWidth + (targetWidth - currentWidth) * globalExpandSpeed * deltaTime;
             tabWidths.put(tabId, animatedWidth);
-            int tabWidth = (int)animatedWidth;
+            int tabWidth = (int) animatedWidth;
             boolean isActive = (i == currentTabIndex);
             int x2 = x + tabWidth;
             boolean isHovered = mouseX >= x && mouseX <= x2 && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight;
+            int elevId = tabId.hashCode();
+            float targetOffset = isHovered ? -2f : 0f;
+            float currentOffset = elevationOffsets.getOrDefault(elevId, 0f);
+            currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+            elevationOffsets.put(elevId, currentOffset);
+            context.getMatrices().push();
+            context.getMatrices().translate(0, currentOffset, 0);
             int bgColor = Config.getElementBackgroundColor(1000 + i, isHovered, isActive, isUnsaved, false, false);
             context.fill(x, tabBarY, x2, tabBarY + tabBarHeight, bgColor);
             drawInnerBorder(context, x, tabBarY, tabWidth, tabBarHeight, Config.getElementBorderColor(1000 + i, isHovered, isActive, isUnsaved, false, false));
             drawOuterBorder(context, x, tabBarY, tabWidth, tabBarHeight, globalOuterBorder);
-
             context.enableScissor(x + 1, tabBarY, x2 - 1, tabBarY + tabBarHeight);
             context.drawText(textRenderer, Text.literal(name), x + tabPadding, tabBarY + 5, getTextColor(isHovered, false), shadow);
             context.disableScissor();
-
+            context.getMatrices().pop();
             x += tabWidth + tabGap;
         }
-
         if (hasPlus) {
             boolean isPlusTabHovered = mouseX >= x && mouseX <= x + plusTabWidth && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight;
+            int plusId = ("plus_tab").hashCode();
+            float targetOffset = isPlusTabHovered ? -2f : 0f;
+            float currentOffset = elevationOffsets.getOrDefault(plusId, 0f);
+            currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+            elevationOffsets.put(plusId, currentOffset);
+            context.getMatrices().push();
+            context.getMatrices().translate(0, currentOffset, 0);
             int bgColor = Config.getElementBackgroundColor(1000 + tabs.size(), isPlusTabHovered, false, isUnsaved, false, false);
             context.fill(x, tabBarY, x + plusTabWidth, tabBarY + tabBarHeight, bgColor);
             drawInnerBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, Config.getElementBorderColor(1000 + tabs.size(), isPlusTabHovered, false, false, false, false));
             drawOuterBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, globalOuterBorder);
             context.drawText(textRenderer, Text.literal(plusSign), x + plusTabWidth / 2 - textRenderer.getWidth(plusSign) / 2, tabBarY + 5, getTextColor(isPlusTabHovered, false), shadow);
+            context.getMatrices().pop();
         }
     }
 
@@ -421,6 +434,13 @@ public class Render {
     }
 
     public static void drawExplorerElements(DrawContext context, boolean hovered, boolean isSelected, boolean isFavorite, FileExplorerScreen.EntryData entry, int explorerX, int entryY, int explorerWidth, int entryHeight) {
+        int id = ("explorer" + entry.hashCode()).hashCode();
+        float targetOffset = hovered ? -2f : 0f;
+        float currentOffset = elevationOffsets.getOrDefault(id, 0f);
+        currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+        elevationOffsets.put(id, currentOffset);
+        context.getMatrices().push();
+        context.getMatrices().translate(0, currentOffset, 0);
         int bg = Config.getElementBackgroundColor(entry.hashCode(), hovered, isSelected, isFavorite, false, false);
         int borderWithOpacity = Config.getElementBorderColor(entry.hashCode(), hovered, isSelected, isFavorite, false, false);
         drawOuterBorder(context, explorerX, entryY, explorerWidth, entryHeight, globalOuterBorder);
@@ -432,9 +452,17 @@ public class Render {
         if (isFavorite) {
             drawPixelArt(context, entry.isDirectory ? explorerX + 5 : explorerX + 7, entryY + 2, 16, 16, FileExplorerScreen.pinIcon);
         }
+        context.getMatrices().pop();
     }
 
     public static void renderSnippetBox(DrawContext context, int snippetX, int snippetY, int snippetMaxWidth, int snippetHeight, RemotelyClient.CommandSnippet snippet, boolean hovered, boolean selected, MinecraftClient minecraftClient) {
+        int id = ("snippet" + snippet.hashCode()).hashCode();
+        float targetOffset = hovered ? -3f : 0f;
+        float currentOffset = elevationOffsets.getOrDefault(id, 0f);
+        currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+        elevationOffsets.put(id, currentOffset);
+        context.getMatrices().push();
+        context.getMatrices().translate(0, currentOffset, 0);
         int bgColor = Config.getElementBackgroundColor(snippet.hashCode(), hovered, selected, false, false, false);
         context.fill(snippetX, snippetY, snippetX + snippetMaxWidth, snippetY + snippetHeight, bgColor);
         drawInnerBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, Config.getElementBorderColor(snippet.hashCode(), hovered, selected, false, false, false));
@@ -444,7 +472,7 @@ public class Render {
         int lineSeparatorY = snippetY + 5 + minecraftClient.textRenderer.fontHeight + 2;
         context.fill(snippetX + 5, lineSeparatorY, snippetX + snippetMaxWidth - 5, lineSeparatorY + 1, elementHoverBorderColor);
         int contentY = lineSeparatorY + 4;
-        context.enableScissor(snippetX + 5, contentY, snippetX + snippetMaxWidth - 5, snippetY + snippetHeight - 4);
+        context.enableScissor(snippetX + 5, (int)(contentY + currentOffset), snippetX + snippetMaxWidth - 5, (int)(snippetY + snippetHeight - 4 + currentOffset));
         String[] allLines = snippet.commands.split("\n");
         int lineY = contentY;
         for (String line : allLines) {
@@ -453,8 +481,8 @@ public class Render {
             lineY += minecraftClient.textRenderer.fontHeight + 2;
         }
         context.disableScissor();
+        context.getMatrices().pop();
     }
-
     public static void drawCustomButton(DrawContext context, int x, int y, String text, MinecraftClient mc, boolean hovered, boolean dynamic, boolean centered, int txColor, int hoverColor, int mouseX, int mouseY, String tooltipText) {
         if (dynamic) {
             buttonW = mc.textRenderer.getWidth(text) + 10;
@@ -462,6 +490,12 @@ public class Render {
             buttonW = 60;
         }
         int id = (text.hashCode() * 31 + x) * 31 + y;
+        float targetOffset = hovered ? -3f : 0f;
+        float currentOffset = elevationOffsets.getOrDefault(id, 0f);
+        currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+        elevationOffsets.put(id, currentOffset);
+        context.getMatrices().push();
+        context.getMatrices().translate(0, currentOffset, 0);
         context.fill(x, y, x + buttonW, y + buttonH, Config.getElementBackgroundColor(id, hovered, false, false, false, false));
         drawInnerBorder(context, x, y, buttonW, buttonH, Config.getElementBorderColor(id, hovered, false, false, false, false));
         drawOuterBorder(context, x, y, buttonW, buttonH, globalOuterBorder);
@@ -471,9 +505,9 @@ public class Render {
         context.drawText(mc.textRenderer, Text.literal(text), tx, ty, hovered ? hoverColor : txColor, Config.shadow);
         CustomTooltip.show(tooltipText, mouseX, mouseY, context.getScaledWindowWidth(), context.getScaledWindowHeight(), mc.textRenderer, hovered);
         CustomTooltip.renderTooltip(context, mc.textRenderer, context.getScaledWindowWidth(), context.getScaledWindowHeight());
+        context.getMatrices().pop();
     }
 
-    private static final Map<Integer, Float> elevationOffsets = new HashMap<>();
 
     public static void drawSquareButton(DrawContext context, int x, int y, MinecraftClient mc, boolean hovered, int mouseX, int mouseY, String tooltipText, BufferedImage icon) {
         int w = 18;

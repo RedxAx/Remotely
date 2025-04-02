@@ -423,18 +423,24 @@ public class PluginModManagerScreen extends Screen {
         int endIndex = Math.min(startIndex + visibleEntries + 2, resources.size());
         for (int i = startIndex; i < endIndex; i++) {
             IRemotelyResource resource = resources.get(i);
-            int y = contentY + (i * (entryHeight + gapBetweenEntries)) - (int) smoothOffset;
-            boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + entryHeight;
-            boolean isSelected = (i == selectedIndex);
-            int bg = getElementBackgroundColor(resource.hashCode(), hovered, isSelected, false, false, false);
-            int borderColorFinal = getElementBorderColor(resource.hashCode(), hovered, isSelected, false, false, false);
-            context.fill(contentX, y, contentX + contentWidth, y + entryHeight, bg);
-            drawInnerBorder(context, contentX, y, contentWidth, entryHeight, borderColorFinal);
-            drawOuterBorder(context, contentX, y, contentWidth, entryHeight, globalOuterBorder);
+            int baseY = contentY + (i * (entryHeight + gapBetweenEntries)) - (int) smoothOffset;
+            boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= baseY && mouseY < baseY + entryHeight;
+            int elevId = ("pmmEntry" + resource.hashCode()).hashCode();
+            float targetOffset = hovered ? -3f : 0f;
+            float currentOffset = elevationOffsets.getOrDefault(elevId, 0f);
+            currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+            elevationOffsets.put(elevId, currentOffset);
+            context.getMatrices().push();
+            context.getMatrices().translate(0, currentOffset, 0);
+            int bg = getElementBackgroundColor(resource.hashCode(), hovered, i == selectedIndex, false, false, false);
+            int borderColorFinal = getElementBorderColor(resource.hashCode(), hovered, i == selectedIndex, false, false, false);
+            context.fill(contentX, baseY, contentX + contentWidth, baseY + entryHeight, bg);
+            drawInnerBorder(context, contentX, baseY, contentWidth, entryHeight, borderColorFinal);
+            drawOuterBorder(context, contentX, baseY, contentWidth, entryHeight, globalOuterBorder);
             BufferedImage icon = resource.getIconUrl().isEmpty() ? placeholderIcon : iconImages.getOrDefault(resource.getIconUrl(), placeholderIcon);
-            drawBufferedImage(context, icon, contentX + 5, y + (entryHeight - 30) / 2, 30, 30);
+            drawBufferedImage(context, icon, contentX + 5, baseY + (entryHeight - 30) / 2, 30, 30);
             String resourceName = resource.getName();
-            context.drawText(textRenderer, Text.literal(resourceName), contentX + 40, y + 5, 0xFFFFFFFF, Config.shadow);
+            context.drawText(textRenderer, Text.literal(resourceName), contentX + 40, baseY + 5, 0xFFFFFFFF, Config.shadow);
             String resourceDesc = resource.getDescription();
             int descMaxWidth = contentWidth - 50;
             if (textRenderer.getWidth(resourceDesc) > descMaxWidth) {
@@ -443,17 +449,19 @@ public class PluginModManagerScreen extends Screen {
                 }
                 resourceDesc += "...";
             }
-            context.drawText(textRenderer, Text.literal(resourceDesc), contentX + 40, y + 16, globalTextColor, Config.shadow);
+            context.drawText(textRenderer, Text.literal(resourceDesc), contentX + 40, baseY + 16, globalTextColor, Config.shadow);
             String mrInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getVersion()  + " | " + resource.getFollowers() + " Followers";
             String spInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getAverageRating() + " Star Rating";
             String hgInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getVersion()  + " | " + resource.getFollowers() + " Stars";
             if (tabs.get(currentTabIndex).mode == TabMode.MODRINTH) {
-                context.drawText(textRenderer, Text.literal(mrInfo), contentX + 40, y + 30, Config.globalDarkTextColor, Config.shadow);
+                context.drawText(textRenderer, Text.literal(mrInfo), contentX + 40, baseY + 30, Config.globalDarkTextColor, Config.shadow);
             } else if (tabs.get(currentTabIndex).mode == TabMode.SPIGOT) {
-                context.drawText(textRenderer, Text.literal(spInfo), contentX + 40, y + 30, Config.globalDarkTextColor, Config.shadow);
+                context.drawText(textRenderer, Text.literal(spInfo), contentX + 40, baseY + 30, Config.globalDarkTextColor, Config.shadow);
             } else if (tabs.get(currentTabIndex).mode == TabMode.HANGAR) {
-                context.drawText(textRenderer, Text.literal(hgInfo), contentX + 40, y + 30, Config.globalDarkTextColor, Config.shadow);
+                context.drawText(textRenderer, Text.literal(hgInfo), contentX + 40, baseY + 30, Config.globalDarkTextColor, Config.shadow);
             }
+
+            context.getMatrices().pop();
         }
         context.disableScissor();
         if (smoothOffset > 0) {
