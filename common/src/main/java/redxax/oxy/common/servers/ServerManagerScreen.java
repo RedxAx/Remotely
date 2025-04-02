@@ -244,7 +244,7 @@ public class ServerManagerScreen extends Screen {
             int imgHeight = currentFrame.getHeight() * scale;
             int centerX = (this.width - imgWidth) / 2;
             int centerY = (this.height - imgHeight) / 2;
-            drawPixelArt(context, currentFrame, centerX, centerY, imgWidth, imgHeight);
+            drawPixelArt(context, centerX, centerY, imgWidth, imgHeight, currentFrame);
         } else {
             renderDesktopIcons(context, mouseX, mouseY);
         }
@@ -411,7 +411,7 @@ public class ServerManagerScreen extends Screen {
             if (i < currentServers.size()) {
                 ServerInfo server = currentServers.get(i);
                 BufferedImage icon = getServerIcon(server);
-                drawPixelArt(context, icon, (int) currentX, (int) currentY, iconSize, iconSize);
+                drawPixelArt(context, (int) currentX, (int) currentY, iconSize, iconSize, icon);
                 if (selectedDesktopIndex == i) {
                     drawInnerBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, accentColor);
                     drawOuterBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, globalOuterBorder);
@@ -427,7 +427,7 @@ public class ServerManagerScreen extends Screen {
                 int textX = (int) currentX + (iconSize - textWidth) / 2;
                 context.drawText(minecraftClient.textRenderer, Text.literal(trimmed), textX, (int) currentY + iconSize + 2, globalTextColor, Config.shadow);
             } else {
-                drawPixelArt(context, serverIcon, (int) currentX, (int) currentY, iconSize, iconSize);
+                drawPixelArt(context, (int) currentX, (int) currentY, iconSize, iconSize, serverIcon);
                 if (mouseX >= currentX && mouseX <= currentX + iconSize && mouseY >= currentY && mouseY <= currentY + iconSize) {
                     context.fill((int) currentX, (int) currentY, (int) currentX + iconSize, (int) currentY + iconSize, 0x40FFFFFF);
                 }
@@ -452,11 +452,11 @@ public class ServerManagerScreen extends Screen {
         int padding = 5;
         int yTask = this.height - taskbarHeight + (taskbarHeight - iconSize) / 2;
         int xTask = padding;
-        drawPixelArt(context, terminalIcon, xTask, yTask, iconSize, iconSize);
+        drawPixelArt(context, xTask, yTask, iconSize, iconSize, terminalIcon);
         xTask += iconSize + padding;
-        drawPixelArt(context, explorerIcon, xTask, yTask, iconSize, iconSize);
+        drawPixelArt(context, xTask, yTask, iconSize, iconSize, explorerIcon);
         xTask += iconSize + padding;
-        drawPixelArt(context, browserIcon, xTask, yTask, iconSize, iconSize);
+        drawPixelArt(context, xTask, yTask, iconSize, iconSize, browserIcon);
         renderHostTabs(context, mouseX, mouseY);
     }
 
