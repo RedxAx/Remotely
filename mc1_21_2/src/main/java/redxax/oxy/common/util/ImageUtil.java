@@ -81,7 +81,7 @@ public class ImageUtil {
         context.drawTexture(RenderLayer::getGuiTextured, textureId, x, y, 0F, 0F, width, height, width, height);
     }
 
-    public static void drawPixelArt(DrawContext context, BufferedImage image, int x, int y, int width, int height) {
+    public static void drawPixelArt(DrawContext context, int x, int y, int width, int height, BufferedImage image) {
         Identifier textureId = textureCache.get(image);
         if (textureId == null) {
             BufferedImage scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);

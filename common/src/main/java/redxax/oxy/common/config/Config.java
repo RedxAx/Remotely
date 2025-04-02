@@ -18,8 +18,8 @@ public class Config {
     public static float globalExpandSpeed = 10f;
     public static float scaleAnimationSpeed = 10f;
     public static float animScaleFactor = 1f;
-    public static float globalScrollSpeed = 10f;
-    public static float globalMovementSpeed = 10f;
+    public static float globalScrollSpeed = 16f;
+    public static float globalMovementSpeed = 7f;
 
     public static String mainMenuStyle = "Minimal";
     public static long lastFrameTime = System.nanoTime();
@@ -143,7 +143,7 @@ public class Config {
         if (!animatedBackgroundColorsMap.containsKey(id)) {
             animatedBackgroundColorsMap.put(id, intToFloatArray(target));
         }
-        float t = Math.min(colorTransitionSpeed * deltaTime, 1f);
+        float t = Math.min(colorTransitionSpeed - 0.5f * deltaTime, 1f);
         float[] current = animatedBackgroundColorsMap.get(id);
         float[] targetFloats = intToFloatArray(target);
         float[] newColorFloats = updateColor(current, targetFloats, t);

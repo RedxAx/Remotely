@@ -407,6 +407,14 @@ public class ServerManagerScreen extends Screen {
             currentY = lerp(currentY, baseY, globalMovementSpeed * deltaTime);
             iconPosX.set(i, currentX);
             iconPosY.set(i, currentY);
+            boolean hovered = (mouseX >= currentX && mouseX <= currentX + iconSize && mouseY >= currentY && mouseY <= currentY + iconSize) || (isDragging && i == draggingServerIndex);
+            int elevId = ("desktopIcon" + i).hashCode();
+            float targetOffset = hovered ? -3f : 0f;
+            float currentOffset = elevationOffsets.getOrDefault(elevId, 0f);
+            currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+            elevationOffsets.put(elevId, currentOffset);
+            context.getMatrices().push();
+            context.getMatrices().translate(0, currentOffset, 0);
             serverIconRects.add(new IconRect((int) currentX, (int) currentY, iconSize, iconSize, (i < currentServers.size() ? i : -1), i == currentServers.size()));
             if (i < currentServers.size()) {
                 ServerInfo server = currentServers.get(i);
@@ -418,7 +426,7 @@ public class ServerManagerScreen extends Screen {
                 } else {
                     drawOuterBorder(context, (int) currentX, (int) currentY, iconSize, iconSize, globalOuterBorder);
                 }
-                if (mouseX >= currentX && mouseX <= currentX + iconSize && mouseY >= currentY && mouseY <= currentY + iconSize || isDragging && i == draggingServerIndex) {
+                if (hovered) {
                     context.fill((int) currentX, (int) currentY, (int) currentX + iconSize, (int) currentY + iconSize, 0x40FFFFFF);
                 }
                 String name = server.name;
@@ -428,7 +436,8 @@ public class ServerManagerScreen extends Screen {
                 context.drawText(minecraftClient.textRenderer, Text.literal(trimmed), textX, (int) currentY + iconSize + 2, globalTextColor, Config.shadow);
             } else {
                 drawPixelArt(context, (int) currentX, (int) currentY, iconSize, iconSize, serverIcon);
-                if (mouseX >= currentX && mouseX <= currentX + iconSize && mouseY >= currentY && mouseY <= currentY + iconSize) {
+                drawOuterBorder(context, (int) currentX, (int) currentY, iconSize, iconSize, globalOuterBorder);
+                if (hovered) {
                     context.fill((int) currentX, (int) currentY, (int) currentX + iconSize, (int) currentY + iconSize, 0x40FFFFFF);
                 }
                 String newLabel = "New Server";
@@ -437,6 +446,7 @@ public class ServerManagerScreen extends Screen {
                 int labelX = (int) currentX + (iconSize - labelWidth) / 2;
                 context.drawText(minecraftClient.textRenderer, Text.literal(trimmed), labelX, (int) currentY + iconSize + 2, globalTextColor, Config.shadow);
             }
+            context.getMatrices().pop();
         }
     }
 
