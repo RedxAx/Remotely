@@ -110,9 +110,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     public static class EntryData {
         public Path path;
         public boolean isDirectory;
-        String size;
-        String created;
-        String displayName;
+        public String size;
+        public String created;
+        public String displayName;
         EntryData(Path p, boolean d, String s, String c, String dn) {
             path = p;
             isDirectory = d;
@@ -310,7 +310,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         super.render(context, mouseX, mouseY, delta);
         int titleBarHeight = 30;
         int tabBarY = titleBarHeight + 5;
-        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? !FileManager.getClipboard().isEmpty() ? pasteIcon : null : shiftPressed ? pasteIcon  : copyIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? deleteIcon : editIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? cutIcon : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);
+        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? !FileManager.getClipboard().isEmpty() ? pasteIcon : null : shiftPressed ? pasteIcon : copyIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? deleteIcon : editIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? cutIcon : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, true, false);
         int explorerY = tabBarY + TAB_HEIGHT + 30;
         int explorerHeight = this.height - explorerY - 5;
@@ -379,30 +379,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 synchronized (favoritePathsLock) {
                     isFavorite = favoritePaths.contains(entry.path);
                 }
-                drawExplorerElements(context, hovered, isSelected, isFavorite, entry, explorerX, entryY, explorerWidth, entryHeight);
-                if (renamePath != null && renamePath.equals(entry.path)) {
-                    int renameBoxX = explorerX + 30;
-                    int renameBoxY = entryY + 5;
-                    int renameBoxWidth = Math.max(100, textRenderer.getWidth(renameBuffer.toString()) + 20);
-                    context.fill(renameBoxX, renameBoxY, renameBoxX + renameBoxWidth, renameBoxY + textRenderer.fontHeight + 4, elementBackgroundColor);
-                    drawInnerBorder(context, renameBoxX, renameBoxY, renameBoxWidth, textRenderer.fontHeight + 4, elementBorderColor);
-                    drawOuterBorder(context, renameBoxX, renameBoxY, renameBoxWidth, textRenderer.fontHeight + 4, globalOuterBorder);
-                    String displayed = renameBuffer.toString();
-                    int renameCursorX = renameBoxX + 2 + textRenderer.getWidth(displayed.substring(0, Math.min(renameCursorPos, displayed.length())));
-                    context.drawText(this.textRenderer, Text.literal(displayed), renameBoxX + 2, renameBoxY + 2, globalTextColor, false);
-                    context.fill(renameCursorX, renameBoxY + 2, renameCursorX + 1, renameBoxY + 2 + textRenderer.fontHeight, globalCursorAnimatedColor);
-
-                } else {
-                    if (!serverInfo.isRemote) {
-                        int createdX = explorerX + explorerWidth - 100;
-                        int sizeX = createdX - 100;
-                        context.drawText(this.textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 6, globalTextColor, Config.shadow);
-                        context.drawText(this.textRenderer, Text.literal(entry.created), createdX, entryY + 6, globalTextColor, Config.shadow);
-                        context.drawText(this.textRenderer, Text.literal(entry.size), sizeX, entryY + 6, globalTextColor, Config.shadow);
-                    } else {
-                        context.drawText(this.textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 5, globalTextColor, Config.shadow);
-                    }
-                }
+                drawExplorerElements(context, hovered, isSelected, isFavorite, entry, explorerX, entryY, explorerWidth, entryHeight, this.textRenderer, serverInfo.isRemote, String.valueOf(renamePath), renameBuffer, renameCursorPos);
             }
         }
         context.disableScissor();
