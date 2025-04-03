@@ -463,7 +463,7 @@ public class ResourcePageScreen extends Screen {
         int headerHeight = 30;
         int tabAreaHeight = 20;
         context.fillGradient(0, 0, this.width, this.height, Config.backgroundColor, Config.backgroundColor);
-        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, siteIcon, downloadIcon, null, null, null, null, null, null);
+        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, siteIcon, downloadIcon, null, null, null, null, null, null);
         context.drawText(minecraftClient.textRenderer, Text.literal(resource.getName()), 10, 10, globalTextColor, Config.shadow);
         drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
         int contentY = headerHeight + tabAreaHeight + 10;

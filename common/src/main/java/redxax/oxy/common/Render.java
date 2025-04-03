@@ -15,10 +15,7 @@ import redxax.oxy.common.servers.PluginModManagerScreen;
 import redxax.oxy.common.util.TextAnimator;
 
 import java.awt.image.BufferedImage;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.explorer.FileExplorerScreen.getIconForFile;
@@ -460,27 +457,14 @@ public class Render {
         if (isFavorite) {
             drawPixelArt(context, entry.isDirectory ? explorerX + 5 : explorerX + 7, entryY + 2, 16, 16, FileExplorerScreen.pinIcon);
         }
-        if (renamePath != null && renamePath.equals(entry.path)) {
-            int renameBoxX = explorerX + 30;
-            int renameBoxY = entryY + 5;
-            int renameBoxWidth = Math.max(100, textRenderer.getWidth(renameBuffer.toString()) + 20);
-            context.fill(renameBoxX, renameBoxY, renameBoxX + renameBoxWidth, renameBoxY + textRenderer.fontHeight + 4, elementBackgroundColor);
-            drawInnerBorder(context, renameBoxX, renameBoxY, renameBoxWidth, textRenderer.fontHeight + 4, elementBorderColor);
-            drawOuterBorder(context, renameBoxX, renameBoxY, renameBoxWidth, textRenderer.fontHeight + 4, globalOuterBorder);
-            String displayed = renameBuffer.toString();
-            int renameCursorX = renameBoxX + 2 + textRenderer.getWidth(displayed.substring(0, Math.min(renameCursorPos, displayed.length())));
-            context.drawText(textRenderer, Text.literal(displayed), renameBoxX + 2, renameBoxY + 2, globalTextColor, false);
-            context.fill(renameCursorX, renameBoxY + 2, renameCursorX + 1, renameBoxY + 2 + textRenderer.fontHeight, globalCursorAnimatedColor);
+        if (!isRemote) {
+            int createdX = explorerX + explorerWidth - 100;
+            int sizeX = createdX - 100;
+            context.drawText(textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 6, globalTextColor, Config.shadow);
+            context.drawText(textRenderer, Text.literal(entry.created), createdX, entryY + 6, globalTextColor, Config.shadow);
+            context.drawText(textRenderer, Text.literal(entry.size), sizeX, entryY + 6, globalTextColor, Config.shadow);
         } else {
-            if (!isRemote) {
-                int createdX = explorerX + explorerWidth - 100;
-                int sizeX = createdX - 100;
-                context.drawText(textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 6, globalTextColor, Config.shadow);
-                context.drawText(textRenderer, Text.literal(entry.created), createdX, entryY + 6, globalTextColor, Config.shadow);
-                context.drawText(textRenderer, Text.literal(entry.size), sizeX, entryY + 6, globalTextColor, Config.shadow);
-            } else {
-                context.drawText(textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 5, globalTextColor, Config.shadow);
-            }
+            context.drawText(textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 5, globalTextColor, Config.shadow);
         }
         context.getMatrices().pop();
     }
@@ -587,7 +571,7 @@ public class Render {
         drawPixelArt(context, centerX, centerY, imgWidth, imgHeight, currentFrame);
     }
 
-    public static void drawScreenHeader(DrawContext context, int width, int height, int mouseX, int mouseY, Screen parent, MinecraftClient minecraftClient, IconWithTooltip icon1, IconWithTooltip icon2, IconWithTooltip icon3, IconWithTooltip icon4, IconWithTooltip icon5, IconWithTooltip icon6, IconWithTooltip icon7, IconWithTooltip icon8, IconWithTooltip specialIcon) {
+    public static void drawScreenHeader(DrawContext context, int width, int height, int backgroundWidth, int mouseX, int mouseY, Screen parent, MinecraftClient minecraftClient, IconWithTooltip icon1, IconWithTooltip icon2, IconWithTooltip icon3, IconWithTooltip icon4, IconWithTooltip icon5, IconWithTooltip icon6, IconWithTooltip icon7, IconWithTooltip icon8, IconWithTooltip specialIcon) {
         if (wallpaper && windowsBackground != null) {
             drawBufferedImage(context, windowsBackground, 0, 0, parent.width, parent.height);
         } else if (!background) {
@@ -600,9 +584,9 @@ public class Render {
             if (!(parent instanceof FileExplorerScreen && !(((FileExplorerScreen) parent).isCanScroll()))) {
                 if (!(parent instanceof PluginModManagerScreen)) {
                     if (!(parent instanceof SettingsScreen)) {
-                        context.fill(5, 60, width - 5, height - 5, innerBackgroundColor);
-                        drawInnerBorder(context, 5, 60, width - 10, height - 65, innerBorderColor);
-                        drawOuterBorder(context, 5, 60, width - 10, height - 65, globalOuterBorder);
+                        context.fill(5, 60, backgroundWidth, height - 5, innerBackgroundColor);
+                        drawInnerBorder(context, 5, 60, backgroundWidth - 5, height - 65, innerBorderColor);
+                        drawOuterBorder(context, 5, 60, backgroundWidth - 5, height - 65, globalOuterBorder);
                     }
                 }
             }
@@ -647,7 +631,7 @@ public class Render {
         }
     }
 
-    public static void drawToggle(DrawContext context, MinecraftClient mc, int x, int y, String label, boolean value, boolean hovered) {
+    public static void drawToggle(DrawContext context, int x, int y, String label, boolean value, boolean hovered, int trackWidth, int trackHeight) {
         int id = ("toggle" + label).hashCode() + 143;
         float targetOffset = hovered ? -2f : 0f;
         float currentOffset = elevationOffsets.getOrDefault(id, 0f);
@@ -655,8 +639,6 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        int trackWidth = 40;
-        int trackHeight = 20;
         int trackColor = Config.getElementBackgroundColor(id, hovered, value, false, false, false);
         context.fill(x, y, x + trackWidth, y + trackHeight, trackColor);
         context.fill(x, y + (int)(trackHeight * 0.75), x + trackWidth, y + trackHeight, 0x20000000);
@@ -671,7 +653,7 @@ public class Render {
         context.getMatrices().pop();
     }
 
-    public static void drawSlider(DrawContext context, MinecraftClient mc, int x, int y, String label, int currentValue, int minValue, int maxValue, boolean hovered, int mouseX, int mouseY, String toolTipText) {
+    public static void drawSlider(DrawContext context, MinecraftClient mc, int x, int y, String label, int currentValue, int minValue, int maxValue, boolean hovered, int mouseX, int mouseY, String toolTipText, int sliderWidth, int sliderHeight) {
         int id = ("slider" + label).hashCode();
         float targetOffset = hovered ? -2f : 0f;
         float currentOffset = elevationOffsets.getOrDefault(id, 0f);
@@ -679,8 +661,6 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        int sliderWidth = 180;
-        int sliderHeight = 18;
         int bg = Config.getElementBackgroundColor(id, hovered, false, false, false, false);
         context.fill(x, y, x + sliderWidth, y + sliderHeight, bg);
 
@@ -702,7 +682,7 @@ public class Render {
         context.getMatrices().pop();
     }
 
-    public static void drawScrollSelector(DrawContext context, MinecraftClient mc, int x, int y, List<String> options, int selectedIndex, boolean hovered) {
+    public static void drawScrollSelector(DrawContext context, MinecraftClient mc, int x, int y, List<String> options, int selectedIndex, boolean hovered, int w, int h) {
         int id = ("scrollSelector" + options).hashCode();
         float targetOffset = hovered ? -2f : 0f;
         float currentOffset = elevationOffsets.getOrDefault(id, 0f);
@@ -711,9 +691,6 @@ public class Render {
 
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-
-        int w = 180;
-        int h = 18;
         int bg = Config.getElementBackgroundColor(id, hovered, false, false, false, false);
         context.fill(x, y, x + w, y + h, bg);
         drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, false, false, false));
@@ -749,9 +726,7 @@ public class Render {
         context.getMatrices().pop();
     }
 
-    public static void drawTabSwitch(DrawContext context, MinecraftClient mc, int x, int y, String label, List<String> options, int currentIndex, int mouseX, int mouseY) {
-        int barWidth = 180;
-        int barHeight = 18;
+    public static void drawTabSwitch(DrawContext context, MinecraftClient mc, int x, int y, String label, List<String> options, int currentIndex, int mouseX, int mouseY, int barWidth, int barHeight) {
         context.fill(x, y, x + barWidth, y + barHeight, Config.elementBackgroundColor);
         drawInnerBorder(context, x, y, barWidth, barHeight, Config.elementBorderColor);
         drawOuterBorder(context, x, y, barWidth, barHeight, globalOuterBorder);
@@ -781,9 +756,7 @@ public class Render {
         }
     }
 
-    public static void drawTextInput(DrawContext context, MinecraftClient mc, int x, int y, String label, String textValue, boolean focused, int cursorPos, int selectionStart, int selectionEnd, boolean hovered, float currentScrollOffset, float targetScrollOffset) {
-        int inputWidth = 180;
-        int inputHeight = 18;
+    public static void drawTextInput(DrawContext context, MinecraftClient mc, int x, int y, String label, String textValue, boolean focused, int cursorPos, int selectionStart, int selectionEnd, boolean hovered, int inputWidth, int inputHeight) {
         context.drawText(mc.textRenderer, Text.literal(label), x, y + 3, Config.globalTextColor, Config.shadow);
         int id = ("textInput" + label + textValue + cursorPos + selectionStart + selectionEnd).hashCode();
         float elevationTarget = hovered ? -2f : 0f;

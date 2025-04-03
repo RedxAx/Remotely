@@ -19,6 +19,7 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -29,6 +30,7 @@ import java.util.stream.Collectors;
 
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
+import static redxax.oxy.common.explorer.FileExplorerScreen.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.explorer.ResponseManager.parseAIResponse;
 import static redxax.oxy.common.util.SoundUtils.playClick;
@@ -39,7 +41,6 @@ public class FileEditorScreen extends Screen {
     private MultiLineTextEditor textEditor;
     private final Screen parent;
     private final ServerInfo serverInfo;
-
     private static final double FAST_SCROLL_FACTOR = 3.0;
     private static final double HORIZONTAL_SCROLL_FACTOR = 10.0;
     private static final List<Tab> tabs = new ArrayList<>();
@@ -64,8 +65,26 @@ public class FileEditorScreen extends Screen {
     private final float customPathTargetScrollOffset = 0;
     private final List<ResponseWindow> responseWindows = new ArrayList<>();
     private static final Path AI_CONFIG_PATH = Path.of("C:/remotely/data/ai.json");
-    private ImageUtil.IconWithTooltip closeIcon, saveIcon;
-    private float targetScaleFactor = globalScaleFactor;
+    private ImageUtil.IconWithTooltip closeIcon, saveIcon, explorerIcon;
+    private float targetScaleFactor;
+    private int sidePanelWidth = 250;
+    private List<SidePanelEntry> sidePanelEntries = new ArrayList<>();
+    private boolean showSidePanel = true;
+    private float animatedSidePanelWidth = 0f;
+    private boolean isResizingSidePanel = false;
+
+    private static class SidePanelEntry {
+        FileExplorerScreen.EntryData data;
+        int depth;
+        boolean isOpen;
+        List<FileExplorerScreen.EntryData> children;
+        SidePanelEntry(FileExplorerScreen.EntryData data, int depth) {
+            this.data = data;
+            this.depth = depth;
+            this.isOpen = false;
+            this.children = new ArrayList<>();
+        }
+    }
 
     private static class SavedTabState {
         ArrayList<String> lines;
@@ -79,7 +98,6 @@ public class FileEditorScreen extends Screen {
         int selectionStartChar;
         int selectionEndLine;
         int selectionEndChar;
-
         SavedTabState() {
             lines = new ArrayList<>();
             undoStack = new ArrayDeque<>();
@@ -94,14 +112,19 @@ public class FileEditorScreen extends Screen {
         MultiLineTextEditor textEditor;
         public boolean unsaved;
         String originalContent;
+        public float sidePanelScrollOffset = 0f;
+        public float targetSidePanelScrollOffset = 0f;
+        public Set<Path> openedPathsForSidePanel = new HashSet<>();
+        public boolean sidePanelInitialized = false;
+        public boolean initialScrollSet = false;
 
         Tab(Path path) {
-            this.path = path;
+            this.path = path.normalize();
             this.name = path.getFileName() != null ? path.getFileName().toString() : path.toString();
             this.textAnimator = new TextAnimator(this.name, 0, 30);
             this.textAnimator.start();
-            if (SAVED_TABS.containsKey(path)) {
-                SavedTabState st = SAVED_TABS.get(path);
+            if (SAVED_TABS.containsKey(this.path)) {
+                SavedTabState st = SAVED_TABS.get(this.path);
                 this.textEditor = new MultiLineTextEditor(minecraftClient, new ArrayList<>(st.lines), this.name, this);
                 this.textEditor.undoStack.clear();
                 this.textEditor.undoStack.addAll(st.undoStack);
@@ -119,12 +142,10 @@ public class FileEditorScreen extends Screen {
                 loadFileContent();
             }
         }
-
         public void checkIfChanged(List<String> lines) {
             String joined = String.join("\n", lines);
             this.unsaved = !joined.equals(originalContent);
         }
-
         private void loadFileContent() {
             ArrayList<String> fileContent = new ArrayList<>();
             if (serverInfo.isRemote) {
@@ -164,7 +185,6 @@ public class FileEditorScreen extends Screen {
             this.originalContent = String.join("\n", fileContent);
             this.unsaved = false;
         }
-
         public void saveFile() {
             ArrayList<String> newContent = new ArrayList<>(textEditor.getLines());
             if (serverInfo.isRemote) {
@@ -208,22 +228,30 @@ public class FileEditorScreen extends Screen {
         this.minecraftClient = mc;
         this.parent = parent;
         this.serverInfo = info;
+        for (int i = 0; i < tabs.size(); i++) {
+            if (tabs.get(i).path.equals(filePath.normalize())) {
+                currentTabIndex = i;
+                this.textEditor = tabs.get(i).textEditor;
+                return;
+            }
+        }
         Tab initialTab = new Tab(filePath);
         tabs.add(initialTab);
         this.textEditor = initialTab.textEditor;
         originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
-        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);    }
+        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
+    }
 
     @Override
     protected void init() {
         super.init();
-        this.textEditor.init(5, 60, this.width - 10, this.height - 65);
+        this.textEditor.init(10, 60, this.width - sidePanelWidth - 15, this.height - 65);
         List<Path> loadedTabs = RemotelyClient.INSTANCE.loadFileEditorTabs();
         for (Path path : loadedTabs) {
             boolean tabExists = false;
             for (Tab tab : tabs) {
-                if (tab.path.equals(path)) {
+                if (tab.path.equals(path.normalize())) {
                     tabExists = true;
                     break;
                 }
@@ -231,18 +259,20 @@ public class FileEditorScreen extends Screen {
             if (!tabExists) {
                 Tab tab = new Tab(path);
                 tabs.add(tab);
-                tab.textEditor.init(5, 60, this.width - 10, this.height - 65);
+                tab.textEditor.init(10, 60, this.width - sidePanelWidth - 15, this.height - 65);
             }
         }
         if (!tabs.isEmpty()) {
-            this.textEditor = tabs.get(0).textEditor;
+            this.textEditor = tabs.get(currentTabIndex).textEditor;
         }
         try {
             closeIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/close.png", "Close The Screen");
-            saveIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/save.png", tabs.get(currentTabIndex).unsaved ? "Save File" : "It's Already Saved");
+            saveIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/save.png", "Save The File");
+            explorerIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/explorer.png", "Toggle Explorer Panel");
         } catch (Exception e) {
             e.printStackTrace();
         }
+        updateSidePanelEntries();
     }
 
     @Override
@@ -484,20 +514,17 @@ public class FileEditorScreen extends Screen {
         JsonObject aiConfig = readAIConfig();
         String entryPoint = aiConfig.has("entryPoint") ? aiConfig.get("entryPoint").getAsString() : "";
         String apiToken = aiConfig.has("apiToken") ? aiConfig.get("apiToken").getAsString() : "";
-
         if (apiToken.isEmpty() || apiToken.contains("your-api-token")) {
             customSearchText.setLength(0);
             customSearchText.append("No API key found in ai.json");
             return;
         }
-
         String userInput = customSearchText.toString();
         if (userInput.isEmpty()) {
             customSearchBarFocused = false;
             aiMode = false;
             return;
         }
-
         List<String> lines = tabs.get(currentTabIndex).textEditor.getLines();
         int lineLimit = 1000000000;
         List<String> limitedLines = lines.subList(0, Math.min(lineLimit, lines.size()));
@@ -505,20 +532,13 @@ public class FileEditorScreen extends Screen {
         for (int i = 0; i < limitedLines.size(); i++) {
             enumeratedLines.append("Line ").append(i + 1).append(": ").append(limitedLines.get(i).replace("\"", "\\\"")).append("\\n");
         }
-
         String filePathInfo = "Current file path: " + tabs.get(currentTabIndex).path.toString().replace("\"", "\\\"") + " | Name: " + tabs.get(currentTabIndex).name.replace("\"", "\\\"");
-
         String instructionsForAi = "You are Remotely, an AI text / code editor assistant for Minecraft server configuration and its plugins. SURROUND ANY NON-COMMAND TEXT WITH: \"$\" AND NEVER HAVE MORE THAN 1 BLOCK OF TEXT USING THE \"$\". You can add or edit configurations, or respond normally. You can replace lines using this command: '@replace:Line <lineNumber>@newLine:some text' or '@replace:Line <lineNumber>@newLine<<multiline text>>'. Give small feedback after doing any changes. You are interacting with the editor directly. " + filePathInfo + ". The user said: \"" + userInput + "\"\\n Lines / file with numbering:\\n";
-
         String finalContext = instructionsForAi + enumeratedLines;
-
         devPrint("AI request: " + finalContext);
-
         int cursorLine = tabs.get(currentTabIndex).textEditor.cursorLine;
         String currentLine = cursorLine >= 0 && cursorLine < lines.size() ? lines.get(cursorLine) : "";
-
         JsonObject requestBodyJson = new JsonObject();
-
         JsonArray contentsArray = new JsonArray();
         JsonObject partObject1 = new JsonObject();
         partObject1.addProperty("text", finalContext);
@@ -531,7 +551,6 @@ public class FileEditorScreen extends Screen {
         contentObject.add("parts", partsArray);
         contentsArray.add(contentObject);
         requestBodyJson.add("contents", contentsArray);
-
         JsonObject generationConfig = new JsonObject();
         if (aiConfig.has("generationConfig")) {
             generationConfig = aiConfig.getAsJsonObject("generationConfig");
@@ -540,9 +559,7 @@ public class FileEditorScreen extends Screen {
             generationConfig.addProperty("response_mime_type", "text/plain");
         }
         requestBodyJson.add("generation_config", generationConfig);
-
         String requestBody = requestBodyJson.toString();
-
         CompletableFuture.runAsync(() -> {
             try {
                 URL url = new URL(entryPoint + "?key=" + apiToken);
@@ -683,6 +700,13 @@ public class FileEditorScreen extends Screen {
                 return true;
             }
         }
+        int hideButtonX = this.width - 15 - 5;
+        int hideButtonY = 35;
+        if (mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15 && button == 0) {
+            playClick();
+            showSidePanel = !showSidePanel;
+            return true;
+        }
         responseWindows.removeIf(w -> w.closed);
         int searchBarX = (this.width - searchBarWidth) / 2;
         int searchBarY = 5;
@@ -722,6 +746,9 @@ public class FileEditorScreen extends Screen {
                         currentTabIndex = Math.max(0, currentTabIndex - 1);
                     }
                     if (!tabs.isEmpty()) {
+                        if (currentTabIndex >= tabs.size()) {
+                            currentTabIndex = tabs.size() - 1;
+                        }
                         this.textEditor = tabs.get(currentTabIndex).textEditor;
                     } else {
                         close();
@@ -732,8 +759,10 @@ public class FileEditorScreen extends Screen {
                     playClick();
                     if (currentTabIndex != i) {
                         currentTabIndex = i;
-                        this.textEditor = tabs.get(currentTabIndex).textEditor;
+                        this.textEditor = tab.textEditor;
+                        ScrollBar.setPendingOffset((float) this.textEditor.targetScrollOffsetVert);
                         RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
+                        updateSidePanelEntries();
                     }
                     clickedTab = true;
                     break;
@@ -758,7 +787,7 @@ public class FileEditorScreen extends Screen {
                         tabs.get(finalI).saveFile();
                     }, globalHoverTextColor, (tabs.get(finalI).unsaved ? "Save The Current File." : " It's Already Saved!"));
                     ContextMenu.addItem("Externally", () -> {
-                       ProcessBuilder pb = new ProcessBuilder("explorer.exe", tab.path.toString());
+                        ProcessBuilder pb = new ProcessBuilder("explorer.exe", tab.path.toString());
                         try {
                             pb.start();
                         } catch (IOException e) {
@@ -787,13 +816,161 @@ public class FileEditorScreen extends Screen {
             close();
             return true;
         }
+        float animWidth = animatedSidePanelWidth;
+        int panelX = this.width - (int) animWidth;
+        int panelY = 60;
+        int panelHeight = this.height - 65;
+        if (animWidth > 0) {
+            if (Math.abs(mouseX - (panelX - 1)) < 5 && mouseY >= panelY && mouseY <= panelY + panelHeight && button == 0) {
+                isResizingSidePanel = true;
+                return true;
+            }
+            if (mouseX >= panelX && mouseX <= panelX + animWidth && mouseY >= panelY && mouseY <= panelY + panelHeight) {
+                int entryHeight = 20 + 2;
+                double localY = mouseY - panelY + tabs.get(currentTabIndex).sidePanelScrollOffset;
+                int indexPos = 0;
+                for (int i = 0; i < sidePanelEntries.size(); i++) {
+                    SidePanelEntry entry = sidePanelEntries.get(i);
+                    int totalHeight = entryHeight;
+                    if (localY >= indexPos && localY < indexPos + totalHeight) {
+                        if (Files.isDirectory(entry.data.path)) {
+                            Tab currentTab = tabs.get(currentTabIndex);
+                            if (currentTab.openedPathsForSidePanel.contains(entry.data.path)) {
+                                currentTab.openedPathsForSidePanel.remove(entry.data.path);
+                            } else {
+                                currentTab.openedPathsForSidePanel.add(entry.data.path);
+                            }
+                            updateSidePanelEntries();
+                        } else {
+                            if (!entry.data.path.equals(tabs.get(currentTabIndex).path) && isSupportedFile(entry.data.path)) {
+                                boolean found = false;
+                                for (int j = 0; j < tabs.size(); j++) {
+                                    if (tabs.get(j).path.equals(entry.data.path.normalize())) {
+                                        currentTabIndex = j;
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found) {
+                                    Tab newTab = new Tab(entry.data.path);
+                                    tabs.add(newTab);
+                                    currentTabIndex = tabs.size() - 1;
+                                }
+                                this.textEditor = tabs.get(currentTabIndex).textEditor;
+                                updateSidePanelEntries();
+                            } else{
+                                openExternally(entry.data.path);
+                            }
+                        }
+                        return true;
+                    }
+                    indexPos += totalHeight;
+                }
+                return true;
+            }
+        }
         return tabs.get(currentTabIndex).textEditor.mouseClicked(mouseX, mouseY, button) || super.mouseClicked(mouseX, mouseY, button);
     }
 
+    private void updateSidePanelEntries() {
+        sidePanelEntries.clear();
+        if (tabs.isEmpty()) return;
+        Tab currentTab = tabs.get(currentTabIndex);
+        Path filePath = currentTab.path;
+        if (filePath == null) return;
+        if (!currentTab.sidePanelInitialized) {
+            Path current = filePath;
+            while (current != null) {
+                currentTab.openedPathsForSidePanel.add(current);
+                current = current.getParent();
+            }
+            currentTab.sidePanelScrollOffset = 0f;
+            currentTab.targetSidePanelScrollOffset = 0f;
+            currentTab.sidePanelInitialized = true;
+        }
+        Path rootPath = filePath;
+        while (rootPath.getParent() != null) {
+            rootPath = rootPath.getParent();
+        }
+        buildSidePanelData(rootPath, 0, currentTab.openedPathsForSidePanel);
+        if (!currentTab.initialScrollSet) {
+            int index = 0;
+            int entryHeight = 22;
+            for (int i = 0; i < sidePanelEntries.size(); i++) {
+                if (sidePanelEntries.get(i).data.path.equals(filePath)) {
+                    index = i;
+                    break;
+                }
+            }
+            currentTab.sidePanelScrollOffset = index * entryHeight;
+            currentTab.targetSidePanelScrollOffset = index * entryHeight;
+            currentTab.initialScrollSet = true;
+        }
+    }
+
+    private void buildSidePanelData(Path currentPath, int depth, Set<Path> openedPaths) {
+        if (currentPath == null || !Files.exists(currentPath)) return;
+        FileExplorerScreen.EntryData data = getEntryDataForPath(currentPath);
+        SidePanelEntry entry = new SidePanelEntry(data, depth);
+        entry.isOpen = openedPaths.contains(currentPath);
+        sidePanelEntries.add(entry);
+        try {
+            if (Files.isDirectory(currentPath) && entry.isOpen) {
+                List<Path> dirChildren = new ArrayList<>();
+                DirectoryStream<Path> stream = Files.newDirectoryStream(currentPath);
+                for (Path child : stream) {
+                    dirChildren.add(child);
+                }
+                stream.close();
+                dirChildren.sort((p1, p2) -> {
+                    boolean d1 = Files.isDirectory(p1);
+                    boolean d2 = Files.isDirectory(p2);
+                    if (d1 && !d2) return -1;
+                    if (!d1 && d2) return 1;
+                    return p1.getFileName().toString().compareToIgnoreCase(p2.getFileName().toString());
+                });
+                for (Path child : dirChildren) {
+                    buildSidePanelData(child, depth + 1, openedPaths);
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    public FileExplorerScreen.EntryData getEntryDataForPath(Path p) {
+        String dn = p.getFileName() != null ? p.getFileName().toString() : p.toString();
+        boolean isDirectory = Files.isDirectory(p);
+        return new FileExplorerScreen.EntryData(p, isDirectory, "", "", dn);
+    }
+
+    private void renderSidePanel(DrawContext context, int x, int y, int width, int height, int mouseX, int mouseY) {
+        Tab currentTab = tabs.get(currentTabIndex);
+        currentTab.sidePanelScrollOffset += (currentTab.targetSidePanelScrollOffset - currentTab.sidePanelScrollOffset) * Config.globalScrollSpeed * deltaTime;
+        int entryHeight = 20;
+        int entryGap = 2;
+        int totalEntryHeight = entryHeight + entryGap;
+        int currentY = y - (int) currentTab.sidePanelScrollOffset;
+        for (SidePanelEntry entry : sidePanelEntries) {
+            if (currentY + entryHeight < y) {
+                currentY += totalEntryHeight;
+                continue;
+            }
+            if (currentY > y + height) {
+                break;
+            }
+            boolean hovered = mouseX >= x && mouseX <= x + width && mouseY >= currentY && mouseY < currentY + entryHeight;
+            int indent = entry.depth * 5;
+            drawExplorerElements(context, hovered, entry.data.displayName.equals(tabs.get(currentTabIndex).name), false, entry.data, x + indent, currentY, width - indent, entryHeight, minecraftClient.textRenderer, false, null, null, 0);
+            currentY += totalEntryHeight;
+        }
+    }
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (ScrollBar.handleMouseReleased()) {
+            return true;
+        }
+        if (isResizingSidePanel && button == 0) {
+            isResizingSidePanel = false;
             return true;
         }
         boolean handled = false;
@@ -805,10 +982,14 @@ public class FileEditorScreen extends Screen {
         return tabs.get(currentTabIndex).textEditor.mouseReleased(mouseX, mouseY, button) || super.mouseReleased(mouseX, mouseY, button) || handled;
     }
 
-
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         if (ScrollBar.handleMouseDragged(this, (int) mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight())) {
+            return true;
+        }
+        if (isResizingSidePanel && button == 0) {
+            int newWidth = (int) (this.width - mouseX);
+            sidePanelWidth = Math.max(80, Math.min(newWidth, this.width - 50));
             return true;
         }
         boolean handled = false;
@@ -826,9 +1007,22 @@ public class FileEditorScreen extends Screen {
         return tabs.get(currentTabIndex).textEditor.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || handled;
     }
 
-
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizAmount, double vertAmount) {
+        float animWidth = animatedSidePanelWidth;
+        int panelX = this.width - (int) animWidth;
+        int panelY = 60;
+        int panelHeight = this.height - 65;
+        if (animWidth > 0 && mouseX >= panelX && mouseX <= panelX + animWidth && mouseY >= panelY && mouseY <= panelY + panelHeight) {
+            int scrollDir = vertAmount >= 0 ? (int) Math.ceil(vertAmount * 20) : (int) Math.floor(vertAmount * 20);
+            Tab currentTab = tabs.get(currentTabIndex);
+            currentTab.targetSidePanelScrollOffset -= scrollDir;
+            int totalHeight = sidePanelEntries.size() * 20;
+            int maxScroll = Math.max(0, totalHeight - panelHeight + 10);
+            if (currentTab.targetSidePanelScrollOffset < 0) currentTab.targetSidePanelScrollOffset = 0;
+            if (currentTab.targetSidePanelScrollOffset > maxScroll) currentTab.targetSidePanelScrollOffset = maxScroll;
+            return true;
+        }
         boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
         boolean altHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
         if (ctrlHeld) {
@@ -853,13 +1047,22 @@ public class FileEditorScreen extends Screen {
         return true;
     }
 
-
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
-        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, saveIcon, null, null, null, null, null, null, null);
+        drawScreenHeader(context, width, height, width - 5 - (int) animatedSidePanelWidth, mouseX, mouseY, this, minecraftClient, closeIcon, saveIcon, null, null, null, null, null, null, null);
         drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, aiMode, "FileEditorScreen", mouseX, mouseY, "Search For Text In The File.");
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, tabs.get(currentTabIndex).unsaved);
+        int hideButtonX = this.width - 22;
+        int hideButtonY = 35;
+        boolean hideButtonHovered = mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15;
+        drawSquareButton(context, hideButtonX, hideButtonY, minecraftClient, hideButtonHovered, mouseX, mouseY, "Toggle Snippets Panel", explorerIcon.getImage());
+        tabs.get(currentTabIndex).textEditor.tickDragScroll();
+        float deltaTimeLocal = deltaTime;
+        float targetWidth = showSidePanel ? sidePanelWidth : 0;
+        animatedSidePanelWidth += (targetWidth - animatedSidePanelWidth) * Config.globalExpandSpeed * deltaTimeLocal;
+        int animWidth = (int) animatedSidePanelWidth;
+        tabs.get(currentTabIndex).textEditor.updateBounds(10, 60, this.width - animWidth - 15, this.height - 65);
         tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
         ScrollBar.render(context, this, mouseX, mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), (float) tabs.get(currentTabIndex).textEditor.getScrollOffset());
         tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert = (int) ScrollBar.getPendingOffset();
@@ -882,6 +1085,17 @@ public class FileEditorScreen extends Screen {
             this.width = minecraftClient.getWindow().getScaledWidth();
             this.height = minecraftClient.getWindow().getScaledHeight();
             globalScaleFactor = animScaleFactor;
+        }
+        if (animWidth > 0) {
+            int panelX = this.width - animWidth;
+            int panelY = 60;
+            int panelHeight = this.height - 65;
+            context.fill(panelX, panelY, panelX + animWidth, panelY + panelHeight, innerBackgroundColor);
+            drawInnerBorder(context, panelX, panelY, animWidth, panelHeight, innerBorderColor);
+            drawOuterBorder(context, panelX, panelY, animWidth, panelHeight, globalOuterBorder);
+            context.enableScissor(panelX, panelY, panelX + animWidth, panelY + panelHeight);
+            renderSidePanel(context, panelX, panelY, animWidth, panelHeight + 2, mouseX, mouseY);
+            context.disableScissor();
         }
     }
 
@@ -1466,12 +1680,13 @@ public class FileEditorScreen extends Screen {
                     lastDragY = mouseY;
                 }
             }
-            return false;
+            return true;
         }
 
         public boolean mouseReleased(double mouseX, double mouseY, int button) {
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 isDraggingSelection = false;
+                return true;
             }
             return false;
         }
@@ -1753,6 +1968,13 @@ public class FileEditorScreen extends Screen {
             cursorLine = line;
             cursorPos = start;
             scrollToCursor();
+        }
+
+        public void updateBounds(int x, int y, int w, int h) {
+            this.x = x;
+            this.y = y;
+            this.width = w;
+            this.height = h;
         }
 
         static class EditorState {
