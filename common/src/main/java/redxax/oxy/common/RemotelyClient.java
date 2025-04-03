@@ -77,7 +77,7 @@ public class RemotelyClient implements ClientModInitializer {
         openServerManagerKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "Open Server Manager",
                 InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_X,
+                GLFW.GLFW_KEY_N,
                 "Remotely"
         ));
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
