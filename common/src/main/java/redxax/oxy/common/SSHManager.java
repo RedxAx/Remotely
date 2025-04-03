@@ -7,14 +7,13 @@ import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.servers.ServerProcessManager;
 import redxax.oxy.common.servers.ServerState;
 import redxax.oxy.common.terminal.TerminalInstance;
-
+import redxax.oxy.common.terminal.ServerTerminalInstance;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
-
 import static redxax.oxy.common.util.DevUtil.devPrint;
 
 public class SSHManager {
@@ -36,6 +35,7 @@ public class SSHManager {
     private List<String> remoteCommandsCache = new ArrayList<>();
     private long remoteCommandsLastFetched = 0;
     private static final long REMOTE_COMMANDS_CACHE_DURATION = 60000;
+    private volatile boolean readingSSHOutput = false;
 
     public SSHManager(ServerInfo serverInfo) {
         this.serverInfo = serverInfo;
@@ -208,7 +208,6 @@ public class SSHManager {
         }
     }
 
-    // Java
     public void launchRemoteServer(String folder, String jarPath) {
         if (!isSSH || sshSession == null || !sshSession.isConnected()) {
             if (terminalInstance != null) {
@@ -218,31 +217,55 @@ public class SSHManager {
         }
         executorService.submit(() -> {
             try {
+                ensureTmuxInstalled();
+                String sessionName;
+                if (terminalInstance instanceof ServerTerminalInstance sti) {
+                    sessionName = "server_" + Integer.toHexString(sti.serverInfo.path.hashCode());
+                } else {
+                    sessionName = "server_" + terminalInstance.terminalId.toString().replace("-", "");
+                }
+                ChannelExec checkChannel = (ChannelExec) sshSession.openChannel("exec");
+                checkChannel.setCommand("tmux has-session -t " + sessionName + " 2>/dev/null");
+                ByteArrayOutputStream checkOut = new ByteArrayOutputStream();
+                checkChannel.setOutputStream(checkOut);
+                checkChannel.connect();
+                while (!checkChannel.isClosed()) {
+                    Thread.sleep(100);
+                }
+                int exitStatus = checkChannel.getExitStatus();
+                checkChannel.disconnect();
+                if (exitStatus != 0) {
+                    String scriptFilePath = folder + "/start.sh";
+                    if (remoteFileExists(scriptFilePath)) {
+                        String content = readRemoteFile(scriptFilePath);
+                        if (!content.contains("-Dnet.kyori.ansi.colorLevel=indexed256")) {
+                            StringBuilder commandStr = ServerProcessManager.getCommandStr();
+                            writeRemoteFile(scriptFilePath, commandStr.toString());
+                        }
+                    } else {
+                        StringBuilder commandStr = ServerProcessManager.getCommandStr();
+                        writeRemoteFile(scriptFilePath, commandStr.toString());
+                    }
+                    ChannelExec createChannel = (ChannelExec) sshSession.openChannel("exec");
+                    String createCommand = "tmux new-session -d -s " + sessionName + " 'cd " + folder + " && ./start.sh'";
+                    createChannel.setCommand(createCommand);
+                    createChannel.connect();
+                    while (!createChannel.isClosed()) {
+                        Thread.sleep(100);
+                    }
+                    createChannel.disconnect();
+                }
+                if (sshChannel != null && sshChannel.isConnected()) {
+                    sshChannel.disconnect();
+                }
                 ChannelShell ch = (ChannelShell) sshSession.openChannel("shell");
                 ch.setPty(true);
                 ch.connect();
                 sshChannel = ch;
                 sshReader = new BufferedReader(new InputStreamReader(sshChannel.getInputStream(), StandardCharsets.UTF_8));
                 sshWriter = new OutputStreamWriter(sshChannel.getOutputStream(), StandardCharsets.UTF_8);
-                if (terminalInstance != null) {
-                    terminalInstance.appendOutput("Remote server starting...\n");
-                }
-                String scriptFilePath = folder + "/start.sh";
-                if (remoteFileExists(scriptFilePath)) {
-                    String content = readRemoteFile(scriptFilePath);
-                    if (!content.contains("-Dnet.kyori.ansi.colorLevel=indexed256")) {
-                        StringBuilder commandStr = ServerProcessManager.getCommandStr();
-                        writeRemoteFile(scriptFilePath, commandStr.toString());
-                        devPrint("Added ANSI color flag to start.sh.");
-                    }
-                } else {
-                    if (terminalInstance != null) {
-                        terminalInstance.appendOutput("start.sh not found, creating one with the required flag...\n");
-                    }
-                    StringBuilder commandStr = ServerProcessManager.getCommandStr();
-                    writeRemoteFile(scriptFilePath, commandStr.toString());
-                }
-                sshWriter.write("cd " + folder + " && ./start.sh\n");
+                terminalInstance.appendOutput("Attaching to tmux session: " + sessionName + "\n");
+                sshWriter.write("tmux attach-session -t " + sessionName + "\n");
                 sshWriter.flush();
                 readSSHOutput();
             } catch (Exception e) {
@@ -256,7 +279,32 @@ public class SSHManager {
         });
     }
 
+    private void ensureTmuxInstalled() throws Exception {
+        ChannelExec exec = (ChannelExec) sshSession.openChannel("exec");
+        exec.setCommand("command -v tmux");
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        exec.setOutputStream(output);
+        exec.connect();
+        while (!exec.isClosed()) {
+            Thread.sleep(100);
+        }
+        String result = output.toString(StandardCharsets.UTF_8).trim();
+        exec.disconnect();
+        if (result.isEmpty()) {
+            ChannelExec installChannel = (ChannelExec) sshSession.openChannel("exec");
+            String installCommand = "sudo apt-get update && sudo apt-get install -y tmux";
+            installChannel.setCommand(installCommand);
+            installChannel.connect();
+            while (!installChannel.isClosed()) {
+                Thread.sleep(100);
+            }
+            installChannel.disconnect();
+        }
+    }
+
     private void readSSHOutput() {
+        if (readingSSHOutput) return;
+        readingSSHOutput = true;
         executorService.submit(() -> {
             try {
                 isSSH = true;
@@ -273,6 +321,8 @@ public class SSHManager {
                 if (terminalInstance != null) {
                     terminalInstance.appendOutput("Error reading SSH output: " + e.getMessage() + "\n");
                 }
+            } finally {
+                readingSSHOutput = false;
             }
         });
     }

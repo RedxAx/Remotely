@@ -647,7 +647,6 @@ public class MultiTerminalScreen extends Screen {
                 } else {
                     this.close();
                     closedViaEscape = true;
-                    closedViaEscape = true;
                 }
                 return true;
             }
@@ -658,7 +657,19 @@ public class MultiTerminalScreen extends Screen {
                         ServerInfo sInfo = serverTerminal.getServerInfo();
                         if (sInfo.state == ServerState.RUNNING || sInfo.state == ServerState.STARTING) {
                             try {
-                                if (serverTerminal.processManager != null && serverTerminal.processManager.writer != null) {
+                                if (sInfo.isRemote && sInfo.remoteHost != null && sInfo.remoteSSHManager != null && sInfo.remoteSSHManager.getSshWriter() != null) {
+                                    sInfo.remoteSSHManager.getSshWriter().write("stop\n");
+                                    sInfo.remoteSSHManager.getSshWriter().flush();
+                                    new Thread(() -> {
+                                        try {
+                                            Thread.sleep(2000);
+                                            String sessionName = "server_" + Integer.toHexString(sInfo.path.hashCode());
+                                            devPrint(sInfo.remoteSSHManager.runRemoteCommandWithOutput("tmux kill-session -t " + sessionName + " 2>/dev/null"));
+                                        } catch (InterruptedException e) {
+                                            devPrint("Error while stopping server: " + e.getMessage());
+                                        }
+                                    }).start();
+                                } else if (serverTerminal.processManager != null && serverTerminal.processManager.writer != null) {
                                     serverTerminal.processManager.writer.write("stop\n");
                                     serverTerminal.processManager.writer.flush();
                                 }
