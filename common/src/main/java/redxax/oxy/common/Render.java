@@ -684,6 +684,24 @@ public class Render {
 
     public static void drawScrollSelector(DrawContext context, MinecraftClient mc, int x, int y, List<String> options, int selectedIndex, boolean hovered, int w, int h) {
         int id = ("scrollSelector" + options).hashCode();
+        Float scrollIndex = scrollSelectorIndexFloatMap.get(id);
+        Integer prevIndex = previousScrollSelectorIndexMap.get(id);
+        if (scrollIndex == null || prevIndex == null) {
+            scrollIndex = (float) selectedIndex;
+            prevIndex = selectedIndex;
+        }
+        if (prevIndex != selectedIndex) {
+            prevIndex = selectedIndex;
+        }
+        scrollIndex += (selectedIndex - scrollIndex) * 0.15f;
+        while (scrollIndex - selectedIndex > options.size() / 2f) {
+            scrollIndex -= options.size();
+        }
+        while (scrollIndex - selectedIndex < -options.size() / 2f) {
+            scrollIndex += options.size();
+        }
+        scrollSelectorIndexFloatMap.put(id, scrollIndex);
+        previousScrollSelectorIndexMap.put(id, prevIndex);
         float targetOffset = hovered ? -2f : 0f;
         float currentOffset = elevationOffsets.getOrDefault(id, 0f);
         currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
@@ -695,11 +713,9 @@ public class Render {
         context.fill(x, y, x + w, y + h, bg);
         drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, false, false, false));
         drawOuterBorder(context, x, y, w, h, globalOuterBorder);
-
         int contentX = x + 1;
         int contentWidth = x + w - contentX - 1;
         context.enableScissor(contentX, y, contentX + contentWidth, y + h);
-
         float centerSlot = contentX + contentWidth / 2f;
         int maxTextW = 0;
         for (String s : options) {
@@ -709,8 +725,6 @@ public class Render {
             }
         }
         float slotSpacing = maxTextW + 15f;
-        float scrollIndex = selectedIndex;
-
         for (int i = 0; i < options.size(); i++) {
             float ringIndex = i - scrollIndex;
             if (ringIndex < -options.size() / 2f) ringIndex += options.size();

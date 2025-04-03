@@ -1641,6 +1641,13 @@ public class ServerManagerScreen extends Screen {
         int boxX = popupX + (serverTypePopupWidth - boxW) / 2;
         boolean hovered = mouseX >= boxX && mouseX <= boxX + boxW && mouseY >= boxY && mouseY <= boxY + boxH;
         int bg = getElementBackgroundColor(text.hashCode(), hovered, false, false, false, false);
+        float targetOffset = hovered ? -2f : 0f;
+        int id = text.hashCode();
+        float currentOffset = elevationOffsets.getOrDefault(id, 0f);
+        currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+        elevationOffsets.put(id, currentOffset);
+        context.getMatrices().push();
+        context.getMatrices().translate(0, currentOffset, 0);
         context.fill(boxX, boxY, boxX + boxW, boxY + boxH, bg);
         drawInnerBorder(context, boxX, boxY, boxW, boxH, getElementBorderColor(text.hashCode(), hovered, false, false, false, false));
         drawOuterBorder(context, boxX, boxY, boxW, boxH, globalOuterBorder);
@@ -1648,6 +1655,7 @@ public class ServerManagerScreen extends Screen {
         int tx = boxX + (boxW - tw) / 2;
         int ty = boxY + (boxH - minecraftClient.textRenderer.fontHeight) / 2;
         context.drawText(minecraftClient.textRenderer, Text.literal(text), tx, ty, globalTextColor, false);
+        context.getMatrices().pop();
     }
 
 
