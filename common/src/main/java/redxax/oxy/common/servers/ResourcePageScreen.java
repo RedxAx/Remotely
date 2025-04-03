@@ -424,9 +424,13 @@ public class ResourcePageScreen extends Screen {
         }
         if(getCurrentTabType() == TabType.VERSIONS){
             for(VersionButtonRegion vr : versionButtonRegions){
-                if(mouseX >= vr.x && mouseX <= vr.x+vr.width && mouseY >= vr.y && mouseY <= vr.y+vr.height){
+                if(mouseX >= vr.x && mouseX <= vr.x + vr.width && mouseY >= vr.y && mouseY <= vr.y + vr.height){
                     playClick();
-                    downloadVersionResource(vr.version);
+                    if(resource.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack")){
+                        downloadMrpackResource();
+                    } else {
+                        downloadVersionResource(vr.version);
+                    }
                     return true;
                 }
             }
@@ -731,7 +735,7 @@ public class ResourcePageScreen extends Screen {
         new Thread(() -> {
             try {
                 if(serverInfo.isRemote && serverInfo.remoteSSHManager != null) {
-                    boolean success = serverInfo.remoteSSHManager.installMrPackOnRemote(serverInfo, resource);
+                    serverInfo.remoteSSHManager.installMrPackOnRemote(serverInfo, resource);
                     minecraftClient.execute(() -> {
                         isDownloadingMrpack = false;
                     });
