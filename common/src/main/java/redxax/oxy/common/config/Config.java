@@ -143,7 +143,7 @@ public class Config {
         if (!animatedBackgroundColorsMap.containsKey(id)) {
             animatedBackgroundColorsMap.put(id, intToFloatArray(target));
         }
-        float t = Math.min(colorTransitionSpeed - 0.5f * deltaTime, 1f);
+        float t = Math.min(colorTransitionSpeed * deltaTime, 1f);
         float[] current = animatedBackgroundColorsMap.get(id);
         float[] targetFloats = intToFloatArray(target);
         float[] newColorFloats = updateColor(current, targetFloats, t);

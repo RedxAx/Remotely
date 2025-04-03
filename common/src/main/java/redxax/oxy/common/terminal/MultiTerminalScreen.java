@@ -29,7 +29,6 @@ import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.config.Themes.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
-import static redxax.oxy.common.util.ImageUtil.drawPixelArt;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
 
@@ -302,7 +301,7 @@ public class MultiTerminalScreen extends Screen {
                     case STOPPED -> "Stopped";
                     case CRASHED -> "Crashed";
                 };
-                drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, (st == ServerState.RUNNING || st == ServerState.STARTING) ? stopIcon : startIcon, explorerIcon, isProxy ? null : resourcesIcon, null, null, null, null, null);
+                drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, (st == ServerState.RUNNING || st == ServerState.STARTING) ? stopIcon : startIcon, explorerIcon, isProxy ? null : resourcesIcon, null, null, null, null, null);
                 String hostStatus;
                 if (sInfo.isRemote && sInfo.remoteHost != null) {
                     boolean connected = (sInfo.remoteSSHManager != null && sInfo.remoteSSHManager.isSSH());
@@ -313,7 +312,7 @@ public class MultiTerminalScreen extends Screen {
                 String titleText = sInfo.name + " - " + stateText + " | " + hostStatus;
                 context.drawText(minecraftClient.textRenderer, Text.literal(titleText), 10, 10, globalTextColor, shadow);
             } else {
-                drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, null, null, null, null, null, null, null);
+                drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, null, null, null, null, null, null, null);
                 String titleText = "Remotely Terminal";
                 context.drawText(minecraftClient.textRenderer, Text.literal(titleText), 10, 10, globalTextColor, shadow);
             }
@@ -647,6 +646,7 @@ public class MultiTerminalScreen extends Screen {
                     minecraftClient.setScreen(parent);
                 } else {
                     this.close();
+                    closedViaEscape = true;
                     closedViaEscape = true;
                 }
                 return true;

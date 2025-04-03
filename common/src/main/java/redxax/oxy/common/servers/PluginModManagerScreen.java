@@ -395,7 +395,7 @@ public class PluginModManagerScreen extends Screen {
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
-        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, null, null, null , null, null, null, null, null);
+        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, null, null, null , null, null, null, null, null);
         int titleBarHeight = 30;
         context.drawText(this.textRenderer, Text.literal(this.getTitle().getString()), 10, 10, globalTextColor, Config.shadow);
         int tabBarY = titleBarHeight + 5;

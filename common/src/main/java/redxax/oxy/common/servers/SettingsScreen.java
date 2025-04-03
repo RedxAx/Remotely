@@ -22,7 +22,6 @@ import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -316,7 +315,7 @@ public class SettingsScreen extends Screen {
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         this.renderBackground(context, mouseX, mouseY, delta);
-        drawScreenHeader(context, width, height, mouseX, mouseY, this, mc, closeIcon, configMode ? null : createIcon, null, null, null, null, null, null, null);
+        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, mc, closeIcon, configMode ? null : createIcon, null, null, null, null, null, null, null);
         recalcTabs();
         int headerHeight = 30;
         context.drawText(mc.textRenderer, Text.literal("Create New Server"), 10, 10, globalTextColor, Config.shadow);
@@ -351,16 +350,16 @@ public class SettingsScreen extends Screen {
             boolean widgetHovered = mouseX >= widgetAreaX && mouseX <= widgetAreaX + widgetWidth && mouseY >= rowY && mouseY <= rowY + 18;
             boolean toggleHovered = mouseX >= this.width - 40 - 12 && mouseX <= this.width - 12 && mouseY >= rowY && mouseY <= rowY + rowHeight;
             switch (s.type) {
-                case TOGGLE -> drawToggle(context, mc, this.width - 40 - 12, widgetY - 1, s.name + s.description, s.value.equals("true"), toggleHovered);
-                case SLIDER -> drawSlider(context, mc, widgetAreaX, widgetY, s.name, s.getIntValue(), s.min, s.max, widgetHovered, mouseX, mouseY, "Shift + Click To Input Text.");
-                case SCROLL_SWITCH -> drawScrollSelector(context, mc, widgetAreaX, widgetY, s.options, s.getSelectedIndex(), widgetHovered);
-                case TAB_SWITCH -> drawTabSwitch(context, mc, widgetAreaX, widgetY, s.name + s.key + s.description, s.options, s.getSelectedIndex(), mouseX, mouseY);
+                case TOGGLE -> drawToggle(context, this.width - 40 - 12, widgetY - 1, s.name + s.description, s.value.equals("true"), toggleHovered, 40, 20);
+                case SLIDER -> drawSlider(context, mc, widgetAreaX, widgetY, s.name, s.getIntValue(), s.min, s.max, widgetHovered, mouseX, mouseY, "Shift + Click To Input Text.", 180, 18);
+                case SCROLL_SWITCH -> drawScrollSelector(context, mc, widgetAreaX, widgetY, s.options, s.getSelectedIndex(), widgetHovered, 180, 18);
+                case TAB_SWITCH -> drawTabSwitch(context, mc, widgetAreaX, widgetY, s.name + s.key + s.description, s.options, s.getSelectedIndex(), mouseX, mouseY, 180, 18);
                 case TEXT -> {
                     float currentScroll = textInputScrollOffsets.getOrDefault(s, 0f);
                     float targetScroll = textInputTargetScrollOffsets.getOrDefault(s, 0f);
                     drawTextInput(context, mc, widgetAreaX, widgetY, "", s.value, s.focused, s.cursorPos,
                             textSelectionStart.getOrDefault(s, s.cursorPos), textSelectionEnd.getOrDefault(s, s.cursorPos),
-                            widgetHovered, currentScroll, targetScroll);
+                            widgetHovered, 180, 18);
                     textInputScrollOffsets.put(s, currentScroll);
                     textInputTargetScrollOffsets.put(s, targetScroll);
                 }

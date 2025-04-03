@@ -191,7 +191,7 @@ public class DeskSelectionScreen extends Screen {
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         this.renderBackground(context, mouseX, mouseY, delta);
-        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, null, null, null, null, null, null, null, null);
+        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, null, null, null, null, null, null, null, null);
         context.drawText(this.textRenderer, Text.literal("Remotely - New Tab"), 10, 10, globalTextColor, Config.shadow);
         int headerY = 35;
         int gridX = spacing;

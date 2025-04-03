@@ -310,7 +310,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         super.render(context, mouseX, mouseY, delta);
         int titleBarHeight = 30;
         int tabBarY = titleBarHeight + 5;
-        drawScreenHeader(context, width, height, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? !FileManager.getClipboard().isEmpty() ? pasteIcon : null : shiftPressed ? pasteIcon : copyIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? deleteIcon : editIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? cutIcon : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);
+        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? !FileManager.getClipboard().isEmpty() ? pasteIcon : null : shiftPressed ? pasteIcon : copyIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? deleteIcon : editIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? cutIcon : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);
         drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, true, false);
         int explorerY = tabBarY + TAB_HEIGHT + 30;
         int explorerHeight = this.height - explorerY - 5;
@@ -1261,13 +1261,13 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         }
     }
 
-    private void openExternally(Path selectedPath) {
+    public static void openExternally(Path selectedPath) {
         ProcessBuilder pb = new ProcessBuilder();
         pb.command("explorer.exe", selectedPath.toString());
         try {
             pb.start();
         } catch (IOException e) {
-            showNotification("Failed to open file: " + e, Notification.Type.ERROR);
+            devPrint("Failed to open file explorer: " + e.getMessage());
         }
     }
 
@@ -1689,7 +1689,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         tabs.get(currentTabIndex).tabData.targetOffset = 0;
     }
 
-    private boolean isSupportedFile(Path file) {
+    public static boolean isSupportedFile(Path file) {
         String fileName = file.getFileName().toString().toLowerCase();
         return SUPPORTED_EXTENSIONS.stream().anyMatch(fileName::endsWith);
     }
