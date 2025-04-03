@@ -22,11 +22,14 @@ import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static redxax.oxy.common.RemotelyClient.loadThemesFromDir;
 import static redxax.oxy.common.Render.*;
@@ -269,10 +272,20 @@ public class SettingsScreen extends Screen {
     }
 
     public static String getCurrentTheme() {
-        for (Settings s : settings) {
-            if (s.key.equals("theme")) {
-                return s.value;
+        try {
+            String systemDir = new File("/").getAbsolutePath();
+            Path configDir = Path.of(systemDir, "remotely", "data");
+            Path configFile = configDir.resolve("config.json");
+            if (Files.exists(configFile)) {
+                String jsonContent = Files.readString(configFile);
+                Pattern pattern = Pattern.compile("\"theme\"\\s*:\\s*\"(.*?)\"");
+                Matcher matcher = pattern.matcher(jsonContent);
+                if (matcher.find()) {
+                    return matcher.group(1);
+                }
             }
+        } catch (Exception e) {
+            devPrint("Error reading theme from config: " + e.getMessage());
         }
         return "Default";
     }
