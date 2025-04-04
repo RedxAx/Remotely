@@ -92,6 +92,7 @@ public class MultiTerminalScreen extends Screen {
     int snippetMaxVisibleLines = 1;
     private boolean shortcutConsumed = false;
     public static boolean isResizingSnippetPanel = false;
+    Notification notification;
 
     int snippetNameScrollOffset = 0;
 
@@ -359,7 +360,7 @@ public class MultiTerminalScreen extends Screen {
         }
         for (Notification notification : Notification.getActiveNotifications()) {
             notification.update(delta);
-            notification.render(context);
+            notification.render(context, mouseX, mouseY);
         }
         animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
         animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
@@ -635,6 +636,9 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (notification.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
             if (!showSnippetsPanel && ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, activeTerminal.renderer.getTotalScrollHeight(), activeTerminal.renderer.getScrollOffset())){

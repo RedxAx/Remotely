@@ -10,34 +10,33 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static redxax.oxy.common.Render.drawInnerBorder;
+import static redxax.oxy.common.Render.drawOuterBorder;
+import static redxax.oxy.common.config.Config.*;
 
 public class Notification {
     private final TextRenderer textRenderer;
-
-
-
+    private final MinecraftClient client;
     public enum Type { INFO, WARN, ERROR }
     private String message;
     private Type type;
     private float x;
     private float y;
     private float targetX;
-    private float opacity;
     private float animationSpeed = 30.0f;
-    private float fadeOutSpeed = 100.0f;
-    private float currentOpacity = 0.0f;
-    private float maxOpacity = 1.0f;
     private float duration = 50.0f;
     private float elapsedTime = 0.0f;
-    private boolean fadingOut = false;
+    private boolean slidingOut = false;
+    private boolean paused = false;
     private int padding = 10;
     private int width;
     private int height;
     private static final List<Notification> activeNotifications = new ArrayList<>();
 
-    public Notification(String message, Type type, MinecraftClient minecraftClient) {
+    public Notification(String message, Type type) {
         this.message = message;
         this.type = type;
+        MinecraftClient minecraftClient = MinecraftClient.getInstance();
+        this.client = minecraftClient;
         this.textRenderer = minecraftClient.textRenderer;
         this.width = textRenderer.getWidth(message) + 2 * padding;
         this.height = textRenderer.fontHeight + 2 * padding;
@@ -45,62 +44,70 @@ public class Notification {
         this.x = minecraftClient.currentScreen.width;
         this.y = minecraftClient.currentScreen.height - height - padding - (activeNotifications.size() * (height + padding));
         this.targetX = minecraftClient.currentScreen.width - width - padding;
-        this.opacity = 1.0f;
-        this.currentOpacity = 1.0f;
         activeNotifications.add(this);
     }
 
     public void update(float delta) {
-        if (x > targetX) {
-            float move = animationSpeed * delta;
-            x -= move;
-            if (x < targetX) {
-                x = targetX;
-            }
-        } else if (!fadingOut) {
-            elapsedTime += delta;
-            if (elapsedTime >= duration) {
-                fadingOut = true;
+        if (!paused) {
+            if (!slidingOut) {
+                if (x > targetX) {
+                    float move = animationSpeed * delta;
+                    x -= move;
+                    if (x < targetX) {
+                        x = targetX;
+                    }
+                } else {
+                    elapsedTime += delta;
+                    if (elapsedTime >= duration) {
+                        slidingOut = true;
+                    }
+                }
+            } else {
+                float slideSpeed = animationSpeed * 2 * delta;
+                x += slideSpeed;
+                if (x >= client.currentScreen.width) {
+                    activeNotifications.remove(this);
+                }
             }
         }
-        if (fadingOut) {
-            currentOpacity -= fadeOutSpeed * delta / 1000.0f;
-            if (currentOpacity <= 0.0f) {
-                currentOpacity = 0.0f;
-                activeNotifications.remove(this);
+        updatePositions();
+    }
+
+    private static void updatePositions() {
+        int count = 0;
+        for (Notification n : activeNotifications) {
+            if (!n.slidingOut) {
+                n.y = n.client.currentScreen.height - n.height - n.padding - count * (n.height + n.padding);
+                count++;
             }
-        } else {
-            currentOpacity = maxOpacity;
         }
     }
 
     public boolean isFinished() {
-        return currentOpacity <= 0.0f;
+        return x >= client.currentScreen.width;
     }
 
-    public void render(DrawContext context) {
-        if (currentOpacity <= 0.0f) return;
-        int color;
-        switch (type) {
-            case ERROR -> color = blendColor(0xFFFF5555, currentOpacity);
-            case WARN -> color = blendColor(0xFFFFAA55, currentOpacity);
-            default -> color = blendColor(0xFF5555FF, currentOpacity);
+    public void render(DrawContext context, int mouseX, int mouseY) {
+        if (x >= client.currentScreen.width) return;
+        boolean hovered = mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height;
+        int bgColor = getElementBackgroundColor(message.hashCode(), hovered, type.equals(Type.WARN), type.equals(Type.ERROR), false, type.equals(Type.INFO));
+        int borderColor = getElementBorderColor(message.hashCode(), hovered, type.equals(Type.WARN), type.equals(Type.ERROR), false, type.equals(Type.INFO));
+        int textColor = getTextColor(false, paused);
+        context.fill((int) x, (int) y, (int) x + width, (int) y + height, bgColor);
+        drawInnerBorder(context, (int) x, (int) y, width, height, borderColor);
+        drawOuterBorder(context, (int) x, (int) y, width, height, globalOuterBorder);
+        context.drawText(this.textRenderer, Text.literal(message), (int) x + padding, (int) y + padding, textColor, Config.shadow);
+    }
+
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height) {
+            paused = !paused;
+            return true;
         }
-        context.fill((int) x, (int) y, (int) x + width, (int) y + height, color);
-        drawInnerBorder(context, (int) x, (int) y, width, height, blendColor(0xFF000000, currentOpacity));
-        context.drawText(this.textRenderer, Text.literal(message), (int) x + padding, (int) y + padding, blendColor(0xFFFFFFFF, currentOpacity), Config.shadow);
-    }
-
-    private int blendColor(int color, float opacity) {
-        int a = (int) ((color >> 24 & 0xFF) * opacity);
-        int r = (color >> 16 & 0xFF);
-        int g = (color >> 8 & 0xFF);
-        int b = (color & 0xFF);
-        return (a << 24) | (r << 16) | (g << 8) | b;
+        return false;
     }
 
     public static Notification[] getActiveNotifications() {
         return activeNotifications.toArray(new Notification[0]);
     }
-
 }
