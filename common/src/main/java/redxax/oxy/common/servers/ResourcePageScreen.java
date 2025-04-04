@@ -553,7 +553,7 @@ public class ResourcePageScreen extends Screen {
                 } else {
                     int btnX = contentX + contentWidth - 70;
                     int btnY = y + (itemHeight - 20) / 2;
-                    drawCustomButton(context, btnX, btnY, ver.isInstalled, minecraftClient, mouseX >= btnX && mouseX <= btnX + 60 && mouseY >= btnY && mouseY <= btnY + 20, false, true, Objects.equals(ver.isInstalled, "Failed") ? Config.dangerDarkAccentColor : Objects.equals(ver.isInstalled, "Installed") ? Config.niceAccentColor : globalTextColor, globalHoverTextColor, mouseX , mouseY, "");
+                    drawCustomButton(context, btnX, btnY, ver.isInstalled, minecraftClient, mouseX >= btnX && mouseX <= btnX + 60 && mouseY >= btnY && mouseY <= btnY + 20, false, true, 60, 20, Objects.equals(ver.isInstalled, "Failed") ? Config.dangerDarkAccentColor : Objects.equals(ver.isInstalled, "Installed") ? Config.niceAccentColor : globalTextColor, globalHoverTextColor, mouseX , mouseY, "");
                     versionButtonRegions.add(new VersionButtonRegion(btnX, btnY, 60, 20, ver));
                 }
             }

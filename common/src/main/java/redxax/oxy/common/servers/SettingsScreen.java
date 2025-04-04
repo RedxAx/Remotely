@@ -119,10 +119,10 @@ public class SettingsScreen extends Screen {
         settings.add(new Settings("Show Minecraft Background", "Display The Minecraft Panorama As The Background.", "Appearance", "none", "background", TOGGLE, String.valueOf(background)));
         settings.add(new Settings("Show Wallpaper", "Display Your PC Wallpaper As The Background.", "Appearance", "none", "wallpaper", TOGGLE, String.valueOf(wallpaper)));
         settings.add(new Settings("Text Shadow", "Enable Text Background / Shadow Effect.", "Appearance", "none", "shadow", TOGGLE, String.valueOf(shadow)));
-        settings.add(new Settings("Scroll Animation Speed", "Set The Global Speed of The Scrolling Animations.", "Appearance", "none", "globalScrollSpeed", SLIDER, String.valueOf(globalScrollSpeed), 1, 30));
-        settings.add(new Settings("Movement Animation Speed", "Set The Global Speed of The Movement Animations.", "Appearance", "none", "globalMovementSpeed", SLIDER, String.valueOf(globalMovementSpeed), 1, 30));
-        settings.add(new Settings("Scale Animation Speed", "Set The Global Speed of The Scale Animations.", "Appearance", "none", "scaleAnimationSpeed", SLIDER, String.valueOf(scaleAnimationSpeed), 1, 30));
-        settings.add(new Settings("Expand Animation Speed", "Set The Global Speed of The Expand/Shrink Animations.", "Appearance", "none", "globalExpandSpeed", SLIDER, String.valueOf(globalExpandSpeed).replace("f", ""), 1, 30));
+        settings.add(new Settings("Scroll Animation Speed", "Set The Global Speed of The Scrolling Animations.", "Appearance", "none", "globalScrollSpeed", SLIDER, String.valueOf(globalScrollSpeed), 0, 30));
+        settings.add(new Settings("Movement Animation Speed", "Set The Global Speed of The Movement Animations.", "Appearance", "none", "globalMovementSpeed", SLIDER, String.valueOf(globalMovementSpeed), 0, 30));
+        settings.add(new Settings("Scale Animation Speed", "Set The Global Speed of The Scale Animations.", "Appearance", "none", "scaleAnimationSpeed", SLIDER, String.valueOf(scaleAnimationSpeed), 0, 30));
+        settings.add(new Settings("Expand Animation Speed", "Set The Global Speed of The Expand/Shrink Animations.", "Appearance", "none", "globalExpandSpeed", SLIDER, String.valueOf(globalExpandSpeed).replace("f", ""), 0, 30));
         settings.add(new Settings("Developer Mode", "Enable Developer Mode.", "Development", "none", "isDev", TOGGLE, String.valueOf(isDev)));
     }
 
