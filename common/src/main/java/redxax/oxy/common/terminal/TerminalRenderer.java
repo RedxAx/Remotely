@@ -14,6 +14,7 @@ import redxax.oxy.common.util.CursorUtils;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.text.SimpleDateFormat;
 
 import static redxax.oxy.common.Render.drawInnerBorder;
 import static redxax.oxy.common.Render.drawOuterBorder;
@@ -31,7 +32,7 @@ public class TerminalRenderer {
     public int scrollOffset = 0;
     private long lastBlinkTime = 0;
     private long lastInputTime = 0;
-    private static final Pattern TMUX_STATUS_PATTERN = Pattern.compile("^\\[\\d+].*");
+    private static final Pattern TMUX_STATUS_PATTERN = Pattern.compile(".*\\d{1,2}:\\d{2}\\s\\d{2}-[A-Za-z]{3}-\\d{2}.*");
     private final Pattern BRACKET_KEYWORD_PATTERN = Pattern.compile("\\[(.*?)\\b(WARNING|WARN|ERROR|INFO)\\b(.*?)]");
     private boolean isSelecting = false;
     private int selectionStartLine = -1;
@@ -46,6 +47,7 @@ public class TerminalRenderer {
     public float targetScrollOffset = 0;
     private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;?]*(?!m)[A-Za-z]");
     private static final Pattern ANSI_PATTERN2 = Pattern.compile("\u001B=>");
+    private static final Pattern EXTRA_ANSI_PATTERN = Pattern.compile("=\\u001B.*?\\\\");
     static {
         System.setProperty("jline.ansi", "true");
         System.setProperty("jline.terminal", "jline.UnsupportedTerminal");
@@ -145,7 +147,7 @@ public class TerminalRenderer {
         List<LineText> newWrappedLines = new ArrayList<>();
         final String output;
         synchronized (terminalOutput) {
-            output = terminalOutput.toString();
+            output = terminalOutput.toString().replace("\0", "").replaceAll("((\\d{2}:\\d{2}\\s\\d{2}-[A-Za-z]{3}-\\d{2}))(?=[A-Z])", "$1\n");
         }
         int len = output.length();
         int start = 0;
@@ -160,9 +162,23 @@ public class TerminalRenderer {
             if (line.trim().equals(">")) {
                 continue;
             }
-            Matcher tmuxMatcher = TMUX_STATUS_PATTERN.matcher(line);
-            if (tmuxMatcher.matches()) {
-                tmuxStatusLine = removeAllAnsiSequences(line.trim()).replace("\u000f", "");
+            String trimmedLine = line.trim();
+            String cleanLine = trimmedLine.replace("\u000f", "");
+            String currentYear = new SimpleDateFormat("yy").format(new Date());
+            Pattern tmuxExtraPattern = Pattern.compile("^(.*\\d{1,2}:\\d{2}\\s\\d{2}-[A-Za-z]{3}-)(" + currentYear + ")(.*)$");
+            Matcher extraMatcher = tmuxExtraPattern.matcher(cleanLine);
+            if (extraMatcher.matches()) {
+                String status = extraMatcher.group(1) + extraMatcher.group(2);
+                tmuxStatusLine = status;
+                String extra = extraMatcher.group(3);
+                if (!extra.isEmpty()) {
+                    List<StyleTextPair> extraSegments = parseKeywordsAndHighlight(extra);
+                    List<LineText> extraWrapped = wrapStyledText(extraSegments, terminalWidth - 10);
+                    newWrappedLines.addAll(extraWrapped);
+                }
+                continue;
+            } else if (TMUX_STATUS_PATTERN.matcher(cleanLine).matches()) {
+                tmuxStatusLine = cleanLine;
                 continue;
             }
             List<StyleTextPair> segments = parseKeywordsAndHighlight(line);
@@ -178,6 +194,7 @@ public class TerminalRenderer {
     private String removeAllAnsiSequences(String text) {
         text = ANSI_PATTERN.matcher(text).replaceAll("");
         text = ANSI_PATTERN2.matcher(text).replaceAll("");
+        text = EXTRA_ANSI_PATTERN.matcher(text).replaceAll("");
         return text.replace("\t", "    ");
     }
 
@@ -259,7 +276,6 @@ public class TerminalRenderer {
         }
         return Style.EMPTY.withColor(TextColor.fromRgb(terminalTextColor));
     }
-
 
     private List<LineText> wrapStyledText(List<StyleTextPair> segments, int maxWidth) {
         List<LineText> wrappedLines = new ArrayList<>();
