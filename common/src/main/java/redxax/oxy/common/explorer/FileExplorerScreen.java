@@ -8,6 +8,8 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.glfw.GLFWDropCallback;
+import org.lwjgl.glfw.GLFWDropCallbackI;
 import redxax.oxy.common.servers.RemoteHostInfo;
 import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.config.Config;
@@ -228,7 +230,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
             if (Files.exists(favoritesFilePath)) {
                 try (Reader reader = Files.newBufferedReader(favoritesFilePath)) {
-                    List<String> lines = GSON.fromJson(reader, new TypeToken<List<String>>(){}.getType());
+                    List<String> lines = GSON.fromJson(reader, new TypeToken<List<String>>() {
+                    }.getType());
                     synchronized (favoritePathsLock) {
                         favoritePaths.clear();
                         for (String line : lines) {
@@ -303,7 +306,16 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             devPrint("Failed to initialize: " + e);
         }
         loadDirectory(currentPath, false, false, true);
+        long windowHandle = minecraftClient.getWindow().getHandle();
+        GLFW.glfwSetDropCallback(windowHandle, (window, count, names) -> {
+            String[] droppedFiles = new String[count];
+            for (int i = 0; i < count; i++) {
+                droppedFiles[i] = GLFWDropCallback.getName(names, i);
+            }
+            handleFileDrop(droppedFiles);
+        });
     }
+
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
@@ -1359,6 +1371,53 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         saveFileExplorerTabs(tabs.stream().map(t -> new TabData(t.tabData.path, t.tabData.isRemote, t.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
     }
 
+    private void handleFileDrop(String[] files) {
+        for (String filePath : files) {
+            Path src = Paths.get(filePath);
+            if (Files.exists(src)) {
+                if (serverInfo.isRemote) {
+                    String currentRemote = currentPath.toString().replace("\\", "/");
+                    if (!currentRemote.endsWith("/")) {
+                        currentRemote += "/";
+                    }
+                    String remoteDest = currentRemote + src.getFileName().toString();
+                    ensureRemoteConnected();
+                    try {
+                        serverInfo.remoteHost.getSSHManager().upload(src, remoteDest);
+                    } catch (Exception e) {
+                        showNotification("Failed uploading " + src.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
+                    }
+                } else {
+                    try {
+                        Path dest = currentPath.resolve(src.getFileName());
+                        if (Files.isDirectory(src)) {
+                            Files.walkFileTree(src, new SimpleFileVisitor<Path>() {
+                                @Override
+                                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                                    Path targetDir = dest.resolve(src.relativize(dir));
+                                    Files.createDirectories(targetDir);
+                                    return FileVisitResult.CONTINUE;
+                                }
+                                @Override
+                                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                                    Files.copy(file, dest.resolve(src.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
+                                    return FileVisitResult.CONTINUE;
+                                }
+                            });
+                        } else {
+                            Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    } catch (Exception e) {
+                        showNotification("Failed copying " + src.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
+                    }
+                }
+            }
+        }
+        loadDirectory(currentPath, false, true, true);
+        showNotification(files.length + " item(s) dropped.", Notification.Type.INFO);
+    }
+
+
     public void saveFileExplorerTabs(List<TabData> tabsData, int currentTabIndex) {
         try {
             if (!Files.exists(FILE_EXPLORER_TABS_FILE.getParent())) {
@@ -1656,7 +1715,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         return sb.toString();
     }
 
-    private void ensureRemoteConnected() {
+    public void ensureRemoteConnected() {
         if (serverInfo.remoteHost == null) {
             return;
         }
