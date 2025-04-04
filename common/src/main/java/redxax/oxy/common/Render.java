@@ -157,7 +157,7 @@ public class Render {
             context.getMatrices().translate(0, 0, 499);
             for (MenuItem item : items) {
                 boolean hovered = mouseX >= menuX && mouseX <= menuX + itemWidth && mouseY >= currentY && mouseY < currentY + itemHeight;
-                drawCustomButton(context, menuX, currentY, item.label, mc, hovered, false, false, globalTextColor, MenuHoverColor, mouseX, mouseY, item.tooltipText);
+                drawCustomButton(context, menuX, currentY, item.label, mc, hovered, false, false, 60, 20, globalTextColor,  MenuHoverColor, mouseX, mouseY, item.tooltipText);
                 currentY += itemHeight + gap;
             }
             context.getMatrices().pop();
@@ -497,11 +497,9 @@ public class Render {
         context.disableScissor();
         context.getMatrices().pop();
     }
-    public static void drawCustomButton(DrawContext context, int x, int y, String text, MinecraftClient mc, boolean hovered, boolean dynamic, boolean centered, int txColor, int hoverColor, int mouseX, int mouseY, String tooltipText) {
+    public static void drawCustomButton(DrawContext context, int x, int y, String text, MinecraftClient mc, boolean hovered, boolean dynamic, boolean centered, int bW, int bH, int txColor, int hoverColor, int mouseX, int mouseY, String tooltipText) {
         if (dynamic) {
-            buttonW = mc.textRenderer.getWidth(text) + 10;
-        } else {
-            buttonW = 60;
+            bW = mc.textRenderer.getWidth(text) + 10;
         }
         int id = (text.hashCode() * 31 + x) * 31 + y;
         float targetOffset = hovered ? -3f : 0f;
@@ -510,11 +508,11 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        context.fill(x, y, x + buttonW, y + buttonH, Config.getElementBackgroundColor(id, hovered, false, false, false, false));
-        drawInnerBorder(context, x, y, buttonW, buttonH, Config.getElementBorderColor(id, hovered, false, false, false, false));
-        drawOuterBorder(context, x, y, buttonW, buttonH, globalOuterBorder);
+        context.fill(x, y, x + bW, y + bH, Config.getElementBackgroundColor(id, hovered, false, false, false, false));
+        drawInnerBorder(context, x, y, bW, bH, Config.getElementBorderColor(id, hovered, false, false, false, false));
+        drawOuterBorder(context, x, y, bW, bH, globalOuterBorder);
         int tw = mc.textRenderer.getWidth(text);
-        int tx = centered ? x + (buttonW - tw) / 2 : x + 5;
+        int tx = centered ? x + (bW - tw) / 2 : x + 5;
         int ty = y + 5;
         context.drawText(mc.textRenderer, Text.literal(text), tx, ty, hovered ? hoverColor : txColor, Config.shadow);
         CustomTooltip.show(tooltipText, mouseX, mouseY, context.getScaledWindowWidth(), context.getScaledWindowHeight(), mc.textRenderer, hovered);

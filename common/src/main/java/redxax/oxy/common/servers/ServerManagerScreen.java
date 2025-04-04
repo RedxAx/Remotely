@@ -317,18 +317,18 @@ public class ServerManagerScreen extends Screen {
             int cw = minecraftClient.textRenderer.getWidth(createText) + 10;
             int confirmX = px + 5;
             boolean hoverConfirm = mouseX >= confirmX && mouseX <= confirmX + cw && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawCustomButton(context, confirmX, confirmButtonY, createText, minecraftClient, hoverConfirm, true, true, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Test The Connection And Add The Host To The List.");
+            drawCustomButton(context, confirmX, confirmButtonY, createText, minecraftClient, hoverConfirm, true, true, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Test The Connection And Add The Host To The List.");
             String cancelText = "Cancel";
             int cancW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
             int cancX = px + remoteHostPopupW - (cancW + 5);
             boolean hoverCancel = mouseX >= cancX && mouseX <= cancX + cancW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawCustomButton(context, cancX, confirmButtonY, cancelText, minecraftClient, hoverCancel, true, true, globalTextColor, dangerLightAccentColor, mouseX,mouseY, "");
+            drawCustomButton(context, cancX, confirmButtonY, cancelText, minecraftClient, hoverCancel, true, true, 60, 20, globalTextColor, dangerLightAccentColor, mouseX,mouseY, "");
             if (isEditingHost) {
                 String deleteText = "Delete";
                 int delW = minecraftClient.textRenderer.getWidth(deleteText) + 10;
                 int delX = px + (remoteHostPopupW - delW) / 2;
                 boolean hoverDelete = mouseX >= delX && mouseX <= delX + delW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-                drawCustomButton(context, delX, confirmButtonY, deleteText, minecraftClient, hoverDelete, true, true, dangerLightAccentColor, Config.dangerDarkAccentColor, mouseX,mouseY,"Remove This Host.");
+                drawCustomButton(context, delX, confirmButtonY, deleteText, minecraftClient, hoverDelete, true, true, 60, 20, dangerLightAccentColor, Config.dangerDarkAccentColor, mouseX,mouseY,"Remove This Host.");
             }
             if (remoteHostCreationWarning) {
                 String warning = isEditingHost ? "Failed to save changes" : "Invalid or Connection Failed";
@@ -1560,9 +1560,9 @@ public class ServerManagerScreen extends Screen {
         int deleteX = popupX + 10;
         int removeX = deleteX + btnWidth + 10;
         int cancelX = removeX + btnWidth + 10;
-        drawCustomButton(context, deleteX, btnY, "Delete", minecraftClient, (mouseX >= deleteX && mouseX <= deleteX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Delete The Server And The Files.");
-        drawCustomButton(context, removeX, btnY, "Remove", minecraftClient, (mouseX >= removeX && mouseX <= removeX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Remove The Server From The List \n Without Deleting Files.");
-        drawCustomButton(context, cancelX, btnY, "Cancel", minecraftClient, (mouseX >= cancelX && mouseX <= cancelX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, globalTextColor, dangerLightAccentColor, mouseX, mouseY, "");
+        drawCustomButton(context, deleteX, btnY, "Delete", minecraftClient, (mouseX >= deleteX && mouseX <= deleteX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Delete The Server And The Files.");
+        drawCustomButton(context, removeX, btnY, "Remove", minecraftClient, (mouseX >= removeX && mouseX <= removeX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Remove The Server From The List \n Without Deleting Files.");
+        drawCustomButton(context, cancelX, btnY, "Cancel", minecraftClient, (mouseX >= cancelX && mouseX <= cancelX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, 60, 20, globalTextColor, dangerLightAccentColor, mouseX, mouseY, "");
     }
 
     private String[] splitJsonObjects(String json) {
