@@ -17,10 +17,10 @@ public class ServerTerminalInstance extends TerminalInstance {
 
     public ServerTerminalInstance(MinecraftClient mc, MultiTerminalScreen screen, UUID id, ServerInfo sInfo) {
         super(mc, screen, id);
+        this.isServerTerminal = true;
         this.serverInfo = sInfo;
         if (serverInfo.isRemote) {
             this.serverJarPath = serverInfo.path.replace("\\", "/") + "/server.jar";
-
         } else {
             this.serverJarPath = Paths.get(serverInfo.path, "server.jar").toString().replace("\\", "/");
         }
@@ -47,7 +47,7 @@ public class ServerTerminalInstance extends TerminalInstance {
             }
             serverInfo.state = ServerState.STARTING;
             processManager = new ServerProcessManager(this);
-            processManager.setCurrentDirectory(serverJarPath.replace("server.jar",""));
+            processManager.setCurrentDirectory(serverJarPath.replace("server.jar", ""));
             processManager.launchTerminal();
         }
     }
