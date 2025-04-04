@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
+import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -21,7 +22,6 @@ public class FileManager {
             this.isRemote = isRemote;
         }
     }
-
 
     private static List<ClipboardEntry> clipboard = new ArrayList<>();
     private boolean isCut = false;
@@ -62,7 +62,6 @@ public class FileManager {
     public void deleteSelected(List<Path> selectedPaths, Path currentPath) {
         List<Path> deletedPaths = new ArrayList<>();
         List<String> backupPaths = new ArrayList<>();
-
         if (serverInfo.isRemote) {
             String homeDir = serverInfo.remoteHost.getHomeDirectory();
             selectedPaths.parallelStream().forEach(path -> {
@@ -97,7 +96,6 @@ public class FileManager {
                 }
             });
         }
-
         if (!deletedPaths.isEmpty()) {
             undoStack.push(new DeleteAction(new ArrayList<>(deletedPaths), new ArrayList<>(backupPaths)));
             callback.refreshDirectory(currentPath);
@@ -114,12 +112,9 @@ public class FileManager {
                         currentRemote += "/";
                     String fileName = Paths.get(entry.sourcePath).getFileName().toString();
                     String remoteDest = currentRemote + fileName;
-
-                    // Check for duplicate and rename if needed
                     if (!isCut && entry.isRemote && remoteDest.equals(entry.sourcePath)) {
                         remoteDest = getUniqueRemotePath(remoteDest);
                     }
-
                     if (entry.isRemote) {
                         if (isCut) {
                             sshManager.renameRemote(entry.sourcePath, remoteDest);
@@ -182,7 +177,6 @@ public class FileManager {
         String origName = path.getFileName().toString();
         String baseName = getBaseName(origName);
         String extension = getExtension(origName);
-
         Path uniquePath = path;
         int counter = 2;
         while (Files.exists(uniquePath)) {
@@ -198,7 +192,6 @@ public class FileManager {
         String dirPath = path.substring(0, path.length() - fileName.length());
         String baseName = getBaseName(fileName);
         String extension = getExtension(fileName);
-
         int counter = 2;
         String newPath = path;
         try {
@@ -365,9 +358,9 @@ public class FileManager {
         clipboard.clear();
     }
 
-
     public interface FileManagerCallback {
         void showNotification(String message, FileExplorerScreen.Notification.Type type);
         void refreshDirectory(Path path);
+        void ensureRemoteConnected();
     }
 }
