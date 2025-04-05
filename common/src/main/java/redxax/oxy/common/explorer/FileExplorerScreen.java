@@ -67,7 +67,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private long lastFrameTime = 0;
     private final List<Path> favoritePaths = new ArrayList<>();
     private final Object favoritePathsLock = new Object();
-    private final Path favoritesFilePath = Paths.get("C:/remotely/data/favorites.json");
+    private final Path favoritesFilePath = Paths.get(remotelyDir.toString(), "data", "favorites.json");
     private boolean fieldFocused = false;
     private final StringBuilder fieldText = new StringBuilder();
     private int cursorPosition = 0;
@@ -81,7 +81,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private enum Mode { PATH, SEARCH }
     private Mode currentMode = Mode.PATH;
     private final TextAnimator pathTextAnimator;
-    public static final Path FILE_EXPLORER_TABS_FILE = Paths.get("C:/remotely/data/fileExplorerTabs.json");
+    public static final Path FILE_EXPLORER_TABS_FILE = Paths.get(remotelyDir.toString(), "data", "file_explorer_tabs.json");
     private static final String CURRENT_TAB_INDEX_KEY = "currentTabIndex";
     private Path renamePath = null;
     private final StringBuilder renameBuffer = new StringBuilder();

@@ -162,7 +162,7 @@ public abstract class TitleScreenMixin extends Screen {
             }
             for (NormalButton btn : normalButtons) {
                 boolean hovered = mouseX >= btn.x && mouseX < btn.x + btn.width && mouseY >= btn.y && mouseY < btn.y + btn.height;
-                redxax.oxy.common.Render.drawCustomButton(context, btn.x, btn.y, btn.label, this.client, hovered, false, true, btn.width, btn.height, globalTextColor, niceAccentHoverColor, mouseX, mouseY, "");
+                redxax.oxy.common.Render.drawCustomButton(context, btn.x, btn.y, btn.label, this.client, hovered, false, true, false, btn.width, btn.height, globalTextColor, niceAccentHoverColor, mouseX, mouseY, "");
             }
         }
     }
@@ -209,7 +209,7 @@ public abstract class TitleScreenMixin extends Screen {
     private void openFileExplorerScreen() {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client != null) {
-            client.setScreen(new FileExplorerScreen(client, this, new ServerInfo("C:/")));
+            client.setScreen(new FileExplorerScreen(client, this, new ServerInfo(remotelyDir.toString())));
         }
     }
 }

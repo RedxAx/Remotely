@@ -37,6 +37,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -553,7 +554,7 @@ public class ResourcePageScreen extends Screen {
                 } else {
                     int btnX = contentX + contentWidth - 70;
                     int btnY = y + (itemHeight - 20) / 2;
-                    drawCustomButton(context, btnX, btnY, ver.isInstalled, minecraftClient, mouseX >= btnX && mouseX <= btnX + 60 && mouseY >= btnY && mouseY <= btnY + 20, false, true, 60, 20, Objects.equals(ver.isInstalled, "Failed") ? Config.dangerDarkAccentColor : Objects.equals(ver.isInstalled, "Installed") ? Config.niceAccentColor : globalTextColor, globalHoverTextColor, mouseX , mouseY, "");
+                    drawCustomButton(context, btnX, btnY, ver.isInstalled, minecraftClient, mouseX >= btnX && mouseX <= btnX + 60 && mouseY >= btnY && mouseY <= btnY + 20, false, true, false, 60, 20, Objects.equals(ver.isInstalled, "Failed") ? Config.dangerDarkAccentColor : Objects.equals(ver.isInstalled, "Installed") ? Config.niceAccentColor : globalTextColor, globalHoverTextColor, mouseX , mouseY, "");
                     versionButtonRegions.add(new VersionButtonRegion(btnX, btnY, 60, 20, ver));
                 }
             }
@@ -741,16 +742,35 @@ public class ResourcePageScreen extends Screen {
                     });
                     return;
                 }
-                String exePath = "C:\\remotely\\mrpack-install-windows.exe";
-                String serverDir = "C:\\remotely\\servers\\" + resource.getName();
+                String exePath;
+                String serverDir;
+                URL url;
+                String os = System.getProperty("os.name").toLowerCase();
+                if (os.contains("windows")) {
+                     exePath = Path.of(String.valueOf(remotelyDir), "mrpack-install-windows.exe").toString();
+                     serverDir = Path.of(String.valueOf(remotelyDir), "servers", resource.getName()).toString();
+                     url = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-windows.exe");
+                } else if (os.contains("linux")) {
+                     exePath = Path.of(String.valueOf(remotelyDir), "mrpack-install-linux").toString();
+                     serverDir = Path.of(String.valueOf(remotelyDir), "servers", resource.getName()).toString();
+                     url = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-linux");
+                } else if (os.contains("mac") || os.contains("darwin")) {
+                     exePath = Path.of(String.valueOf(remotelyDir), "mrpack-install-macos").toString();
+                     serverDir = Path.of(String.valueOf(remotelyDir), "servers", resource.getName()).toString();
+                     url = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-darwin");
+                } else {
+                    minecraftClient.execute(() -> {
+                        isDownloadingMrpack = false;
+                    });
+                    return;
+                }
                 Path exe = Path.of(exePath);
                 Path serverPath = Path.of(serverDir);
                 if (!Files.exists(serverPath)) Files.createDirectories(serverPath);
                 if (!Files.exists(exe)) {
                     try {
-                        URL url = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-windows.exe");
                         try (InputStream input = url.openStream()) {
-                            Files.copy(input, exe, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                            Files.copy(input, exe, StandardCopyOption.REPLACE_EXISTING);
                         }
                     } catch (Exception e) {
                         minecraftClient.execute(() -> {
