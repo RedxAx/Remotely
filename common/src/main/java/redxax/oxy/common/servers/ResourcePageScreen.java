@@ -342,7 +342,7 @@ public class ResourcePageScreen extends Screen {
                 return true;
             }
         } else if(getCurrentTabType() == TabType.VERSIONS) {
-            int totalVersionHeight = versions.size() * (35);
+            int totalVersionHeight = versions.size() * (35 + 2);
             if(Render.ScrollBar.handleMouseDragged(this, (int) mouseY, totalVersionHeight)) {
                 return true;
             }
@@ -360,7 +360,8 @@ public class ResourcePageScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, getCurrentTabType() == TabType.DESCRIPTION ? cachedContentHeight + 20 : versions.size() * 35, getCurrentTabType() == TabType.DESCRIPTION ? descScrollOffset : versionsScrollOffset)) {
+        int totalVersionHeight = versions.size() * (35 + 2);
+        if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, getCurrentTabType() == TabType.DESCRIPTION ? cachedContentHeight + 20 : totalVersionHeight, getCurrentTabType() == TabType.DESCRIPTION ? descScrollOffset : versionsScrollOffset)) {
             return true;
         }
         int tabBarY = 35;
