@@ -25,7 +25,7 @@ public class Config {
     public static float globalMovementSpeed = 7f;
 
     public static String mainMenuStyle = "Minimal";
-    public static boolean redesignMainMenu = true;
+    public static boolean redesignMainMenu = false;
     public static long lastFrameTime = System.nanoTime();
 
     public static int elementBackgroundColor = 0xFF2C2C2C;
