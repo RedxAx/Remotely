@@ -77,7 +77,7 @@ public class SettingsScreen extends Screen {
         configMode = mode.equalsIgnoreCase("config");
         this.serverInfo = serverInfo;
         if (customSettings != null && !customSettings.isEmpty()) {
-            this.settings.addAll(customSettings);
+            settings.addAll(customSettings);
         } else {
             settings.add(new Settings("Error While Loading Settings", "No Settings Found.", "404", "none", "none", TEXT, "Please Try Again."));
         }
@@ -209,8 +209,7 @@ public class SettingsScreen extends Screen {
 
     public static void loadClientConfigFromJson() {
         try {
-            String systemDir = new File("/").getAbsolutePath();
-            Path configDir = Paths.get(systemDir, "remotely", "data");
+            Path configDir = Paths.get(String.valueOf(remotelyDir), "data");
             Path configFile = configDir.resolve("config.json");
             if (Files.exists(configFile)) {
                 String jsonContent = new String(Files.readAllBytes(configFile));
@@ -261,8 +260,7 @@ public class SettingsScreen extends Screen {
         }
         json.append("}");
         try {
-            String systemDir = new File("/").getAbsolutePath();
-            Path configDir = Paths.get(systemDir, "remotely", "data");
+            Path configDir = Paths.get(String.valueOf(remotelyDir), "data");
             Files.createDirectories(configDir);
             Path configFile = configDir.resolve("config.json");
             Files.write(configFile, json.toString().getBytes());
@@ -274,8 +272,7 @@ public class SettingsScreen extends Screen {
 
     public static String getCurrentTheme() {
         try {
-            String systemDir = new File("/").getAbsolutePath();
-            Path configDir = Path.of(systemDir, "remotely", "data");
+            Path configDir = Path.of(String.valueOf(remotelyDir), "data");
             Path configFile = configDir.resolve("config.json");
             if (Files.exists(configFile)) {
                 String jsonContent = Files.readString(configFile);
