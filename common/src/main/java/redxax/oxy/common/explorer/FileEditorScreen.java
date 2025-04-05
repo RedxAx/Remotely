@@ -64,7 +64,7 @@ public class FileEditorScreen extends Screen {
     private final float customPathScrollOffset = 0;
     private final float customPathTargetScrollOffset = 0;
     private final List<ResponseWindow> responseWindows = new ArrayList<>();
-    private static final Path AI_CONFIG_PATH = Path.of("C:/remotely/data/ai.json");
+    private static final Path AI_CONFIG_PATH = Path.of(remotelyDir.toString(), "data", "ai.json");
     private ImageUtil.IconWithTooltip closeIcon, saveIcon, explorerIcon;
     private float targetScaleFactor;
     private int sidePanelWidth = 250;

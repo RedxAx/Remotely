@@ -76,7 +76,7 @@ public class DeskSelectionScreen extends Screen {
     private void loadObjects() {
         objectItems.clear();
         try {
-            Path favoritesFilePath = Paths.get("C:/remotely/data/favorites.json");
+            Path favoritesFilePath = Paths.get(String.valueOf(remotelyDir), "data", "favorites.json");
             Set<String> favoriteLines = new HashSet<>();
             if (Files.exists(favoritesFilePath)) {
                 BufferedReader br = new BufferedReader(new FileReader(favoritesFilePath.toFile()));

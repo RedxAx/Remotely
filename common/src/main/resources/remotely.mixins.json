@@ -10,8 +10,10 @@
     "defaultRequire": 1
   },
   "client": [
-    "GameMenuScreenMixin",
+    "ClickableWidgetMixin",
     "MinecraftClientMixin",
-    "TitleScreenMixin"
+    "TitleScreenMixin",
+    "accessor.SliderWidgetAccessor",
+    "accessor.TextIconButtonWidgetAccessor"
   ]
 }

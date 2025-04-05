@@ -5,6 +5,8 @@ import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.servers.SettingsScreen;
@@ -157,7 +159,7 @@ public class Render {
             context.getMatrices().translate(0, 0, 499);
             for (MenuItem item : items) {
                 boolean hovered = mouseX >= menuX && mouseX <= menuX + itemWidth && mouseY >= currentY && mouseY < currentY + itemHeight;
-                drawCustomButton(context, menuX, currentY, item.label, mc, hovered, false, false, 60, 20, globalTextColor,  MenuHoverColor, mouseX, mouseY, item.tooltipText);
+                drawCustomButton(context, menuX, currentY, item.label, mc, hovered, false, false, false, 60, 20, globalTextColor,  MenuHoverColor, mouseX, mouseY, item.tooltipText);
                 currentY += itemHeight + gap;
             }
             context.getMatrices().pop();
@@ -497,7 +499,7 @@ public class Render {
         context.disableScissor();
         context.getMatrices().pop();
     }
-    public static void drawCustomButton(DrawContext context, int x, int y, String text, MinecraftClient mc, boolean hovered, boolean dynamic, boolean centered, int bW, int bH, int txColor, int hoverColor, int mouseX, int mouseY, String tooltipText) {
+    public static void drawCustomButton(DrawContext context, int x, int y, String text, MinecraftClient mc, boolean hovered, boolean dynamic, boolean centered, boolean selected, int bW, int bH, int txColor, int hoverColor, int mouseX, int mouseY, String tooltipText) {
         if (dynamic) {
             bW = mc.textRenderer.getWidth(text) + 10;
         }
@@ -508,8 +510,8 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        context.fill(x, y, x + bW, y + bH, Config.getElementBackgroundColor(id, hovered, false, false, false, false));
-        drawInnerBorder(context, x, y, bW, bH, Config.getElementBorderColor(id, hovered, false, false, false, false));
+        context.fill(x, y, x + bW, y + bH, Config.getElementBackgroundColor(id, hovered, selected, false, false, false));
+        drawInnerBorder(context, x, y, bW, bH, Config.getElementBorderColor(id, hovered, selected, false, false, false));
         drawOuterBorder(context, x, y, bW, bH, globalOuterBorder);
         int tw = mc.textRenderer.getWidth(text);
         int tx = centered ? x + (bW - tw) / 2 : x + 5;
@@ -537,6 +539,28 @@ public class Render {
         if (icon != null) {
             drawPixelArt(context, x + 1, y + 1, 16, 16, icon);
         }
+        CustomTooltip.show(tooltipText, mouseX, mouseY, context.getScaledWindowWidth(), context.getScaledWindowHeight(), mc.textRenderer, hovered);
+        CustomTooltip.renderTooltip(context, mc.textRenderer, context.getScaledWindowWidth(), context.getScaledWindowHeight());
+        context.getMatrices().pop();
+    }
+
+    public static void drawSquareButton(DrawContext context, int x, int y, MinecraftClient mc, boolean hovered, int mouseX, int mouseY, String tooltipText, Identifier icon) {
+        int w = 18;
+        int h = 18;
+        int id = ("square" + x + y).hashCode();
+        float targetOffset = hovered ? -3f : 0f;
+        float currentOffset = elevationOffsets.getOrDefault(id, 0f);
+        currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+        elevationOffsets.put(id, currentOffset);
+        context.getMatrices().push();
+        context.getMatrices().translate(0, currentOffset, 0);
+        context.fill(x, y, x + w, y + h, Config.getElementBackgroundColor(id, hovered, false, false, false, false));
+        drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, false, false, false));
+        drawOuterBorder(context, x, y, w, h, globalOuterBorder);
+        if (icon != null) {
+            context.drawTexture(icon, x + 1, y + 1, 0, 0, 16, 16, 16, 16);
+        }
+
         CustomTooltip.show(tooltipText, mouseX, mouseY, context.getScaledWindowWidth(), context.getScaledWindowHeight(), mc.textRenderer, hovered);
         CustomTooltip.renderTooltip(context, mc.textRenderer, context.getScaledWindowWidth(), context.getScaledWindowHeight());
         context.getMatrices().pop();
@@ -676,7 +700,45 @@ public class Render {
         context.drawText(mc.textRenderer, Text.literal(text), tx, ty, Config.globalTextColor, Config.shadow);
         CustomTooltip.show(toolTipText, mouseX, mouseY, sliderWidth, sliderHeight, mc.textRenderer, hovered);
         CustomTooltip.renderTooltip(context, mc.textRenderer, context.getScaledWindowWidth(), context.getScaledWindowHeight());
+        context.getMatrices().pop();
+    }
 
+    public static void drawSlider(DrawContext context, MinecraftClient mc, int x, int y, String label, double currentValue, boolean hovered, boolean selected, int mouseX, int mouseY, String toolTipText, int sliderWidth, int sliderHeight) {
+        int id = ("slider" + label).hashCode();
+        float targetOffset = hovered ? -2f : 0f;
+        float currentOffset = elevationOffsets.getOrDefault(id, 0f);
+        currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+        elevationOffsets.put(id, currentOffset);
+        context.getMatrices().push();
+        context.getMatrices().translate(0, currentOffset, 0);
+        int bg = Config.getElementBackgroundColor(id, hovered, selected, false, false, false);
+        context.fill(x, y, x + sliderWidth, y + sliderHeight, bg);
+        drawInnerBorder(context, x, y, sliderWidth, sliderHeight, Config.getElementBorderColor(id, hovered, selected, false, false, false));
+        drawOuterBorder(context, x, y, sliderWidth, sliderHeight, globalOuterBorder);
+        float clampedValue = (float) MathHelper.clamp(currentValue, 0f, 1f);
+        int knobDiameter = sliderHeight - 4;
+        int availableWidth = sliderWidth - knobDiameter - 4;
+        int knobId = ("slider" + label + "knob").hashCode();
+        float targetKnobX = x + 2 + availableWidth * clampedValue;
+        float currentKnobX;
+        if (!elevationOffsets.containsKey(knobId)) {
+            currentKnobX = targetKnobX;
+        } else {
+            currentKnobX = elevationOffsets.get(knobId);
+        }
+        currentKnobX += (targetKnobX - currentKnobX) * 0.2f * deltaTime * 60;
+        int knobX = (int) currentKnobX;
+        int knobY = y + 2;
+        int knobColor = Config.getElementBackgroundColor(knobId, hovered, selected, false, false, false);
+        context.fill(knobX, knobY, knobX + knobDiameter, knobY + knobDiameter, knobColor);
+        drawInnerBorder(context, knobX, knobY, knobDiameter, knobDiameter, Config.getElementBorderColor(knobId, hovered, selected, false, false, false));
+        String text = label;
+        int tw = mc.textRenderer.getWidth(text);
+        int tx = x + (sliderWidth - tw) / 2;
+        int ty = y + (sliderHeight - mc.textRenderer.fontHeight) / 2;
+        context.drawText(mc.textRenderer, Text.literal(text), tx, ty, Config.globalTextColor, Config.shadow);
+        CustomTooltip.show(toolTipText, mouseX, mouseY, context.getScaledWindowWidth(), context.getScaledWindowHeight(), mc.textRenderer, hovered);
+        CustomTooltip.renderTooltip(context, mc.textRenderer, context.getScaledWindowWidth(), context.getScaledWindowHeight());
         context.getMatrices().pop();
     }
 

@@ -24,12 +24,9 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.nio.file.*;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-import java.util.Map;
-import java.util.HashMap;
+import java.util.*;
 
+import static redxax.oxy.common.config.Config.remotelyDir;
 import static redxax.oxy.common.config.Themes.parseHexColor;
 import static redxax.oxy.common.servers.BrowserScreen.closeAll;
 import static redxax.oxy.common.terminal.MultiTerminalScreen.THEMES_DIR;
@@ -43,9 +40,9 @@ public class RemotelyClient implements ClientModInitializer {
     private KeyBinding openServerManagerKeyBinding;
     public MultiTerminalScreen multiTerminalScreen;
     private ServerManagerScreen serverManagerScreen;
-    private static final Path TERMINAL_LOG_DIR = Paths.get("C:/remotely/data/remotely", "logs");
-    private static final Path SNIPPETS_FILE = Paths.get("C:/remotely/data/snippets.json");
-    private static final Path FILE_EDITOR_TABS_FILE = Paths.get("C:/remotely/data/file_editor_tabs.dat");
+    private static final Path TERMINAL_LOG_DIR = Paths.get(String.valueOf(remotelyDir), "logs");
+    private static final Path SNIPPETS_FILE = Paths.get(String.valueOf(remotelyDir), "data", "snippets.json");
+    private static final Path FILE_EDITOR_TABS_FILE = Paths.get(String.valueOf(remotelyDir), "data", "file_editor_tabs.json");
     public static List<MultiTerminalScreen.Theme> themes = new ArrayList<>();
 
     private static final Gson GSON = new Gson();
@@ -98,6 +95,7 @@ public class RemotelyClient implements ClientModInitializer {
         }
         loadThemesFromDir();
         SettingsScreen.loadClientConfigFromJson();
+        migrateRemotelyData();
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownAllTerminals));
     }
 
@@ -309,4 +307,39 @@ public class RemotelyClient implements ClientModInitializer {
             return manager;
         }
     }
+
+    public static void migrateRemotelyData() {
+        Path oldPath = Paths.get("C:/remotely");
+        if (System.getProperty("os.name").toLowerCase().contains("win") && Files.exists(oldPath)) {
+            try {
+                Path source = oldPath;
+                Path target = Paths.get(System.getProperty("user.home"), "remotely");
+                if (!Files.exists(target)) {
+                    Files.createDirectories(target);
+                }
+                Files.walk(source).forEach(sourcePath -> {
+                    Path targetPath = target.resolve(source.relativize(sourcePath));
+                    try {
+                        Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                    } catch (IOException e) {
+                        devPrint("Failed to migrate Remotely data: " + e.getMessage());
+                    }
+                });
+            } catch (IOException e) {
+                devPrint("Failed to migrate Remotely data: " + e.getMessage());
+            }
+            try {
+                Files.walk(oldPath).sorted(Comparator.reverseOrder()).forEach(path -> {
+                    try {
+                        Files.delete(path);
+                    } catch (IOException e) {
+                        devPrint("Failed to delete old Remotely data: " + e.getMessage());
+                    }
+                });
+            } catch (IOException e) {
+                devPrint("Failed to delete old Remotely data: " + e.getMessage());
+            }
+        }
+    }
+
 }
