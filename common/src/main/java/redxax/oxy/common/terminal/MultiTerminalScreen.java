@@ -349,7 +349,7 @@ public class MultiTerminalScreen extends Screen {
             renderSnippetsPanel(context, panelX, panelY, animatedWidth, panelHeight, mouseX, mouseY);
             context.disableScissor();
         } else {
-            int textAreaHeight = activeTerminal.renderer.getInputFieldHeight() - activeTerminal.renderer.getStatusBarHeight();
+            int textAreaHeight = -activeTerminal.renderer.getInputFieldHeight() - activeTerminal.renderer.getStatusBarHeight();
             int scrollableRange = Math.max(0, activeTerminal.renderer.getTotalScrollHeight() - textAreaHeight);
             if (ScrollBar.isDragging()) activeTerminal.renderer.targetScrollOffset = (int) ScrollBar.getPendingOffset();
             ScrollBar.render(context, this, mouseX, mouseY, scrollableRange, activeTerminal.renderer.getScrollOffset());
@@ -637,7 +637,9 @@ public class MultiTerminalScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-            if (!showSnippetsPanel && ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, activeTerminal.renderer.getTotalScrollHeight(), activeTerminal.renderer.getScrollOffset())){
+            int textAreaHeight = -activeTerminal.renderer.getInputFieldHeight() - activeTerminal.renderer.getStatusBarHeight();
+            int scrollableRange = Math.max(0, activeTerminal.renderer.getTotalScrollHeight() - textAreaHeight);
+            if (!showSnippetsPanel && ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, scrollableRange + 3, activeTerminal.renderer.getScrollOffset())){
                 return true;
             }
             if (button == 0 && mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24) {
@@ -1055,7 +1057,9 @@ public class MultiTerminalScreen extends Screen {
         }
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-            if (ScrollBar.handleMouseDragged(this, (int) mouseY, activeTerminal.renderer.getTotalScrollHeight())) {
+            int textAreaHeight = -activeTerminal.renderer.getInputFieldHeight() - activeTerminal.renderer.getStatusBarHeight();
+            int scrollableRange = Math.max(0, activeTerminal.renderer.getTotalScrollHeight() - textAreaHeight);
+            if (ScrollBar.handleMouseDragged(this, (int) mouseY, scrollableRange + 3)) {
                 return true;
             }
             if (activeTerminal.mouseDragged(mouseX, mouseY, button)) {
