@@ -116,6 +116,7 @@ public class SettingsScreen extends Screen {
         settings.clear();
         settings.add(new Settings("Theme", "Select and apply a theme on startup.", "Appearance", "none", "theme", SCROLL_SWITCH, getCurrentTheme(), themeOptions));
         settings.add(new Settings("Menus Buttons Style", "Choose The Style of The Buttons In The Menus.", "Appearance", "none", "mainMenuButtonsStyle", TAB_SWITCH, (mainMenuStyle.equals("Vanilla") ? "Vanilla" : mainMenuStyle.equals("Minimal") ? "Minimal" : mainMenuStyle.equals("Normal") ? "Normal" : "Disable"), Arrays.asList("Vanilla", "Minimal", "Normal", "Disable")));
+        settings.add (new Settings("Redesign Minecraft Buttons", "Enable The New Button Design.", "Appearance", "none", "redesignMainMenu", TOGGLE, String.valueOf(redesignMainMenu)));
         settings.add(new Settings("Show Minecraft Background", "Display The Minecraft Panorama As The Background.", "Appearance", "none", "background", TOGGLE, String.valueOf(background)));
         settings.add(new Settings("Show Wallpaper", "Display Your PC Wallpaper As The Background.", "Appearance", "none", "wallpaper", TOGGLE, String.valueOf(wallpaper)));
         settings.add(new Settings("Text Shadow", "Enable Text Background / Shadow Effect.", "Appearance", "none", "shadow", TOGGLE, String.valueOf(shadow)));
@@ -185,6 +186,7 @@ public class SettingsScreen extends Screen {
         devPrint("Updated client config setting: " + key + " = " + value);
         switch (key) {
             case "background" -> background = Boolean.parseBoolean(value);
+            case "redesignMainMenu" -> redesignMainMenu = Boolean.parseBoolean(value);
             case "wallpaper" -> wallpaper = Boolean.parseBoolean(value);
             case "shadow" -> shadow = Boolean.parseBoolean(value);
             case "mainMenuButtonsStyle" -> mainMenuStyle = value;
