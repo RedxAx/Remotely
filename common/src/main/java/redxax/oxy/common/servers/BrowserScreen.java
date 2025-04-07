@@ -49,7 +49,6 @@ public class BrowserScreen extends Screen {
     private IconWithTooltip reloadIcon;
     private IconWithTooltip goBackIcon;
     private IconWithTooltip goForwardIcon;
-    private float targetScaleFactor = globalScaleFactor;
 
     public BrowserScreen(MinecraftClient client, Screen parent, String url) {
         super(Text.literal("Browser"));
@@ -58,7 +57,8 @@ public class BrowserScreen extends Screen {
         this.startUrl = url;
         originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
-        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);    }
+        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
+    }
 
     public class Tab {
         public String url;
@@ -137,13 +137,7 @@ public class BrowserScreen extends Screen {
         drawHeader(context, width, height, mouseX, mouseY);
         drawBrowser(currentBrowser, fullScreenMode, width, height, TOP_OFFSET, BROWSER_DRAW_OFFSET);
         drawInnerBorder(context, 5, 60, width - 5 * 2, height - 60 - 5, innerBorderColor);
-        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
-        animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
-        if (globalScaleFactor != animScaleFactor) {
-            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
-            this.resize(minecraftClient, minecraftClient.getWindow().getScaledWidth(), minecraftClient.getWindow().getScaledHeight());
-            globalScaleFactor = animScaleFactor;
-        }
+        animatedScaling(context, this, minecraftClient);
     }
 
     private void drawHeader(DrawContext context, int width, int height, int mouseX, int mouseY) {
@@ -344,14 +338,7 @@ public class BrowserScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
-        boolean altHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
-        if (ctrlHeld) {
-            if (altHeld) {
-                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (verticalAmount > 0 ? 1f : -1f)));
-            }
-            return true;
-        }
+        scaleScroll(verticalAmount);
         Tab currentTab = tabs.get(currentTabIndex);
         currentTab.browser.sendMouseWheel(convertMouseX(mouseX), convertMouseY(mouseY), verticalAmount - horizontalAmount, 0);
         return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);

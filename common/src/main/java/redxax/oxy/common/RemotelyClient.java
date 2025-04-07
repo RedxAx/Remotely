@@ -57,6 +57,7 @@ public class RemotelyClient implements ClientModInitializer {
     public final List<ServerInfo> servers = new ArrayList<>();
     private int activeHostIndex = 0;
     private Map<String, SSHManager> hostSSHManagers = new HashMap<>();
+    public static String os;
 
     @Override
     public void onInitializeClient() {
@@ -97,6 +98,7 @@ public class RemotelyClient implements ClientModInitializer {
         SettingsScreen.loadClientConfigFromJson();
         migrateRemotelyData();
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownAllTerminals));
+        os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
     }
 
     public static void loadThemesFromDir() {
