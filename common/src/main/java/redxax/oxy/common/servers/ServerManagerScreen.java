@@ -109,7 +109,6 @@ public class ServerManagerScreen extends Screen {
     private boolean canDrag = false;
     private final ArrayList<Settings> settings = new ArrayList<>();
     private final ArrayList<Settings> clientSettings = new ArrayList<>();
-    private float targetScaleFactor = globalScaleFactor;
 
     public List<RemoteHostInfo> getRemoteHosts() {
         return remoteHosts;
@@ -340,14 +339,7 @@ public class ServerManagerScreen extends Screen {
             renderDeletePopup(context, mouseX, mouseY);
         }
         Render.ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
-        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
-        animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
-        if (globalScaleFactor != animScaleFactor) {
-            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
-            this.width = minecraftClient.getWindow().getScaledWidth();
-            this.height = minecraftClient.getWindow().getScaledHeight();
-            globalScaleFactor = animScaleFactor;
-        }
+        animatedScaling(context, this, minecraftClient);
     }
 
     private void renderDesktopIcons(DrawContext context, int mouseX, int mouseY) {
@@ -762,14 +754,7 @@ public class ServerManagerScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
-        boolean altHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
-        if (ctrlHeld) {
-            if (altHeld) {
-                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (verticalAmount > 0 ? 1f : -1f)));
-            }
-            return true;
-        }
+        scaleScroll(verticalAmount);
         int contentYStart = topBarHeight + tabHeight + 5 + verticalPadding;
         int panelHeight = this.height - contentYStart - 5;
         List<ServerInfo> currentServers = getCurrentServers();

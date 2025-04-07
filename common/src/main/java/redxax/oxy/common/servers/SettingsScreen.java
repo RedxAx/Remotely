@@ -60,7 +60,6 @@ public class SettingsScreen extends Screen {
     private Settings draggedSlider = null;
     private ImageUtil.IconWithTooltip closeIcon, createIcon;
     public enum ServerSettingType {TOGGLE, SLIDER, SCROLL_SWITCH, TAB_SWITCH, TEXT}
-    private float targetScaleFactor = globalScaleFactor;
     List<String> themeOptions = new ArrayList<>();
 
     public SettingsScreen(MinecraftClient mc, String mode, ServerManagerScreen parent, String settingsRoot, List<Settings> customSettings) {
@@ -127,6 +126,7 @@ public class SettingsScreen extends Screen {
         settings.add(new Settings("Scale Animation Speed", "Set The Global Speed of The Scale Animations.", "Appearance", "none", "scaleAnimationSpeed", SLIDER, String.valueOf(scaleAnimationSpeed), 0, 60));
         settings.add(new Settings("Expand Animation Speed", "Set The Global Speed of The Expand/Shrink Animations.", "Appearance", "none", "globalExpandSpeed", SLIDER, String.valueOf(globalExpandSpeed).replace("f", ""), 0, 30));
         settings.add(new Settings("Developer Mode", "Enable Developer Mode.", "Development", "none", "isDev", TOGGLE, String.valueOf(isDev)));
+        settings.add(new Settings("Enable Debug Tools", "Enable Visual Tools For Debugging.", "Development", "none", "enableDebugTools", TOGGLE, String.valueOf(enableDebugTools)));
     }
 
     private void initTextInputOffsets() {
@@ -197,6 +197,7 @@ public class SettingsScreen extends Screen {
             case "globalExpandSpeed" -> globalExpandSpeed = Math.round(Float.parseFloat(value));
             case "scaleAnimationSpeed" -> scaleAnimationSpeed = Math.round(Float.parseFloat(value));
             case "isDev" -> isDev = Boolean.parseBoolean(value);
+            case "enableDebugTools" -> enableDebugTools = Boolean.parseBoolean(value);
         }
         if (key.equals("theme") && RemotelyClient.INSTANCE != null) {
             for (MultiTerminalScreen.Theme theme : RemotelyClient.themes) {
@@ -590,14 +591,7 @@ public class SettingsScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        boolean ctrlHeld = InputUtil.isKeyPressed(this.mc.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.mc.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
-        boolean altHeld = InputUtil.isKeyPressed(this.mc.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.mc.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
-        if (ctrlHeld) {
-            if (altHeld) {
-                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (verticalAmount > 0 ? 1f : -1f)));
-            }
-            return true;
-        }
+        scaleScroll(verticalAmount);
         int headerHeight = 30;
         int tabAreaHeight = 18;
         int contentY = headerHeight + tabAreaHeight + 10;

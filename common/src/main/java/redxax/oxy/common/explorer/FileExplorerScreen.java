@@ -107,7 +107,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     public static BufferedImage shadersIcon;
     public static BufferedImage textIcon;
     public static IconWithTooltip closeIcon, backIcon, forwardIcon, searchIcon, reloadIcon, newFileIcon, copyIcon, editIcon, favoriteIcon, winExplorerIcon, pasteIcon, deleteIcon, cutIcon;
-    private float targetScaleFactor = globalScaleFactor;
 
     public static class EntryData {
         public Path path;
@@ -410,14 +409,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
         loadMoreIfNeeded(explorerHeight);
-        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
-        animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
-        if (globalScaleFactor != animScaleFactor) {
-            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
-            this.width = minecraftClient.getWindow().getScaledWidth();
-            this.height = minecraftClient.getWindow().getScaledHeight();
-            globalScaleFactor = animScaleFactor;
-        }
+        animatedScaling(context, this, minecraftClient);
     }
 
     private boolean remoteHostInfosEqual(RemoteHostInfo a, RemoteHostInfo b) {
@@ -831,14 +823,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        scaleScroll(verticalAmount);
         boolean ctrl = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) || (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
-        boolean altHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
-        if (ctrl) {
-            if (altHeld) {
-                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (verticalAmount > 0 ? 1f : -1f)));
-            }
-            return true;
-        }
         float scrollMultiplier = ctrl ? 5.0f : 1.0f;
         int gap = 1;
         int itemHeight = entryHeight + gap;

@@ -4,6 +4,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.MathHelper;
@@ -881,6 +882,42 @@ public class Render {
         }
         context.disableScissor();
         context.getMatrices().pop();
+    }
+
+    public static void animatedScaling(DrawContext context, Screen parent, MinecraftClient minecraftClient) {
+        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
+        if (Math.abs(animScaleFactor - targetScaleFactor) < 0.005f) {
+            animScaleFactor = targetScaleFactor;
+        }
+        if (targetScaleFactor != animScaleFactor) {
+            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
+            parent.width = minecraftClient.getWindow().getScaledWidth();
+            parent.height = minecraftClient.getWindow().getScaledHeight();
+            globalScaleFactor = animScaleFactor;
+            lastRounding = true;
+        } else if (lastRounding) {
+            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
+            parent.width = minecraftClient.getWindow().getScaledWidth();
+            parent.height = minecraftClient.getWindow().getScaledHeight();
+            globalScaleFactor = animScaleFactor;
+            lastRounding = false;
+        }
+        if (isDev & enableDebugTools) {
+            String animatedAndTargetScaleFactorVisulization = "Animated Scale: " + animScaleFactor + " | Target Scale: " + targetScaleFactor;
+            String isRounded = "Rounded?: " + (lastRounding ? "No" : "Yes");
+            context.drawTextWithShadow(minecraftClient.textRenderer, animatedAndTargetScaleFactorVisulization, 5, 5, globalHoverTextColor);
+            context.drawTextWithShadow(minecraftClient.textRenderer, isRounded, 5, 15, globalHoverTextColor);
+        }
+    }
+
+    public static void scaleScroll(double vertAmount) {
+        MinecraftClient minecraftClient = MinecraftClient.getInstance();
+        boolean ctrlHeld = InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
+        boolean altHeld = InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
+        if (ctrlHeld && altHeld) {
+            targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (vertAmount > 0 ? 1f : -1f)));
+            globalScaleFactor = targetScaleFactor;
+        }
     }
 
     public static void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int i) {

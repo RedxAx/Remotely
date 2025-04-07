@@ -100,7 +100,6 @@ public class PluginModManagerScreen extends Screen {
     private static String savedSearch = "";
     private static int savedCurrentTabIndex = 0;
     private static Map<String, List<IRemotelyResource>> savedResourceCache = new ConcurrentHashMap<>();
-    private float targetScaleFactor = globalScaleFactor;
 
     public PluginModManagerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
         super(Text.literal(info.isModServer() ? "Remotely - Mods Browser" : (info.isPluginServer() ? "Remotely - Plugins Browser" : "Remotely - Modpacks Browser")));
@@ -378,14 +377,7 @@ public class PluginModManagerScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        boolean ctrl = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) || (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
-        boolean altHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
-        if (ctrl) {
-            if (altHeld) {
-                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (verticalAmount > 0 ? 1f : -1f)));
-            }
-            return true;
-        }
+        scaleScroll(verticalAmount);
         targetOffset -= (float) (verticalAmount * entryHeight);
         targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, resources.size() * (entryHeight + gapBetweenEntries) - (this.height - 70))));
         ScrollBar.setPendingOffset(targetOffset);
@@ -474,14 +466,7 @@ public class PluginModManagerScreen extends Screen {
         ScrollBar.render(context, this, mouseX, mouseY, resources.size() * (entryHeight + gapBetweenEntries), smoothOffset);
         targetOffset = ScrollBar.getPendingOffset();
         loadMoreIfNeeded();
-        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
-        animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
-        if (globalScaleFactor != animScaleFactor) {
-            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
-            this.width = minecraftClient.getWindow().getScaledWidth();
-            this.height = minecraftClient.getWindow().getScaledHeight();
-            globalScaleFactor = animScaleFactor;
-        }
+        animatedScaling(context, this, minecraftClient);
     }
 
 

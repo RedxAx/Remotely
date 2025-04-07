@@ -30,8 +30,6 @@ public class TerminalRenderer {
     private final List<LineText> wrappedLinesCache = new ArrayList<>();
     private int terminalWidth;
     public int scrollOffset = 0;
-    private long lastBlinkTime = 0;
-    private long lastInputTime = 0;
     private static final Pattern TMUX_STATUS_PATTERN = Pattern.compile(".*\\d{1,2}:\\d{2}\\s\\d{2}-[A-Za-z]{3}-\\d{2}.*");
     private final Pattern BRACKET_KEYWORD_PATTERN = Pattern.compile("\\[(.*?)\\b(WARNING|WARN|ERROR|INFO)\\b(.*?)]");
     private boolean isSelecting = false;
@@ -57,6 +55,8 @@ public class TerminalRenderer {
         System.setProperty("jansi.disable", "false");
         System.setProperty("net.kyori.ansi.colorLevel", "indexed256");
     }
+
+    private int lastTerminalWidth = terminalWidth;
 
     public TerminalRenderer(MinecraftClient client, TerminalInstance terminalInstance) {
         this.minecraftClient = client;
@@ -137,9 +137,10 @@ public class TerminalRenderer {
         int rightWidth = minecraftClient.textRenderer.getWidth(rightStatus);
         context.drawText(minecraftClient.textRenderer, leftStatus, terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, terminalTextColor, Config.shadow);
         context.drawText(minecraftClient.textRenderer, rightStatus, terminalX + terminalWidth - 2 - rightWidth, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, terminalTextColor, Config.shadow);
-        if (isResizingSnippetPanel) {
+        if (terminalWidth != lastTerminalWidth) {
             stickToBottom(8);
             rewrap();
+            lastTerminalWidth = terminalWidth;
         }
     }
 

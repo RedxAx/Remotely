@@ -9,11 +9,14 @@ import java.util.Map;
 public class Config {
     public static boolean shadow = true;
     public static boolean wallpaper = false;
-    public static boolean isDev = false;
     public static boolean background = false;
+    public static boolean isDev = false;
+    public static boolean enableDebugTools = false;
     public static BufferedImage windowsBackground;
     public static final Path remotelyDir = Paths.get(System.getProperty("user.home"), "remotely");
     public static float globalScaleFactor = 2.0f;
+    public static float targetScaleFactor;
+    public static boolean lastRounding = false;
     public static double originalMCScale = 2.0;
     public static long currentTime;
     public static float deltaTime;

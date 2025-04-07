@@ -24,6 +24,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import static redxax.oxy.common.RemotelyClient.globalSnippets;
+import static redxax.oxy.common.RemotelyClient.*;
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.config.Themes.*;
@@ -106,7 +107,6 @@ public class MultiTerminalScreen extends Screen {
     private float snippetListScrollOffset;
     private final Map<Integer, Float> snippetExpandProgress = new HashMap<>();
     private float animatedSnippetPanelWidth = 0;
-    private float targetScaleFactor = 1f;
     private int draggingSnippetIndex = -1;
     private boolean isDraggingSnippet = false;
     private float draggingStartY = 0;
@@ -287,7 +287,6 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        long currentTime = System.currentTimeMillis();
         super.render(context, mouseX, mouseY, delta);
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
@@ -324,7 +323,8 @@ public class MultiTerminalScreen extends Screen {
         int hideButtonX = this.width - 22;
         int hideButtonY = 5 + topBarHeight;
         hideButtonHovered = mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15;
-        //drawSquareButton(context, hideButtonX, hideButtonY, minecraftClient, hideButtonHovered, mouseX, mouseY, "Toggle Snippets Panel", snippetsIcon.getImage() == null ? closeIcon.getImage() : snippetsIcon.getImage());
+        if (!(os.contains("mac") || os.contains("darwin")))
+            drawSquareButton(context, hideButtonX, hideButtonY, minecraftClient, hideButtonHovered, mouseX, mouseY, "Toggle Snippets Panel", snippetsIcon.getImage() == null ? closeIcon.getImage() : snippetsIcon.getImage());
         int tabOffsetY = topBarHeight + 5;
         int tabAreaHeight = TAB_HEIGHT;
         float targetPanelWidth = showSnippetsPanel ? snippetPanelWidth : 0;
@@ -361,14 +361,7 @@ public class MultiTerminalScreen extends Screen {
             notification.update(delta);
             notification.render(context, mouseX, mouseY);
         }
-        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
-        animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
-        if (globalScaleFactor != animScaleFactor) {
-            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
-            this.resize(minecraftClient, minecraftClient.getWindow().getScaledWidth(), minecraftClient.getWindow().getScaledHeight());
-            globalScaleFactor = animScaleFactor;
-            terminals.forEach(terminal -> terminal.renderer.rewrap());
-        }
+        animatedScaling(context, this, minecraftClient);
     }
 
     private List<TabInfo> buildTabInfoList() {
@@ -1078,7 +1071,7 @@ public class MultiTerminalScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
-        boolean altHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
+        scaleScroll(verticalAmount);
         int availableTabWidth = this.width - (Math.max((int) animatedSnippetPanelWidth, 0)) - 15 - 20;
         int totalTabsWidth = 0;
         for (int i = 0; i < terminals.size(); i++) {
@@ -1090,9 +1083,6 @@ public class MultiTerminalScreen extends Screen {
         }
         if (totalTabsWidth < availableTabWidth) totalTabsWidth = availableTabWidth;
         if (ctrlHeld) {
-            if (altHeld) {
-                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (verticalAmount > 0 ? 1f : -1f)));
-            }
             scale += verticalAmount > 0 ? 0.1f : -0.1f;
             scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
             return true;

@@ -40,7 +40,6 @@ public class DeskSelectionScreen extends Screen {
     private IconWithTooltip folderIcon, fileIcon, pinIcon, closeIcon;
     private int scrollOffset = 0;
     private int maxScroll = 0;
-    private float targetScaleFactor = globalScaleFactor;
 
     static class ObjectItem {
         String displayName;
@@ -235,13 +234,7 @@ public class DeskSelectionScreen extends Screen {
             context.drawText(this.textRenderer, Text.literal(secondLine), drawX + 25, drawY + 18, globalDarkTextColor, Config.shadow);
             idx++;
         }
-        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
-        animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
-        if (globalScaleFactor != animScaleFactor) {
-            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
-            this.resize(minecraftClient, minecraftClient.getWindow().getScaledWidth(), minecraftClient.getWindow().getScaledHeight());
-            globalScaleFactor = animScaleFactor;
-        }
+        animatedScaling(context, this, minecraftClient);
     }
 
     @Override
@@ -255,7 +248,6 @@ public class DeskSelectionScreen extends Screen {
             itemWidth = (this.width - (columns + 1) * spacing - 2 * spacing) / columns;
             int headerY = 35;
             int gridY = headerY + 10;
-            int gridWidth = this.width - 2 * spacing;
             int startY = gridY + spacing;
             for (int i = 0; i < objectItems.size(); i++) {
                 ObjectItem item = objectItems.get(i);
@@ -307,14 +299,7 @@ public class DeskSelectionScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
-        boolean altHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
-        if (ctrlHeld) {
-            if (altHeld) {
-                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (verticalAmount > 0 ? 1f : -1f)));
-            }
-            return true;
-        }
+        scaleScroll(verticalAmount);
         scrollOffset -= (int) (verticalAmount * 10);
         if (scrollOffset < 0) scrollOffset = 0;
         if (scrollOffset > maxScroll) scrollOffset = maxScroll;

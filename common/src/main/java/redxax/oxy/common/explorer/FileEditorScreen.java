@@ -66,7 +66,6 @@ public class FileEditorScreen extends Screen {
     private final List<ResponseWindow> responseWindows = new ArrayList<>();
     private static final Path AI_CONFIG_PATH = Path.of(remotelyDir.toString(), "data", "ai.json");
     private ImageUtil.IconWithTooltip closeIcon, saveIcon, explorerIcon;
-    private float targetScaleFactor;
     private int sidePanelWidth = 250;
     private List<SidePanelEntry> sidePanelEntries = new ArrayList<>();
     private boolean showSidePanel = true;
@@ -1009,6 +1008,7 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizAmount, double vertAmount) {
+        scaleScroll(vertAmount);
         float animWidth = animatedSidePanelWidth;
         int panelX = this.width - (int) animWidth;
         int panelY = 60;
@@ -1023,18 +1023,10 @@ public class FileEditorScreen extends Screen {
             if (currentTab.targetSidePanelScrollOffset > maxScroll) currentTab.targetSidePanelScrollOffset = maxScroll;
             return true;
         }
-        boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
-        boolean altHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
-        if (ctrlHeld) {
-            if (altHeld) {
-                targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (vertAmount > 0 ? 1f : -1f)));
-            }
-            return true;
-        }
         long windowHandle = minecraftClient.getWindow().getHandle();
         boolean shiftHeld = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS ||
                 GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
-        ctrlHeld = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS ||
+        boolean ctrlHeld = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS ||
                 GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
         if (shiftHeld) {
             tabs.get(currentTabIndex).textEditor.scrollHoriz((int) (-vertAmount) * (int) HORIZONTAL_SCROLL_FACTOR);
@@ -1078,14 +1070,7 @@ public class FileEditorScreen extends Screen {
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
         responseWindows.removeAll(toRemove);
-        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
-        animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
-        if (globalScaleFactor != animScaleFactor) {
-            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
-            this.width = minecraftClient.getWindow().getScaledWidth();
-            this.height = minecraftClient.getWindow().getScaledHeight();
-            globalScaleFactor = animScaleFactor;
-        }
+        animatedScaling(context, this, minecraftClient);
         if (animWidth > 0) {
             int panelX = this.width - animWidth;
             int panelY = 60;
