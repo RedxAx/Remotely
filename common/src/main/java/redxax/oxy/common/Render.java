@@ -839,7 +839,6 @@ public class Render {
     }
 
     public static void drawTextInput(DrawContext context, MinecraftClient mc, int x, int y, String label, String textValue, boolean focused, int cursorPos, int selectionStart, int selectionEnd, boolean hovered, int inputWidth, int inputHeight) {
-        context.drawText(mc.textRenderer, Text.literal(label), x, y + 3, Config.globalTextColor, Config.shadow);
         int id = ("textInput" + label + textValue + cursorPos + selectionStart + selectionEnd).hashCode();
         float elevationTarget = hovered ? -2f : 0f;
         float elevationCurrent = elevationOffsets.getOrDefault(id, 0f);
