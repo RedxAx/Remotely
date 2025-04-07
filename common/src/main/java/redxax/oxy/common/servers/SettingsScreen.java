@@ -361,7 +361,7 @@ public class SettingsScreen extends Screen {
                 case TEXT -> {
                     float currentScroll = textInputScrollOffsets.getOrDefault(s, 0f);
                     float targetScroll = textInputTargetScrollOffsets.getOrDefault(s, 0f);
-                    drawTextInput(context, mc, widgetAreaX, widgetY, "", s.value, s.focused, s.cursorPos, textSelectionStart.getOrDefault(s, s.cursorPos), textSelectionEnd.getOrDefault(s, s.cursorPos), widgetHovered, 180, 18);
+                    drawTextInput(context, mc, widgetAreaX, widgetY, s.name, s.value, s.focused, s.cursorPos, textSelectionStart.getOrDefault(s, s.cursorPos), textSelectionEnd.getOrDefault(s, s.cursorPos), widgetHovered, 180, 18);
                     textInputScrollOffsets.put(s, currentScroll);
                     textInputTargetScrollOffsets.put(s, targetScroll);
                 }
