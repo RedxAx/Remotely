@@ -654,7 +654,7 @@ public class Render {
     }
 
     public static void drawToggle(DrawContext context, int x, int y, String label, boolean value, boolean hovered, int trackWidth, int trackHeight) {
-        int id = ("toggle" + label).hashCode() + 143;
+        int id = ("toggle" + label + x + 143).hashCode();
         float targetOffset = hovered ? -2f : 0f;
         float currentOffset = elevationOffsets.getOrDefault(id, 0f);
         currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
@@ -666,11 +666,19 @@ public class Render {
         context.fill(x, y + (int)(trackHeight * 0.75), x + trackWidth, y + trackHeight, 0x20000000);
         drawInnerBorder(context, x, y, trackWidth, trackHeight, Config.getElementBorderColor(id, hovered, value, false, false, false));
         drawOuterBorder(context, x, y, trackWidth, trackHeight, globalOuterBorder);
+        int knobId = (id + "knob").hashCode();
+        float knobTargetX = value ? x + trackWidth - (trackHeight - 4) - 2 : x + 2;
+        float currentKnobX = elevationOffsets.getOrDefault(knobId, knobTargetX);
+        if (Math.abs(knobTargetX - currentKnobX) > trackWidth/2) {
+            currentKnobX = knobTargetX;
+        }
+        currentKnobX += (knobTargetX - currentKnobX) * globalMovementSpeed * deltaTime;
+        elevationOffsets.put(knobId, currentKnobX);
         int knobDiameter = trackHeight - 4;
-        int knobX = value ? x + trackWidth - knobDiameter - 2 : x + 2;
+        int knobX = (int) currentKnobX;
         int knobY = y + 2;
-        context.fill(knobX, knobY, knobX + knobDiameter, knobY + knobDiameter, Config.getElementBackgroundColor(id + "knob".hashCode(), hovered, false, false, false, false));
-        drawInnerBorder(context, knobX, knobY, knobDiameter, knobDiameter, Config.getElementBorderColor(id + "knob".hashCode(), hovered, false, false, false, false));
+        context.fill(knobX, knobY, knobX + knobDiameter, knobY + knobDiameter, Config.getElementBackgroundColor(knobId, hovered, false, false, false, false));
+        drawInnerBorder(context, knobX, knobY, knobDiameter, knobDiameter, Config.getElementBorderColor(knobId, hovered, false, false, false, false));
 
         context.getMatrices().pop();
     }
