@@ -47,7 +47,7 @@ public class SettingsScreen extends Screen {
     private static boolean configMode = false;
     private ServerInfo serverInfo;
     private int currentTab;
-    private static final List<Settings> settings = new ArrayList<>();
+    private static List<Settings> settings = new ArrayList<>();
     private List<String> tabs = new ArrayList<>();
     private final Map<Settings, Float> textInputScrollOffsets = new HashMap<>();
     private final Map<Settings, Float> textInputTargetScrollOffsets = new HashMap<>();
@@ -76,13 +76,14 @@ public class SettingsScreen extends Screen {
         this.editServerMode = mode.equalsIgnoreCase("editServer");
         configMode = mode.equalsIgnoreCase("config");
         this.serverInfo = serverInfo;
+        settings = new ArrayList<>();
+        tabs = new ArrayList<>();
         if (customSettings != null && !customSettings.isEmpty()) {
             settings.addAll(customSettings);
         } else {
             settings.add(new Settings("Error While Loading Settings", "No Settings Found.", "404", "none", "none", TEXT, "Please Try Again."));
         }
         if (editServerMode) {
-            settings.clear();
             loadSettingsFromFiles();
             for (Settings s : settings) {
                 if (s.key.equalsIgnoreCase("server-name")) {
