@@ -82,6 +82,7 @@ public class SettingsScreen extends Screen {
             settings.add(new Settings("Error While Loading Settings", "No Settings Found.", "404", "none", "none", TEXT, "Please Try Again."));
         }
         if (editServerMode) {
+            settings.clear();
             loadSettingsFromFiles();
             for (Settings s : settings) {
                 if (s.key.equalsIgnoreCase("server-name")) {
@@ -350,7 +351,10 @@ public class SettingsScreen extends Screen {
             boolean toggleHovered = mouseX >= this.width - 40 - 12 && mouseX <= this.width - 12 && mouseY >= rowY && mouseY <= rowY + rowHeight;
             switch (s.type) {
                 case TOGGLE -> drawToggle(context, this.width - 40 - 12, widgetY - 1, s.name + s.description, s.value.equals("true"), toggleHovered, 40, 20);
-                case SLIDER -> drawSlider(context, mc, widgetAreaX, widgetY, s.name, s.getIntValue(), widgetHovered, false, mouseX, mouseY, "Shift + Click To Input Text.", 180, 18);
+                case SLIDER -> {
+                    double normalizedValue = (s.getIntValue() - s.min) / (double)(s.max - s.min);
+                    drawSlider(context, mc, widgetAreaX, widgetY, s.name + ": " + s.value, normalizedValue, widgetHovered, false, mouseX, mouseY, "Shift + Click To Input Text.", 180, 18);
+                }
                 case SCROLL_SWITCH -> drawScrollSelector(context, mc, widgetAreaX, widgetY, s.options, s.getSelectedIndex(), widgetHovered, 180, 18);
                 case TAB_SWITCH -> drawTabSwitch(context, mc, widgetAreaX, widgetY, s.name + s.key + s.description, s.options, s.getSelectedIndex(), mouseX, mouseY, 180, 18);
                 case TEXT -> {
@@ -450,8 +454,8 @@ public class SettingsScreen extends Screen {
                             playClick();
                             float relativeX = (float) (mouseX - widgetAreaX);
                             relativeX = Math.max(0, Math.min(relativeX, widgetWidth));
-                            float percent = relativeX / widgetWidth;
-                            int newVal = s.min + (int) (percent * (s.max - s.min));
+                            double percent = relativeX / (double) widgetWidth;
+                            int newVal = (int) (s.min + (percent * (s.max - s.min)));
                             s.value = String.valueOf(newVal);
                             if (configMode) updateClientConfigSetting(s.key, s.value);
                             draggedSlider = s;
