@@ -159,7 +159,7 @@ public class Render {
             context.getMatrices().translate(0, 0, 499);
             for (MenuItem item : items) {
                 boolean hovered = mouseX >= menuX && mouseX <= menuX + itemWidth && mouseY >= currentY && mouseY < currentY + itemHeight;
-                drawCustomButton(context, menuX, currentY, item.label, mc, hovered, false, false, false, 60, 20, globalTextColor,  MenuHoverColor, mouseX, mouseY, item.tooltipText);
+                drawCustomButton(context, menuX, currentY, item.label, mc, hovered, false, false, false, 60, 18, globalTextColor,  MenuHoverColor, mouseX, mouseY, item.tooltipText);
                 currentY += itemHeight + gap;
             }
             context.getMatrices().pop();
