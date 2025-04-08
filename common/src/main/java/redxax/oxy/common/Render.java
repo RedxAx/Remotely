@@ -504,7 +504,7 @@ public class Render {
         if (dynamic) {
             bW = mc.textRenderer.getWidth(text) + 10;
         }
-        int id = (text.hashCode() * 31 + x) * 31 + y;
+        int id = (text.hashCode() * 31 + bW) * 31;
         float targetOffset = hovered ? -3f : 0f;
         float currentOffset = elevationOffsets.getOrDefault(id, 0f);
         currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;

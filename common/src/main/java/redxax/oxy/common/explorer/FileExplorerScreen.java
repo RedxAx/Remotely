@@ -369,7 +369,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int startIndex = (int) Math.floor(currentTab.tabData.smoothOffset / itemHeight);
         int endIndex = startIndex + visibleEntries + 3;
         if (endIndex > entriesToRender.size()) endIndex = entriesToRender.size();
-        context.enableScissor(explorerX, explorerY, explorerX + explorerWidth, explorerY + explorerHeight);
+        context.enableScissor(explorerX -1, explorerY, explorerX + explorerWidth +1, explorerY + explorerHeight);
         if (entriesToRender.isEmpty() && !loading) {
             if (!serverInfo.isRemote) {
                 context.drawText(this.textRenderer, Text.literal("No files/folders in this directory."), explorerX + explorerWidth / 2 - textRenderer.getWidth("No files/folders in this directory.") / 2, explorerY + explorerHeight / 2, globalTextColor, shadow);
