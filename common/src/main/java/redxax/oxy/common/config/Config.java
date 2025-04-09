@@ -128,7 +128,7 @@ public class Config {
         if (!animatedBorderColorsMap.containsKey(id)) {
             animatedBorderColorsMap.put(id, intToFloatArray(target));
         }
-        float t = Math.min(colorTransitionSpeed * deltaTime, 1f);
+        float t = (float) Math.min((colorTransitionSpeed * 0.80) * deltaTime, 1f);
         float[] current = animatedBorderColorsMap.get(id);
         float[] targetFloats = intToFloatArray(target);
         float[] newColorFloats = updateColor(current, targetFloats, t);

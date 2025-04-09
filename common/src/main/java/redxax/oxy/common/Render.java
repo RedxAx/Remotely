@@ -391,10 +391,10 @@ public class Render {
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
         int id = 2000;
-        int bgColor = Config.getElementBackgroundColor(id, hovered, fieldFocused, false, false, false);
+        int bgColor = getElementBackgroundColor(id, hovered, fieldFocused, false, caller.equals("FileExplorerScreen") && isSpecialMode, caller.equals("FileEditorScreen") && isSpecialMode);
         context.fill(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight, bgColor);
-        drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, Config.getElementBorderColor(id, hovered, fieldFocused, false, false, false));
-        drawOuterBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, Config.globalOuterBorder);
+        drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, getElementBorderColor(id, hovered, fieldFocused, false, caller.equals("FileExplorerScreen") && isSpecialMode, caller.equals("FileEditorScreen") && isSpecialMode));
+        drawOuterBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, globalOuterBorder);
         if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
             int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
             int selEnd = Math.min(displayText.length(), Math.max(selectionStart, selectionEnd));
@@ -407,7 +407,7 @@ public class Render {
         }
         String hint = caller.equals("FileExplorerScreen") ? "Search..." : "Ask Remotely AI...";
         if (fieldFocused && isSpecialMode && displayText.isEmpty()) {
-            context.drawText(textRenderer, Text.literal(hint), searchBarX + 5, searchBarY + 5, Config.getTextColor(hovered, true), false);
+            context.drawText(textRenderer, Text.literal(hint), searchBarX + 5, searchBarY + 5, getTextColor(hovered, true), shadow);
         }
         int displayWidth = searchBarWidth - 10;
         int textWidth = textRenderer.getWidth(displayText);
@@ -425,7 +425,7 @@ public class Render {
         } else {
             targetScrollOffset = 0;
         }
-        currentScrollOffset += (targetScrollOffset - currentScrollOffset) * scrollInterpolation;
+        currentScrollOffset += (targetScrollOffset - currentScrollOffset) * globalScrollSpeed * deltaTime;
         if (!fieldFocused && isAnimating && searchTextAnimator.hasCompleted()) {
             isAnimating = false;
         }
@@ -449,8 +449,8 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        int bg = Config.getElementBackgroundColor(entry.hashCode(), hovered, isSelected, isFavorite, false, false);
-        int borderWithOpacity = Config.getElementBorderColor(entry.hashCode(), hovered, isSelected, isFavorite, false, false);
+        int bg = Config.getElementBackgroundColor(entry.hashCode(), hovered, isSelected, isFavorite, entry.isMatched, false);
+        int borderWithOpacity = Config.getElementBorderColor(entry.hashCode(), hovered, isSelected, isFavorite, entry.isMatched, false);
         drawOuterBorder(context, explorerX, entryY, explorerWidth, entryHeight, globalOuterBorder);
         context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
         drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
