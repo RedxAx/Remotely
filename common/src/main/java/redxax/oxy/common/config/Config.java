@@ -59,6 +59,15 @@ public class Config {
     public static int globalCursorColor = 0xFFFFC800;
     public static int globalCursorAnimatedColor = 0xFFd6f264;
 
+    public static int syntaxCommentColor = 0x6A9955;
+    public static int syntaxGlobalVarColor = 0x4EC9B0;
+    public static int syntaxLocalVarColor = 0x9CDCFE;
+    public static int syntaxKeywordColor = 0xC586C0;
+    public static int syntaxStringColor = 0xCE9178;
+    public static int syntaxNumberColor = 0xB5CEA8;
+    public static int syntaxBooleanColor = 0x569CD6;
+    public static int syntaxKeyColor = 0x9CDCFE;
+
     public static int ModrinthBorderColor = 0xFFd6f264;
     public static int ModrinthBackgroundColor = 0xFF0b371c;
     public static int SpigotBorderColor = 0xFFFFC800;

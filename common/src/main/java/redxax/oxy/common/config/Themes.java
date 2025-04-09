@@ -1,7 +1,6 @@
 package redxax.oxy.common.config;
 
 import redxax.oxy.common.terminal.MultiTerminalScreen;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -18,7 +17,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
-
 import static redxax.oxy.common.terminal.MultiTerminalScreen.THEMES_DIR;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 
@@ -86,13 +84,10 @@ public class Themes {
 
     public static void applyTheme(MultiTerminalScreen.Theme theme) {
         devPrint("Applying theme with direct field mapping: " + theme.name);
-
         int foundKeys = 0;
-
         for (Map.Entry<String, Integer> entry : theme.colors.entrySet()) {
             String key = entry.getKey();
             Integer value = entry.getValue();
-
             switch (key) {
                 case "elementBorderColor" -> { Config.elementBorderColor = value; foundKeys++; }
                 case "elementBackgroundColor" -> { Config.elementBackgroundColor = value; foundKeys++; }
@@ -129,14 +124,20 @@ public class Themes {
                 case "innerBackgroundSelectedColor" -> { Config.innerBackgroundSelectedColor = value; foundKeys++; }
                 case "calmDarkAccentColor" -> { Config.calmDarkAccentColor = value; foundKeys++; }
                 case "calmAccentColor" -> { Config.calmAccentColor = value; foundKeys++; }
+                case "syntaxCommentColor" -> { Config.syntaxCommentColor = value; foundKeys++; }
+                case "syntaxGlobalVarColor" -> { Config.syntaxGlobalVarColor = value; foundKeys++; }
+                case "syntaxLocalVarColor" -> { Config.syntaxLocalVarColor = value; foundKeys++; }
+                case "syntaxKeywordColor" -> { Config.syntaxKeywordColor = value; foundKeys++; }
+                case "syntaxStringColor" -> { Config.syntaxStringColor = value; foundKeys++; }
+                case "syntaxNumberColor" -> { Config.syntaxNumberColor = value; foundKeys++; }
+                case "syntaxBooleanColor" -> { Config.syntaxBooleanColor = value; foundKeys++; }
+                case "syntaxKeyColor" -> { Config.syntaxKeyColor = value; foundKeys++; }
             }
         }
-
         if (foundKeys < 20) {
             devPrint("Insufficient Color Mappings Found (Only " + foundKeys + " Were Found), Falling Back To Old Theme Mapping...");
             oldApplyTheme(theme);
         }
-
     }
 
     public static void oldApplyTheme(MultiTerminalScreen.Theme theme) {
@@ -241,6 +242,14 @@ public class Themes {
                 case "cursorColor" -> Config.globalCursorColor = entry.getValue();
                 case "popupFieldBackgroundColor" -> Config.innerBackgroundColor = entry.getValue();
                 case "popupFieldSelectedBackgroundColor" -> Config.innerBackgroundSelectedColor = entry.getValue();
+                case "syntaxCommentColor" -> Config.syntaxCommentColor = entry.getValue();
+                case "syntaxGlobalVarColor" -> Config.syntaxGlobalVarColor = entry.getValue();
+                case "syntaxLocalVarColor" -> Config.syntaxLocalVarColor = entry.getValue();
+                case "syntaxKeywordColor" -> Config.syntaxKeywordColor = entry.getValue();
+                case "syntaxStringColor" -> Config.syntaxStringColor = entry.getValue();
+                case "syntaxNumberColor" -> Config.syntaxNumberColor = entry.getValue();
+                case "syntaxBooleanColor" -> Config.syntaxBooleanColor = entry.getValue();
+                case "syntaxKeyColor" -> Config.syntaxKeyColor = entry.getValue();
                 default -> devPrint("Unknown Theme Key: " + entry.getKey());
             }
         }
@@ -252,11 +261,10 @@ public class Themes {
         MultiTerminalScreen.Theme newTheme = new MultiTerminalScreen.Theme();
         newTheme.name = oldTheme.name;
         newTheme.colors = new java.util.HashMap<>();
-       Set<String> processedKeys = new HashSet<>();
+        Set<String> processedKeys = new HashSet<>();
         for (Map.Entry<String, Integer> entry : oldTheme.colors.entrySet()) {
             String oldKey = entry.getKey();
             Integer value = entry.getValue();
-
             String newKey = switch (oldKey) {
                 case "tabBorderColor", "buttonBorderColor", "snippetElementBorderColor", "explorerElementBorderColor", "serverElementBorderColor", "browserElementBorderColor" -> "elementBorderColor";
                 case "tabBackgroundColor", "buttonBackgroundColor", "snippetElementBackgroundColor", "explorerElementBackgroundColor", "serverElementBackgroundColor", "browserElementBackgroundColor" -> "elementBackgroundColor";
@@ -289,13 +297,14 @@ public class Themes {
                 case "terminalSelectionColor" -> "globalSelectionColor";
                 case "cursorColor" -> "globalCursorColor";
                 case "popupFieldSelectedBackgroundColor" -> "innerBackgroundSelectedColor";
-                case "ModrinthBorderColor" -> "ModrinthBorderColor";
-                case "ModrinthBackgroundColor" -> "ModrinthBackgroundColor";
-                case "SpigotBorderColor" -> "SpigotBorderColor";
-                case "SpigotBackgroundColor" -> "SpigotBackgroundColor";
-                case "HangarBorderColor" -> "HangarBorderColor";
-                case "HangarBackgroundColor" -> "HangarBackgroundColor";
-
+                case "syntaxCommentColor" -> "syntaxCommentColor";
+                case "syntaxGlobalVarColor" -> "syntaxGlobalVarColor";
+                case "syntaxLocalVarColor" -> "syntaxLocalVarColor";
+                case "syntaxKeywordColor" -> "syntaxKeywordColor";
+                case "syntaxStringColor" -> "syntaxStringColor";
+                case "syntaxNumberColor" -> "syntaxNumberColor";
+                case "syntaxBooleanColor" -> "syntaxBooleanColor";
+                case "syntaxKeyColor" -> "syntaxKeyColor";
                 default -> oldKey;
             };
             if (!processedKeys.contains(newKey)) {
@@ -325,7 +334,6 @@ public class Themes {
                     if (existingThemePath != null) break;
                 }
             }
-
             Path themePath;
             if (existingThemePath != null) {
                 themePath = existingThemePath;
@@ -335,19 +343,16 @@ public class Themes {
                 themePath = THEMES_DIR.resolve(fileName);
                 devPrint("Creating new theme file: " + themePath.getFileName());
             }
-
             try (BufferedWriter writer = Files.newBufferedWriter(themePath)) {
                 writer.write("name: " + newTheme.name);
                 writer.newLine();
                 writer.write("colors:");
                 writer.newLine();
-
                 for (Map.Entry<String, Integer> entry : newTheme.colors.entrySet()) {
                     String colorHex = String.format("#%08X", entry.getValue());
                     writer.write("  " + entry.getKey() + ": \"" + colorHex + "\"");
                     writer.newLine();
                 }
-
                 devPrint("Converted theme saved to: " + themePath.getFileName());
             }
         } catch (IOException e) {
