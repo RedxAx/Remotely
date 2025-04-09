@@ -31,6 +31,7 @@ import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.*;
 import static redxax.oxy.common.util.SoundUtils.playClick;
+import static redxax.oxy.common.util.searchUtils.isFuzzyMatch;
 
 public class FileExplorerScreen extends Screen implements FileManager.FileManagerCallback {
     private final MinecraftClient minecraftClient;
@@ -114,6 +115,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         public String size;
         public String created;
         public String displayName;
+        public boolean isMatched;
+
         EntryData(Path p, boolean d, String s, String c, String dn) {
             path = p;
             isDirectory = d;
@@ -1712,26 +1715,65 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     }
 
     private void filterFileEntries() {
-        String query = fieldText.toString().toLowerCase();
-        List<EntryData> filtered = new ArrayList<>();
+        String query = fieldText.toString().toLowerCase().trim();
+        List<EntryData> matched = new ArrayList<>();
+        List<EntryData> fuzzyMatched = new ArrayList<>();
+        List<EntryData> unmatched = new ArrayList<>();
+
         synchronized (fileEntriesLock) {
+            if (query.isEmpty()) {
+                fileEntries.clear();
+                loadedCount = 0;
+                hasMore = true;
+                isLoadingMore = false;
+                tabs.get(currentTabIndex).tabData.selectedPaths.clear();
+                tabs.get(currentTabIndex).tabData.targetOffset = 0;
+                ScrollBar.setPendingOffset(tabs.get(currentTabIndex).tabData.targetOffset);
+                loadMoreEntries();
+                return;
+            }
+
             for (EntryData data : fullEntries) {
-                if (data.path.getFileName().toString().toLowerCase().contains(query)) {
-                    filtered.add(data);
+                String filename = data.path.getFileName().toString().toLowerCase();
+                if (filename.contains(query)) {
+                    matched.add(data);
+                    data.isMatched = true;
+                }
+                else if (isFuzzyMatch(filename, query)) {
+                    fuzzyMatched.add(data);
+                    data.isMatched = true;
+                }
+                else {
+                    unmatched.add(data);
+                    data.isMatched = false;
                 }
             }
-            filtered.sort(Comparator.comparing((EntryData x) -> !favoritePaths.contains(x.path)));
-            filtered.sort(Comparator.comparing(x -> !x.isDirectory));
-            filtered.sort(Comparator.comparing(x -> x.path.getFileName().toString().toLowerCase()));
+
+            Comparator<EntryData> comp = Comparator.comparing((EntryData x) -> !favoritePaths.contains(x.path)).thenComparing(x -> !x.isDirectory).thenComparing(x -> x.path.getFileName().toString().toLowerCase());
+            matched.sort(comp);
+            fuzzyMatched.sort(comp);
+            unmatched.sort(comp);
+            List<EntryData> sorted = new ArrayList<>();
+            sorted.addAll(matched);
+            sorted.addAll(fuzzyMatched);
+            sorted.addAll(unmatched);
             fileEntries.clear();
             loadedCount = 0;
             fullEntries.clear();
-            fullEntries.addAll(filtered);
+            fullEntries.addAll(sorted);
             hasMore = true;
             isLoadingMore = false;
+            tabs.get(currentTabIndex).tabData.selectedPaths.clear();
+            for (EntryData entry : matched) {
+                tabs.get(currentTabIndex).tabData.selectedPaths.add(entry.path);
+            }
+            for (EntryData entry : fuzzyMatched) {
+                tabs.get(currentTabIndex).tabData.selectedPaths.add(entry.path);
+            }
         }
         loadMoreEntries();
         tabs.get(currentTabIndex).tabData.targetOffset = 0;
+        ScrollBar.setPendingOffset(tabs.get(currentTabIndex).tabData.targetOffset);
     }
 
     public static boolean isSupportedFile(Path file) {
