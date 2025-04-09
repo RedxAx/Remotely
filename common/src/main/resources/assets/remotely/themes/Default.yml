@@ -49,3 +49,12 @@ colors:
   SpigotBackgroundColor: "#FF3B2D17"
   HangarBorderColor: "#FF6CC4F1"
   HangarBackgroundColor: "#FF17253B"
+
+  syntaxCommentColor: "#FF6A9955"
+  syntaxGlobalVarColor: "#FF4EC9B0"
+  syntaxLocalVarColor: "#FF9CDCFE"
+  syntaxKeywordColor: "#FFC586C0"
+  syntaxStringColor: "#FFCE9178"
+  syntaxNumberColor: "#FFB5CEA8"
+  syntaxBooleanColor: "#FF569CD6"
+  syntaxKeyColor: "#FF9CDCFE"

@@ -6,6 +6,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
+import redxax.oxy.common.config.Config;
 
 public class SyntaxHighlighter {
     private static final Pattern CODE_COMMENT_PATTERN = Pattern.compile("//.*|/\\*(.|\\R)*?\\*/|#.*");
@@ -35,48 +36,48 @@ public class SyntaxHighlighter {
 
     static {
         List<PatternHighlighter> codePatterns = new ArrayList<>();
-        codePatterns.add(new SimplePatternHighlighter(CODE_COMMENT_PATTERN, 0x6A9955, 10));
-        codePatterns.add(new SubgroupPatternHighlighter(GLOBAL_VAR_PATTERN, 8, 0x4EC9B0));
-        codePatterns.add(new SubgroupPatternHighlighter(LOCAL_VAR_PATTERN, 7, 0x9CDCFE));
-        codePatterns.add(new SimplePatternHighlighter(CODE_KEYWORD_PATTERN, 0xC586C0, 6));
-        codePatterns.add(new SimplePatternHighlighter(STRING_PATTERN, 0xCE9178, 5));
-        codePatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, 0xB5CEA8, 4));
-        codePatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, 0x569CD6, 3));
+        codePatterns.add(new SimplePatternHighlighter(CODE_COMMENT_PATTERN, Config.syntaxCommentColor, 10));
+        codePatterns.add(new SubgroupPatternHighlighter(GLOBAL_VAR_PATTERN, 8, Config.syntaxGlobalVarColor));
+        codePatterns.add(new SubgroupPatternHighlighter(LOCAL_VAR_PATTERN, 7, Config.syntaxLocalVarColor));
+        codePatterns.add(new SimplePatternHighlighter(CODE_KEYWORD_PATTERN, Config.syntaxKeywordColor, 6));
+        codePatterns.add(new SimplePatternHighlighter(STRING_PATTERN, Config.syntaxStringColor, 5));
+        codePatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, Config.syntaxNumberColor, 4));
+        codePatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, Config.syntaxBooleanColor, 3));
         codePatterns.add(new DynamicColorPatternHighlighter(HEX_COLOR_DYNAMIC_PATTERN, 11, HexColorResolver.INSTANCE));
 
         List<PatternHighlighter> yamlPatterns = new ArrayList<>();
-        yamlPatterns.add(new SimplePatternHighlighter(YAML_COMMENT, 0x6A9955, 10));
-        yamlPatterns.add(new SimplePatternHighlighter(TOML_KEY, 0x9CDCFE, 5));
-        yamlPatterns.add(new SimplePatternHighlighter(STRING_PATTERN, 0xCE9178, 4));
-        yamlPatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, 0xB5CEA8, 3));
-        yamlPatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, 0x569CD6, 2));
+        yamlPatterns.add(new SimplePatternHighlighter(YAML_COMMENT, Config.syntaxCommentColor, 10));
+        yamlPatterns.add(new SimplePatternHighlighter(TOML_KEY, Config.syntaxKeyColor, 5));
+        yamlPatterns.add(new SimplePatternHighlighter(STRING_PATTERN, Config.syntaxStringColor, 4));
+        yamlPatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, Config.syntaxNumberColor, 3));
+        yamlPatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, Config.syntaxBooleanColor, 2));
         yamlPatterns.add(new DynamicColorPatternHighlighter(HEX_COLOR_DYNAMIC_PATTERN, 11, HexColorResolver.INSTANCE));
 
         List<PatternHighlighter> jsonPatterns = new ArrayList<>();
-        jsonPatterns.add(new SimplePatternHighlighter(JSON_KEY, 0x9CDCFE, 5));
-        jsonPatterns.add(new SimplePatternHighlighter(STRING_PATTERN, 0xCE9178, 4));
-        jsonPatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, 0xB5CEA8, 3));
-        jsonPatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, 0x569CD6, 2));
+        jsonPatterns.add(new SimplePatternHighlighter(JSON_KEY, Config.syntaxKeyColor, 5));
+        jsonPatterns.add(new SimplePatternHighlighter(STRING_PATTERN, Config.syntaxStringColor, 4));
+        jsonPatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, Config.syntaxNumberColor, 3));
+        jsonPatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, Config.syntaxBooleanColor, 2));
         jsonPatterns.add(new DynamicColorPatternHighlighter(HEX_COLOR_DYNAMIC_PATTERN, 11, HexColorResolver.INSTANCE));
 
         List<PatternHighlighter> tomlPatterns = new ArrayList<>();
-        tomlPatterns.add(new SimplePatternHighlighter(TOML_KEY, 0x9CDCFE, 5));
-        tomlPatterns.add(new SimplePatternHighlighter(STRING_PATTERN, 0xCE9178, 4));
-        tomlPatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, 0xB5CEA8, 3));
-        tomlPatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, 0x569CD6, 2));
+        tomlPatterns.add(new SimplePatternHighlighter(TOML_KEY, Config.syntaxKeyColor, 5));
+        tomlPatterns.add(new SimplePatternHighlighter(STRING_PATTERN, Config.syntaxStringColor, 4));
+        tomlPatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, Config.syntaxNumberColor, 3));
+        tomlPatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, Config.syntaxBooleanColor, 2));
         tomlPatterns.add(new DynamicColorPatternHighlighter(HEX_COLOR_DYNAMIC_PATTERN, 11, HexColorResolver.INSTANCE));
 
         List<PatternHighlighter> propertiesPatterns = new ArrayList<>();
-        propertiesPatterns.add(new SimplePatternHighlighter(PROPERTIES_KEY, 0x9CDCFE, 5));
-        propertiesPatterns.add(new SimplePatternHighlighter(STRING_PATTERN, 0xCE9178, 4));
-        propertiesPatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, 0xB5CEA8, 3));
-        propertiesPatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, 0x569CD6, 2));
+        propertiesPatterns.add(new SimplePatternHighlighter(PROPERTIES_KEY, Config.syntaxKeyColor, 5));
+        propertiesPatterns.add(new SimplePatternHighlighter(STRING_PATTERN, Config.syntaxStringColor, 4));
+        propertiesPatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, Config.syntaxNumberColor, 3));
+        propertiesPatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, Config.syntaxBooleanColor, 2));
         propertiesPatterns.add(new DynamicColorPatternHighlighter(HEX_COLOR_DYNAMIC_PATTERN, 11, HexColorResolver.INSTANCE));
 
         List<PatternHighlighter> textPatterns = new ArrayList<>();
-        textPatterns.add(new SimplePatternHighlighter(STRING_PATTERN, 0xCE9178, 3));
-        textPatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, 0xB5CEA8, 2));
-        textPatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, 0x569CD6, 2));
+        textPatterns.add(new SimplePatternHighlighter(STRING_PATTERN, Config.syntaxStringColor, 3));
+        textPatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, Config.syntaxNumberColor, 2));
+        textPatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, Config.syntaxBooleanColor, 2));
         textPatterns.add(new DynamicColorPatternHighlighter(HEX_COLOR_DYNAMIC_PATTERN, 11, HexColorResolver.INSTANCE));
 
         extensionPatterns.put("java", codePatterns);
@@ -98,9 +99,8 @@ public class SyntaxHighlighter {
     public static Text highlight(String line, String fileName) {
         String ext = getExtension(fileName).toLowerCase();
         List<PatternHighlighter> highlighters = extensionPatterns.getOrDefault(ext, new ArrayList<>());
-        List<MatchResult> matchResults = new ArrayList<>();
 
-        matchResults.addAll(getBracketMatches(line, 9));
+        List<MatchResult> matchResults = new ArrayList<>(getBracketMatches(line));
 
         for (PatternHighlighter ph : highlighters) {
             matchResults.addAll(ph.findMatches(line));
@@ -145,7 +145,7 @@ public class SyntaxHighlighter {
         return mutableText;
     }
 
-    private static List<MatchResult> getBracketMatches(String line, int priority) {
+    private static List<MatchResult> getBracketMatches(String line) {
         List<MatchResult> results = new ArrayList<>();
         Deque<BracketStackEntry> stack = new ArrayDeque<>();
         int colorIndex = 0;
@@ -162,8 +162,8 @@ public class SyntaxHighlighter {
                         .findFirst();
                 if (matchingOpen.isPresent() && !stack.isEmpty() && stack.peek().ch == matchingOpen.get()) {
                     BracketStackEntry open = stack.pop();
-                    results.add(new MatchResult(open.index, open.index + 1, open.color, priority));
-                    results.add(new MatchResult(i, i + 1, open.color, priority));
+                    results.add(new MatchResult(open.index, open.index + 1, open.color, 9));
+                    results.add(new MatchResult(i, i + 1, open.color, 9));
                 }
             }
         }
@@ -266,14 +266,14 @@ public class SyntaxHighlighter {
             int g = 0;
             int b = 0;
             if (hex.length() == 3) {
-                r = Integer.parseInt(hex.substring(0, 1) + hex.substring(0, 1), 16);
-                g = Integer.parseInt(hex.substring(1, 2) + hex.substring(1, 2), 16);
-                b = Integer.parseInt(hex.substring(2, 3) + hex.substring(2, 3), 16);
+                r = Integer.parseInt(String.valueOf(hex.charAt(0) + hex.charAt(0)), 16);
+                g = Integer.parseInt(String.valueOf(hex.charAt(1) + hex.charAt(1)), 16);
+                b = Integer.parseInt(String.valueOf(hex.charAt(2) + hex.charAt(2)), 16);
             } else if (hex.length() == 4) {
-                a = Integer.parseInt(hex.substring(0, 1) + hex.substring(0, 1), 16);
-                r = Integer.parseInt(hex.substring(1, 2) + hex.substring(1, 2), 16);
-                g = Integer.parseInt(hex.substring(2, 3) + hex.substring(2, 3), 16);
-                b = Integer.parseInt(hex.substring(3, 4) + hex.substring(3, 4), 16);
+                a = Integer.parseInt(String.valueOf(hex.charAt(0) + hex.charAt(0)), 16);
+                r = Integer.parseInt(String.valueOf(hex.charAt(1) + hex.charAt(1)), 16);
+                g = Integer.parseInt(String.valueOf(hex.charAt(2) + hex.charAt(2)), 16);
+                b = Integer.parseInt(String.valueOf(hex.charAt(3) + hex.charAt(3)), 16);
             } else if (hex.length() == 6) {
                 r = Integer.parseInt(hex.substring(0, 2), 16);
                 g = Integer.parseInt(hex.substring(2, 4), 16);
