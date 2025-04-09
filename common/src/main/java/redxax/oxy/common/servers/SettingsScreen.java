@@ -617,7 +617,19 @@ public class SettingsScreen extends Screen {
             if (s.type == ServerSettingType.TEXT && s.focused) {
                 boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
                 boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
-                if (ctrl && keyCode == GLFW.GLFW_KEY_BACKSPACE && s.cursorPos > 0) {
+
+                int start = Math.min(textSelectionStart.getOrDefault(s, s.cursorPos),
+                        textSelectionEnd.getOrDefault(s, s.cursorPos));
+                int end = Math.max(textSelectionStart.getOrDefault(s, s.cursorPos),
+                        textSelectionEnd.getOrDefault(s, s.cursorPos));
+                if ((keyCode == GLFW.GLFW_KEY_BACKSPACE || keyCode == GLFW.GLFW_KEY_DELETE) && start < end) {
+                    s.value = s.value.substring(0, start) + s.value.substring(end);
+                    s.cursorPos = start;
+                    textSelectionStart.put(s, start);
+                    textSelectionEnd.put(s, start);
+                    if (configMode) updateClientConfigSetting(s.key, s.value);
+                    return true;
+                } else if (ctrl && keyCode == GLFW.GLFW_KEY_BACKSPACE && s.cursorPos > 0) {
                     int pos = s.cursorPos;
                     while (pos > 0 && s.value.charAt(pos - 1) == ' ') pos--;
                     while (pos > 0 && s.value.charAt(pos - 1) != ' ') pos--;
