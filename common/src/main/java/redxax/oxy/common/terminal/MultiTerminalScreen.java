@@ -14,6 +14,7 @@ import redxax.oxy.common.explorer.FileExplorerScreen;
 import redxax.oxy.common.servers.PluginModManagerScreen;
 import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.servers.ServerState;
+import redxax.oxy.common.ui.AISidePanel;
 import redxax.oxy.common.util.Notification;
 import redxax.oxy.common.util.ImageUtil.IconWithTooltip;
 
@@ -113,7 +114,8 @@ public class MultiTerminalScreen extends Screen {
     private float draggingCurrentY = 0;
     private final Map<RemotelyClient.CommandSnippet, Float> snippetAnimatedY = new HashMap<>();
     private final RemotelyClient.CommandSnippet CREATE_SNIPPET = new RemotelyClient.CommandSnippet("Create Snippet", "Snippets Executes Commands", "");
-
+    private boolean aiMode = false;
+    private AISidePanel aiSidePanel;
 
 
     public MultiTerminalScreen(MinecraftClient minecraftClient, Screen parent, RemotelyClient remotelyClient, List<TerminalInstance> terminals, List<String> tabNames) {
@@ -172,6 +174,7 @@ public class MultiTerminalScreen extends Screen {
         } catch (IOException ignored) {} catch (Exception e) {
             devPrint("Error loading themes: " + e.getMessage());
         }
+        aiSidePanel = new AISidePanel();
     }
 
     private void loadThemesFromDir() {
@@ -346,7 +349,11 @@ public class MultiTerminalScreen extends Screen {
             drawInnerBorder(context, panelX, panelY, animatedWidth, panelHeight, innerBorderColor);
             drawOuterBorder(context, panelX, panelY, animatedWidth, panelHeight, globalOuterBorder);
             context.enableScissor(panelX, panelY + 1, panelX + animatedWidth, panelY + panelHeight - 1);
-            renderSnippetsPanel(context, panelX, panelY, animatedWidth, panelHeight, mouseX, mouseY);
+            if (aiMode) {
+                aiSidePanel.render(context, panelX, panelY, animatedWidth, panelHeight, mouseX, mouseY);
+            } else {
+                renderSnippetsPanel(context, panelX, panelY, animatedWidth, panelHeight, mouseX, mouseY);
+            }
             context.disableScissor();
         } else {
             int textAreaHeight = -activeTerminal.renderer.getInputFieldHeight() - activeTerminal.renderer.getStatusBarHeight();
@@ -632,6 +639,21 @@ public class MultiTerminalScreen extends Screen {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
             int textAreaHeight = -activeTerminal.renderer.getInputFieldHeight() - activeTerminal.renderer.getStatusBarHeight();
             int scrollableRange = Math.max(0, activeTerminal.renderer.getTotalScrollHeight() - textAreaHeight);
+            int hideButtonX = this.width - 15 - 5;
+            int hideButtonY = 5 + topBarHeight;
+            if (mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15 && button == 0) {
+                playClick();
+                if (InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) ||
+                        InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT)) {
+                    aiMode = !aiMode;
+                } else {
+                    showSnippetsPanel = !showSnippetsPanel;
+                }
+                return true;
+            }
+            if (aiMode && aiSidePanel.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
             if (!showSnippetsPanel && ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, scrollableRange + 3, activeTerminal.renderer.getScrollOffset())){
                 return true;
             }
@@ -1070,6 +1092,9 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (aiMode && aiSidePanel.mouseScrolled(mouseX, mouseY, verticalAmount, this.width - 15 - 5, 5 + topBarHeight, this.width - (int) animatedSnippetPanelWidth - 15 - 5, this.height - (5 + topBarHeight))) {
+            return true;
+        }
         boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
         scaleScroll(verticalAmount);
         int availableTabWidth = this.width - (Math.max((int) animatedSnippetPanelWidth, 0)) - 15 - 20;
@@ -1141,6 +1166,12 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (aiMode && aiSidePanel.fieldFocused) {
+            aiSidePanel.setExtraContext(terminals.get(activeTerminalIndex).getRenderer().getTerminalContext());
+            if (aiSidePanel.keyPressed(keyCode, scanCode, modifiers)) {
+                return true;
+            }
+        }
         if (snippetRecordingKeys) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
                 snippetShortcutBuffer.setLength(0);
@@ -1368,6 +1399,9 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean charTyped(char chr, int keyCode) {
+        if (aiSidePanel.fieldFocused && aiMode && aiSidePanel.charTyped(chr, keyCode)) {
+            return true;
+        }
         if (shortcutConsumed) {
             shortcutConsumed = false;
             return true;
