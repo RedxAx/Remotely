@@ -9,17 +9,16 @@ import org.jline.utils.AttributedStyle;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.Render;
 import redxax.oxy.common.config.Config;
-import redxax.oxy.common.util.CursorUtils;
 
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.text.SimpleDateFormat;
 
+import static redxax.oxy.common.RemotelyClient.os;
 import static redxax.oxy.common.Render.drawInnerBorder;
 import static redxax.oxy.common.Render.drawOuterBorder;
 import static redxax.oxy.common.config.Config.*;
-import static redxax.oxy.common.terminal.MultiTerminalScreen.isResizingSnippetPanel;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 
 public class TerminalRenderer {
@@ -609,6 +608,22 @@ public class TerminalRenderer {
                 terminalInstance.parentScreen.init();
             }
         });
+    }
+
+    public String getTerminalContext() {
+        StringBuilder lines = new StringBuilder();
+        if (terminalInstance.getSSHManager() != null && terminalInstance.getSSHManager().isSSH()) {
+            lines.append("The User Is Using a Remote SSH Server (Linux) \n");
+        } else {
+            lines.append("The User Operating System Is: ").append(os.contains("win") ? "Windows" : os.contains("mac") ? "MacOS" : os.contains("nix") || os.contains("nux") ? "Linux" : "Unknown OS").append("\n");
+        }
+        lines.append("This Is The Current Terminal Logs: \n");
+        synchronized (wrappedLinesCache) {
+            for (LineText lineText : wrappedLinesCache) {
+                lines.append(lineText.plainText).append("\n");
+            }
+        }
+        return lines.toString();
     }
 
     private static class StyleTextPair {
