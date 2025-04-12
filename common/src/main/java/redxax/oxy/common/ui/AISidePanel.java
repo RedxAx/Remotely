@@ -11,7 +11,8 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import static redxax.oxy.common.config.Config.remotelyDir;
+
+import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 
@@ -60,6 +61,8 @@ public class AISidePanel {
     public boolean fieldFocused = false;
     boolean inputHovered = false;
     BufferedImage newChatIcon, deleteChatIcon, chatHistoryIcon;
+    private float targetScrollOffset = 0;
+    private float currentScrollOffset = 0;
 
     public AISidePanel() {
         this.messages = new ArrayList<>();
@@ -217,7 +220,10 @@ public class AISidePanel {
         int msgAreaY = panelY + topBarHeight;
         int msgAreaHeight = panelHeight - topBarHeight - 35;
         context.enableScissor(panelX, msgAreaY, panelX + panelWidth, msgAreaY + msgAreaHeight);
-        int msgY = msgAreaY + 5 - scrollOffset;
+
+        currentScrollOffset += (targetScrollOffset - currentScrollOffset) * globalScrollSpeed * deltaTime;
+        int msgY = msgAreaY + 5 - (int)currentScrollOffset;
+
         TextRenderer tr = mc.textRenderer;
         for (AIMessage msg : messages) {
             if (msg.animationProgress < 1f) {
@@ -298,18 +304,15 @@ public class AISidePanel {
     }
 
     public boolean mouseScrolled(double mouseX, double mouseY, double verticalAmount, int panelX, int panelY, int panelWidth, int panelHeight) {
-        int buttonSize = 20;
-        int gap = 4;
-        int barHeight = buttonSize + 2 * gap;
-        int msgAreaStart = panelY + barHeight;
-        int msgAreaHeight = panelHeight - barHeight - 35;
-        if (mouseX >= panelX && mouseX < panelX + panelWidth && mouseY >= msgAreaStart && mouseY < msgAreaStart + msgAreaHeight) {
+        int msgAreaY = panelY + topBarHeight;
+        int msgAreaHeight = panelHeight - topBarHeight - 35;
+        if (mouseX >= panelX && mouseX < panelX + panelWidth && mouseY >= msgAreaY && mouseY < msgAreaY + msgAreaHeight) {
             int totalHeight = getTotalChatHeight(panelWidth - 10, mc.textRenderer);
-            scrollOffset -= (int)(verticalAmount * 20);
-            if (scrollOffset < 0)
-                scrollOffset = 0;
-            if (scrollOffset > totalHeight - msgAreaHeight)
-                scrollOffset = totalHeight - msgAreaHeight;
+            targetScrollOffset -= (int)(verticalAmount * mc.textRenderer.fontHeight * 3);
+            if (targetScrollOffset < 0)
+                targetScrollOffset = 0;
+            if (targetScrollOffset > totalHeight - msgAreaHeight)
+                targetScrollOffset = totalHeight - msgAreaHeight;
             return true;
         }
         return false;
@@ -382,3 +385,4 @@ public class AISidePanel {
         return true;
     }
 }
+

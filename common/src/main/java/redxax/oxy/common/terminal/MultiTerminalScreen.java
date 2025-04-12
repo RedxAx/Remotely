@@ -555,10 +555,10 @@ public class MultiTerminalScreen extends Screen {
             runningTarget = startY + 5 - snippetListScrollOffset;
             order = 0;
             for (int i = 0; i < globalSnippets.size(); i++) {
-                if (i == draggingSnippetIndex) continue;
                 if (order == dropIndex) {
                     runningTarget += draggedHeight + 5;
                 }
+                if (i == draggingSnippetIndex) continue;
                 RemotelyClient.CommandSnippet s = globalSnippets.get(i);
                 int h = (selectedSnippetIndex == i ? calculateSnippetHeight(s.commands) : 35);
                 targetPositions.put(i, runningTarget);
@@ -1092,7 +1092,7 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (aiMode && aiSidePanel.mouseScrolled(mouseX, mouseY, verticalAmount, this.width - 15 - 5, 5 + topBarHeight, this.width - (int) animatedSnippetPanelWidth - 15 - 5, this.height - (5 + topBarHeight))) {
+        if (aiMode && aiSidePanel.mouseScrolled(mouseX, mouseY, verticalAmount, this.width - (int) animatedSnippetPanelWidth - 5, ContentYStart, (int) animatedSnippetPanelWidth, this.height - ContentYStart - 5)) {
             return true;
         }
         boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
@@ -1694,3 +1694,4 @@ public class MultiTerminalScreen extends Screen {
         remotelyClient.multiTabNames = new ArrayList<>(tabNames);
     }
 }
+
