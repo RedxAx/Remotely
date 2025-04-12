@@ -25,6 +25,13 @@ public class TextAnimator {
         this.hasCompleted = true;
     }
 
+    private int getDynamicPeriod() {
+        return Math.max(10, period - (fullText.length() / 10));
+    }
+    private int getDynamicReversePeriod() {
+        return Math.max(10, getDynamicPeriod() / 2);
+    }
+
     public void start() {
         if (isAnimating || hasCompleted) return;
         isAnimating = true;
@@ -47,7 +54,7 @@ public class TextAnimator {
                     if (onAnimationEnd != null) onAnimationEnd.run();
                 }
             }
-        }, delay, period);
+        }, delay, getDynamicPeriod());
     }
 
     public void reverse() {
@@ -58,7 +65,7 @@ public class TextAnimator {
         currentText = previousText;
         currentIndex = previousText.length();
         timer = new Timer();
-        int fastPeriod = 10;
+        int dynamicReversePeriod = getDynamicReversePeriod();
         timer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
@@ -72,7 +79,7 @@ public class TextAnimator {
                     if (onAnimationEnd != null) onAnimationEnd.run();
                 }
             }
-        }, delay, fastPeriod);
+        }, delay, dynamicReversePeriod);
     }
 
     public void updateText(String newText) {
