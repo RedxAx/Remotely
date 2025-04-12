@@ -374,6 +374,9 @@ public class AISidePanel {
                 inputCursor++;
             return true;
         }
+        if (keyCode == GLFW.GLFW_KEY_SPACE) {
+            return true;
+        }
         return false;
     }
 

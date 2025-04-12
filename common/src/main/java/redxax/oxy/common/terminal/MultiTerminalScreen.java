@@ -918,7 +918,7 @@ public class MultiTerminalScreen extends Screen {
                     continue;
                 }
                 boolean hovered = mouseX >= snippetX && mouseX <= snippetX + snippetMaxWidth && mouseY >= Math.max(snippetY, panelY + 5) && mouseY <= Math.min(snippetY + snippetHeight, panelY + (this.height - panelY - 5));
-                if (hovered) {
+                if (hovered && !aiMode) {
                     if (snippet.equals(CREATE_SNIPPET)) {
                         if (button == 0) {
                             selectedSnippetIndex = i;
