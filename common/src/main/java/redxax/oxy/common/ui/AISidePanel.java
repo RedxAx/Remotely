@@ -219,6 +219,12 @@ public class AISidePanel {
         renderTopBar(context, panelX, panelY, panelWidth, mouseX, mouseY);
         int msgAreaY = panelY + topBarHeight;
         int msgAreaHeight = panelHeight - topBarHeight - 35;
+        int totalHeight = getTotalChatHeight(panelWidth - 10, mc.textRenderer);
+        int maxScroll = Math.max(0, totalHeight - msgAreaHeight);
+        int threshold = (mc.textRenderer.fontHeight + 2) * 2;
+        if (targetScrollOffset >= maxScroll - threshold) {
+            targetScrollOffset = maxScroll;
+        }
         context.enableScissor(panelX, msgAreaY, panelX + panelWidth, msgAreaY + msgAreaHeight);
 
         currentScrollOffset += (targetScrollOffset - currentScrollOffset) * globalScrollSpeed * deltaTime;
