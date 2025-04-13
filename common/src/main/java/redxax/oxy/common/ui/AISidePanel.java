@@ -11,16 +11,12 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
-import static redxax.oxy.common.config.Config.*;
-import static redxax.oxy.common.util.DevUtil.devPrint;
-import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
-
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
@@ -30,6 +26,10 @@ import redxax.oxy.common.Render;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.explorer.ResponseManager;
 import redxax.oxy.common.explorer.SyntaxHighlighter;
+
+import static redxax.oxy.common.config.Config.*;
+import static redxax.oxy.common.util.DevUtil.devPrint;
+import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 
 public class AISidePanel {
 
@@ -48,29 +48,24 @@ public class AISidePanel {
         }
     }
 
-    private List<AIMessage> messages;
-    private StringBuilder inputBuffer;
+    private final List<AIMessage> messages;
+    private final StringBuilder inputBuffer;
     private int inputCursor;
-    private int scrollOffset;
-    private long lastBlinkTime;
-    private boolean showCursor;
     private String extraContext;
-    private MinecraftClient mc;
+    private final MinecraftClient mc;
     private static final Path AI_CONFIG_PATH = Path.of(remotelyDir.toString(), "data", "ai.json");
-    private int topBarHeight = 30;
+    private final int topBarHeight = 30;
     public boolean fieldFocused = false;
     boolean inputHovered = false;
     BufferedImage newChatIcon, deleteChatIcon, chatHistoryIcon;
     private float targetScrollOffset = 0;
     private float currentScrollOffset = 0;
+    private static final Path CHAT_HISTORY_PATH = Path.of(remotelyDir.toString(), "data", "chat_history.json");
 
     public AISidePanel() {
         this.messages = new ArrayList<>();
         this.inputBuffer = new StringBuilder();
         this.inputCursor = 0;
-        this.scrollOffset = 0;
-        this.lastBlinkTime = System.currentTimeMillis();
-        this.showCursor = true;
         this.extraContext = "";
         this.mc = MinecraftClient.getInstance();
         try {
@@ -80,6 +75,7 @@ public class AISidePanel {
         } catch (Exception e) {
             devPrint("Failed to load icons: " + e.getMessage());
         }
+        loadLatestChatHistory();
     }
 
     public void setExtraContext(String context) {
@@ -88,31 +84,35 @@ public class AISidePanel {
 
     public void addUserMessage(String msg) {
         messages.add(new AIMessage("user", msg));
+        updateCurrentChatHistory();
     }
 
     public void addAIMessage(String msg) {
         messages.add(new AIMessage("ai", msg));
+        updateCurrentChatHistory();
     }
 
     public void setErrorMessage(String errMsg) {
         messages.add(new AIMessage("error", errMsg));
-    }
-
-    public void deleteLastMessage() {
-        if (!messages.isEmpty())
-            messages.remove(messages.size() - 1);
-    }
-
-    public void copyLastMessage() {
-        if (!messages.isEmpty()) {
-            AIMessage last = messages.get(messages.size() - 1);
-            mc.keyboard.setClipboard(last.text);
-        }
+        updateCurrentChatHistory();
     }
 
     public void newChat() {
+        updateCurrentChatHistory();
+        try {
+            JsonArray history;
+            if (Files.exists(CHAT_HISTORY_PATH)) {
+                String content = Files.readString(CHAT_HISTORY_PATH, StandardCharsets.UTF_8);
+                history = JsonParser.parseString(content).getAsJsonArray();
+            } else {
+                history = new JsonArray();
+            }
+            history.add(new JsonArray());
+            Files.writeString(CHAT_HISTORY_PATH, history.toString(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            devPrint("Failed to create new chat: " + e.getMessage());
+        }
         messages.clear();
-        scrollOffset = 0;
     }
 
     private JsonObject readAIConfig() {
@@ -130,7 +130,7 @@ public class AISidePanel {
                 }
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            devPrint("Failed to read AI config: " + e.getMessage());
         }
         return config;
     }
@@ -141,11 +141,12 @@ public class AISidePanel {
             return;
         addUserMessage(userMsg);
         StringBuilder builder = new StringBuilder();
+        builder.append("You're Remotely AI. a Chat Bot That Helps Minecraft Server Admins With There Terminal / Files That May Relate To Minecraft Development. You Provide Short And To The Point Answers In a Human Friendly Way. You're a Part Of a Minecraft Mod That Contain An In-Game MultiTerminal, File Explorer, File Editor, Server Manager, Etc.");
+        builder.append("The User Name Is: ").append(MinecraftClient.getInstance().getSession().getUsername()).append("\n");
+        builder.append("The Current Date Is: ").append(new SimpleDateFormat("dd/MM/yyyy").format(new Date())).append("\n");
+        builder.append("The Current Time Is: ").append(new SimpleDateFormat("HH:mm:ss").format(new Date())).append("\n");
         if (!extraContext.isEmpty()) {
             builder.append("The Context Is: ").append(extraContext).append("\n");
-            builder.append("The User Name Is: ").append(MinecraftClient.getInstance().getSession().getUsername()).append("\n");
-            builder.append("The Current Date Is: ").append(new SimpleDateFormat("dd/MM/yyyy").format(new Date())).append("\n");
-            builder.append("The Current Time Is: ").append(new SimpleDateFormat("HH:mm:ss").format(new Date())).append("\n");
             builder.append(extraContext).append("\n");
         }
         for (AIMessage m : messages) {
@@ -228,7 +229,7 @@ public class AISidePanel {
         context.enableScissor(panelX, msgAreaY, panelX + panelWidth, msgAreaY + msgAreaHeight);
 
         currentScrollOffset += (targetScrollOffset - currentScrollOffset) * globalScrollSpeed * deltaTime;
-        int msgY = msgAreaY + 5 - (int)currentScrollOffset;
+        int msgY = msgAreaY + 5 - (int) currentScrollOffset;
 
         TextRenderer tr = mc.textRenderer;
         for (AIMessage msg : messages) {
@@ -237,7 +238,7 @@ public class AISidePanel {
                 if (msg.animationProgress > 1f)
                     msg.animationProgress = 1f;
             }
-            int msgColor = msg.sender.equals("user") ? 0xFFAAAAFF : msg.sender.equals("ai") ? 0xFFAAFFAA : 0xFFFFAAAA;
+            int msgColor = msg.sender.equals("user") ? 0xFFAAAAFF : msg.sender.equals("ai") ? calmAccentColor : accentHoverColor;
             List<String> wrapped = wrapText(msg.text, panelWidth - 10, tr);
             for (String line : wrapped) {
                 if (line.startsWith("```")) {
@@ -259,6 +260,7 @@ public class AISidePanel {
         Render.drawInnerBorder(context, panelX, panelY + panelHeight - 35, panelWidth, 35, Config.innerBorderColor);
         Render.drawOuterBorder(context, panelX, panelY + panelHeight - 35, panelWidth, 35, Config.globalOuterBorder);
         Render.drawTextInput(context, mc, panelX + 5, panelY + panelHeight - 30, "AI Input", inputBuffer.toString(), fieldFocused, inputCursor, -1, -1, inputHovered, panelWidth - 10, 20);
+        Render.ContextMenu.renderMenu(context, mc, mouseX, mouseY);
     }
 
     private void renderTopBar(DrawContext context, int panelX, int panelY, int panelWidth, int mouseX, int mouseY) {
@@ -281,6 +283,12 @@ public class AISidePanel {
     }
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (Render.ContextMenu.isOpen()) {
+            if (Render.ContextMenu.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+        }
+        Render.ContextMenu.hide();
         int buttonSize = 20;
         int gap = 4;
         int barHeight = buttonSize + 2 * gap;
@@ -299,10 +307,12 @@ public class AISidePanel {
                 return true;
             }
             if (mouseX >= xDelete && mouseX < xDelete + buttonSize) {
-                deleteLastMessage();
+                deleteCurrentChat();
                 return true;
             }
             if (mouseX >= xHistory && mouseX < xHistory + buttonSize) {
+                Render.ContextMenu.show((int) mouseX, (int) mouseY + 15, 80, mc.getWindow().getScaledWidth(), mc.getWindow().getScaledHeight());
+                showChatHistoryContextMenu();
                 return true;
             }
         }
@@ -314,7 +324,7 @@ public class AISidePanel {
         int msgAreaHeight = panelHeight - topBarHeight - 35;
         if (mouseX >= panelX && mouseX < panelX + panelWidth && mouseY >= msgAreaY && mouseY < msgAreaY + msgAreaHeight) {
             int totalHeight = getTotalChatHeight(panelWidth - 10, mc.textRenderer);
-            targetScrollOffset -= (int)(verticalAmount * mc.textRenderer.fontHeight * 3);
+            targetScrollOffset -= (int) (verticalAmount * mc.textRenderer.fontHeight * 3);
             if (targetScrollOffset < 0)
                 targetScrollOffset = 0;
             if (targetScrollOffset > totalHeight - msgAreaHeight)
@@ -393,5 +403,132 @@ public class AISidePanel {
         }
         return true;
     }
-}
 
+    private void updateCurrentChatHistory() {
+        try {
+            JsonArray history;
+            if (Files.exists(CHAT_HISTORY_PATH)) {
+                String content = Files.readString(CHAT_HISTORY_PATH, StandardCharsets.UTF_8);
+                history = JsonParser.parseString(content).getAsJsonArray();
+            } else {
+                history = new JsonArray();
+            }
+            JsonArray currentChat = new JsonArray();
+            for (AIMessage msg : messages) {
+                JsonObject obj = new JsonObject();
+                obj.addProperty("sender", msg.sender);
+                obj.addProperty("text", msg.text);
+                currentChat.add(obj);
+            }
+            if (history.isEmpty()) {
+                history.add(currentChat);
+            } else {
+                history.set(history.size() - 1, currentChat);
+            }
+            Files.writeString(CHAT_HISTORY_PATH, history.toString(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            devPrint("Failed to update chat history: " + e.getMessage());
+        }
+    }
+
+    private void loadLatestChatHistory() {
+        try {
+            JsonArray history;
+            if (Files.exists(CHAT_HISTORY_PATH)) {
+                String content = Files.readString(CHAT_HISTORY_PATH, StandardCharsets.UTF_8);
+                history = JsonParser.parseString(content).getAsJsonArray();
+                if (!history.isEmpty()) {
+                    JsonArray conversation = history.get(history.size() - 1).getAsJsonArray();
+                    messages.clear();
+                    for (int i = 0; i < conversation.size(); i++) {
+                        JsonObject obj = conversation.get(i).getAsJsonObject();
+                        String sender = obj.has("sender") ? obj.get("sender").getAsString() : "";
+                        String text = obj.has("text") ? obj.get("text").getAsString() : "";
+                        messages.add(new AIMessage(sender, text));
+                        devPrint("Loaded message: " + sender + ": " + text);
+                    }
+                } else {
+                    history.add(new JsonArray());
+                    Files.writeString(CHAT_HISTORY_PATH, history.toString(), StandardCharsets.UTF_8);
+                }
+            } else {
+                history = new JsonArray();
+                history.add(new JsonArray());
+                Files.writeString(CHAT_HISTORY_PATH, history.toString(), StandardCharsets.UTF_8);
+            }
+        } catch (IOException e) {
+            devPrint("Failed to load latest chat history: " + e.getMessage());
+        }
+    }
+
+    private void showChatHistoryContextMenu() {
+        try {
+            if (!Files.exists(CHAT_HISTORY_PATH)) {
+                return;
+            }
+            String content = Files.readString(CHAT_HISTORY_PATH, StandardCharsets.UTF_8);
+            JsonArray history = JsonParser.parseString(content).getAsJsonArray();
+            for (int i = 0; i < history.size(); i++) {
+                String label = "History " + (i + 1);
+                final int index = i;
+                Render.ContextMenu.addItem(label, () -> loadChatHistory(index), globalHoverTextColor, "");
+            }
+        } catch (IOException e) {
+            devPrint("Failed to load chat history: " + e.getMessage());
+        }
+    }
+
+    private void loadChatHistory(int index) {
+        try {
+            if (!Files.exists(CHAT_HISTORY_PATH)) {
+                return;
+            }
+            String content = Files.readString(CHAT_HISTORY_PATH, StandardCharsets.UTF_8);
+            JsonArray history = JsonParser.parseString(content).getAsJsonArray();
+            if (index < history.size()) {
+                JsonArray conversation = history.get(index).getAsJsonArray();
+                messages.clear();
+                for (int i = 0; i < conversation.size(); i++) {
+                    JsonObject obj = conversation.get(i).getAsJsonObject();
+                    String sender = obj.has("sender") ? obj.get("sender").getAsString() : "";
+                    String text = obj.has("text") ? obj.get("text").getAsString() : "";
+                    messages.add(new AIMessage(sender, text));
+                    devPrint("Loaded message: " + sender + ": " + text);
+                }
+            }
+        } catch (IOException e) {
+            devPrint("Failed to load chat history: " + e.getMessage());
+        }
+    }
+
+    private void deleteCurrentChat() {
+        try {
+            JsonArray history;
+            if (Files.exists(CHAT_HISTORY_PATH)) {
+                String content = Files.readString(CHAT_HISTORY_PATH, StandardCharsets.UTF_8);
+                history = JsonParser.parseString(content).getAsJsonArray();
+            } else {
+                history = new JsonArray();
+            }
+            if (!history.isEmpty()) {
+                history.remove(history.size() - 1);
+            }
+            if (!history.isEmpty()) {
+                JsonArray conversation = history.get(history.size() - 1).getAsJsonArray();
+                messages.clear();
+                for (int i = 0; i < conversation.size(); i++) {
+                    JsonObject obj = conversation.get(i).getAsJsonObject();
+                    String sender = obj.has("sender") ? obj.get("sender").getAsString() : "";
+                    String text = obj.has("text") ? obj.get("text").getAsString() : "";
+                    messages.add(new AIMessage(sender, text));
+                }
+            } else {
+                history.add(new JsonArray());
+                messages.clear();
+            }
+            Files.writeString(CHAT_HISTORY_PATH, history.toString(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            devPrint("Failed to delete current chat: " + e.getMessage());
+        }
+    }
+}
