@@ -12,6 +12,7 @@ import redxax.oxy.common.SSHManager;
 import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.explorer.ResponseManager.*;
 import redxax.oxy.common.config.Config;
+import redxax.oxy.common.ui.AISidePanel;
 import redxax.oxy.common.util.ImageUtil;
 import redxax.oxy.common.util.TextAnimator;
 
@@ -71,6 +72,9 @@ public class FileEditorScreen extends Screen {
     private boolean showSidePanel = true;
     private float animatedSidePanelWidth = 0f;
     private boolean isResizingSidePanel = false;
+    private AISidePanel aiSidePanel;
+    private boolean aiShowPanel;
+    private int ContentYStart;
 
     private static class SidePanelEntry {
         FileExplorerScreen.EntryData data;
@@ -272,6 +276,7 @@ public class FileEditorScreen extends Screen {
             e.printStackTrace();
         }
         updateSidePanelEntries();
+        aiSidePanel = new AISidePanel();
     }
 
     @Override
@@ -314,6 +319,9 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean charTyped(char chr, int keyCode) {
+        if (aiSidePanel.fieldFocused && aiShowPanel && aiSidePanel.charTyped(chr, keyCode)) {
+            return true;
+        }
         if (customSearchBarFocused) {
             if (chr == '\n' || chr == '\r') {
                 handleSearchEnter();
@@ -345,7 +353,19 @@ public class FileEditorScreen extends Screen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
-        boolean shiftHeld = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
+        if (aiShowPanel && aiSidePanel.fieldFocused) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("Current file path: ").append(tabs.get(currentTabIndex).path.toString()).append("\n");
+            sb.append("Current file name: ").append(tabs.get(currentTabIndex).name).append("\n");
+            sb.append("Current file content:\n");
+            for (int i = 0; i < tabs.get(currentTabIndex).textEditor.lines.size(); i++) {
+                sb.append(tabs.get(currentTabIndex).textEditor.lines.get(i)).append("\n");
+            }
+            aiSidePanel.setExtraContext(sb.toString());
+            if (aiSidePanel.keyPressed(keyCode, scanCode, modifiers)) {
+                return true;
+            }
+        }
         if (ctrlHeld && keyCode == GLFW.GLFW_KEY_F) {
             customSearchBarFocused = true;
             aiMode = false;
@@ -694,6 +714,9 @@ public class FileEditorScreen extends Screen {
             }
         }
         ContextMenu.hide();
+        if (aiShowPanel && aiSidePanel.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
         for (ResponseWindow w : responseWindows) {
             if (w.mouseClicked(mouseX, mouseY, button)) {
                 return true;
@@ -703,7 +726,10 @@ public class FileEditorScreen extends Screen {
         int hideButtonY = 35;
         if (mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15 && button == 0) {
             playClick();
-            showSidePanel = !showSidePanel;
+            if (hasShiftDown())
+                aiShowPanel = !aiShowPanel;
+            else
+                showSidePanel = !showSidePanel;
             return true;
         }
         responseWindows.removeIf(w -> w.closed);
@@ -1009,6 +1035,9 @@ public class FileEditorScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizAmount, double vertAmount) {
         scaleScroll(vertAmount);
+        if (aiMode && aiSidePanel.mouseScrolled(mouseX, mouseY, vertAmount, this.width - (int) animatedSidePanelWidth - 5, ContentYStart, (int) animatedSidePanelWidth, this.height - ContentYStart - 5)) {
+            return true;
+        }
         float animWidth = animatedSidePanelWidth;
         int panelX = this.width - (int) animWidth;
         int panelY = 60;
@@ -1075,11 +1104,18 @@ public class FileEditorScreen extends Screen {
             int panelX = this.width - animWidth;
             int panelY = 60;
             int panelHeight = this.height - 65;
+            int tabOffsetY = 30 + 5;
+            int tabAreaHeight = TAB_HEIGHT;
+            int contentYStart = tabOffsetY + tabAreaHeight + 2;
+            ContentYStart = contentYStart + 5;
             context.fill(panelX, panelY, panelX + animWidth, panelY + panelHeight, innerBackgroundColor);
             drawInnerBorder(context, panelX, panelY, animWidth, panelHeight, innerBorderColor);
             drawOuterBorder(context, panelX, panelY, animWidth, panelHeight, globalOuterBorder);
             context.enableScissor(panelX, panelY, panelX + animWidth, panelY + panelHeight);
-            renderSidePanel(context, panelX, panelY, animWidth, panelHeight + 2, mouseX, mouseY);
+            if (!aiShowPanel)
+                renderSidePanel(context, panelX, panelY, animWidth, panelHeight + 2, mouseX, mouseY);
+            else
+                aiSidePanel.render(context, panelX, panelY, animWidth, panelHeight + 2, mouseX, mouseY);
             context.disableScissor();
         }
     }
