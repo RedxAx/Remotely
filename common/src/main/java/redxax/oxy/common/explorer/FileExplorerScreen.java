@@ -393,7 +393,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 synchronized (favoritePathsLock) {
                     isFavorite = favoritePaths.contains(entry.path);
                 }
-                drawExplorerElements(context, hovered, isSelected, isFavorite, entry, explorerX, entryY, explorerWidth, entryHeight, this.textRenderer, serverInfo.isRemote, String.valueOf(renamePath), renameBuffer, renameCursorPos);
+                drawExplorerElements(context, hovered && !ContextMenu.isOpen(), isSelected, isFavorite, entry, explorerX, entryY, explorerWidth, entryHeight, this.textRenderer, serverInfo.isRemote, String.valueOf(renamePath), renameBuffer, renameCursorPos);
             }
         }
         context.disableScissor();
