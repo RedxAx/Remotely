@@ -27,8 +27,10 @@ import redxax.oxy.common.config.Config;
 import redxax.oxy.common.explorer.ResponseManager;
 import redxax.oxy.common.explorer.SyntaxHighlighter;
 
+import static redxax.oxy.common.Render.drawInnerBorder;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
+import static redxax.oxy.common.util.ImageUtil.drawPixelArt;
 import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 
 public class AISidePanel {
@@ -57,7 +59,7 @@ public class AISidePanel {
     private final int topBarHeight = 30;
     public boolean fieldFocused = false;
     boolean inputHovered = false;
-    BufferedImage newChatIcon, deleteChatIcon, chatHistoryIcon;
+    BufferedImage newChatIcon, deleteChatIcon, chatHistoryIcon, ReemotelyAIcon;
     private float targetScrollOffset = 0;
     private float currentScrollOffset = 0;
     private static final Path CHAT_HISTORY_PATH = Path.of(remotelyDir.toString(), "data", "chat_history.json");
@@ -70,8 +72,9 @@ public class AISidePanel {
         this.mc = MinecraftClient.getInstance();
         try {
             newChatIcon = loadResourceIcon("/assets/remotely/icons/newchat.png");
-            deleteChatIcon = loadResourceIcon("/assets/remotely/icons/deletechat.png");
+            deleteChatIcon = loadResourceIcon("/assets/remotely/icons/delete.png");
             chatHistoryIcon = loadResourceIcon("/assets/remotely/icons/history.png");
+            ReemotelyAIcon = loadResourceIcon("/assets/remotely/icons/ReemotelyAI.png");
         } catch (Exception e) {
             devPrint("Failed to load icons: " + e.getMessage());
         }
@@ -141,8 +144,9 @@ public class AISidePanel {
             return;
         addUserMessage(userMsg);
         StringBuilder builder = new StringBuilder();
-        builder.append("You're Remotely AI. a Chat Bot That Helps Minecraft Server Admins With There Terminal / Files That May Relate To Minecraft Development. You Provide Short And To The Point Answers In a Human Friendly Way. You're a Part Of a Minecraft Mod That Contain An In-Game MultiTerminal, File Explorer, File Editor, Server Manager, Etc.");
+        builder.append("You're Reemotely AI. a Chat Bot That Helps Minecraft Server Admins With There Terminal / Files That May Relate To Minecraft Development. You Provide Short And To The Point Answers In a Human Friendly Way. You're a Part Of a Minecraft Mod That Contain An In-Game MultiTerminal, File Explorer, File Editor, Server Manager, Etc.");
         builder.append("The User Name Is: ").append(MinecraftClient.getInstance().getSession().getUsername()).append("\n");
+        builder.append("The User's Language (Which You MUST Talk In) Is: ").append(mc.getLanguageManager().getLanguage()).append("\n");
         builder.append("The Current Date Is: ").append(new SimpleDateFormat("dd/MM/yyyy").format(new Date())).append("\n");
         builder.append("The Current Time Is: ").append(new SimpleDateFormat("HH:mm:ss").format(new Date())).append("\n");
         if (!extraContext.isEmpty()) {
@@ -215,7 +219,7 @@ public class AISidePanel {
         this.panelY = panelY;
         this.panelX = panelX;
         context.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, Config.innerBackgroundColor);
-        Render.drawInnerBorder(context, panelX, panelY, panelWidth, panelHeight, Config.innerBorderColor);
+        drawInnerBorder(context, panelX, panelY, panelWidth, panelHeight, Config.innerBorderColor);
         Render.drawOuterBorder(context, panelX, panelY, panelWidth, panelHeight, Config.globalOuterBorder);
         renderTopBar(context, panelX, panelY, panelWidth, mouseX, mouseY);
         int msgAreaY = panelY + topBarHeight;
@@ -238,7 +242,7 @@ public class AISidePanel {
                 if (msg.animationProgress > 1f)
                     msg.animationProgress = 1f;
             }
-            int msgColor = msg.sender.equals("user") ? 0xFFAAAAFF : msg.sender.equals("ai") ? calmAccentColor : accentHoverColor;
+            int msgColor = msg.sender.equals("user") ? accentHoverColor : msg.sender.equals("ai") ? calmAccentColor : dangerHoverAccentColor;
             List<String> wrapped = wrapText(msg.text, panelWidth - 10, tr);
             for (String line : wrapped) {
                 if (line.startsWith("```")) {
@@ -254,10 +258,27 @@ public class AISidePanel {
             }
             msgY += 5;
         }
+        if (messages.isEmpty()) {
+            int iconRect = 100;
+            int iconCenterX = panelX + panelWidth / 2 - iconRect / 2;
+            int verticalCenter = msgAreaY + msgAreaHeight / 2;
+            int totalContentHeight = iconRect + tr.fontHeight + 5;
+            int iconY = verticalCenter - totalContentHeight / 2;
+            drawPixelArt(context, iconCenterX, iconY, iconRect, iconRect, ReemotelyAIcon);
+            drawInnerBorder(context, iconCenterX, iconY, iconRect, iconRect, Config.innerBorderColor);
+            Render.drawOuterBorder(context, iconCenterX, iconY, iconRect, iconRect, Config.globalOuterBorder);
+            String greeting = Render.trimTextToWidthWithEllipsis("Welcome, " + mc.getSession().getUsername() + "!", panelWidth - 10);
+            String greeting2 = Render.trimTextToWidthWithEllipsis("I'm Reemotely AI.", panelWidth - 10);
+            int greetingCenterX = panelX + panelWidth / 2 - tr.getWidth(greeting) / 2;
+            int textY = iconY + iconRect + 5;
+            context.drawText(tr, Text.literal(greeting), greetingCenterX, textY, Config.globalDarkTextColor, Config.shadow);
+            textY += tr.fontHeight + 2;
+            context.drawText(tr, Text.literal(greeting2), greetingCenterX, textY, Config.globalDarkTextColor, Config.shadow);
+        }
         context.disableScissor();
         inputHovered = (mouseX >= panelX + 5 && mouseX < panelX + panelWidth - 5 && mouseY >= panelY + panelHeight - 35 && mouseY < panelY + panelHeight - 10);
         context.fill(panelX, panelY + panelHeight - 35, panelX + panelWidth, panelY + panelHeight, Config.innerBackgroundColor);
-        Render.drawInnerBorder(context, panelX, panelY + panelHeight - 35, panelWidth, 35, Config.innerBorderColor);
+        drawInnerBorder(context, panelX, panelY + panelHeight - 35, panelWidth, 35, Config.innerBorderColor);
         Render.drawOuterBorder(context, panelX, panelY + panelHeight - 35, panelWidth, 35, Config.globalOuterBorder);
         Render.drawTextInput(context, mc, panelX + 5, panelY + panelHeight - 30, "AI Input", inputBuffer.toString(), fieldFocused, inputCursor, -1, -1, inputHovered, panelWidth - 10, 20);
         Render.ContextMenu.renderMenu(context, mc, mouseX, mouseY);
@@ -268,7 +289,7 @@ public class AISidePanel {
         int gap = 4;
         int barHeight = buttonSize + 2 * gap;
         context.fill(panelX, panelY, panelX + panelWidth, panelY + barHeight, Config.innerBackgroundColor);
-        Render.drawInnerBorder(context, panelX, panelY, panelWidth, barHeight, Config.innerBorderColor);
+        drawInnerBorder(context, panelX, panelY, panelWidth, barHeight, Config.innerBorderColor);
         Render.drawOuterBorder(context, panelX, panelY, panelWidth, barHeight, Config.globalOuterBorder);
         int xHistory = panelX + panelWidth - gap - buttonSize;
         int xDelete = xHistory - gap - buttonSize;
