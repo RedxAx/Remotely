@@ -12,7 +12,23 @@ allprojects {
 
     repositories {
         mavenCentral()
-        maven { url = "https://jitpack.io" }
-        maven { url = uri('https://mcef-download.cinemamod.com/repositories/releases') }
+        maven { url = "https://maven.fabricmc.net/" }
+
+        maven {
+            url = "https://maven.dediamondpro.dev/releases/"
+            name = "DeDiamondPro"
+            content {
+
+                includeGroup "dev.dediamondpro"
+            }
+        }
+        maven {
+            url = uri('https://mcef-download.cinemamod.com/repositories/releases')
+            name = "CinemaMod"
+            content {
+
+                excludeGroup "dev.dediamondpro"
+            }
+        }
     }
 }
