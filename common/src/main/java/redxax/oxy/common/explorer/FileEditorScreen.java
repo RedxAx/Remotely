@@ -4,7 +4,6 @@ import com.google.gson.*;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.RemotelyClient;
@@ -850,7 +849,7 @@ public class FileEditorScreen extends Screen {
                 isResizingSidePanel = true;
                 return true;
             }
-            if (mouseX >= panelX && mouseX <= panelX + animWidth && mouseY >= panelY && mouseY <= panelY + panelHeight) {
+            if (mouseX >= panelX && mouseX <= panelX + animWidth && mouseY >= panelY && mouseY <= panelY + panelHeight && !aiShowPanel) {
                 int entryHeight = 20 + 2;
                 double localY = mouseY - panelY + tabs.get(currentTabIndex).sidePanelScrollOffset;
                 int indexPos = 0;
