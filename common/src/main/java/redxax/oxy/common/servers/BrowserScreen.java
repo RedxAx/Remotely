@@ -127,13 +127,24 @@ public class BrowserScreen extends Screen {
     }
 
     @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        if (wallpaper && windowsBackground != null) {
+            drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
+        } else if (!background) {
+            context.fill(0, 0, width, height, backgroundColor);
+        } else {
+            super.renderBackground(context, mouseX, mouseY, delta);
+        }
+    }
+
+    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        renderBackground(context, mouseX, mouseY, delta);
         MCEFBrowser currentBrowser = tabs.get(currentTabIndex).browser;
         if (fullScreenMode) {
             drawBrowser(currentBrowser, fullScreenMode, width, height, 0, 0);
             return;
         }
-        context.fill(0, 0, width, height, 0xFF202020);
         drawHeader(context, width, height, mouseX, mouseY);
         drawBrowser(currentBrowser, fullScreenMode, width, height, TOP_OFFSET, BROWSER_DRAW_OFFSET);
         drawInnerBorder(context, 5, 60, width - 5 * 2, height - 60 - 5, innerBorderColor);

@@ -436,7 +436,19 @@ public class ResourcePageScreen extends Screen {
     }
 
     @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        if (wallpaper && windowsBackground != null) {
+            drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
+        } else if (!background) {
+            context.fill(0, 0, width, height, backgroundColor);
+        } else {
+            super.renderBackground(context, mouseX, mouseY, delta);
+        }
+    }
+
+    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        renderBackground(context, mouseX, mouseY, delta);
         int headerHeight = 30;
         int tabAreaHeight = 20;
         drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, siteIcon, downloadIcon, null, null, null, null, null, null);
