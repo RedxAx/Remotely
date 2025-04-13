@@ -376,13 +376,7 @@ public class SettingsScreen extends Screen {
         if ((int) currentSettingsScroll < maxScroll) {
             context.fillGradient(contentX, contentY + contentHeight - 10, contentX + contentWidth, contentY + contentHeight, 0x00000000, 0x55000000);
         }
-        animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
-        animScaleFactor = Math.round(animScaleFactor * 1000) / 1000f;
-        if (globalScaleFactor != animScaleFactor) {
-            mc.getWindow().setScaleFactor(animScaleFactor);
-            this.resize(mc, mc.getWindow().getScaledWidth(), mc.getWindow().getScaledHeight());
-            globalScaleFactor = animScaleFactor;
-        }
+        animatedScaling(context, this, mc);
     }
 
     @Override
