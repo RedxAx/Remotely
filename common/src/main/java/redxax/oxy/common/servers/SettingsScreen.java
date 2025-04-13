@@ -307,7 +307,7 @@ public class SettingsScreen extends Screen {
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
         if (wallpaper && windowsBackground != null) {
             drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
-        } else if (!background || MinecraftClient.getInstance().getGameVersion().startsWith("1.20")) {
+        } else if (!background || (MinecraftClient.getInstance().getGameVersion().startsWith("1.20") && !MinecraftClient.getInstance().getGameVersion().startsWith("1.20.6"))) {
             context.fill(0, 0, width, height, backgroundColor);
         } else {
             super.renderBackground(context, mouseX, mouseY, delta);
