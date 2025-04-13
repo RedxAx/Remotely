@@ -597,7 +597,7 @@ public class Render {
     public static void drawScreenHeader(DrawContext context, int width, int height, int backgroundWidth, int mouseX, int mouseY, Screen parent, MinecraftClient minecraftClient, IconWithTooltip icon1, IconWithTooltip icon2, IconWithTooltip icon3, IconWithTooltip icon4, IconWithTooltip icon5, IconWithTooltip icon6, IconWithTooltip icon7, IconWithTooltip icon8, IconWithTooltip specialIcon) {
         if (wallpaper && windowsBackground != null) {
             drawBufferedImage(context, windowsBackground, 0, 0, parent.width, parent.height);
-        } else if (!background || (MinecraftClient.getInstance().getGameVersion().startsWith("1.20") && !MinecraftClient.getInstance().getGameVersion().startsWith("1.20.6"))) {
+        } else if (!background) {
             context.fill(0, 0, width, height, backgroundColor);
         }
         context.fill(0, 0, width, 30, innerBackgroundColor);
