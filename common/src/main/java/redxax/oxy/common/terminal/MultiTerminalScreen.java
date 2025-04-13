@@ -15,7 +15,6 @@ import redxax.oxy.common.servers.PluginModManagerScreen;
 import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.servers.ServerState;
 import redxax.oxy.common.ui.AISidePanel;
-import redxax.oxy.common.util.Notification;
 import redxax.oxy.common.util.ImageUtil.IconWithTooltip;
 
 import java.io.BufferedReader;
@@ -93,7 +92,6 @@ public class MultiTerminalScreen extends Screen {
     int snippetMaxVisibleLines = 1;
     private boolean shortcutConsumed = false;
     public static boolean isResizingSnippetPanel = false;
-    Notification notification;
 
     int snippetNameScrollOffset = 0;
 
@@ -363,10 +361,6 @@ public class MultiTerminalScreen extends Screen {
         }
         if (snippetPopupActive) {
             renderSnippetPopup(context, mouseX, mouseY);
-        }
-        for (Notification notification : Notification.getActiveNotifications()) {
-            notification.update(delta);
-            notification.render(context, mouseX, mouseY);
         }
         animatedScaling(context, this, minecraftClient);
     }

@@ -7,7 +7,9 @@ import net.minecraft.text.Text;
 import redxax.oxy.common.config.Config;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static redxax.oxy.common.Render.drawInnerBorder;
 import static redxax.oxy.common.Render.drawOuterBorder;
@@ -19,54 +21,63 @@ public class Notification {
     public enum Type { INFO, WARN, ERROR }
     private String message;
     private Type type;
-    private float x;
-    private float y;
+    private float currentX;
     private float targetX;
-    private float animationSpeed = 30.0f;
-    private float duration = 50.0f;
+    private float currentY;
+    private float targetY;
     private float elapsedTime = 0.0f;
     private boolean slidingOut = false;
     private boolean paused = false;
-    private int padding = 10;
-    private int width;
-    private int height;
+    private final int padding = 10;
+    private final int width;
+    private final int height;
     private static final List<Notification> activeNotifications = new ArrayList<>();
+    private static final Map<Integer, Float> elevationOffsets = new HashMap<>();
+    private final int notificationId;
 
     public Notification(String message, Type type) {
         this.message = message;
         this.type = type;
+        this.notificationId = (message + System.currentTimeMillis()).hashCode();
         MinecraftClient minecraftClient = MinecraftClient.getInstance();
         this.client = minecraftClient;
         this.textRenderer = minecraftClient.textRenderer;
         this.width = textRenderer.getWidth(message) + 2 * padding;
         this.height = textRenderer.fontHeight + 2 * padding;
         assert minecraftClient.currentScreen != null;
-        this.x = minecraftClient.currentScreen.width;
-        this.y = minecraftClient.currentScreen.height - height - padding - (activeNotifications.size() * (height + padding));
+        this.currentX = minecraftClient.currentScreen.width;
         this.targetX = minecraftClient.currentScreen.width - width - padding;
+        this.currentY = calculateYPosition();
+        this.targetY = this.currentY;
+        elevationOffsets.put(notificationId, this.currentX);
         activeNotifications.add(this);
     }
 
-    public void update(float delta) {
+    private float calculateYPosition() {
+        int count = activeNotifications.size();
+        return client.currentScreen.height - height - padding - count * (height + padding);
+    }
+
+    public void update() {
         if (!paused) {
+            elapsedTime += deltaTime;
+
             if (!slidingOut) {
-                if (x > targetX) {
-                    float move = animationSpeed * delta;
-                    x -= move;
-                    if (x < targetX) {
-                        x = targetX;
-                    }
-                } else {
-                    elapsedTime += delta;
-                    if (elapsedTime >= duration) {
-                        slidingOut = true;
-                    }
+                float xProgress = (targetX - currentX) * globalMovementSpeed * deltaTime;
+                currentX += xProgress;
+
+                float duration = 5.0f;
+                if (elapsedTime >= duration) {
+                    slidingOut = true;
+                    targetX = client.currentScreen.width;
                 }
             } else {
-                float slideSpeed = animationSpeed * 2 * delta;
-                x += slideSpeed;
-                if (x >= client.currentScreen.width) {
+                float xProgress = (targetX - currentX) * globalMovementSpeed * deltaTime;
+                currentX += xProgress;
+
+                if (currentX >= client.currentScreen.width - 5) {
                     activeNotifications.remove(this);
+                    elevationOffsets.remove(notificationId);
                 }
             }
         }
@@ -77,34 +88,37 @@ public class Notification {
         int count = 0;
         for (Notification n : activeNotifications) {
             if (!n.slidingOut) {
-                n.y = n.client.currentScreen.height - n.height - n.padding - count * (n.height + n.padding);
+                n.targetY = n.client.currentScreen.height - n.height - n.padding - count * (n.height + n.padding);
+                float currentYOffset = n.currentY;
+                float targetYOffset = n.targetY;
+                float newOffset = currentYOffset + (targetYOffset - currentYOffset) * globalMovementSpeed * deltaTime;
+                n.currentY = newOffset;
                 count++;
             }
         }
     }
 
-    public boolean isFinished() {
-        return x >= client.currentScreen.width;
-    }
-
     public void render(DrawContext context, int mouseX, int mouseY) {
-        if (x >= client.currentScreen.width) return;
-        boolean hovered = mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height;
-        int bgColor = getElementBackgroundColor(message.hashCode(), hovered, type.equals(Type.WARN), type.equals(Type.ERROR), false, type.equals(Type.INFO));
-        int borderColor = getElementBorderColor(message.hashCode(), hovered, type.equals(Type.WARN), type.equals(Type.ERROR), false, type.equals(Type.INFO));
-        int textColor = getTextColor(false, paused);
-        context.fill((int) x, (int) y, (int) x + width, (int) y + height, bgColor);
-        drawInnerBorder(context, (int) x, (int) y, width, height, borderColor);
-        drawOuterBorder(context, (int) x, (int) y, width, height, globalOuterBorder);
-        context.drawText(this.textRenderer, Text.literal(message), (int) x + padding, (int) y + padding, textColor, Config.shadow);
-    }
-
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height) {
-            paused = !paused;
-            return true;
+        if (!slidingOut) {
+            targetX = client.currentScreen.width - width - padding;
+        } else {
+            targetX = client.currentScreen.width;
         }
-        return false;
+
+        if (currentX >= client.currentScreen.width) return;
+
+        boolean hovered = mouseX >= currentX && mouseX <= currentX + width &&
+                mouseY >= currentY && mouseY <= currentY + height;
+
+        paused = hovered;
+
+        int bgColor = getElementBackgroundColor(notificationId, hovered, true, type == Type.ERROR, false, type == Type.INFO);
+        int borderColor = getElementBorderColor(notificationId, hovered, true, type == Type.ERROR, false, type == Type.INFO);
+        int textColor = getTextColor(hovered, paused);
+        context.fill((int) currentX, (int) currentY, (int) currentX + width, (int) currentY + height, bgColor);
+        drawInnerBorder(context, (int) currentX, (int) currentY, width, height, borderColor);
+        drawOuterBorder(context, (int) currentX, (int) currentY, width, height, globalOuterBorder);
+        context.drawText(this.textRenderer, Text.literal(message), (int) currentX + padding, (int) currentY + padding, textColor, Config.shadow);
     }
 
     public static Notification[] getActiveNotifications() {

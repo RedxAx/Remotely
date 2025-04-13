@@ -12,6 +12,7 @@
   "client": [
     "ClickableWidgetMixin",
     "MinecraftClientMixin",
+    "ScreenMixin",
     "TitleScreenMixin",
     "accessor.SliderWidgetAccessor",
     "accessor.TextIconButtonWidgetAccessor"
