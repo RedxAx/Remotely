@@ -1056,7 +1056,7 @@ public class FileEditorScreen extends Screen {
         int animWidth = (int) animatedSidePanelWidth;
         tabs.get(currentTabIndex).textEditor.updateBounds(10, 60, this.width - animWidth - 15, this.height - 65);
         tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
-        ScrollBar.render(context, this, mouseX, mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), (float) tabs.get(currentTabIndex).textEditor.getScrollOffset());
+        ScrollBar.render(context, this, mouseX, mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), (float) tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert);
         tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert = (int) ScrollBar.getPendingOffset();
         List<ResponseWindow> toRemove = new ArrayList<>();
         for (ResponseWindow w : responseWindows) {

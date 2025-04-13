@@ -555,12 +555,12 @@ public class ResourcePageScreen extends Screen {
             context.disableScissor();
         }
         if(getCurrentTabType() == TabType.DESCRIPTION) {
-            Render.ScrollBar.render(context, this, mouseX, mouseY,cachedContentHeight + 20, descScrollOffset);
+            Render.ScrollBar.render(context, this, mouseX, mouseY,cachedContentHeight + 20, descTargetScrollOffset);
             if (ScrollBar.isDragging())
                 descTargetScrollOffset = Render.ScrollBar.getPendingOffset();
         } else if(getCurrentTabType() == TabType.VERSIONS) {
             int totalVersionHeight = versions.size() * (35 + 2);
-            Render.ScrollBar.render(context, this, mouseX, mouseY, totalVersionHeight, versionsScrollOffset);
+            Render.ScrollBar.render(context, this, mouseX, mouseY, totalVersionHeight, versionsTargetScrollOffset);
             if (ScrollBar.isDragging())
                 versionsTargetScrollOffset = Render.ScrollBar.getPendingOffset();
         }

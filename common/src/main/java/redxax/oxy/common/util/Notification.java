@@ -91,7 +91,7 @@ public class Notification {
                 n.targetY = n.client.currentScreen.height - n.height - n.padding - count * (n.height + n.padding);
                 float currentYOffset = n.currentY;
                 float targetYOffset = n.targetY;
-                float newOffset = currentYOffset + (targetYOffset - currentYOffset) * globalMovementSpeed * deltaTime;
+                float newOffset = currentYOffset + (targetYOffset - currentYOffset) * (globalMovementSpeed * 0.3f) * deltaTime;
                 n.currentY = newOffset;
                 count++;
             }

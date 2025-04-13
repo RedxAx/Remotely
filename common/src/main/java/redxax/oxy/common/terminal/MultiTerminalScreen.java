@@ -357,7 +357,7 @@ public class MultiTerminalScreen extends Screen {
             int textAreaHeight = -activeTerminal.renderer.getInputFieldHeight() - activeTerminal.renderer.getStatusBarHeight();
             int scrollableRange = Math.max(0, activeTerminal.renderer.getTotalScrollHeight() - textAreaHeight);
             if (ScrollBar.isDragging()) activeTerminal.renderer.targetScrollOffset = (int) ScrollBar.getPendingOffset();
-            ScrollBar.render(context, this, mouseX, mouseY, scrollableRange, activeTerminal.renderer.getScrollOffset());
+            ScrollBar.render(context, this, mouseX, mouseY, scrollableRange, activeTerminal.renderer.targetScrollOffset);
         }
         if (snippetPopupActive) {
             renderSnippetPopup(context, mouseX, mouseY);
