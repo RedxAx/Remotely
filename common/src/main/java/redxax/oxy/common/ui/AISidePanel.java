@@ -17,6 +17,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
+import dev.dediamondpro.minemark.minecraft.MineMarkDrawable;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
@@ -25,7 +26,6 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.Render;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.explorer.ResponseManager;
-import redxax.oxy.common.explorer.SyntaxHighlighter;
 
 import static redxax.oxy.common.Render.drawInnerBorder;
 import static redxax.oxy.common.config.Config.*;
@@ -43,10 +43,20 @@ public class AISidePanel {
         public String sender;
         public String text;
         public float animationProgress;
+        public MineMarkDrawable mineMark;
         public AIMessage(String sender, String text) {
             this.sender = sender;
             this.text = text;
             this.animationProgress = 0f;
+            if ("ai".equals(sender)) {
+                try {
+                    this.mineMark = new MineMarkDrawable(text);
+                } catch (Exception e) {
+                    this.mineMark = null;
+                }
+            } else {
+                this.mineMark = null;
+            }
         }
     }
 
@@ -144,7 +154,7 @@ public class AISidePanel {
             return;
         addUserMessage(userMsg);
         StringBuilder builder = new StringBuilder();
-        builder.append("You're Reemotely AI. a Chat Bot That Helps Minecraft Server Admins With There Terminal / Files That May Relate To Minecraft Development. You Provide Short And To The Point Answers In a Human Friendly Way. You're a Part Of a Minecraft Mod That Contain An In-Game MultiTerminal, File Explorer, File Editor, Server Manager, Etc.");
+        builder.append("You're Reemotely AI. a Chat Bot That Helps Minecraft Server Admins With There Terminal / Files That May Relate To Minecraft Development. You Provide Short And To The Point Answers In a Human Friendly Way. You're a Part Of a Minecraft Mod That Contain An In-Game MultiTerminal, File Explorer, File Editor, Server Manager, Etc. You Can And Should Use Markdown Rendering.");
         builder.append("The User Name Is: ").append(MinecraftClient.getInstance().getSession().getUsername()).append("\n");
         builder.append("The User's Language (Which You MUST Talk In) Is: ").append(mc.getLanguageManager().getLanguage()).append("\n");
         builder.append("The Current Date Is: ").append(new SimpleDateFormat("dd/MM/yyyy").format(new Date())).append("\n");
@@ -231,32 +241,22 @@ public class AISidePanel {
             targetScrollOffset = maxScroll;
         }
         context.enableScissor(panelX, msgAreaY, panelX + panelWidth, msgAreaY + msgAreaHeight);
-
         currentScrollOffset += (targetScrollOffset - currentScrollOffset) * globalScrollSpeed * deltaTime;
         int msgY = msgAreaY + 5 - (int) currentScrollOffset;
-
         TextRenderer tr = mc.textRenderer;
         for (AIMessage msg : messages) {
-            if (msg.animationProgress < 1f) {
-                msg.animationProgress += 0.05f;
-                if (msg.animationProgress > 1f)
-                    msg.animationProgress = 1f;
-            }
-            int msgColor = msg.sender.equals("user") ? accentHoverColor : msg.sender.equals("ai") ? calmAccentColor : dangerHoverAccentColor;
-            List<String> wrapped = wrapText(msg.text, panelWidth - 10, tr);
-            for (String line : wrapped) {
-                if (line.startsWith("```")) {
-                    continue;
+            if ("ai".equals(msg.sender) && msg.mineMark != null) {
+                int height = (int) msg.mineMark.getHeight();
+                msg.mineMark.draw(panelX + 5, msgY, panelWidth - 10, mouseX, mouseY, context);
+                msgY += height + 5;
+            } else {
+                List<String> wrapped = wrapText(msg.text, panelWidth - 10, tr);
+                for (String line : wrapped) {
+                    context.drawText(tr, Text.literal(line), panelX + 5, msgY, msg.sender.equals("user") ? accentHoverColor : msg.sender.equals("error") ? dangerHoverAccentColor : calmAccentColor, Config.shadow);
+                    msgY += tr.fontHeight + 2;
                 }
-                if (line.startsWith("CODE:")) {
-                    Text codeText = SyntaxHighlighter.highlight(line.substring(5), "");
-                    context.drawText(tr, codeText, panelX + 5, msgY, msgColor, Config.shadow);
-                } else {
-                    context.drawText(tr, Text.literal(line), panelX + 5, msgY, msgColor, Config.shadow);
-                }
-                msgY += tr.fontHeight + 2;
+                msgY += 5;
             }
-            msgY += 5;
         }
         if (messages.isEmpty()) {
             int iconRect = 100;
@@ -269,7 +269,7 @@ public class AISidePanel {
             Render.drawOuterBorder(context, iconCenterX, iconY, iconRect, iconRect, Config.globalOuterBorder);
             String greeting = Render.trimTextToWidthWithEllipsis("Welcome, " + mc.getSession().getUsername() + "!", panelWidth - 10);
             String greeting2 = Render.trimTextToWidthWithEllipsis("I'm Reemotely AI.", panelWidth - 10);
-            int greetingCenterX = panelX + panelWidth / 2 - tr.getWidth(greeting) / 2;
+            int greetingCenterX = panelX + panelWidth / 2 - tr.getWidth(Text.literal(greeting)) / 2;
             int textY = iconY + iconRect + 5;
             context.drawText(tr, Text.literal(greeting), greetingCenterX, textY, Config.globalDarkTextColor, Config.shadow);
             textY += tr.fontHeight + 2;
@@ -358,8 +358,12 @@ public class AISidePanel {
     private int getTotalChatHeight(int availableWidth, TextRenderer tr) {
         int total = 0;
         for (AIMessage msg : messages) {
-            List<String> wrapped = wrapText(msg.text, availableWidth, tr);
-            total += wrapped.size() * (tr.fontHeight + 2) + 5;
+            if ("ai".equals(msg.sender) && msg.mineMark != null) {
+                total += (int) (msg.mineMark.getHeight() + 5);
+            } else {
+                List<String> wrapped = wrapText(msg.text, availableWidth, tr);
+                total += wrapped.size() * (tr.fontHeight + 2) + 5;
+            }
         }
         return total;
     }
