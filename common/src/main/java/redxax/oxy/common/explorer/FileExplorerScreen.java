@@ -346,18 +346,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             context.drawText(this.textRenderer, Text.literal("Size"), sizeX, headerY + 5, globalTextColor, Config.shadow);
         }
         if (loading && currentTab.tabData.isRemote) {
-            long currentTimeLoading = System.currentTimeMillis();
-            if (currentTimeLoading - lastFrameTime >= 40) {
-                currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
-                lastFrameTime = currentTimeLoading;
-            }
-            BufferedImage currentFrame = loadingFrames.get(currentLoadingFrame);
-            int scale = 8;
-            int imgWidth = currentFrame.getWidth() * scale;
-            int imgHeight = currentFrame.getHeight() * scale;
-            int centerX = (this.width - imgWidth) / 2;
-            int centerY = (this.height - imgHeight) / 2;
-            drawPixelArt(context, centerX, centerY, imgWidth, imgHeight, currentFrame);
+            drawLoading(context, this.height, this.width);
             return;
         }
         currentTab.tabData.smoothOffset += (currentTab.tabData.targetOffset - currentTab.tabData.smoothOffset) * globalScrollSpeed * deltaTime;

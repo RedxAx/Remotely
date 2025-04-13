@@ -569,19 +569,19 @@ public class Render {
 
     public static void drawLoading(DrawContext context, int height, int width) {
         try {
-            loadingAnim = loadSpriteSheet("/assets/remotely/icons/loadinganim.png");
+            loadingAnim = loadSpriteSheet("/assets/remotely/icons/loading.png");
         } catch (Exception e) {
             devPrint("Failed to load loading animation");
         }
-        int frameWidth = 16;
-        int frameHeight = 16;
+        int frameWidth = 20;
+        int frameHeight = 20;
         int rows = loadingAnim.getHeight() / frameHeight;
-        for (int i = 0; i < rows; i++) {
+        for (int i = rows - 1; i >= 0; i--) {
             BufferedImage frame = loadingAnim.getSubimage(0, i * frameHeight, frameWidth, frameHeight);
             loadingFrames.add(frame);
         }
         long currentTime = System.currentTimeMillis();
-        if (currentTime - lastFrameTime >= 40) {
+        if (currentTime - lastFrameTime >= 80) {
             currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
             lastFrameTime = currentTime;
         }
