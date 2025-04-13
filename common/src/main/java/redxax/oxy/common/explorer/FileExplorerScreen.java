@@ -403,7 +403,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         if (currentTab.tabData.smoothOffset < Math.max(0, totalHeight - explorerHeight)) {
             context.fillGradient(explorerX, explorerY + explorerHeight - 10, explorerX + explorerWidth, explorerY + explorerHeight + 2, 0x00000000, 0x80000000);
         }
-        ScrollBar.render(context, this, mouseX, mouseY, totalHeight + explorerY - tabBarY - 30, currentTab.tabData.smoothOffset);
+        ScrollBar.render(context, this, mouseX, mouseY, totalHeight + explorerY - tabBarY - 30, currentTab.tabData.targetOffset);
         canScroll = visibleEntries < entriesToRender.size();
         currentTab.tabData.targetOffset = ScrollBar.getPendingOffset();
         updateNotifications(delta);
