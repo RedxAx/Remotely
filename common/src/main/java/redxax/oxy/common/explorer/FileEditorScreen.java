@@ -143,6 +143,10 @@ public class FileEditorScreen extends Screen {
             } else {
                 loadFileContent();
             }
+            if (this.textEditor != null) {
+                this.textEditor.smoothScrollOffsetVert = this.textEditor.targetScrollOffsetVert;
+                this.textEditor.smoothScrollOffsetHoriz = this.textEditor.targetScrollOffsetHoriz;
+            }
         }
         public void checkIfChanged(List<String> lines) {
             String joined = String.join("\n", lines);
