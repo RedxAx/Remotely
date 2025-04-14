@@ -44,18 +44,35 @@ public class AISidePanel {
         public String text;
         public float animationProgress;
         public MineMarkDrawable mineMark;
+        private String lastMineMarkText;
+
         public AIMessage(String sender, String text) {
             this.sender = sender;
             this.text = text;
             this.animationProgress = 0f;
+            this.lastMineMarkText = null;
             if ("ai".equals(sender)) {
                 try {
                     this.mineMark = new MineMarkDrawable(text);
+                    this.lastMineMarkText = text;
                 } catch (Exception e) {
                     this.mineMark = null;
                 }
             } else {
                 this.mineMark = null;
+            }
+        }
+
+        public void updateMineMarkIfNeeded() {
+            if ("ai".equals(sender)) {
+                if (mineMark == null || lastMineMarkText == null || !lastMineMarkText.equals(text)) {
+                    try {
+                        mineMark = new MineMarkDrawable(text);
+                        lastMineMarkText = text;
+                    } catch (Exception e) {
+                        mineMark = null;
+                    }
+                }
             }
         }
     }
@@ -154,35 +171,41 @@ public class AISidePanel {
         if (userMsg.isEmpty())
             return;
         addUserMessage(userMsg);
-        StringBuilder builder = new StringBuilder();
-        builder.append("You're Reemotely AI. a Chat Bot That Helps Minecraft Server Admins With There Terminal / Files That May Relate To Minecraft Development. You Provide Short And To The Point Answers In a Human Friendly Way. You're a Part Of a Minecraft Mod That Contain An In-Game MultiTerminal, File Explorer, File Editor, Server Manager, Etc. You Can And Should Use Markdown Rendering.");
-        builder.append("The User Name Is: ").append(MinecraftClient.getInstance().getSession().getUsername()).append("\n");
-        builder.append("The User's Language (Which You MUST Talk In) Is: ").append(mc.getLanguageManager().getLanguage()).append("\n");
-        builder.append("The Current Date Is: ").append(new SimpleDateFormat("dd/MM/yyyy").format(new Date())).append("\n");
-        builder.append("The Current Time Is: ").append(new SimpleDateFormat("HH:mm:ss").format(new Date())).append("\n");
-        if (!extraContext.isEmpty()) {
-            builder.append("The Context Is: ").append(extraContext).append("\n");
-            builder.append(extraContext).append("\n");
-        }
-        for (AIMessage m : messages) {
-            builder.append(m.sender).append(": ").append(m.text).append("\n");
-        }
-        String contextData = builder.toString();
         JsonObject requestBodyJson = new JsonObject();
+        JsonObject systemInstruction = new JsonObject();
+        JsonArray sysParts = new JsonArray();
+        JsonObject sysPart = new JsonObject();
+        sysPart.addProperty("text", "You're Reemotely AI. a Chat Bot That Helps Minecraft Server Admins With Their Terminal / Files That May Relate To Minecraft Development. You Provide Short And To The Point Answers In a Human Friendly Way. You're a Part Of a Minecraft Mod That Contains An In-Game MultiTerminal, File Explorer, File Editor, Server Manager, Etc. You Can And Should Use Markdown Rendering.");
+        sysParts.add(sysPart);
+        systemInstruction.add("parts", sysParts);
+        requestBodyJson.add("system_instruction", systemInstruction);
         JsonArray contentsArray = new JsonArray();
-        JsonObject partObject1 = new JsonObject();
-        partObject1.addProperty("text", contextData);
-        JsonObject contentObject = new JsonObject();
-        JsonArray partsArray = new JsonArray();
-        partsArray.add(partObject1);
-        contentObject.add("parts", partsArray);
-        contentsArray.add(contentObject);
+        for (AIMessage m : messages) {
+            if ("error".equals(m.sender))
+                continue;
+            JsonObject messageObj = new JsonObject();
+            if ("user".equals(m.sender)) {
+                messageObj.addProperty("role", "user");
+            } else if ("ai".equals(m.sender)) {
+                messageObj.addProperty("role", "model");
+            }
+            JsonArray partsArray = new JsonArray();
+            JsonObject partObj = new JsonObject();
+            partObj.addProperty("text", m.text);
+            partsArray.add(partObj);
+            messageObj.add("parts", partsArray);
+            contentsArray.add(messageObj);
+        }
         requestBodyJson.add("contents", contentsArray);
+        JsonArray toolsArray = new JsonArray();
+        JsonObject toolObj = new JsonObject();
+        toolObj.add("google_search", new JsonObject());
+        toolsArray.add(toolObj);
+        requestBodyJson.add("tools", toolsArray);
         JsonObject generationConfig = new JsonObject();
         generationConfig.addProperty("response_mime_type", "text/plain");
         requestBodyJson.add("generation_config", generationConfig);
         JsonObject aiConfig = readAIConfig();
-        String entryPoint = aiConfig.has("entryPoint") ? aiConfig.get("entryPoint").getAsString() : "";
         String apiToken = aiConfig.has("apiToken") ? aiConfig.get("apiToken").getAsString() : "";
         if (apiToken.isEmpty() || apiToken.contains("your-api-token")) {
             setErrorMessage("Missing valid API token in ai.json");
@@ -190,10 +213,14 @@ public class AISidePanel {
             inputCursor = 0;
             return;
         }
+        String entryPoint = aiConfig.has("entryPoint")
+                ? aiConfig.get("entryPoint").getAsString()
+                : "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse";
+        String urlWithKey = entryPoint + (entryPoint.contains("?") ? "&" : "?") + "key=" + apiToken;
         String requestBody = requestBodyJson.toString();
         CompletableFuture.runAsync(() -> {
             try {
-                URL url = new URL(entryPoint + "?key=" + apiToken);
+                URL url = new URL(urlWithKey);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("POST");
                 conn.setRequestProperty("Content-Type", "application/json");
@@ -205,17 +232,52 @@ public class AISidePanel {
                 }
                 int responseCode = conn.getResponseCode();
                 if (responseCode == 200) {
-                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
-                    StringBuilder response = new StringBuilder();
-                    String inputLine;
-                    while ((inputLine = in.readLine()) != null) {
-                        response.append(inputLine.trim());
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
+                    AIMessage aiMessage = new AIMessage("ai", "");
+                    mc.execute(() -> {
+                        messages.add(aiMessage);
+                        updateCurrentChatHistory();
+                    });
+                    String line;
+                    StringBuilder accumulatedResponse = new StringBuilder();
+                    while ((line = reader.readLine()) != null) {
+                        if (line.startsWith("data:")) {
+                            String dataPart = line.substring(5).trim();
+                            if ("[DONE]".equals(dataPart)) {
+                                break;
+                            }
+                            JsonObject jsonChunk = JsonParser.parseString(dataPart).getAsJsonObject();
+                            if (jsonChunk.has("candidates")) {
+                                JsonArray candidates = jsonChunk.getAsJsonArray("candidates");
+                                if (!candidates.isEmpty()) {
+                                    JsonObject candidate = candidates.get(0).getAsJsonObject();
+                                    if (candidate.has("content")) {
+                                        JsonObject content = candidate.getAsJsonObject("content");
+                                        JsonArray parts = content.getAsJsonArray("parts");
+                                        if (!parts.isEmpty()) {
+                                            JsonObject textPart = parts.get(0).getAsJsonObject();
+                                            String chunkText = textPart.get("text").getAsString();
+                                            accumulatedResponse.append(chunkText);
+                                            mc.execute(() -> {
+                                                aiMessage.text = accumulatedResponse.toString();
+                                                updateCurrentChatHistory();
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
-                    in.close();
-                    String aiResponse = ResponseManager.parseAIResponse(response.toString());
-                    mc.execute(() -> addAIMessage(aiResponse));
+                    reader.close();
                 } else {
-                    mc.execute(() -> setErrorMessage("AI request failed with code: " + responseCode));
+                    BufferedReader errorReader = new BufferedReader(new InputStreamReader(conn.getErrorStream(), StandardCharsets.UTF_8));
+                    StringBuilder errorResponse = new StringBuilder();
+                    String errorLine;
+                    while ((errorLine = errorReader.readLine()) != null) {
+                        errorResponse.append(errorLine.trim());
+                    }
+                    errorReader.close();
+                    mc.execute(() -> setErrorMessage("AI request failed with code: " + responseCode + " response: " + errorResponse.toString()));
                 }
             } catch (Exception e) {
                 mc.execute(() -> setErrorMessage("AI request error: " + e.getMessage()));
@@ -246,11 +308,22 @@ public class AISidePanel {
         int msgY = msgAreaY + 5 - (int) currentScrollOffset;
         TextRenderer tr = mc.textRenderer;
         for (AIMessage msg : messages) {
-            if ("ai".equals(msg.sender) && msg.mineMark != null) {
-                int height = (int) msg.mineMark.getHeight();
-                if (panelWidth - 10 > 0)
-                    msg.mineMark.draw(panelX + 5, msgY, panelWidth - 10, mouseX, mouseY, context);
-                msgY += height + 5;
+            if ("ai".equals(msg.sender)) {
+                msg.updateMineMarkIfNeeded();
+                if (msg.mineMark != null) {
+                    int height = (int) msg.mineMark.getHeight();
+                    if (panelWidth - 10 > 0) {
+                        msg.mineMark.draw(panelX + 5, msgY, panelWidth - 10, mouseX, mouseY, context);
+                    }
+                    msgY += height + 5;
+                } else {
+                    List<String> wrapped = wrapText(msg.text, panelWidth - 10, tr);
+                    for (String line : wrapped) {
+                        context.drawText(tr, Text.literal(line), panelX + 5, msgY, calmAccentColor, Config.shadow);
+                        msgY += tr.fontHeight + 2;
+                    }
+                    msgY += 5;
+                }
             } else {
                 List<String> wrapped = wrapText(msg.text, panelWidth - 10, tr);
                 for (String line : wrapped) {
