@@ -37,11 +37,8 @@ public class Render {
     private static final List<BufferedImage> loadingFrames = new ArrayList<>();
     private static int currentLoadingFrame = 0;
     private static long lastFrameTime = 0;
-    private static float scrollInterpolation = 0.15f;
     private static float currentScrollOffset = 0f;
     private static float animatedOffset = 0;
-    private static float scrollSelectorIndexFloat = 0f;
-    private static int previousScrollSelectorIndex = -1;
     private static Map<String, Float> tabWidths;
     private static int previousTabCount = 0;
     private static Map<Integer, Float> scrollSelectorIndexFloatMap = new HashMap<>();
@@ -204,18 +201,18 @@ public class Render {
             int lineWidth = 4;
             int lineHeight = Math.max(10, (int)((float)explorerHeight * explorerHeight / totalHeight));
             float targetOffset = dragging ? pendingOffset : scrollOffset;
-            animatedOffset += (targetOffset - animatedOffset) * scrollInterpolation;
+            animatedOffset += (targetOffset - animatedOffset) * globalScrollSpeed * deltaTime;
             float effectiveOffset = animatedOffset;
             float scrollRatio = effectiveOffset / (float)(totalHeight - explorerHeight);
             int lineY = explorerY + (int)((explorerHeight - lineHeight) * scrollRatio);
             int lineX = (scrollbarX - (lineWidth - scrollbarWidth) / 2);
-            context.fill(scrollbarX, explorerY, scrollbarX + scrollbarWidth, lineY + lineHeight / 2, Config.getElementBackgroundColor(3000, true, dragging, false, false, false));
-            context.fill(scrollbarX, lineY + lineHeight / 2, scrollbarX + scrollbarWidth, explorerY + explorerHeight, Config.getElementBackgroundColor(3000, dragging, false, false, false, false));
+            context.fill(scrollbarX, explorerY, scrollbarX + scrollbarWidth, lineY + lineHeight / 2, Config.getElementBackgroundColor(3000 + "topScroll".hashCode(), true, dragging, false, false, false));
+            context.fill(scrollbarX, lineY + lineHeight / 2, scrollbarX + scrollbarWidth, explorerY + explorerHeight, Config.getElementBackgroundColor(3000 + "bottomScroll".hashCode(), dragging, false, false, false, false));
             drawOuterBorder(context, scrollbarX, explorerY, scrollbarWidth, explorerHeight, globalOuterBorder);
             lineHovered = mouseX >= lineX && mouseX <= lineX + lineWidth && mouseY >= lineY && mouseY <= lineY + lineHeight;
-            int lineColor = Config.getElementBackgroundColor(3000, lineHovered, dragging, false, false, false);
+            int lineColor = Config.getElementBackgroundColor(3000 + "scrollLine".hashCode(), lineHovered, dragging, false, false, false);
             context.fill(lineX, lineY, lineX + lineWidth, lineY + lineHeight, lineColor);
-            drawInnerBorder(context, lineX, lineY, lineWidth, lineHeight, Config.getElementBorderColor(3000, lineHovered, dragging, false, false, false));
+            drawInnerBorder(context, lineX, lineY, lineWidth, lineHeight, Config.getElementBorderColor(3000 + "scrollLineBr".hashCode(), lineHovered, dragging, false, false, false));
         }
 
         public static boolean handleMousePressed(Screen parent, int mouseX, int mouseY, int totalHeight, float scrollOffset) {
@@ -405,9 +402,8 @@ public class Render {
             int selW = textRenderer.getWidth(selectedText);
             context.fill(selX, searchBarY + 4, selX + selW, searchBarY + 4 + textRenderer.fontHeight, 0x80FFFFFF);
         }
-        String hint = caller.equals("FileExplorerScreen") ? "Search..." : "Ask Remotely AI...";
         if (fieldFocused && isSpecialMode && displayText.isEmpty()) {
-            context.drawText(textRenderer, Text.literal(hint), searchBarX + 5, searchBarY + 5, getTextColor(hovered, true), shadow);
+            context.drawText(textRenderer, Text.literal("Search..."), searchBarX + 5, searchBarY + 5, getTextColor(hovered, true), shadow);
         }
         int displayWidth = searchBarWidth - 10;
         int textWidth = textRenderer.getWidth(displayText);
@@ -839,7 +835,7 @@ public class Render {
         }
     }
 
-    public static void drawTextInput(DrawContext context, MinecraftClient mc, int x, int y, String label, String textValue, boolean focused, int cursorPos, int selectionStart, int selectionEnd, boolean hovered, int inputWidth, int inputHeight) {
+    public static void drawTextInput(DrawContext context, MinecraftClient mc, int x, int y, String label, String textValue, boolean focused, int cursorPos, int selectionStart, int selectionEnd, boolean hovered, int inputWidth, int inputHeight, String placeholder) {
         int id = ("textInput" + label + textValue + cursorPos + selectionStart + selectionEnd).hashCode();
         float elevationTarget = hovered ? -2f : 0f;
         float elevationCurrent = elevationOffsets.getOrDefault(id, 0f);
@@ -853,6 +849,7 @@ public class Render {
         drawOuterBorder(context, x, y, inputWidth, inputHeight, globalOuterBorder);
         int displayWidth = inputWidth - 10;
         int textWidth = mc.textRenderer.getWidth(textValue);
+        int textY = y + (inputHeight - mc.textRenderer.fontHeight) / 2 + 1;
         String beforeCursor = cursorPos <= textValue.length() ? textValue.substring(0, cursorPos) : textValue;
         int cursorX = x + 5 + mc.textRenderer.getWidth(beforeCursor);
         float scrollOffsetLocal = 0;
@@ -863,7 +860,7 @@ public class Render {
         }
         context.enableScissor(x, y, x + inputWidth, y + inputHeight);
         if (textValue.isEmpty()) {
-            context.drawText(mc.textRenderer, Text.literal("Type..."), x + 5, y + 5, Config.globalDarkTextColor, Config.shadow);
+            context.drawText(mc.textRenderer, Text.literal(placeholder), x + 5, textY, Config.globalDarkTextColor, Config.shadow);
         } else {
             int selStart = Math.min(selectionStart, selectionEnd);
             int selEnd = Math.max(selectionStart, selectionEnd);
@@ -872,13 +869,13 @@ public class Render {
                 int selStartX = x + 5 + mc.textRenderer.getWidth(textBeforeSel) - (int)scrollOffsetLocal;
                 String selectedText = selEnd <= textValue.length() ? textValue.substring(selStart, selEnd) : "";
                 int selWidth = mc.textRenderer.getWidth(selectedText);
-                context.fill(selStartX, y + 4, selStartX + selWidth, y + 4 + mc.textRenderer.fontHeight, Config.globalSelectionColor);
+                context.fill(selStartX, textY, selStartX + selWidth, y + 4 + mc.textRenderer.fontHeight, Config.globalSelectionColor);
             }
-            context.drawText(mc.textRenderer, Text.literal(textValue), x + 5 - (int)scrollOffsetLocal, y + 5, Config.globalTextColor, Config.shadow);
+            context.drawText(mc.textRenderer, Text.literal(textValue), x + 5 - (int)scrollOffsetLocal, textY, Config.globalTextColor, Config.shadow);
         }
         if (focused) {
             int cursorPosX = x + 5 + mc.textRenderer.getWidth(beforeCursor) - (int)scrollOffsetLocal;
-            context.fill(cursorPosX, y + 4, cursorPosX + 1, y + 4 + mc.textRenderer.fontHeight, Config.globalCursorAnimatedColor);
+            context.fill(cursorPosX, textY, cursorPosX + 1, textY + mc.textRenderer.fontHeight, Config.globalCursorAnimatedColor);
         }
         context.disableScissor();
         context.getMatrices().pop();

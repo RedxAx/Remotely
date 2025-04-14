@@ -3,7 +3,6 @@ package redxax.oxy.common.servers;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.RemotelyClient;
@@ -362,7 +361,7 @@ public class SettingsScreen extends Screen {
                 case TEXT -> {
                     float currentScroll = textInputScrollOffsets.getOrDefault(s, 0f);
                     float targetScroll = textInputTargetScrollOffsets.getOrDefault(s, 0f);
-                    drawTextInput(context, mc, widgetAreaX, widgetY, s.name, s.value, s.focused, s.cursorPos, textSelectionStart.getOrDefault(s, s.cursorPos), textSelectionEnd.getOrDefault(s, s.cursorPos), widgetHovered, 180, 18);
+                    drawTextInput(context, mc, widgetAreaX, widgetY, s.name, s.value, s.focused, s.cursorPos, textSelectionStart.getOrDefault(s, s.cursorPos), textSelectionEnd.getOrDefault(s, s.cursorPos), widgetHovered, 180, 18, "Type...");
                     textInputScrollOffsets.put(s, currentScroll);
                     textInputTargetScrollOffsets.put(s, targetScroll);
                 }
