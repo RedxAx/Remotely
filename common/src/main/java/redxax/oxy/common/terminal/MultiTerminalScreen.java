@@ -172,7 +172,7 @@ public class MultiTerminalScreen extends Screen {
         } catch (IOException ignored) {} catch (Exception e) {
             devPrint("Error loading themes: " + e.getMessage());
         }
-        aiSidePanel = new AISidePanel();
+        aiSidePanel = new AISidePanel(this);
     }
 
     private void loadThemesFromDir() {
