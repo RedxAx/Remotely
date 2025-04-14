@@ -1077,7 +1077,6 @@ public class FileEditorScreen extends Screen {
         int hideButtonY = 35;
         boolean hideButtonHovered = mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15;
         drawSquareButton(context, hideButtonX, hideButtonY, minecraftClient, hideButtonHovered, mouseX, mouseY, "Toggle Snippets Panel", explorerIcon.getImage());
-        tabs.get(currentTabIndex).textEditor.tickDragScroll();
         float deltaTimeLocal = deltaTime;
         float targetWidth = showSidePanel ? sidePanelWidth : 0;
         animatedSidePanelWidth += (targetWidth - animatedSidePanelWidth) * Config.globalExpandSpeed * deltaTimeLocal;
@@ -1177,7 +1176,7 @@ public class FileEditorScreen extends Screen {
 
         public void render(DrawContext context, int mouseX, int mouseY, float delta) {
             smoothScrollOffsetVert += (targetScrollOffsetVert - smoothScrollOffsetVert) * globalScrollSpeed * deltaTime;
-            smoothScrollOffsetHoriz += (targetScrollOffsetHoriz - smoothScrollOffsetHoriz) * globalScrollSpeed + deltaTime;
+            smoothScrollOffsetHoriz += (targetScrollOffsetHoriz - smoothScrollOffsetHoriz) * globalScrollSpeed * deltaTime;
             context.enableScissor(x, y, x + width, y + height);
             int lineHeight = mc.textRenderer.fontHeight + 2;
             int visibleLines = height / lineHeight + 6;
