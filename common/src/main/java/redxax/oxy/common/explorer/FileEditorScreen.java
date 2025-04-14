@@ -1,6 +1,5 @@
 package redxax.oxy.common.explorer;
 
-import com.google.gson.*;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -9,30 +8,21 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.RemotelyClient;
 import redxax.oxy.common.SSHManager;
 import redxax.oxy.common.servers.ServerInfo;
-import redxax.oxy.common.explorer.ResponseManager.*;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.ui.AISidePanel;
 import redxax.oxy.common.util.ImageUtil;
 import redxax.oxy.common.util.TextAnimator;
 
 import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.explorer.FileExplorerScreen.*;
-import static redxax.oxy.common.util.DevUtil.devPrint;
-import static redxax.oxy.common.explorer.ResponseManager.parseAIResponse;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
 public class FileEditorScreen extends Screen {
@@ -63,8 +53,6 @@ public class FileEditorScreen extends Screen {
     private long customLastBlinkTime = 0;
     private final float customPathScrollOffset = 0;
     private final float customPathTargetScrollOffset = 0;
-    private final List<ResponseWindow> responseWindows = new ArrayList<>();
-    private static final Path AI_CONFIG_PATH = Path.of(remotelyDir.toString(), "data", "ai.json");
     private ImageUtil.IconWithTooltip closeIcon, saveIcon, explorerIcon;
     private int sidePanelWidth = 250;
     private List<SidePanelEntry> sidePanelEntries = new ArrayList<>();
@@ -72,7 +60,6 @@ public class FileEditorScreen extends Screen {
     private float animatedSidePanelWidth = 0f;
     private boolean isResizingSidePanel = false;
     private AISidePanel aiSidePanel;
-    private boolean aiShowPanel;
     private int ContentYStart;
 
     private static class SidePanelEntry {
@@ -279,7 +266,7 @@ public class FileEditorScreen extends Screen {
             e.printStackTrace();
         }
         updateSidePanelEntries();
-        aiSidePanel = new AISidePanel();
+        aiSidePanel = new AISidePanel(this);
     }
 
     @Override
@@ -322,7 +309,7 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean charTyped(char chr, int keyCode) {
-        if (aiSidePanel.fieldFocused && aiShowPanel && aiSidePanel.charTyped(chr, keyCode)) {
+        if (aiSidePanel.fieldFocused && aiMode && aiSidePanel.charTyped(chr, keyCode)) {
             return true;
         }
         if (customSearchBarFocused) {
@@ -332,7 +319,6 @@ public class FileEditorScreen extends Screen {
             }
             if (chr == 27) {
                 customSearchBarFocused = false;
-                aiMode = false;
                 return true;
             }
             if (chr != '\b') {
@@ -356,7 +342,7 @@ public class FileEditorScreen extends Screen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
-        if (aiShowPanel && aiSidePanel.fieldFocused) {
+        if (aiMode && aiSidePanel.fieldFocused) {
             StringBuilder sb = new StringBuilder();
             sb.append("Current file path: ").append(tabs.get(currentTabIndex).path.toString()).append("\n");
             sb.append("Current file name: ").append(tabs.get(currentTabIndex).name).append("\n");
@@ -371,7 +357,6 @@ public class FileEditorScreen extends Screen {
         }
         if (ctrlHeld && keyCode == GLFW.GLFW_KEY_F) {
             customSearchBarFocused = true;
-            aiMode = false;
             String selected = tabs.get(currentTabIndex).textEditor.getSelectedText();
             if (!selected.isEmpty()) {
                 customSearchText.setLength(0);
@@ -381,15 +366,6 @@ public class FileEditorScreen extends Screen {
             customSelectionStart = -1;
             customSelectionEnd = -1;
             updateSearchResults();
-            return true;
-        }
-        if (ctrlHeld && keyCode == GLFW.GLFW_KEY_G) {
-            customSearchBarFocused = true;
-            aiMode = true;
-            customSearchText.setLength(0);
-            customCursorPosition = 0;
-            customSelectionStart = -1;
-            customSelectionEnd = -1;
             return true;
         }
         if (ctrlHeld && keyCode == GLFW.GLFW_KEY_S) {
@@ -437,7 +413,6 @@ public class FileEditorScreen extends Screen {
                 }
                 case GLFW.GLFW_KEY_ESCAPE -> {
                     customSearchBarFocused = false;
-                    aiMode = false;
                     return true;
                 }
                 case GLFW.GLFW_KEY_LEFT -> {
@@ -502,194 +477,16 @@ public class FileEditorScreen extends Screen {
     }
 
     private void handleSearchEnter() {
-        if (aiMode) {
-            handleAIRequest();
-        } else {
-            if (searchResults.isEmpty()) return;
-            currentSearchIndex = (currentSearchIndex + 1) % searchResults.size();
-            Position pos = searchResults.get(currentSearchIndex);
-            tabs.get(currentTabIndex).textEditor.setCursor(pos.line, pos.start);
-        }
-    }
-
-    private JsonObject readAIConfig() {
-        JsonObject config = new JsonObject();
-        if (Files.exists(AI_CONFIG_PATH)) {
-            try (FileReader reader = new FileReader(AI_CONFIG_PATH.toFile())) {
-                config = JsonParser.parseReader(reader).getAsJsonObject();
-            } catch (IOException | JsonSyntaxException e) {
-                e.printStackTrace();
-            }
-        } else {
-            config.add("entryPoint", new JsonPrimitive("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"));
-            config.add("apiToken", new JsonPrimitive("your-api-token // replace this with your API token, Gemini API is the most recommended: https://aistudio.google.com/apikey"));
-            try (FileWriter writer = new FileWriter(AI_CONFIG_PATH.toFile())) {
-                writer.write(config.toString());
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-        return config;
-    }
-
-    private void handleAIRequest() {
-        JsonObject aiConfig = readAIConfig();
-        String entryPoint = aiConfig.has("entryPoint") ? aiConfig.get("entryPoint").getAsString() : "";
-        String apiToken = aiConfig.has("apiToken") ? aiConfig.get("apiToken").getAsString() : "";
-        if (apiToken.isEmpty() || apiToken.contains("your-api-token")) {
-            customSearchText.setLength(0);
-            customSearchText.append("No API key found in ai.json");
-            return;
-        }
-        String userInput = customSearchText.toString();
-        if (userInput.isEmpty()) {
-            customSearchBarFocused = false;
-            aiMode = false;
-            return;
-        }
-        List<String> lines = tabs.get(currentTabIndex).textEditor.getLines();
-        int lineLimit = 1000000000;
-        List<String> limitedLines = lines.subList(0, Math.min(lineLimit, lines.size()));
-        StringBuilder enumeratedLines = new StringBuilder();
-        for (int i = 0; i < limitedLines.size(); i++) {
-            enumeratedLines.append("Line ").append(i + 1).append(": ").append(limitedLines.get(i).replace("\"", "\\\"")).append("\\n");
-        }
-        String filePathInfo = "Current file path: " + tabs.get(currentTabIndex).path.toString().replace("\"", "\\\"") + " | Name: " + tabs.get(currentTabIndex).name.replace("\"", "\\\"");
-        String instructionsForAi = "You are Remotely, an AI text / code editor assistant for Minecraft server configuration and its plugins. SURROUND ANY NON-COMMAND TEXT WITH: \"$\" AND NEVER HAVE MORE THAN 1 BLOCK OF TEXT USING THE \"$\". You can add or edit configurations, or respond normally. You can replace lines using this command: '@replace:Line <lineNumber>@newLine:some text' or '@replace:Line <lineNumber>@newLine<<multiline text>>'. Give small feedback after doing any changes. You are interacting with the editor directly. " + filePathInfo + ". The user said: \"" + userInput + "\"\\n Lines / file with numbering:\\n";
-        String finalContext = instructionsForAi + enumeratedLines;
-        devPrint("AI request: " + finalContext);
-        int cursorLine = tabs.get(currentTabIndex).textEditor.cursorLine;
-        String currentLine = cursorLine >= 0 && cursorLine < lines.size() ? lines.get(cursorLine) : "";
-        JsonObject requestBodyJson = new JsonObject();
-        JsonArray contentsArray = new JsonArray();
-        JsonObject partObject1 = new JsonObject();
-        partObject1.addProperty("text", finalContext);
-        JsonObject partObject2 = new JsonObject();
-        partObject2.addProperty("text", "\nCurrent Line:\n" + currentLine);
-        JsonArray partsArray = new JsonArray();
-        partsArray.add(partObject1);
-        partsArray.add(partObject2);
-        JsonObject contentObject = new JsonObject();
-        contentObject.add("parts", partsArray);
-        contentsArray.add(contentObject);
-        requestBodyJson.add("contents", contentsArray);
-        JsonObject generationConfig = new JsonObject();
-        if (aiConfig.has("generationConfig")) {
-            generationConfig = aiConfig.getAsJsonObject("generationConfig");
-        }
-        if (!generationConfig.has("response_mime_type")) {
-            generationConfig.addProperty("response_mime_type", "text/plain");
-        }
-        requestBodyJson.add("generation_config", generationConfig);
-        String requestBody = requestBodyJson.toString();
-        CompletableFuture.runAsync(() -> {
-            try {
-                URL url = new URL(entryPoint + "?key=" + apiToken);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json");
-                conn.setDoOutput(true);
-                try (OutputStream os = conn.getOutputStream()) {
-                    byte[] input = requestBody.getBytes(StandardCharsets.UTF_8);
-                    os.write(input, 0, input.length);
-                    os.flush();
-                }
-                int responseCode = conn.getResponseCode();
-                if (responseCode == 200) {
-                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
-                    StringBuilder response = new StringBuilder();
-                    String inputLine;
-                    while ((inputLine = in.readLine()) != null) {
-                        response.append(inputLine.trim());
-                    }
-                    in.close();
-                    String aiResponse = parseAIResponse(response.toString());
-                    minecraftClient.execute(() -> {
-                        applyAiResponse(aiResponse);
-                        customSearchText.setLength(0);
-                        customCursorPosition = 0;
-                        customSearchBarFocused = false;
-                        aiMode = false;
-                    });
-                } else {
-                    minecraftClient.execute(() -> {
-                        devPrint("AI request failed with response code: " + responseCode + "\n");
-                        customSearchBarFocused = false;
-                        aiMode = false;
-                    });
-                }
-            } catch (Exception e) {
-                minecraftClient.execute(() -> {
-                    devPrint("AI request error: " + e.getMessage() + "\n");
-                    customSearchBarFocused = false;
-                    aiMode = false;
-                });
-            }
-        });
-    }
-
-    private void applyAiResponse(String text) {
-        boolean replacedSomething = false;
-        Pattern replacePattern = Pattern.compile("@replace:Line\\s*(\\d+)@newLine(?:(<<([\\s\\S]*?)>>)|:([^@]+))");
-        Matcher replaceMatcher = replacePattern.matcher(text);
-        ArrayList<Integer> replacedIndices = new ArrayList<>();
-        ArrayList<String> newContents = new ArrayList<>();
-        while (replaceMatcher.find()) {
-            replacedSomething = true;
-            String lineNumberGroup = replaceMatcher.group(1);
-            int lineNumber = Integer.parseInt(lineNumberGroup.trim()) - 1;
-            String multilineGroup = replaceMatcher.group(3);
-            String singlelineGroup = replaceMatcher.group(4);
-            String replacement;
-            if (multilineGroup != null) {
-                replacement = multilineGroup;
-            } else if (singlelineGroup != null) {
-                replacement = singlelineGroup;
-            } else {
-                replacement = "";
-            }
-            replacement = replacement.replaceAll("\\$.*?\\$", "");
-            replacedIndices.add(lineNumber);
-            newContents.add(replacement.replace("\r", "").replace("\n", ""));
-        }
-        if (replacedSomething) {
-            for (int i = 0; i < replacedIndices.size(); i++) {
-                int idx = replacedIndices.get(i);
-                if (idx >= 0 && idx < tabs.get(currentTabIndex).textEditor.lines.size()) {
-                    tabs.get(currentTabIndex).textEditor.deleteSelection();
-                    tabs.get(currentTabIndex).textEditor.pushState();
-                    tabs.get(currentTabIndex).textEditor.lines.set(idx, newContents.get(i));
-                    tabs.get(currentTabIndex).textEditor.parentTab.checkIfChanged(tabs.get(currentTabIndex).textEditor.lines);
-                }
-            }
-        }
-        Pattern responseTextPattern = Pattern.compile("\\$(.*?)\\$", Pattern.DOTALL);
-        Matcher responseMatcher = responseTextPattern.matcher(text.trim());
-        while (responseMatcher.find()) {
-            String responseText = responseMatcher.group(1);
-            ResponseWindow existingWindow = findWindow();
-            if (existingWindow != null) {
-                existingWindow.text = responseText;
-            } else {
-                ResponseWindow gw = new ResponseWindow(this.width - 206, 59, responseText, 200);
-                responseWindows.add(gw);
-            }
-        }
-    }
-
-    private ResponseWindow findWindow() {
-        for (ResponseWindow w : responseWindows) {
-            if (!w.closed) {
-                return w;
-            }
-        }
-        return null;
+        if (searchResults.isEmpty()) return;
+        currentSearchIndex = (currentSearchIndex + 1) % searchResults.size();
+        Position pos = searchResults.get(currentSearchIndex);
+        tabs.get(currentTabIndex).textEditor.setCursor(pos.line, pos.start);
     }
 
     private void updateSearchResults() {
         searchResults.clear();
         String query = customSearchText.toString().toLowerCase();
-        if (query.isEmpty() || aiMode) {
+        if (query.isEmpty()) {
             textEditor.setSearchResults(searchResults);
             return;
         }
@@ -717,25 +514,19 @@ public class FileEditorScreen extends Screen {
             }
         }
         ContextMenu.hide();
-        if (aiShowPanel && aiSidePanel.mouseClicked(mouseX, mouseY, button)) {
+        if (aiMode && aiSidePanel.mouseClicked(mouseX, mouseY, button)) {
             return true;
-        }
-        for (ResponseWindow w : responseWindows) {
-            if (w.mouseClicked(mouseX, mouseY, button)) {
-                return true;
-            }
         }
         int hideButtonX = this.width - 15 - 5;
         int hideButtonY = 35;
         if (mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15 && button == 0) {
             playClick();
             if (hasShiftDown())
-                aiShowPanel = !aiShowPanel;
+                aiMode = !aiMode;
             else
                 showSidePanel = !showSidePanel;
             return true;
         }
-        responseWindows.removeIf(w -> w.closed);
         int searchBarX = (this.width - searchBarWidth) / 2;
         int searchBarY = 5;
         int clearSearchButtonX = searchBarX + searchBarWidth;
@@ -754,7 +545,6 @@ public class FileEditorScreen extends Screen {
                 return true;
             }
             customSearchBarFocused = false;
-            aiMode = false;
         }
         boolean clickedTab = false;
         int titleBarHeight = 30;
@@ -853,7 +643,7 @@ public class FileEditorScreen extends Screen {
                 isResizingSidePanel = true;
                 return true;
             }
-            if (mouseX >= panelX && mouseX <= panelX + animWidth && mouseY >= panelY && mouseY <= panelY + panelHeight && !aiShowPanel) {
+            if (mouseX >= panelX && mouseX <= panelX + animWidth && mouseY >= panelY && mouseY <= panelY + panelHeight && !aiMode) {
                 int entryHeight = 20 + 2;
                 double localY = mouseY - panelY + tabs.get(currentTabIndex).sidePanelScrollOffset;
                 int indexPos = 0;
@@ -1001,13 +791,7 @@ public class FileEditorScreen extends Screen {
             isResizingSidePanel = false;
             return true;
         }
-        boolean handled = false;
-        for (ResponseWindow w : responseWindows) {
-            boolean r = w.mouseReleased(mouseX, mouseY, button);
-            if (r) handled = true;
-        }
-        responseWindows.removeIf(w -> w.closed);
-        return tabs.get(currentTabIndex).textEditor.mouseReleased(mouseX, mouseY, button) || super.mouseReleased(mouseX, mouseY, button) || handled;
+        return tabs.get(currentTabIndex).textEditor.mouseReleased(mouseX, mouseY, button) || super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
@@ -1022,13 +806,6 @@ public class FileEditorScreen extends Screen {
         }
         boolean handled = false;
         boolean anyWindowDragging = false;
-        for (ResponseWindow w : responseWindows) {
-            boolean d = w.mouseDragged(mouseX, mouseY, button);
-            if (d) {
-                handled = true;
-                anyWindowDragging = true;
-            }
-        }
         if (anyWindowDragging) {
             return handled;
         }
@@ -1038,7 +815,7 @@ public class FileEditorScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizAmount, double vertAmount) {
         scaleScroll(vertAmount);
-        if (aiShowPanel && aiSidePanel.mouseScrolled(mouseX, mouseY, vertAmount, this.width - (int) animatedSidePanelWidth - 5, ContentYStart, (int) animatedSidePanelWidth, this.height - ContentYStart - 5)) {
+        if (aiMode && aiSidePanel.mouseScrolled(mouseX, mouseY, vertAmount, this.width - (int) animatedSidePanelWidth - 5, ContentYStart, (int) animatedSidePanelWidth, this.height - ContentYStart - 5)) {
             return true;
         }
         float animWidth = animatedSidePanelWidth;
@@ -1089,18 +866,9 @@ public class FileEditorScreen extends Screen {
         tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
         ScrollBar.render(context, this, mouseX, mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), (float) tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert);
         tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert = (int) ScrollBar.getPendingOffset();
-        List<ResponseWindow> toRemove = new ArrayList<>();
-        for (ResponseWindow w : responseWindows) {
-            if (w.closed) {
-                toRemove.add(w);
-                continue;
-            }
-            w.render(context, mouseX, mouseY, delta, minecraftClient);
-        }
         if (ContextMenu.isOpen()) {
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
-        responseWindows.removeAll(toRemove);
         animatedScaling(context, this, minecraftClient);
         if (animWidth > 0) {
             int panelX = this.width - animWidth;
@@ -1114,7 +882,7 @@ public class FileEditorScreen extends Screen {
             drawInnerBorder(context, panelX, panelY, animWidth, panelHeight, innerBorderColor);
             drawOuterBorder(context, panelX, panelY, animWidth, panelHeight, globalOuterBorder);
             context.enableScissor(panelX, panelY, panelX + animWidth, panelY + panelHeight);
-            if (!aiShowPanel)
+            if (!aiMode)
                 renderSidePanel(context, panelX, panelY, animWidth, panelHeight + 2, mouseX, mouseY);
             else
                 aiSidePanel.render(context, panelX, panelY, animWidth, panelHeight + 2, mouseX, mouseY);
@@ -2023,6 +1791,17 @@ public class FileEditorScreen extends Screen {
 
         public void setSearchResults(List<Position> results) {
             this.searchResults = results;
+        }
+    }
+
+    static class Position {
+        int line;
+        int start;
+        int end;
+        Position(int line, int start, int end) {
+            this.line = line;
+            this.start = start;
+            this.end = end;
         }
     }
 }
