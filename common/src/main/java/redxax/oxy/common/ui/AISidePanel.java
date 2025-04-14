@@ -103,6 +103,7 @@ public class AISidePanel {
     public void addAIMessage(String msg) {
         messages.add(new AIMessage("ai", msg));
         updateCurrentChatHistory();
+        targetScrollOffset = Float.MAX_VALUE;
     }
 
     public void setErrorMessage(String errMsg) {
@@ -247,7 +248,8 @@ public class AISidePanel {
         for (AIMessage msg : messages) {
             if ("ai".equals(msg.sender) && msg.mineMark != null) {
                 int height = (int) msg.mineMark.getHeight();
-                msg.mineMark.draw(panelX + 5, msgY, panelWidth - 10, mouseX, mouseY, context);
+                if (panelWidth - 10 > 0)
+                    msg.mineMark.draw(panelX + 5, msgY, panelWidth - 10, mouseX, mouseY, context);
                 msgY += height + 5;
             } else {
                 List<String> wrapped = wrapText(msg.text, panelWidth - 10, tr);
