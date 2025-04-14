@@ -11,9 +11,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -21,11 +19,11 @@ import dev.dediamondpro.minemark.minecraft.MineMarkDrawable;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.Render;
 import redxax.oxy.common.config.Config;
-import redxax.oxy.common.explorer.ResponseManager;
 
 import static redxax.oxy.common.Render.drawInnerBorder;
 import static redxax.oxy.common.config.Config.*;
@@ -38,6 +36,7 @@ public class AISidePanel {
     private int panelY;
     private int panelWidth;
     private int panelX;
+    private Screen parent;
 
     public static class AIMessage {
         public String sender;
@@ -91,7 +90,8 @@ public class AISidePanel {
     private float currentScrollOffset = 0;
     private static final Path CHAT_HISTORY_PATH = Path.of(remotelyDir.toString(), "data", "chat_history.json");
 
-    public AISidePanel() {
+    public AISidePanel(Screen parent) {
+        this.parent = parent;
         this.messages = new ArrayList<>();
         this.inputBuffer = new StringBuilder();
         this.inputCursor = 0;
@@ -109,18 +109,22 @@ public class AISidePanel {
     }
 
     public void setExtraContext(String context) {
-        this.extraContext = context;
+        StringBuilder sb = new StringBuilder();
+        sb.append("Hey Reemotely, Here Is Some Handy Context: \n");
+        if (mc.getSession().getUsername().equalsIgnoreCase("RedxAx")) sb.append("The User Is RedxAx. Your Creator And Programmer Of The Remotely Mod.");
+        else sb.append("The User's Name is ").append(mc.getSession().getUsername()).append(". \n");
+        sb.append("(Only For You To Know) The User Language (WHICH YOU MUST USE UNLESS THE USER ASKS NOT TO) is: ").append(mc.getLanguageManager().getLanguage()).append(". \n");
+        sb.append("(Only For You To Know) The User's Operating System is: ").append(System.getProperty("os.name")).append(". \n");
+        sb.append("The Current User's Context is: \n");
+        for (String line : context.split("\n")) {
+            sb.append(line).append("\n");
+        }
+        this.extraContext = sb.toString();
     }
 
     public void addUserMessage(String msg) {
         messages.add(new AIMessage("user", msg));
         updateCurrentChatHistory();
-    }
-
-    public void addAIMessage(String msg) {
-        messages.add(new AIMessage("ai", msg));
-        updateCurrentChatHistory();
-        targetScrollOffset = Float.MAX_VALUE;
     }
 
     public void setErrorMessage(String errMsg) {
@@ -175,7 +179,11 @@ public class AISidePanel {
         JsonObject systemInstruction = new JsonObject();
         JsonArray sysParts = new JsonArray();
         JsonObject sysPart = new JsonObject();
-        sysPart.addProperty("text", "You're Reemotely AI. a Chat Bot That Helps Minecraft Server Admins With Their Terminal / Files That May Relate To Minecraft Development. You Provide Short And To The Point Answers In a Human Friendly Way. You're a Part Of a Minecraft Mod That Contains An In-Game MultiTerminal, File Explorer, File Editor, Server Manager, Etc. You Can And Should Use Markdown Rendering.");
+        String systemPrompt = "You're Reemotely AI. A Chat Bot That Helps Minecraft Server Admins With Their Terminal / Files That May Relate To Minecraft Development. You Provide Short And To The Point Answers In a Human Friendly / Non-Robot Way. You're a Part Of a Minecraft Mod (Called Remotely) That Contains An In-Game MultiTerminal, File Explorer, File Editor, Server Manager, Etc. You Can And Should Use Markdown Rendering, And You Can Also Use Plain Text As HTML Rendering.";
+        if (extraContext != null && !extraContext.isEmpty()) {
+            systemPrompt += "\n\nAdditional context: " + extraContext;
+        }
+        sysPart.addProperty("text", systemPrompt);
         sysParts.add(sysPart);
         systemInstruction.add("parts", sysParts);
         requestBodyJson.add("system_instruction", systemInstruction);
@@ -296,14 +304,14 @@ public class AISidePanel {
         Render.drawOuterBorder(context, panelX, panelY, panelWidth, panelHeight, Config.globalOuterBorder);
         renderTopBar(context, panelX, panelY, panelWidth, mouseX, mouseY);
         int msgAreaY = panelY + topBarHeight;
-        int msgAreaHeight = panelHeight - topBarHeight - 35;
+        int msgAreaHeight = panelHeight - topBarHeight - 28;
         int totalHeight = getTotalChatHeight(panelWidth - 10, mc.textRenderer);
         int maxScroll = Math.max(0, totalHeight - msgAreaHeight);
         int threshold = (mc.textRenderer.fontHeight + 2) * 2;
         if (targetScrollOffset >= maxScroll - threshold) {
             targetScrollOffset = maxScroll;
         }
-        context.enableScissor(panelX, msgAreaY, panelX + panelWidth, msgAreaY + msgAreaHeight);
+        context.enableScissor(panelX, msgAreaY + 1, panelX + panelWidth, msgAreaY + msgAreaHeight + 4);
         currentScrollOffset += (targetScrollOffset - currentScrollOffset) * globalScrollSpeed * deltaTime;
         int msgY = msgAreaY + 5 - (int) currentScrollOffset;
         TextRenderer tr = mc.textRenderer;
@@ -343,19 +351,18 @@ public class AISidePanel {
             drawInnerBorder(context, iconCenterX, iconY, iconRect, iconRect, Config.innerBorderColor);
             Render.drawOuterBorder(context, iconCenterX, iconY, iconRect, iconRect, Config.globalOuterBorder);
             String greeting = Render.trimTextToWidthWithEllipsis("Welcome, " + mc.getSession().getUsername() + "!", panelWidth - 10);
-            String greeting2 = Render.trimTextToWidthWithEllipsis("I'm Reemotely AI.", panelWidth - 10);
+            String greeting2 = "I'm Reemotely AI.";
             int greetingCenterX = panelX + panelWidth / 2 - tr.getWidth(Text.literal(greeting)) / 2;
+            int greeting2CenterX = panelX + panelWidth / 2 - tr.getWidth(Text.literal(greeting2)) / 2;
             int textY = iconY + iconRect + 5;
             context.drawText(tr, Text.literal(greeting), greetingCenterX, textY, Config.globalDarkTextColor, Config.shadow);
             textY += tr.fontHeight + 2;
-            context.drawText(tr, Text.literal(greeting2), greetingCenterX, textY, Config.globalDarkTextColor, Config.shadow);
+            context.drawText(tr, Text.literal(greeting2), greeting2CenterX, textY, Config.globalDarkTextColor, Config.shadow);
         }
         context.disableScissor();
-        inputHovered = (mouseX >= panelX + 5 && mouseX < panelX + panelWidth - 5 && mouseY >= panelY + panelHeight - 35 && mouseY < panelY + panelHeight - 10);
-        context.fill(panelX, panelY + panelHeight - 35, panelX + panelWidth, panelY + panelHeight, Config.innerBackgroundColor);
-        drawInnerBorder(context, panelX, panelY + panelHeight - 35, panelWidth, 35, Config.innerBorderColor);
-        Render.drawOuterBorder(context, panelX, panelY + panelHeight - 35, panelWidth, 35, Config.globalOuterBorder);
-        Render.drawTextInput(context, mc, panelX + 5, panelY + panelHeight - 30, "AI Input", inputBuffer.toString(), fieldFocused, inputCursor, -1, -1, inputHovered, panelWidth - 10, 20);
+        inputHovered = (mouseX >= panelX + 5 && mouseX < panelX + panelWidth - 5 && mouseY >= panelY + panelHeight - 24 && mouseY < panelY + panelHeight - 10);
+        drawInnerBorder(context, panelX, panelY + panelHeight - 24, panelWidth, 35, Config.innerBorderColor);
+        if (panelX + 5 <= panelX + panelWidth - 10) Render.drawTextInput(context, mc, panelX + 5, panelY + panelHeight - 20, "AI Input", inputBuffer.toString(), fieldFocused, inputCursor, -1, -1, inputHovered, panelWidth - 10, 14, "Ask Reemotely...");
         Render.ContextMenu.renderMenu(context, mc, mouseX, mouseY);
     }
 
@@ -545,7 +552,6 @@ public class AISidePanel {
                         String sender = obj.has("sender") ? obj.get("sender").getAsString() : "";
                         String text = obj.has("text") ? obj.get("text").getAsString() : "";
                         messages.add(new AIMessage(sender, text));
-                        devPrint("Loaded message: " + sender + ": " + text);
                     }
                 } else {
                     history.add(new JsonArray());
