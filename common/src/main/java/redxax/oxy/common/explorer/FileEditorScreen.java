@@ -1038,7 +1038,7 @@ public class FileEditorScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizAmount, double vertAmount) {
         scaleScroll(vertAmount);
-        if (aiMode && aiSidePanel.mouseScrolled(mouseX, mouseY, vertAmount, this.width - (int) animatedSidePanelWidth - 5, ContentYStart, (int) animatedSidePanelWidth, this.height - ContentYStart - 5)) {
+        if (aiShowPanel && aiSidePanel.mouseScrolled(mouseX, mouseY, vertAmount, this.width - (int) animatedSidePanelWidth - 5, ContentYStart, (int) animatedSidePanelWidth, this.height - ContentYStart - 5)) {
             return true;
         }
         float animWidth = animatedSidePanelWidth;
