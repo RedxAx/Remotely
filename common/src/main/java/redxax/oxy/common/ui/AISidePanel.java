@@ -85,7 +85,7 @@ public class AISidePanel {
     private final int topBarHeight = 30;
     public boolean fieldFocused = false;
     boolean inputHovered = false;
-    BufferedImage newChatIcon, deleteChatIcon, chatHistoryIcon, ReemotelyAIcon;
+    BufferedImage newChatIcon, deleteChatIcon, chatHistoryIcon, RemotelyAIcon;
     private float targetScrollOffset = 0;
     private float currentScrollOffset = 0;
     private static final Path CHAT_HISTORY_PATH = Path.of(remotelyDir.toString(), "data", "chat_history.json");
@@ -101,7 +101,7 @@ public class AISidePanel {
             newChatIcon = loadResourceIcon("/assets/remotely/icons/newchat.png");
             deleteChatIcon = loadResourceIcon("/assets/remotely/icons/delete.png");
             chatHistoryIcon = loadResourceIcon("/assets/remotely/icons/history.png");
-            ReemotelyAIcon = loadResourceIcon("/assets/remotely/icons/ReemotelyAI.png");
+            RemotelyAIcon = loadResourceIcon("/assets/remotely/icons/ReemotelyAI.png");
         } catch (Exception e) {
             devPrint("Failed to load icons: " + e.getMessage());
         }
@@ -110,7 +110,7 @@ public class AISidePanel {
 
     public void setExtraContext(String context) {
         StringBuilder sb = new StringBuilder();
-        sb.append("Hey Reemotely, Here Is Some Handy Context: \n");
+        sb.append("Hey Remotely, Here Is Some Handy Context: \n");
         if (mc.getSession().getUsername().equalsIgnoreCase("RedxAx")) sb.append("The User Is RedxAx. Your Creator And Programmer Of The Remotely Mod.");
         else sb.append("The User's Name is ").append(mc.getSession().getUsername()).append(". \n");
         sb.append("(Only For You To Know) The User Language (WHICH YOU MUST USE UNLESS THE USER ASKS NOT TO) is: ").append(mc.getLanguageManager().getLanguage()).append(". \n");
@@ -179,7 +179,7 @@ public class AISidePanel {
         JsonObject systemInstruction = new JsonObject();
         JsonArray sysParts = new JsonArray();
         JsonObject sysPart = new JsonObject();
-        String systemPrompt = "You're Reemotely AI. A Chat Bot That Helps Minecraft Server Admins With Their Terminal / Files That May Relate To Minecraft Development. You Provide Short And To The Point Answers In a Human Friendly / Non-Robot Way. You're a Part Of a Minecraft Mod (Called Remotely) That Contains An In-Game MultiTerminal, File Explorer, File Editor, Server Manager, Etc. You Can And Should Use Markdown Rendering, And You Can Also Use Plain Text As HTML Rendering.";
+        String systemPrompt = "You're Remotely AI. A Chat Bot That Helps Minecraft Server Admins With Their Terminal / Files That May Relate To Minecraft Development. You Provide Short And To The Point Answers In a Human Friendly / Non-Robot Way. You're a Part Of a Minecraft Mod (Called Remotely) That Contains An In-Game MultiTerminal, File Explorer, File Editor, Server Manager, Etc. You Can And Should Use Markdown Rendering, And You Can Also Use Plain Text As HTML Rendering.";
         if (extraContext != null && !extraContext.isEmpty()) {
             systemPrompt += "\n\nAdditional context: " + extraContext;
         }
@@ -347,11 +347,11 @@ public class AISidePanel {
             int verticalCenter = msgAreaY + msgAreaHeight / 2;
             int totalContentHeight = iconRect + tr.fontHeight + 5;
             int iconY = verticalCenter - totalContentHeight / 2;
-            drawPixelArt(context, iconCenterX, iconY, iconRect, iconRect, ReemotelyAIcon);
+            drawPixelArt(context, iconCenterX, iconY, iconRect, iconRect, RemotelyAIcon);
             drawInnerBorder(context, iconCenterX, iconY, iconRect, iconRect, Config.innerBorderColor);
             Render.drawOuterBorder(context, iconCenterX, iconY, iconRect, iconRect, Config.globalOuterBorder);
             String greeting = Render.trimTextToWidthWithEllipsis("Welcome, " + mc.getSession().getUsername() + "!", panelWidth - 10);
-            String greeting2 = "I'm Reemotely AI.";
+            String greeting2 = "I'm Remotely AI.";
             int greetingCenterX = panelX + panelWidth / 2 - tr.getWidth(Text.literal(greeting)) / 2;
             int greeting2CenterX = panelX + panelWidth / 2 - tr.getWidth(Text.literal(greeting2)) / 2;
             int textY = iconY + iconRect + 5;
@@ -362,7 +362,7 @@ public class AISidePanel {
         context.disableScissor();
         inputHovered = (mouseX >= panelX + 5 && mouseX < panelX + panelWidth - 5 && mouseY >= panelY + panelHeight - 24 && mouseY < panelY + panelHeight - 10);
         drawInnerBorder(context, panelX, panelY + panelHeight - 24, panelWidth, 35, Config.innerBorderColor);
-        if (panelX + 5 <= panelX + panelWidth - 10) Render.drawTextInput(context, mc, panelX + 5, panelY + panelHeight - 20, "AI Input", inputBuffer.toString(), fieldFocused, inputCursor, -1, -1, inputHovered, panelWidth - 10, 14, "Ask Reemotely...");
+        if (panelX + 5 <= panelX + panelWidth - 10) Render.drawTextInput(context, mc, panelX + 5, panelY + panelHeight - 20, "AI Input", inputBuffer.toString(), fieldFocused, inputCursor, -1, -1, inputHovered, panelWidth - 10, 14, "Ask Remotely...");
         Render.ContextMenu.renderMenu(context, mc, mouseX, mouseY);
     }
 

@@ -9,6 +9,7 @@ import org.jline.utils.AttributedStyle;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.Render;
 import redxax.oxy.common.config.Config;
+import redxax.oxy.common.servers.ServerInfo;
 
 import java.util.*;
 import java.util.regex.Matcher;
@@ -401,7 +402,27 @@ public class TerminalRenderer {
 
     private OrderedText[] getStatusBarOrderedTexts(int scaledWidth) {
         if (tmuxStatusLine.isEmpty()) {
-            return new OrderedText[]{Text.literal("Remotely - 2.0 DevBuild3 4/4/2025").asOrderedText(), Text.literal(new Date().toString()).asOrderedText()};
+            if (terminalInstance.getServerInfo() != null) {
+                ServerInfo sInfo = terminalInstance.getServerInfo();
+                String serverName = sInfo.name;
+                String serverStatus;
+                switch (sInfo.state) {
+                    case STARTING -> serverStatus = "Starting";
+                    case RUNNING -> serverStatus = "Running";
+                    case STOPPED -> serverStatus = "Stopped";
+                    case CRASHED -> serverStatus = "Crashed";
+                    default -> serverStatus = "Unknown";
+                }
+                boolean connected;
+                String hostStatus;
+                if (sInfo.remoteHost != null && sInfo.remoteSSHManager != null && sInfo.isRemote) {
+                    connected = sInfo.remoteSSHManager.isSSH();
+                    hostStatus = connected ? sInfo.remoteHost.name + " - Connected" : sInfo.remoteHost.name + ": Disconnected";
+                } else {
+                    hostStatus = "Local Host | " + new Date();
+                }
+                return new OrderedText[]{Text.literal("Remotely - 2.0.0 | " + serverName + " - " + serverStatus).asOrderedText(), Text.literal(hostStatus).asOrderedText()};
+            } else return new OrderedText[]{Text.literal("Remotely - 2.0.0 | DevBuild4 15/4/2025").asOrderedText(), Text.literal(new Date().toString()).asOrderedText()};
         }
         String line = tmuxStatusLine;
         String leftText;

@@ -14,6 +14,7 @@ import java.util.Map;
 import static redxax.oxy.common.Render.drawInnerBorder;
 import static redxax.oxy.common.Render.drawOuterBorder;
 import static redxax.oxy.common.config.Config.*;
+import static redxax.oxy.common.util.DevUtil.devPrint;
 
 public class Notification {
     private final TextRenderer textRenderer;
@@ -51,6 +52,7 @@ public class Notification {
         this.targetY = this.currentY;
         elevationOffsets.put(notificationId, this.currentX);
         activeNotifications.add(this);
+        if (type == Type.ERROR) devPrint("[NotificationError] " + message);
     }
 
     private float calculateYPosition() {
