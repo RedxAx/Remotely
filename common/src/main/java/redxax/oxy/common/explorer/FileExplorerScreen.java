@@ -13,6 +13,7 @@ import org.lwjgl.glfw.GLFWDropCallbackI;
 import redxax.oxy.common.servers.RemoteHostInfo;
 import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.config.Config;
+import redxax.oxy.common.util.Notification;
 import redxax.oxy.common.util.TextAnimator;
 import redxax.oxy.common.servers.ServerManagerScreen;
 
@@ -395,8 +396,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         ScrollBar.render(context, this, mouseX, mouseY, totalHeight + explorerY - tabBarY - 30, currentTab.tabData.targetOffset);
         canScroll = visibleEntries < entriesToRender.size();
         currentTab.tabData.targetOffset = ScrollBar.getPendingOffset();
-        updateNotifications(delta);
-        renderNotifications(context, mouseX, mouseY, delta);
         if (ContextMenu.isOpen()) {
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
@@ -1532,26 +1531,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     }
 
     public void showNotification(String message, Notification.Type type) {
-        notifications.add(new Notification(message, type, this.width, this.height));
-        if (type == Notification.Type.ERROR)
-            devPrint("[Notification] " + message);
-    }
-
-    private void updateNotifications(float delta) {
-        Iterator<Notification> iterator = notifications.iterator();
-        while (iterator.hasNext()) {
-            Notification notification = iterator.next();
-            notification.update(delta);
-            if (notification.isFinished()) {
-                iterator.remove();
-            }
-        }
-    }
-
-    private void renderNotifications(DrawContext context, int mouseX, int mouseY, float delta) {
-        for (Notification notification : notifications) {
-            notification.render(context);
-        }
+        new Notification(message, type);
     }
 
     void loadDirectory(Path dir, boolean addToHistory, boolean forceReload, boolean preserveState) {
@@ -1820,87 +1800,5 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     public void removed() {
         minecraftClient.getWindow().setScaleFactor(originalMCScale);
         targetScaleFactor = globalScaleFactor = animScaleFactor;
-    }
-
-    public class Notification {
-        private final TextRenderer textRenderer = minecraftClient.textRenderer;
-        enum Type { INFO, WARN, ERROR }
-        private final String message;
-        private final Type type;
-        private float x;
-        private final float y;
-        private final float targetX;
-        private float currentOpacity;
-        private float elapsedTime = 0.0f;
-        private boolean fadingOut = false;
-        private final int padding = 10;
-        private final int width;
-        private final int height;
-        private static final List<Notification> activeNotifications = new ArrayList<>();
-
-        Notification(String message, Type type, int screenWidth, int screenHeight) {
-            this.message = message;
-            this.type = type;
-            this.width = textRenderer.getWidth(message) + 2 * padding;
-            this.height = textRenderer.fontHeight + 2 * padding;
-            this.x = screenWidth;
-            this.y = screenHeight - this.height - padding - (activeNotifications.size() * (this.height + padding));
-            this.targetX = screenWidth - this.width - padding;
-            this.currentOpacity = 1.0f;
-            activeNotifications.add(this);
-        }
-
-        void update(float delta) {
-            if (x > targetX) {
-                float animationSpeed = 30.0f;
-                float move = animationSpeed * delta;
-                x -= move;
-                if (x < targetX) {
-                    x = targetX;
-                }
-            } else if (!fadingOut) {
-                elapsedTime += delta;
-                float duration = 50.0f;
-                if (elapsedTime >= duration) {
-                    fadingOut = true;
-                }
-            }
-            if (fadingOut) {
-                float fadeOutSpeed = 100.0f;
-                currentOpacity -= fadeOutSpeed * delta / 1000.0f;
-                if (currentOpacity <= 0.0f) {
-                    currentOpacity = 0.0f;
-                    activeNotifications.remove(this);
-                }
-            } else {
-                currentOpacity = 1.0f;
-            }
-        }
-
-        boolean isFinished() {
-            return currentOpacity <= 0.0f;
-        }
-
-        void render(DrawContext context) {
-            if (currentOpacity <= 0.0f) return;
-            int color;
-            switch (type) {
-                case ERROR -> color = blendColor(0xFFFF5555, currentOpacity);
-                case WARN -> color = blendColor(0xFFFFAA55, currentOpacity);
-                default -> color = blendColor(0xFF5555FF, currentOpacity);
-            }
-            context.fill((int) x, (int) y, (int) x + width, (int) y + height, color);
-            drawInnerBorder(context, (int) x, (int) y, width, height, blendColor(0xFF000000, currentOpacity));
-            drawOuterBorder(context, (int) x, (int) y, width, height, globalOuterBorder);
-            context.drawText(textRenderer, Text.literal(message), (int) x + padding, (int) y + padding, blendColor(globalTextColor, currentOpacity), Config.shadow);
-        }
-
-        private int blendColor(int color, float opacity) {
-            int a = (int) ((color >> 24 & 0xFF) * opacity);
-            int r = (color >> 16 & 0xFF);
-            int g = (color >> 8 & 0xFF);
-            int b = (color & 0xFF);
-            return (a << 24) | (r << 16) | (g << 8) | b;
-        }
     }
 }

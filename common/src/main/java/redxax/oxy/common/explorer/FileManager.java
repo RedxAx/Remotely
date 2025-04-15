@@ -11,6 +11,7 @@ import java.util.stream.IntStream;
 import redxax.oxy.common.RemotelyClient;
 import redxax.oxy.common.SSHManager;
 import redxax.oxy.common.servers.ServerInfo;
+import redxax.oxy.common.util.Notification;
 
 public class FileManager {
     private static class ClipboardEntry {
@@ -79,7 +80,7 @@ public class FileManager {
                         backupPaths.add(trashPath);
                     }
                 } catch (Exception e) {
-                    callback.showNotification("Error deleting " + path.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
+                    new Notification("Error deleting " + path.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
                 }
             });
         } else {
@@ -92,7 +93,7 @@ public class FileManager {
                         backupPaths.add(backupPath.toString());
                     }
                 } catch (IOException e) {
-                    callback.showNotification("Error deleting " + path.getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
+                    new Notification("Error deleting " + path.getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
                 }
             });
         }
@@ -161,7 +162,7 @@ public class FileManager {
                     }
                 }
             } catch (Exception e) {
-                callback.showNotification("Error pasting " + Paths.get(entry.sourcePath).getFileName() + ": " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
+                new Notification("Error pasting " + Paths.get(entry.sourcePath).getFileName() + ": " + e.getMessage(), Notification.Type.ERROR);
             }
         }
         if (!operations.isEmpty()) {
@@ -300,7 +301,7 @@ public class FileManager {
                         int index = backupPaths.indexOf(backup);
                         sshManager.runRemoteCommand("mv -f \"" + backup + "\" \"" + deletedPaths.get(index) + "\"");
                     } catch (Exception e) {
-                        callback.showNotification("Error undoing delete: " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
+                        new Notification("Error undoing delete: " + e.getMessage(), Notification.Type.ERROR);
                     }
                 });
             } else {
@@ -310,7 +311,7 @@ public class FileManager {
                         Path backup = Paths.get(backupPaths.get(i));
                         Files.walkFileTree(backup, new RecursiveFileCopier(backup, dest, true, null));
                     } catch (IOException e) {
-                        callback.showNotification("Error undoing delete: " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
+                        new Notification("Error undoing delete: " + e.getMessage(), Notification.Type.ERROR);
                     }
                 });
             }
@@ -344,7 +345,7 @@ public class FileManager {
                         }
                     }
                 } catch (Exception e) {
-                    callback.showNotification("Error undoing paste: " + e.getMessage(), FileExplorerScreen.Notification.Type.ERROR);
+                    new Notification("Error undoing paste: " + e.getMessage(), Notification.Type.ERROR);
                 }
             });
         }
@@ -359,7 +360,7 @@ public class FileManager {
     }
 
     public interface FileManagerCallback {
-        void showNotification(String message, FileExplorerScreen.Notification.Type type);
+        void showNotification(String message, Notification.Type type);
         void refreshDirectory(Path path);
         void ensureRemoteConnected();
     }
