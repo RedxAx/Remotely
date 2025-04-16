@@ -9,6 +9,7 @@ import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.RemotelyClient;
+import redxax.oxy.common.Render;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.explorer.FileExplorerScreen;
 import redxax.oxy.common.servers.PluginModManagerScreen;
@@ -26,6 +27,7 @@ import java.util.stream.Collectors;
 import static redxax.oxy.common.RemotelyClient.globalSnippets;
 import static redxax.oxy.common.RemotelyClient.*;
 import static redxax.oxy.common.Render.*;
+import static redxax.oxy.common.Render.TabsBar.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.config.Themes.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
@@ -92,6 +94,7 @@ public class MultiTerminalScreen extends Screen {
     int snippetMaxVisibleLines = 1;
     private boolean shortcutConsumed = false;
     public static boolean isResizingSnippetPanel = false;
+    private TabsBar<Void> tabsBar;
 
     int snippetNameScrollOffset = 0;
 
@@ -169,10 +172,51 @@ public class MultiTerminalScreen extends Screen {
             explorerIcon = new IconWithTooltip("/assets/remotely/icons/explorer.png", "Open File Explorer In The Current Path");
             resourcesIcon = new IconWithTooltip("/assets/remotely/icons/resources.png", "Open Plugins/Mods Manager");
             snippetsIcon = new IconWithTooltip("/assets/remotely/icons/snippets.png", "");
-        } catch (IOException ignored) {} catch (Exception e) {
-            devPrint("Error loading themes: " + e.getMessage());
+        } catch (Exception e) {
         }
         aiSidePanel = new AISidePanel(this);
+        List<Render.TabsBar.Tab<Void>> tabList = new ArrayList<>();
+        for (String tabName : tabNames) {
+            tabList.add(new Tab<>(tabName, false, null));
+        }
+        tabsBar = new Render.TabsBar<>(tabList);
+        tabsBar.setActiveTab(activeTerminalIndex);
+        tabsBar.setHasPlus(true);
+        tabsBar.setAllowClose(tabCloseButtons);
+        tabsBar.setAllowRename(true);
+        tabsBar.setAllowDrag(true);
+        tabsBar.setAllowScroll(true);
+        tabsBar.setTabBarBounds(5, 35, this.width - 5 - snippetPanelWidth, 18);
+        tabsBar.setOnTabOrderChanged(() -> {
+            List<String> newNames = new ArrayList<>();
+            for (TabsBar.Tab<Void> t : tabsBar.getTabs()) newNames.add(t.name);
+            tabNames.clear();
+            tabNames.addAll(newNames);
+            List<TerminalInstance> newTerms = new ArrayList<>();
+            terminals.clear();
+            terminals.addAll(newTerms);
+            remotelyClient.multiTerminals = new ArrayList<>(terminals);
+            remotelyClient.multiTabNames = new ArrayList<>(tabNames);
+        });
+        tabsBar.setOnTabClosed(() -> {
+            int idx = tabsBar.getActiveTab();
+            closeTerminal(idx);
+        });
+        tabsBar.setOnTabSelected(() -> {
+            activeTerminalIndex = tabsBar.getActiveTab();
+        });
+        tabsBar.setOnTabPlus(() -> {
+            addNewTerminal();
+            tabsBar.getTabs().add(new TabsBar.Tab<>("Tab " + terminals.size(), false, null));
+            tabsBar.setActiveTab(terminals.size() - 1);
+        });
+        tabsBar.setOnTabRenamed(() -> {
+            int idx = tabsBar.getRenamingTab();
+            if (idx >= 0 && idx < tabNames.size()) {
+                tabNames.set(idx, tabsBar.getTabs().get(idx).name);
+                remotelyClient.multiTabNames = new ArrayList<>(tabNames);
+            }
+        });
     }
 
     private void loadThemesFromDir() {
@@ -273,6 +317,7 @@ public class MultiTerminalScreen extends Screen {
         terminal.shutdown();
         terminals.remove(index);
         tabNames.remove(index);
+        tabsBar.closeTab(index);
         if (activeTerminalIndex >= terminals.size()) {
             activeTerminalIndex = terminals.size() - 1;
         }
@@ -295,26 +340,9 @@ public class MultiTerminalScreen extends Screen {
                 ServerInfo sInfo = serverTerminal.getServerInfo();
                 boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
                 ServerState st = sInfo.state;
-                String stateText = switch (st) {
-                    case RUNNING -> "Running";
-                    case STARTING -> "Starting";
-                    case STOPPED -> "Stopped";
-                    case CRASHED -> "Crashed";
-                };
                 drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, (st == ServerState.RUNNING || st == ServerState.STARTING) ? stopIcon : startIcon, explorerIcon, isProxy ? null : resourcesIcon, null, null, null, null, null);
-                String hostStatus;
-                if (sInfo.isRemote && sInfo.remoteHost != null) {
-                    boolean connected = (sInfo.remoteSSHManager != null && sInfo.remoteSSHManager.isSSH());
-                    hostStatus = connected ? sInfo.remoteHost.name + ": Connected" : sInfo.remoteHost.name + ": Disconnected";
-                } else {
-                    hostStatus = "Local Host";
-                }
-                String titleText = sInfo.name + " - " + stateText + " | " + hostStatus;
-                context.drawText(minecraftClient.textRenderer, Text.literal(titleText), 10, 10, globalTextColor, shadow);
             } else {
                 drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, null, null, null, null, null, null, null);
-                String titleText = "Remotely Terminal";
-                context.drawText(minecraftClient.textRenderer, Text.literal(titleText), 10, 10, globalTextColor, shadow);
             }
         }
         if (!warningMessage.isEmpty()) {
@@ -332,8 +360,10 @@ public class MultiTerminalScreen extends Screen {
         animatedSnippetPanelWidth += (targetPanelWidth - animatedSnippetPanelWidth) * Config.globalExpandSpeed * deltaTime;
         int animatedWidth = (int) animatedSnippetPanelWidth;
         int effectiveWidth = this.width - animatedWidth - 5;
-        drawTabs(context, this.textRenderer, buildTabInfoList(), activeTerminalIndex, mouseX, mouseY, true, false);
-        TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
+        tabsBar.setTabBarBounds(5, tabOffsetY, effectiveWidth, tabAreaHeight);
+        tabsBar.renderTabsBar(context, minecraftClient.textRenderer, tabsBar, mouseX, mouseY, shadow);
+        activeTerminalIndex = Math.min(tabsBar.getActiveTab(), terminals.size() - 1);
+        TerminalInstance activeTerminal = terminals.get(Math.min(activeTerminalIndex, terminals.size() - 1));
         int contentYStart = tabOffsetY + tabAreaHeight + verticalPadding;
         ContentYStart = contentYStart + 5;
         int adjustedHeight = this.height - (topBarHeight + tabAreaHeight + verticalPadding) + 60;
@@ -629,6 +659,9 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (tabsBar.handleTabsBarMouse((int) mouseX, (int) mouseY, button)) {
+            return true;
+        }
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
             int textAreaHeight = -activeTerminal.renderer.getInputFieldHeight() - activeTerminal.renderer.getStatusBarHeight();
@@ -989,6 +1022,9 @@ public class MultiTerminalScreen extends Screen {
         return super.mouseClicked(mouseX, mouseY, button);
     }
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (tabsBar.handleTabsBarRelease(button)) {
+            return true;
+        }
         if (button == 0 && draggingSnippetIndex != -1) {
             if (isDraggingSnippet) {
                 RemotelyClient.CommandSnippet dragged = globalSnippets.get(draggingSnippetIndex);
@@ -1057,6 +1093,9 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (tabsBar.handleTabsBarDrag(button, deltaX)) {
+            return true;
+        }
         if (draggingSnippetIndex != -1 && button == 0) {
             draggingCurrentY += (float) deltaY;
             if (!isDraggingSnippet && Math.abs(draggingCurrentY - draggingStartY) > 5) {
@@ -1089,18 +1128,11 @@ public class MultiTerminalScreen extends Screen {
         if (aiMode && aiSidePanel.mouseScrolled(mouseX, mouseY, verticalAmount, this.width - (int) animatedSnippetPanelWidth - 5, ContentYStart, (int) animatedSnippetPanelWidth, this.height - ContentYStart - 5)) {
             return true;
         }
+        if (tabsBar.handleTabsBarScroll(verticalAmount, mouseX, mouseY)) {
+            return true;
+        }
         boolean ctrlHeld = InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(this.minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
         scaleScroll(verticalAmount);
-        int availableTabWidth = this.width - (Math.max((int) animatedSnippetPanelWidth, 0)) - 15 - 20;
-        int totalTabsWidth = 0;
-        for (int i = 0; i < terminals.size(); i++) {
-            String tName = tabNames.get(i);
-            int tw = minecraftClient.textRenderer.getWidth(tName);
-            int paddingH = 10;
-            int tabW = Math.max(tw + paddingH * 2, 45);
-            totalTabsWidth += tabW + tabPadding;
-        }
-        if (totalTabsWidth < availableTabWidth) totalTabsWidth = availableTabWidth;
         if (ctrlHeld) {
             scale += verticalAmount > 0 ? 0.1f : -0.1f;
             scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
@@ -1140,11 +1172,6 @@ public class MultiTerminalScreen extends Screen {
                     return true;
                 }
             }
-            if (mouseY <= topBarHeight + TAB_HEIGHT + 10) {
-                tabScrollOffset -= (float) (verticalAmount * 20);
-                tabScrollOffset = MathHelper.clamp(tabScrollOffset, 0, Math.max(0, totalTabsWidth - availableTabWidth));
-                return true;
-            }
             if (!terminals.isEmpty()) {
                 TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
                 int padding = 2;
@@ -1160,6 +1187,9 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (tabsBar.handleTabsBarKey(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         if (aiMode && aiSidePanel.fieldFocused) {
             aiSidePanel.setExtraContext(terminals.get(activeTerminalIndex).getRenderer().getTerminalContext());
             if (aiSidePanel.keyPressed(keyCode, scanCode, modifiers)) {
@@ -1313,25 +1343,11 @@ public class MultiTerminalScreen extends Screen {
             }
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_DELETE) {
-            closeTerminal(activeTerminalIndex);
-            return true;
-        }
-        if (keyCode == GLFW.GLFW_KEY_GRAVE_ACCENT) {
+        if (ctrlHeld && keyCode == GLFW.GLFW_KEY_TAB) {
             if (!terminals.isEmpty()) {
                 int nextIndex = (activeTerminalIndex + 1) % terminals.size();
-                setActiveTerminal(nextIndex);
+                tabsBar.setActiveTab(nextIndex);
             }
-            return true;
-        }
-        if (ctrlHeld && keyCode == GLFW.GLFW_KEY_EQUAL) {
-            scale += 0.1f;
-            scale = Math.min(MAX_SCALE, scale);
-            return true;
-        }
-        if (ctrlHeld && keyCode == GLFW.GLFW_KEY_MINUS) {
-            scale -= 0.1f;
-            scale = Math.max(MIN_SCALE, scale);
             return true;
         }
         if (isRenaming && renamingTabIndex != -1) {
@@ -1393,6 +1409,9 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean charTyped(char chr, int keyCode) {
+        if (tabsBar.handleTabsBarChar(chr)) {
+            return true;
+        }
         if (aiSidePanel.fieldFocused && aiMode && aiSidePanel.charTyped(chr, keyCode)) {
             return true;
         }

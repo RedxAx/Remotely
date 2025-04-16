@@ -124,6 +124,7 @@ public class SettingsScreen extends Screen {
         settings.add(new Settings("Movement Animation Speed", "Set The Global Speed of The Movement Animations.", "Appearance", "none", "globalMovementSpeed", SLIDER, String.valueOf(globalMovementSpeed), 0, 60));
         settings.add(new Settings("Scale Animation Speed", "Set The Global Speed of The Scale Animations.", "Appearance", "none", "scaleAnimationSpeed", SLIDER, String.valueOf(scaleAnimationSpeed), 0, 60));
         settings.add(new Settings("Expand Animation Speed", "Set The Global Speed of The Expand/Shrink Animations.", "Appearance", "none", "globalExpandSpeed", SLIDER, String.valueOf(globalExpandSpeed).replace("f", ""), 0, 30));
+        settings.add(new Settings("Enable Tab Close Button", "Adds a Close Button on The Top Right Corner of Tabs.", "Appearance", "none", "tabCloseButtons", TOGGLE, String.valueOf(tabCloseButtons)));
         settings.add(new Settings("Developer Mode", "Enable Developer Mode.", "Development", "none", "isDev", TOGGLE, String.valueOf(isDev)));
         settings.add(new Settings("Enable Debug Tools", "Enable Visual Tools For Debugging.", "Development", "none", "enableDebugTools", TOGGLE, String.valueOf(enableDebugTools)));
     }
@@ -195,6 +196,7 @@ public class SettingsScreen extends Screen {
             case "globalMovementSpeed" -> globalMovementSpeed = Math.round(Float.parseFloat(value));
             case "globalExpandSpeed" -> globalExpandSpeed = Math.round(Float.parseFloat(value));
             case "scaleAnimationSpeed" -> scaleAnimationSpeed = Math.round(Float.parseFloat(value));
+            case "tabCloseButtons" -> tabCloseButtons = Boolean.parseBoolean(value);
             case "isDev" -> isDev = Boolean.parseBoolean(value);
             case "enableDebugTools" -> enableDebugTools = Boolean.parseBoolean(value);
         }

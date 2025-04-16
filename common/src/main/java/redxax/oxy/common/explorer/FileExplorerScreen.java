@@ -5,11 +5,10 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWDropCallback;
-import org.lwjgl.glfw.GLFWDropCallbackI;
+import redxax.oxy.common.Render;
 import redxax.oxy.common.servers.RemoteHostInfo;
 import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.config.Config;
@@ -109,6 +108,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     public static BufferedImage shadersIcon;
     public static BufferedImage textIcon;
     public static IconWithTooltip closeIcon, backIcon, forwardIcon, searchIcon, reloadIcon, newFileIcon, copyIcon, editIcon, favoriteIcon, winExplorerIcon, pasteIcon, deleteIcon, cutIcon;
+    private Render.TabsBar<FileExplorerScreen.Tab> tabsBar;
 
     public static class EntryData {
         public Path path;
@@ -285,7 +285,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 tabs.add(new Tab(new TabData(currentPath, serverInfo.isRemote, serverInfo.remoteHost)));
             } else {
                 for (TabData td : loadedTabs) {
-                    if (tabs.stream().noneMatch(t -> t.tabData.path.equals(td.path) && t.tabData.isRemote == td.isRemote && remoteHostInfosEqual(t.tabData.remoteHostInfo, td.remoteHostInfo))) {
+                    if (tabs.stream().noneMatch(t -> t.tabData.path.equals(td.path) && t.tabData.isRemote == td.isRemote &&
+                            remoteHostInfosEqual(t.tabData.remoteHostInfo, td.remoteHostInfo))) {
                         tabs.add(new Tab(td));
                     }
                 }
@@ -294,7 +295,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     if (currentTabIndex < 0 || currentTabIndex >= tabs.size()) {
                         currentTabIndex = 0;
                     }
-                    Tab selectedTab = tabs.get(currentTabIndex);
+                    Tab selectedTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
                     currentPath = selectedTab.tabData.path;
                     serverInfo.isRemote = selectedTab.tabData.isRemote;
                     serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
@@ -308,7 +309,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         } catch (Exception e) {
             devPrint("Failed to initialize: " + e);
         }
-        loadDirectory(currentPath, false, false, true);
+        loadDirectory(currentPath, false, true, true);
         long windowHandle = minecraftClient.getWindow().getHandle();
         GLFW.glfwSetDropCallback(windowHandle, (window, count, names) -> {
             String[] droppedFiles = new String[count];
@@ -317,22 +318,86 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
             handleFileDrop(droppedFiles);
         });
+        java.util.List<Render.TabsBar.Tab<FileExplorerScreen.Tab>> tabList = new java.util.ArrayList<>();
+        for (Tab t : tabs) {
+            tabList.add(new Render.TabsBar.Tab<>(t.name, false, t));
+        }
+        tabsBar = new Render.TabsBar<>(tabList);
+        tabsBar.setActiveTab(currentTabIndex);
+        tabsBar.setHasPlus(true);
+        tabsBar.setAllowClose(tabCloseButtons);
+        tabsBar.setAllowRename(false);
+        tabsBar.setAllowDrag(true);
+        tabsBar.setAllowScroll(true);
+        tabsBar.setTabBarBounds(5, 35, this.width - 5, TAB_HEIGHT);
+        tabsBar.setOnTabOrderChanged(() -> {
+            java.util.List<Tab> newTabs = new java.util.ArrayList<>();
+            for (Render.TabsBar.Tab<FileExplorerScreen.Tab> t : tabsBar.getTabs()) newTabs.add(t.data);
+            tabs.clear();
+            tabs.addAll(newTabs);
+            currentTabIndex = loadCurrentTabIndex();
+            if (currentTabIndex < 0 || currentTabIndex >= tabs.size()) {
+                currentTabIndex = 0;
+            }
+            Tab selectedTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
+            currentPath = selectedTab.tabData.path;
+            serverInfo.isRemote = selectedTab.tabData.isRemote;
+            serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
+            selectedTab.tabData.targetOffset = 0;
+            selectedTab.tabData.smoothOffset = 0;
+            loadDirectory(selectedTab.tabData.path, false, false, true);
+        });
+        tabsBar.setOnTabClosed(() -> {
+            int idx = tabsBar.getActiveTab();
+            tabs.remove(idx);
+            if (tabs.isEmpty()) {
+                minecraftClient.setScreen(parent);
+            } else {
+                Tab selectedTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
+                currentPath = selectedTab.tabData.path;
+                serverInfo.isRemote = selectedTab.tabData.isRemote;
+                serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
+                loadDirectory(selectedTab.tabData.path, false, false, true);
+                saveFileExplorerTabs(tabs.stream().map(t -> t.tabData).collect(java.util.stream.Collectors.toList()), currentTabIndex);
+            }
+        });
+        tabsBar.setOnTabSelected(() -> {
+            currentTabIndex = tabsBar.getActiveTab();
+            Tab selectedTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
+            currentPath = selectedTab.tabData.path;
+            serverInfo.isRemote = selectedTab.tabData.isRemote;
+            serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
+            loadDirectory(selectedTab.tabData.path, false, false, true);
+            saveFileExplorerTabs(tabs.stream().map(t -> t.tabData).collect(java.util.stream.Collectors.toList()), currentTabIndex);
+        });
+        tabsBar.setOnTabPlus(() -> {
+            minecraftClient.setScreen(new DeskSelectionScreen(minecraftClient, this));
+        });
+        tabsBar.setOnTabRenamed(() -> {
+            int idx = tabsBar.getRenamingTab();
+            if (idx >= 0 && idx < tabs.size()) {
+                tabs.get(idx).setName(tabsBar.getTabs().get(idx).name);
+                saveFileExplorerTabs(tabs.stream().map(t -> t.tabData).collect(java.util.stream.Collectors.toList()), currentTabIndex);
+            }
+        });
     }
-
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         int titleBarHeight = 30;
         int tabBarY = titleBarHeight + 5;
-        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? !FileManager.getClipboard().isEmpty() ? pasteIcon : null : shiftPressed ? pasteIcon : copyIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? deleteIcon : editIcon), (tabs.get(currentTabIndex).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? cutIcon : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);
-        drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, true, false);
+        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.isEmpty() ? !FileManager.getClipboard().isEmpty() ? pasteIcon : null : shiftPressed ? pasteIcon : copyIcon), (tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? deleteIcon : editIcon), (tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? cutIcon : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);
+        tabsBar.setTabBarBounds(5, tabBarY, this.width - 5, TAB_HEIGHT);
+        tabsBar.renderTabsBar(context, this.textRenderer, tabsBar, mouseX, mouseY, Config.shadow);
+        currentTabIndex = tabsBar.getActiveTab();
+        tabsBar.setActiveTabName(tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).getAnimatedText());
         int explorerY = tabBarY + TAB_HEIGHT + 30;
         int explorerHeight = this.height - explorerY - 5;
         int explorerX = 5;
         int explorerWidth = this.width - 10;
         int headerY = explorerY - 23;
-        Tab currentTab = tabs.get(currentTabIndex);
+        Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
         float pathScrollOffset = 0;
         float pathTargetScrollOffset = 0;
         drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, currentMode == Mode.SEARCH, "FileExplorerScreen", mouseX, mouseY, "Search For Files or Directories");
@@ -451,7 +516,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private void loadMoreIfNeeded(int explorerHeight) {
         int gap = 1;
         int itemHeight = entryHeight + gap;
-        Tab currentTab = tabs.get(currentTabIndex);
+        Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
         if (hasMore && !isLoadingMore && currentTab.tabData.smoothOffset + explorerHeight >= fileEntries.size() * itemHeight - (itemHeight * 2)) {
             isLoadingMore = true;
             loadMoreEntries();
@@ -495,9 +560,12 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (tabsBar.handleTabsBarKey(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
         shiftPressed = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
-        Tab currentTab = tabs.get(currentTabIndex);
+        Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
         if (renamePath != null) {
             if (keyCode == GLFW.GLFW_KEY_ENTER) {
                 renameSelectedFile();
@@ -781,7 +849,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
-        if (renamePath != null) {
+        if (tabsBar.handleTabsBarChar(chr)) {
+            return true;
+        }        if (renamePath != null) {
             if (chr == '\b' || chr == '\r' || chr == '\n') {
                 return false;
             }
@@ -814,12 +884,15 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (tabsBar.handleTabsBarScroll(verticalAmount, mouseX, mouseY)) {
+            return true;
+        }
         scaleScroll(verticalAmount);
         boolean ctrl = (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS) || (GLFW.glfwGetKey(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS);
         float scrollMultiplier = ctrl ? 5.0f : 1.0f;
         int gap = 1;
         int itemHeight = entryHeight + gap;
-        Tab currentTab = tabs.get(currentTabIndex);
+        Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
         currentTab.tabData.targetOffset -= (float) (verticalAmount * itemHeight * 0.5f * scrollMultiplier);
         List<EntryData> entriesToRender;
         synchronized (fileEntriesLock) {
@@ -834,7 +907,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        int gap = 1;
+        if (tabsBar.handleTabsBarDrag(button, deltaX)) {
+            return true;
+        }        int gap = 1;
         int itemHeight = entryHeight + gap;
         int totalHeight = fileEntries.size() * itemHeight;
         if (ScrollBar.handleMouseDragged(this, (int) mouseY, totalHeight + 28)) {
@@ -845,7 +920,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (ScrollBar.handleMouseReleased()) {
+        if (tabsBar.handleTabsBarRelease(button)) {
+            return true;
+        }        if (ScrollBar.handleMouseReleased()) {
             return true;
         }
         return super.mouseReleased(mouseX, mouseY, button);
@@ -853,23 +930,27 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (tabsBar.handleTabsBarMouse((int) mouseX, (int) mouseY, button)) {
+            return true;
+        }
         int gap = 1;
         int itemHeight = entryHeight + gap;
         int totalHeight = fileEntries.size() * itemHeight;
-        if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, totalHeight, tabs.get(currentTabIndex).tabData.smoothOffset)){
+        if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, totalHeight, tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.smoothOffset)){
             return true;
         }
         if (ContextMenu.isOpen()) {
             if (ContextMenu.mouseClicked(mouseX, mouseY, button)) {
                 return true;
             }
+            ContextMenu.hide();
         }
         boolean handled = false;
         int titleBarHeightLocal = 30;
         int tabBarYLocal = titleBarHeightLocal + 5;
         int tabBarHeight = TAB_HEIGHT;
         int tabX = 5;
-        Tab currentTab = tabs.get(currentTabIndex);
+        Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
         for (int i = 0; i < tabs.size(); i++) {
             Tab tab = tabs.get(i);
             int tabWidth = tab.getCurrentWidth(textRenderer);
@@ -877,18 +958,20 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 playClick();
                 if (button == GLFW.GLFW_MOUSE_BUTTON_1) {
                     currentTabIndex = i;
-                    Tab selectedTab = tabs.get(currentTabIndex);
+                    Tab selectedTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
                     currentPath = selectedTab.tabData.path;
                     serverInfo.isRemote = selectedTab.tabData.isRemote;
                     serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
                     loadDirectory(selectedTab.tabData.path, false, false, true);
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
                     closeTab(i);
+                    tabsBar.closeTab(i);
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
                     ContextMenu.hide();
                     int finalI = i;
                     ContextMenu.addItem("Close", () -> {
                         closeTab(finalI);
+                        tabsBar.closeTab(finalI);
                     }, globalHoverTextColor, "");
                     int finalI1 = i;
                     ContextMenu.addItem("Duplicate", () -> {
@@ -898,11 +981,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         tabs.add(newTab);
                         currentTabIndex = tabs.size() - 1;
                         loadDirectory(newTabData.path, false, false, false);
-                        saveFileExplorerTabs(tabs.stream().map(t1 -> new TabData(t1.tabData.path, t1.tabData.isRemote, t1.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
+                        saveFileExplorerTabs(tabs.stream().map(t1 -> new TabData(t1.tabData.path, t1.tabData.isRemote, t1.tabData.remoteHostInfo)).collect(Collectors.toList()), Math.min(currentTabIndex, tabs.size() - 1));
                     }, globalHoverTextColor, "Duplicate This Tab.");
-                    ContextMenu.addItem("Externally", () -> {
-                        openExternally(tabs.get(finalI1).tabData.path);
-                    }, globalHoverTextColor, "Open In The Windows File Explorer.");
+                    ContextMenu.addItem("Externally", () -> openExternally(tabs.get(finalI1).tabData.path), globalHoverTextColor, "Open In The Windows File Explorer.");
+                    ContextMenu.addItem("Rename Tab", () -> tabsBar.renameTab(finalI), globalHoverTextColor, "Are You a Psychopath or Something?");
                     ContextMenu.show((int) mouseX, (int) mouseY, 60, this.width, this.height);
                 }
                 handled = true;
@@ -1043,7 +1125,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                         if (isDoubleClick && lastClickedIndex == clickedIndex && button == GLFW.GLFW_MOUSE_BUTTON_1) {
                             playClick();
                             if (entryData.isDirectory) {
-                                Tab selectedTab = tabs.get(currentTabIndex);
+                                Tab selectedTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
                                 selectedTab.tabData.path = selectedPath;
                                 selectedTab.setName(selectedPath.getFileName() != null ? selectedPath.getFileName().toString() : selectedPath.toString());
                                 loadDirectory(selectedPath, false, false, false);
@@ -1071,6 +1153,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                                 tabs.add(new Tab(newTabData));
                                 currentTabIndex = tabs.size() - 1;
                                 loadDirectory(newTabData.path, false, false, true);
+                                Tab newTab = tabs.getLast();
+                                tabsBar.getTabs().add(new Render.TabsBar.Tab<>(newTab.name, false, newTab));
+                                tabsBar.setActiveTab(Math.min(currentTabIndex, tabs.size() - 1));
                                 return true;
                             }
                             lastClickedIndex = clickedIndex;
@@ -1149,7 +1234,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 }
                 if (clickedIndex >= 0 && clickedIndex < entriesToRender.size()) {
                     EntryData entryData = entriesToRender.get(clickedIndex);
-                    ContextMenu.hide();
                     ContextMenu.addItem("Copy", () -> {
                         playClick();
                         fileManager.copySelected(currentTab.tabData.selectedPaths);
@@ -1192,9 +1276,9 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     private boolean createFile() {
         String defaultName = "Name Me!";
-        Tab currentTab = tabs.get(currentTabIndex);
+        Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
         if (!currentTab.tabData.selectedPaths.isEmpty()) {
-            Path firstSelected = currentTab.tabData.selectedPaths.get(0);
+            Path firstSelected = currentTab.tabData.selectedPaths.getFirst();
             if (Files.isDirectory(firstSelected)) {
                 defaultName = "Name Me!";
             }
@@ -1235,7 +1319,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 if (tabs.isEmpty()) {
                     minecraftClient.setScreen(parent);
                 } else {
-                    Tab selectedTab = tabs.get(currentTabIndex);
+                    Tab selectedTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
                     currentPath = selectedTab.tabData.path;
                     serverInfo.isRemote = selectedTab.tabData.isRemote;
                     serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
@@ -1321,7 +1405,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 return;
             }
             currentTabIndex = foundIndex;
-            Tab selectedTab = tabs.get(currentTabIndex);
+            Tab selectedTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
             selectedTab.tabData.path = previousPath;
             currentPath = previousPath;
             loadDirectory(previousPath, false, false, false);
@@ -1338,7 +1422,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         }
         Path parentPath = currentPath.getParent();
         if (parentPath != null) {
-            Tab currentTab = tabs.get(currentTabIndex);
+            Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
             loadDirectory(parentPath, true, false, false);
             currentTab.tabData.path = parentPath;
             currentTab.setName(parentPath.getFileName() != null ? parentPath.getFileName().toString() : parentPath.toString());
@@ -1520,7 +1604,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                     return;
                 }
             }
-            Tab currentTab = tabs.get(currentTabIndex);
+            Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
             currentTab.tabData.path = newPath;
             currentTab.setName(newPath.getFileName() != null ? newPath.getFileName().toString() : newPath.toString());
             currentTab.tabData.targetOffset = 0;
@@ -1535,8 +1619,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     }
 
     void loadDirectory(Path dir, boolean addToHistory, boolean forceReload, boolean preserveState) {
-        if (loading) {}
-        Tab currentTab = tabs.get(currentTabIndex);
+        Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
         if (addToHistory && currentPath != null && !currentPath.equals(dir)) {
             history.push(currentPath);
             forwardHistory.clear();

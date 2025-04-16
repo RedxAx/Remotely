@@ -29,6 +29,7 @@ public class Config {
 
     public static String mainMenuStyle = "Minimal";
     public static boolean redesignMainMenu = false;
+    public static boolean tabCloseButtons = false;
     public static long lastFrameTime = System.nanoTime();
 
     public static int elementBackgroundColor = 0xFF2C2C2C;
