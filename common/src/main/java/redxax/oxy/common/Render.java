@@ -302,21 +302,19 @@ public class Render {
         for (int i = 0; i < tabs.size(); i++) {
             Object tab = tabs.get(i);
             String name;
-            if (tab instanceof FileExplorerScreen.Tab) {
-                name = ((FileExplorerScreen.Tab) tab).getAnimatedText();
-            } else if (tab instanceof FileEditorScreen.Tab t) {
-                name = t.unsaved ? t.name + "*" : t.name;
-            } else if (tab instanceof PluginModManagerScreen.Tab) {
-                name = ((PluginModManagerScreen.Tab) tab).name;
-            } else if (tab instanceof MultiTerminalScreen.TabInfo) {
-                name = ((MultiTerminalScreen.TabInfo) tab).name;
-            } else if (tab instanceof MultiTerminalScreen.Theme) {
-                name = ((MultiTerminalScreen.Theme) tab).name;
-            } else {
-                try {
-                    name = tab.toString();
-                } catch (Exception e) {
-                    name = "Tab";
+            switch (tab) {
+                case FileExplorerScreen.Tab tab1 -> name = tab1.getAnimatedText();
+                case FileEditorScreen.Tab t -> name = t.unsaved ? t.name + "*" : t.name;
+                case PluginModManagerScreen.Tab tab1 -> name = tab1.name;
+                case MultiTerminalScreen.TabInfo tabInfo -> name = tabInfo.name;
+                case MultiTerminalScreen.Theme theme -> name = theme.name;
+                case null, default -> {
+                    try {
+                        assert tab != null;
+                        name = tab.toString();
+                    } catch (Exception e) {
+                        name = "Tab";
+                    }
                 }
             }
             int targetWidth = textRenderer.getWidth(name) + 2 * tabPadding;
@@ -666,7 +664,7 @@ public class Render {
         int knobId = (id + "knob").hashCode();
         float knobTargetX = value ? x + trackWidth - (trackHeight - 4) - 2 : x + 2;
         float currentKnobX = elevationOffsets.getOrDefault(knobId, knobTargetX);
-        if (Math.abs(knobTargetX - currentKnobX) > trackWidth/2) {
+        if (Math.abs(knobTargetX - currentKnobX) > trackWidth/2f) {
             currentKnobX = knobTargetX;
         }
         currentKnobX += (knobTargetX - currentKnobX) * globalMovementSpeed * deltaTime;
@@ -726,22 +724,17 @@ public class Render {
         int knobId = ("slider" + label + "knob").hashCode();
         float targetKnobX = x + 2 + availableWidth * clampedValue;
         float currentKnobX;
-        if (!elevationOffsets.containsKey(knobId)) {
-            currentKnobX = targetKnobX;
-        } else {
-            currentKnobX = elevationOffsets.get(knobId);
-        }
-        currentKnobX += (targetKnobX - currentKnobX) * 0.2f * deltaTime * 60;
+        currentKnobX = elevationOffsets.getOrDefault(knobId, targetKnobX);
+        currentKnobX += (targetKnobX - currentKnobX) * globalMovementSpeed * deltaTime;
         int knobX = (int) currentKnobX;
         int knobY = y + 2;
         int knobColor = Config.getElementBackgroundColor(knobId, hovered, selected, false, false, false);
         context.fill(knobX, knobY, knobX + knobDiameter, knobY + knobDiameter, knobColor);
         drawInnerBorder(context, knobX, knobY, knobDiameter, knobDiameter, Config.getElementBorderColor(knobId, hovered, selected, false, false, false));
-        String text = label;
-        int tw = mc.textRenderer.getWidth(text);
+        int tw = mc.textRenderer.getWidth(label);
         int tx = x + (sliderWidth - tw) / 2;
         int ty = y + (sliderHeight - mc.textRenderer.fontHeight) / 2;
-        context.drawText(mc.textRenderer, Text.literal(text), tx, ty, Config.globalTextColor, Config.shadow);
+        context.drawText(mc.textRenderer, Text.literal(label), tx, ty, Config.globalTextColor, Config.shadow);
         CustomTooltip.show(toolTipText, mouseX, mouseY, context.getScaledWindowWidth(), context.getScaledWindowHeight(), mc.textRenderer, hovered);
         CustomTooltip.renderTooltip(context, mc.textRenderer, context.getScaledWindowWidth(), context.getScaledWindowHeight());
         context.getMatrices().pop();
@@ -758,7 +751,7 @@ public class Render {
         if (prevIndex != selectedIndex) {
             prevIndex = selectedIndex;
         }
-        scrollIndex += (selectedIndex - scrollIndex) * 0.15f;
+        scrollIndex += (selectedIndex - scrollIndex) * globalScrollSpeed * deltaTime;
         while (scrollIndex - selectedIndex > options.size() / 2f) {
             scrollIndex -= options.size();
         }
@@ -813,9 +806,8 @@ public class Render {
         int segmentWidth = barWidth / segmentCount;
         for (int i = 0; i < segmentCount; i++) {
             int segX = x + i * segmentWidth;
-            int segY = y;
             int segW = (i == segmentCount - 1) ? (x + barWidth - segX) : segmentWidth;
-            boolean segmentedHovered = mouseX >= segX && mouseX < segX + segW && mouseY >= segY && mouseY < segY + barHeight;
+            boolean segmentedHovered = mouseX >= segX && mouseX < segX + segW && mouseY >= y && mouseY < y + barHeight;
             boolean selected = i == currentIndex;
             int segId = ("tabSwitch" + label + options.get(i)).hashCode();
             float targetOffset = segmentedHovered ? -2f : 0f;
@@ -825,11 +817,11 @@ public class Render {
             context.getMatrices().push();
             context.getMatrices().translate(0, currentOffset, 0);
             int color = Config.getElementBackgroundColor(segId, segmentedHovered, selected, false, false, false);
-            context.fill(segX, segY, segX + segW, segY + barHeight, color);
-            drawInnerBorder(context, segX, segY, segW, barHeight, Config.getElementBorderColor(segId, segmentedHovered, selected, false, false, false));
+            context.fill(segX, y, segX + segW, y + barHeight, color);
+            drawInnerBorder(context, segX, y, segW, barHeight, Config.getElementBorderColor(segId, segmentedHovered, selected, false, false, false));
             int textWidth = mc.textRenderer.getWidth(options.get(i));
             int textX = segX + (segW - textWidth) / 2;
-            int textY = segY + ((barHeight - mc.textRenderer.fontHeight) / 2) + 1;
+            int textY = y + ((barHeight - mc.textRenderer.fontHeight) / 2) + 1;
             context.drawText(mc.textRenderer, Text.literal(options.get(i)), textX, textY, Config.globalTextColor, Config.shadow);
             context.getMatrices().pop();
         }
@@ -942,4 +934,403 @@ public class Render {
         }
         return text + "..";
     }
+
+    public static class TabsBar<T> {
+        public static class Tab<T> {
+            public String name;
+            public boolean unsaved;
+            public T data;
+            public final int id;
+            public Tab(String name, boolean unsaved, T data) {
+                this.name = name;
+                this.unsaved = unsaved;
+                this.data = data;
+                this.id = System.identityHashCode(this);
+            }
+        }
+        private final List<Tab<T>> tabs;
+        private int activeTab = 0;
+        private float scrollOffset = 0;
+        private float targetScrollOffset = 0;
+        private int draggingTab = -1;
+        private boolean isDragging = false;
+        private float dragStartX = 0;
+        private float dragCurrentX = 0;
+        private int dragOverTab = -1;
+        public int tabBarX, tabBarY, tabBarW, tabBarH;
+        public int tabBarHeight = 18;
+        private int tabPadding = 6;
+        private int tabGap = 5;
+        private final int plusTabWidth = 18;
+        private boolean hasPlus;
+        private boolean allowRename = false;
+        private boolean allowClose = false;
+        private boolean allowDrag = false;
+        private boolean allowScroll = false;
+        private int renamingTab = -1;
+        private StringBuilder renameBuffer = new StringBuilder();
+        private int renameCursor = 0;
+        private long lastRenameInput = 0;
+        private int hoverTab = -1;
+        private int hoverClose = -1;
+        private int hoverPlus = -1;
+        private Map<Integer, Float> tabWidths = new HashMap<>();
+        private Map<Integer, Float> tabOffsets = new HashMap<>();
+        public Map<Integer, Float> dragAnimatedX = new HashMap<>();
+        private Runnable onTabOrderChanged = null;
+        private Runnable onTabClosed = null;
+        private Runnable onTabSelected = null;
+        private Runnable onTabPlus = null;
+        private Runnable onTabRenamed = null;
+
+        public TabsBar(List<Tab<T>> tabs) {
+            this.tabs = tabs;
+        }
+        public void setActiveTab(int idx) { activeTab = idx; }
+        public int getActiveTab() { return activeTab; }
+        public void setActiveTabName(String name) { tabs.get(activeTab).name = name; }
+        public void setHasPlus(boolean b) { hasPlus = b; }
+        public void setAllowRename(boolean b) { allowRename = b; }
+        public void setAllowClose(boolean b) { allowClose = b; }
+        public void setAllowDrag(boolean b) { allowDrag = b; }
+        public void setAllowScroll(boolean b) { allowScroll = b; }
+        public void setTabBarBounds(int x, int y, int w, int h) { tabBarX = x; tabBarY = y; tabBarW = w; tabBarH = h; }
+        public void setTabHeight(int h) { tabBarHeight = h; }
+        public void setTabPadding(int p) { tabPadding = p; }
+        public void setTabGap(int g) { tabGap = g; }
+        public void setOnTabOrderChanged(Runnable r) { onTabOrderChanged = r; }
+        public void setOnTabClosed(Runnable r) { onTabClosed = r; }
+        public void setOnTabSelected(Runnable r) { onTabSelected = r; }
+        public void setOnTabPlus(Runnable r) { onTabPlus = r; }
+        public void setOnTabRenamed(Runnable r) { onTabRenamed = r; }
+        public List<Tab<T>> getTabs() { return tabs; }
+        public int getTabCount() { return tabs.size(); }
+        public int getRenamingTab() { return renamingTab; }
+        public StringBuilder getRenameBuffer() { return renameBuffer; }
+        public int getRenameCursor() { return renameCursor; }
+        public void setRenameCursor(int c) { renameCursor = c; }
+        public void setRenamingTab(int idx) { renamingTab = idx; }
+        public void setRenameBuffer(String s) { renameBuffer.setLength(0); renameBuffer.append(s); }
+        public void setLastRenameInput(long t) { lastRenameInput = t; }
+        public long getLastRenameInput() { return lastRenameInput; }
+        public float getScrollOffset() { return scrollOffset; }
+        public void setScrollOffset(float f) { scrollOffset = f; }
+        public float getTargetScrollOffset() { return targetScrollOffset; }
+        public void setTargetScrollOffset(float f) { targetScrollOffset = f; }
+        public int getHoverTab() { return hoverTab; }
+        public void setHoverTab(int idx) { hoverTab = idx; }
+        public int getHoverClose() { return hoverClose; }
+        public void setHoverClose(int idx) { hoverClose = idx; }
+        public int getHoverPlus() { return hoverPlus; }
+        public void setHoverPlus(int idx) { hoverPlus = idx; }
+        public int getDraggingTab() { return draggingTab; }
+        public void setDraggingTab(int idx) { draggingTab = idx; }
+        public boolean isDragging() { return isDragging; }
+        public void setIsDragging(boolean b) { isDragging = b; }
+        public float getDragStartX() { return dragStartX; }
+        public void setDragStartX(float f) { dragStartX = f; }
+        public float getDragCurrentX() { return dragCurrentX; }
+        public void setDragCurrentX(float f) { dragCurrentX = f; }
+        public int getDragOverTab() { return dragOverTab; }
+        public void setDragOverTab(int idx) { dragOverTab = idx; }
+        public Map<Integer, Float> getTabWidths() { return tabWidths; }
+        public Map<Integer, Float> getTabOffsets() { return tabOffsets; }
+
+        public void renderTabsBar(DrawContext context, TextRenderer textRenderer, TabsBar<T> tabsBar, int mouseX, int mouseY, boolean shadow) {
+            List<Tab<T>> tabs = tabsBar.getTabs();
+            int x = (int) (tabBarX - scrollOffset);
+            int totalTabsWidth = 0;
+            for (Tab<T> tab : tabs) {
+                String name = tab.name + (tab.unsaved ? "*" : "");
+                int targetWidth = textRenderer.getWidth(name) + 2 * tabPadding;
+                float currentWidth = tabWidths.getOrDefault(tab.id, (float) targetWidth);
+                float animatedWidth = currentWidth + (targetWidth - currentWidth) * globalExpandSpeed * deltaTime;
+                tabWidths.put(tab.id, animatedWidth);
+                int tabWidth = (int) animatedWidth;
+                totalTabsWidth += tabWidth + tabGap;
+            }
+            if (hasPlus) totalTabsWidth += plusTabWidth + tabGap;
+            float maxScroll = Math.max(0, totalTabsWidth - tabBarW);
+            targetScrollOffset = Math.max(0, Math.min(targetScrollOffset, maxScroll));
+            scrollOffset += (targetScrollOffset - scrollOffset) * globalScrollSpeed * deltaTime;
+
+            float[] basePositions = new float[tabs.size()];
+            float baseX = x;
+            for (int i = 0; i < tabs.size(); i++) {
+                basePositions[i] = baseX;
+                baseX += tabWidths.getOrDefault(tabs.get(i).id, 60f) + tabGap;
+            }
+
+            float[] targetPositions = new float[tabs.size()];
+            for (int i = 0; i < tabs.size(); i++) {
+                targetPositions[i] = basePositions[i];
+                if (isDragging) {
+                    if (i == draggingTab) {
+                        targetPositions[i] = dragCurrentX - tabWidths.getOrDefault(tabs.get(i).id, 60f) / 2f;
+                    } else if ((draggingTab < dragOverTab && i > draggingTab && i <= dragOverTab) ||
+                            (draggingTab > dragOverTab && i < draggingTab && i >= dragOverTab)) {
+                        float tabAndGapWidth = tabWidths.getOrDefault(tabs.get(draggingTab).id, 60f) + tabGap;
+                        targetPositions[i] += (draggingTab < dragOverTab) ? -tabAndGapWidth : tabAndGapWidth;
+                    }
+                }
+            }
+
+            for (int i = 0; i < tabs.size(); i++) {
+                Tab<T> tab = tabs.get(i);
+                String name = tab.name + (tab.unsaved ? "*" : "");
+                float tabWidth = tabWidths.getOrDefault(tab.id, (float)textRenderer.getWidth(name) + 2 * tabPadding);
+
+                float currentPos = dragAnimatedX.getOrDefault(i, basePositions[i]);
+                float newPos = currentPos + (targetPositions[i] - currentPos) * globalMovementSpeed * deltaTime;
+                dragAnimatedX.put(i, newPos);
+                tabOffsets.put(tab.id, newPos);
+
+                boolean isActive = (i == activeTab);
+                boolean isHovered = mouseX >= newPos && mouseX <= newPos + tabWidth && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight;
+                float targetOffset = isHovered ? -2f : 0f;
+                int elevId = tab.id;
+                float currentOffset = Render.elevationOffsets.getOrDefault(elevId, 0f);
+                currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+                Render.elevationOffsets.put(elevId, currentOffset);
+
+                context.getMatrices().push();
+                context.getMatrices().translate(0, currentOffset, isDragging ? 499 : isActive || isHovered ? 498 : 497);
+                int bgColor = Config.getElementBackgroundColor(1000 + i, isHovered, isActive, tab.unsaved, false, false);
+                context.fill((int) newPos, tabBarY, (int) newPos + (int) tabWidth, tabBarY + tabBarHeight, bgColor);
+                drawInnerBorder(context, (int) newPos, tabBarY, (int) tabWidth, tabBarHeight, Config.getElementBorderColor(1000 + i, isHovered, isActive, tab.unsaved, false, false));
+                drawOuterBorder(context, (int) newPos, tabBarY, (int) tabWidth, tabBarHeight, globalOuterBorder);
+                context.enableScissor((int) newPos + 1, (int) (tabBarY + currentOffset), (int) newPos + (int) tabWidth - 1, tabBarY + tabBarHeight);
+                if (renamingTab == i) {
+                    int textX = (int) newPos + tabPadding;
+                    int textY = tabBarY + 5;
+                    String beforeCursor = renameBuffer.substring(0, Math.min(renameCursor, renameBuffer.length()));
+                    int cursorX = textX + textRenderer.getWidth(beforeCursor);
+                    context.drawText(textRenderer, Text.literal(renameBuffer.toString()), textX, textY, Config.getTextColor(isHovered, false), shadow);
+                    context.fill(cursorX, textY, cursorX + 1, textY + textRenderer.fontHeight, globalCursorAnimatedColor);
+                } else {
+                    int textX = (int) newPos + tabPadding;
+                    int textY = tabBarY + 5;
+                    context.drawText(textRenderer, Text.literal(name), textX, textY, Config.getTextColor(isHovered, false), shadow);
+                }
+                if (allowClose) {
+                    int closeX = (int) (newPos + tabWidth - 5 - 1);
+                    int closeY = tabBarY + 1;
+                    boolean closeHovered = mouseX >= closeX && mouseX <= closeX + 5 && mouseY >= closeY && mouseY <= closeY + 5;
+                    int closeColor = Config.getElementBorderColor(1000 + "x".hashCode(), false, false, closeHovered, false, false);
+                    context.drawText(textRenderer, Text.literal("×"), closeX, closeY - 1, closeColor, true);
+                }
+                context.getMatrices().pop();
+                context.disableScissor();
+            }
+
+            if (hasPlus) {
+                int plusId = "plus_tab_pos".hashCode();
+                float currentPlusX = dragAnimatedX.getOrDefault(plusId, baseX);
+                float newPlusX = currentPlusX + (baseX - currentPlusX) * globalMovementSpeed * deltaTime;
+                dragAnimatedX.put(plusId, newPlusX);
+                int drawX = (int)newPlusX;
+                boolean isPlusHovered = mouseX >= drawX && mouseX <= drawX + plusTabWidth && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight;
+                int plusElevId = ("plus_tab").hashCode();
+                float targetOffset = isPlusHovered ? -2f : 0f;
+                float currentOffset = Render.elevationOffsets.getOrDefault(plusElevId, 0f);
+                currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+                Render.elevationOffsets.put(plusElevId, currentOffset);
+                context.getMatrices().push();
+                context.getMatrices().translate(0, currentOffset, 0);
+                int bgColor = Config.getElementBackgroundColor(1000 + tabs.size(), isPlusHovered, false, false, false, false);
+                context.fill(drawX, tabBarY, drawX + plusTabWidth, tabBarY + tabBarHeight, bgColor);
+                drawInnerBorder(context, drawX, tabBarY, plusTabWidth, tabBarHeight, Config.getElementBorderColor(1000 + tabs.size(), isPlusHovered, false, false, false, false));
+                drawOuterBorder(context, drawX, tabBarY, plusTabWidth, tabBarHeight, globalOuterBorder);
+                context.drawText(textRenderer, Text.literal("+"), drawX + plusTabWidth / 2 - (textRenderer.getWidth("+") / 2), tabBarY + 4, Config.getTextColor(isPlusHovered, false), shadow);
+                context.getMatrices().pop();
+            }
+        }
+        public boolean handleTabsBarMouse(int mouseX, int mouseY, int button) {
+            float x = tabBarX - scrollOffset;
+            for (int i = 0; i < tabs.size(); i++) {
+                Tab<T> tab = tabs.get(i);
+                float tabWidth = tabWidths.getOrDefault(tab.id, 60f);
+                float drawX = tabOffsets.getOrDefault(tab.id, x);
+                boolean isHovered = mouseX >= drawX && mouseX <= drawX + tabWidth && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight;
+                int closeX = (int) (drawX + tabWidth - 5 - 1);
+                int closeY = tabBarY + 1;
+                boolean closeHovered = mouseX >= closeX && mouseX <= closeX + 5 && mouseY >= closeY && mouseY <= closeY + 5;
+                if (closeHovered && allowClose && button == 0) {
+                    tabs.remove(i);
+                    if (onTabClosed != null) onTabClosed.run();
+                    if (activeTab >= tabs.size()) activeTab = tabs.size() - 1;
+                    return true;
+                }
+                if (isHovered) {
+                    if (button == 1 && allowRename) {
+                        renamingTab = i;
+                        renameBuffer.setLength(0);
+                        renameBuffer.append(tab.name);
+                        renameCursor = tab.name.length();
+                        lastRenameInput = System.currentTimeMillis();
+                        return true;
+                    }
+                    if (button == 2 && allowClose) {
+                        tabs.remove(i);
+                        if (onTabClosed != null) onTabClosed.run();
+                        if (activeTab >= tabs.size()) activeTab = tabs.size() - 1;
+                        return true;
+                    }
+                    if (button == 0) {
+                        if (allowDrag) {
+                            draggingTab = i;
+                            dragStartX = mouseX;
+                            dragCurrentX = mouseX;
+                            isDragging = false;
+                        }
+                        if (!allowRename || renamingTab == -1) {
+                            activeTab = i;
+                            if (onTabSelected != null) onTabSelected.run();
+                        }
+                        return true;
+                    }
+                }
+                x += tabWidth + tabGap;
+            }
+            if (hasPlus) {
+                if (mouseX >= x && mouseX <= x + plusTabWidth && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight) {
+                    if (button == 0 && onTabPlus != null) { onTabPlus.run(); return true; }
+                }
+            }
+            return false;
+        }
+        public boolean handleTabsBarDrag(int button, double deltaX) {
+            if (draggingTab != -1 && button == 0) {
+                dragCurrentX += (float) deltaX;
+                if (!isDragging && Math.abs(dragCurrentX - dragStartX) > 5) {
+                    isDragging = true;
+                }
+                if (isDragging) {
+                    int dragIdx = draggingTab;
+                    float dragTabCenter = dragCurrentX;
+                    float x = tabBarX - scrollOffset;
+                    int insertIdx = dragIdx;
+                    float minDist = Float.MAX_VALUE;
+                    for (int i = 0; i < tabs.size(); i++) {
+                        if (i == dragIdx) {
+                            x += tabWidths.getOrDefault(tabs.get(i).id, 60f) + tabGap;
+                            continue;
+                        }
+                        float tabWidth = tabWidths.getOrDefault(tabs.get(i).id, 60f);
+                        float tabCenter = x + tabWidth / 2f;
+                        float dist = Math.abs(dragTabCenter - tabCenter);
+                        if (dist < minDist && dist < tabWidth * 0.45f) {
+                            minDist = dist;
+                            insertIdx = i;
+                        }
+                        x += tabWidth + tabGap;
+                    }
+                    dragOverTab = insertIdx;
+                }
+                return true;
+            }
+            return false;
+        }
+        public boolean handleTabsBarRelease(int button) {
+            if (button == 0 && draggingTab != -1) {
+                int prevActiveTabId = tabs.get(activeTab).id;
+                if (isDragging && dragOverTab != -1 && dragOverTab != draggingTab) {
+                    Map<Integer, Float> oldAnimPositions = new HashMap<>();
+                    for (int i = 0; i < tabs.size(); i++) {
+                        Tab<T> tab = tabs.get(i);
+                        oldAnimPositions.put(tab.id, dragAnimatedX.getOrDefault(i, tabOffsets.getOrDefault(tab.id, 0f)));
+                    }
+                    Tab<T> moved = tabs.remove(draggingTab);
+                    tabs.add(dragOverTab, moved);
+                    for (int i = 0; i < tabs.size(); i++) {
+                        if (tabs.get(i).id == prevActiveTabId) {
+                            activeTab = i;
+                            break;
+                        }
+                    }
+                    dragAnimatedX.clear();
+                    for (int i = 0; i < tabs.size(); i++) {
+                        Tab<T> tab = tabs.get(i);
+                        if (oldAnimPositions.containsKey(tab.id)) {
+                            dragAnimatedX.put(i, oldAnimPositions.get(tab.id));
+                        }
+                    }
+                    if (onTabOrderChanged != null) onTabOrderChanged.run();
+                }
+                draggingTab = -1;
+                isDragging = false;
+                dragOverTab = -1;
+                return true;
+            }
+            return false;
+        }
+        public boolean handleTabsBarKey(int keyCode, int scanCode, int modifiers) {
+            if (renamingTab != -1) {
+                StringBuilder buf = renameBuffer;
+                int cur = renameCursor;
+                if (keyCode == GLFW.GLFW_KEY_ENTER) {
+                    renamingTab = -1;
+                    return true;
+                } else if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+                    if (cur > 0 && cur <= buf.length()) { buf.deleteCharAt(cur - 1); renameCursor = cur - 1; }
+                    return true;
+                } else if (keyCode == GLFW.GLFW_KEY_LEFT) {
+                    if (cur > 0) { renameCursor = cur - 1; } return true;
+                } else if (keyCode == GLFW.GLFW_KEY_RIGHT) {
+                    if (cur < buf.length()) { renameCursor = cur + 1; } return true;
+                } else if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                    renamingTab = -1; return true;
+                }
+                return true;
+            }
+            return false;
+        }
+        public boolean handleTabsBarChar(char chr) {
+            if (renamingTab != -1) {
+                StringBuilder buf = renameBuffer;
+                int cur = renameCursor;
+                if (chr == '\r' || chr == '\n' || chr == '\b') return true;
+                buf.insert(cur, chr); renameCursor = cur + 1;
+                int idx = renamingTab;
+                if (idx >= 0 && idx < tabs.size()) {
+                    tabs.get(idx).name = buf.toString();
+                    if (onTabRenamed != null) onTabRenamed.run();
+                }
+                return true;
+            }
+            return false;
+        }
+        public boolean handleTabsBarScroll(double verticalAmount, double mouseX, double mouseY) {
+            if (!allowScroll) return false;
+            if (mouseX < tabBarX || mouseX > tabBarX + tabBarW || mouseY < tabBarY || mouseY > tabBarY + tabBarHeight) return false;
+            int totalTabsWidth = 0;
+            for (Tab<T> tab : tabs) {
+                totalTabsWidth += MinecraftClient.getInstance().textRenderer.getWidth(tab.name) + 2 * tabPadding + tabGap;
+            }
+            if (hasPlus) totalTabsWidth += plusTabWidth + tabGap;
+            int availableWidth = tabBarW;
+            float maxScroll = Math.max(0, totalTabsWidth - availableWidth);
+            targetScrollOffset += (float) (-verticalAmount * 30);
+            targetScrollOffset = Math.max(0, Math.min(targetScrollOffset, maxScroll));
+            return true;
+        }
+
+        public void renameTab(int i) {
+            if (i >= 0 && i < tabs.size()) {
+                renamingTab = i;
+                renameBuffer.setLength(0);
+                renameBuffer.append(tabs.get(i).name);
+                renameCursor = renameBuffer.length();
+                lastRenameInput = System.currentTimeMillis();
+            }
+        }
+
+        public void closeTab(int i) {
+            if (i >= 0 && i < tabs.size()) {
+                tabs.remove(i);
+                if (activeTab >= tabs.size()) activeTab = tabs.size() - 1;
+            }
+        }
+    }
 }
+

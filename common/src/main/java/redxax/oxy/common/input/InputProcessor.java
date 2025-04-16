@@ -189,7 +189,20 @@ public class InputProcessor {
                 }
                 return true;
             case GLFW.GLFW_KEY_DELETE:
-                shutdown();
+                if (ctrlHeld) {
+                    int newCursorPos = moveCursorRightWord(cursorPosition);
+                    if (newCursorPos != cursorPosition) {
+                        inputBuffer.delete(cursorPosition, newCursorPos);
+                        tabCompletionHandler.resetTabCompletion();
+                        terminalInstance.scrollToBottom();
+                    }
+                } else {
+                    if (cursorPosition < inputBuffer.length()) {
+                        inputBuffer.deleteCharAt(cursorPosition);
+                        tabCompletionHandler.resetTabCompletion();
+                        terminalInstance.scrollToBottom();
+                    }
+                }
                 return true;
             case GLFW.GLFW_KEY_LEFT:
                 if (ctrlHeld) {
