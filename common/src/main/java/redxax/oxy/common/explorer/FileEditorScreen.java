@@ -6,11 +6,13 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.RemotelyClient;
+import redxax.oxy.common.Render;
 import redxax.oxy.common.SSHManager;
 import redxax.oxy.common.servers.ServerInfo;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.ui.AISidePanel;
 import redxax.oxy.common.util.ImageUtil;
+import redxax.oxy.common.util.Notification;
 import redxax.oxy.common.util.TextAnimator;
 
 import java.io.*;
@@ -43,7 +45,6 @@ public class FileEditorScreen extends Screen {
     private final int searchBarWidth = 200;
     private final int searchBarHeight = 20;
     private final int clearSearchButtonWidth = 20;
-    private boolean aiMode = false;
     private boolean customSearchBarFocused = false;
     private final StringBuilder customSearchText = new StringBuilder();
     private int customCursorPosition = 0;
@@ -61,6 +62,7 @@ public class FileEditorScreen extends Screen {
     private boolean isResizingSidePanel = false;
     private AISidePanel aiSidePanel;
     private int ContentYStart;
+    private Render.TabsBar<Tab> tabsBar;
 
     private static class SidePanelEntry {
         FileExplorerScreen.EntryData data;
@@ -263,10 +265,47 @@ public class FileEditorScreen extends Screen {
             saveIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/save.png", "Save The File");
             explorerIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/explorer.png", "Toggle Explorer Panel");
         } catch (Exception e) {
-            e.printStackTrace();
+            new Notification("Failed to load icons: " + e.getMessage(), Notification.Type.ERROR);
         }
         updateSidePanelEntries();
         aiSidePanel = new AISidePanel(this);
+        List<Render.TabsBar.Tab<Tab>> tabList = new ArrayList<>();
+        for (Tab t : tabs) {
+            tabList.add(new Render.TabsBar.Tab<>(t.name, t.unsaved, t));
+        }
+        tabsBar = new Render.TabsBar<>(tabList);
+        tabsBar.setActiveTab(currentTabIndex);
+        tabsBar.setHasPlus(false);
+        tabsBar.setAllowClose(tabCloseButtons);
+        tabsBar.setAllowRename(false);
+        tabsBar.setAllowDrag(true);
+        tabsBar.setAllowScroll(true);
+        tabsBar.setTabBarBounds(5, 35, this.width - 5, TAB_HEIGHT);
+        tabsBar.setOnTabOrderChanged(() -> {
+            List<Tab> newTabs = tabsBar.getTabs().stream().map(tb -> tb.data).toList();
+            tabs.clear();
+            tabs.addAll(newTabs);
+            currentTabIndex = tabsBar.getActiveTab();
+            this.textEditor = tabs.get(currentTabIndex).textEditor;
+            RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
+        });
+        tabsBar.setOnTabClosed(() -> {
+            int idx = tabsBar.getActiveTab();
+            Tab removed = tabs.remove(idx);
+            SAVED_TABS.remove(removed.path);
+            if (tabs.isEmpty()) {
+                minecraftClient.setScreen(parent);
+            } else {
+                if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
+                tabsBar.setActiveTab(currentTabIndex);
+                this.textEditor = tabs.get(currentTabIndex).textEditor;
+                RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
+            }
+        });
+        tabsBar.setOnTabSelected(() -> {
+            currentTabIndex = tabsBar.getActiveTab();
+            this.textEditor = tabs.get(currentTabIndex).textEditor;
+        });
     }
 
     @Override
@@ -309,6 +348,7 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean charTyped(char chr, int keyCode) {
+        if (aiSidePanel.fieldFocused && aiMode && aiSidePanel.charTyped(chr, keyCode)) return true;
         if (aiSidePanel.fieldFocused && aiMode && aiSidePanel.charTyped(chr, keyCode)) {
             return true;
         }
@@ -341,6 +381,7 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (tabsBar.handleTabsBarKey(keyCode, scanCode, modifiers)) return true;
         boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
         if (aiMode && aiSidePanel.fieldFocused) {
             StringBuilder sb = new StringBuilder();
@@ -505,6 +546,7 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (tabsBar.handleTabsBarMouse((int)mouseX, (int)mouseY, button)) return true;
         if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), tabs.get(currentTabIndex).textEditor.getScrollOffset())) {
             return true;
         }
@@ -784,6 +826,7 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (tabsBar.handleTabsBarRelease(button)) return true;
         if (ScrollBar.handleMouseReleased()) {
             return true;
         }
@@ -796,6 +839,7 @@ public class FileEditorScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (tabsBar.handleTabsBarDrag(button, deltaX)) return true;
         if (ScrollBar.handleMouseDragged(this, (int) mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight())) {
             return true;
         }
@@ -815,6 +859,7 @@ public class FileEditorScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizAmount, double vertAmount) {
         scaleScroll(vertAmount);
+        if (tabsBar.handleTabsBarScroll(vertAmount, mouseX, mouseY)) return true;
         if (aiMode && aiSidePanel.mouseScrolled(mouseX, mouseY, vertAmount, this.width - (int) animatedSidePanelWidth - 5, ContentYStart, (int) animatedSidePanelWidth, this.height - ContentYStart - 5)) {
             return true;
         }
@@ -851,21 +896,22 @@ public class FileEditorScreen extends Screen {
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
-        drawScreenHeader(context, width, height, width - 5 - (int) animatedSidePanelWidth, mouseX, mouseY, this, minecraftClient, closeIcon, saveIcon, null, null, null, null, null, null, null);
+        drawScreenHeader(context, width, height, width - 5 - (int)animatedSidePanelWidth, mouseX, mouseY, this, minecraftClient, closeIcon, saveIcon, null, null, null, null, null, explorerIcon, null);
         drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, aiMode, "FileEditorScreen", mouseX, mouseY, "Search For Text In The File.");
-        drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, tabs.get(currentTabIndex).unsaved);
-        int hideButtonX = this.width - 22;
+        int tabOffsetY = 35;
+        tabsBar.setTabBarBounds(5, tabOffsetY, this.width - (int)animatedSidePanelWidth - 15, TAB_HEIGHT);
+        tabsBar.renderTabsBar(context, textRenderer, tabsBar, mouseX, mouseY, Config.shadow);
+        int hideButtonX = this.width - 15 - 5;
         int hideButtonY = 35;
         boolean hideButtonHovered = mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15;
-        drawSquareButton(context, hideButtonX, hideButtonY, minecraftClient, hideButtonHovered, mouseX, mouseY, "Toggle Snippets Panel", explorerIcon.getImage());
-        float deltaTimeLocal = deltaTime;
+        drawSquareButton(context, hideButtonX, hideButtonY, minecraftClient, hideButtonHovered, mouseX, mouseY, "Toggle Explorer Panel", explorerIcon.getImage());
         float targetWidth = showSidePanel ? sidePanelWidth : 0;
-        animatedSidePanelWidth += (targetWidth - animatedSidePanelWidth) * Config.globalExpandSpeed * deltaTimeLocal;
-        int animWidth = (int) animatedSidePanelWidth;
+        animatedSidePanelWidth += (targetWidth - animatedSidePanelWidth) * Config.globalExpandSpeed * deltaTime;
+        int animWidth = (int)animatedSidePanelWidth;
         tabs.get(currentTabIndex).textEditor.updateBounds(10, 60, this.width - animWidth - 15, this.height - 65);
         tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
-        ScrollBar.render(context, this, mouseX, mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), (float) tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert);
-        tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert = (int) ScrollBar.getPendingOffset();
+        ScrollBar.render(context, this, mouseX, mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), (float)tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert);
+        tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert = (int)ScrollBar.getPendingOffset();
         if (ContextMenu.isOpen()) {
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
@@ -874,18 +920,12 @@ public class FileEditorScreen extends Screen {
             int panelX = this.width - animWidth;
             int panelY = 60;
             int panelHeight = this.height - 65;
-            int tabOffsetY = 30 + 5;
-            int tabAreaHeight = TAB_HEIGHT;
-            int contentYStart = tabOffsetY + tabAreaHeight + 2;
-            ContentYStart = contentYStart + 5;
             context.fill(panelX, panelY, panelX + animWidth, panelY + panelHeight, innerBackgroundColor);
             drawInnerBorder(context, panelX, panelY, animWidth, panelHeight, innerBorderColor);
             drawOuterBorder(context, panelX, panelY, animWidth, panelHeight, globalOuterBorder);
             context.enableScissor(panelX, panelY, panelX + animWidth, panelY + panelHeight);
-            if (!aiMode)
-                renderSidePanel(context, panelX, panelY, animWidth, panelHeight + 2, mouseX, mouseY);
-            else
-                aiSidePanel.render(context, panelX, panelY, animWidth, panelHeight + 2, mouseX, mouseY);
+            if (aiMode) aiSidePanel.render(context, panelX, panelY, animWidth, panelHeight, mouseX, mouseY);
+            else renderSidePanel(context, panelX, panelY, animWidth, panelHeight, mouseX, mouseY);
             context.disableScissor();
         }
     }

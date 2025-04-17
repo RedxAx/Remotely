@@ -32,6 +32,8 @@ public class Config {
     public static boolean tabCloseButtons = false;
     public static long lastFrameTime = System.nanoTime();
 
+    public static boolean aiMode = false;
+
     public static int elementBackgroundColor = 0xFF2C2C2C;
     public static int elementBorderColor = 0xFF444444;
     public static int elementHoverBackgroundColor = 0xFF444444;
