@@ -995,9 +995,6 @@ public class Render {
         public void setAllowDrag(boolean b) { allowDrag = b; }
         public void setAllowScroll(boolean b) { allowScroll = b; }
         public void setTabBarBounds(int x, int y, int w, int h) { tabBarX = x; tabBarY = y; tabBarW = w; tabBarH = h; }
-        public void setTabHeight(int h) { tabBarHeight = h; }
-        public void setTabPadding(int p) { tabPadding = p; }
-        public void setTabGap(int g) { tabGap = g; }
         public void setOnTabOrderChanged(Runnable r) { onTabOrderChanged = r; }
         public void setOnTabClosed(Runnable r) { onTabClosed = r; }
         public void setOnTabSelected(Runnable r) { onTabSelected = r; }
@@ -1006,33 +1003,13 @@ public class Render {
         public List<Tab<T>> getTabs() { return tabs; }
         public int getTabCount() { return tabs.size(); }
         public int getRenamingTab() { return renamingTab; }
-        public StringBuilder getRenameBuffer() { return renameBuffer; }
-        public int getRenameCursor() { return renameCursor; }
-        public void setRenameCursor(int c) { renameCursor = c; }
-        public void setRenamingTab(int idx) { renamingTab = idx; }
-        public void setRenameBuffer(String s) { renameBuffer.setLength(0); renameBuffer.append(s); }
-        public void setLastRenameInput(long t) { lastRenameInput = t; }
-        public long getLastRenameInput() { return lastRenameInput; }
-        public float getScrollOffset() { return scrollOffset; }
-        public void setScrollOffset(float f) { scrollOffset = f; }
-        public float getTargetScrollOffset() { return targetScrollOffset; }
-        public void setTargetScrollOffset(float f) { targetScrollOffset = f; }
-        public int getHoverTab() { return hoverTab; }
-        public void setHoverTab(int idx) { hoverTab = idx; }
-        public int getHoverClose() { return hoverClose; }
-        public void setHoverClose(int idx) { hoverClose = idx; }
-        public int getHoverPlus() { return hoverPlus; }
-        public void setHoverPlus(int idx) { hoverPlus = idx; }
         public int getDraggingTab() { return draggingTab; }
         public void setDraggingTab(int idx) { draggingTab = idx; }
         public boolean isDragging() { return isDragging; }
         public void setIsDragging(boolean b) { isDragging = b; }
         public float getDragStartX() { return dragStartX; }
-        public void setDragStartX(float f) { dragStartX = f; }
         public float getDragCurrentX() { return dragCurrentX; }
-        public void setDragCurrentX(float f) { dragCurrentX = f; }
         public int getDragOverTab() { return dragOverTab; }
-        public void setDragOverTab(int idx) { dragOverTab = idx; }
         public Map<Integer, Float> getTabWidths() { return tabWidths; }
         public Map<Integer, Float> getTabOffsets() { return tabOffsets; }
 
