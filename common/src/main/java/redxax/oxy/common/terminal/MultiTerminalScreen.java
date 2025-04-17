@@ -172,50 +172,51 @@ public class MultiTerminalScreen extends Screen {
             explorerIcon = new IconWithTooltip("/assets/remotely/icons/explorer.png", "Open File Explorer In The Current Path");
             resourcesIcon = new IconWithTooltip("/assets/remotely/icons/resources.png", "Open Plugins/Mods Manager");
             snippetsIcon = new IconWithTooltip("/assets/remotely/icons/snippets.png", "");
-        } catch (Exception e) {
-        }
+        } catch (Exception ignored) {}
         aiSidePanel = new AISidePanel(this);
-        List<Render.TabsBar.Tab<Void>> tabList = new ArrayList<>();
-        for (String tabName : tabNames) {
-            tabList.add(new Tab<>(tabName, false, null));
+        List<TabsBar.Tab<Void>> tabList = new ArrayList<>();
+        for (String name : tabNames) {
+            tabList.add(new TabsBar.Tab<>(name, false, null));
         }
-        tabsBar = new Render.TabsBar<>(tabList);
+        tabsBar = new TabsBar<>(tabList);
+
         tabsBar.setActiveTab(activeTerminalIndex);
         tabsBar.setHasPlus(true);
         tabsBar.setAllowClose(tabCloseButtons);
         tabsBar.setAllowRename(true);
         tabsBar.setAllowDrag(true);
         tabsBar.setAllowScroll(true);
-        tabsBar.setTabBarBounds(5, 35, this.width - 5 - snippetPanelWidth, 18);
+
         tabsBar.setOnTabOrderChanged(() -> {
-            List<String> newNames = new ArrayList<>();
-            for (TabsBar.Tab<Void> t : tabsBar.getTabs()) newNames.add(t.name);
+            List<String> oldNames = new ArrayList<>(tabNames);
+            List<TerminalInstance> oldTerms = new ArrayList<>(terminals);
+
             tabNames.clear();
-            tabNames.addAll(newNames);
-            List<TerminalInstance> newTerms = new ArrayList<>();
             terminals.clear();
-            terminals.addAll(newTerms);
-            remotelyClient.multiTerminals = new ArrayList<>(terminals);
+            for (TabsBar.Tab<Void> t : tabsBar.getTabs()) {
+                tabNames.add(t.name);
+                int idx = oldNames.indexOf(t.name);
+                if (idx >= 0) {
+                    terminals.add(oldTerms.get(idx));
+                } else {
+                    terminals.add(new TerminalInstance(minecraftClient, this, UUID.randomUUID()));
+                }
+            }
             remotelyClient.multiTabNames = new ArrayList<>(tabNames);
+            remotelyClient.multiTerminals = new ArrayList<>(terminals);
         });
-        tabsBar.setOnTabClosed(() -> {
-            int idx = tabsBar.getActiveTab();
-            closeTerminal(idx);
-        });
-        tabsBar.setOnTabSelected(() -> {
-            activeTerminalIndex = tabsBar.getActiveTab();
-        });
+
+        tabsBar.setOnTabClosed(() -> closeTerminal(tabsBar.getActiveTab()));
+        tabsBar.setOnTabSelected(() -> activeTerminalIndex = tabsBar.getActiveTab());
         tabsBar.setOnTabPlus(() -> {
             addNewTerminal();
             tabsBar.getTabs().add(new TabsBar.Tab<>("Tab " + terminals.size(), false, null));
             tabsBar.setActiveTab(terminals.size() - 1);
         });
         tabsBar.setOnTabRenamed(() -> {
-            int idx = tabsBar.getRenamingTab();
-            if (idx >= 0 && idx < tabNames.size()) {
-                tabNames.set(idx, tabsBar.getTabs().get(idx).name);
-                remotelyClient.multiTabNames = new ArrayList<>(tabNames);
-            }
+            int i = tabsBar.getRenamingTab();
+            tabNames.set(i, tabsBar.getTabs().get(i).name);
+            remotelyClient.multiTabNames = new ArrayList<>(tabNames);
         });
     }
 
@@ -1222,7 +1223,7 @@ public class MultiTerminalScreen extends Screen {
             String keyName = InputUtil.fromKeyCode(keyCode, scanCode).getTranslationKey();
             String hrName = humanReadableKey(keyName);
             List<String> parts = new ArrayList<>(Arrays.asList(snippetShortcutBuffer.toString().split("\\+")));
-            if (parts.size() == 1 && parts.get(0).isEmpty()) {
+            if (parts.size() == 1 && parts.getFirst().isEmpty()) {
                 parts.clear();
             }
             if (!parts.contains(hrName)) {
