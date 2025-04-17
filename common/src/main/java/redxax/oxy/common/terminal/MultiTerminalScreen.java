@@ -115,7 +115,6 @@ public class MultiTerminalScreen extends Screen {
     private float draggingCurrentY = 0;
     private final Map<RemotelyClient.CommandSnippet, Float> snippetAnimatedY = new HashMap<>();
     private final RemotelyClient.CommandSnippet CREATE_SNIPPET = new RemotelyClient.CommandSnippet("Create Snippet", "Snippets Executes Commands", "");
-    private boolean aiMode = false;
     private AISidePanel aiSidePanel;
 
 
