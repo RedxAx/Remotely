@@ -335,8 +335,8 @@ public class SettingsScreen extends Screen {
             }
         }
         int totalContentHeight = currentSettings.size() * rowHeight;
-        currentSettingsScroll += (targetSettingsScroll - currentSettingsScroll) * delta * 0.2f;
-        context.enableScissor(contentX -2, contentY -2, contentX + contentWidth + 4, contentY + contentHeight);
+        currentSettingsScroll += (targetSettingsScroll - currentSettingsScroll) * globalScrollSpeed * deltaTime;
+        context.enableScissor(contentX -2, contentY -2, contentX + contentWidth + 4, height - 5);
         int widgetWidth = 180;
         int widgetAreaX = this.width - widgetWidth - 12;
         for (int i = 0; i < currentSettings.size(); i++) {
@@ -371,11 +371,11 @@ public class SettingsScreen extends Screen {
         }
         context.disableScissor();
         int maxScroll = Math.max(0, totalContentHeight - contentHeight);
-        if ((int) currentSettingsScroll > 0) {
+        if ((int) currentSettingsScroll > 2) {
             context.fillGradient(contentX, contentY -2, contentX + contentWidth, contentY + 10, 0x55000000, 0x00000000);
         }
-        if ((int) currentSettingsScroll < maxScroll) {
-            context.fillGradient(contentX, contentY + contentHeight - 10, contentX + contentWidth, contentY + contentHeight, 0x00000000, 0x55000000);
+        if ((int) currentSettingsScroll <= maxScroll + 3) {
+            context.fillGradient(contentX, height - 5, contentX + contentWidth, contentY + contentHeight, 0x00000000, 0x55000000);
         }
         animatedScaling(context, this, mc);
     }
