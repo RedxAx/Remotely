@@ -7,9 +7,7 @@ import com.google.gson.stream.JsonReader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
-import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.servers.RemoteHostInfo;
 import redxax.oxy.common.servers.ServerInfo;
@@ -212,9 +210,9 @@ public class DeskSelectionScreen extends Screen {
                 continue;
             }
             boolean hovered = mouseX >= drawX && mouseX <= drawX + itemWidth && mouseY >= drawY && mouseY <= drawY + itemHeight;
-            int bgColor = getElementBackgroundColor(item.hashCode(), hovered, item.isFavorite, false, false, false);
+            int bgColor = getElementBackgroundColor(item.hashCode(), hovered, item.isFavorite, true, false, false, false);
             context.fill(drawX, drawY, drawX + itemWidth, drawY + itemHeight, bgColor);
-            drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, getElementBorderColor(item.hashCode(), hovered, item.isFavorite, false, false, false));
+            drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, getElementBorderColor(item.hashCode(), hovered, item.isFavorite, true, false, false, false));
             drawOuterBorder(context, drawX, drawY, itemWidth, itemHeight, globalOuterBorder);
             BufferedImage icon = (item.isDirectory ? folderIcon.getImage() : fileIcon.getImage());
             drawPixelArt(context, drawX + 7, drawY + (itemHeight / 2) - 8, 16, 16, icon);

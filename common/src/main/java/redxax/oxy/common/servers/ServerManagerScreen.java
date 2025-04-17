@@ -5,7 +5,6 @@ import com.google.gson.JsonParser;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import redxax.oxy.common.RemotelyClient;
 import redxax.oxy.common.Render;
@@ -316,18 +315,18 @@ public class ServerManagerScreen extends Screen {
             int cw = minecraftClient.textRenderer.getWidth(createText) + 10;
             int confirmX = px + 5;
             boolean hoverConfirm = mouseX >= confirmX && mouseX <= confirmX + cw && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawCustomButton(context, confirmX, confirmButtonY, createText, minecraftClient, hoverConfirm, true, true, false, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Test The Connection And Add The Host To The List.");
+            drawCustomButton(context, confirmX, confirmButtonY, createText, minecraftClient, hoverConfirm, true, true, false, true, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Test The Connection And Add The Host To The List.");
             String cancelText = "Cancel";
             int cancW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
             int cancX = px + remoteHostPopupW - (cancW + 5);
             boolean hoverCancel = mouseX >= cancX && mouseX <= cancX + cancW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawCustomButton(context, cancX, confirmButtonY, cancelText, minecraftClient, hoverCancel, true, true, false, 60, 20, globalTextColor, dangerLightAccentColor, mouseX,mouseY, "");
+            drawCustomButton(context, cancX, confirmButtonY, cancelText, minecraftClient, hoverCancel, true, true, false, true, 60, 20, globalTextColor, dangerLightAccentColor, mouseX,mouseY, "");
             if (isEditingHost) {
                 String deleteText = "Delete";
                 int delW = minecraftClient.textRenderer.getWidth(deleteText) + 10;
                 int delX = px + (remoteHostPopupW - delW) / 2;
                 boolean hoverDelete = mouseX >= delX && mouseX <= delX + delW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-                drawCustomButton(context, delX, confirmButtonY, deleteText, minecraftClient, hoverDelete, true, true, false, 60, 20, dangerLightAccentColor, Config.dangerDarkAccentColor, mouseX,mouseY,"Remove This Host.");
+                drawCustomButton(context, delX, confirmButtonY, deleteText, minecraftClient, hoverDelete, true, true, false, true, 60, 20, dangerLightAccentColor, Config.dangerDarkAccentColor, mouseX,mouseY,"Remove This Host.");
             }
             if (remoteHostCreationWarning) {
                 String warning = isEditingHost ? "Failed to save changes" : "Invalid or Connection Failed";
@@ -493,9 +492,9 @@ public class ServerManagerScreen extends Screen {
             int w = widths[i];
             boolean isActive = (i == activeTabIndex);
             boolean isHovered = mouseX >= currentX && mouseX <= currentX + w && mouseY >= y && mouseY <= y + height;
-            int bg = getElementBackgroundColor(500 + i, isHovered, isActive, false, false, false);
+            int bg = getElementBackgroundColor(500 + i, isHovered, isActive, true, false, false, false);
             context.fill(currentX, y, currentX + w, y + height, bg);
-            drawInnerBorder(context, currentX, y, w, height, getElementBorderColor(500 + i, isHovered, isActive, false, false, false));
+            drawInnerBorder(context, currentX, y, w, height, getElementBorderColor(500 + i, isHovered, isActive, true, false, false, false));
             drawOuterBorder(context, currentX, y, w, height, globalOuterBorder);
             String tabText = tabs.get(i);
             int textWidth = minecraftClient.textRenderer.getWidth(tabText);
@@ -1545,9 +1544,9 @@ public class ServerManagerScreen extends Screen {
         int deleteX = popupX + 10;
         int removeX = deleteX + btnWidth + 10;
         int cancelX = removeX + btnWidth + 10;
-        drawCustomButton(context, deleteX, btnY, "Delete", minecraftClient, (mouseX >= deleteX && mouseX <= deleteX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, false, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Delete The Server And The Files.");
-        drawCustomButton(context, removeX, btnY, "Remove", minecraftClient, (mouseX >= removeX && mouseX <= removeX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, false, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Remove The Server From The List \n Without Deleting Files.");
-        drawCustomButton(context, cancelX, btnY, "Cancel", minecraftClient, (mouseX >= cancelX && mouseX <= cancelX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, false, 60, 20, globalTextColor, dangerLightAccentColor, mouseX, mouseY, "");
+        drawCustomButton(context, deleteX, btnY, "Delete", minecraftClient, (mouseX >= deleteX && mouseX <= deleteX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, false, true, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Delete The Server And The Files.");
+        drawCustomButton(context, removeX, btnY, "Remove", minecraftClient, (mouseX >= removeX && mouseX <= removeX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, false, true, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Remove The Server From The List \n Without Deleting Files.");
+        drawCustomButton(context, cancelX, btnY, "Cancel", minecraftClient, (mouseX >= cancelX && mouseX <= cancelX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, false, true, 60, 20, globalTextColor, dangerLightAccentColor, mouseX, mouseY, "");
     }
 
     private String[] splitJsonObjects(String json) {
@@ -1625,7 +1624,7 @@ public class ServerManagerScreen extends Screen {
         int boxH = 16 + minecraftClient.textRenderer.fontHeight;
         int boxX = popupX + (serverTypePopupWidth - boxW) / 2;
         boolean hovered = mouseX >= boxX && mouseX <= boxX + boxW && mouseY >= boxY && mouseY <= boxY + boxH;
-        int bg = getElementBackgroundColor(text.hashCode(), hovered, false, false, false, false);
+        int bg = getElementBackgroundColor(text.hashCode(), hovered, false, true, false, false, false);
         float targetOffset = hovered ? -2f : 0f;
         int id = text.hashCode();
         float currentOffset = elevationOffsets.getOrDefault(id, 0f);
@@ -1634,7 +1633,7 @@ public class ServerManagerScreen extends Screen {
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
         context.fill(boxX, boxY, boxX + boxW, boxY + boxH, bg);
-        drawInnerBorder(context, boxX, boxY, boxW, boxH, getElementBorderColor(text.hashCode(), hovered, false, false, false, false));
+        drawInnerBorder(context, boxX, boxY, boxW, boxH, getElementBorderColor(text.hashCode(), hovered, false, true, false, false, false));
         drawOuterBorder(context, boxX, boxY, boxW, boxH, globalOuterBorder);
         int tw = minecraftClient.textRenderer.getWidth(text);
         int tx = boxX + (boxW - tw) / 2;

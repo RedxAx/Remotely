@@ -9,7 +9,6 @@ import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.RemotelyClient;
-import redxax.oxy.common.Render;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.explorer.FileExplorerScreen;
 import redxax.oxy.common.servers.PluginModManagerScreen;
@@ -27,7 +26,6 @@ import java.util.stream.Collectors;
 import static redxax.oxy.common.RemotelyClient.globalSnippets;
 import static redxax.oxy.common.RemotelyClient.*;
 import static redxax.oxy.common.Render.*;
-import static redxax.oxy.common.Render.TabsBar.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.config.Themes.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
@@ -527,19 +525,19 @@ public class MultiTerminalScreen extends Screen {
         int okW = minecraftClient.textRenderer.getWidth(okText) + 10;
         int confirmButtonX = snippetPopupX + 5;
         boolean okHover = mouseX >= confirmButtonX && mouseX <= confirmButtonX + okW && mouseY >= ButtonY && mouseY <= ButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-        drawCustomButton(context, confirmButtonX, ButtonY, okText, minecraftClient, okHover, true, true, false, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "");
+        drawCustomButton(context, confirmButtonX, ButtonY, okText, minecraftClient, okHover, true, true, false, true, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "");
 
         String cancelText = "Cancel";
         int cancelW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
         int cancelButtonX = snippetPopupX + snippetPopupWidth - (cancelW + 5);
         boolean cancelHover = mouseX >= cancelButtonX && mouseX <= cancelButtonX + cancelW && mouseY >= ButtonY && mouseY <= ButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-        drawCustomButton(context, cancelButtonX, ButtonY, cancelText, minecraftClient, cancelHover, true, true, false, 60, 20, globalTextColor, dangerLightAccentColor, mouseX, mouseY, "");
+        drawCustomButton(context, cancelButtonX, ButtonY, cancelText, minecraftClient, cancelHover, true, true, false, true, 60, 20, globalTextColor, dangerLightAccentColor, mouseX, mouseY, "");
         if (editingSnippet) {
             String deleteText = "Delete";
             int dw = minecraftClient.textRenderer.getWidth(deleteText) + 10;
             int deleteX = snippetPopupX + (snippetPopupWidth - dw) / 2;
             boolean delHover = mouseX >= deleteX && mouseX <= deleteX + dw && mouseY >= ButtonY && mouseY <= ButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawCustomButton(context, deleteX, ButtonY, deleteText, minecraftClient, delHover, true, true, false, 60, 20, dangerLightAccentColor, dangerDarkAccentColor, mouseX, mouseY, "");
+            drawCustomButton(context, deleteX, ButtonY, deleteText, minecraftClient, delHover, true, true, false, true, 60, 20, dangerLightAccentColor, dangerDarkAccentColor, mouseX, mouseY, "");
         }
         if (snippetCreationWarning) {
             String warning = "Name/Code cannot be empty";

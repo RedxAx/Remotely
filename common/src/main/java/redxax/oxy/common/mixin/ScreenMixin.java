@@ -28,17 +28,22 @@ public class ScreenMixin {
 
     @Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true)
     private void keyPressed(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
-        if (!enableDebugTools) return;
         boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
         boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
         boolean alt = (modifiers & GLFW.GLFW_MOD_ALT) != 0;
-        if (keyCode == GLFW.GLFW_KEY_E && ctrl && shift && alt) {
+        boolean all = alt && shift && ctrl;
+        if (keyCode == GLFW.GLFW_KEY_D && all) {
+            enableDebugTools = !enableDebugTools;
+            new Notification("Toggled Debug Tools To " + enableDebugTools, Notification.Type.INFO);
+        }
+        if (!enableDebugTools) return;
+        if (keyCode == GLFW.GLFW_KEY_E && all) {
             new Notification("Testing Error Notification", Notification.Type.ERROR);
             cir.setReturnValue(true);
-        } else if (keyCode == GLFW.GLFW_KEY_W && ctrl && shift) {
+        } else if (keyCode == GLFW.GLFW_KEY_W && all) {
             new Notification("Testing Warning Notification", Notification.Type.WARN);
             cir.setReturnValue(true);
-        } else if (keyCode == GLFW.GLFW_KEY_I && ctrl) {
+        } else if (keyCode == GLFW.GLFW_KEY_I && all) {
             new Notification("Testing Info Notification", Notification.Type.INFO);
             cir.setReturnValue(true);
         }

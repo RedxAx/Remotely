@@ -2,23 +2,29 @@ package redxax.oxy.common.mixin;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.widget.*;
+import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.widget.ClickableWidget;
+import net.minecraft.client.gui.widget.CyclingButtonWidget;
+import net.minecraft.client.gui.widget.PressableTextWidget;
+import net.minecraft.client.gui.widget.SliderWidget;
+import net.minecraft.client.gui.widget.TextIconButtonWidget;
+import net.minecraft.client.gui.widget.TextIconButtonWidget.IconOnly;
+import net.minecraft.client.gui.widget.TextIconButtonWidget.WithText;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import org.spongepowered.asm.mixin.injection.At;
 import redxax.oxy.common.Render;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.mixin.accessor.SliderWidgetAccessor;
+import redxax.oxy.common.mixin.accessor.TextIconButtonWidgetAccessor;
 
 import java.awt.image.BufferedImage;
 
 import static redxax.oxy.common.Render.drawSlider;
-import static redxax.oxy.common.config.Config.redesignMainMenu;
-import static redxax.oxy.common.util.DevUtil.devPrint;
-import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 
 @Mixin(ClickableWidget.class)
 public abstract class ClickableWidgetMixin {
@@ -31,47 +37,44 @@ public abstract class ClickableWidgetMixin {
     @Shadow public abstract boolean isFocused();
     @Shadow public abstract int getWidth();
     @Shadow public abstract int getHeight();
+    @Shadow public boolean visible;
+    @Shadow public boolean active;
 
     @Inject(method = "render", at = @At("HEAD"), cancellable = true)
-    protected void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) throws Exception {
-        if (!redesignMainMenu) {
-            return;
-        }
+    private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        if (!Config.redesignMainMenu) return;
         MinecraftClient mc = MinecraftClient.getInstance();
-        boolean hovered = this.isMouseOver(mouseX, mouseY);
+        boolean hovered = isMouseOver(mouseX, mouseY);
+
         if ((Object)this instanceof SliderWidget widget) {
             double value = ((SliderWidgetAccessor) widget).getValue();
-            drawSlider(context, mc, getX(), getY(), getMessage().getString(), value, hovered, isFocused(), mouseX, mouseY, "", this.width, this.height);
+            drawSlider(context, mc, getX(), getY(), getMessage().getString(), value, hovered, isFocused(), mouseX, mouseY, "", width, height);
             ci.cancel();
             return;
-        } else if ((Object) this instanceof TextIconButtonWidget) {
-            BufferedImage image = null;
-            try {
-                if (getMessage().toString().equals(Text.translatable("options.accessibility").toString()))
-                    image = loadResourceIcon("/assets/remotely/icons/accessibility.png");
-                else if (getMessage().toString().equals(Text.translatable("options.language").toString()))
-                    image = loadResourceIcon("/assets/minecraft/textures/gui/sprites/icon/language.png");
-            } catch (Exception e) {
-                devPrint("Failed to load icon: " + e.getMessage());
+        }
+
+        if ((Object)this instanceof TextIconButtonWidget w) {
+            if (visible) {
+                TextIconButtonWidgetAccessor acc = (TextIconButtonWidgetAccessor) w;
+                Identifier tex = acc.getTexture();
+                int tw = acc.getTextureWidth();
+                int th = acc.getTextureHeight();
+                Render.drawSquareButton(context, getX(), getY(), mc, hovered, mouseX, mouseY, getMessage().getString() + (Config.enableDebugTools ? " §6Textured" : ""), tex, tw, th);
             }
-
-            Render.drawSquareButton(context, getX(), getY(), mc, hovered, mouseX, mouseY, getMessage().getString(), image);
             ci.cancel();
             return;
         }
 
-        if (!((Object)this instanceof ButtonWidget) && !((Object)this instanceof CyclingButtonWidget || (Object)this instanceof PressableTextWidget)) {
+        if (!((Object)this instanceof ButtonWidget) && !((Object)this instanceof CyclingButtonWidget) && !((Object)this instanceof PressableTextWidget)) {
             return;
         }
-        if (getWidth() == getHeight()) {
-            BufferedImage image = null;
-            Render.drawSquareButton(context, getX(), getY(), mc, hovered, mouseX, mouseY, getMessage().getString(), image);
-            return;
-        } else {
-            Render.drawCustomButton(context, this.getX(), this.getY(), getMessage().getString(), mc, hovered, false, true, isFocused(), getWidth(), getHeight() == 20 ? 18 : getHeight(), Config.globalTextColor, Config.accentHoverColor, mouseX, mouseY, "");
+
+        if (getWidth() == getHeight() && visible) {
+            Render.drawSquareButton(context, getX(), getY(), mc, hovered, mouseX, mouseY, getMessage().getString(), null);
+            ci.cancel();
+        } else if (visible) {
+            Render.drawCustomButton(context, getX(), getY(), getMessage().getString(), mc, hovered, false, true, isFocused(), active, getWidth(), getHeight() == 20 ? 18 : getHeight(), Config.globalTextColor, Config.accentHoverColor, mouseX, mouseY, "");
+            ci.cancel();
         }
-        ci.cancel();
     }
-
-
 }

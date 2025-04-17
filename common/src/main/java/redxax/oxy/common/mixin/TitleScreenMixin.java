@@ -28,7 +28,6 @@ import java.util.List;
 import static redxax.oxy.common.Render.drawSquareButton;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
-import static redxax.oxy.common.util.ImageUtil.drawPixelArt;
 import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 
 @Mixin(TitleScreen.class)
@@ -162,7 +161,7 @@ public abstract class TitleScreenMixin extends Screen {
             }
             for (NormalButton btn : normalButtons) {
                 boolean hovered = mouseX >= btn.x && mouseX < btn.x + btn.width && mouseY >= btn.y && mouseY < btn.y + btn.height;
-                redxax.oxy.common.Render.drawCustomButton(context, btn.x, btn.y, btn.label, this.client, hovered, false, true, false, btn.width, btn.height, globalTextColor, niceAccentHoverColor, mouseX, mouseY, "");
+                redxax.oxy.common.Render.drawCustomButton(context, btn.x, btn.y, btn.label, this.client, hovered, false, true, false, true, btn.width, btn.height, globalTextColor, niceAccentHoverColor, mouseX, mouseY, "");
             }
         }
     }
