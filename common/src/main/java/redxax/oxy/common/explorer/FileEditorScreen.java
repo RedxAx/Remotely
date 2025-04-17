@@ -291,15 +291,18 @@ public class FileEditorScreen extends Screen {
         });
         tabsBar.setOnTabClosed(() -> {
             int idx = tabsBar.getActiveTab();
-            Tab removed = tabs.remove(idx);
-            SAVED_TABS.remove(removed.path);
-            if (tabs.isEmpty()) {
-                minecraftClient.setScreen(parent);
-            } else {
-                if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
-                tabsBar.setActiveTab(currentTabIndex);
-                this.textEditor = tabs.get(currentTabIndex).textEditor;
-                RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
+            if (idx >= 0 && idx < tabs.size()) {
+                Tab removed = tabs.remove(idx);
+                tabsBar.getTabs().remove(idx);
+                SAVED_TABS.remove(removed.path);
+                if (tabs.isEmpty()) {
+                    minecraftClient.setScreen(parent);
+                } else {
+                    if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
+                    tabsBar.setActiveTab(currentTabIndex);
+                    this.textEditor = tabs.get(currentTabIndex).textEditor;
+                    RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
+                }
             }
         });
         tabsBar.setOnTabSelected(() -> {
@@ -602,6 +605,9 @@ public class FileEditorScreen extends Screen {
                     playClick();
                     SAVED_TABS.remove(tab.path);
                     tabs.remove(i);
+                    if (i < tabsBar.getTabs().size()) {
+                        tabsBar.getTabs().remove(i);
+                    }
                     if (i == currentTabIndex) {
                         currentTabIndex = Math.max(0, currentTabIndex - 1);
                     }
@@ -633,6 +639,9 @@ public class FileEditorScreen extends Screen {
                     ContextMenu.addItem("Close", () -> {
                         SAVED_TABS.remove(tab.path);
                         tabs.remove(finalI);
+                        if (finalI < tabsBar.getTabs().size()) {
+                            tabsBar.getTabs().remove(finalI);
+                        }
                         if (finalI == currentTabIndex) {
                             currentTabIndex = Math.max(0, currentTabIndex - 1);
                         }
