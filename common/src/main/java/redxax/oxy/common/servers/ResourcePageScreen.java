@@ -151,8 +151,8 @@ public class ResourcePageScreen extends Screen {
                     url = "https://api.spiget.org/v2/resources/" + resource.getProjectId() + "/versions?size=10000&sort=-releaseDate";
                 } else if (resource.getSlug().startsWith("hangar_")) {
                     int offset = 0;
-                    url = "https://hangar.papermc.io/api/v1/projects/" + resource.getProjectId() + "/versions?includeHiddenChannels=true&channel=Release&platform=PAPER&limit=25&offset=" + offset;
-                    devPrint("Hangar Versions URL: " + url);
+                    url = "https://hangar.papermc.io/api/v1/projects/" + resource.getProjectId()
+                            + "/versions?includeHiddenChannels=true&channel=Release&platform=PAPER&limit=25&offset=" + offset;
                 } else {
                     url = "https://api.modrinth.com/v2/project/" + resource.getProjectId() + "/version";
                 }
@@ -189,9 +189,7 @@ public class ResourcePageScreen extends Screen {
                 if (arr != null) {
                     for (JsonElement je : arr) {
                         JsonObject verObj = je.getAsJsonObject();
-                        String verNum = verObj.has("version_number")
-                                ? verObj.get("version_number").getAsString()
-                                : (verObj.has("name") ? verObj.get("name").getAsString() : "Unknown");
+                        String verNum = verObj.has("version_number") ? verObj.get("version_number").getAsString() : (verObj.has("name") ? verObj.get("name").getAsString() : "Unknown");
                         String mcVersions;
                         if (resource.getSlug().startsWith("spigot_")) {
                             mcVersions = verObj.has("testedVersions") ? verObj.get("testedVersions").getAsString() : "";
@@ -213,12 +211,13 @@ public class ResourcePageScreen extends Screen {
                         if (resource.getSlug().startsWith("spigot_")) {
                             dateUploaded = verObj.has("releaseDate") ? verObj.get("releaseDate").getAsString() : "Unknown";
                         } else {
-                            dateUploaded = verObj.has("createdAt")
-                                    ? verObj.get("createdAt").getAsString()
-                                    : (verObj.has("date_published") ? verObj.get("date_published").getAsString() : "Unknown");
+                            dateUploaded = verObj.has("createdAt") ? verObj.get("createdAt").getAsString() : (verObj.has("date_published") ? verObj.get("date_published").getAsString() : "Unknown");
                         }
                         String fileUrl = "";
-                        if (resource.getSlug().startsWith("hangar_")) {
+                        if (resource.getSlug().startsWith("spigot_")) {
+                            int versionId = verObj.has("id") ? verObj.get("id").getAsInt() : 0;
+                            fileUrl = "https://api.spiget.org/v2/resources/" + resource.getProjectId() + "/download?version=" + versionId;
+                        } else if (resource.getSlug().startsWith("hangar_")) {
                             if (verObj.has("downloads")) {
                                 JsonObject downloads = verObj.getAsJsonObject("downloads");
                                 if (downloads.has("PAPER")) {

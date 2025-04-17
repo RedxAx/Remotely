@@ -77,29 +77,17 @@ public class SpigetAPI {
                 averageRating = ratingObj.get("average").getAsDouble();
             }
         }
-        boolean external = false;
-        String fileUrl = "";
-        if (resource.has("external")) {
-            external = resource.get("external").getAsBoolean();
-        }
-        if (resource.has("file") && resource.get("file").isJsonObject()) {
-            JsonObject fileObj = resource.getAsJsonObject("file");
-            if (external && fileObj.has("url")) {
-                fileUrl = "https://www.spigotmc.org/" + fileObj.get("url").getAsString();
-            }
-        }
-
+        String fileUrl = "https://api.spiget.org/v2/resources/" + id + "/download";
         StringBuilder mcVersions = new StringBuilder();
         if (resource.has("testedVersions")) {
             JsonArray versions = resource.getAsJsonArray("testedVersions");
             for (int i = 0; i < versions.size(); i++) {
-                if (mcVersions.length() > 0) mcVersions.append(", ");
+                if (mcVersions.length() > 0) {mcVersions.append(", ");
+                }
                 mcVersions.append(versions.get(i).getAsString());
             }
         }
-
         StringBuilder platforms = new StringBuilder("Bukkit, Spigot, Paper");
-
         String author = "Unknown";
         if (resource.has("author")) {
             JsonObject authorObj = resource.getAsJsonObject("author");
@@ -107,8 +95,6 @@ public class SpigetAPI {
                 author = authorObj.get("name").getAsString();
             }
         }
-
-        return new SpigetResource(name, tag, iconUrl, downloads, id, averageRating, external, fileUrl, author,
-                mcVersions.toString(), platforms.toString());
+        return new SpigetResource(name, tag, iconUrl, downloads, id, averageRating, resource.has("external") && resource.get("external").getAsBoolean(), fileUrl, author, mcVersions.toString(), platforms.toString());
     }
 }
