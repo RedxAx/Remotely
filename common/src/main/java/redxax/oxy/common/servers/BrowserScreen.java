@@ -5,7 +5,6 @@ import com.cinemamod.mcef.MCEF;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.util.TextAnimator;
@@ -19,6 +18,7 @@ import java.util.List;
 
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
+import static redxax.oxy.common.terminal.MultiTerminalScreen.TAB_HEIGHT;
 import static redxax.oxy.common.util.ImageUtil.*;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
@@ -27,15 +27,15 @@ public class BrowserScreen extends Screen {
     private final String startUrl;
     private static final int BROWSER_DRAW_OFFSET = 5;
     private final int TOP_OFFSET = 60;
-    private static List<Tab> tabs = new ArrayList<>();
+    private static final List<Tab> tabs = new ArrayList<>();
     private static int currentTabIndex = 0;
     private final StringBuilder urlFieldText = new StringBuilder();
     private boolean urlFieldFocused = false;
     private int urlCursorPosition = 0;
     private int urlSelectionStart = -1;
     private int urlSelectionEnd = -1;
-    private float urlScrollOffset = 0;
-    private float urlTargetScrollOffset = 0;
+    private final float urlScrollOffset = 0;
+    private final float urlTargetScrollOffset = 0;
     private boolean urlShowCursor = true;
     private long urlLastBlinkTime = 0;
     private static final int SEARCH_BAR_WIDTH = 200;
@@ -43,12 +43,13 @@ public class BrowserScreen extends Screen {
     private boolean fullScreenMode = false;
     private int previousBrowserWidth = -1;
     private int previousBrowserHeight = -1;
-    private Screen parent;
+    private final Screen parent;
     private IconWithTooltip fullscreenIcon;
     private IconWithTooltip closeIcon;
     private IconWithTooltip reloadIcon;
     private IconWithTooltip goBackIcon;
     private IconWithTooltip goForwardIcon;
+    private Render.TabsBar<Tab> tabsBar;
 
     public BrowserScreen(MinecraftClient client, Screen parent, String url) {
         super(Text.literal("Browser"));
@@ -107,7 +108,7 @@ public class BrowserScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        if(tabs.isEmpty()){
+        if (tabs.isEmpty()) {
             MCEFBrowser newBrowser = MCEF.createBrowser(startUrl, true);
             tabs.add(new Tab(startUrl, newBrowser));
             urlFieldText.setLength(0);
@@ -124,6 +125,52 @@ public class BrowserScreen extends Screen {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+        List<Render.TabsBar.Tab<Tab>> tabList = new ArrayList<>();
+        for (Tab t : tabs) {
+            tabList.add(new Render.TabsBar.Tab<>(t.getAnimatedText(), false, t));
+        }
+        tabsBar = new Render.TabsBar<>(tabList);
+        tabsBar.setActiveTab(currentTabIndex);
+        tabsBar.setHasPlus(true);
+        tabsBar.setAllowClose(tabCloseButtons);
+        tabsBar.setAllowRename(false);
+        tabsBar.setAllowDrag(true);
+        tabsBar.setAllowScroll(true);
+        tabsBar.setTabBarBounds(5, 35, this.width - 5, TAB_HEIGHT);
+        tabsBar.setOnTabOrderChanged(() -> {
+            List<Tab> newTabs = tabsBar.getTabs().stream().map(tab -> tab.data).toList();
+            tabs.clear();
+            tabs.addAll(newTabs);
+            currentTabIndex = tabsBar.getActiveTab();
+        });
+        tabsBar.setOnTabClosed(() -> {
+            int idx = tabsBar.getActiveTab();
+            Tab removed = tabs.remove(idx);
+            removed.browser.close();
+            if (tabs.isEmpty()) {
+                minecraftClient.setScreen(parent);
+            } else {
+                if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
+                tabsBar.setActiveTab(currentTabIndex);
+            }
+        });
+        tabsBar.setOnTabSelected(() -> {
+            currentTabIndex = tabsBar.getActiveTab();
+            urlFieldText.setLength(0);
+            urlFieldText.append(tabs.get(currentTabIndex).url);
+            urlCursorPosition = urlFieldText.length();
+        });
+        tabsBar.setOnTabPlus(() -> {
+            MCEFBrowser newBrowser = MCEF.createBrowser("https://www.google.com", true);
+            tabs.add(new Tab("https://www.google.com", newBrowser));
+            tabsBar.getTabs().add(new Render.TabsBar.Tab<>(tabs.getLast().getAnimatedText(), false, tabs.getLast()));
+            currentTabIndex = tabs.size() - 1;
+            tabsBar.setActiveTab(currentTabIndex);
+            urlFieldText.setLength(0);
+            urlFieldText.append("https://www.google.com");
+            urlCursorPosition = urlFieldText.length();
+            resizeBrowser(newBrowser);
+        });
     }
 
     @Override
@@ -153,7 +200,9 @@ public class BrowserScreen extends Screen {
 
     private void drawHeader(DrawContext context, int width, int height, int mouseX, int mouseY) {
         drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, fullscreenIcon, null, null, goBackIcon, goForwardIcon, null, null, reloadIcon);
-        drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, true, false);
+        tabsBar.setTabBarBounds(5, 35, width - 5, TAB_HEIGHT);
+        tabsBar.renderTabsBar(context, minecraftClient.textRenderer, tabsBar, mouseX, mouseY, shadow);
+        tabsBar.setActiveTabName(tabs.get(Math.min(currentTabIndex, tabs.size()-1)).getAnimatedText());
         String displayUrl = urlFieldFocused ? urlFieldText.toString() : trimUrl(urlFieldText.toString());
         drawSearchBar(context, minecraftClient.textRenderer, new StringBuilder(displayUrl), urlFieldFocused, urlCursorPosition, urlSelectionStart, urlSelectionEnd, urlScrollOffset, urlTargetScrollOffset, false, "BrowserScreen", mouseX, mouseY, "Search In Google or Enter a URL");
     }
@@ -193,13 +242,14 @@ public class BrowserScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (tabsBar.handleTabsBarMouse((int)mouseX, (int)mouseY, button)) return true;
         int searchBarX = (width - SEARCH_BAR_WIDTH) / 2;
         int searchBarY = 5;
         if(mouseX >= searchBarX && mouseX <= searchBarX + SEARCH_BAR_WIDTH && mouseY >= searchBarY && mouseY <= searchBarY + SEARCH_BAR_HEIGHT) {
             if(button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 playClick();
                 urlFieldFocused = true;
-                int clickX = (int)mouseX - searchBarX - 5 + (int)urlScrollOffset;
+                int clickX = (int) mouseX - searchBarX - 5;
                 int pos = 0;
                 int cumulativeWidth = 0;
                 for (int i = 0; i < urlFieldText.length(); i++) {
@@ -334,6 +384,7 @@ public class BrowserScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (tabsBar.handleTabsBarRelease(button)) return true;
         Tab currentTab = tabs.get(currentTabIndex);
         currentTab.browser.sendMouseRelease(convertMouseX(mouseX), convertMouseY(mouseY), button);
         currentTab.browser.setFocus(true);
@@ -349,6 +400,7 @@ public class BrowserScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (tabsBar.handleTabsBarScroll(verticalAmount, mouseX, mouseY)) return true;
         scaleScroll(verticalAmount);
         Tab currentTab = tabs.get(currentTabIndex);
         currentTab.browser.sendMouseWheel(convertMouseX(mouseX), convertMouseY(mouseY), verticalAmount - horizontalAmount, 0);
@@ -357,10 +409,11 @@ public class BrowserScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (tabsBar.handleTabsBarDrag(button, deltaX)) return true;
         int searchBarX = (width - SEARCH_BAR_WIDTH) / 2;
         int searchBarY = 5;
         if(urlFieldFocused && mouseX >= searchBarX && mouseX <= searchBarX + SEARCH_BAR_WIDTH && mouseY >= searchBarY && mouseY <= searchBarY + SEARCH_BAR_HEIGHT) {
-            int clickX = (int)mouseX - searchBarX - 5 + (int)urlScrollOffset;
+            int clickX = (int) mouseX - searchBarX - 5;
             int pos = 0;
             int cumulativeWidth = 0;
             for (int i = 0; i < urlFieldText.length(); i++) {
@@ -381,6 +434,7 @@ public class BrowserScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (tabsBar.handleTabsBarKey(keyCode, scanCode, modifiers)) return true;
         if(keyCode == GLFW.GLFW_KEY_ESCAPE) {
             if (fullScreenMode) {
                 fullScreenMode = false;
@@ -410,7 +464,7 @@ public class BrowserScreen extends Screen {
                         try {
                             java.awt.datatransfer.StringSelection selection = new java.awt.datatransfer.StringSelection(copyText);
                             java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
-                        } catch(Exception e) {}
+                        } catch(Exception ignored) {}
                     }
                     return true;
                 }
@@ -419,7 +473,7 @@ public class BrowserScreen extends Screen {
                     try {
                         java.awt.datatransfer.Clipboard clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
                         data = (String) clipboard.getData(java.awt.datatransfer.DataFlavor.stringFlavor);
-                    } catch(Exception e) {}
+                    } catch(Exception ignored) {}
                     if(data != null) {
                         if(hasSelection()){
                             int start = Math.min(urlSelectionStart, urlSelectionEnd);
@@ -435,8 +489,7 @@ public class BrowserScreen extends Screen {
                 }
                 if(keyCode == GLFW.GLFW_KEY_LEFT) {
                     if(hasSelection()){
-                        int start = Math.min(urlSelectionStart, urlSelectionEnd);
-                        urlCursorPosition = start;
+                        urlCursorPosition = Math.min(urlSelectionStart, urlSelectionEnd);
                         clearSelection();
                         return true;
                     } else if(urlCursorPosition > 0) {
@@ -448,8 +501,7 @@ public class BrowserScreen extends Screen {
                 }
                 if(keyCode == GLFW.GLFW_KEY_RIGHT) {
                     if(hasSelection()){
-                        int end = Math.max(urlSelectionStart, urlSelectionEnd);
-                        urlCursorPosition = end;
+                        urlCursorPosition = Math.max(urlSelectionStart, urlSelectionEnd);
                         clearSelection();
                         return true;
                     } else if(urlCursorPosition < urlFieldText.length()){
@@ -519,7 +571,7 @@ public class BrowserScreen extends Screen {
                 } catch(Exception e) {
                     try {
                         url = "https://www.google.com/search?q=" + URLEncoder.encode(url, StandardCharsets.UTF_8);
-                    } catch(Exception ex) {}
+                    } catch(Exception ignored) {}
                 }
                 tabs.get(currentTabIndex).url = url;
                 tabs.get(currentTabIndex).textAnimator.updateText(trimUrl(url));
@@ -581,6 +633,7 @@ public class BrowserScreen extends Screen {
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
+        if (tabsBar.handleTabsBarChar(chr)) return true;
         if(urlFieldFocused) {
             if(hasSelection()){
                 int start = Math.min(urlSelectionStart, urlSelectionEnd);
