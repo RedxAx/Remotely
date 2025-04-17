@@ -64,8 +64,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     public static BufferedImage folderIcon;
     public static BufferedImage pinIcon;
     private final List<BufferedImage> loadingFrames = new ArrayList<>();
-    private int currentLoadingFrame = 0;
-    private long lastFrameTime = 0;
     private final List<Path> favoritePaths = new ArrayList<>();
     private final Object favoritePathsLock = new Object();
     private final Path favoritesFilePath = Paths.get(remotelyDir.toString(), "data", "favorites.json");
@@ -74,10 +72,8 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     private int cursorPosition = 0;
     private int selectionStart = -1;
     private int selectionEnd = -1;
-    private long lastBlinkTime = 0;
     private final Gson GSON = new Gson();
     private boolean shiftPressed = false;
-    private boolean lineHovered;
 
     private enum Mode { PATH, SEARCH }
     private Mode currentMode = Mode.PATH;
@@ -335,7 +331,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             for (Render.TabsBar.Tab<FileExplorerScreen.Tab> t : tabsBar.getTabs()) newTabs.add(t.data);
             tabs.clear();
             tabs.addAll(newTabs);
-            currentTabIndex = loadCurrentTabIndex();
+            currentTabIndex = tabsBar.getActiveTab();
             if (currentTabIndex < 0 || currentTabIndex >= tabs.size()) {
                 currentTabIndex = 0;
             }
@@ -346,6 +342,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             selectedTab.tabData.targetOffset = 0;
             selectedTab.tabData.smoothOffset = 0;
             loadDirectory(selectedTab.tabData.path, false, false, true);
+            saveFileExplorerTabs(tabs.stream().map(t -> t.tabData).collect(java.util.stream.Collectors.toList()), currentTabIndex);
         });
         tabsBar.setOnTabClosed(() -> {
             int idx = tabsBar.getActiveTab();
@@ -353,21 +350,13 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             if (tabs.isEmpty()) {
                 minecraftClient.setScreen(parent);
             } else {
-                Tab selectedTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
-                currentPath = selectedTab.tabData.path;
-                serverInfo.isRemote = selectedTab.tabData.isRemote;
-                serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
-                loadDirectory(selectedTab.tabData.path, false, false, true);
+                updateTab();
                 saveFileExplorerTabs(tabs.stream().map(t -> t.tabData).collect(java.util.stream.Collectors.toList()), currentTabIndex);
             }
         });
         tabsBar.setOnTabSelected(() -> {
             currentTabIndex = tabsBar.getActiveTab();
-            Tab selectedTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
-            currentPath = selectedTab.tabData.path;
-            serverInfo.isRemote = selectedTab.tabData.isRemote;
-            serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
-            loadDirectory(selectedTab.tabData.path, false, false, true);
+            updateTab();
             saveFileExplorerTabs(tabs.stream().map(t -> t.tabData).collect(java.util.stream.Collectors.toList()), currentTabIndex);
         });
         tabsBar.setOnTabPlus(() -> {
@@ -817,7 +806,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
             if (keyCode == GLFW.GLFW_KEY_E) {
                 if (!currentTab.tabData.selectedPaths.isEmpty()) {
-                    renamePath = currentTab.tabData.selectedPaths.get(0);
+                    renamePath = currentTab.tabData.selectedPaths.getFirst();
                     renameBuffer.setLength(0);
                     renameBuffer.append(renamePath.getFileName().toString());
                     renameCursorPos = renameBuffer.length();
@@ -958,11 +947,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                 playClick();
                 if (button == GLFW.GLFW_MOUSE_BUTTON_1) {
                     currentTabIndex = i;
-                    Tab selectedTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
-                    currentPath = selectedTab.tabData.path;
-                    serverInfo.isRemote = selectedTab.tabData.isRemote;
-                    serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
-                    loadDirectory(selectedTab.tabData.path, false, false, true);
+                    updateTab();
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
                     closeTab(i);
                     tabsBar.closeTab(i);
@@ -1272,6 +1257,14 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private void updateTab() {
+        Tab selectedTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
+        currentPath = selectedTab.tabData.path;
+        serverInfo.isRemote = selectedTab.tabData.isRemote;
+        serverInfo.remoteHost = selectedTab.tabData.remoteHostInfo;
+        loadDirectory(selectedTab.tabData.path, false, false, true);
     }
 
     private boolean createFile() {

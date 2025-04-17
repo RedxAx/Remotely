@@ -1212,10 +1212,10 @@ public class Render {
             if (button == 0 && draggingTab != -1) {
                 int prevActiveTabId = tabs.get(activeTab).id;
                 if (isDragging && dragOverTab != -1 && dragOverTab != draggingTab) {
-                    Map<Integer, Float> oldAnimPositions = new HashMap<>();
+                    Map<Integer, Float> positionsByTabId = new HashMap<>();
                     for (int i = 0; i < tabs.size(); i++) {
                         Tab<T> tab = tabs.get(i);
-                        oldAnimPositions.put(tab.id, dragAnimatedX.getOrDefault(i, tabOffsets.getOrDefault(tab.id, 0f)));
+                        positionsByTabId.put(tab.id, dragAnimatedX.getOrDefault(i, tabOffsets.getOrDefault(tab.id, 0f)));
                     }
                     Tab<T> moved = tabs.remove(draggingTab);
                     tabs.add(dragOverTab, moved);
@@ -1225,13 +1225,15 @@ public class Render {
                             break;
                         }
                     }
-                    dragAnimatedX.clear();
+                    Map<Integer, Float> newPositions = new HashMap<>();
                     for (int i = 0; i < tabs.size(); i++) {
                         Tab<T> tab = tabs.get(i);
-                        if (oldAnimPositions.containsKey(tab.id)) {
-                            dragAnimatedX.put(i, oldAnimPositions.get(tab.id));
+                        if (positionsByTabId.containsKey(tab.id)) {
+                            newPositions.put(i, positionsByTabId.get(tab.id));
                         }
                     }
+                    dragAnimatedX = newPositions;
+
                     if (onTabOrderChanged != null) onTabOrderChanged.run();
                 }
                 draggingTab = -1;
