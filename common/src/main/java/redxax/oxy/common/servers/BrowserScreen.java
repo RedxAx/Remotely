@@ -145,25 +145,32 @@ public class BrowserScreen extends Screen {
         });
         tabsBar.setOnTabClosed(() -> {
             int idx = tabsBar.getActiveTab();
-            Tab removed = tabs.remove(idx);
-            removed.browser.close();
-            if (tabs.isEmpty()) {
-                minecraftClient.setScreen(parent);
-            } else {
-                if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
-                tabsBar.setActiveTab(currentTabIndex);
+            if (idx >= 0 && idx < tabs.size()) {
+                Tab removed = tabs.get(idx);
+                removed.browser.close();
+                tabs.remove(idx);
+                tabsBar.getTabs().remove(idx);
+                if (tabs.isEmpty()) {
+                    minecraftClient.setScreen(parent);
+                } else {
+                    if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
+                    tabsBar.setActiveTab(currentTabIndex);
+                }
             }
         });
         tabsBar.setOnTabSelected(() -> {
             currentTabIndex = tabsBar.getActiveTab();
-            urlFieldText.setLength(0);
-            urlFieldText.append(tabs.get(currentTabIndex).url);
-            urlCursorPosition = urlFieldText.length();
+            if (currentTabIndex >= 0 && currentTabIndex < tabs.size()) {
+                urlFieldText.setLength(0);
+                urlFieldText.append(tabs.get(currentTabIndex).url);
+                urlCursorPosition = urlFieldText.length();
+            }
         });
         tabsBar.setOnTabPlus(() -> {
             MCEFBrowser newBrowser = MCEF.createBrowser("https://www.google.com", true);
-            tabs.add(new Tab("https://www.google.com", newBrowser));
-            tabsBar.getTabs().add(new Render.TabsBar.Tab<>(tabs.getLast().getAnimatedText(), false, tabs.getLast()));
+            Tab newTab = new Tab("https://www.google.com", newBrowser);
+            tabs.add(newTab);
+            tabsBar.getTabs().add(new Render.TabsBar.Tab<>(newTab.getAnimatedText(), false, newTab));
             currentTabIndex = tabs.size() - 1;
             tabsBar.setActiveTab(currentTabIndex);
             urlFieldText.setLength(0);
@@ -337,11 +344,17 @@ public class BrowserScreen extends Screen {
                         if(tabs.size() > 1) {
                             tabs.get(i).browser.close();
                             tabs.remove(i);
+                            if (i < tabsBar.getTabs().size()) {
+                                tabsBar.getTabs().remove(i);
+                            }
                             if(currentTabIndex >= tabs.size()) {
                                 currentTabIndex = tabs.size() - 1;
                             }
+                            tabsBar.setActiveTab(currentTabIndex);
                         } else {
                             tabs.get(i).browser.close();
+                            tabs.clear();
+                            tabsBar.getTabs().clear();
                             minecraftClient.setScreen(parent);
                         }
                         return true;
@@ -360,8 +373,11 @@ public class BrowserScreen extends Screen {
             if(!tabClicked && mouseX >= x && mouseX <= x + 18 && mouseY >= tabBarY && mouseY <= tabBarEndY) {
                 playClick();
                 MCEFBrowser newBrowser = MCEF.createBrowser("www.google.com", true);
-                tabs.add(new Tab("www.google.com", newBrowser));
+                Tab newTab = new Tab("www.google.com", newBrowser);
+                tabs.add(newTab);
+                tabsBar.getTabs().add(new Render.TabsBar.Tab<>(newTab.getAnimatedText(), false, newTab));
                 currentTabIndex = tabs.size() - 1;
+                tabsBar.setActiveTab(currentTabIndex);
                 urlFieldText.setLength(0);
                 urlFieldText.append("www.google.com");
                 urlCursorPosition = urlFieldText.length();
