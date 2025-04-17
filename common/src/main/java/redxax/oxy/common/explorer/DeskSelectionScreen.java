@@ -190,13 +190,10 @@ public class DeskSelectionScreen extends Screen {
         this.renderBackground(context, mouseX, mouseY, delta);
         drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, null, null, null, null, null, null, null, null);
         context.drawText(this.textRenderer, Text.literal("Remotely - New Tab"), 10, 10, globalTextColor, Config.shadow);
-        int headerY = 35;
-        int gridX = spacing;
-        int gridY = headerY + 10;
-        int gridWidth = this.width - 2 * spacing;
-        int gridHeight = this.height - gridY - 10;
-        context.fill(gridX, gridY, gridX + gridWidth, gridY + gridHeight, Config.innerBackgroundColor);
-        drawInnerBorder(context, gridX, gridY, gridWidth, gridHeight, Config.innerBorderColor);
+        int gridX = 5;
+        int gridY = 60;
+        int gridWidth = this.width - 5;
+        int gridHeight = this.height - 5;
         itemWidth = (gridWidth - (columns + 1) * spacing) / columns;
         int startY = gridY + spacing;
         int idx = 0;
@@ -211,6 +208,13 @@ public class DeskSelectionScreen extends Screen {
             }
             boolean hovered = mouseX >= drawX && mouseX <= drawX + itemWidth && mouseY >= drawY && mouseY <= drawY + itemHeight;
             int bgColor = getElementBackgroundColor(item.hashCode(), hovered, item.isFavorite, true, false, false, false);
+            int id = ("explorer" + item.hashCode()).hashCode();
+            float targetOffset = hovered ? -2f : 0f;
+            float currentOffset = elevationOffsets.getOrDefault(id, 0f);
+            currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+            elevationOffsets.put(id, currentOffset);
+            context.getMatrices().push();
+            context.getMatrices().translate(0, currentOffset, 0);
             context.fill(drawX, drawY, drawX + itemWidth, drawY + itemHeight, bgColor);
             drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, getElementBorderColor(item.hashCode(), hovered, item.isFavorite, true, false, false, false));
             drawOuterBorder(context, drawX, drawY, itemWidth, itemHeight, globalOuterBorder);
@@ -231,6 +235,7 @@ public class DeskSelectionScreen extends Screen {
             context.drawText(this.textRenderer, Text.literal(firstLine), drawX + 25, drawY + 7, Config.globalTextColor, Config.shadow);
             context.drawText(this.textRenderer, Text.literal(secondLine), drawX + 25, drawY + 18, globalDarkTextColor, Config.shadow);
             idx++;
+            context.getMatrices().pop();
         }
         animatedScaling(context, this, minecraftClient);
     }
