@@ -304,20 +304,10 @@ public class SettingsScreen extends Screen {
             devPrint("Failed to load icons: " + e.getMessage());
         }
     }
-    @Override
-    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        if (wallpaper && windowsBackground != null) {
-            drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
-        } else if (!background) {
-            context.fill(0, 0, width, height, backgroundColor);
-        } else {
-            super.renderBackground(context, mouseX, mouseY, delta);
-        }
-    }
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        this.renderBackground(context, mouseX, mouseY, delta);
+        super.render(context, mouseX, mouseY, delta);
         drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, mc, closeIcon, configMode ? null : createIcon, null, null, null, null, null, null, null);
         recalcTabs();
         int headerHeight = 30;

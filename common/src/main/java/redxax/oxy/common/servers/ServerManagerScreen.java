@@ -209,19 +209,8 @@ public class ServerManagerScreen extends Screen {
     }
 
     @Override
-    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        if (wallpaper && windowsBackground != null) {
-            drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
-        } else if (!background || MinecraftClient.getInstance().getGameVersion().startsWith("1.20")) {
-            context.fill(0, 0, width, height, backgroundColor);
-        } else {
-            super.renderBackground(context, mouseX, mouseY, delta);
-        }
-    }
-
-    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        this.renderBackground(context, mouseX, mouseY, delta);
+        super.render(context, mouseX, mouseY, delta);
         long currentTime = System.currentTimeMillis();
         if (currentTime - serverLastBlinkTime > 500) {
             serverCursorVisible = !serverCursorVisible;
@@ -590,6 +579,7 @@ public class ServerManagerScreen extends Screen {
                         ServerInfo info = getCurrentServers().get(rect.serverIndex);
                         minecraftClient.setScreen(new SettingsScreen(minecraftClient, "editServer", this, info.path, settings, info));
                     }, globalHoverTextColor, "Open The Server's Settings");
+                    Render.ContextMenu.addItem("Open Folder", () -> minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, getCurrentServers().get(rect.serverIndex), false)), globalHoverTextColor, "Open The Server's Folder");
                     Render.ContextMenu.addItem("Delete", () -> {
                         deletionPopupActive = true;
                         deletionPopupServerIndex = rect.serverIndex;
