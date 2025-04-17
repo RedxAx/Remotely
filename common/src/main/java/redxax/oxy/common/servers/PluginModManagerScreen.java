@@ -403,7 +403,7 @@ public class PluginModManagerScreen extends Screen {
         drawInnerBorder(context, contentX, contentY - 25, contentWidth, 25, Config.innerBorderColor);
         drawOuterBorder(context, contentX, contentY - 25, contentWidth, 25, globalOuterBorder);
         context.drawText(textRenderer, Text.literal("Name"), contentX + 10, contentY - 18, globalTextColor, Config.shadow);
-        context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
+        context.enableScissor(contentX - 1, contentY, contentX + contentWidth + 1, contentY + contentHeight);
         if (isLoading && resources.isEmpty()) {
             drawLoading(context, super.height, super.width);
             context.disableScissor();
@@ -650,6 +650,10 @@ public class PluginModManagerScreen extends Screen {
 
     public ServerInfo getServerInfo() {
         return serverInfo;
+    }
+
+    public boolean isCanScroll() {
+        return smoothOffset + (this.height - 70) < resources.size() * (entryHeight + gapBetweenEntries);
     }
 
     @Override

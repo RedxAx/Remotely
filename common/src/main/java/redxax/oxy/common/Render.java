@@ -599,7 +599,7 @@ public class Render {
         drawOuterBorder(context, 0, 0, parent.width, 30, globalOuterBorder);
         if (!(parent instanceof MultiTerminalScreen)) {
             if (!(parent instanceof FileExplorerScreen && !(((FileExplorerScreen) parent).isCanScroll()))) {
-                if (!(parent instanceof PluginModManagerScreen)) {
+                if (!(parent instanceof PluginModManagerScreen && !((PluginModManagerScreen) parent).isCanScroll())) {
                     if (!(parent instanceof SettingsScreen)) {
                         context.fill(5, 60, backgroundWidth, height - 5, innerBackgroundColor);
                         drawInnerBorder(context, 5, 60, backgroundWidth - 5, height - 65, innerBorderColor);
