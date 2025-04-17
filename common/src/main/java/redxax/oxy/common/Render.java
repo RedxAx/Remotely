@@ -157,7 +157,7 @@ public class Render {
             context.getMatrices().translate(0, 0, 499);
             for (MenuItem item : items) {
                 boolean hovered = mouseX >= menuX && mouseX <= menuX + itemWidth && mouseY >= currentY && mouseY < currentY + itemHeight;
-                drawCustomButton(context, menuX, currentY, item.label, mc, hovered, false, false, false, 60, 18, globalTextColor,  MenuHoverColor, mouseX, mouseY, item.tooltipText);
+                drawCustomButton(context, menuX, currentY, item.label, mc, hovered, false, false, false, true, 60, 18, globalTextColor,  MenuHoverColor, mouseX, mouseY, item.tooltipText);
                 currentY += itemHeight + gap;
             }
             context.getMatrices().pop();
@@ -206,13 +206,13 @@ public class Render {
             float scrollRatio = effectiveOffset / (float)(totalHeight - explorerHeight);
             int lineY = explorerY + (int)((explorerHeight - lineHeight) * scrollRatio);
             int lineX = (scrollbarX - (lineWidth - scrollbarWidth) / 2);
-            context.fill(scrollbarX, explorerY, scrollbarX + scrollbarWidth, lineY + lineHeight / 2, Config.getElementBackgroundColor(3000 + "topScroll".hashCode(), true, dragging, false, false, false));
-            context.fill(scrollbarX, lineY + lineHeight / 2, scrollbarX + scrollbarWidth, explorerY + explorerHeight, Config.getElementBackgroundColor(3000 + "bottomScroll".hashCode(), dragging, false, false, false, false));
+            context.fill(scrollbarX, explorerY, scrollbarX + scrollbarWidth, lineY + lineHeight / 2, Config.getElementBackgroundColor(3000 + "topScroll".hashCode(), true, dragging, true, false, false, false));
+            context.fill(scrollbarX, lineY + lineHeight / 2, scrollbarX + scrollbarWidth, explorerY + explorerHeight, Config.getElementBackgroundColor(3000 + "bottomScroll".hashCode(), dragging, false, true, false, false, false));
             drawOuterBorder(context, scrollbarX, explorerY, scrollbarWidth, explorerHeight, globalOuterBorder);
             lineHovered = mouseX >= lineX && mouseX <= lineX + lineWidth && mouseY >= lineY && mouseY <= lineY + lineHeight;
-            int lineColor = Config.getElementBackgroundColor(3000 + "scrollLine".hashCode(), lineHovered, dragging, false, false, false);
+            int lineColor = Config.getElementBackgroundColor(3000 + "scrollLine".hashCode(), lineHovered, dragging, true, false, false, false);
             context.fill(lineX, lineY, lineX + lineWidth, lineY + lineHeight, lineColor);
-            drawInnerBorder(context, lineX, lineY, lineWidth, lineHeight, Config.getElementBorderColor(3000 + "scrollLineBr".hashCode(), lineHovered, dragging, false, false, false));
+            drawInnerBorder(context, lineX, lineY, lineWidth, lineHeight, Config.getElementBorderColor(3000 + "scrollLineBr".hashCode(), lineHovered, dragging, true, false, false, false));
         }
 
         public static boolean handleMousePressed(Screen parent, int mouseX, int mouseY, int totalHeight, float scrollOffset) {
@@ -333,9 +333,9 @@ public class Render {
             elevationOffsets.put(elevId, currentOffset);
             context.getMatrices().push();
             context.getMatrices().translate(0, currentOffset, 0);
-            int bgColor = Config.getElementBackgroundColor(1000 + i, isHovered, isActive, isUnsaved, false, false);
+            int bgColor = Config.getElementBackgroundColor(1000 + i, isHovered, isActive, true, isUnsaved, false, false);
             context.fill(x, tabBarY, x2, tabBarY + tabBarHeight, bgColor);
-            drawInnerBorder(context, x, tabBarY, tabWidth, tabBarHeight, Config.getElementBorderColor(1000 + i, isHovered, isActive, isUnsaved, false, false));
+            drawInnerBorder(context, x, tabBarY, tabWidth, tabBarHeight, Config.getElementBorderColor(1000 + i, isHovered, isActive, true, isUnsaved, false, false));
             drawOuterBorder(context, x, tabBarY, tabWidth, tabBarHeight, globalOuterBorder);
             context.enableScissor(x + 1, tabBarY, x2 - 1, tabBarY + tabBarHeight);
             context.drawText(textRenderer, Text.literal(name), x + tabPadding, tabBarY + 5, getTextColor(isHovered, false), shadow);
@@ -352,9 +352,9 @@ public class Render {
             elevationOffsets.put(plusId, currentOffset);
             context.getMatrices().push();
             context.getMatrices().translate(0, currentOffset, 0);
-            int bgColor = Config.getElementBackgroundColor(1000 + tabs.size(), isPlusTabHovered, false, isUnsaved, false, false);
+            int bgColor = Config.getElementBackgroundColor(1000 + tabs.size(), isPlusTabHovered, false, true, isUnsaved, false, false);
             context.fill(x, tabBarY, x + plusTabWidth, tabBarY + tabBarHeight, bgColor);
-            drawInnerBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, Config.getElementBorderColor(1000 + tabs.size(), isPlusTabHovered, false, false, false, false));
+            drawInnerBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, Config.getElementBorderColor(1000 + tabs.size(), isPlusTabHovered, false, true, false, false, false));
             drawOuterBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, globalOuterBorder);
             context.drawText(textRenderer, Text.literal(plusSign), x + plusTabWidth / 2 - textRenderer.getWidth(plusSign) / 2, tabBarY + 5, getTextColor(isPlusTabHovered, false), shadow);
             context.getMatrices().pop();
@@ -386,9 +386,9 @@ public class Render {
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
         int id = 2000;
-        int bgColor = getElementBackgroundColor(id, hovered, fieldFocused, false, caller.equals("FileExplorerScreen") && isSpecialMode, caller.equals("FileEditorScreen") && isSpecialMode);
+        int bgColor = getElementBackgroundColor(id, hovered, fieldFocused, true, false, caller.equals("FileExplorerScreen") && isSpecialMode, caller.equals("FileEditorScreen") && isSpecialMode);
         context.fill(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight, bgColor);
-        drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, getElementBorderColor(id, hovered, fieldFocused, false, caller.equals("FileExplorerScreen") && isSpecialMode, caller.equals("FileEditorScreen") && isSpecialMode));
+        drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, getElementBorderColor(id, hovered, fieldFocused, true, false, caller.equals("FileExplorerScreen") && isSpecialMode, caller.equals("FileEditorScreen") && isSpecialMode));
         drawOuterBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, globalOuterBorder);
         if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
             int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
@@ -443,8 +443,8 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        int bg = Config.getElementBackgroundColor(entry.hashCode(), hovered, isSelected, isFavorite, entry.isMatched, false);
-        int borderWithOpacity = Config.getElementBorderColor(entry.hashCode(), hovered, isSelected, isFavorite, entry.isMatched, false);
+        int bg = Config.getElementBackgroundColor(entry.hashCode(), hovered, isSelected, true, isFavorite, entry.isMatched, false);
+        int borderWithOpacity = Config.getElementBorderColor(entry.hashCode(), hovered, isSelected, true, isFavorite, entry.isMatched, false);
         drawOuterBorder(context, explorerX, entryY, explorerWidth, entryHeight, globalOuterBorder);
         context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
         drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
@@ -474,9 +474,9 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        int bgColor = Config.getElementBackgroundColor(snippet.hashCode(), hovered, selected, false, false, false);
+        int bgColor = Config.getElementBackgroundColor(snippet.hashCode(), hovered, selected, true, false, false, false);
         context.fill(snippetX, snippetY, snippetX + snippetMaxWidth, snippetY + snippetHeight, bgColor);
-        drawInnerBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, Config.getElementBorderColor(snippet.hashCode(), hovered, selected, false, false, false));
+        drawInnerBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, Config.getElementBorderColor(snippet.hashCode(), hovered, selected, true, false, false, false));
         drawOuterBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, globalOuterBorder);
         String displayName = trimTextToWidthWithEllipsis(snippet.name, snippetMaxWidth - 10);
         context.drawText(minecraftClient.textRenderer, Text.literal(displayName), snippetX + 5, snippetY + 5, globalTextColor, shadow);
@@ -494,7 +494,7 @@ public class Render {
         context.disableScissor();
         context.getMatrices().pop();
     }
-    public static void drawCustomButton(DrawContext context, int x, int y, String text, MinecraftClient mc, boolean hovered, boolean dynamic, boolean centered, boolean selected, int bW, int bH, int txColor, int hoverColor, int mouseX, int mouseY, String tooltipText) {
+    public static void drawCustomButton(DrawContext context, int x, int y, String text, MinecraftClient mc, boolean hovered, boolean dynamic, boolean centered, boolean selected, boolean clickable, int bW, int bH, int txColor, int hoverColor, int mouseX, int mouseY, String tooltipText) {
         if (dynamic) {
             bW = mc.textRenderer.getWidth(text) + 10;
         }
@@ -505,8 +505,8 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        context.fill(x, y, x + bW, y + bH, Config.getElementBackgroundColor(id, hovered, selected, false, false, false));
-        drawInnerBorder(context, x, y, bW, bH, Config.getElementBorderColor(id, hovered, selected, false, false, false));
+        context.fill(x, y, x + bW, y + bH, Config.getElementBackgroundColor(id, hovered, selected, clickable, false, false, false));
+        drawInnerBorder(context, x, y, bW, bH, Config.getElementBorderColor(id, hovered, selected, clickable, false, false, false));
         drawOuterBorder(context, x, y, bW, bH, globalOuterBorder);
         int tw = mc.textRenderer.getWidth(text);
         int tx = centered ? x + (bW - tw) / 2 : x + 5;
@@ -528,8 +528,8 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        context.fill(x, y, x + w, y + h, Config.getElementBackgroundColor(id, hovered, false, false, false, false));
-        drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, false, false, false));
+        context.fill(x, y, x + w, y + h, Config.getElementBackgroundColor(id, hovered, false, true, false, false, false));
+        drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, true, false, false, false));
         drawOuterBorder(context, x, y, w, h, globalOuterBorder);
         if (icon != null) {
             drawPixelArt(context, x + 1, y + 1, 16, 16, icon);
@@ -539,7 +539,7 @@ public class Render {
         context.getMatrices().pop();
     }
 
-    public static void drawSquareButton(DrawContext context, int x, int y, MinecraftClient mc, boolean hovered, int mouseX, int mouseY, String tooltipText, Identifier icon) {
+    public static void drawSquareButton(DrawContext context, int x, int y, MinecraftClient mc, boolean hovered, int mouseX, int mouseY, String tooltipText, Identifier icon, int iconWidth, int iconHeight) {
         int w = 18;
         int h = 18;
         int id = ("square" + x + y).hashCode();
@@ -549,11 +549,11 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        context.fill(x, y, x + w, y + h, Config.getElementBackgroundColor(id, hovered, false, false, false, false));
-        drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, false, false, false));
+        context.fill(x, y, x + w, y + h, Config.getElementBackgroundColor(id, hovered, false, true, false, false, false));
+        drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, true, false, false, false));
         drawOuterBorder(context, x, y, w, h, globalOuterBorder);
         if (icon != null) {
-            context.drawTexture(icon, x + 1, y + 1, 0, 0, 16, 16, 16, 16);
+            context.drawGuiTexture(icon, x + 2, y + 2,iconWidth, iconHeight);
         }
 
         CustomTooltip.show(tooltipText, mouseX, mouseY, context.getScaledWindowWidth(), context.getScaledWindowHeight(), mc.textRenderer, hovered);
@@ -656,10 +656,10 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        int trackColor = Config.getElementBackgroundColor(id, hovered, value, false, false, false);
+        int trackColor = Config.getElementBackgroundColor(id, hovered, value, true, false, false, false);
         context.fill(x, y, x + trackWidth, y + trackHeight, trackColor);
         context.fill(x, y + (int)(trackHeight * 0.75), x + trackWidth, y + trackHeight, 0x20000000);
-        drawInnerBorder(context, x, y, trackWidth, trackHeight, Config.getElementBorderColor(id, hovered, value, false, false, false));
+        drawInnerBorder(context, x, y, trackWidth, trackHeight, Config.getElementBorderColor(id, hovered, value, true, false, false, false));
         drawOuterBorder(context, x, y, trackWidth, trackHeight, globalOuterBorder);
         int knobId = (id + "knob").hashCode();
         float knobTargetX = value ? x + trackWidth - (trackHeight - 4) - 2 : x + 2;
@@ -672,8 +672,8 @@ public class Render {
         int knobDiameter = trackHeight - 4;
         int knobX = (int) currentKnobX;
         int knobY = y + 2;
-        context.fill(knobX, knobY, knobX + knobDiameter, knobY + knobDiameter, Config.getElementBackgroundColor(knobId, hovered, false, false, false, false));
-        drawInnerBorder(context, knobX, knobY, knobDiameter, knobDiameter, Config.getElementBorderColor(knobId, hovered, false, false, false, false));
+        context.fill(knobX, knobY, knobX + knobDiameter, knobY + knobDiameter, Config.getElementBackgroundColor(knobId, hovered, false, true, false, false, false));
+        drawInnerBorder(context, knobX, knobY, knobDiameter, knobDiameter, Config.getElementBorderColor(knobId, hovered, false, true, false, false, false));
 
         context.getMatrices().pop();
     }
@@ -686,13 +686,13 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        int bg = Config.getElementBackgroundColor(id, hovered, false, false, false, false);
+        int bg = Config.getElementBackgroundColor(id, hovered, false, true, false, false, false);
         context.fill(x, y, x + sliderWidth, y + sliderHeight, bg);
 
         float ratio = (float)(currentValue - minValue) / (float)(maxValue - minValue);
         int fillWidth = (int)(ratio * (sliderWidth - 2));
-        context.fill(x + 1, y + 1, x + 1 + fillWidth, y + sliderHeight - 1, Config.getElementBorderColor(id + "Inner".hashCode(), hovered, true, false, false, false));
-        drawInnerBorder(context, x, y, sliderWidth, sliderHeight, Config.getElementBorderColor(id, hovered, false, false, false, false));
+        context.fill(x + 1, y + 1, x + 1 + fillWidth, y + sliderHeight - 1, Config.getElementBorderColor(id + "Inner".hashCode(), hovered, true, true, false, false, false));
+        drawInnerBorder(context, x, y, sliderWidth, sliderHeight, Config.getElementBorderColor(id, hovered, false, true, false, false, false));
         drawOuterBorder(context, x, y, sliderWidth, sliderHeight, globalOuterBorder);
         context.fill(x + 1, y + sliderHeight - (int)(sliderHeight * 0.25), x + 1 + fillWidth, y + sliderHeight - 1, 0x20000000);
 
@@ -714,9 +714,9 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        int bg = Config.getElementBackgroundColor(id, hovered, selected, false, false, false);
+        int bg = Config.getElementBackgroundColor(id, hovered, selected, true, false, false, false);
         context.fill(x, y, x + sliderWidth, y + sliderHeight, bg);
-        drawInnerBorder(context, x, y, sliderWidth, sliderHeight, Config.getElementBorderColor(id, hovered, selected, false, false, false));
+        drawInnerBorder(context, x, y, sliderWidth, sliderHeight, Config.getElementBorderColor(id, hovered, selected, true, false, false, false));
         drawOuterBorder(context, x, y, sliderWidth, sliderHeight, globalOuterBorder);
         float clampedValue = (float) MathHelper.clamp(currentValue, 0f, 1f);
         int knobDiameter = sliderHeight - 4;
@@ -728,9 +728,9 @@ public class Render {
         currentKnobX += (targetKnobX - currentKnobX) * globalMovementSpeed * deltaTime;
         int knobX = (int) currentKnobX;
         int knobY = y + 2;
-        int knobColor = Config.getElementBackgroundColor(knobId, hovered, selected, false, false, false);
+        int knobColor = Config.getElementBackgroundColor(knobId, hovered, selected, true, false, false, false);
         context.fill(knobX, knobY, knobX + knobDiameter, knobY + knobDiameter, knobColor);
-        drawInnerBorder(context, knobX, knobY, knobDiameter, knobDiameter, Config.getElementBorderColor(knobId, hovered, selected, false, false, false));
+        drawInnerBorder(context, knobX, knobY, knobDiameter, knobDiameter, Config.getElementBorderColor(knobId, hovered, selected, true, false, false, false));
         int tw = mc.textRenderer.getWidth(label);
         int tx = x + (sliderWidth - tw) / 2;
         int ty = y + (sliderHeight - mc.textRenderer.fontHeight) / 2;
@@ -767,9 +767,9 @@ public class Render {
 
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        int bg = Config.getElementBackgroundColor(id, hovered, false, false, false, false);
+        int bg = Config.getElementBackgroundColor(id, hovered, false, true, false, false, false);
         context.fill(x, y, x + w, y + h, bg);
-        drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, false, false, false));
+        drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, true, false, false, false));
         drawOuterBorder(context, x, y, w, h, globalOuterBorder);
         int contentX = x + 1;
         int contentWidth = x + w - contentX - 1;
@@ -816,9 +816,9 @@ public class Render {
             elevationOffsets.put(segId, currentOffset);
             context.getMatrices().push();
             context.getMatrices().translate(0, currentOffset, 0);
-            int color = Config.getElementBackgroundColor(segId, segmentedHovered, selected, false, false, false);
+            int color = Config.getElementBackgroundColor(segId, segmentedHovered, selected, true, false, false, false);
             context.fill(segX, y, segX + segW, y + barHeight, color);
-            drawInnerBorder(context, segX, y, segW, barHeight, Config.getElementBorderColor(segId, segmentedHovered, selected, false, false, false));
+            drawInnerBorder(context, segX, y, segW, barHeight, Config.getElementBorderColor(segId, segmentedHovered, selected, true, false, false, false));
             int textWidth = mc.textRenderer.getWidth(options.get(i));
             int textX = segX + (segW - textWidth) / 2;
             int textY = y + ((barHeight - mc.textRenderer.fontHeight) / 2) + 1;
@@ -835,9 +835,9 @@ public class Render {
         elevationOffsets.put(id, elevationCurrent);
         context.getMatrices().push();
         context.getMatrices().translate(0, elevationCurrent, 0);
-        int bg = Config.getElementBackgroundColor(id, hovered, focused, false, false, false);
+        int bg = Config.getElementBackgroundColor(id, hovered, focused, true, false, false, false);
         context.fill(x, y, x + inputWidth, y + inputHeight, bg);
-        drawInnerBorder(context, x, y, inputWidth, inputHeight, Config.getElementBorderColor(id, hovered, focused, false, false, false));
+        drawInnerBorder(context, x, y, inputWidth, inputHeight, Config.getElementBorderColor(id, hovered, focused, true, false, false, false));
         drawOuterBorder(context, x, y, inputWidth, inputHeight, globalOuterBorder);
         int displayWidth = inputWidth - 10;
         int textWidth = mc.textRenderer.getWidth(textValue);
@@ -1072,9 +1072,9 @@ public class Render {
                 Render.elevationOffsets.put(elevId, currentOffset);
                 context.getMatrices().push();
                 context.getMatrices().translate(0, currentOffset, isDragged ? 499 : isActive || isHovered ? 498 : 497);
-                int bgColor = Config.getElementBackgroundColor(1000 + i, isHovered, isActive, tab.unsaved, false, false);
+                int bgColor = Config.getElementBackgroundColor(1000 + i, isHovered, isActive, true, tab.unsaved, false, false);
                 context.fill((int) newPos, tabBarY, (int) newPos + (int) tabWidth, tabBarY + tabBarHeight, bgColor);
-                drawInnerBorder(context, (int) newPos, tabBarY, (int) tabWidth, tabBarHeight, Config.getElementBorderColor(1000 + i, isHovered, isActive, tab.unsaved, false, false));
+                drawInnerBorder(context, (int) newPos, tabBarY, (int) tabWidth, tabBarHeight, Config.getElementBorderColor(1000 + i, isHovered, isActive, true, tab.unsaved, false, false));
                 drawOuterBorder(context, (int) newPos, tabBarY, (int) tabWidth, tabBarHeight, globalOuterBorder);
                 context.enableScissor((int) newPos + 1, (int) (tabBarY + currentOffset), (int) newPos + (int) tabWidth - 1, tabBarY + tabBarHeight);
                 if (renamingTab == i) {
@@ -1093,7 +1093,7 @@ public class Render {
                     int closeX = (int) (newPos + tabWidth - 5 - 1);
                     int closeY = tabBarY + 1;
                     boolean closeHovered = mouseX >= closeX && mouseX <= closeX + 5 && mouseY >= closeY && mouseY <= closeY + 5;
-                    int closeColor = Config.getElementBorderColor(1000 + "x".hashCode(), false, false, closeHovered, false, false);
+                    int closeColor = Config.getElementBorderColor(1000 + "x".hashCode(), false, false, true, closeHovered, false, false);
                     context.drawText(textRenderer, Text.literal("×"), closeX, closeY - 1, closeColor, true);
                 }
                 context.getMatrices().pop();
@@ -1114,9 +1114,9 @@ public class Render {
                 Render.elevationOffsets.put(plusElevId, currentOffset);
                 context.getMatrices().push();
                 context.getMatrices().translate(0, currentOffset, 0);
-                int bgColor = Config.getElementBackgroundColor(1000 + tabs.size(), isPlusHovered, false, false, false, false);
+                int bgColor = Config.getElementBackgroundColor(1000 + tabs.size(), isPlusHovered, false, true, false, false, false);
                 context.fill(drawX, tabBarY, drawX + plusTabWidth, tabBarY + tabBarHeight, bgColor);
-                drawInnerBorder(context, drawX, tabBarY, plusTabWidth, tabBarHeight, Config.getElementBorderColor(1000 + tabs.size(), isPlusHovered, false, false, false, false));
+                drawInnerBorder(context, drawX, tabBarY, plusTabWidth, tabBarHeight, Config.getElementBorderColor(1000 + tabs.size(), isPlusHovered, false, true, false, false, false));
                 drawOuterBorder(context, drawX, tabBarY, plusTabWidth, tabBarHeight, globalOuterBorder);
                 context.drawText(textRenderer, Text.literal("+"), drawX + plusTabWidth / 2 - (textRenderer.getWidth("+") / 2), tabBarY + 4, Config.getTextColor(isPlusHovered, false), shadow);
                 context.getMatrices().pop();

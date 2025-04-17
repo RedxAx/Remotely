@@ -4,7 +4,6 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.common.api.HangarAPI;
@@ -424,8 +423,8 @@ public class PluginModManagerScreen extends Screen {
             elevationOffsets.put(elevId, currentOffset);
             context.getMatrices().push();
             context.getMatrices().translate(0, currentOffset, 0);
-            int bg = getElementBackgroundColor(resource.hashCode(), hovered, i == selectedIndex, false, false, false);
-            int borderColorFinal = getElementBorderColor(resource.hashCode(), hovered, i == selectedIndex, false, false, false);
+            int bg = getElementBackgroundColor(resource.hashCode(), hovered, i == selectedIndex, true, false, false, false);
+            int borderColorFinal = getElementBorderColor(resource.hashCode(), hovered, i == selectedIndex, true, false, false, false);
             context.fill(contentX, baseY, contentX + contentWidth, baseY + entryHeight, bg);
             drawInnerBorder(context, contentX, baseY, contentWidth, entryHeight, borderColorFinal);
             drawOuterBorder(context, contentX, baseY, contentWidth, entryHeight, globalOuterBorder);

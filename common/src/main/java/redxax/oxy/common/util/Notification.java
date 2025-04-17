@@ -114,8 +114,8 @@ public class Notification {
 
         paused = hovered;
 
-        int bgColor = getElementBackgroundColor(notificationId, hovered, true, type == Type.ERROR, false, type == Type.INFO);
-        int borderColor = getElementBorderColor(notificationId, hovered, true, type == Type.ERROR, false, type == Type.INFO);
+        int bgColor = getElementBackgroundColor(notificationId, hovered, true, true, type == Type.ERROR, false, type == Type.INFO);
+        int borderColor = getElementBorderColor(notificationId, hovered, true, true, type == Type.ERROR, false, type == Type.INFO);
         int textColor = getTextColor(hovered, paused);
         context.fill((int) currentX, (int) currentY, (int) currentX + width, (int) currentY + height, bgColor);
         drawInnerBorder(context, (int) currentX, (int) currentY, width, height, borderColor);

@@ -54,6 +54,9 @@ public class Config {
     public static int calmDarkAccentColor = 0xFF17253B;
     public static int calmAccentColor = 0xFF6CC4F1;
 
+    public static int inClickableBackgroundColor = 0xFF181818;
+    public static int inClickableBorderColor = 0xFF2c2c2c;
+
     public static int globalTextColor = 0xFFFFFFFF;
     public static int globalDarkTextColor = 0xFF888888;
     public static int globalHoverTextColor = 0xFFFFC800;
@@ -126,9 +129,11 @@ public class Config {
         return current;
     }
 
-    public static int getElementBorderColor(int id, boolean hovered, boolean selected, boolean danger, boolean nice, boolean calm) {
+    public static int getElementBorderColor(int id, boolean hovered, boolean selected, boolean clickable, boolean danger, boolean nice, boolean calm) {
         int target;
-        if (danger) {
+        if (!clickable) {
+            target = inClickableBorderColor;
+        } else if (danger) {
             target = hovered && selected ? dangerHoverAccentColor : selected ? dangerAccentColor : hovered ? elementHoverBorderColor : elementBorderColor;
         } else if (nice) {
             target = hovered && selected ? niceAccentHoverColor : selected ? niceAccentColor : hovered ? elementHoverBorderColor : elementBorderColor;
@@ -148,9 +153,11 @@ public class Config {
         return floatArrayToInt(newColorFloats);
     }
 
-    public static int getElementBackgroundColor(int id, boolean hovered, boolean selected, boolean danger, boolean nice, boolean calm) {
+    public static int getElementBackgroundColor(int id, boolean hovered, boolean selected, boolean clickable, boolean danger, boolean nice, boolean calm) {
         int target;
-        if (danger) {
+        if (!clickable) {
+            target = inClickableBackgroundColor;
+        } else if (danger) {
             target = hovered && selected ? dangerDarkHoverAccentColor : selected ? dangerDarkAccentColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;
         } else if (nice) {
             target = hovered && selected ? niceDarkHoverAccentColor : selected ? niceDarkAccentColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;

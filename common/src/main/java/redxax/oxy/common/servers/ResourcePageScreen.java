@@ -6,12 +6,9 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.dediamondpro.minemark.minecraft.MineMarkDrawable;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
-import org.jsoup.Jsoup;
 import org.lwjgl.glfw.GLFW;
 import org.xml.sax.SAXException;
 import redxax.oxy.common.Render;
@@ -25,22 +22,15 @@ import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.drawBufferedImage;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
-import javax.imageio.ImageIO;
-import java.awt.Graphics2D;
-import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class ResourcePageScreen extends Screen {
     private final MinecraftClient minecraftClient;
@@ -477,8 +467,8 @@ public class ResourcePageScreen extends Screen {
                 int y = contentY + i * (itemHeight + 2) - (int) versionsScrollOffset;
                 if (y + itemHeight < contentY || y > contentY + contentHeight) continue;
                 boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + itemHeight;
-                int bg = getElementBackgroundColor(ver.hashCode(), hovered, false, false, false, false);
-                int borderColor = getElementBorderColor(ver.hashCode(), hovered, false, false, false, false);
+                int bg = getElementBackgroundColor(ver.hashCode(), hovered, false, true, false, false, false);
+                int borderColor = getElementBorderColor(ver.hashCode(), hovered, false, true, false, false, false);
                 context.fill(contentX, y, contentX + contentWidth, y + itemHeight, bg);
                 drawInnerBorder(context, contentX, y, contentWidth, itemHeight, borderColor);
                 drawOuterBorder(context, contentX, y, contentWidth, itemHeight, globalOuterBorder);
@@ -493,11 +483,11 @@ public class ResourcePageScreen extends Screen {
                     int barHeight = Render.buttonH;
                     int barX = contentX + contentWidth - barWidth - 10;
                     int barY = y + (itemHeight - barHeight) / 2;
-                    context.fill(barX, barY, barX + barWidth, barY + barHeight, getElementBackgroundColor(ver.hashCode(), hovered, true, false, false, false));
+                    context.fill(barX, barY, barX + barWidth, barY + barHeight, getElementBackgroundColor(ver.hashCode(), hovered, true, true, false, false, false));
                     int fillWidth = (int) (barWidth * ver.progress);
                     context.fill(barX, barY, barX + fillWidth, barY + barHeight, globalHoverTextColor);
                     drawOuterBorder(context, barX, barY, barWidth, barHeight, globalOuterBorder);
-                    drawInnerBorder(context, barX, barY, barWidth, barHeight, getElementBorderColor(ver.hashCode(), hovered, true, false, false, false));
+                    drawInnerBorder(context, barX, barY, barWidth, barHeight, getElementBorderColor(ver.hashCode(), hovered, true, true, false, false, false));
                     String percentText = (int) (ver.progress * 100) + "%";
                     context.drawText(minecraftClient.textRenderer, Text.literal(percentText), barX + barWidth / 2 - minecraftClient.textRenderer.getWidth(Text.literal(percentText)) / 2, barY + (barHeight - minecraftClient.textRenderer.fontHeight) / 2, 0xFFFFFFFF, Config.shadow);
                     String infoText = formatBytes(ver.downloadedBytes) + "/" + formatBytes(ver.totalBytes) + " | " + formatBytes((long) ver.speed) + "/s";
@@ -505,7 +495,7 @@ public class ResourcePageScreen extends Screen {
                 } else {
                     int btnX = contentX + contentWidth - 70;
                     int btnY = y + (itemHeight - 20) / 2;
-                    drawCustomButton(context, btnX, btnY, ver.isInstalled, minecraftClient, mouseX >= btnX && mouseX <= btnX + 60 && mouseY >= btnY && mouseY <= btnY + 20, false, true, false, 60, 20, Objects.equals(ver.isInstalled, "Failed") ? Config.dangerDarkAccentColor : Objects.equals(ver.isInstalled, "Installed") ? Config.niceAccentColor : globalTextColor, globalHoverTextColor, mouseX, mouseY, "");
+                    drawCustomButton(context, btnX, btnY, ver.isInstalled, minecraftClient, mouseX >= btnX && mouseX <= btnX + 60 && mouseY >= btnY && mouseY <= btnY + 20, false, true, false, true, 60, 20, Objects.equals(ver.isInstalled, "Failed") ? Config.dangerDarkAccentColor : Objects.equals(ver.isInstalled, "Installed") ? Config.niceAccentColor : globalTextColor, globalHoverTextColor, mouseX, mouseY, "");
                     versionButtonRegions.add(new VersionButtonRegion(btnX, btnY, 60, 20, ver));
                 }
             }
