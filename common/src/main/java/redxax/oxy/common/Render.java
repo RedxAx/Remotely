@@ -1064,14 +1064,14 @@ public class Render {
 
                 boolean isActive = (i == activeTab);
                 boolean isHovered = mouseX >= newPos && mouseX <= newPos + tabWidth && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight;
+                boolean isDragged = isDragging && (draggingTab == i);
                 float targetOffset = isHovered ? -2f : 0f;
                 int elevId = tab.id;
                 float currentOffset = Render.elevationOffsets.getOrDefault(elevId, 0f);
                 currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
                 Render.elevationOffsets.put(elevId, currentOffset);
-
                 context.getMatrices().push();
-                context.getMatrices().translate(0, currentOffset, isDragging ? 499 : isActive || isHovered ? 498 : 497);
+                context.getMatrices().translate(0, currentOffset, isDragged ? 499 : isActive || isHovered ? 498 : 497);
                 int bgColor = Config.getElementBackgroundColor(1000 + i, isHovered, isActive, tab.unsaved, false, false);
                 context.fill((int) newPos, tabBarY, (int) newPos + (int) tabWidth, tabBarY + tabBarHeight, bgColor);
                 drawInnerBorder(context, (int) newPos, tabBarY, (int) tabWidth, tabBarHeight, Config.getElementBorderColor(1000 + i, isHovered, isActive, tab.unsaved, false, false));
@@ -1183,26 +1183,28 @@ public class Render {
                     isDragging = true;
                 }
                 if (isDragging) {
-                    int dragIdx = draggingTab;
-                    float dragTabCenter = dragCurrentX;
+                    int n = tabs.size();
+                    float[] base = new float[n];
                     float x = tabBarX - scrollOffset;
-                    int insertIdx = dragIdx;
-                    float minDist = Float.MAX_VALUE;
-                    for (int i = 0; i < tabs.size(); i++) {
-                        if (i == dragIdx) {
-                            x += tabWidths.getOrDefault(tabs.get(i).id, 60f) + tabGap;
-                            continue;
-                        }
-                        float tabWidth = tabWidths.getOrDefault(tabs.get(i).id, 60f);
-                        float tabCenter = x + tabWidth / 2f;
-                        float dist = Math.abs(dragTabCenter - tabCenter);
-                        if (dist < minDist && dist < tabWidth * 0.45f) {
-                            minDist = dist;
-                            insertIdx = i;
-                        }
-                        x += tabWidth + tabGap;
+                    for (int i = 0; i < n; i++) {
+                        base[i] = x;
+                        float w = tabWidths.getOrDefault(tabs.get(i).id, 60f);
+                        x += w + tabGap;
                     }
-                    dragOverTab = insertIdx;
+                    float dragCenter = dragCurrentX;
+                    List<Float> centers = new ArrayList<>(n - 1);
+                    for (int i = 0; i < n; i++) {
+                        if (i == draggingTab) continue;
+                        float w = tabWidths.getOrDefault(tabs.get(i).id, 60f);
+                        centers.add(base[i] + w * 0.5f);
+                    }
+                    Collections.sort(centers);
+                    int count = 0;
+                    for (float c : centers) {
+                        if (dragCenter > c) count++;
+                        else break;
+                    }
+                    dragOverTab = count;
                 }
                 return true;
             }
