@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.util.*;
 
 import static redxax.oxy.common.config.Config.remotelyDir;
+import static redxax.oxy.common.config.Themes.importThemesFromJar;
 import static redxax.oxy.common.config.Themes.parseHexColor;
 import static redxax.oxy.common.servers.BrowserScreen.closeAll;
 import static redxax.oxy.common.terminal.MultiTerminalScreen.THEMES_DIR;
@@ -92,6 +93,7 @@ public class RemotelyClient implements ClientModInitializer {
         } catch (Exception e) {
             devPrint("Failed to load Windows background: " + e.getMessage());
         }
+        importThemesFromJar();
         loadThemesFromDir();
         SettingsScreen.loadClientConfigFromJson();
         migrateRemotelyData();

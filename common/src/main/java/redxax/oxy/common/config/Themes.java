@@ -6,6 +6,8 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.net.JarURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -83,61 +85,24 @@ public class Themes {
     }
 
     public static void applyTheme(MultiTerminalScreen.Theme theme) {
-        devPrint("Applying theme with direct field mapping: " + theme.name);
-        int foundKeys = 0;
+        devPrint("Applying theme using reflection: " + theme.name);
+        int appliedCount = 0;
         for (Map.Entry<String, Integer> entry : theme.colors.entrySet()) {
             String key = entry.getKey();
             Integer value = entry.getValue();
-            switch (key) {
-                case "elementBorderColor" -> { Config.elementBorderColor = value; foundKeys++; }
-                case "elementBackgroundColor" -> { Config.elementBackgroundColor = value; foundKeys++; }
-                case "accentColor" -> { Config.accentColor = value; foundKeys++; }
-                case "accentDarkColor" -> { Config.accentDarkColor = value; foundKeys++; }
-                case "elementHoverBackgroundColor" -> { Config.elementHoverBackgroundColor = value; foundKeys++; }
-                case "globalTextColor" -> { Config.globalTextColor = value; foundKeys++; }
-                case "globalHoverTextColor" -> { Config.globalHoverTextColor = value; foundKeys++; }
-                case "dangerAccentColor" -> { Config.dangerAccentColor = value; foundKeys++; }
-                case "dangerDarkAccentColor" -> { Config.dangerDarkAccentColor = value; foundKeys++; }
-                case "elementHoverBorderColor" -> { Config.elementHoverBorderColor = value; foundKeys++; }
-                case "globalOuterBorder" -> { Config.globalOuterBorder = value; foundKeys++; }
-                case "backgroundColor" -> { Config.backgroundColor = value; foundKeys++; }
-                case "innerBackgroundColor" -> { Config.innerBackgroundColor = value; foundKeys++; }
-                case "innerBorderColor" -> { Config.innerBorderColor = value; foundKeys++; }
-                case "globalDarkTextColor" -> { Config.globalDarkTextColor = value; foundKeys++; }
-                case "ModrinthBorderColor" -> { Config.ModrinthBorderColor = value; foundKeys++; }
-                case "ModrinthBackgroundColor" -> { Config.ModrinthBackgroundColor = value; foundKeys++; }
-                case "SpigotBorderColor" -> { Config.SpigotBorderColor = value; foundKeys++; }
-                case "SpigotBackgroundColor" -> { Config.SpigotBackgroundColor = value; foundKeys++; }
-                case "HangarBorderColor" -> { Config.HangarBorderColor = value; foundKeys++; }
-                case "HangarBackgroundColor" -> { Config.HangarBackgroundColor = value; foundKeys++; }
-                case "niceDarkAccentColor" -> { Config.niceDarkAccentColor = value; foundKeys++; }
-                case "niceAccentColor" -> { Config.niceAccentColor = value; foundKeys++; }
-                case "terminalStatusBarColor" -> { Config.terminalStatusBarColor = value; foundKeys++; }
-                case "terminalTextColor" -> { Config.terminalTextColor = value; foundKeys++; }
-                case "terminalTextInputColor" -> { Config.terminalTextInputColor = value; foundKeys++; }
-                case "terminalTextWarnColor" -> { Config.terminalTextWarnColor = value; foundKeys++; }
-                case "terminalTextErrorColor" -> { Config.terminalTextErrorColor = value; foundKeys++; }
-                case "terminalTextInfoColor" -> { Config.terminalTextInfoColor = value; foundKeys++; }
-                case "globalSelectionColor" -> { Config.globalSelectionColor = value; foundKeys++; }
-                case "dangerLightAccentColor" -> { Config.dangerLightAccentColor = value; foundKeys++; }
-                case "globalCursorColor" -> { Config.globalCursorColor = value; foundKeys++; }
-                case "innerBackgroundSelectedColor" -> { Config.innerBackgroundSelectedColor = value; foundKeys++; }
-                case "calmDarkAccentColor" -> { Config.calmDarkAccentColor = value; foundKeys++; }
-                case "calmAccentColor" -> { Config.calmAccentColor = value; foundKeys++; }
-                case "syntaxCommentColor" -> { Config.syntaxCommentColor = value; foundKeys++; }
-                case "syntaxGlobalVarColor" -> { Config.syntaxGlobalVarColor = value; foundKeys++; }
-                case "syntaxLocalVarColor" -> { Config.syntaxLocalVarColor = value; foundKeys++; }
-                case "syntaxKeywordColor" -> { Config.syntaxKeywordColor = value; foundKeys++; }
-                case "syntaxStringColor" -> { Config.syntaxStringColor = value; foundKeys++; }
-                case "syntaxNumberColor" -> { Config.syntaxNumberColor = value; foundKeys++; }
-                case "syntaxBooleanColor" -> { Config.syntaxBooleanColor = value; foundKeys++; }
-                case "syntaxKeyColor" -> { Config.syntaxKeyColor = value; foundKeys++; }
+            try {
+                Field field = Config.class.getField(key);
+                if (Modifier.isStatic(field.getModifiers()) && field.getType() == int.class) {
+                    field.setInt(null, value);
+                    appliedCount++;
+                } else {
+                    devPrint("Field found but not static int: " + key);
+                }
+            } catch (NoSuchFieldException | IllegalAccessException e) {
+                devPrint("No matching Config field for key: " + key);
             }
         }
-        if (foundKeys < 20) {
-            devPrint("Insufficient Color Mappings Found (Only " + foundKeys + " Were Found), Falling Back To Old Theme Mapping...");
-            oldApplyTheme(theme);
-        }
+        devPrint("Applied " + appliedCount + " color mappings");
     }
 
     public static void oldApplyTheme(MultiTerminalScreen.Theme theme) {

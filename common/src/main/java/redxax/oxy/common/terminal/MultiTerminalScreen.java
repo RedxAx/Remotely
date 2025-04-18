@@ -156,7 +156,6 @@ public class MultiTerminalScreen extends Screen {
             if (!Files.exists(THEMES_DIR)) {
                 Files.createDirectories(THEMES_DIR);
             }
-            importThemesFromJar();
             closeIcon = new IconWithTooltip("/assets/remotely/icons/close.png", "");
             startIcon = new IconWithTooltip("/assets/remotely/icons/start.png", "Start The Server");
             stopIcon = new IconWithTooltip("/assets/remotely/icons/stop.png", "Stop The Server");

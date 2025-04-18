@@ -33,7 +33,7 @@ colors:
   backgroundColor: "#FF282828"
   ModrinthBackgroundColor: "#FF0B371C"
   terminalTextInputColor: "#FFFE8019"
-  accentColor: "#FFD79921"
+  accentColor: "#FFFFC800"
   elementBackgroundColor: "#FF282828"
   calmDarkAccentColor: "#FF7C6F64"
   dangerDarkAccentColor: "#FFFB4934"
@@ -46,3 +46,24 @@ colors:
   terminalTextColor: "#FFEBDBB2"
   niceDarkAccentColor: "#FF7C6F64"
   terminalBackgroundColor: "#FF282828"
+  syntaxCommentColor: "#FF6A9955"
+  syntaxGlobalVarColor: "#FF4EC9B0"
+  syntaxLocalVarColor: "#FF9CDCFE"
+  syntaxKeywordColor: "#FFC586C0"
+  syntaxStringColor: "#FFCE9178"
+  syntaxNumberColor: "#FFB5CEA8"
+  syntaxBooleanColor: "#FF569CD6"
+  syntaxKeyColor: "#FF9CDCFE"
+  
+  inClickableBackgroundColor: "#FF1D2021"
+  inClickableBorderColor: "#FF3C3836"
+  
+  accentHoverColor: "#FFFFD94F"
+  accentDarkHoverColor: "#FF46423E"
+  
+  niceAccentHoverColor: "#FFFF9D33"
+  niceDarkHoverAccentColor: "#FF8A7860"
+  
+  dangerHoverAccentColor: "#FFFF5D48"
+  dangerDarkHoverAccentColor: "#FF8A7860"
+
