@@ -54,7 +54,7 @@ public class FileEditorScreen extends Screen {
     private long customLastBlinkTime = 0;
     private final float customPathScrollOffset = 0;
     private final float customPathTargetScrollOffset = 0;
-    private ImageUtil.IconWithTooltip closeIcon, saveIcon, explorerIcon;
+    private ImageUtil.IconWithTooltip closeIcon, saveIcon, explorerIcon, aiIcon;
     private int sidePanelWidth = 250;
     private List<SidePanelEntry> sidePanelEntries = new ArrayList<>();
     private boolean showSidePanel = true;
@@ -264,11 +264,12 @@ public class FileEditorScreen extends Screen {
             closeIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/close.png", "Close The Screen");
             saveIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/save.png", "Save The File");
             explorerIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/explorer.png", "Toggle Explorer Panel");
+            aiIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/ReemotelyAI.png", "Toggle RemotelyAI Panel");
         } catch (Exception e) {
             new Notification("Failed to load icons: " + e.getMessage(), Notification.Type.ERROR);
         }
         updateSidePanelEntries();
-        aiSidePanel = new AISidePanel(this);
+        aiSidePanel = new AISidePanel();
         List<Render.TabsBar.Tab<Tab>> tabList = new ArrayList<>();
         for (Tab t : tabs) {
             tabList.add(new Render.TabsBar.Tab<>(t.name, t.unsaved, t));
@@ -562,14 +563,22 @@ public class FileEditorScreen extends Screen {
         if (aiMode && aiSidePanel.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
-        int hideButtonX = this.width - 15 - 5;
-        int hideButtonY = 35;
-        if (mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15 && button == 0) {
+        if (mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24 && button == 0) {
             playClick();
-            if (hasShiftDown())
-                aiMode = !aiMode;
-            else
+            if (aiMode && showSidePanel) aiMode = false;
+            else {
                 showSidePanel = !showSidePanel;
+                aiMode = false;
+            }
+            return true;
+        }
+        if (mouseX >= width - 92 && mouseX <= width - 75 && mouseY >= 6 && mouseY <= 24 && button == 0) {
+            playClick();
+            if (aiMode && showSidePanel) showSidePanel = false;
+            else {
+                aiMode = true;
+                showSidePanel = true;
+            }
             return true;
         }
         int searchBarX = (this.width - searchBarWidth) / 2;
@@ -905,15 +914,11 @@ public class FileEditorScreen extends Screen {
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
-        drawScreenHeader(context, width, height, width - 5 - (int)animatedSidePanelWidth, mouseX, mouseY, this, minecraftClient, closeIcon, saveIcon, null, null, null, null, null, explorerIcon, null);
+        drawScreenHeader(context, width, height, width - 5 - (int)animatedSidePanelWidth, mouseX, mouseY, this, minecraftClient, closeIcon, saveIcon, explorerIcon, aiIcon, null, null, null, null, null);
         drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, aiMode, "FileEditorScreen", mouseX, mouseY, "Search For Text In The File.");
         int tabOffsetY = 35;
-        tabsBar.setTabBarBounds(5, tabOffsetY, this.width - (int)animatedSidePanelWidth - 15, TAB_HEIGHT);
+        tabsBar.setTabBarBounds(5, tabOffsetY, this.width, TAB_HEIGHT);
         tabsBar.renderTabsBar(context, textRenderer, tabsBar, mouseX, mouseY, Config.shadow);
-        int hideButtonX = this.width - 15 - 5;
-        int hideButtonY = 35;
-        boolean hideButtonHovered = mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15;
-        drawSquareButton(context, hideButtonX, hideButtonY, minecraftClient, hideButtonHovered, mouseX, mouseY, "Toggle Explorer Panel", explorerIcon.getImage());
         float targetWidth = showSidePanel ? sidePanelWidth : 0;
         animatedSidePanelWidth += (targetWidth - animatedSidePanelWidth) * Config.globalExpandSpeed * deltaTime;
         int animWidth = (int)animatedSidePanelWidth;

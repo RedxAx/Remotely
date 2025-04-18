@@ -17,14 +17,12 @@ import redxax.oxy.common.servers.ServerState;
 import redxax.oxy.common.ui.AISidePanel;
 import redxax.oxy.common.util.ImageUtil.IconWithTooltip;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
 import static redxax.oxy.common.RemotelyClient.globalSnippets;
-import static redxax.oxy.common.RemotelyClient.*;
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.config.Themes.*;
@@ -86,7 +84,6 @@ public class MultiTerminalScreen extends Screen {
     int lastClickedSnippet = -1;
     long lastSnippetClickTime = 0;
     int snippetHoverIndex = -1;
-    boolean hideButtonHovered = false;
     int selectedSnippetIndex = -1;
     int snippetCommandsScrollOffset = 0;
     int snippetMaxVisibleLines = 1;
@@ -99,10 +96,9 @@ public class MultiTerminalScreen extends Screen {
     private final int topBarHeight = 30;
 
     public static final Path THEMES_DIR = remotelyDir.resolve("themes");
-    private final List<Theme> themes = new ArrayList<>();
 
     private final Screen parent;
-    private IconWithTooltip closeIcon, startIcon, stopIcon, explorerIcon, resourcesIcon, snippetsIcon;
+    private IconWithTooltip closeIcon, startIcon, stopIcon, explorerIcon, resourcesIcon, snippetsIcon, aiIcon;
     private float targetSnippetListScrollOffset = 0;
     private float snippetListScrollOffset;
     private final Map<Integer, Float> snippetExpandProgress = new HashMap<>();
@@ -114,7 +110,6 @@ public class MultiTerminalScreen extends Screen {
     private final Map<RemotelyClient.CommandSnippet, Float> snippetAnimatedY = new HashMap<>();
     private final RemotelyClient.CommandSnippet CREATE_SNIPPET = new RemotelyClient.CommandSnippet("Create Snippet", "Snippets Executes Commands", "");
     private AISidePanel aiSidePanel;
-
 
     public MultiTerminalScreen(MinecraftClient minecraftClient, Screen parent, RemotelyClient remotelyClient, List<TerminalInstance> terminals, List<String> tabNames) {
         super(Text.literal("Multi Terminal"));
@@ -162,15 +157,15 @@ public class MultiTerminalScreen extends Screen {
                 Files.createDirectories(THEMES_DIR);
             }
             importThemesFromJar();
-            loadThemesFromDir();
             closeIcon = new IconWithTooltip("/assets/remotely/icons/close.png", "");
             startIcon = new IconWithTooltip("/assets/remotely/icons/start.png", "Start The Server");
             stopIcon = new IconWithTooltip("/assets/remotely/icons/stop.png", "Stop The Server");
             explorerIcon = new IconWithTooltip("/assets/remotely/icons/explorer.png", "Open File Explorer In The Current Path");
-            resourcesIcon = new IconWithTooltip("/assets/remotely/icons/resources.png", "Open Plugins/Mods Manager");
-            snippetsIcon = new IconWithTooltip("/assets/remotely/icons/snippets.png", "");
+            resourcesIcon = new IconWithTooltip("/assets/remotely/icons/resources.png", "Open Resource Browser");
+            snippetsIcon = new IconWithTooltip("/assets/remotely/icons/snippets.png", "Open Snippets Panel");
+            aiIcon = new IconWithTooltip("/assets/remotely/icons/ReemotelyAI.png", "Open RemotelyAI Panel");
         } catch (Exception ignored) {}
-        aiSidePanel = new AISidePanel(this);
+        aiSidePanel = new AISidePanel();
         List<TabsBar.Tab<Void>> tabList = new ArrayList<>();
         for (String name : tabNames) {
             tabList.add(new TabsBar.Tab<>(name, false, null));
@@ -215,47 +210,6 @@ public class MultiTerminalScreen extends Screen {
             tabNames.set(i, tabsBar.getTabs().get(i).name);
             remotelyClient.multiTabNames = new ArrayList<>(tabNames);
         });
-    }
-
-    private void loadThemesFromDir() {
-        themes.clear();
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(THEMES_DIR, "*.yml")) {
-            for (Path file : stream) {
-                Theme theme = parseThemeFile(file);
-                if (theme != null) {
-                    themes.add(theme);
-                }
-            }
-        } catch (IOException ignored) {}
-    }
-    public Theme parseThemeFile(Path file) {
-        Theme theme = new Theme();
-        try (BufferedReader reader = Files.newBufferedReader(file)) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                if (line.isEmpty() || line.startsWith("#")) continue;
-                String[] parts = line.split(":", 2);
-                if (parts.length < 2) continue;
-                String key = parts[0].trim();
-                String value = parts[1].trim().replace("\"", "");
-                if (key.equals("name")) {
-                    theme.name = value;
-                } else {
-                    if (value.startsWith("#")) {
-                        try {
-                            theme.colors.put(key, parseHexColor(value));
-                        } catch (Exception ignored) {
-                        }
-                    }
-                }
-            }
-            if (theme.name == null || theme.name.isEmpty()) {
-                theme.name = file.getFileName().toString().replace(".yml", "");
-            }
-            return theme;
-        } catch (IOException ignored) {}
-        return null;
     }
 
     private void addNewTerminal() {
@@ -338,20 +292,15 @@ public class MultiTerminalScreen extends Screen {
                 ServerInfo sInfo = serverTerminal.getServerInfo();
                 boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
                 ServerState st = sInfo.state;
-                drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, (st == ServerState.RUNNING || st == ServerState.STARTING) ? stopIcon : startIcon, explorerIcon, isProxy ? null : resourcesIcon, null, null, null, null, null);
+                drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, snippetsIcon, aiIcon, (st == ServerState.RUNNING || st == ServerState.STARTING) ? stopIcon : startIcon, isProxy ? null : resourcesIcon, null, null, null);
             } else {
-                drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, null, null, null, null, null, null, null);
+                drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, snippetsIcon, aiIcon, null, null, null, null, null);
             }
         }
         if (!warningMessage.isEmpty()) {
             context.drawText(minecraftClient.textRenderer, Text.literal(warningMessage), 5, TAB_HEIGHT + verticalPadding, 0xFFFF0000, shadow);
             warningMessage = "";
         }
-        int hideButtonX = this.width - 22;
-        int hideButtonY = 5 + topBarHeight;
-        hideButtonHovered = mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15;
-        if (!(os.contains("mac") || os.contains("darwin")))
-            drawSquareButton(context, hideButtonX, hideButtonY, minecraftClient, hideButtonHovered, mouseX, mouseY, "Toggle Snippets Panel", snippetsIcon.getImage() == null ? closeIcon.getImage() : snippetsIcon.getImage());
         int tabOffsetY = topBarHeight + 5;
         int tabAreaHeight = TAB_HEIGHT;
         float targetPanelWidth = showSnippetsPanel ? snippetPanelWidth : 0;
@@ -391,18 +340,6 @@ public class MultiTerminalScreen extends Screen {
             renderSnippetPopup(context, mouseX, mouseY);
         }
         animatedScaling(context, this, minecraftClient);
-    }
-
-    private List<TabInfo> buildTabInfoList() {
-        List<TabInfo> tabInfos = new ArrayList<>();
-        for (int i = 0; i < terminals.size(); i++) {
-            String tName = tabNames.get(i);
-            int tw = minecraftClient.textRenderer.getWidth(tName);
-            int paddingH = 10;
-            int tabW = Math.max(tw + paddingH * 2, 45);
-            tabInfos.add(new TabInfo(tName, tabW));
-        }
-        return tabInfos;
     }
 
     private void renderSnippetPopup(DrawContext context, int mouseX, int mouseY) {
@@ -692,9 +629,27 @@ public class MultiTerminalScreen extends Screen {
                 }
                 return true;
             }
+            if (mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24 && button == 0) {
+                playClick();
+                if (aiMode && showSnippetsPanel) aiMode = false;
+                else {
+                    showSnippetsPanel = !showSnippetsPanel;
+                    aiMode = false;
+                }
+                return true;
+            }
+            if (mouseX >= width - 92 && mouseX <= width - 75 && mouseY >= 6 && mouseY <= 24 && button == 0) {
+                playClick();
+                if (aiMode && showSnippetsPanel) showSnippetsPanel = false;
+                else {
+                    aiMode = true;
+                    showSnippetsPanel = true;
+                }
+                return true;
+            }
             if (activeTerminal instanceof ServerTerminalInstance serverTerminal) {
                 if (button == 0) {
-                    if (mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24) {
+                    if (mouseX >= 5 && mouseX <= 22 && mouseY >= 6 && mouseY <= 24) {
                         playClick();
                         ServerInfo sInfo = serverTerminal.getServerInfo();
                         if (sInfo.state == ServerState.RUNNING || sInfo.state == ServerState.STARTING) {
@@ -732,12 +687,12 @@ public class MultiTerminalScreen extends Screen {
                         }
                         return true;
                     }
-                    if (mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24) {
+                    if (mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24) {
                         playClick();
                         minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
                         return true;
                     }
-                    if (mouseX >= width - 92 && mouseX <= width - 75 && mouseY >= 6 && mouseY <= 24) {
+                    if (mouseX >= 28 && mouseX <= 45 && mouseY >= 6 && mouseY <= 24) {
                         playClick();
                         minecraftClient.setScreen(new PluginModManagerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
                         return true;
@@ -752,13 +707,6 @@ public class MultiTerminalScreen extends Screen {
                     }
                 }
             }
-        }
-        int hideButtonX = this.width - 15 - 5;
-        int hideButtonY = 5 + topBarHeight;
-        if (mouseX >= hideButtonX && mouseX <= hideButtonX + 15 && mouseY >= hideButtonY && mouseY <= hideButtonY + 15 && button == 0) {
-            playClick();
-            showSnippetsPanel = !showSnippetsPanel;
-            return true;
         }
         if (snippetPopupActive) {
             int confirmButtonY = snippetPopupY + snippetPopupHeight - 15;
