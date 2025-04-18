@@ -3,6 +3,14 @@ package redxax.oxy.common.ui;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import dev.dediamondpro.minemark.minecraft.MineMarkDrawable;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.text.Text;
+import org.lwjgl.glfw.GLFW;
+import redxax.oxy.common.Render;
+import redxax.oxy.common.config.Config;
 
 import java.awt.image.BufferedImage;
 import java.io.*;
@@ -15,16 +23,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
-import dev.dediamondpro.minemark.minecraft.MineMarkDrawable;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.text.Text;
-import org.lwjgl.glfw.GLFW;
-import redxax.oxy.common.Render;
-import redxax.oxy.common.config.Config;
-
 import static redxax.oxy.common.Render.drawInnerBorder;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.util.DevUtil.devPrint;
@@ -36,42 +34,24 @@ public class AISidePanel {
     private int panelY;
     private int panelWidth;
     private int panelX;
-    private Screen parent;
-
     public static class AIMessage {
         public String sender;
         public String text;
         public float animationProgress;
         public MineMarkDrawable mineMark;
-        private String lastMineMarkText;
 
         public AIMessage(String sender, String text) {
             this.sender = sender;
             this.text = text;
             this.animationProgress = 0f;
-            this.lastMineMarkText = null;
             if ("ai".equals(sender)) {
                 try {
                     this.mineMark = new MineMarkDrawable(text);
-                    this.lastMineMarkText = text;
                 } catch (Exception e) {
                     this.mineMark = null;
                 }
             } else {
                 this.mineMark = null;
-            }
-        }
-
-        public void updateMineMarkIfNeeded() {
-            if ("ai".equals(sender)) {
-                if (mineMark == null || lastMineMarkText == null || !lastMineMarkText.equals(text)) {
-                    try {
-                        mineMark = new MineMarkDrawable(text);
-                        lastMineMarkText = text;
-                    } catch (Exception e) {
-                        mineMark = null;
-                    }
-                }
             }
         }
     }
@@ -89,9 +69,10 @@ public class AISidePanel {
     private float targetScrollOffset = 0;
     private float currentScrollOffset = 0;
     private static final Path CHAT_HISTORY_PATH = Path.of(remotelyDir.toString(), "data", "chat_history.json");
+    private MineMarkDrawable panelMineMark;
+    private String lastPanelMineMarkText;
 
-    public AISidePanel(Screen parent) {
-        this.parent = parent;
+    public AISidePanel() {
         this.messages = new ArrayList<>();
         this.inputBuffer = new StringBuilder();
         this.inputCursor = 0;
@@ -120,6 +101,7 @@ public class AISidePanel {
             sb.append(line).append("\n");
         }
         this.extraContext = sb.toString();
+        updatePanelMineMark();
     }
 
     public void addUserMessage(String msg) {
@@ -148,6 +130,7 @@ public class AISidePanel {
             devPrint("Failed to create new chat: " + e.getMessage());
         }
         messages.clear();
+        updatePanelMineMark();
     }
 
     private JsonObject readAIConfig() {
@@ -313,35 +296,12 @@ public class AISidePanel {
         }
         context.enableScissor(panelX, msgAreaY + 1, panelX + panelWidth, msgAreaY + msgAreaHeight + 4);
         currentScrollOffset += (targetScrollOffset - currentScrollOffset) * globalScrollSpeed * deltaTime;
-        int msgY = msgAreaY + 5 - (int) currentScrollOffset;
-        TextRenderer tr = mc.textRenderer;
-        for (AIMessage msg : messages) {
-            if ("ai".equals(msg.sender)) {
-                msg.updateMineMarkIfNeeded();
-                if (msg.mineMark != null) {
-                    int height = (int) msg.mineMark.getHeight();
-                    if (panelWidth - 10 > 0) {
-                        msg.mineMark.draw(panelX + 5, msgY, panelWidth - 10, mouseX, mouseY, context);
-                    }
-                    msgY += height + 5;
-                } else {
-                    List<String> wrapped = wrapText(msg.text, panelWidth - 10, tr);
-                    for (String line : wrapped) {
-                        context.drawText(tr, Text.literal(line), panelX + 5, msgY, calmAccentColor, Config.shadow);
-                        msgY += tr.fontHeight + 2;
-                    }
-                    msgY += 5;
-                }
-            } else {
-                List<String> wrapped = wrapText(msg.text, panelWidth - 10, tr);
-                for (String line : wrapped) {
-                    context.drawText(tr, Text.literal(line), panelX + 5, msgY, msg.sender.equals("user") ? accentHoverColor : msg.sender.equals("error") ? dangerHoverAccentColor : calmAccentColor, Config.shadow);
-                    msgY += tr.fontHeight + 2;
-                }
-                msgY += 5;
-            }
-        }
-        if (messages.isEmpty()) {
+        if (!messages.isEmpty() && panelMineMark != null) {
+            int yStart = msgAreaY + 5 - (int) currentScrollOffset;
+            if (panelWidth - 10 > 0)
+                panelMineMark.draw(panelX + 5, yStart, panelWidth - 10, mouseX, mouseY, context);
+        } else if (messages.isEmpty()) {
+            TextRenderer tr = mc.textRenderer;
             int iconRect = 100;
             int iconCenterX = panelX + panelWidth / 2 - iconRect / 2;
             int verticalCenter = msgAreaY + msgAreaHeight / 2;
@@ -360,9 +320,10 @@ public class AISidePanel {
             context.drawText(tr, Text.literal(greeting2), greeting2CenterX, textY, Config.globalDarkTextColor, Config.shadow);
         }
         context.disableScissor();
-        inputHovered = (mouseX >= panelX + 5 && mouseX < panelX + panelWidth - 5 && mouseY >= panelY + panelHeight - 24 && mouseY < panelY + panelHeight - 10);
+        inputHovered = mouseX >= panelX + 5 && mouseX < panelX + panelWidth - 5 && mouseY >= panelY + panelHeight - 24 && mouseY < panelY + panelHeight - 10;
         drawInnerBorder(context, panelX, panelY + panelHeight - 24, panelWidth, 35, Config.innerBorderColor);
-        if (panelX + 5 <= panelX + panelWidth - 10) Render.drawTextInput(context, mc, panelX + 5, panelY + panelHeight - 20, "AI Input", inputBuffer.toString(), fieldFocused, inputCursor, -1, -1, inputHovered, panelWidth - 10, 14, "Ask Remotely...");
+        if (panelX + 5 <= panelX + panelWidth - 10)
+            Render.drawTextInput(context, mc, panelX + 5, panelY + panelHeight - 20, "AI Input", inputBuffer.toString(), fieldFocused, inputCursor, -1, -1, inputHovered, panelWidth - 10, 14, "Ask Remotely...");
         Render.ContextMenu.renderMenu(context, mc, mouseX, mouseY);
     }
 
@@ -392,6 +353,7 @@ public class AISidePanel {
             }
         }
         Render.ContextMenu.hide();
+        panelMineMark.onMouseClicked(panelX + 5, panelY + 5 - currentScrollOffset, (float)mouseX, (float)mouseY, button);
         int buttonSize = 20;
         int gap = 4;
         int barHeight = buttonSize + 2 * gap;
@@ -428,24 +390,21 @@ public class AISidePanel {
         if (mouseX >= panelX && mouseX < panelX + panelWidth && mouseY >= msgAreaY && mouseY < msgAreaY + msgAreaHeight) {
             int totalHeight = getTotalChatHeight(panelWidth - 10, mc.textRenderer);
             targetScrollOffset -= (int) (verticalAmount * mc.textRenderer.fontHeight * 3);
-            if (targetScrollOffset < 0)
-                targetScrollOffset = 0;
-            if (targetScrollOffset > totalHeight - msgAreaHeight)
-                targetScrollOffset = totalHeight - msgAreaHeight;
+            if (targetScrollOffset < 0) targetScrollOffset = 0;
+            if (targetScrollOffset > totalHeight - msgAreaHeight) targetScrollOffset = totalHeight - msgAreaHeight;
             return true;
         }
         return false;
     }
 
     private int getTotalChatHeight(int availableWidth, TextRenderer tr) {
+        if (panelMineMark != null) {
+            return (int) panelMineMark.getHeight();
+        }
         int total = 0;
         for (AIMessage msg : messages) {
-            if ("ai".equals(msg.sender) && msg.mineMark != null) {
-                total += (int) (msg.mineMark.getHeight() + 5);
-            } else {
-                List<String> wrapped = wrapText(msg.text, availableWidth, tr);
-                total += wrapped.size() * (tr.fontHeight + 2) + 5;
-            }
+            List<String> wrapped = wrapText(msg.text, availableWidth, tr);
+            total += wrapped.size() * (tr.fontHeight + 2) + 5;
         }
         return total;
     }
@@ -464,12 +423,10 @@ public class AISidePanel {
                         result.add(line.toString());
                         line = new StringBuilder();
                     }
-                    if (!line.isEmpty())
-                        line.append(" ");
+                    if (!line.isEmpty()) line.append(" ");
                     line.append(word);
                 }
-                if (!line.isEmpty())
-                    result.add(line.toString());
+                if (!line.isEmpty()) result.add(line.toString());
             }
         }
         return result;
@@ -488,19 +445,14 @@ public class AISidePanel {
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_LEFT) {
-            if (inputCursor > 0)
-                inputCursor--;
+            if (inputCursor > 0) inputCursor--;
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_RIGHT) {
-            if (inputCursor < inputBuffer.length())
-                inputCursor++;
+            if (inputCursor < inputBuffer.length()) inputCursor++;
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_SPACE) {
-            return true;
-        }
-        return false;
+        return keyCode == GLFW.GLFW_KEY_SPACE;
     }
 
     public boolean charTyped(char chr, int keyCode) {
@@ -536,6 +488,7 @@ public class AISidePanel {
         } catch (IOException e) {
             devPrint("Failed to update chat history: " + e.getMessage());
         }
+        updatePanelMineMark();
     }
 
     private void loadLatestChatHistory() {
@@ -565,6 +518,7 @@ public class AISidePanel {
         } catch (IOException e) {
             devPrint("Failed to load latest chat history: " + e.getMessage());
         }
+        updatePanelMineMark();
     }
 
     private void showChatHistoryContextMenu() {
@@ -605,6 +559,7 @@ public class AISidePanel {
         } catch (IOException e) {
             devPrint("Failed to load chat history: " + e.getMessage());
         }
+        updatePanelMineMark();
     }
 
     private void deleteCurrentChat() {
@@ -635,6 +590,29 @@ public class AISidePanel {
             Files.writeString(CHAT_HISTORY_PATH, history.toString(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             devPrint("Failed to delete current chat: " + e.getMessage());
+        }
+        updatePanelMineMark();
+    }
+
+    private void updatePanelMineMark() {
+        StringBuilder sb = new StringBuilder();
+        for (AIMessage msg : messages) {
+            if ("user".equals(msg.sender)) {
+                sb.append("<span style=\"color:#ffd94f\">").append(msg.text).append("</span>\n\n");
+            } else if ("ai".equals(msg.sender)) {
+                sb.append(msg.text).append("\n\n\n");
+            } else {
+                sb.append(msg.text).append("\n\n");
+            }
+        }
+        String fullText = sb.toString();
+        if (panelMineMark == null || lastPanelMineMarkText == null || !lastPanelMineMarkText.equals(fullText)) {
+            try {
+                panelMineMark = new MineMarkDrawable(fullText);
+                lastPanelMineMarkText = fullText;
+            } catch (Exception e) {
+                panelMineMark = null;
+            }
         }
     }
 }
