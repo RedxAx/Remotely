@@ -599,15 +599,6 @@ public class TerminalRenderer {
         }
     }
 
-    public void refreshTerminal() {
-        rewrap();
-        minecraftClient.execute(() -> {
-            if (terminalInstance.parentScreen != null) {
-                terminalInstance.parentScreen.init();
-            }
-        });
-    }
-
     int getTotalScrollHeight() {
         int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
         return (getTotalLines() * lineHeight);
