@@ -8,8 +8,6 @@ import net.minecraft.client.gui.widget.CyclingButtonWidget;
 import net.minecraft.client.gui.widget.PressableTextWidget;
 import net.minecraft.client.gui.widget.SliderWidget;
 import net.minecraft.client.gui.widget.TextIconButtonWidget;
-import net.minecraft.client.gui.widget.TextIconButtonWidget.IconOnly;
-import net.minecraft.client.gui.widget.TextIconButtonWidget.WithText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
@@ -21,8 +19,6 @@ import redxax.oxy.common.Render;
 import redxax.oxy.common.config.Config;
 import redxax.oxy.common.mixin.accessor.SliderWidgetAccessor;
 import redxax.oxy.common.mixin.accessor.TextIconButtonWidgetAccessor;
-
-import java.awt.image.BufferedImage;
 
 import static redxax.oxy.common.Render.drawSlider;
 
@@ -65,9 +61,10 @@ public abstract class ClickableWidgetMixin {
             return;
         }
 
-        if (!((Object)this instanceof ButtonWidget) && !((Object)this instanceof CyclingButtonWidget) && !((Object)this instanceof PressableTextWidget)) {
+        if (!((Object)this instanceof ButtonWidget) && !((Object)this instanceof CyclingButtonWidget)) {
             return;
-        }
+
+        } else if (((Object)this instanceof PressableTextWidget)) return;
 
         if (getWidth() == getHeight() && visible) {
             Render.drawSquareButton(context, getX(), getY(), mc, hovered, mouseX, mouseY, getMessage().getString(), null);
