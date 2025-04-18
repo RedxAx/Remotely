@@ -146,45 +146,39 @@ public class TerminalRenderer {
 
     public void rewrap() {
         List<LineText> newWrappedLines = new ArrayList<>();
-        final String output;
+        String output;
         synchronized (terminalOutput) {
-            output = terminalOutput.toString().replace("\0", "").replaceAll("((\\d{2}:\\d{2}\\s\\d{2}-[A-Za-z]{3}-\\d{2}))(?=[A-Z])", "$1\n");
+            output = terminalOutput.toString();
         }
-        int len = output.length();
-        int start = 0;
-        while (start < len) {
-            int end = output.indexOf('\n', start);
-            if (end == -1) {
-                end = len;
-            }
-            String line = output.substring(start, end);
-            start = end + 1;
-            line = removeAllAnsiSequences(line);
-            if (line.trim().equals(">")) {
-                continue;
-            }
-            String trimmedLine = line.trim();
-            String cleanLine = trimmedLine.replace("\u000f", "");
-            String currentYear = new SimpleDateFormat("yy").format(new Date());
-            Pattern tmuxExtraPattern = Pattern.compile("^(.*\\d{1,2}:\\d{2}\\s\\d{2}-[A-Za-z]{3}-)(" + currentYear + ")(.*)$");
-            Matcher extraMatcher = tmuxExtraPattern.matcher(cleanLine);
+        Pattern extraPattern = Pattern.compile("^(.*\\d{1,2}:\\d{2}\\s\\d{2}-[A-Za-z]{3}-)\\d{2}(.*)$");
+        String[] lines = output.split("\n", -1);
+        int wrapWidth = terminalWidth - 10;
+        for (String rawLine : lines) {
+            if (rawLine.isEmpty()) continue;
+            String line = rawLine.replace("\0", "");
+            String trimmed = line.trim();
+            if (trimmed.equals(">")) continue;
+            String plain = removeAllAnsiSequences(line);
+            Matcher extraMatcher = extraPattern.matcher(plain);
             if (extraMatcher.matches()) {
-                String status = extraMatcher.group(1) + extraMatcher.group(2);
-                tmuxStatusLine = status;
-                String extra = extraMatcher.group(3);
+                tmuxStatusLine = extraMatcher.group(1) + new SimpleDateFormat("yy").format(new Date());
+                String extra = extraMatcher.group(2);
                 if (!extra.isEmpty()) {
                     List<StyleTextPair> extraSegments = parseKeywordsAndHighlight(extra);
-                    List<LineText> extraWrapped = wrapStyledText(extraSegments, terminalWidth - 10);
-                    newWrappedLines.addAll(extraWrapped);
+                    newWrappedLines.addAll(wrapStyledText(extraSegments, wrapWidth));
                 }
                 continue;
-            } else if (TMUX_STATUS_PATTERN.matcher(cleanLine).matches()) {
-                tmuxStatusLine = cleanLine;
+            } else if (TMUX_STATUS_PATTERN.matcher(plain).matches()) {
+                tmuxStatusLine = plain;
                 continue;
             }
-            List<StyleTextPair> segments = parseKeywordsAndHighlight(line);
-            List<LineText> wrapped = wrapStyledText(segments, terminalWidth - 10);
-            newWrappedLines.addAll(wrapped);
+            List<StyleTextPair> segments;
+            if (!line.contains("\u001B") && !line.contains("[")) {
+                segments = Collections.singletonList(new StyleTextPair(Style.EMPTY, null, line));
+            } else {
+                segments = parseKeywordsAndHighlight(line);
+            }
+            newWrappedLines.addAll(wrapStyledText(segments, wrapWidth));
         }
         synchronized (wrappedLinesCache) {
             wrappedLinesCache.clear();
@@ -192,11 +186,12 @@ public class TerminalRenderer {
         }
     }
 
+    private static final Pattern ALL_ANSI = Pattern.compile("\u001B\\[[0-9;?]*(?:m|[A-Za-z])|\u001B=>|=\\u001B.*?\\\\|\\u001B]10;\\?\\\\|\\u001B]11;\\?\\\\|\u001B\\[\\?2004[hl]|\u001B=|\u001Bc|\u001B\\[\\?1h=\\u001B\\[\\?2004h|\u001B][0-9];.*?\u0007|\u001B][0-9];.*?\\\\|\u001BN|\u001BO|\u001BP[^\\\\]*\\\\|\u001B\\^|\u001B_|\u001B\\\\|\u001B]|\u001B[()][AB012]");
     private String removeAllAnsiSequences(String text) {
-        text = ANSI_PATTERN.matcher(text).replaceAll("");
-        text = ANSI_PATTERN2.matcher(text).replaceAll("");
-        text = EXTRA_ANSI_PATTERN.matcher(text).replaceAll("");
-        return text.replace("\t", "    ");
+        if (text.indexOf('\u001B') < 0) {
+            return text.replace("\t", "    ");
+        }
+        return ALL_ANSI.matcher(text).replaceAll("").replace("\t", "    ");
     }
 
     private List<StyleTextPair> parseKeywordsAndHighlight(String text) {
