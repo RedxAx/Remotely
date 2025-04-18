@@ -7,6 +7,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.common.util.Notification;
 import redxax.oxy.common.util.TextAnimator;
 import redxax.oxy.common.Render;
 
@@ -108,6 +109,7 @@ public class BrowserScreen extends Screen {
     @Override
     protected void init() {
         super.init();
+        checkIfMcefExist();
         if (tabs.isEmpty()) {
             MCEFBrowser newBrowser = MCEF.createBrowser(startUrl, true);
             tabs.add(new Tab(startUrl, newBrowser));
@@ -180,6 +182,12 @@ public class BrowserScreen extends Screen {
         });
     }
 
+    private void checkIfMcefExist() {
+        if (MCEF.getApp() == null) {
+            new Notification("MCEF Isn't Installed. Click Here To Download (Coming Soon)", Notification.Type.ERROR);
+            minecraftClient.setScreen(parent);
+        }
+    }
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
