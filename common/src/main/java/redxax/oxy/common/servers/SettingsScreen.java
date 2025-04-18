@@ -332,8 +332,8 @@ public class SettingsScreen extends Screen {
         for (int i = 0; i < currentSettings.size(); i++) {
             int rowY = contentY + i * rowHeight - (int) currentSettingsScroll;
             if (rowY + rowHeight < contentY || rowY > contentY + contentHeight) continue;
-            context.fill(contentX, rowY, contentX + contentWidth, rowY + rowHeight - 2, elementBackgroundColor);
-            drawInnerBorder(context, contentX, rowY, contentWidth, rowHeight - 2, elementBorderColor);
+            context.fill(contentX, rowY, contentX + contentWidth, rowY + rowHeight - 2, getElementBackgroundColor(currentSettings.get(i).name.hashCode(), false, false, true, false, false, false));
+            drawInnerBorder(context, contentX, rowY, contentWidth, rowHeight - 2, getElementBorderColor(currentSettings.get(i).name.hashCode() , false, false, true, false, false, false));
             drawOuterBorder(context, contentX, rowY, contentWidth, rowHeight - 2, globalOuterBorder);
             String name = currentSettings.get(i).name;
             context.drawText(mc.textRenderer, Text.literal(name), contentX + 5, rowY + 5, globalTextColor, Config.shadow);
