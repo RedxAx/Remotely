@@ -17,7 +17,6 @@ import redxax.oxy.common.servers.ServerManagerScreen;
 import redxax.oxy.common.servers.SettingsScreen;
 import redxax.oxy.common.terminal.MultiTerminalScreen;
 import redxax.oxy.common.terminal.TerminalInstance;
-import redxax.oxy.common.SSHManager;
 
 import javax.imageio.ImageIO;
 import java.io.BufferedReader;
@@ -39,7 +38,6 @@ public class RemotelyClient implements ClientModInitializer {
     private KeyBinding openTerminalKeyBinding;
     private KeyBinding openServerManagerKeyBinding;
     public MultiTerminalScreen multiTerminalScreen;
-    private ServerManagerScreen serverManagerScreen;
     private static final Path TERMINAL_LOG_DIR = Paths.get(String.valueOf(remotelyDir), "logs");
     private static final Path SNIPPETS_FILE = Paths.get(String.valueOf(remotelyDir), "data", "snippets.json");
     private static final Path FILE_EDITOR_TABS_FILE = Paths.get(String.valueOf(remotelyDir), "data", "file_editor_tabs.json");
@@ -56,7 +54,7 @@ public class RemotelyClient implements ClientModInitializer {
     public static RemotelyClient INSTANCE;
     public final List<ServerInfo> servers = new ArrayList<>();
     private int activeHostIndex = 0;
-    private Map<String, SSHManager> hostSSHManagers = new HashMap<>();
+    private final Map<String, SSHManager> hostSSHManagers = new HashMap<>();
     public static String os;
 
     @Override
@@ -124,13 +122,13 @@ public class RemotelyClient implements ClientModInitializer {
                 if (parts.length < 2) continue;
                 String key = parts[0].trim();
                 String value = parts[1].trim().replace("\"", "");
-                switch (key) {
-                    case "name" -> theme.name = value;
-                    default -> {
-                        if (value.startsWith("#")) {
-                            try {
-                                theme.colors.put(key, parseHexColor(value));
-                            } catch (Exception ignored) {}
+                if (key.equals("name")) {
+                    theme.name = value;
+                } else {
+                    if (value.startsWith("#")) {
+                        try {
+                            theme.colors.put(key, parseHexColor(value));
+                        } catch (Exception ignored) {
                         }
                     }
                 }
@@ -314,14 +312,17 @@ public class RemotelyClient implements ClientModInitializer {
         Path oldPath = Paths.get("C:/remotely");
         if (System.getProperty("os.name").toLowerCase().contains("win") && Files.exists(oldPath)) {
             try {
-                Path source = oldPath;
                 Path target = Paths.get(System.getProperty("user.home"), "remotely");
                 if (!Files.exists(target)) {
                     Files.createDirectories(target);
                 }
-                Files.walk(source).forEach(sourcePath -> {
-                    Path targetPath = target.resolve(source.relativize(sourcePath));
+                Files.walk(oldPath).forEach(sourcePath -> {
+                    Path targetPath = target.resolve(oldPath.relativize(sourcePath));
                     try {
+                        if (sourcePath.getFileName().toString().equals("themes")) {
+                            Files.delete(sourcePath);
+                            return;
+                        }
                         Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
                     } catch (IOException e) {
                         devPrint("Failed to migrate Remotely data: " + e.getMessage());
