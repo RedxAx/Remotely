@@ -1,11 +1,11 @@
 {
 	"schemaVersion": 1,
 	"id": "remotely",
-	"version": "${version}",
+	"version": "2.0.0",
 	"name": "Remotely",
-	"description": "- One Click Server Creation And Management. \n- Multi-Terminal With SSH.",
+	"description": "Development Like Never Before.",
 	"authors": [
-		"RedxAx", "DumbFridge"
+		"RedxAx"
 	],
 	"contact": {
 		"Discord": "https://discord.gg/UAEV8WgC6M"
