@@ -36,6 +36,7 @@ import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.common.util.Notification;
 
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
@@ -58,7 +59,6 @@ public class ServerManagerScreen extends Screen {
     private final List<String> serverTypes = Arrays.asList("paper", "vanilla", "fabric", "forge", "neoforge", "quilt");
     private int selectedTypeIndex = 0;
     private long serverLastBlinkTime = 0;
-    private boolean serverCursorVisible = true;
     private int serverNameCursorPos = 0;
     private int serverVersionCursorPos = 0;
     private final int tabHeight = 25;
@@ -82,11 +82,9 @@ public class ServerManagerScreen extends Screen {
     private boolean remoteHostCreationWarning;
     private RemoteHostField remoteHostActiveField = RemoteHostField.NONE;
     private boolean isEditingHost = false;
-    private BufferedImage loadingAnim;
     private final List<BufferedImage> loadingFrames = new ArrayList<>();
     private int currentLoadingFrame = 0;
     private long lastFrameTime = 0;
-    private final boolean loading = false;
     private final int entryHeight = 25;
     private final int topBarHeight = 30;
     private BufferedImage terminalIcon, explorerIcon, editorIcon, terminal, serverIcon, paper, vanilla, fabric, forge, neoforge, quilt, browserIcon;
@@ -153,14 +151,6 @@ public class ServerManagerScreen extends Screen {
         iconPosX.clear();
         iconPosY.clear();
         try {
-            loadingAnim = ImageUtil.loadSpriteSheet("/assets/remotely/icons/loadinganim.png");
-            int frameWidth = 16;
-            int frameHeight = 16;
-            int rows = loadingAnim.getHeight() / frameHeight;
-            for (int i = 0; i < rows; i++) {
-                BufferedImage frame = loadingAnim.getSubimage(0, i * frameHeight, frameWidth, frameHeight);
-                loadingFrames.add(frame);
-            }
             terminalIcon = loadResourceIcon("/assets/remotely/icons/script.png");
             serverIcon = loadResourceIcon("/assets/remotely/icons/server.png");
             explorerIcon = loadResourceIcon("/assets/remotely/icons/folder.png");
@@ -174,7 +164,7 @@ public class ServerManagerScreen extends Screen {
             quilt = loadResourceIcon("/assets/remotely/icons/quilt.png");
             browserIcon = loadResourceIcon("/assets/remotely/icons/browser.png");
         } catch (Exception e) {
-            e.printStackTrace();
+            new Notification("Failed to load icons: " + e.getMessage(), Notification.Type.ERROR);
         }
     }
 
@@ -211,30 +201,11 @@ public class ServerManagerScreen extends Screen {
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
-        long currentTime = System.currentTimeMillis();
-        if (currentTime - serverLastBlinkTime > 500) {
-            serverCursorVisible = !serverCursorVisible;
-            serverLastBlinkTime = currentTime;
-        }
         if (serverTypePopupActive) {
             serverTypePopupX = (this.width - serverTypePopupWidth) / 2;
             serverTypePopupY = (this.height - serverTypePopupHeight) / 2;
         }
-        if (loading) {
-            if (currentTime - lastFrameTime >= 40) {
-                currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
-                lastFrameTime = currentTime;
-            }
-            BufferedImage currentFrame = loadingFrames.get(currentLoadingFrame);
-            int scale = 8;
-            int imgWidth = currentFrame.getWidth() * scale;
-            int imgHeight = currentFrame.getHeight() * scale;
-            int centerX = (this.width - imgWidth) / 2;
-            int centerY = (this.height - imgHeight) / 2;
-            drawPixelArt(context, centerX, centerY, imgWidth, imgHeight, currentFrame);
-        } else {
-            renderDesktopIcons(context, mouseX, mouseY);
-        }
+        renderDesktopIcons(context, mouseX, mouseY);
         renderTaskbar(context, mouseX, mouseY);
         if (serverTypePopupActive) {
             context.fill(serverTypePopupX, serverTypePopupY, serverTypePopupX + serverTypePopupWidth, serverTypePopupY + serverTypePopupHeight, Config.backgroundColor);
@@ -1157,14 +1128,6 @@ public class ServerManagerScreen extends Screen {
     public void close() {
         remotelyClient.saveTabIndex(activeTabIndex);
         super.close();
-    }
-
-    private String trimTextToWidthWithEllipsis(String text, int maxWidth) {
-        if (minecraftClient.textRenderer.getWidth(text) <= maxWidth) return text;
-        while (minecraftClient.textRenderer.getWidth(text + "..") > maxWidth && text.length() > 1) {
-            text = text.substring(0, text.length() - 1);
-        }
-        return text + "..";
     }
 
     private Boolean testSSHConnection(String user, String ip, String portStr, String password) {
