@@ -16,11 +16,9 @@ import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.Toolkit;
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.net.URL;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -29,10 +27,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static redxax.oxy.common.RemotelyClient.loadThemesFromDir;
+import static redxax.oxy.common.RemotelyClient.*;
 import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
+import static redxax.oxy.common.config.Themes.importThemesFromJar;
 import static redxax.oxy.common.servers.SettingsScreen.ServerSettingType.*;
+import static redxax.oxy.common.terminal.MultiTerminalScreen.THEMES_DIR;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.drawBufferedImage;
 import static redxax.oxy.common.util.SoundUtils.playClick;
@@ -105,9 +105,10 @@ public class SettingsScreen extends Screen {
     }
 
     private void loadClientConfiguration() {
+        importThemesFromJar();
         loadThemesFromDir();
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.themes != null && !RemotelyClient.themes.isEmpty()) {
-            for (MultiTerminalScreen.Theme theme : RemotelyClient.themes) {
+        if (RemotelyClient.INSTANCE != null && themes != null && !themes.isEmpty()) {
+            for (MultiTerminalScreen.Theme theme : themes) {
                 themeOptions.add(theme.name);
             }
         } else {
@@ -201,7 +202,7 @@ public class SettingsScreen extends Screen {
             case "enableDebugTools" -> enableDebugTools = Boolean.parseBoolean(value);
         }
         if (key.equals("theme") && RemotelyClient.INSTANCE != null) {
-            for (MultiTerminalScreen.Theme theme : RemotelyClient.themes) {
+            for (MultiTerminalScreen.Theme theme : themes) {
                 if (theme.name.equals(value)) {
                     Themes.applyTheme(theme);
                     break;

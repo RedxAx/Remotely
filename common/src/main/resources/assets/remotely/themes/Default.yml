@@ -12,6 +12,9 @@ colors:
   elementHoverBackgroundColor: "#FF444444"
   elementHoverBorderColor: "#FF9D9D9D"
 
+  inClickableBackgroundColor: "#FF181818"
+  inClickableBorderColor: "#FF2c2c2c"
+
   accentColor: "#FFFFC800"
   accentHoverColor: "#FFFFD94F"
   accentDarkColor: "#FF3B2D17"

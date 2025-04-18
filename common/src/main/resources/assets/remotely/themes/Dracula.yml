@@ -46,3 +46,24 @@ colors:
   terminalTextColor: "#FFF8F8F2"
   niceDarkAccentColor: "#FF6272A4"
   terminalBackgroundColor: "#FF282A36"
+  syntaxCommentColor: "#FF6A9955"
+  syntaxGlobalVarColor: "#FF4EC9B0"
+  syntaxLocalVarColor: "#FF9CDCFE"
+  syntaxKeywordColor: "#FFC586C0"
+  syntaxStringColor: "#FFCE9178"
+  syntaxNumberColor: "#FFB5CEA8"
+  syntaxBooleanColor: "#FF569CD6"
+  syntaxKeyColor: "#FF9CDCFE"
+  
+  inClickableBackgroundColor: "#FF21222C"
+  inClickableBorderColor: "#FF383A4C"
+  
+  accentHoverColor: "#FFFF92D0"
+  accentDarkHoverColor: "#FF4E5166"
+  
+  niceAccentHoverColor: "#FFFF92D0"
+  niceDarkHoverAccentColor: "#FF6A778A"
+  
+  dangerHoverAccentColor: "#FFFF6E6E"
+  dangerDarkHoverAccentColor: "#FF6A778A"
+
