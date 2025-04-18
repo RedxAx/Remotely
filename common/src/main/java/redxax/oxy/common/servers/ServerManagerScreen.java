@@ -47,7 +47,7 @@ import static redxax.oxy.common.util.SoundUtils.playClick;
 public class ServerManagerScreen extends Screen {
     private final MinecraftClient minecraftClient;
     private final RemotelyClient remotelyClient;
-    private final List<ServerInfo> localServers;
+    private List<ServerInfo> localServers;
     private final List<RemoteHostInfo> remoteHosts = new ArrayList<>();
     private int activeTabIndex = 0;
     private boolean editingServer;
@@ -55,13 +55,8 @@ public class ServerManagerScreen extends Screen {
     private final int serverPopupHeight = 160;
     private final StringBuilder serverNameBuffer = new StringBuilder();
     private final StringBuilder serverVersionBuffer = new StringBuilder();
-    private final String selectedServerType = "paper";
-    private final List<String> serverTypes = Arrays.asList("paper", "vanilla", "fabric", "forge", "neoforge", "quilt");
-    private int selectedTypeIndex = 0;
-    private long serverLastBlinkTime = 0;
     private int serverNameCursorPos = 0;
     private int serverVersionCursorPos = 0;
-    private final int tabHeight = 25;
     private final int verticalPadding = 2;
     private boolean nameFieldFocused = true;
     private boolean versionFieldFocused = false;
@@ -83,12 +78,11 @@ public class ServerManagerScreen extends Screen {
     private RemoteHostField remoteHostActiveField = RemoteHostField.NONE;
     private boolean isEditingHost = false;
     private final List<BufferedImage> loadingFrames = new ArrayList<>();
-    private int currentLoadingFrame = 0;
-    private long lastFrameTime = 0;
     private final int entryHeight = 25;
     private final int topBarHeight = 30;
-    private BufferedImage terminalIcon, explorerIcon, editorIcon, terminal, serverIcon, paper, vanilla, fabric, forge, neoforge, quilt, browserIcon;
-    private final int taskbarHeight = 20;
+    private BufferedImage terminal, serverIcon, paper, vanilla, fabric, forge, neoforge, quilt;
+    private IconWithTooltip terminalIcon, explorerIcon, editorIcon, browserIcon, settingsIcon;
+    private final int taskbarHeight = 28;
     private final List<IconRect> serverIconRects = new ArrayList<>();
     private int selectedDesktopIndex = -1;
     private long lastClickTime = 0;
@@ -151,10 +145,13 @@ public class ServerManagerScreen extends Screen {
         iconPosX.clear();
         iconPosY.clear();
         try {
-            terminalIcon = loadResourceIcon("/assets/remotely/icons/script.png");
+            terminalIcon = new IconWithTooltip("/assets/remotely/icons/terminal.png", "Terminal");
+            explorerIcon = new IconWithTooltip("/assets/remotely/icons/explorer.png", "File Explorer");
+            browserIcon = new IconWithTooltip("/assets/remotely/icons/minibrowser.png", "Web Browser");
+            settingsIcon = new IconWithTooltip("/assets/remotely/icons/remotely.png", "Settings");
+            editorIcon = new IconWithTooltip("/assets/remotely/icons/text.png", "Text Editor");
             serverIcon = loadResourceIcon("/assets/remotely/icons/server.png");
-            explorerIcon = loadResourceIcon("/assets/remotely/icons/folder.png");
-            editorIcon = loadResourceIcon("/assets/remotely/icons/text.png");
+
             terminal = loadResourceIcon("/assets/remotely/icons/script.png");
             paper = loadResourceIcon("/assets/remotely/icons/paper.png");
             vanilla = loadResourceIcon("/assets/remotely/icons/vanilla.png");
@@ -162,7 +159,6 @@ public class ServerManagerScreen extends Screen {
             forge = loadResourceIcon("/assets/remotely/icons/forge.png");
             neoforge = loadResourceIcon("/assets/remotely/icons/neoforge.png");
             quilt = loadResourceIcon("/assets/remotely/icons/quilt.png");
-            browserIcon = loadResourceIcon("/assets/remotely/icons/browser.png");
         } catch (Exception e) {
             new Notification("Failed to load icons: " + e.getMessage(), Notification.Type.ERROR);
         }
@@ -365,7 +361,7 @@ public class ServerManagerScreen extends Screen {
             currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
             elevationOffsets.put(elevId, currentOffset);
             context.getMatrices().push();
-            context.getMatrices().translate(0, currentOffset, 0);
+            context.getMatrices().translate(0, currentOffset, i == draggingServerIndex ? 499 : 0);
             serverIconRects.add(new IconRect((int) currentX, (int) currentY, iconSize, iconSize, (i < currentServers.size() ? i : -1), i == currentServers.size()));
             if (i < currentServers.size()) {
                 ServerInfo server = currentServers.get(i);
@@ -409,22 +405,28 @@ public class ServerManagerScreen extends Screen {
         context.fill(0, this.height - taskbarHeight, this.width, this.height, Config.innerBackgroundColor);
         drawInnerBorder(context, 0, this.height - taskbarHeight, this.width, taskbarHeight, Config.innerBorderColor);
         drawOuterBorder(context, 0, this.height - taskbarHeight, this.width, taskbarHeight, globalOuterBorder);
-        int iconSize = 16;
+        int iconSize = 20;
         int padding = 5;
-        int yTask = this.height - taskbarHeight + (taskbarHeight - iconSize) / 2;
+        int yTask = this.height - taskbarHeight + ((taskbarHeight - iconSize) / 2);
         int xTask = padding;
-        drawPixelArt(context, xTask, yTask, iconSize, iconSize, terminalIcon);
+        boolean terminalHovered = mouseX >= xTask && mouseX <= xTask + iconSize && mouseY >= yTask && mouseY <= yTask + iconSize;
+        drawSquareButton(context, xTask, yTask, minecraftClient, terminalHovered, mouseX, mouseY, terminalIcon.getTooltip(), terminalIcon.getImage());
         xTask += iconSize + padding;
-        drawPixelArt(context, xTask, yTask, iconSize, iconSize, explorerIcon);
+        boolean explorerHovered = mouseX >= xTask && mouseX <= xTask + iconSize && mouseY >= yTask && mouseY <= yTask + iconSize;
+        drawSquareButton(context, xTask, yTask, minecraftClient, explorerHovered, mouseX, mouseY, explorerIcon.getTooltip(), explorerIcon.getImage());
         xTask += iconSize + padding;
-        drawPixelArt(context, xTask, yTask, iconSize, iconSize, browserIcon);
+        boolean browserHovered = mouseX >= xTask && mouseX <= xTask + iconSize && mouseY >= yTask && mouseY <= yTask + iconSize;
+        drawSquareButton(context, xTask, yTask, minecraftClient, browserHovered, mouseX, mouseY, browserIcon.getTooltip(), browserIcon.getImage());
+        xTask += iconSize + padding;
+        boolean settingsHovered = mouseX >= xTask && mouseX <= xTask + iconSize && mouseY >= yTask && mouseY <= yTask + iconSize;
+        drawSquareButton(context, xTask, yTask, minecraftClient, settingsHovered, mouseX, mouseY, settingsIcon.getTooltip(), settingsIcon.getImage());
         renderHostTabs(context, mouseX, mouseY);
     }
 
     private void renderHostTabs(DrawContext context, int mouseX, int mouseY) {
         List<String> tabs = getAllTabNames();
-        int height = taskbarHeight - 4;
-        int padding = 4;
+        int height = 18;
+        int padding = 5;
         int gap = 4;
         int minWidth = 50;
         int[] widths = new int[tabs.size()];
@@ -436,31 +438,45 @@ public class ServerManagerScreen extends Screen {
             totalWidth += w;
             if (i > 0) totalWidth += gap;
         }
-        int y = this.height - taskbarHeight + 2;
-        int plusWidth = 30;
+        int y = this.height - taskbarHeight + 4;
         int startX = this.width - totalWidth - 5;
-        int plusX = startX - gap - plusWidth;
-        boolean isPlusHovered = mouseX >= plusX && mouseX <= plusX + plusWidth && mouseY >= y && mouseY <= y + height;
-        context.fill(plusX, y, plusX + plusWidth, y + height, isPlusHovered ? elementHoverBackgroundColor : elementBackgroundColor);
-        drawInnerBorder(context, plusX, y, plusWidth, height, isPlusHovered ? elementHoverBorderColor : elementBorderColor);
-        drawOuterBorder(context, plusX, y, plusWidth, height, globalOuterBorder);
-        String plus = "+";
-        int plusTextWidth = minecraftClient.textRenderer.getWidth(plus);
-        context.drawText(minecraftClient.textRenderer, Text.literal(plus), plusX + (plusWidth - plusTextWidth) / 2, y + (height - minecraftClient.textRenderer.fontHeight) / 2, globalTextColor, Config.shadow);
+        int plusX = startX - gap - height;
+        int plusTextWidth = minecraftClient.textRenderer.getWidth("+");
+        boolean isPlusHovered = mouseX >= plusX && mouseX <= plusX + height && mouseY >= y && mouseY <= y + height;
+        float targetOffset = isPlusHovered ? -3f : 0f;
+        int id = ("ServerManagerPlusIcon").hashCode();
+        float currentOffset = elevationOffsets.getOrDefault(id, 0f);
+        currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+        elevationOffsets.put(id, currentOffset);
+        context.getMatrices().push();
+        context.getMatrices().translate(0, currentOffset, 0);
+        context.fill(plusX, y, plusX + height, y + height, getElementBackgroundColor(id, isPlusHovered, false, true,false, true, false));
+        drawInnerBorder(context, plusX, y, height, height, getElementBorderColor(id, isPlusHovered, false, true, false, false, false));
+        drawOuterBorder(context, plusX, y, height, height, globalOuterBorder);
+        context.drawText(minecraftClient.textRenderer, Text.literal("+"), plusX + (height - plusTextWidth) / 2, y + ((height - minecraftClient.textRenderer.fontHeight) / 2) + 1, globalTextColor, Config.shadow);
+        context.getMatrices().pop();
         int currentX = startX;
         for (int i = 0; i < tabs.size(); i++) {
             int w = widths[i];
             boolean isActive = (i == activeTabIndex);
             boolean isHovered = mouseX >= currentX && mouseX <= currentX + w && mouseY >= y && mouseY <= y + height;
             int bg = getElementBackgroundColor(500 + i, isHovered, isActive, true, false, false, false);
+            float tabsTargetOffset = isHovered ? -3f : 0f;
+            int tabsId = (tabs.get(i)).hashCode();
+            float tabsCurrentOffset = elevationOffsets.getOrDefault(tabsId, 0f);
+            tabsCurrentOffset += (tabsTargetOffset - tabsCurrentOffset) * globalMovementSpeed * deltaTime;
+            elevationOffsets.put(tabsId, tabsCurrentOffset);
+            context.getMatrices().push();
+            context.getMatrices().translate(0, tabsCurrentOffset, 0);
             context.fill(currentX, y, currentX + w, y + height, bg);
             drawInnerBorder(context, currentX, y, w, height, getElementBorderColor(500 + i, isHovered, isActive, true, false, false, false));
             drawOuterBorder(context, currentX, y, w, height, globalOuterBorder);
             String tabText = tabs.get(i);
             int textWidth = minecraftClient.textRenderer.getWidth(tabText);
             int textX = currentX + (w - textWidth) / 2;
-            int textY = y + (height - minecraftClient.textRenderer.fontHeight) / 2;
+            int textY = 1 + y + (height - minecraftClient.textRenderer.fontHeight) / 2;
             context.drawText(minecraftClient.textRenderer, Text.literal(tabText), textX, textY, globalTextColor, Config.shadow);
+            context.getMatrices().pop();
             currentX += w + gap;
         }
     }
@@ -561,7 +577,7 @@ public class ServerManagerScreen extends Screen {
             }
         }
         int taskbarY = this.height - taskbarHeight;
-        int iconSize = 16;
+        int iconSize = 20;
         int padding = 5;
         int yTask = taskbarY + (taskbarHeight - iconSize) / 2;
         int xTask = padding;
@@ -587,6 +603,12 @@ public class ServerManagerScreen extends Screen {
                 } else {
                     minecraftClient.setScreen(new BrowserScreen(minecraftClient, this, "www.google.com"));
                 }
+                return true;
+            }
+            xTask += iconSize + padding;
+            if (mouseX >= xTask && mouseX <= xTask + iconSize) {
+                playClick();
+                minecraftClient.setScreen(new SettingsScreen(minecraftClient, "config", this, remotelyDir.toString(), settings));
                 return true;
             }
         }
@@ -702,6 +724,13 @@ public class ServerManagerScreen extends Screen {
                 iconPosX.add(newIndex, iconPosX.remove(draggingServerIndex));
                 iconPosY.add(newIndex, iconPosY.remove(draggingServerIndex));
             }
+            if (activeTabIndex == 0) {
+                localServers = currentServers;
+                saveServers();
+            } else {
+                remoteHosts.get(activeTabIndex - 1).servers = currentServers;
+                saveRemoteHosts();
+            }
             isDragging = false;
             draggingServerIndex = -1;
             dragOffsetX = 0;
@@ -715,11 +744,12 @@ public class ServerManagerScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         scaleScroll(verticalAmount);
+        int tabHeight = 25;
         int contentYStart = topBarHeight + tabHeight + 5 + verticalPadding;
         int panelHeight = this.height - contentYStart - 5;
         List<ServerInfo> currentServers = getCurrentServers();
         int maxScroll = Math.max(0, currentServers.size() * (entryHeight + 1) - panelHeight);
-        targetOffset -= verticalAmount * entryHeight * 2;
+        targetOffset -= (float) (verticalAmount * entryHeight * 2);
         if (targetOffset < 0) targetOffset = 0;
         if (targetOffset > maxScroll) targetOffset = maxScroll;
         return true;
@@ -957,7 +987,6 @@ public class ServerManagerScreen extends Screen {
                 serverNameBuffer.setLength(0);
                 serverVersionBuffer.setLength(0);
                 serverNameBuffer.append("MyServer");
-                selectedTypeIndex = 0;
                 nameFieldFocused = true;
                 versionFieldFocused = false;
                 serverNameCursorPos = serverNameBuffer.length();
