@@ -43,9 +43,6 @@ public class TerminalRenderer {
     private String tmuxStatusLine = "";
     private float currentScrollOffset = 0;
     public float targetScrollOffset = 0;
-    private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;?]*(?!m)[A-Za-z]");
-    private static final Pattern ANSI_PATTERN2 = Pattern.compile("\u001B=>");
-    private static final Pattern EXTRA_ANSI_PATTERN = Pattern.compile("=\\u001B.*?\\\\");
     static {
         System.setProperty("jline.ansi", "true");
         System.setProperty("jline.terminal", "jline.UnsupportedTerminal");
@@ -417,7 +414,7 @@ public class TerminalRenderer {
                     hostStatus = "Local Host | " + new Date();
                 }
                 return new OrderedText[]{Text.literal("Remotely - 2.0.0 | " + serverName + " - " + serverStatus).asOrderedText(), Text.literal(hostStatus).asOrderedText()};
-            } else return new OrderedText[]{Text.literal("Remotely - 2.0.0 | DevBuild4 15/4/2025").asOrderedText(), Text.literal(new Date().toString()).asOrderedText()};
+            } else return new OrderedText[]{Text.literal("Remotely - 2.0.0 | DevBuild4 19/4/2025").asOrderedText(), Text.literal(new Date().toString()).asOrderedText()};
         }
         String line = tmuxStatusLine;
         String leftText;
