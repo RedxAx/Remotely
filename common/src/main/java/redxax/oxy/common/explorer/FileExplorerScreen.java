@@ -806,7 +806,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
             }
             if (keyCode == GLFW.GLFW_KEY_E) {
                 if (!currentTab.tabData.selectedPaths.isEmpty()) {
-                    renamePath = currentTab.tabData.selectedPaths.getFirst();
+                    renamePath = currentTab.tabData.selectedPaths.get(0);
                     renameBuffer.setLength(0);
                     renameBuffer.append(renamePath.getFileName().toString());
                     renameCursorPos = renameBuffer.length();
@@ -1138,7 +1138,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
                                 tabs.add(new Tab(newTabData));
                                 currentTabIndex = tabs.size() - 1;
                                 loadDirectory(newTabData.path, false, false, true);
-                                Tab newTab = tabs.getLast();
+                                Tab newTab = tabs.get(0);
                                 tabsBar.getTabs().add(new Render.TabsBar.Tab<>(newTab.name, false, newTab));
                                 tabsBar.setActiveTab(Math.min(currentTabIndex, tabs.size() - 1));
                                 return true;
@@ -1271,7 +1271,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         String defaultName = "Name Me!";
         Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
         if (!currentTab.tabData.selectedPaths.isEmpty()) {
-            Path firstSelected = currentTab.tabData.selectedPaths.getFirst();
+            Path firstSelected = currentTab.tabData.selectedPaths.get(0);
             if (Files.isDirectory(firstSelected)) {
                 defaultName = "Name Me!";
             }

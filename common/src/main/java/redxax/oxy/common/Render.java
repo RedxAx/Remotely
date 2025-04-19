@@ -302,19 +302,21 @@ public class Render {
         for (int i = 0; i < tabs.size(); i++) {
             Object tab = tabs.get(i);
             String name;
-            switch (tab) {
-                case FileExplorerScreen.Tab tab1 -> name = tab1.getAnimatedText();
-                case FileEditorScreen.Tab t -> name = t.unsaved ? t.name + "*" : t.name;
-                case PluginModManagerScreen.Tab tab1 -> name = tab1.name;
-                case MultiTerminalScreen.TabInfo tabInfo -> name = tabInfo.name;
-                case MultiTerminalScreen.Theme theme -> name = theme.name;
-                case null, default -> {
-                    try {
-                        assert tab != null;
-                        name = tab.toString();
-                    } catch (Exception e) {
-                        name = "Tab";
-                    }
+            if (tab instanceof FileExplorerScreen.Tab) {
+                name = ((FileExplorerScreen.Tab) tab).getAnimatedText();
+            } else if (tab instanceof FileEditorScreen.Tab t) {
+                name = t.unsaved ? t.name + "*" : t.name;
+            } else if (tab instanceof PluginModManagerScreen.Tab) {
+                name = ((PluginModManagerScreen.Tab) tab).name;
+            } else if (tab instanceof MultiTerminalScreen.TabInfo) {
+                name = ((MultiTerminalScreen.TabInfo) tab).name;
+            } else if (tab instanceof MultiTerminalScreen.Theme) {
+                name = ((MultiTerminalScreen.Theme) tab).name;
+            } else {
+                try {
+                    name = tab.toString();
+                } catch (Exception e) {
+                    name = "Tab";
                 }
             }
             int targetWidth = textRenderer.getWidth(name) + 2 * tabPadding;

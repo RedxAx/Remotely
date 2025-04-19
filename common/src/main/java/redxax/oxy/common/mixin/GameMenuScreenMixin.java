@@ -103,7 +103,7 @@ public abstract class GameMenuScreenMixin extends Screen {
         context.getMatrices().translate(0, 0, 499);
         if (mainMenuStyle.equals("Minimal") && optionsButton != null) {
             int spacing = 8;
-            int totalWidth = style1Buttons.size() * style1Buttons.getFirst().size + spacing * (style1Buttons.size() - 1);
+            int totalWidth = style1Buttons.size() * style1Buttons.get(0).size + spacing * (style1Buttons.size() - 1);
             int startX = ((this.width - totalWidth) / 2) - 51;
             int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
             for (int i = 0; i < style1Buttons.size(); i++) {
@@ -124,8 +124,8 @@ public abstract class GameMenuScreenMixin extends Screen {
             int excessWidth = totalWidth - 200;
             largeButtonWidth -= excessWidth;
             if (normalButtons.size() == 3) {
-                normalButtons.getFirst().x = buttonX;
-                normalButtons.getFirst().y = buttonY;
+                normalButtons.get(0).x = buttonX;
+                normalButtons.get(0).y = buttonY;
                 normalButtons.get(0).width = smallButtonWidth;
                 normalButtons.get(0).height = 18;
                 normalButtons.get(1).x = buttonX + smallButtonWidth + gap;
