@@ -19,7 +19,6 @@ import static redxax.oxy.common.Render.*;
 import static redxax.oxy.common.config.Config.*;
 import static redxax.oxy.common.servers.PluginModManagerScreen.formatDownloads;
 import static redxax.oxy.common.util.DevUtil.devPrint;
-import static redxax.oxy.common.util.ImageUtil.drawBufferedImage;
 import static redxax.oxy.common.util.SoundUtils.playClick;
 
 import java.io.*;

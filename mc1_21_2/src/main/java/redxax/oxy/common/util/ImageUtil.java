@@ -97,8 +97,7 @@ public class ImageUtil {
                 }
             }
             NativeImageBackedTexture texture = new NativeImageBackedTexture(nativeImage);
-            textureId = Identifier.tryParse("redxax.oxy:image_" + image.hashCode());
-            MinecraftClient.getInstance().getTextureManager().registerTexture(textureId, texture);
+            textureId = MinecraftClient.getInstance().getTextureManager().registerDynamicTexture("image_" + image.hashCode(), texture);
             textureCache.put(image, textureId);
         }
         context.drawTexture(RenderLayer::getGuiTextured, textureId, x, y, 0F, 0F, width, height, width, height);

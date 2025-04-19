@@ -114,7 +114,7 @@ public class ImageUtil {
         context.drawTexture(textureId, x, y, 0, 0, width, height, width, height);
     }
     public static void warpedDrawGuiTexture(DrawContext context, int x, int y, Identifier icon, int iconWidth, int iconHeight) {
-        context.drawGuiTexture(icon, x + 2, y + 2,iconWidth, iconHeight);
+        context.drawGuiTexture(icon, x, y, iconWidth, iconHeight);
     }
     public static void drawBrowser(MCEFBrowser currentBrowser, boolean fullscreen, int width, int height, int TOP_OFFSET, int BROWSER_DRAW_OFFSET) {
         if (fullscreen) {
