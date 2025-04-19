@@ -117,7 +117,7 @@ public abstract class TitleScreenMixin extends Screen {
         }
     }
 
-    @Inject(method = "render", at = @At("HEAD"))
+    @Inject(method = "render", at = @At("TAIL"))
     private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
         if (mainMenuStyle.equals("Minimal") && optionsButton != null) {
             int spacing = 8;

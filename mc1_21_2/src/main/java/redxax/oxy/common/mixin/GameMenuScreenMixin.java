@@ -49,7 +49,7 @@ public abstract class GameMenuScreenMixin extends Screen {
         String returnToMenuButtonText = I18n.translate("menu.returnToMenu");
         String disconnectButtonText = I18n.translate("menu.disconnect");
         optionsButton = this.children().stream().filter(child -> child instanceof ButtonWidget).map(child -> (ButtonWidget) child).filter(button -> button.getMessage().getString().equals(returnToMenuButtonText) || button.getMessage().getString().equals(disconnectButtonText)).findFirst().orElse(null);
-        if (optionsButton != null) {
+        if (optionsButton != null && mainMenuStyle.equals("Vanilla")) {
             int buttonX = optionsButton.getX();
             int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
             int smallButtonWidth = 50;
@@ -65,9 +65,39 @@ public abstract class GameMenuScreenMixin extends Screen {
             ButtonWidget terminalButton = ButtonWidget.builder(Text.literal("Terminal"), btn -> openMultiTerminalScreen()).dimensions(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY, smallButtonWidth, 20).build();
             this.addDrawableChild(terminalButton);
         }
+        if (optionsButton != null && mainMenuStyle.equals("Minimal")) {
+            style1Buttons.clear();
+            style1Buttons.add(new Style1Button("Servers", this::openServerManagerScreen));
+            style1Buttons.add(new Style1Button("Terminal", this::openMultiTerminalScreen));
+            style1Buttons.add(new Style1Button("File Explorer", this::openFileExplorerScreen));
+            style1Buttons.add(new Style1Button("Internet Browser", () ->  {
+                if (checkIfMcefExist())
+                    this.client.setScreen(new BrowserScreen(this.client, this, "google.com"));
+            }));
+            try {
+                remotelyIcon = loadResourceIcon("/assets/remotely/icons/manager.png");
+                fileExplorerIcon = loadResourceIcon("/assets/remotely/icons/explorer.png");
+                terminalIcon = loadResourceIcon("/assets/remotely/icons/terminal.png");
+                browserIcon = loadResourceIcon("/assets/remotely/icons/minibrowser.png");
+            } catch (Exception e) {
+                devPrint("Failed to load TitleScreen icons: " + e.getMessage());
+            }
+        }
+        if (optionsButton != null && mainMenuStyle.equals("Normal")) {
+            normalButtons.clear();
+            int smallButtonWidth = 50;
+            int largeButtonWidth = 100;
+            int gap = 5;
+            int totalWidth = smallButtonWidth * 2 + largeButtonWidth + gap * 2;
+            int excessWidth = totalWidth - 200;
+            largeButtonWidth -= excessWidth;
+            normalButtons.add(new NormalButton("Servers", this::openServerManagerScreen, smallButtonWidth, 20));
+            normalButtons.add(new NormalButton("File Explorer", this::openFileExplorerScreen, largeButtonWidth, 20));
+            normalButtons.add(new NormalButton("Terminal", this::openMultiTerminalScreen, smallButtonWidth, 20));
+        }
     }
 
-    @Inject(method = "render", at = @At("HEAD"))
+    @Inject(method = "render", at = @At("TAIL"))
     private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
         context.getMatrices().push();
         context.getMatrices().translate(0, 0, 499);
@@ -82,6 +112,34 @@ public abstract class GameMenuScreenMixin extends Screen {
                 b.y = buttonY;
                 boolean hovered = mouseX >= b.x && mouseX < b.x + b.size && mouseY >= b.y && mouseY < b.y + b.size;
                 drawSquareButton(context, b.x, b.y, this.client, hovered, mouseX, mouseY, b.label, switch (b.label) { case "Servers" -> remotelyIcon; case "File Explorer" -> fileExplorerIcon; case "Terminal" -> terminalIcon; case "Internet Browser" -> browserIcon; default -> null;});
+            }
+        }
+        if (mainMenuStyle.equals("Normal") && optionsButton != null) {
+            int buttonX = optionsButton.getX();
+            int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
+            int smallButtonWidth = 50;
+            int largeButtonWidth = 100;
+            int gap = 5;
+            int totalWidth = smallButtonWidth * 2 + largeButtonWidth + gap * 2;
+            int excessWidth = totalWidth - 200;
+            largeButtonWidth -= excessWidth;
+            if (normalButtons.size() == 3) {
+                normalButtons.getFirst().x = buttonX;
+                normalButtons.getFirst().y = buttonY;
+                normalButtons.get(0).width = smallButtonWidth;
+                normalButtons.get(0).height = 18;
+                normalButtons.get(1).x = buttonX + smallButtonWidth + gap;
+                normalButtons.get(1).y = buttonY;
+                normalButtons.get(1).width = largeButtonWidth;
+                normalButtons.get(1).height = 18;
+                normalButtons.get(2).x = buttonX + smallButtonWidth + largeButtonWidth + gap * 2;
+                normalButtons.get(2).y = buttonY;
+                normalButtons.get(2).width = smallButtonWidth;
+                normalButtons.get(2).height = 18;
+            }
+            for (NormalButton btn : normalButtons) {
+                boolean hovered = mouseX >= btn.x && mouseX < btn.x + btn.width && mouseY >= btn.y && mouseY < btn.y + btn.height;
+                drawCustomButton(context, btn.x, btn.y, btn.label, this.client, hovered, false, true, false, true, btn.width, btn.height, globalTextColor, niceAccentHoverColor, mouseX, mouseY, "");
             }
         }
         context.getMatrices().pop();

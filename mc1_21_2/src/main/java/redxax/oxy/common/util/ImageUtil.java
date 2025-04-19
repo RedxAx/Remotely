@@ -15,6 +15,8 @@ import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
+
 import static redxax.oxy.common.util.DevUtil.devPrint;
 
 public class ImageUtil {
@@ -97,7 +99,8 @@ public class ImageUtil {
                 }
             }
             NativeImageBackedTexture texture = new NativeImageBackedTexture(nativeImage);
-            textureId = MinecraftClient.getInstance().getTextureManager().registerDynamicTexture("image_" + image.hashCode(), texture);
+            textureId = Identifier.tryParse("redxax.oxy:image_" + image.hashCode());
+            MinecraftClient.getInstance().getTextureManager().registerTexture(textureId, texture);
             textureCache.put(image, textureId);
         }
         context.drawTexture(RenderLayer::getGuiTextured, textureId, x, y, 0F, 0F, width, height, width, height);
