@@ -17,6 +17,7 @@ import redxax.oxy.common.terminal.TerminalInstance;
 import redxax.oxy.common.util.ImageUtil;
 
 import static redxax.oxy.common.config.Config.windowsBackground;
+import static redxax.oxy.common.servers.BrowserScreen.checkIfMcefExist;
 import static redxax.oxy.common.servers.SettingsScreen.ServerSettingType.*;
 
 import javax.imageio.ImageIO;
@@ -598,9 +599,9 @@ public class ServerManagerScreen extends Screen {
             xTask += iconSize + padding;
             if (mouseX >= xTask && mouseX <= xTask + iconSize) {
                 playClick();
-                if (minecraftClient.getSession().getUuidOrNull().equals(UUID.fromString("9cc444cd-47cf-4660-96b7-17a7bfef302c"))) {
+                if (minecraftClient.getSession().getUuidOrNull().equals(UUID.fromString("9cc444cd-47cf-4660-96b7-17a7bfef302c")) && checkIfMcefExist()) {
                     minecraftClient.setScreen(new BrowserScreen(minecraftClient, this, "nexomc.com"));
-                } else {
+                } else if (checkIfMcefExist()) {
                     minecraftClient.setScreen(new BrowserScreen(minecraftClient, this, "www.google.com"));
                 }
                 return true;
