@@ -2,6 +2,7 @@ package redxax.oxy.common.servers;
 
 import com.cinemamod.mcef.MCEFBrowser;
 import com.cinemamod.mcef.MCEF;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -56,6 +57,7 @@ public class BrowserScreen extends Screen {
         super(Text.literal("Browser"));
         this.minecraftClient = client;
         this.parent = parent;
+        checkIfMcefExist();
         this.startUrl = url;
         originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
@@ -109,7 +111,6 @@ public class BrowserScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        checkIfMcefExist();
         if (tabs.isEmpty()) {
             MCEFBrowser newBrowser = MCEF.createBrowser(startUrl, true);
             tabs.add(new Tab(startUrl, newBrowser));
@@ -183,8 +184,13 @@ public class BrowserScreen extends Screen {
     }
 
     private void checkIfMcefExist() {
-        if (MCEF.getApp() == null) {
-            new Notification("MCEF Isn't Installed. Click Here To Download (Coming Soon)", Notification.Type.ERROR);
+        try {
+            if (!FabricLoader.getInstance().isModLoaded("mcef")) {
+                new Notification("MCEF Isn't Installed. Click Here To Download (Coming Soon)", Notification.Type.ERROR);
+                minecraftClient.setScreen(parent);
+            }
+        } catch (Exception e) {
+            new Notification("Error checking for MCEF mod: " + e.getMessage(), Notification.Type.ERROR);
             minecraftClient.setScreen(parent);
         }
     }
