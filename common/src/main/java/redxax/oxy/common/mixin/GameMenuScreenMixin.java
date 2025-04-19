@@ -97,7 +97,7 @@ public abstract class GameMenuScreenMixin extends Screen {
         }
     }
 
-    @Inject(method = "render", at = @At("HEAD"))
+    @Inject(method = "render", at = @At("TAIL"))
     private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
         context.getMatrices().push();
         context.getMatrices().translate(0, 0, 499);
