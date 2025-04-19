@@ -183,16 +183,17 @@ public class BrowserScreen extends Screen {
         });
     }
 
-    private void checkIfMcefExist() {
+    public static boolean checkIfMcefExist() {
         try {
             if (!FabricLoader.getInstance().isModLoaded("mcef")) {
                 new Notification("MCEF Isn't Installed. Click Here To Download (Coming Soon)", Notification.Type.ERROR);
-                minecraftClient.setScreen(parent);
+                return false;
             }
         } catch (Exception e) {
             new Notification("Error checking for MCEF mod: " + e.getMessage(), Notification.Type.ERROR);
-            minecraftClient.setScreen(parent);
+            return false;
         }
+        return true;
     }
 
     @Override

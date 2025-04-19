@@ -27,6 +27,7 @@ import java.util.List;
 
 import static redxax.oxy.common.Render.drawSquareButton;
 import static redxax.oxy.common.config.Config.*;
+import static redxax.oxy.common.servers.BrowserScreen.checkIfMcefExist;
 import static redxax.oxy.common.util.DevUtil.devPrint;
 import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
 
@@ -85,7 +86,10 @@ public abstract class TitleScreenMixin extends Screen {
             style1Buttons.add(new Style1Button("Servers", this::openServerManagerScreen));
             style1Buttons.add(new Style1Button("Terminal", this::openMultiTerminalScreen));
             style1Buttons.add(new Style1Button("File Explorer", this::openFileExplorerScreen));
-            style1Buttons.add(new Style1Button("Internet Browser", () -> this.client.setScreen(new BrowserScreen(this.client, this, "google.com"))));
+            style1Buttons.add(new Style1Button("Internet Browser", () ->  {
+                if (checkIfMcefExist())
+                    this.client.setScreen(new BrowserScreen(this.client, this, "google.com"));
+            }));
             try {
                 remotelyIcon = loadResourceIcon("/assets/remotely/icons/manager.png");
                 fileExplorerIcon = loadResourceIcon("/assets/remotely/icons/explorer.png");
