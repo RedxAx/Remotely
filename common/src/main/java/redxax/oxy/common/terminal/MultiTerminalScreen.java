@@ -1167,7 +1167,7 @@ public class MultiTerminalScreen extends Screen {
             String keyName = InputUtil.fromKeyCode(keyCode, scanCode).getTranslationKey();
             String hrName = humanReadableKey(keyName);
             List<String> parts = new ArrayList<>(Arrays.asList(snippetShortcutBuffer.toString().split("\\+")));
-            if (parts.size() == 1 && parts.getFirst().isEmpty()) {
+            if (parts.size() == 1 && parts.get(0).isEmpty()) {
                 parts.clear();
             }
             if (!parts.contains(hrName)) {
