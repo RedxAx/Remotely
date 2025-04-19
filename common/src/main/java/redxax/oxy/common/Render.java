@@ -553,7 +553,7 @@ public class Render {
         drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, true, false, false, false));
         drawOuterBorder(context, x, y, w, h, globalOuterBorder);
         if (icon != null) {
-            context.drawGuiTexture(icon, x + 2, y + 2,iconWidth, iconHeight);
+            warpedDrawGuiTexture(context, x + 2, y + 2, icon, iconWidth, iconHeight);
         }
 
         CustomTooltip.show(tooltipText, mouseX, mouseY, context.getScaledWindowWidth(), context.getScaledWindowHeight(), mc.textRenderer, hovered);

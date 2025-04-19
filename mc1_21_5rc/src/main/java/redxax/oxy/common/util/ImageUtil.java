@@ -105,7 +105,9 @@ public class ImageUtil {
         }
         context.drawTexture(RenderLayer::getGuiTextured, textureId, x, y, 0F, 0F, width, height, width, height);
     }
-
+    public static void warpedDrawGuiTexture(DrawContext context, int x, int y, Identifier icon, int iconWidth, int iconHeight) {
+        context.drawGuiTexture(RenderLayer::getGuiTextured, icon, x, y, iconWidth, iconHeight);
+    }
     public static void drawBrowser(MCEFBrowser currentBrowser, boolean fullscreen, int width, int height, int TOP_OFFSET, int BROWSER_DRAW_OFFSET) {
         // TODO: steal someones code for this because I'm not doing this s**t
 //        if (fullscreen) {
