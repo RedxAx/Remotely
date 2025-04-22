@@ -1,4 +1,4 @@
-package redxax.oxy.common.mixin;
+package redxax.oxy.remotely.mixin;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
@@ -13,23 +13,23 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-import redxax.oxy.common.NormalButton;
-import redxax.oxy.common.RemotelyClient;
-import redxax.oxy.common.Style1Button;
-import redxax.oxy.common.explorer.FileExplorerScreen;
-import redxax.oxy.common.servers.BrowserScreen;
-import redxax.oxy.common.servers.ServerInfo;
-import redxax.oxy.common.servers.ServerManagerScreen;
+import redxax.oxy.remotely.NormalButton;
+import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.Style1Button;
+import redxax.oxy.remotely.explorer.FileExplorerScreen;
+import redxax.oxy.remotely.servers.BrowserScreen;
+import redxax.oxy.remotely.servers.ServerInfo;
+import redxax.oxy.remotely.servers.ServerManagerScreen;
 
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 
-import static redxax.oxy.common.Render.drawSquareButton;
-import static redxax.oxy.common.config.Config.*;
-import static redxax.oxy.common.servers.BrowserScreen.checkIfMcefExist;
-import static redxax.oxy.common.util.DevUtil.devPrint;
-import static redxax.oxy.common.util.ImageUtil.loadResourceIcon;
+import static redxax.oxy.remotely.Render.drawSquareButton;
+import static redxax.oxy.remotely.config.Config.*;
+import static redxax.oxy.remotely.servers.BrowserScreen.checkIfMcefExist;
+import static redxax.oxy.remotely.util.DevUtil.devPrint;
+import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
 
 @Mixin(TitleScreen.class)
 public abstract class TitleScreenMixin extends Screen {
@@ -165,7 +165,7 @@ public abstract class TitleScreenMixin extends Screen {
             }
             for (NormalButton btn : normalButtons) {
                 boolean hovered = mouseX >= btn.x && mouseX < btn.x + btn.width && mouseY >= btn.y && mouseY < btn.y + btn.height;
-                redxax.oxy.common.Render.drawCustomButton(context, btn.x, btn.y, btn.label, this.client, hovered, false, true, false, true, btn.width, btn.height, globalTextColor, niceAccentHoverColor, mouseX, mouseY, "");
+                redxax.oxy.remotely.Render.drawCustomButton(context, btn.x, btn.y, btn.label, this.client, hovered, false, true, false, true, btn.width, btn.height, globalTextColor, niceAccentHoverColor, mouseX, mouseY, "");
             }
         }
     }

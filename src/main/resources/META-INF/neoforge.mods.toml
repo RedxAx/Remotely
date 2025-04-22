@@ -1,0 +1,21 @@
+modLoader = "javafml"
+loaderVersion = "[2,)"
+issueTrackerURL = "${mod_issue_tracker}"
+license = "${mod_license}"
+
+[[mods]]
+    modId = "${mod_id}"
+    version = "${mod_version}"
+    displayName = "${mod_name}"
+    description = '''${mod_description}'''
+    authors = "${mod_author}"
+
+[[remotely]]
+    modId = "neoforge"
+    type = "required"
+    ordering = "NONE"
+    side = "BOTH"
+
+[[remotely]]
+    modId = "minecraft"
+    type = "required"
