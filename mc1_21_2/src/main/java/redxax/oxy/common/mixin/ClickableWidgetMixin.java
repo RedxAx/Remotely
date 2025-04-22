@@ -1,4 +1,4 @@
-package redxax.oxy.common.mixin;
+package redxax.oxy.remotely.mixin;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
@@ -10,12 +10,12 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import redxax.oxy.common.Render;
-import redxax.oxy.common.config.Config;
-import redxax.oxy.common.mixin.accessor.SliderWidgetAccessor;
-import redxax.oxy.common.mixin.accessor.TextIconButtonWidgetAccessor;
+import redxax.oxy.remotely.Render;
+import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.mixin.accessor.SliderWidgetAccessor;
+import redxax.oxy.remotely.mixin.accessor.TextIconButtonWidgetAccessor;
 
-import static redxax.oxy.common.Render.drawSlider;
+import static redxax.oxy.remotely.Render.drawSlider;
 
 @Mixin(ClickableWidget.class)
 public abstract class ClickableWidgetMixin {

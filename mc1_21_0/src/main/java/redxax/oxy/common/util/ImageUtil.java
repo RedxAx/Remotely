@@ -1,4 +1,4 @@
-package redxax.oxy.common.util;
+package redxax.oxy.remotely.util;
 
 import com.cinemamod.mcef.MCEFBrowser;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -14,7 +14,7 @@ import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import static redxax.oxy.common.util.DevUtil.devPrint;
+import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
 public class ImageUtil {
     static final Map<BufferedImage, Identifier> textureCache = new ConcurrentHashMap<>();
@@ -55,7 +55,7 @@ public class ImageUtil {
     }
 
     public static BufferedImage loadSpriteSheet(String path) throws Exception {
-        try (InputStream is = redxax.oxy.common.util.ImageUtil.class.getResourceAsStream(path)) {
+        try (InputStream is = redxax.oxy.remotely.util.ImageUtil.class.getResourceAsStream(path)) {
             if (is == null) throw new Exception("Resource not found: " + path);
             return ImageIO.read(is);
         }

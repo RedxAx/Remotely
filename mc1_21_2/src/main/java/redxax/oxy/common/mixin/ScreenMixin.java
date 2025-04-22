@@ -1,4 +1,4 @@
-package redxax.oxy.common.mixin;
+package redxax.oxy.remotely.mixin;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -8,9 +8,9 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-import redxax.oxy.common.util.Notification;
+import redxax.oxy.remotely.util.Notification;
 
-import static redxax.oxy.common.config.Config.enableDebugTools;
+import static redxax.oxy.remotely.config.Config.enableDebugTools;
 
 @Mixin(value = Screen.class, targets = "net.minecraft.client.gui.screen.Screen")
 public class ScreenMixin {

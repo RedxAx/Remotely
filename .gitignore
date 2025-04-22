@@ -1,45 +1,45 @@
-# gradle
-
-.gradle/
+.gradle
 build/
-out/
-classes/
+!../Remotely/gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
 
-# eclipse
+### Minecraft ###
+run
 
-*.launch
-
-# idea
-
-.idea/
+### IntelliJ IDEA ###
+.idea
+*.iws
 *.iml
 *.ipr
-*.iws
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
 
-# vscode
+### Kotlin ###
+.kotlin
 
-.settings/
-.vscode/
-bin/
+### Eclipse ###
+.apt_generated
 .classpath
+.factorypath
 .project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
 
-# macos
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
 
-*.DS_Store
+### VS Code ###
+.vscode/
 
-# fabric
-
-run/
-
-# java
-
-hs_err_*.log
-replay_*.log
-*.hprof
-*.jfr
-
-# kotlin
-.kotlin/
-
-.qodo
+### Mac OS ###
+.DS_Store

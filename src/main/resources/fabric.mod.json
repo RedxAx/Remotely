@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "remotely",
+  "name": "Remotely",
+  "version": "${mod_version}",
+  "description": "${mod_description}",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "redxax.oxy.remotely.loaders.fabric.FabricEntrypoint"
+    ]
+  }
+}

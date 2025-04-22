@@ -1,4 +1,4 @@
-package redxax.oxy.common.mixin.accessor;
+package redxax.oxy.remotely.mixin.accessor;
 
 import net.minecraft.client.gui.widget.TextIconButtonWidget;
 import net.minecraft.util.Identifier;

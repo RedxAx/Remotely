@@ -1,12 +1,12 @@
-package redxax.oxy.common.mixin;
+package redxax.oxy.remotely.mixin;
 
 import net.minecraft.client.MinecraftClient;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import redxax.oxy.common.config.Config;
-import redxax.oxy.common.util.CursorUtils;
+import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.util.CursorUtils;
 
 @Mixin(MinecraftClient.class)
 public class MinecraftClientMixin {

@@ -1,6 +1,6 @@
 {
   "required": true,
-  "package": "redxax.oxy.common.mixin",
+  "package": "redxax.oxy.remotely.mixin",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
     "MinecraftClientMixin",

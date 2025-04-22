@@ -1,4 +1,4 @@
-package redxax.oxy.common.mixin.accessor;
+package redxax.oxy.remotely.mixin.accessor;
 
 import net.minecraft.client.gui.widget.SliderWidget;
 import org.spongepowered.asm.mixin.Mixin;
