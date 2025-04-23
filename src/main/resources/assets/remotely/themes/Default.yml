@@ -1,0 +1,63 @@
+name: Default
+colors:
+  globalTextColor: "#FFFFFFFF"
+  globalDarkTextColor: "#FF888888"
+  globalHoverTextColor: "#FFFFC800"
+  globalOuterBorder: "#FF000000"
+  globalSelectionColor: "#80FFFFFF"
+  globalCursorColor: "#FFFFC800"
+
+  elementBackgroundColor: "#FF2C2C2C"
+  elementBorderColor: "#FF444444"
+  elementHoverBackgroundColor: "#FF444444"
+  elementHoverBorderColor: "#FF9D9D9D"
+
+  inClickableBackgroundColor: "#FF181818"
+  inClickableBorderColor: "#FF2c2c2c"
+
+  accentColor: "#FFFFC800"
+  accentHoverColor: "#FFFFD94F"
+  accentDarkColor: "#FF3B2D17"
+  accentDarkHoverColor: "#FF523C19"
+
+  niceAccentColor: "#FFD6F264"
+  niceAccentHoverColor: "#FFE4FF78"
+  niceDarkAccentColor: "#FF0B371C"
+  niceDarkHoverAccentColor: "#FF0D3D20"
+
+  dangerAccentColor: "#FFDF3E23"
+  dangerHoverAccentColor: "#FFFF7A7A"
+  dangerLightAccentColor: "#FFFF7A7A"
+  dangerDarkAccentColor: "#FF3B1725"
+  dangerDarkHoverAccentColor: "#FF581D35"
+
+  calmDarkAccentColor: "#FF17253B"
+  calmAccentColor: "#FF6CC4F1"
+
+  backgroundColor: "#FF181818"
+  innerBackgroundColor: "#FF222222"
+  innerBorderColor: "#FF333333"
+  innerBackgroundSelectedColor: "#FF555555"
+
+  terminalStatusBarColor: "#FF555555"
+  terminalTextColor: "#FFFFFFFF"
+  terminalTextInputColor: "#FFFFC800"
+  terminalTextWarnColor: "#FFFFA500"
+  terminalTextErrorColor: "#FFFF0000"
+  terminalTextInfoColor: "#FF00FF00"
+
+  ModrinthBorderColor: "#FFD6F264"
+  ModrinthBackgroundColor: "#FF0B371C"
+  SpigotBorderColor: "#FFFFC800"
+  SpigotBackgroundColor: "#FF3B2D17"
+  HangarBorderColor: "#FF6CC4F1"
+  HangarBackgroundColor: "#FF17253B"
+
+  syntaxCommentColor: "#FF6A9955"
+  syntaxGlobalVarColor: "#FF4EC9B0"
+  syntaxLocalVarColor: "#FF9CDCFE"
+  syntaxKeywordColor: "#FFC586C0"
+  syntaxStringColor: "#FFCE9178"
+  syntaxNumberColor: "#FFB5CEA8"
+  syntaxBooleanColor: "#FF569CD6"
+  syntaxKeyColor: "#FF9CDCFE"

@@ -593,11 +593,15 @@ public class Render {
     }
 
     public static void drawScreenHeader(GuiGraphics context, int width, int height, int backgroundWidth, int mouseX, int mouseY, Screen parent, Minecraft minecraftClient, IconWithTooltip icon1, IconWithTooltip icon2, IconWithTooltip icon3, IconWithTooltip icon4, IconWithTooltip icon5, IconWithTooltip icon6, IconWithTooltip icon7, IconWithTooltip icon8, IconWithTooltip specialIcon) {
+        //? if =1.20.1 {
+        /*context.fill(0, 0, parent.width, parent.height, Config.backgroundColor);
+        *///?} else {
         if (wallpaper && windowsBackground != null) {
             drawBufferedImage(context, windowsBackground, 0, 0, parent.width, parent.height);
         } else if (!background) {
             context.fill(0, 0, width, height, backgroundColor);
         }
+        //?}
         context.fill(0, 0, width, 30, innerBackgroundColor);
         drawInnerBorder(context, 0, 0, parent.width, 30, innerBorderColor);
         drawOuterBorder(context, 0, 0, parent.width, 30, globalOuterBorder);

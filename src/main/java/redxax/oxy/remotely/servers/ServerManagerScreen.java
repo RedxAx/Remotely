@@ -2,6 +2,7 @@ package redxax.oxy.remotely.servers;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import org.jetbrains.annotations.NotNull;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.config.Config;
@@ -193,9 +194,22 @@ public class ServerManagerScreen extends Screen {
         settings.add(new Settings("JVM Arguments", "Custom JVM arguments.", "Advanced", "none", "launcher.jvm_args", TEXT, "-Dnet.kyori.ansi.colorLevel=indexed256"));
     }
 
+    public void background(GuiGraphics context) {
+        //? if =1.20.1 {
+        /*context.fill(0, 0, this.width, this.height, Config.backgroundColor);
+        *///?} else {
+        if (wallpaper && windowsBackground != null) {
+            drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
+        } else if (!background) {
+            context.fill(0, 0, width, height, backgroundColor);
+        }
+        //?}
+    }
+
     @Override
     public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
+        background(context);
         if (serverTypePopupActive) {
             serverTypePopupX = (this.width - serverTypePopupWidth) / 2;
             serverTypePopupY = (this.height - serverTypePopupHeight) / 2;
@@ -741,7 +755,7 @@ public class ServerManagerScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY,/*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         scaleScroll(verticalAmount);
         int tabHeight = 25;
         int contentYStart = topBarHeight + tabHeight + 5 + verticalPadding;

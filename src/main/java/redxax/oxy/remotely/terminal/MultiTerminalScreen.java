@@ -969,7 +969,7 @@ public class MultiTerminalScreen extends Screen {
         return super.mouseClicked(mouseX, mouseY, button);
     }
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (tabsBar.handleTabsBarRelease(button)) {
+        if (tabsBar != null && tabsBar.handleTabsBarRelease(button)) {
             return true;
         }
         if (button == 0 && draggingSnippetIndex != -1) {
@@ -1071,10 +1071,7 @@ public class MultiTerminalScreen extends Screen {
 
 
     @Override
-    //? if =1.20.1
-    /*public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-     */// else
-    public boolean mouseScrolled(double mouseX, double mouseY, double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY,/*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         if (aiMode && aiSidePanel.mouseScrolled(mouseX, mouseY, verticalAmount, this.width - (int) animatedSnippetPanelWidth - 5, ContentYStart, (int) animatedSnippetPanelWidth, this.height - ContentYStart - 5)) {
             return true;
         }
@@ -1100,7 +1097,7 @@ public class MultiTerminalScreen extends Screen {
                     snippetCommandsScrollOffset -= scrollDir;
                     return true;
                 }
-                return super.mouseScrolled(mouseX, mouseY, verticalAmount);
+                return true;
             }
             int currentPanelWidth = (int) animatedSnippetPanelWidth;
             if (currentPanelWidth > 0) {
@@ -1132,7 +1129,7 @@ public class MultiTerminalScreen extends Screen {
                 return true;
             }
         }
-        return super.mouseScrolled(mouseX, mouseY, verticalAmount);
+        return true;
     }
 
     @Override

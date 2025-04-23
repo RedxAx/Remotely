@@ -1,21 +1,18 @@
 modLoader = "javafml"
-loaderVersion = "[2,)"
-issueTrackerURL = "${mod_issue_tracker}"
-license = "${mod_license}"
+loaderVersion = "[47,)"
+issueTrackerURL = "https://github.com/RedxAx/Remotely/issues"
+license = "https://github.com/RedxAx/Remotely/blob/main/LICENSE"
 
 [[mods]]
-    modId = "remotely"
-    version = "${mod_version}"
-    displayName = "${mod_name}"
-    description = '''${mod_description}'''
-    authors = "${mod_author}"
+modId = "remotely"
+version = "2.0.0"
+displayName = "Remotely OS"
+description = 'Development Like Never Before.'
+authors = "RedxAx"
 
-[[remotely]]
-    modId = "neoforge"
-    mandatory = true
-    ordering = "NONE"
-    side = "BOTH"
-
-[[remotely]]
-    modId = "minecraft"
-    mandatory = true
+[[dependencies.remotely]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[1.20.1,1.21)"
+ordering = "NONE"
+side = "BOTH"

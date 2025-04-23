@@ -301,7 +301,7 @@ public class DeskSelectionScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY,/*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         scaleScroll(verticalAmount);
         scrollOffset -= (int) (verticalAmount * 10);
         if (scrollOffset < 0) scrollOffset = 0;

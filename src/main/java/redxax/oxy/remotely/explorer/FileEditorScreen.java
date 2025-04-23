@@ -876,10 +876,10 @@ public class FileEditorScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double vertAmount) {
-        scaleScroll(vertAmount);
-        if (tabsBar.handleTabsBarScroll(vertAmount, mouseX, mouseY)) return true;
-        if (aiMode && aiSidePanel.mouseScrolled(mouseX, mouseY, vertAmount, this.width - (int) animatedSidePanelWidth - 5, ContentYStart, (int) animatedSidePanelWidth, this.height - ContentYStart - 5)) {
+    public boolean mouseScrolled(double mouseX, double mouseY,/*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
+        scaleScroll(verticalAmount);
+        if (tabsBar.handleTabsBarScroll(verticalAmount, mouseX, mouseY)) return true;
+        if (aiMode && aiSidePanel.mouseScrolled(mouseX, mouseY, verticalAmount, this.width - (int) animatedSidePanelWidth - 5, ContentYStart, (int) animatedSidePanelWidth, this.height - ContentYStart - 5)) {
             return true;
         }
         float animWidth = animatedSidePanelWidth;
@@ -887,7 +887,7 @@ public class FileEditorScreen extends Screen {
         int panelY = 60;
         int panelHeight = this.height - 65;
         if (animWidth > 0 && mouseX >= panelX && mouseX <= panelX + animWidth && mouseY >= panelY && mouseY <= panelY + panelHeight) {
-            int scrollDir = vertAmount >= 0 ? (int) Math.ceil(vertAmount * 20) : (int) Math.floor(vertAmount * 20);
+            int scrollDir = verticalAmount >= 0 ? (int) Math.ceil(verticalAmount * 20) : (int) Math.floor(verticalAmount * 20);
             Tab currentTab = tabs.get(currentTabIndex);
             currentTab.targetSidePanelScrollOffset -= scrollDir;
             int totalHeight = sidePanelEntries.size() * 20;
@@ -902,11 +902,11 @@ public class FileEditorScreen extends Screen {
         boolean ctrlHeld = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS ||
                 GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
         if (shiftHeld) {
-            tabs.get(currentTabIndex).textEditor.scrollHoriz((int) (-vertAmount) * (int) HORIZONTAL_SCROLL_FACTOR);
+            tabs.get(currentTabIndex).textEditor.scrollHoriz((int) (-verticalAmount) * (int) HORIZONTAL_SCROLL_FACTOR);
         } else if (ctrlHeld) {
-            tabs.get(currentTabIndex).textEditor.scrollVert((int) (-vertAmount) * (int) FAST_SCROLL_FACTOR);
+            tabs.get(currentTabIndex).textEditor.scrollVert((int) (-verticalAmount) * (int) FAST_SCROLL_FACTOR);
         } else {
-            tabs.get(currentTabIndex).textEditor.scrollVert((int) (-vertAmount));
+            tabs.get(currentTabIndex).textEditor.scrollVert((int) (-verticalAmount));
         }
         ScrollBar.setPendingOffset((float) tabs.get(currentTabIndex).textEditor.targetScrollOffsetVert);
         return true;
