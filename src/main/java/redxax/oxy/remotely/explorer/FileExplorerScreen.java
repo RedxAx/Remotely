@@ -920,6 +920,10 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (ContextMenu.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        ContextMenu.hide();
         if (tabsBar.handleTabsBarMouse((int) mouseX, (int) mouseY, button)) {
             return true;
         }
@@ -928,12 +932,6 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
         int totalHeight = fileEntries.size() * itemHeight;
         if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, totalHeight, tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.smoothOffset)){
             return true;
-        }
-        if (ContextMenu.isOpen()) {
-            if (ContextMenu.mouseClicked(mouseX, mouseY, button)) {
-                return true;
-            }
-            ContextMenu.hide();
         }
         boolean handled = false;
         int titleBarHeightLocal = 30;
