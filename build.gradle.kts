@@ -110,31 +110,38 @@ stonecutter {
 // Wondering where the "repositories" block is? Go to "stonecutter.gradle.kts"
 // If you want to create proxy configurations for more source sets, such as client source sets,
 // use the modstitch.createProxyConfigurations(sourceSets["client"]) function.
+val mineMarkVer = if (minecraft <= "1.20.6") "1.20.1" else if (minecraft <= "1.21.4") "1.21.1" else "1.21.5"
+val mcefVer = if (minecraft == "1.21.5") "1.21.4" else minecraft
+
 dependencies {
     modstitch.loom {
         val fapi = property("deps.fapi") as String
         modstitchModImplementation("net.fabricmc.fabric-api:fabric-api:$fapi")
     }
-    implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
-    implementation("com.jcraft:jsch:0.1.55")
-    implementation("com.vladsch.flexmark:flexmark:0.62.2")
-    implementation("org.jsoup:jsoup:1.15.3")
-    implementation("org.jline:jline:3.1.3")
-    implementation("org.fusesource.jansi:jansi:1.8")
-    implementation("com.fifesoft:rsyntaxtextarea:3.6.0")
+    modstitchImplementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
+    modstitchImplementation("com.jcraft:jsch:0.1.55")
+    modstitchImplementation("com.vladsch.flexmark:flexmark:0.62.2")
+    modstitchImplementation("org.jsoup:jsoup:1.15.3")
+    modstitchImplementation("org.jline:jline:3.1.3")
+    modstitchImplementation("org.fusesource.jansi:jansi:1.8")
+    modstitchImplementation("com.fifesoft:rsyntaxtextarea:3.6.0")
+    modstitchModImplementation("dev.dediamondpro:minemark-minecraft-" + mineMarkVer + "-" + constraint + ":1.3.1")
+    modstitchImplementation("dev.dediamondpro:minemark-core:1.3.1")
 
-    modstitchModImplementation("dev.dediamondpro:minemark-minecraft-" +
-            //? <=1.20.6 {
-            "1.20.1"
-            //} elif <=1.21.4 {
-            //"1.21.1"
-            //} else {
-            //"1.21.5"
-            //}
-            + "-" + constraint + ":1.3.1")
-    implementation("dev.dediamondpro:minemark-core:1.3.1")
+    modstitchJiJ("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
+    modstitchJiJ("com.jcraft:jsch:0.1.55")
+    modstitchJiJ("com.vladsch.flexmark:flexmark:0.62.2")
+    modstitchJiJ("org.jsoup:jsoup:1.15.3")
+    modstitchJiJ("org.jline:jline:3.1.3")
+    modstitchJiJ("org.fusesource.jansi:jansi:1.8")
+    modstitchJiJ("com.fifesoft:rsyntaxtextarea:3.6.0")
+    modstitchJiJ("dev.dediamondpro:minemark-core:1.3.1")
+    modstitchJiJ("dev.dediamondpro:minemark-minecraft-" + mineMarkVer + "-" + constraint + ":1.3.1")
 
-    val mcefVer = if (minecraft == "1.21.5") "1.21.4" else minecraft
     modstitchModCompileOnly("com.cinemamod:mcef:2.1.6-$mcefVer")
     modstitchModImplementation("com.cinemamod:mcef-fabric:2.1.6-$mcefVer")
+}
+
+tasks.jar {
+    from("src/main/resources")
 }

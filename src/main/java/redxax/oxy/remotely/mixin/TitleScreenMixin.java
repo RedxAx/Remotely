@@ -58,10 +58,8 @@ public abstract class TitleScreenMixin extends Screen {
             int largeButtonWidth = 100;
             int gap = 5;
             int totalWidth = smallButtonWidth * 2 + largeButtonWidth + gap * 2;
-            if (totalWidth > 200) {
-                int excessWidth = totalWidth - 200;
-                largeButtonWidth -= excessWidth;
-            }
+            int excessWidth = totalWidth - 200;
+            largeButtonWidth -= excessWidth;
             Button serverButton = Button.builder(Component.literal("Servers"), btn -> openServerManagerScreen()).bounds(buttonX, buttonY, smallButtonWidth, 20).build();
             this.addRenderableWidget(serverButton);
             Button fileExplorerButton = Button.builder(Component.literal("File Explorer"), btn -> openFileExplorerScreen()).bounds(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20).build();
@@ -129,10 +127,8 @@ public abstract class TitleScreenMixin extends Screen {
             int largeButtonWidth = 100;
             int gap = 5;
             int totalWidth = smallButtonWidth * 2 + largeButtonWidth + gap * 2;
-            if (totalWidth > 200) {
-                int excessWidth = totalWidth - 200;
-                largeButtonWidth -= excessWidth;
-            }
+            int excessWidth = totalWidth - 200;
+            largeButtonWidth -= excessWidth;
             if(normalButtons.size() == 3) {
                 normalButtons.get(0).x = buttonX;
                 normalButtons.get(0).y = buttonY;

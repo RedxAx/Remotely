@@ -873,7 +873,7 @@ public class FileExplorerScreen extends Screen implements FileManager.FileManage
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY,/*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         if (tabsBar.handleTabsBarScroll(verticalAmount, mouseX, mouseY)) {
             return true;
         }

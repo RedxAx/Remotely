@@ -5,6 +5,11 @@ import net.minecraft.network.chat.Component;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import redxax.oxy.remotely.config.Config;
+//? if forge
+/*import redxax.oxy.remotely.loaders.forge.ForgeEntrypoint;*/
+//? if neoforge
+/*import redxax.oxy.remotely.loaders.neoforge.NeoforgeEntrypoint;*/
+//? if fabric
 import redxax.oxy.remotely.loaders.fabric.FabricEntrypoint;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;

@@ -185,6 +185,7 @@ public class BrowserScreen extends Screen {
     }
 
     public static boolean checkIfMcefExist() {
+        if (enableDebugTools) return true;
         try {
             if (RemotelyClient.isModLoaded("mcef")) {
                 new Notification("MCEF Isn't Installed. Click Here To Download (Coming Soon)", Notification.Type.ERROR);
@@ -421,12 +422,12 @@ public class BrowserScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY,  double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY,/*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         if (tabsBar.handleTabsBarScroll(verticalAmount, mouseX, mouseY)) return true;
         scaleScroll(verticalAmount);
         Tab currentTab = tabs.get(currentTabIndex);
         currentTab.browser.sendMouseWheel(convertMouseX(mouseX), convertMouseY(mouseY), verticalAmount, 0);
-        return super.mouseScrolled(mouseX, mouseY, verticalAmount);
+        return true;
     }
 
     @Override

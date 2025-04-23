@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "remotely",
   "name": "Remotely",
-  "version": "${mod_version}",
-  "description": "${mod_description}",
+  "version": "2.0.0",
+  "description": "Development Like Never Before.",
   "environment": "*",
   "entrypoints": {
     "main": [

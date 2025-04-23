@@ -10,6 +10,7 @@ import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+//? if !=1.20.1
 import net.minecraft.client.renderer.CoreShaders;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.RenderType;
@@ -75,7 +76,7 @@ public class ImageUtil {
 
     public static void drawBufferedImage(GuiGraphics context, BufferedImage image, int x, int y, int width, int height) {
         //? if <=1.21.1 {
-        ResourceLocation textureId = textureCache.get(image);
+        /*ResourceLocation textureId = textureCache.get(image);
         if (textureId == null) {
             int imgWidth = image.getWidth();
             int imgHeight = image.getHeight();
@@ -97,8 +98,8 @@ public class ImageUtil {
             textureCache.put(image, textureId);
         }
         context.blit(textureId, x, y, 0, 0, width, height, width, height);
-        //?} elif <=1.21.5 {
-        /*ResourceLocation textureId = textureCache.get(image);
+        *///?} elif <=1.21.5 {
+        ResourceLocation textureId = textureCache.get(image);
         if (textureId == null) {
             int imgWidth = image.getWidth();
             int imgHeight = image.getHeight();
@@ -110,9 +111,9 @@ public class ImageUtil {
                 }
             }
             //? if =1.21.5 {
-            /^Supplier<String> textureName = () -> "redxax.oxy:image_" + image.hashCode();
+            /*Supplier<String> textureName = () -> "redxax.oxy:image_" + image.hashCode();
             DynamicTexture texture = new DynamicTexture(textureName, nativeImage);
-            ^///?} else {
+            *///?} else {
              DynamicTexture texture = new DynamicTexture(nativeImage);
             //?}
             textureId = ResourceLocation.tryParse("redxax.oxy:image_" + image.hashCode());
@@ -121,13 +122,12 @@ public class ImageUtil {
         }
         context.blit(RenderType::guiTextured, textureId, x, y, 0F, 0F,
                 width, height, width, height);
-        *///?}
+        //?}
     }
 
-    public static void drawPixelArt(GuiGraphics context, int x, int y,
-                                    int width, int height, BufferedImage image) {
+    public static void drawPixelArt(GuiGraphics context, int x, int y, int width, int height, BufferedImage image) {
         //? if <=1.21.1 {
-        ResourceLocation textureId = textureCache.get(image);
+        /*ResourceLocation textureId = textureCache.get(image);
         if (textureId == null) {
             BufferedImage scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g2d = scaledImage.createGraphics();
@@ -150,8 +150,8 @@ public class ImageUtil {
             textureCache.put(image, textureId);
         }
         context.blit(textureId, x, y, 0, 0, width, height, width, height);
-        //?} elif <=1.21.4 {
-        /*ResourceLocation textureId = textureCache.get(image);
+        *///?} elif <=1.21.4 {
+        ResourceLocation textureId = textureCache.get(image);
         if (textureId == null) {
             BufferedImage scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g2d = scaledImage.createGraphics();
@@ -170,21 +170,21 @@ public class ImageUtil {
             textureCache.put(image, textureId);
         }
         context.blit(RenderType::guiTextured, textureId, x, y, 0F, 0F, width, height, width, height);
-        *///?}
+        //?}
     }
 
     public static void warpedDrawGuiTexture(GuiGraphics context, int x, int y, ResourceLocation icon, int iconWidth, int iconHeight) {
-        //? if <=1.21.1 {
-        context.blitSprite(icon, x, y, iconWidth, iconHeight);
-        //?} elif >1.21.1 {
-        /*context.blitSprite(RenderType::guiTextured, icon, x, y, iconWidth, iconHeight);
-        *///?}
+        //? if <=1.21.1 && !=1.20.1 {
+        /*context.blitSprite(icon, x, y, iconWidth, iconHeight);
+         *///?} elif >1.21.1 {
+        context.blitSprite(RenderType::guiTextured, icon, x, y, iconWidth, iconHeight);
+        //?}
     }
 
     public static void drawBrowser(MCEFBrowser currentBrowser, boolean fullscreen,
                                    int width, int height, int TOP_OFFSET, int BROWSER_DRAW_OFFSET) {
         //? if <=1.21.1 {
-        if (fullscreen) {
+        /*if (fullscreen) {
             RenderSystem.disableDepthTest();
             RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
             RenderSystem.setShaderTexture(0,
@@ -214,8 +214,8 @@ public class ImageUtil {
             RenderSystem.setShaderTexture(0, 0);
             RenderSystem.enableDepthTest();
         }
-        //?} elif <=1.21.4 {
-        /*if (fullscreen) {
+        *///?} elif <=1.21.4 {
+        if (fullscreen) {
             RenderSystem.disableDepthTest();
             RenderSystem.setShader(CoreShaders.POSITION_TEX_COLOR);
             RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
@@ -242,6 +242,6 @@ public class ImageUtil {
             RenderSystem.setShaderTexture(0, 0);
             RenderSystem.enableDepthTest();
         }
-        *///?}
+        //?}
     }
 }

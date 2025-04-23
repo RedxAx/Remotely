@@ -14,7 +14,7 @@ import static redxax.oxy.remotely.config.Config.*;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 
-@Mixin(value = Screen.class, targets = "net.minecraft.client.gui.screens.Screen")
+@Mixin(value = Screen.class)
 public class ScreenMixin {
 
 
