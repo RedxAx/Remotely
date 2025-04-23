@@ -176,7 +176,7 @@ public class MultiTerminalScreen extends Screen {
         tabsBar.setActiveTab(activeTerminalIndex);
         tabsBar.setHasPlus(true);
         tabsBar.setAllowClose(tabCloseButtons);
-        tabsBar.setAllowRename(true);
+        tabsBar.setAllowRename(false);
         tabsBar.setAllowDrag(true);
         tabsBar.setAllowScroll(true);
 
@@ -339,6 +339,9 @@ public class MultiTerminalScreen extends Screen {
         }
         if (snippetPopupActive) {
             renderSnippetPopup(context, mouseX, mouseY);
+        }
+        if (ContextMenu.isOpen()) {
+            ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
         animatedScaling(context, this, minecraftClient);
     }
@@ -595,6 +598,10 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (ContextMenu.mouseClicked((int) mouseX, (int) mouseY, button)) {
+            return true;
+        }
+        ContextMenu.hide();
         if (tabsBar.handleTabsBarMouse((int) mouseX, (int) mouseY, button)) {
             return true;
         }
@@ -834,12 +841,11 @@ public class MultiTerminalScreen extends Screen {
                 if (mouseX >= renderX && mouseX <= renderX2 && mouseY >= tabOffsetY && mouseY <= tabOffsetY + tabAreaHeight) {
                     if (button == 1) {
                         playClick();
-                        isRenaming = true;
-                        renamingTabIndex = i;
-                        renameBuffer.setLength(0);
-                        renameBuffer.append(tabNames.get(i));
-                        renameCursorPos = renameBuffer.length();
-                        lastRenameInputTime = System.currentTimeMillis();
+                        int finalI = i;
+                        ContextMenu.addItem("Close", () -> closeTerminal(finalI), globalHoverTextColor, "Close Terminal");
+                        if (finalI != activeTerminalIndex) ContextMenu.addItem("Merge", () -> {}, globalHoverTextColor, "Merge Terminal / Split Screen");
+                        ContextMenu.addItem("Rename", () -> tabsBar.renameTab(finalI), globalHoverTextColor, "Rename Terminal");
+                        ContextMenu.show((int) mouseX, (int) mouseY, 60, this.width, this.height);
                         return true;
                     } else if (button == 2) {
                         playClick();
