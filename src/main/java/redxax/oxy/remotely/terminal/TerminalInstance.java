@@ -29,7 +29,7 @@ public class TerminalInstance {
         this.parentScreen = parent;
         this.terminalId = id;
         this.sshManager = new SSHManager(this);
-        this.renderer = new TerminalRenderer(client, this);
+        this.renderer = new TerminalRenderer(client, this, parent);
         this.inputHandler = new InputHandler(client, this);
         if (parent == null) {
             this.commandHistory = new ArrayList<>();

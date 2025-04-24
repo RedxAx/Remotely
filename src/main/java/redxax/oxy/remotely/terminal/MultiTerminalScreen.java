@@ -93,7 +93,7 @@ public class MultiTerminalScreen extends Screen {
     public static boolean isResizingSnippetPanel = false;
     private TabsBar<Void> tabsBar;
 
-    private final Map<UUID, MergeGroup> mergeGroups = new LinkedHashMap<>();
+    public final Map<UUID, MergeGroup> mergeGroups = new LinkedHashMap<>();
     private int focusedPanelIndex = 0;
     private List<Float> gridColumnWeights = new ArrayList<>();
     private List<Float> gridRowWeights = new ArrayList<>();
@@ -112,7 +112,7 @@ public class MultiTerminalScreen extends Screen {
     private final List<Float> currentRowWeights    = new ArrayList<>();
     private int effectiveWidth;
 
-    private static class MergeGroup {
+    static class MergeGroup {
         List<TerminalInstance> members = new ArrayList<>();
         MergeGroup(TerminalInstance t) { members.add(t); }
     }
@@ -372,8 +372,9 @@ public class MultiTerminalScreen extends Screen {
     public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         if (!terminals.isEmpty()) {
-            TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-            if (activeTerminal instanceof ServerTerminalInstance serverTerminal) {
+            MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
+            TerminalInstance headerTerminal = mg.members.size() > 1 ? mg.members.get(focusedPaneIndex) : terminals.get(activeTerminalIndex);
+            if (headerTerminal instanceof ServerTerminalInstance serverTerminal) {
                 ServerInfo sInfo = serverTerminal.getServerInfo();
                 boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
                 ServerState st = sInfo.state;
@@ -712,6 +713,8 @@ public class MultiTerminalScreen extends Screen {
         }
         if (!terminals.isEmpty()) {
             TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
+            MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
+            TerminalInstance headerTerminal = mg.members.size() > 1 ? mg.members.get(focusedPaneIndex) : activeTerminal;
             int textAreaHeight = -activeTerminal.renderer.getInputFieldHeight() - activeTerminal.renderer.getStatusBarHeight();
             int scrollableRange = Math.max(0, activeTerminal.renderer.getTotalScrollHeight() - textAreaHeight);
             int hideButtonX = this.width - 15 - 5;
@@ -760,7 +763,7 @@ public class MultiTerminalScreen extends Screen {
                 }
                 return true;
             }
-            if (activeTerminal instanceof ServerTerminalInstance serverTerminal) {
+            if (headerTerminal instanceof ServerTerminalInstance serverTerminal) {
                 if (button == 0) {
                     if (mouseX >= 5 && mouseX <= 22 && mouseY >= 6 && mouseY <= 24) {
                         playClick();
@@ -815,7 +818,7 @@ public class MultiTerminalScreen extends Screen {
                 if (button == 0) {
                     if (mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24) {
                         playClick();
-                        minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo(terminals.get(activeTerminalIndex).getCurrentDir())));
+                        minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo(headerTerminal.getCurrentDir())));
                         return true;
                     }
                 }

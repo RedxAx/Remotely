@@ -30,6 +30,7 @@ public class TerminalRenderer {
     public static TerminalRenderer instance;
     private final Minecraft minecraftClient;
     private final TerminalInstance terminalInstance;
+    private final MultiTerminalScreen parent;
     private final StringBuilder terminalOutput = new StringBuilder();
     private final List<LineText> wrappedLinesCache = new ArrayList<>();
     private int terminalWidth;
@@ -60,9 +61,10 @@ public class TerminalRenderer {
 
     private int lastTerminalWidth = terminalWidth;
 
-    public TerminalRenderer(Minecraft client, TerminalInstance terminalInstance) {
+    public TerminalRenderer(Minecraft client, TerminalInstance terminalInstance, MultiTerminalScreen parent) {
         this.minecraftClient = client;
         this.terminalInstance = terminalInstance;
+        this.parent = parent;
         instance = this;
     }
 
@@ -73,7 +75,6 @@ public class TerminalRenderer {
         terminalHeight = height;
         int padding = 2;
         context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, backgroundColor);
-        drawInnerBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, getElementBorderColor(this.hashCode(), false, isActive, true, false, false, this.terminalInstance instanceof ServerTerminalInstance));
         drawOuterBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, globalOuterBorder);
         int textAreaX = terminalX + padding;
         int textAreaY2 = terminalY + padding;
@@ -117,21 +118,26 @@ public class TerminalRenderer {
         int inputX = terminalX + padding;
         String inputPrompt = terminalInstance.getSSHManager().isAwaitingPassword() ? "Password: " : "> ";
         String inputText = inputPrompt + terminalInstance.inputHandler.getInputBuffer().toString();
-        context.drawString(minecraftClient.font, Component.literal(inputText), inputX, inputY, terminalTextInputColor, Config.shadow);
-        String suggestion = terminalInstance.inputHandler.getTabCompletionSuggestion();
-        if (!suggestion.isEmpty() && !terminalInstance.inputHandler.getInputBuffer().isEmpty()) {
-            int inputTextWidth = minecraftClient.font.width(inputText);
-            context.drawString(minecraftClient.font, Component.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(Config.globalDarkTextColor))), inputX + inputTextWidth, inputY, Config.globalDarkTextColor, Config.shadow);
-        }
         int cursorInputPosition = Math.min(terminalInstance.inputHandler.getCursorPosition(), terminalInstance.inputHandler.getInputBuffer().length());
         String beforeCursor = inputPrompt + terminalInstance.inputHandler.getInputBuffer().substring(0, cursorInputPosition);
         int cursorXPos = inputX + minecraftClient.font.width(beforeCursor);
         int cursorHeight = minecraftClient.font.lineHeight;
-        context.pose().pushPose();
-        context.pose().translate(0, 0, 1000);
-        context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, globalCursorAnimatedColor);
-        context.pose().popPose();
+        MultiTerminalScreen.MergeGroup mergedGroup = parent.mergeGroups.get(parent.terminals.get(parent.activeTerminalIndex).terminalId);
+        if (isActive && mergedGroup.members.contains(this.terminalInstance)) {
+            context.pose().pushPose();
+            context.pose().translate(0, 0, 1000);
+            context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, globalCursorAnimatedColor);
+            context.pose().popPose();
+            context.drawString(minecraftClient.font, Component.literal(inputText), inputX, inputY, terminalTextInputColor, Config.shadow);
+            String suggestion = terminalInstance.inputHandler.getTabCompletionSuggestion();
+            if (!suggestion.isEmpty() && !terminalInstance.inputHandler.getInputBuffer().isEmpty()) {
+                int inputTextWidth = minecraftClient.font.width(inputText);
+                context.drawString(minecraftClient.font, Component.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(Config.globalDarkTextColor))), inputX + inputTextWidth, inputY, Config.globalDarkTextColor, Config.shadow);
+            }
+        }
         context.fill(terminalX, statusBarY, terminalX + terminalWidth, statusBarY + getStatusBarHeight(), terminalStatusBarColor);
+
+        drawInnerBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, getElementBorderColor(this.hashCode(), false, isActive, true, false, false, this.terminalInstance instanceof ServerTerminalInstance));
         String[] statusTexts = getStatusBarStrings(terminalWidth - 4);
         int rightWidth = minecraftClient.font.width(statusTexts[1]);
         context.drawString(minecraftClient.font, Component.literal(statusTexts[0]), terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.font.lineHeight) / 2, terminalTextColor, Config.shadow);
