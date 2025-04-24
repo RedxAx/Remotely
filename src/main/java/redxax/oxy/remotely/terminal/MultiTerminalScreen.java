@@ -91,7 +91,7 @@ public class MultiTerminalScreen extends Screen {
     int snippetMaxVisibleLines = 1;
     private boolean shortcutConsumed = false;
     public static boolean isResizingSnippetPanel = false;
-    private TabsBar<Void> tabsBar;
+    TabsBar<Void> tabsBar;
 
     public final Map<UUID, MergeGroup> mergeGroups = new LinkedHashMap<>();
     private int focusedPanelIndex = 0;
@@ -135,7 +135,7 @@ public class MultiTerminalScreen extends Screen {
     private float draggingCurrentY = 0;
     private final Map<RemotelyClient.CommandSnippet, Float> snippetAnimatedY = new HashMap<>();
     private final RemotelyClient.CommandSnippet CREATE_SNIPPET = new RemotelyClient.CommandSnippet("Create Snippet", "Snippets Executes Commands", "");
-    private AISidePanel aiSidePanel;
+    AISidePanel aiSidePanel;
 
     public MultiTerminalScreen(Minecraft minecraftClient, Screen parent, RemotelyClient remotelyClient, List<TerminalInstance> terminals, List<String> tabNames) {
         super(Component.literal("Multi Terminal"));
@@ -1135,7 +1135,7 @@ public class MultiTerminalScreen extends Screen {
                 }
                 yOff2 += rowH + gap;
             }
-        }
+        } else terminals.get(activeTerminalIndex).mouseClicked(mouseX, mouseY, button);
         return super.mouseClicked(mouseX, mouseY, button);
     }
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
@@ -1356,11 +1356,6 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
-        if (mg.members.size() > 1) {
-            TerminalInstance ti = mg.members.get(focusedPaneIndex);
-            if (ti.keyPressed(keyCode, modifiers)) return true;
-        }
         if (tabsBar.handleTabsBarKey(keyCode, scanCode, modifiers)) return true;
         if (aiMode && aiSidePanel.fieldFocused) {
             aiSidePanel.setExtraContext(mergeGroups.get(terminals.get(activeTerminalIndex).terminalId)
@@ -1466,7 +1461,7 @@ public class MultiTerminalScreen extends Screen {
             }
             if (ctrl && keyCode == GLFW.GLFW_KEY_V) {
                 String clip = minecraftClient.keyboardHandler.getClipboard();
-                if (clip != null && !clip.isEmpty()) {
+                if (!clip.isEmpty()) {
                     if (snippetNameFocused) {
                         snippetNameBuffer.insert(snippetNameCursorPos, clip);
                         snippetNameCursorPos += clip.length();
@@ -1504,6 +1499,11 @@ public class MultiTerminalScreen extends Screen {
             tabsBar.setActiveTab(next);
             return true;
         }
+        MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
+        if (mg.members.size() > 1) {
+            TerminalInstance ti = mg.members.get(focusedPaneIndex);
+            if (ti.keyPressed(keyCode, modifiers)) return true;
+        }
         if (!terminals.isEmpty()) {
             for (RemotelyClient.CommandSnippet sn : globalSnippets) {
                 if (sn.shortcut != null && !sn.shortcut.isEmpty() && checkShortcut(sn.shortcut)) {
@@ -1532,11 +1532,6 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean charTyped(char chr, int keyCode) {
-        MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
-        if (mg.members.size() > 1) {
-            TerminalInstance ti = mg.members.get(focusedPaneIndex);
-            if (ti.charTyped(chr)) return true;
-        }
         if (tabsBar.handleTabsBarChar(chr)) return true;
         if (aiSidePanel.fieldFocused && aiMode && aiSidePanel.charTyped(chr, keyCode)) return true;
         if (shortcutConsumed) {
@@ -1591,6 +1586,11 @@ public class MultiTerminalScreen extends Screen {
                 return true;
             }
             return true;
+        }
+        MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
+        if (mg.members.size() > 1) {
+            TerminalInstance ti = mg.members.get(focusedPaneIndex);
+            if (ti.charTyped(chr)) return true;
         }
         if (!terminals.isEmpty()) {
             TerminalInstance tgt = mg.members.size() > 1
