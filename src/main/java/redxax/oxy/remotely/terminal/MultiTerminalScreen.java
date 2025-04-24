@@ -93,6 +93,30 @@ public class MultiTerminalScreen extends Screen {
     public static boolean isResizingSnippetPanel = false;
     private TabsBar<Void> tabsBar;
 
+    private final Map<UUID, MergeGroup> mergeGroups = new LinkedHashMap<>();
+    private int focusedPanelIndex = 0;
+    private List<Float> gridColumnWeights = new ArrayList<>();
+    private List<Float> gridRowWeights = new ArrayList<>();
+    private int gridRows = 1;
+    private int gridColumns = 1;
+    private final int paneGap = 1;
+    private int focusedPaneIndex = 0;
+    private boolean draggingVerticalDivider = false;
+    private boolean draggingHorizontalDivider = false;
+    private int dividerIndex = -1;
+    private int horizontalDividerIndex = -1;
+    private float dragStartPos = 0;
+    private List<Float> dragStartColWeights = new ArrayList<>();
+    private List<Float> dragStartRowWeights = new ArrayList<>();
+    private final List<Float> currentColumnWeights = new ArrayList<>();
+    private final List<Float> currentRowWeights    = new ArrayList<>();
+    private int effectiveWidth;
+
+    private static class MergeGroup {
+        List<TerminalInstance> members = new ArrayList<>();
+        MergeGroup(TerminalInstance t) { members.add(t); }
+    }
+
     int snippetNameScrollOffset = 0;
 
     private final int topBarHeight = 30;
@@ -140,6 +164,62 @@ public class MultiTerminalScreen extends Screen {
             }
             globalSnippets.add(CREATE_SNIPPET);
         }
+
+        for (TerminalInstance t : terminals) {
+            mergeGroups.put(t.terminalId, new MergeGroup(t));
+        }
+        initializeWeights();
+
+        List<TabsBar.Tab<Void>> tabList = new ArrayList<>();
+        for (String name : tabNames) {
+            tabList.add(new TabsBar.Tab<>(name, false, null));
+        }
+        tabsBar = new TabsBar<>(tabList);
+
+        tabsBar.setActiveTab(activeTerminalIndex);
+        tabsBar.setHasPlus(true);
+        tabsBar.setAllowClose(tabCloseButtons);
+        tabsBar.setAllowRename(false);
+        tabsBar.setAllowDrag(true);
+        tabsBar.setAllowScroll(true);
+
+        tabsBar.setOnTabOrderChanged(() -> {
+            List<String> oldNames = new ArrayList<>(tabNames);
+            List<TerminalInstance> oldTerms = new ArrayList<>(terminals);
+
+            tabNames.clear();
+            terminals.clear();
+            for (TabsBar.Tab<Void> t : tabsBar.getTabs()) {
+                tabNames.add(t.name);
+                int idx = oldNames.indexOf(t.name);
+                if (idx >= 0) {
+                    terminals.add(oldTerms.get(idx));
+                } else {
+                    terminals.add(new TerminalInstance(minecraftClient, this, UUID.randomUUID()));
+                }
+            }
+            remotelyClient.multiTabNames = new ArrayList<>(tabNames);
+            remotelyClient.multiTerminals = new ArrayList<>(terminals);
+        });
+
+        tabsBar.setOnTabClosed(() -> closeTerminal(tabsBar.getActiveTab()));
+
+        tabsBar.setOnTabSelected(() -> {
+            activeTerminalIndex = tabsBar.getActiveTab();
+            initializeWeights();
+        });
+
+        tabsBar.setOnTabPlus(() -> {
+            addNewTerminal();
+            tabsBar.getTabs().add(new TabsBar.Tab<>("Tab " + terminals.size(), false, null));
+            tabsBar.setActiveTab(terminals.size() - 1);
+        });
+
+        tabsBar.setOnTabRenamed(() -> {
+            int i = tabsBar.getRenamingTab();
+            tabNames.set(i, tabsBar.getTabs().get(i).name);
+            remotelyClient.multiTabNames = new ArrayList<>(tabNames);
+        });
     }
 
     public MultiTerminalScreen(Minecraft minecraftClient, Screen parent, RemotelyClient remotelyClient) {
@@ -221,15 +301,17 @@ public class MultiTerminalScreen extends Screen {
         activeTerminalIndex = terminals.size() - 1;
         remotelyClient.multiTerminals = new ArrayList<>(terminals);
         remotelyClient.multiTabNames = new ArrayList<>(tabNames);
+        mergeGroups.put(terminalId, new MergeGroup(newTerminal));
+        initializeWeights();
     }
 
     private void addNewServerTab(ServerInfo serverInfo) {
-        if(serverInfo.isRemote && serverInfo.remoteHost == null){
+        if (serverInfo.isRemote && serverInfo.remoteHost == null) {
             devPrint("[Terminal] Remote ServerInfo Has a Null RemoteHostInfo, Attempting to Remap...");
             for (TerminalInstance terminal : terminals) {
                 if (terminal instanceof ServerTerminalInstance serverTerminal) {
                     ServerInfo sInfo = serverTerminal.getServerInfo();
-                    if(sInfo.remoteHost != null){
+                    if (sInfo.remoteHost != null) {
                         devPrint("[Terminal] Found a Remote Tab With a Null RemoteHostInfo, Remapping...");
                         serverInfo.remoteHost = sInfo.remoteHost;
                         break;
@@ -256,6 +338,8 @@ public class MultiTerminalScreen extends Screen {
         activeTerminalIndex = terminals.size() - 1;
         remotelyClient.multiTerminals = new ArrayList<>(terminals);
         remotelyClient.multiTabNames = new ArrayList<>(tabNames);
+        mergeGroups.put(terminalId, new MergeGroup(newTerminal));
+        initializeWeights();
     }
 
     private void closeTerminal(int index) {
@@ -307,15 +391,36 @@ public class MultiTerminalScreen extends Screen {
         float targetPanelWidth = showSnippetsPanel ? snippetPanelWidth : 0;
         animatedSnippetPanelWidth += (targetPanelWidth - animatedSnippetPanelWidth) * Config.globalExpandSpeed * deltaTime;
         int animatedWidth = (int) animatedSnippetPanelWidth;
-        int effectiveWidth = this.width - animatedWidth - 5;
-        tabsBar.setTabBarBounds(5, tabOffsetY, effectiveWidth, tabAreaHeight);
+        effectiveWidth = this.width - animatedWidth - 5;
+        tabsBar.setTabBarBounds(5, tabOffsetY, animatedWidth - 5, tabAreaHeight);
         tabsBar.renderTabsBar(context, minecraftClient.font, tabsBar, mouseX, mouseY, shadow);
         activeTerminalIndex = Math.min(tabsBar.getActiveTab(), terminals.size() - 1);
         TerminalInstance activeTerminal = terminals.get(Math.min(activeTerminalIndex, terminals.size() - 1));
         int contentYStart = tabOffsetY + tabAreaHeight + verticalPadding;
         ContentYStart = contentYStart + 5;
-        int adjustedHeight = this.height - (topBarHeight + tabAreaHeight + verticalPadding) + 60;
-        activeTerminal.render(context, Math.max(effectiveWidth, 50), adjustedHeight, scale);
+        MergeGroup mergedGroup = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
+        if (mergedGroup.members.size() > 1) {
+            for (int i = 0; i < gridColumns; i++) {
+                float curr = currentColumnWeights.get(i);
+                float targ = gridColumnWeights.get(i);
+                currentColumnWeights.set(i, curr + (targ - curr) * globalExpandSpeed * deltaTime);
+            }
+            for (int i = 0; i < gridRows; i++) {
+                float curr = currentRowWeights.get(i);
+                float targ = gridRowWeights.get(i);
+                currentRowWeights.set(i, curr + (targ - curr) * globalExpandSpeed * deltaTime);
+            }
+        }
+        if (mergedGroup.members.size() == 1) {
+            int terminalX = 5;
+            int terminalY = ContentYStart;
+            int terminalW = this.width - animatedWidth - 10;
+            int terminalH = this.height - terminalY - 5;
+            activeTerminal.render(context, terminalX, terminalY, terminalW, terminalH);
+        } else {
+            int contentH = this.height - ContentYStart - 5;
+            renderSplitTerminals(context, this.width - animatedWidth - 10, contentH);
+        }
         if (animatedWidth > 0) {
             int panelX = this.width - animatedWidth;
             int panelY = tabOffsetY + tabAreaHeight + 7;
@@ -624,7 +729,7 @@ public class MultiTerminalScreen extends Screen {
             if (aiMode && aiSidePanel.mouseClicked(mouseX, mouseY, button)) {
                 return true;
             }
-            if (!showSnippetsPanel && ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, scrollableRange + 3, activeTerminal.renderer.getScrollOffset())){
+            if (!showSnippetsPanel && ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, scrollableRange + 3, activeTerminal.renderer.getScrollOffset())) {
                 return true;
             }
             if (button == 0 && mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24) {
@@ -843,7 +948,7 @@ public class MultiTerminalScreen extends Screen {
                         playClick();
                         int finalI = i;
                         ContextMenu.addItem("Close", () -> closeTerminal(finalI), globalHoverTextColor, "Close Terminal");
-                        if (finalI != activeTerminalIndex) ContextMenu.addItem("Merge", () -> {}, globalHoverTextColor, "Merge Terminal / Split Screen");
+                        if (finalI != activeTerminalIndex) ContextMenu.addItem("Merge", () -> mergeTerminal(finalI), globalHoverTextColor, "Merge Terminal / Split Screen");
                         ContextMenu.addItem("Rename", () -> tabsBar.renameTab(finalI), globalHoverTextColor, "Rename Terminal");
                         ContextMenu.show((int) mouseX, (int) mouseY, 60, this.width, this.height);
                         return true;
@@ -964,12 +1069,68 @@ public class MultiTerminalScreen extends Screen {
                 }
                 yOffset += snippetHeight + 5;
             }
-        } else {
-            if (!terminals.isEmpty()) {
-                TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-                if (activeTerminal.mouseClicked(mouseX, mouseY, button)) {
-                    return true;
+        }
+        MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
+        if (mg.members.size() > 1) {
+            int gap = paneGap;
+            int availW = (int) (this.width - animatedSnippetPanelWidth - 10);
+            int availH = this.height - ContentYStart - 5;
+            int baseX = 5;
+            int baseY = ContentYStart;
+            if (button == 0) {
+                int xAcc = baseX;
+                for (int c = 0; c < gridColumns - 1; c++) {
+                    int cw = Math.round(currentColumnWeights.get(c) * availW);
+                    xAcc += cw;
+                    if (Math.abs(mouseX - xAcc) < 5 && mouseY >= baseY && mouseY <= baseY + availH + (gridRows - 1) * gap + 3) {
+                        draggingVerticalDivider = true;
+                        dividerIndex = c;
+                        dragStartPos = (float) mouseX;
+                        dragStartColWeights = new ArrayList<>(gridColumnWeights);
+                        return true;
+                    }
+                    xAcc += gap;
                 }
+                int yAcc = baseY;
+                for (int r = 0; r < gridRows - 1; r++) {
+                    int rh = Math.round(currentRowWeights.get(r) * availH);
+                    yAcc += rh;
+                    if (Math.abs(mouseY - yAcc) < 5 && mouseX >= baseX && mouseX <= baseX + availW + (gridColumns - 1) * gap + 3) {
+                        draggingHorizontalDivider = true;
+                        horizontalDividerIndex = r;
+                        dragStartPos = (float) mouseY;
+                        dragStartRowWeights = new ArrayList<>(gridRowWeights);
+                        return true;
+                    }
+                    yAcc += gap;
+                }
+            }
+            int idx2   = 0;
+            int yOff2  = baseY;
+            for (int r = 0; r < gridRows; r++) {
+                int rowH = Math.round(currentRowWeights.get(r) * availH);
+                int xOff2 = baseX;
+                for (int c = 0; c < gridColumns; c++) {
+                    if (idx2 >= mg.members.size()) break;
+                    int colW = Math.round(currentColumnWeights.get(c) * availW);
+                    if (mouseX >= xOff2 && mouseX <= xOff2 + colW && mouseY >= yOff2 && mouseY <= yOff2 + rowH) {
+                        TerminalInstance ti = mg.members.get(idx2);
+                        if (button == 1) {
+                            final int p = idx2;
+                            ContextMenu.addItem("Unmerge", () -> unmergePanel(p), globalHoverTextColor, "Unmerge Pane");
+                            ContextMenu.addItem("Close",   () -> closePanel(p), dangerLightAccentColor, "Close Pane");
+                            ContextMenu.show((int)mouseX,(int)mouseY,100,this.width,this.height);
+                            return true;
+                        } else if (button == 0) {
+                            playClick();
+                            focusedPaneIndex = idx2;
+                            return ti.mouseClicked(mouseX, mouseY, button);
+                        }
+                    }
+                    xOff2 += colW + gap;
+                    idx2++;
+                }
+                yOff2 += rowH + gap;
             }
         }
         return super.mouseClicked(mouseX, mouseY, button);
@@ -977,6 +1138,16 @@ public class MultiTerminalScreen extends Screen {
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (tabsBar != null && tabsBar.handleTabsBarRelease(button)) {
             return true;
+        }
+        if (button == 0 && (draggingVerticalDivider || draggingHorizontalDivider)) {
+            draggingVerticalDivider = false;
+            draggingHorizontalDivider = false;
+            return true;
+        }
+        MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
+        if (mg.members.size() > 1) {
+            TerminalInstance ti = mg.members.get(focusedPaneIndex);
+            if (ti.mouseReleased(mouseX, mouseY, button)) return true;
         }
         if (button == 0 && draggingSnippetIndex != -1) {
             if (isDraggingSnippet) {
@@ -1046,7 +1217,50 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (isResizingSnippetPanel && button == 0) {
+            int newWidth = this.width - (int) mouseX;
+            snippetPanelWidth = Math.max(80, Math.min(newWidth, this.width - 50));
+            return true;
+        }
+        if (draggingVerticalDivider && button == 0) {
+            int availableWidth = (int) (this.width - animatedSnippetPanelWidth - 10);
+            float delta = (float) mouseX - dragStartPos;
+            float total = dragStartColWeights.get(dividerIndex) + dragStartColWeights.get(dividerIndex + 1);
+            float newVal1 = dragStartColWeights.get(dividerIndex) + delta / availableWidth;
+            float newVal2 = dragStartColWeights.get(dividerIndex + 1) - delta / availableWidth;
+            if (newVal1 >= 0.05f && newVal2 >= 0.05f) {
+                gridColumnWeights.set(dividerIndex, newVal1);
+                gridColumnWeights.set(dividerIndex + 1, newVal2);
+                float sum = gridColumnWeights.get(dividerIndex) + gridColumnWeights.get(dividerIndex + 1);
+                gridColumnWeights.set(dividerIndex, gridColumnWeights.get(dividerIndex) / sum * total);
+                gridColumnWeights.set(dividerIndex + 1, gridColumnWeights.get(dividerIndex + 1) / sum * total);
+            }
+            return true;
+        }
+        if (draggingHorizontalDivider && button == 0) {
+            int availableHeight = this.height - ContentYStart - 5;
+            float delta = (float) mouseY - dragStartPos;
+            float total = dragStartRowWeights.get(horizontalDividerIndex) + dragStartRowWeights.get(horizontalDividerIndex + 1);
+            float newVal1 = dragStartRowWeights.get(horizontalDividerIndex) + delta / availableHeight;
+            float newVal2 = dragStartRowWeights.get(horizontalDividerIndex + 1) - delta / availableHeight;
+            if (newVal1 >= 0.05f && newVal2 >= 0.05f) {
+                gridRowWeights.set(horizontalDividerIndex, newVal1);
+                gridRowWeights.set(horizontalDividerIndex + 1, newVal2);
+                float sum = gridRowWeights.get(horizontalDividerIndex) + gridRowWeights.get(horizontalDividerIndex + 1);
+                gridRowWeights.set(horizontalDividerIndex, gridRowWeights.get(horizontalDividerIndex) / sum * total);
+                gridRowWeights.set(horizontalDividerIndex + 1, gridRowWeights.get(horizontalDividerIndex + 1) / sum * total);
+            }
+            return true;
+        }
         if (tabsBar.handleTabsBarDrag(button, deltaX)) {
+            return true;
+        }
+        MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
+        if (mg.members.size() > 1) {
+            if (!draggingVerticalDivider && !draggingHorizontalDivider) {
+                TerminalInstance ti = mg.members.get(focusedPaneIndex);
+                return ti.mouseDragged(mouseX, mouseY, button);
+            }
             return true;
         }
         if (draggingSnippetIndex != -1 && button == 0) {
@@ -1067,11 +1281,6 @@ public class MultiTerminalScreen extends Screen {
                 return true;
             }
         }
-        if (isResizingSnippetPanel && button == 0) {
-            int newWidth = this.width - (int) mouseX;
-            snippetPanelWidth = Math.max(80, Math.min(newWidth, this.width - 50));
-            return true;
-        }
         return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
     }
 
@@ -1086,6 +1295,10 @@ public class MultiTerminalScreen extends Screen {
         }
         boolean ctrlHeld = InputConstants.isKeyDown(this.minecraftClient.getWindow().getWindow(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputConstants.isKeyDown(this.minecraftClient.getWindow().getWindow(), GLFW.GLFW_KEY_RIGHT_CONTROL);
         scaleScroll(verticalAmount);
+        MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
+        if (mg.members.size() > 1) {
+            return mg.members.get(focusedPaneIndex).mouseScrolled(mouseX, mouseY, verticalAmount);
+        }
         if (ctrlHeld) {
             scale += verticalAmount > 0 ? 0.1f : -0.1f;
             scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
@@ -1140,14 +1353,16 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (tabsBar.handleTabsBarKey(keyCode, scanCode, modifiers)) {
-            return true;
+        MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
+        if (mg.members.size() > 1) {
+            TerminalInstance ti = mg.members.get(focusedPaneIndex);
+            if (ti.keyPressed(keyCode, modifiers)) return true;
         }
+        if (tabsBar.handleTabsBarKey(keyCode, scanCode, modifiers)) return true;
         if (aiMode && aiSidePanel.fieldFocused) {
-            aiSidePanel.setExtraContext(terminals.get(activeTerminalIndex).getRenderer().getTerminalContext());
-            if (aiSidePanel.keyPressed(keyCode, scanCode, modifiers)) {
-                return true;
-            }
+            aiSidePanel.setExtraContext(mergeGroups.get(terminals.get(activeTerminalIndex).terminalId)
+                    .members.get(focusedPaneIndex).getRenderer().getTerminalContext());
+            if (aiSidePanel.keyPressed(keyCode, scanCode, modifiers)) return true;
         }
         if (snippetRecordingKeys) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
@@ -1157,36 +1372,29 @@ public class MultiTerminalScreen extends Screen {
             }
             if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
                 if (!snippetShortcutBuffer.isEmpty()) {
-                    int idx = snippetShortcutBuffer.lastIndexOf("+");
-                    if (idx >= 0) {
-                        snippetShortcutBuffer.delete(idx, snippetShortcutBuffer.length());
-                    } else {
-                        snippetShortcutBuffer.setLength(0);
-                    }
-                } else {
-                    snippetRecordingKeys = false;
-                }
+                    int i = snippetShortcutBuffer.lastIndexOf("+");
+                    if (i >= 0) snippetShortcutBuffer.delete(i, snippetShortcutBuffer.length());
+                    else snippetShortcutBuffer.setLength(0);
+                } else snippetRecordingKeys = false;
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_ENTER) {
                 snippetRecordingKeys = false;
                 return true;
             }
-            String keyName = InputConstants.getKey(keyCode, scanCode).getName();
-            String hrName = humanReadableKey(keyName);
+            String name = InputConstants.getKey(keyCode, scanCode).getName();
+            String hr = humanReadableKey(name);
             List<String> parts = new ArrayList<>(Arrays.asList(snippetShortcutBuffer.toString().split("\\+")));
-            if (parts.size() == 1 && parts.get(0).isEmpty()) {
-                parts.clear();
-            }
-            if (!parts.contains(hrName)) {
-                parts.add(hrName);
+            if (parts.size() == 1 && parts.get(0).isEmpty()) parts.clear();
+            if (!parts.contains(hr)) {
+                parts.add(hr);
                 snippetShortcutBuffer.setLength(0);
-                snippetShortcutBuffer.append(parts.stream().filter(s -> !s.isEmpty()).collect(Collectors.joining("+")));
+                snippetShortcutBuffer.append(parts.stream().filter(s -> !s.isEmpty())
+                        .collect(Collectors.joining("+")));
             }
             return true;
         }
-
-        boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
+        boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
         if (snippetPopupActive) {
             snippetLastInputTime = System.currentTimeMillis();
             if (keyCode == GLFW.GLFW_KEY_ENTER) {
@@ -1218,10 +1426,10 @@ public class MultiTerminalScreen extends Screen {
                     }
                 } else {
                     if (snippetCommandsCursorPos > 0) {
-                        if (ctrlHeld) {
-                            int prev = findPreviousWord(snippetCommandsBuffer.toString(), snippetCommandsCursorPos);
-                            snippetCommandsBuffer.delete(prev, snippetCommandsCursorPos);
-                            snippetCommandsCursorPos = prev;
+                        if (ctrl) {
+                            int p = findPreviousWord(snippetCommandsBuffer.toString(), snippetCommandsCursorPos);
+                            snippetCommandsBuffer.delete(p, snippetCommandsCursorPos);
+                            snippetCommandsCursorPos = p;
                         } else {
                             snippetCommandsBuffer.deleteCharAt(snippetCommandsCursorPos - 1);
                             snippetCommandsCursorPos--;
@@ -1231,28 +1439,21 @@ public class MultiTerminalScreen extends Screen {
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_UP) {
-                if (!snippetNameFocused) {
-                    moveCursorVertically(-1, snippetCommandsBuffer.toString());
-                }
+                if (!snippetNameFocused) moveCursorVertically(-1, snippetCommandsBuffer.toString());
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_DOWN) {
-                if (!snippetNameFocused) {
-                    moveCursorVertically(1, snippetCommandsBuffer.toString());
-                }
+                if (!snippetNameFocused) moveCursorVertically(1, snippetCommandsBuffer.toString());
                 return true;
             }
-            if ((keyCode == GLFW.GLFW_KEY_LEFT || keyCode == GLFW.GLFW_KEY_RIGHT)) {
+            if (keyCode == GLFW.GLFW_KEY_LEFT || keyCode == GLFW.GLFW_KEY_RIGHT) {
                 if (snippetNameFocused) {
                     if (keyCode == GLFW.GLFW_KEY_LEFT && snippetNameCursorPos > 0) snippetNameCursorPos--;
                     if (keyCode == GLFW.GLFW_KEY_RIGHT && snippetNameCursorPos < snippetNameBuffer.length()) snippetNameCursorPos++;
                 } else {
-                    if (ctrlHeld) {
-                        if (keyCode == GLFW.GLFW_KEY_LEFT) {
-                            snippetCommandsCursorPos = findPreviousWord(snippetCommandsBuffer.toString(), snippetCommandsCursorPos);
-                        } else {
-                            snippetCommandsCursorPos = findNextWord(snippetCommandsBuffer.toString(), snippetCommandsCursorPos);
-                        }
+                    if (ctrl) {
+                        if (keyCode == GLFW.GLFW_KEY_LEFT) snippetCommandsCursorPos = findPreviousWord(snippetCommandsBuffer.toString(), snippetCommandsCursorPos);
+                        else snippetCommandsCursorPos = findNextWord(snippetCommandsBuffer.toString(), snippetCommandsCursorPos);
                     } else {
                         if (keyCode == GLFW.GLFW_KEY_LEFT && snippetCommandsCursorPos > 0) snippetCommandsCursorPos--;
                         if (keyCode == GLFW.GLFW_KEY_RIGHT && snippetCommandsCursorPos < snippetCommandsBuffer.length()) snippetCommandsCursorPos++;
@@ -1260,7 +1461,7 @@ public class MultiTerminalScreen extends Screen {
                 }
                 return true;
             }
-            if (ctrlHeld && keyCode == GLFW.GLFW_KEY_V) {
+            if (ctrl && keyCode == GLFW.GLFW_KEY_V) {
                 String clip = minecraftClient.keyboardHandler.getClipboard();
                 if (clip != null && !clip.isEmpty()) {
                     if (snippetNameFocused) {
@@ -1275,7 +1476,6 @@ public class MultiTerminalScreen extends Screen {
             }
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
-
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             if (parent != null) minecraftClient.setScreen(parent);
             else { this.onClose(); closedViaEscape = true; }
@@ -1296,78 +1496,46 @@ public class MultiTerminalScreen extends Screen {
             }
             return true;
         }
-        if (ctrlHeld && keyCode == GLFW.GLFW_KEY_TAB) {
-            if (!terminals.isEmpty()) {
-                int nextIndex = (activeTerminalIndex + 1) % terminals.size();
-                tabsBar.setActiveTab(nextIndex);
-            }
+        if (ctrl && keyCode == GLFW.GLFW_KEY_TAB) {
+            int next = (activeTerminalIndex + 1) % terminals.size();
+            tabsBar.setActiveTab(next);
             return true;
         }
-        if (isRenaming && renamingTabIndex != -1) {
-            lastRenameInputTime = System.currentTimeMillis();
-            if (keyCode == GLFW.GLFW_KEY_ENTER) {
-                String newName = renameBuffer.toString().trim();
-                if (!newName.isEmpty()) {
-                    tabNames.set(renamingTabIndex, newName);
-                }
-                isRenaming = false;
-                renamingTabIndex = -1;
-                remotelyClient.multiTabNames = new ArrayList<>(tabNames);
-                return true;
-            } else if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
-                if (renameCursorPos > 0 && renameCursorPos <= renameBuffer.length()) {
-                    renameBuffer.deleteCharAt(renameCursorPos - 1);
-                    renameCursorPos--;
-                    tabNames.set(renamingTabIndex, renameBuffer.toString());
-                }
-                return true;
-            } else if (keyCode == GLFW.GLFW_KEY_LEFT) {
-                if (renameCursorPos > 0) renameCursorPos--;
-                return true;
-            } else if (keyCode == GLFW.GLFW_KEY_RIGHT) {
-                if (renameCursorPos < renameBuffer.length()) renameCursorPos++;
-                return true;
-            }
-            return super.keyPressed(keyCode, scanCode, modifiers);
-        }
-
         if (!terminals.isEmpty()) {
-            for (RemotelyClient.CommandSnippet snippet : globalSnippets) {
-                if (snippet.shortcut != null && !snippet.shortcut.isEmpty()) {
-                    if (checkShortcut(snippet.shortcut)) {
-                        TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-                        String[] lines = snippet.commands.split("\n");
-                        for (String line : lines) {
-                            if (!line.trim().isEmpty()) {
-                                try {
-                                    activeTerminal.getInputHandler().commandExecutor.executeCommand(line.trim(), new StringBuilder(line.trim()));
-                                } catch (IOException e) {
-                                    activeTerminal.appendOutput("ERROR: " + e.getMessage() + "\n");
-                                }
+            for (RemotelyClient.CommandSnippet sn : globalSnippets) {
+                if (sn.shortcut != null && !sn.shortcut.isEmpty() && checkShortcut(sn.shortcut)) {
+                    TerminalInstance tgt = mg.members.size() > 1
+                            ? mg.members.get(focusedPaneIndex)
+                            : terminals.get(activeTerminalIndex);
+                    for (String ln : sn.commands.split("\n")) {
+                        if (!ln.trim().isEmpty()) {
+                            try {
+                                tgt.getInputHandler().commandExecutor.executeCommand(ln.trim(), new StringBuilder(ln.trim()));
+                            } catch (IOException e) {
+                                tgt.appendOutput("ERROR: " + e.getMessage() + "\n");
                             }
                         }
-                        shortcutConsumed = true;
-                        return true;
                     }
+                    shortcutConsumed = true;
+                    return true;
                 }
             }
         }
-
-        if (!terminals.isEmpty()) {
-            TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-            return activeTerminal.keyPressed(keyCode, modifiers) || super.keyPressed(keyCode, scanCode, modifiers);
-        }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        TerminalInstance finalTarget = mg.members.size() > 1
+                ? mg.members.get(focusedPaneIndex)
+                : terminals.get(activeTerminalIndex);
+        return finalTarget.keyPressed(keyCode, modifiers) || super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
     public boolean charTyped(char chr, int keyCode) {
-        if (tabsBar.handleTabsBarChar(chr)) {
-            return true;
+        MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
+        if (mg.members.size() > 1) {
+            TerminalInstance ti = mg.members.get(focusedPaneIndex);
+            if (ti.charTyped(chr)) return true;
         }
-        if (aiSidePanel.fieldFocused && aiMode && aiSidePanel.charTyped(chr, keyCode)) {
-            return true;
-        }
+        if (tabsBar.handleTabsBarChar(chr)) return true;
+        if (aiSidePanel.fieldFocused && aiMode && aiSidePanel.charTyped(chr, keyCode)) return true;
         if (shortcutConsumed) {
             shortcutConsumed = false;
             return true;
@@ -1375,9 +1543,7 @@ public class MultiTerminalScreen extends Screen {
         if (snippetRecordingKeys) return true;
         if (snippetPopupActive) {
             snippetLastInputTime = System.currentTimeMillis();
-            if (chr == '\r' || chr == '\b') {
-                return true;
-            }
+            if (chr == '\r' || chr == '\b') return true;
             if (chr == '\n') {
                 if (!snippetNameFocused) {
                     snippetCommandsBuffer.insert(snippetCommandsCursorPos, '\n');
@@ -1399,22 +1565,22 @@ public class MultiTerminalScreen extends Screen {
         if (isRenaming && renamingTabIndex != -1) {
             lastRenameInputTime = System.currentTimeMillis();
             if (chr == '\r') {
-                String newName = renameBuffer.toString().trim();
-                if (!newName.isEmpty()) {
-                    tabNames.set(renamingTabIndex, newName);
-                }
+                String nn = renameBuffer.toString().trim();
+                if (!nn.isEmpty()) tabNames.set(renamingTabIndex, nn);
                 isRenaming = false;
                 renamingTabIndex = -1;
                 remotelyClient.multiTabNames = new ArrayList<>(tabNames);
                 return true;
-            } else if (chr == '\b') {
+            }
+            if (chr == '\b') {
                 if (renameCursorPos > 0 && renameCursorPos <= renameBuffer.length()) {
                     renameBuffer.deleteCharAt(renameCursorPos - 1);
                     renameCursorPos--;
                     tabNames.set(renamingTabIndex, renameBuffer.toString());
                 }
                 return true;
-            } else if (chr >= 32 && chr != 127) {
+            }
+            if (chr >= 32 && chr != 127) {
                 renameBuffer.insert(renameCursorPos, chr);
                 renameCursorPos++;
                 tabNames.set(renamingTabIndex, renameBuffer.toString());
@@ -1423,13 +1589,15 @@ public class MultiTerminalScreen extends Screen {
             }
             return true;
         }
-
         if (!terminals.isEmpty()) {
-            TerminalInstance activeTerminal = terminals.get(activeTerminalIndex);
-            return activeTerminal.charTyped(chr) || super.charTyped(chr, keyCode);
+            TerminalInstance tgt = mg.members.size() > 1
+                    ? mg.members.get(focusedPaneIndex)
+                    : terminals.get(activeTerminalIndex);
+            return tgt.charTyped(chr) || super.charTyped(chr, keyCode);
         }
         return super.charTyped(chr, keyCode);
     }
+
 
     @Override
     public void onClose() {
@@ -1648,6 +1816,107 @@ public class MultiTerminalScreen extends Screen {
         }
     }
 
+    private void initializeWeights() {
+        MergeGroup group = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
+        int count = group.members.size();
+        if (count <= 1) {
+            gridRows = 1;
+            gridColumns = 1;
+            gridColumnWeights.clear();
+            gridRowWeights.clear();
+            currentColumnWeights.clear();
+            currentRowWeights.clear();
+            return;
+        }
+        gridRows = (int) Math.floor(Math.sqrt(count));
+        if (gridRows < 1) gridRows = 1;
+        gridColumns = (int) Math.ceil((double) count / gridRows);
+
+        gridColumnWeights.clear();
+        currentColumnWeights.clear();
+        for (int i = 0; i < gridColumns; i++) {
+            float w = 1.0f / gridColumns;
+            gridColumnWeights.add(w);
+            currentColumnWeights.add(w);
+        }
+
+        gridRowWeights.clear();
+        currentRowWeights.clear();
+        for (int i = 0; i < gridRows; i++) {
+            float h = 1.0f / gridRows;
+            gridRowWeights.add(h);
+            currentRowWeights.add(h);
+        }
+    }
+
+    private void mergeTerminal(int index) {
+        if (index == activeTerminalIndex) return;
+        UUID targetId = terminals.get(activeTerminalIndex).terminalId;
+        MergeGroup targetGroup = mergeGroups.get(targetId);
+        TerminalInstance toMerge = terminals.get(index);
+        MergeGroup sourceGroup = mergeGroups.get(toMerge.terminalId);
+        for (TerminalInstance t : sourceGroup.members) {
+            targetGroup.members.add(t);
+            mergeGroups.put(t.terminalId, targetGroup);
+        }
+        mergeGroups.remove(toMerge.terminalId);
+        terminals.remove(index);
+        tabNames.remove(index);
+        tabsBar.getTabs().remove(index);
+        if (activeTerminalIndex > index) activeTerminalIndex--;
+        tabsBar.setActiveTab(activeTerminalIndex);
+        initializeWeights();
+    }
+
+    private void unmergePanel(int panelIndex) {
+        UUID groupId = terminals.get(activeTerminalIndex).terminalId;
+        MergeGroup group = mergeGroups.get(groupId);
+        if (panelIndex < 0 || panelIndex >= group.members.size()) return;
+        TerminalInstance removed = group.members.remove(panelIndex);
+        mergeGroups.remove(removed.terminalId);
+        terminals.add(activeTerminalIndex + 1, removed);
+        tabNames.add(activeTerminalIndex + 1, "Tab " + (terminals.size()));
+        tabsBar.getTabs().add(activeTerminalIndex + 1, new TabsBar.Tab<>(tabNames.get(activeTerminalIndex + 1), false, null));
+        mergeGroups.put(removed.terminalId, new MergeGroup(removed));
+        initializeWeights();
+    }
+
+    private void closePanel(int panelIndex) {
+        UUID groupId = terminals.get(activeTerminalIndex).terminalId;
+        MergeGroup group = mergeGroups.get(groupId);
+        if (group.members.size() <= 1) return;
+        TerminalInstance removed = group.members.remove(panelIndex);
+        mergeGroups.remove(removed.terminalId);
+        removed.shutdown();
+        if (focusedPanelIndex >= group.members.size()) focusedPanelIndex = group.members.size() - 1;
+        initializeWeights();
+    }
+
+    private void renderSplitTerminals(GuiGraphics context, int totalW, int totalH) {
+        MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
+        int count = mg.members.size();
+        if (count <= 1) return;
+        int gap = paneGap;
+        int availW = totalW - (gridColumns - 1) * gap;
+        int availH = totalH - (gridRows - 1) * gap;
+        int baseX  = 5;
+        int baseY  = ContentYStart;
+        int idx    = 0;
+        for (int r = 0; r < gridRows; r++) {
+            int rowH = Math.round(currentRowWeights.get(r) * availH);
+            int xOff = baseX;
+            for (int c = 0; c < gridColumns; c++) {
+                if (idx >= count) break;
+                int colW = Math.round(currentColumnWeights.get(c) * availW);
+                TerminalInstance ti = mg.members.get(idx);
+                ti.renderer.isActive = (idx == focusedPaneIndex);
+                ti.renderer.render(context, xOff, baseY, colW, rowH);
+                xOff += colW + gap;
+                idx++;
+            }
+            baseY += rowH + gap;
+        }
+    }
     @Override
     public void removed() {
         minecraftClient.getWindow().setGuiScale(originalMCScale);

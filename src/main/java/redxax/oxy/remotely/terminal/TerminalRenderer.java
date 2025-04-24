@@ -20,8 +20,7 @@ import java.util.regex.Pattern;
 import java.text.SimpleDateFormat;
 
 import static redxax.oxy.remotely.RemotelyClient.os;
-import static redxax.oxy.remotely.Render.drawInnerBorder;
-import static redxax.oxy.remotely.Render.drawOuterBorder;
+import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
@@ -48,6 +47,7 @@ public class TerminalRenderer {
     private String tmuxStatusLine = "";
     private float currentScrollOffset = 0;
     public float targetScrollOffset = 0;
+    public boolean isActive = false;
     static {
         System.setProperty("jline.ansi", "true");
         System.setProperty("jline.terminal", "jline.UnsupportedTerminal");
@@ -66,14 +66,14 @@ public class TerminalRenderer {
         instance = this;
     }
 
-    public void render(GuiGraphics context, int screenWidth, int screenHeight) {
-        terminalX = 5;
-        terminalY = MultiTerminalScreen.ContentYStart;
-        terminalWidth = screenWidth - 5;
-        terminalHeight = screenHeight - terminalY - 15;
+    public void render(GuiGraphics context, int x, int y, int width, int height) {
+        terminalX = x;
+        terminalY = y;
+        terminalWidth = width;
+        terminalHeight = height;
         int padding = 2;
-        context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, Config.backgroundColor);
-        drawInnerBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, Config.innerBorderColor);
+        context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, backgroundColor);
+        drawInnerBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, getElementBorderColor(this.hashCode(), false, isActive, true, false, false, this.terminalInstance instanceof ServerTerminalInstance));
         drawOuterBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, globalOuterBorder);
         int textAreaX = terminalX + padding;
         int textAreaY2 = terminalY + padding;
@@ -131,14 +131,11 @@ public class TerminalRenderer {
         context.pose().translate(0, 0, 1000);
         context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, globalCursorAnimatedColor);
         context.pose().popPose();
-
         context.fill(terminalX, statusBarY, terminalX + terminalWidth, statusBarY + getStatusBarHeight(), terminalStatusBarColor);
-        FormattedCharSequence[] statusTexts = getStatusBarOrderedTexts(textAreaWidth);
-        FormattedCharSequence leftStatus = statusTexts[0];
-        FormattedCharSequence rightStatus = statusTexts[1];
-        int rightWidth = minecraftClient.font.width(rightStatus);
-        context.drawString(minecraftClient.font, leftStatus, terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.font.lineHeight) / 2, terminalTextColor, Config.shadow);
-        context.drawString(minecraftClient.font, rightStatus, terminalX + terminalWidth - 2 - rightWidth, statusBarY + (getStatusBarHeight() - minecraftClient.font.lineHeight) / 2, terminalTextColor, Config.shadow);
+        String[] statusTexts = getStatusBarStrings(terminalWidth - 4);
+        int rightWidth = minecraftClient.font.width(statusTexts[1]);
+        context.drawString(minecraftClient.font, Component.literal(statusTexts[0]), terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.font.lineHeight) / 2, terminalTextColor, Config.shadow);
+        context.drawString(minecraftClient.font, Component.literal(statusTexts[1]), terminalX + terminalWidth - 2 - rightWidth, statusBarY + (getStatusBarHeight() - minecraftClient.font.lineHeight) / 2, terminalTextColor, Config.shadow);
         if (terminalWidth != lastTerminalWidth) {
             stickToBottom(8);
             rewrap();
@@ -397,11 +394,12 @@ public class TerminalRenderer {
         return minecraftClient.font.lineHeight + 4;
     }
 
-    private FormattedCharSequence[] getStatusBarOrderedTexts(int scaledWidth) {
+    private String[] getStatusBarStrings(int availableWidth) {
+        String leftStatus;
+        String rightStatus;
         if (tmuxStatusLine.isEmpty()) {
             if (terminalInstance.getServerInfo() != null) {
                 ServerInfo sInfo = terminalInstance.getServerInfo();
-                String serverName = sInfo.name;
                 String serverStatus;
                 switch (sInfo.state) {
                     case STARTING -> serverStatus = "Starting";
@@ -410,35 +408,33 @@ public class TerminalRenderer {
                     case CRASHED -> serverStatus = "Crashed";
                     default -> serverStatus = "Unknown";
                 }
-                boolean connected;
-                String hostStatus;
+                leftStatus = "Remotely - 2.0.0 | " + sInfo.name + " - " + serverStatus;
                 if (sInfo.remoteHost != null && sInfo.remoteSSHManager != null && sInfo.isRemote) {
-                    connected = sInfo.remoteSSHManager.isSSH();
-                    hostStatus = connected ? sInfo.remoteHost.name + " - Connected" : sInfo.remoteHost.name + ": Disconnected";
+                    boolean connected = sInfo.remoteSSHManager.isSSH();
+                    rightStatus = connected ? sInfo.remoteHost.name + " - Connected" : sInfo.remoteHost.name + ": Disconnected";
                 } else {
-                    hostStatus = "Local Host | " + new Date();
+                    rightStatus = "Local Host | " + new Date();
                 }
-                return new FormattedCharSequence[]{Component.literal("Remotely - 2.0.0 | " + serverName + " - " + serverStatus).getVisualOrderText(), Component.literal(hostStatus).getVisualOrderText()};
-            } else return new FormattedCharSequence[]{Component.literal("Remotely - 2.0.0 | DevBuild4 19/4/2025").getVisualOrderText(), Component.literal(new Date().toString()).getVisualOrderText()};
-        }
-        String line = tmuxStatusLine;
-        String leftText;
-        String rightText;
-        int idx = line.indexOf("     ");
-        if (idx != -1) {
-            leftText = line.substring(0, idx).trim();
-            rightText = line.substring(idx).trim();
+            } else {
+                leftStatus = "Remotely - 2.0.0 | DevBuild4 19/4/2025";
+                rightStatus = new Date().toString();
+            }
         } else {
-            leftText = line;
-            rightText = "";
+            int idx = tmuxStatusLine.indexOf("     ");
+            if (idx != -1) {
+                leftStatus = tmuxStatusLine.substring(0, idx).trim();
+                rightStatus = tmuxStatusLine.substring(idx).trim();
+            } else {
+                leftStatus = tmuxStatusLine;
+                rightStatus = "";
+            }
         }
-        List<StyleTextPair> leftSegments = parseKeywordsAndHighlight(leftText);
-        List<LineText> leftWrapped = wrapStyledText(leftSegments, scaledWidth);
-        FormattedCharSequence leftOrdered = leftWrapped.isEmpty() ? Component.literal(leftText).getVisualOrderText() : leftWrapped.get(0).orderedText;
-        List<StyleTextPair> rightSegments = parseKeywordsAndHighlight(rightText);
-        List<LineText> rightWrapped = wrapStyledText(rightSegments, scaledWidth);
-        FormattedCharSequence rightOrdered = rightWrapped.isEmpty() ? Component.literal(rightText).getVisualOrderText() : rightWrapped.get(0).orderedText;
-        return new FormattedCharSequence[]{leftOrdered, rightOrdered};
+        int minGap = 4;
+        int leftMax = availableWidth / 2 - minGap;
+        int rightMax = availableWidth / 2 - minGap;
+        leftStatus = trimTextToWidthWithEllipsis(leftStatus, leftMax);
+        rightStatus = trimTextToWidthWithEllipsis(rightStatus, rightMax);
+        return new String[]{leftStatus, rightStatus};
     }
 
     public void appendOutput(String text) {
@@ -633,6 +629,15 @@ public class TerminalRenderer {
             }
         }
         return lines.toString();
+    }
+
+    public boolean mouseScrolled(double mouseX, double mouseY, double verticalAmount) {
+        if (isMouseOverTerminal(mouseX, mouseY)) {
+            int scrollDirection = verticalAmount > 0 ? 1 : -1;
+            scroll(scrollDirection, terminalHeight);
+            return true;
+        }
+        return false;
     }
 
     private static class StyleTextPair {
