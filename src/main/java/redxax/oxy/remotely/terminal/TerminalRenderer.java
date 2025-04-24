@@ -22,6 +22,7 @@ import java.text.SimpleDateFormat;
 import static redxax.oxy.remotely.RemotelyClient.os;
 import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
+import static redxax.oxy.remotely.terminal.MultiTerminalScreen.isRenaming;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
 import com.mojang.blaze3d.platform.InputConstants;
@@ -123,7 +124,7 @@ public class TerminalRenderer {
         int cursorXPos = inputX + minecraftClient.font.width(beforeCursor);
         int cursorHeight = minecraftClient.font.lineHeight;
         MultiTerminalScreen.MergeGroup mergedGroup = parent.mergeGroups.get(parent.terminals.get(parent.activeTerminalIndex).terminalId);
-        if ((!(mergedGroup.members.size() > 1)) || (isActive)) {
+        if (!(parent.aiSidePanel.fieldFocused || parent.tabsBar.getRenamingTab() != -1) && (!(mergedGroup.members.size() > 1) || (isActive))) {
             context.pose().pushPose();
             context.pose().translate(0, 0, 1000);
             context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, globalCursorAnimatedColor);
@@ -137,7 +138,7 @@ public class TerminalRenderer {
         }
         context.fill(terminalX, statusBarY, terminalX + terminalWidth, statusBarY + getStatusBarHeight(), terminalStatusBarColor);
 
-        drawInnerBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, getElementBorderColor(this.hashCode(), false, isActive, true, false, false, this.terminalInstance instanceof ServerTerminalInstance));
+        drawInnerBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, getElementBorderColor(this.hashCode(), false, !(parent.aiSidePanel.fieldFocused || parent.tabsBar.getRenamingTab() != -1) && isActive, true, false, false, !(parent.aiSidePanel.fieldFocused || parent.tabsBar.getRenamingTab() != -1) && this.terminalInstance instanceof ServerTerminalInstance));
         String[] statusTexts = getStatusBarStrings(terminalWidth - 4);
         int rightWidth = minecraftClient.font.width(statusTexts[1]);
         context.drawString(minecraftClient.font, Component.literal(statusTexts[0]), terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.font.lineHeight) / 2, terminalTextColor, Config.shadow);
