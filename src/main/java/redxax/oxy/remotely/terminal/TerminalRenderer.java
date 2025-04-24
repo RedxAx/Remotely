@@ -123,7 +123,7 @@ public class TerminalRenderer {
         int cursorXPos = inputX + minecraftClient.font.width(beforeCursor);
         int cursorHeight = minecraftClient.font.lineHeight;
         MultiTerminalScreen.MergeGroup mergedGroup = parent.mergeGroups.get(parent.terminals.get(parent.activeTerminalIndex).terminalId);
-        if (isActive && mergedGroup.members.contains(this.terminalInstance)) {
+        if ((!(mergedGroup.members.size() > 1)) || (isActive)) {
             context.pose().pushPose();
             context.pose().translate(0, 0, 1000);
             context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, globalCursorAnimatedColor);
