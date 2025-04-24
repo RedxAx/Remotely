@@ -42,8 +42,8 @@ public class TerminalInstance {
         return serverInfo;
     }
 
-    public void render(GuiGraphics context, int screenWidth, int screenHeight, float scale) {
-        renderer.render(context, screenWidth, screenHeight);
+    public void render(GuiGraphics context, int x, int y, int width, int height) {
+        renderer.render(context, x, y, width, height );
     }
 
     public boolean charTyped(char chr) {
@@ -152,4 +152,7 @@ public class TerminalInstance {
         return inputHandler.getCurrentDir();
     }
 
+    public boolean mouseScrolled(double mouseX, double mouseY, double verticalAmount) {
+        return renderer.mouseScrolled(mouseX, mouseY, verticalAmount);
+    }
 }
