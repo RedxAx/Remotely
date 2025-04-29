@@ -1,53 +1,33 @@
 pluginManagement {
     repositories {
-        gradlePluginPortal()
         mavenCentral()
-
-        // Modstitch
-        maven("https://maven.isxander.dev/releases/")
-
-        // Loom platform
+        gradlePluginPortal()
         maven("https://maven.fabricmc.net/")
-
-        // MDG platform
+        maven("https://maven.architectury.dev")
+        maven("https://maven.minecraftforge.net")
         maven("https://maven.neoforged.net/releases/")
-
-        // Stonecutter
-        maven("https://maven.kikugie.dev/releases")
         maven("https://maven.kikugie.dev/snapshots")
-
-        // Modstitch
-        maven("https://maven.isxander.dev/releases")
     }
 }
 
 plugins {
-    id("dev.kikugie.stonecutter") version "0.6+"
+    id("dev.kikugie.stonecutter") version "0.5"
 }
 
 stonecutter {
-    kotlinController = true
     centralScript = "build.gradle.kts"
-
-    create(rootProject) {
-        /**
-         * @param mcVersion The base minecraft version.
-         * @param loaders A list of loaders to target, supports "fabric" (1.14+), "neoforge"(1.20.6+), "vanilla"(any) or "forge"(<=1.20.1)
-         */
-        fun mc(mcVersion: String, name: String = mcVersion, loaders: Iterable<String>) =
-            loaders.forEach { vers("$name-$it", mcVersion) }
-
-        // Configure your targets here!
-        mc("1.20.1", loaders = listOf("fabric", "forge"))
-        mc("1.21.1", loaders = listOf("fabric", "neoforge"))
-        mc("1.21.2", loaders = listOf("fabric", "neoforge"))
-        mc("1.21.5", loaders = listOf("fabric", "neoforge"))
-
-        // This is the default target.
-        // https://stonecutter.kikugie.dev/stonecutter/guide/setup#settings-settings-gradle-kts
-        vcsVersion = "1.20.1-fabric"
+    kotlinController = true
+    shared {
+        fun mc(loader: String, vararg versions: String) {
+            for (version in versions) vers("$version-$loader", version)
+        }
+        //i would recommend to use neoforge for mc > 1.20.1, i haven't tested template for forge on versions higher than that
+        mc("fabric","1.20.1", "1.20.4", "1.21", "1.21.4", "1.21.5")
+        mc("forge","1.20.1")
+        //WARNING: neoforge uses mods.toml instead of neoforge.mods.toml for versions 1.20.4 (?) and earlier
+        mc("neoforge", "1.21", "1.21.4")
     }
+    create(rootProject)
 }
 
 rootProject.name = "Remotely"
-

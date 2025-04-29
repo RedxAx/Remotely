@@ -17,7 +17,7 @@ import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.servers.PluginModManagerScreen.formatDownloads;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
-import static redxax.oxy.remotely.util.SoundUtils.playClick;
+import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
 import java.io.*;
 import java.net.HttpURLConnection;
@@ -28,13 +28,14 @@ import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.network.chat.Component;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.text.Text;
+import redxax.oxy.remotely.util.Sound;
 
 public class ResourcePageScreen extends Screen {
-    private final Minecraft minecraftClient;
+    private final MinecraftClient minecraftClient;
     private final PluginModManagerScreen parentScreen;
     private final IRemotelyResource resource;
     private boolean isLoadingMarkdown = true;
@@ -47,14 +48,12 @@ public class ResourcePageScreen extends Screen {
     private List<Version> versions = new ArrayList<>();
     private List<VersionButtonRegion> versionButtonRegions = new ArrayList<>();
     private static ServerInfo serverInfo;
-    private Version headerDownloadVersion;
     private boolean isDownloadingMrpack = false;
-    private double mrpackProgress = 0.0;
     private IconWithTooltip closeIcon, siteIcon, downloadIcon;
     private MineMarkDrawable mineMarkDrawable;
 
-    public ResourcePageScreen(Minecraft mc, PluginModManagerScreen parent, IRemotelyResource resource, ServerInfo serverInfo) {
-        super(Component.literal(resource.getName()));
+    public ResourcePageScreen(MinecraftClient mc, PluginModManagerScreen parent, IRemotelyResource resource, ServerInfo serverInfo) {
+        super(Text.literal(resource.getName()));
         this.minecraftClient = mc;
         this.parentScreen = parent;
         this.resource = resource;
@@ -62,9 +61,9 @@ public class ResourcePageScreen extends Screen {
         loadMarkdown();
         init();
         fetchVersions();
-        originalMCScale = minecraftClient.getWindow().getGuiScale();
+        originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
-        minecraftClient.getWindow().setGuiScale(globalScaleFactor);
+        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
     }
 
     public void init() {
@@ -276,7 +275,7 @@ public class ResourcePageScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY,/*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         scaleScroll(verticalAmount);
         int headerHeight = 30;
         int tabAreaHeight = 20;
@@ -337,9 +336,9 @@ public class ResourcePageScreen extends Screen {
             int tabBarX = 5;
             for (int i = 0; i < tabs.size(); i++) {
                 Tab t = tabs.get(i);
-                int tabWidth = minecraftClient.font.width(t.name) + 10;
+                int tabWidth = minecraftClient.textRenderer.getWidth(t.name) + 10;
                 if (mouseX >= tabBarX && mouseX <= tabBarX + tabWidth) {
-                    playClick();
+                    playSound(Sound.SWITCHTAB);
                     currentTabIndex = i;
                     return true;
                 }
@@ -347,20 +346,19 @@ public class ResourcePageScreen extends Screen {
             }
         }
         if (mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24) {
-            playClick();
+            playSound(Sound.CLICK);
             if (resource.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack")) {
                 downloadMrpackResource();
             } else {
                 Version compVersion = getLatestCompatibleVersion();
                 if (compVersion != null) {
-                    headerDownloadVersion = compVersion;
                     downloadVersionResource(compVersion);
                 }
             }
             return true;
         }
         if (mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24) {
-            playClick();
+            playSound(Sound.CLICK);
             String siteUrl = getCurrentTabType() == TabType.DESCRIPTION
                     ? getSiteUrlForResource()
                     : getSiteUrlForResource() + (resource.getSlug().startsWith("spigot_") ? "/history" : "/versions");
@@ -375,20 +373,18 @@ public class ResourcePageScreen extends Screen {
             return true;
         }
         if (mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24) {
-            playClick();
             minecraftClient.setScreen(parentScreen);
             return true;
         }
         if (getCurrentTabType() == TabType.DESCRIPTION && mineMarkDrawable != null) {
             mineMarkDrawable.onMouseClicked(15, 70 - descScrollOffset, (float) mouseX, (float) mouseY, button);
-            playClick();
+            playSound(Sound.CLICK);
             return true;
         }
         if (getCurrentTabType() == TabType.VERSIONS) {
             for (VersionButtonRegion vr : versionButtonRegions) {
-                if (mouseX >= vr.x && mouseX <= vr.x + vr.width
-                        && mouseY >= vr.y && mouseY <= vr.y + vr.height) {
-                    playClick();
+                if (mouseX >= vr.x && mouseX <= vr.x + vr.width && mouseY >= vr.y && mouseY <= vr.y + vr.height) {
+                    playSound(Sound.CLICK);
                     if (resource.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack")) {
                         downloadMrpackResource();
                     } else {
@@ -426,13 +422,13 @@ public class ResourcePageScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         int headerHeight = 30;
         int tabAreaHeight = 20;
         drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, siteIcon, downloadIcon, null, null, null, null, null, null);
-        context.drawString(minecraftClient.font, Component.literal(resource.getName()), 10, 10, globalTextColor, Config.shadow);
-        drawTabs(context, minecraftClient.font, tabs, currentTabIndex, mouseX, mouseY, false, false);
+        context.drawText(minecraftClient.textRenderer, Text.literal(resource.getName()), 10, 10, globalTextColor, Config.shadow);
+        drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
         int contentY = headerHeight + tabAreaHeight + 10;
         int contentHeight = this.height - contentY - 5;
         int contentX = 5;
@@ -462,11 +458,11 @@ public class ResourcePageScreen extends Screen {
                 drawInnerBorder(context, contentX, y, contentWidth, itemHeight, borderColor);
                 drawOuterBorder(context, contentX, y, contentWidth, itemHeight, globalOuterBorder);
                 String title = resource.getName() + ": " + ver.version;
-                context.drawString(minecraftClient.font, Component.literal(title), contentX + 4, y + 3, 0xFFFFFFFF, Config.shadow);
+                context.drawText(minecraftClient.textRenderer, Text.literal(title), contentX + 4, y + 3, 0xFFFFFFFF, Config.shadow);
                 String desc = formatMCVersions(ver.mcVersions);
-                context.drawString(minecraftClient.font, Component.literal(desc), contentX + 4, y + 15, 0xFFAAAAAA, Config.shadow);
+                context.drawText(minecraftClient.textRenderer, Text.literal(desc), contentX + 4, y + 15, 0xFFAAAAAA, Config.shadow);
                 String subDesc = getRelativeTime(ver.dateUploaded) + " | " + formatDownloads(ver.downloads) + " Downloads";
-                context.drawString(minecraftClient.font, Component.literal(subDesc), contentX + 4, y + 26, 0xFF777777, Config.shadow);
+                context.drawText(minecraftClient.textRenderer, Text.literal(subDesc), contentX + 4, y + 26, 0xFF777777, Config.shadow);
                 if (ver.isDownloading) {
                     int barWidth = Render.buttonW;
                     int barHeight = Render.buttonH;
@@ -478,9 +474,9 @@ public class ResourcePageScreen extends Screen {
                     drawOuterBorder(context, barX, barY, barWidth, barHeight, globalOuterBorder);
                     drawInnerBorder(context, barX, barY, barWidth, barHeight, getElementBorderColor(ver.hashCode(), hovered, true, true, false, false, false));
                     String percentText = (int) (ver.progress * 100) + "%";
-                    context.drawString(minecraftClient.font, Component.literal(percentText), barX + barWidth / 2 - minecraftClient.font.width(Component.literal(percentText)) / 2, barY + (barHeight - minecraftClient.font.lineHeight) / 2, 0xFFFFFFFF, Config.shadow);
+                    context.drawText(minecraftClient.textRenderer, Text.literal(percentText), barX + barWidth / 2 - minecraftClient.textRenderer.getWidth(Text.literal(percentText)) / 2, barY + (barHeight - minecraftClient.textRenderer.fontHeight) / 2, 0xFFFFFFFF, Config.shadow);
                     String infoText = formatBytes(ver.downloadedBytes) + "/" + formatBytes(ver.totalBytes) + " | " + formatBytes((long) ver.speed) + "/s";
-                    context.drawString(minecraftClient.font, Component.literal(infoText), barX - 5 - minecraftClient.font.width(Component.literal(infoText)), barY + (barHeight - minecraftClient.font.lineHeight) / 2, 0xFFCCCCCC, Config.shadow);
+                    context.drawText(minecraftClient.textRenderer, Text.literal(infoText), barX - 5 - minecraftClient.textRenderer.getWidth(Text.literal(infoText)), barY + (barHeight - minecraftClient.textRenderer.fontHeight) / 2, 0xFFCCCCCC, Config.shadow);
                 } else {
                     int btnX = contentX + contentWidth - 70;
                     int btnY = y + (itemHeight - 20) / 2;
@@ -722,8 +718,13 @@ public class ResourcePageScreen extends Screen {
     }
 
     @Override
+    public void onDisplayed() {
+        playSound(Sound.SCREEN);
+    }
+
+    @Override
     public void removed() {
-        minecraftClient.getWindow().setGuiScale(originalMCScale);
+        minecraftClient.getWindow().setScaleFactor(originalMCScale);
         targetScaleFactor = globalScaleFactor = animScaleFactor;
     }
 

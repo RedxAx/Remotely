@@ -1,22 +1,25 @@
 package redxax.oxy.remotely.terminal;
 
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.network.chat.Style;
-import net.minecraft.network.chat.TextColor;
-import net.minecraft.util.FormattedCharSequence;
 import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStyle;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.Render;
+import redxax.oxy.remotely.Render.ScrollBar;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.ServerInfo;
 
+import java.lang.reflect.Field;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.util.InputUtil;
+import net.minecraft.text.MutableText;
+import net.minecraft.text.OrderedText;
+import net.minecraft.text.Style;
+import net.minecraft.text.Text;
+import net.minecraft.text.TextColor;
 import java.text.SimpleDateFormat;
 
 import static redxax.oxy.remotely.RemotelyClient.os;
@@ -25,11 +28,9 @@ import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.terminal.MultiTerminalScreen.isRenaming;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
-import com.mojang.blaze3d.platform.InputConstants;
-
 public class TerminalRenderer {
     public static TerminalRenderer instance;
-    private final Minecraft minecraftClient;
+    private final MinecraftClient minecraftClient;
     private final TerminalInstance terminalInstance;
     private final MultiTerminalScreen parent;
     private final StringBuilder terminalOutput = new StringBuilder();
@@ -62,14 +63,16 @@ public class TerminalRenderer {
 
     private int lastTerminalWidth = terminalWidth;
 
-    public TerminalRenderer(Minecraft client, TerminalInstance terminalInstance, MultiTerminalScreen parent) {
+    public TerminalRenderer(MinecraftClient client, TerminalInstance terminalInstance, MultiTerminalScreen parent) {
         this.minecraftClient = client;
         this.terminalInstance = terminalInstance;
         this.parent = parent;
         instance = this;
     }
+    MultiTerminalScreen.MergeGroup mergedGroup;
 
-    public void render(GuiGraphics context, int x, int y, int width, int height) {
+
+    public void render(DrawContext context, int x, int y, int width, int height, MultiTerminalScreen mts) {
         terminalX = x;
         terminalY = y;
         terminalWidth = width;
@@ -81,7 +84,7 @@ public class TerminalRenderer {
         int textAreaY2 = terminalY + padding;
         int textAreaWidth = terminalWidth - 2 * padding;
         int textAreaHeight2 = terminalHeight - 2 * padding - getInputFieldHeight() - getStatusBarHeight();
-        int lineHeight = minecraftClient.font.lineHeight + 2;
+        int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
         int totalLinesRender = getTotalLines();
         int maxScroll = Math.max(0, totalLinesRender * lineHeight - textAreaHeight2);
         float deltaScroll = targetScrollOffset - currentScrollOffset;
@@ -108,10 +111,10 @@ public class TerminalRenderer {
                 lineText = wrappedLinesCache.get(lineIndex);
             }
             if (isLineSelected(lineIndex)) {
-                LineInfo tempLineInfo = new LineInfo(lineIndex, renderY, minecraftClient.font.lineHeight, lineText.orderedText, lineText.plainText);
+                LineInfo tempLineInfo = new LineInfo(lineIndex, renderY, minecraftClient.textRenderer.fontHeight, lineText.orderedText, lineText.plainText);
                 drawSelection(context, tempLineInfo, textAreaX);
             }
-            context.drawString(minecraftClient.font, lineText.orderedText, textAreaX, renderY, terminalTextColor, Config.shadow);
+            context.drawText(minecraftClient.textRenderer, lineText.orderedText, textAreaX, renderY, terminalTextColor, shadow);
         }
         context.disableScissor();
         int statusBarY = terminalY + terminalHeight - getStatusBarHeight();
@@ -121,28 +124,28 @@ public class TerminalRenderer {
         String inputText = inputPrompt + terminalInstance.inputHandler.getInputBuffer().toString();
         int cursorInputPosition = Math.min(terminalInstance.inputHandler.getCursorPosition(), terminalInstance.inputHandler.getInputBuffer().length());
         String beforeCursor = inputPrompt + terminalInstance.inputHandler.getInputBuffer().substring(0, cursorInputPosition);
-        int cursorXPos = inputX + minecraftClient.font.width(beforeCursor);
-        int cursorHeight = minecraftClient.font.lineHeight;
-        MultiTerminalScreen.MergeGroup mergedGroup = parent.mergeGroups.get(parent.terminals.get(parent.activeTerminalIndex).terminalId);
-        if (!(parent.aiSidePanel.fieldFocused || parent.tabsBar.getRenamingTab() != -1) && (!(mergedGroup.members.size() > 1) || (isActive))) {
-            context.pose().pushPose();
-            context.pose().translate(0, 0, 1000);
+        int cursorXPos = inputX + minecraftClient.textRenderer.getWidth(beforeCursor);
+        int cursorHeight = minecraftClient.textRenderer.fontHeight;
+        mergedGroup = mts.mergeGroups.get(mts.terminals.get(mts.activeTerminalIndex).terminalId);
+        if (!(mts.aiSidePanel.fieldFocused || mts.tabsBar.getRenamingTab() != -1) && (!(mergedGroup.members.size() > 1) || (isActive))) {
+            context.getMatrices().push();
+            context.getMatrices().translate(0, 0, 1000);
             context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, globalCursorAnimatedColor);
-            context.pose().popPose();
-            context.drawString(minecraftClient.font, Component.literal(inputText), inputX, inputY, terminalTextInputColor, Config.shadow);
+            context.getMatrices().pop();
+            context.drawText(minecraftClient.textRenderer, Text.literal(inputText), inputX, inputY, terminalTextInputColor, shadow);
             String suggestion = terminalInstance.inputHandler.getTabCompletionSuggestion();
             if (!suggestion.isEmpty() && !terminalInstance.inputHandler.getInputBuffer().isEmpty()) {
-                int inputTextWidth = minecraftClient.font.width(inputText);
-                context.drawString(minecraftClient.font, Component.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(Config.globalDarkTextColor))), inputX + inputTextWidth, inputY, Config.globalDarkTextColor, Config.shadow);
+                int inputTextWidth = minecraftClient.textRenderer.getWidth(inputText);
+                context.drawText(minecraftClient.textRenderer, Text.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(globalDarkTextColor))), inputX + inputTextWidth, inputY, globalDarkTextColor, shadow);
             }
         }
         context.fill(terminalX, statusBarY, terminalX + terminalWidth, statusBarY + getStatusBarHeight(), terminalStatusBarColor);
 
-        drawInnerBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, getElementBorderColor(this.hashCode(), false, !(parent.aiSidePanel.fieldFocused || parent.tabsBar.getRenamingTab() != -1) && isActive, true, false, false, !(parent.aiSidePanel.fieldFocused || parent.tabsBar.getRenamingTab() != -1) && this.terminalInstance instanceof ServerTerminalInstance));
+        drawInnerBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, getElementBorderColor(this.hashCode(), false, !(mts.aiSidePanel.fieldFocused || mts.tabsBar.getRenamingTab() != -1) && mergedGroup.members.size() > 1 && isActive, true, false, false, !(mts.aiSidePanel.fieldFocused || mts.tabsBar.getRenamingTab() != -1) && mergedGroup.members.size() > 1 && this.terminalInstance instanceof ServerTerminalInstance));
         String[] statusTexts = getStatusBarStrings(terminalWidth - 4);
-        int rightWidth = minecraftClient.font.width(statusTexts[1]);
-        context.drawString(minecraftClient.font, Component.literal(statusTexts[0]), terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.font.lineHeight) / 2, terminalTextColor, Config.shadow);
-        context.drawString(minecraftClient.font, Component.literal(statusTexts[1]), terminalX + terminalWidth - 2 - rightWidth, statusBarY + (getStatusBarHeight() - minecraftClient.font.lineHeight) / 2, terminalTextColor, Config.shadow);
+        int rightWidth = minecraftClient.textRenderer.getWidth(statusTexts[1]);
+        context.drawText(minecraftClient.textRenderer, Text.literal(statusTexts[0]), terminalX + 2, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, terminalTextColor, shadow);
+        context.drawText(minecraftClient.textRenderer, Text.literal(statusTexts[1]), terminalX + terminalWidth - 2 - rightWidth, statusBarY + (getStatusBarHeight() - minecraftClient.textRenderer.fontHeight) / 2, terminalTextColor, shadow);
         if (terminalWidth != lastTerminalWidth) {
             stickToBottom(8);
             rewrap();
@@ -257,15 +260,15 @@ public class TerminalRenderer {
         return result;
     }
 
-    private Style convertStyle(org.jline.utils.AttributedStyle attr) {
+    private Style convertStyle(AttributedStyle attr) {
         try {
-            java.lang.reflect.Field styleField = attr.getClass().getDeclaredField("style");
+            Field styleField = attr.getClass().getDeclaredField("style");
             styleField.setAccessible(true);
             int styleValue = styleField.getInt(attr);
-            java.lang.reflect.Field fForegroundField = attr.getClass().getDeclaredField("F_FOREGROUND");
+            Field fForegroundField = attr.getClass().getDeclaredField("F_FOREGROUND");
             fForegroundField.setAccessible(true);
             int F_FOREGROUND = fForegroundField.getInt(attr);
-            java.lang.reflect.Field fgColorExpField = attr.getClass().getDeclaredField("FG_COLOR_EXP");
+            Field fgColorExpField = attr.getClass().getDeclaredField("FG_COLOR_EXP");
             fgColorExpField.setAccessible(true);
             int FG_COLOR_EXP = fgColorExpField.getInt(attr);
             if ((styleValue & F_FOREGROUND) != 0) {
@@ -301,7 +304,7 @@ public class TerminalRenderer {
                 }
                 String substring = text.substring(index, index + charsToFit);
                 currentLineSegments.add(new StyleTextPair(style, null, substring));
-                int width = minecraftClient.font.width(substring);
+                int width = minecraftClient.textRenderer.getWidth(substring);
                 currentLineWidth += width;
                 index += charsToFit;
                 if (currentLineWidth >= maxWidth) {
@@ -324,7 +327,7 @@ public class TerminalRenderer {
         int index = 0;
         while (index < text.length()) {
             char c = text.charAt(index);
-            int charWidth = minecraftClient.font.width(String.valueOf(c));
+            int charWidth = minecraftClient.textRenderer.getWidth(String.valueOf(c));
             if (width + charWidth > maxWidth) {
                 break;
             }
@@ -335,14 +338,14 @@ public class TerminalRenderer {
     }
 
     private LineText buildLineText(List<StyleTextPair> segments) {
-        MutableComponent lineText = Component.literal("");
+        MutableText lineText = Text.literal("");
         StringBuilder plainTextBuilder = new StringBuilder();
         for (StyleTextPair segment : segments) {
-            Component styledText = Component.literal(segment.text).setStyle(segment.style);
+            Text styledText = Text.literal(segment.text).setStyle(segment.style);
             lineText.append(styledText);
             plainTextBuilder.append(segment.text);
         }
-        return new LineText(lineText.getVisualOrderText(), plainTextBuilder.toString());
+        return new LineText(lineText.asOrderedText(), plainTextBuilder.toString());
     }
 
     private int get256ColorRGB(int index) {
@@ -394,11 +397,11 @@ public class TerminalRenderer {
     }
 
     int getInputFieldHeight() {
-        return minecraftClient.font.lineHeight - 2;
+        return minecraftClient.textRenderer.fontHeight - 2;
     }
 
     int getStatusBarHeight() {
-        return minecraftClient.font.lineHeight + 4;
+        return minecraftClient.textRenderer.fontHeight + 4;
     }
 
     private String[] getStatusBarStrings(int availableWidth) {
@@ -462,16 +465,16 @@ public class TerminalRenderer {
         int padding = 2;
         int textAreaHeight = terminalHeight - 2 * padding - getInputFieldHeight() - getStatusBarHeight();
         int maxScroll = Math.max(0, getTotalScrollHeight() - textAreaHeight);
-        int threshold = (minecraftClient.font.lineHeight + 2) * thresholdMultiplayer;
+        int threshold = (minecraftClient.textRenderer.fontHeight + 2) * thresholdMultiplayer;
         if (targetScrollOffset >= maxScroll - threshold) {
             scrollToBottom();
         }
     }
 
     public void scroll(int direction, int availableHeight) {
-        int lineHeight = minecraftClient.font.lineHeight + 2;
+        int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
         int maxScroll = Math.max(0, getTotalScrollHeight() - availableHeight);
-        int scrollMultiplier = InputConstants.isKeyDown(minecraftClient.getWindow().getWindow(), GLFW.GLFW_KEY_LEFT_SHIFT) || InputConstants.isKeyDown(minecraftClient.getWindow().getWindow(), GLFW.GLFW_KEY_RIGHT_SHIFT) ? 5 : 1;
+        int scrollMultiplier = InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) || InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) ? 5 : 1;
         float scrollAmount = lineHeight * scrollMultiplier;
         targetScrollOffset -= direction * scrollAmount;
         targetScrollOffset = Math.max(0, Math.min(targetScrollOffset, maxScroll));
@@ -479,14 +482,14 @@ public class TerminalRenderer {
 
     public void scrollToTop() {
         targetScrollOffset = 0;
-        Render.ScrollBar.setPendingOffset(targetScrollOffset);
+        ScrollBar.setPendingOffset(targetScrollOffset);
     }
 
     public void scrollToBottom() {
         int padding = 2;
         int textAreaHeight = terminalHeight - 2 * padding - getInputFieldHeight() - getStatusBarHeight();
         targetScrollOffset = Math.max(0, getTotalScrollHeight() - textAreaHeight);
-        Render.ScrollBar.setPendingOffset(targetScrollOffset);
+        ScrollBar.setPendingOffset(targetScrollOffset);
     }
 
     public StringBuilder getTerminalOutput() {
@@ -544,7 +547,7 @@ public class TerminalRenderer {
         int padding = 2;
         int textAreaX = terminalX + padding;
         int textAreaY = terminalY + padding;
-        int lineHeight = minecraftClient.font.lineHeight + 2;
+        int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
         int firstLine = (int) Math.floor(currentScrollOffset / lineHeight);
         int offsetY = (int) ((mouseY - textAreaY) + (currentScrollOffset % lineHeight));
         int clickedLine = firstLine + offsetY / lineHeight;
@@ -556,7 +559,7 @@ public class TerminalRenderer {
             int charIndex = 0;
             int widthSum = 0;
             while (charIndex < lineText.length()) {
-                int charWidth = minecraftClient.font.width(String.valueOf(lineText.charAt(charIndex)));
+                int charWidth = minecraftClient.textRenderer.getWidth(String.valueOf(lineText.charAt(charIndex)));
                 if (widthSum + charWidth / 2 >= relativeX) break;
                 widthSum += charWidth;
                 charIndex++;
@@ -577,7 +580,7 @@ public class TerminalRenderer {
         int padding = 2;
         int textAreaX = terminalX + padding;
         int textAreaY = terminalY + padding;
-        int lineHeight = minecraftClient.font.lineHeight + 2;
+        int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
         int firstLine = (int) Math.floor(currentScrollOffset / lineHeight);
         int offsetY = (int) ((mouseY - textAreaY) + (currentScrollOffset % lineHeight));
         int clickedLine = firstLine + offsetY / lineHeight;
@@ -589,7 +592,7 @@ public class TerminalRenderer {
             int charIndex = 0;
             int widthSum = 0;
             while (charIndex < lineText.length()) {
-                int charWidth = minecraftClient.font.width(String.valueOf(lineText.charAt(charIndex)));
+                int charWidth = minecraftClient.textRenderer.getWidth(String.valueOf(lineText.charAt(charIndex)));
                 if (widthSum + charWidth / 2 >= relativeX) break;
                 widthSum += charWidth;
                 charIndex++;
@@ -600,7 +603,7 @@ public class TerminalRenderer {
     }
 
     int getTotalScrollHeight() {
-        int lineHeight = minecraftClient.font.lineHeight + 2;
+        int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
         return (getTotalLines() * lineHeight);
     }
 
@@ -659,17 +662,17 @@ public class TerminalRenderer {
         }
     }
 
-    private record LineText(FormattedCharSequence orderedText, String plainText) {
+    private record LineText(OrderedText orderedText, String plainText) {
     }
 
     public static class LineInfo {
         final int lineNumber;
         final int y;
         final int height;
-        final FormattedCharSequence orderedText;
+        final OrderedText orderedText;
         final String plainText;
 
-        LineInfo(int lineNumber, int y, int height, FormattedCharSequence orderedText, String plainText) {
+        LineInfo(int lineNumber, int y, int height, OrderedText orderedText, String plainText) {
             this.lineNumber = lineNumber;
             this.y = y;
             this.height = height;
@@ -687,7 +690,7 @@ public class TerminalRenderer {
         return lineNumber >= startLine && lineNumber <= endLine;
     }
 
-    private void drawSelection(GuiGraphics context, LineInfo lineInfo, int x) {
+    private void drawSelection(DrawContext context, LineInfo lineInfo, int x) {
         int lineNumber = lineInfo.lineNumber;
         int yPosition = lineInfo.y;
         String lineText = lineInfo.plainText;
@@ -711,13 +714,13 @@ public class TerminalRenderer {
         selectionEnd = Math.min(lineText.length(), selectionEnd);
         int selectionXStart = x;
         for (int i = 0; i < selectionStart; i++) {
-            selectionXStart += minecraftClient.font.width(String.valueOf(lineText.charAt(i)));
+            selectionXStart += minecraftClient.textRenderer.getWidth(String.valueOf(lineText.charAt(i)));
         }
         int selectionWidth = 0;
         for (int i = selectionStart; i < selectionEnd; i++) {
-            selectionWidth += minecraftClient.font.width(String.valueOf(lineText.charAt(i)));
+            selectionWidth += minecraftClient.textRenderer.getWidth(String.valueOf(lineText.charAt(i)));
         }
-        int lineHeight = minecraftClient.font.lineHeight + 2;
+        int lineHeight = minecraftClient.textRenderer.fontHeight + 2;
         context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, yPosition + lineHeight, globalSelectionColor);
     }
 
@@ -744,7 +747,7 @@ public class TerminalRenderer {
     public void copySelectionToClipboard() {
         String selectedText = getSelectedText();
         if (!selectedText.isEmpty()) {
-            minecraftClient.keyboardHandler.setClipboard(selectedText);
+            minecraftClient.keyboard.setClipboard(selectedText);
         }
         selectionStartLine = -1;
         selectionStartChar = -1;

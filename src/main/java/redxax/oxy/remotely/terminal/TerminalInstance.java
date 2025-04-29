@@ -10,8 +10,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
 
 public class TerminalInstance {
 
@@ -25,7 +25,7 @@ public class TerminalInstance {
     private List<String> commandHistory;
     private int historyIndex;
 
-    public TerminalInstance(Minecraft client, MultiTerminalScreen parent, UUID id) {
+    public TerminalInstance(MinecraftClient client, MultiTerminalScreen parent, UUID id) {
         this.parentScreen = parent;
         this.terminalId = id;
         this.sshManager = new SSHManager(this);
@@ -40,10 +40,6 @@ public class TerminalInstance {
 
     public ServerInfo getServerInfo() {
         return serverInfo;
-    }
-
-    public void render(GuiGraphics context, int x, int y, int width, int height) {
-        renderer.render(context, x, y, width, height );
     }
 
     public boolean charTyped(char chr) {

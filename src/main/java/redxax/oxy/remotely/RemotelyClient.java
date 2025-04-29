@@ -1,16 +1,8 @@
 package redxax.oxy.remotely;
 
-import net.minecraft.client.Minecraft;
-import net.minecraft.network.chat.Component;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import redxax.oxy.remotely.config.Config;
-//? if forge
-/*import redxax.oxy.remotely.loaders.forge.ForgeEntrypoint;*/
-//? if neoforge
-/*import redxax.oxy.remotely.loaders.neoforge.NeoforgeEntrypoint;*/
-//? if fabric
-import redxax.oxy.remotely.loaders.fabric.FabricEntrypoint;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.SettingsScreen;
@@ -18,6 +10,8 @@ import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import redxax.oxy.remotely.terminal.TerminalInstance;
 
 import javax.imageio.ImageIO;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.text.Text;
 import java.io.BufferedReader;
 import java.io.File;
 import java.nio.file.*;
@@ -117,8 +111,8 @@ public class RemotelyClient {
         return null;
     }
 
-    public void openMultiTerminalGUI(Minecraft client) {
-        if (multiTerminalScreen == null || !client.isWindowActive()) {
+    public void openMultiTerminalGUI(MinecraftClient client) {
+        if (multiTerminalScreen == null || !client.isWindowFocused()) {
             if (multiTerminals.isEmpty() && terminals.isEmpty()) {
                 loadSavedTerminals();
             }
@@ -151,7 +145,7 @@ public class RemotelyClient {
                 for (Path entry : stream) {
                     String fileName = entry.getFileName().toString();
                     String tabName = fileName.substring(0, fileName.length() - 4);
-                    TerminalInstance terminal = new TerminalInstance(Minecraft.getInstance(), multiTerminalScreen, UUID.randomUUID());
+                    TerminalInstance terminal = new TerminalInstance(MinecraftClient.getInstance(), multiTerminalScreen, UUID.randomUUID());
                     terminal.loadTerminalOutput(entry);
                     terminals.add(terminal);
                     tabNames.add(tabName);
@@ -160,8 +154,8 @@ public class RemotelyClient {
                     multiTerminalScreen.activeTerminalIndex = activeTerminalIndex;
                 }
             } catch (IOException e) {
-                if (Minecraft.getInstance().player != null) {
-                    Minecraft.getInstance().player.displayClientMessage(Component.literal("Failed to load saved terminals."), false);
+                if (MinecraftClient.getInstance().player != null) {
+                    MinecraftClient.getInstance().player.sendMessage(Text.literal("Failed to load saved terminals."), false);
                 }
             }
         }
@@ -288,7 +282,7 @@ public class RemotelyClient {
         Path oldPath = Paths.get("C:/remotely");
         if (System.getProperty("os.name").toLowerCase().contains("win") && Files.exists(oldPath)) {
             try {
-                Path target = Paths.get(System.getProperty("user.home"), "remotely");
+                Path target = Paths.get(System.getProperty("user.home"), "assets/remotely");
                 if (!Files.exists(target)) {
                     Files.createDirectories(target);
                 }
@@ -322,15 +316,7 @@ public class RemotelyClient {
     }
 
     public static boolean isModLoaded(String modId) {
-        //? if fabric {
-        return FabricEntrypoint.isModLoaded(modId);
-        //?} else if forge {
-         /*return ForgeEntrypoint.isModLoaded(modId);
-        *///?} else if neoforge {
-        /*return NeoforgeEntrypoint.isModLoaded(modId);
-        *///?}
-
-
+    return false;
     }
 
 }

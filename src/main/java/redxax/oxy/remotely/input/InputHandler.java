@@ -6,7 +6,7 @@ import redxax.oxy.remotely.terminal.TerminalProcessManager;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import net.minecraft.client.Minecraft;
+import net.minecraft.client.MinecraftClient;
 
 public class InputHandler {
 
@@ -16,7 +16,7 @@ public class InputHandler {
     public CommandExecutor commandExecutor;
 
 
-    public InputHandler(Minecraft client, TerminalInstance terminalInstance) {
+    public InputHandler(MinecraftClient client, TerminalInstance terminalInstance) {
         SSHManager sshManager = terminalInstance.getSSHManager();
 
         this.terminalProcessManager = new TerminalProcessManager(terminalInstance, sshManager);

@@ -68,9 +68,9 @@ public class FileManager {
                 try {
                     String remotePath = path.toString().replace("\\", "/");
                     String fileName = Paths.get(remotePath).getFileName().toString();
-                    String trashPath = homeDir + "/remotely/data/trash/" + fileName;
-                    if (!sshManager.remoteFileExists(homeDir + "/remotely/data/trash")) {
-                        sshManager.runRemoteCommand("mkdir -p " + homeDir + "/remotely/data/trash && mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
+                    String trashPath = homeDir + "/assets/remotely/data/trash/" + fileName;
+                    if (!sshManager.remoteFileExists(homeDir + "/assets/remotely/data/trash")) {
+                        sshManager.runRemoteCommand("mkdir -p " + homeDir + "/assets/remotely/data/trash && mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
                     } else {
                         sshManager.runRemoteCommand("mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
                     }

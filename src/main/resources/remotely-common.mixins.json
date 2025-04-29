@@ -1,0 +1,18 @@
+{
+  "required": true,
+  "package": "redxax.oxy.remotely.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "accessor.ImageWidgetTextureAccessor"
+  ],
+  "client": [
+    "ClickableWidgetMixin",
+    "GameMenuScreenMixin",
+    "ScreenMixin",
+    "TitleScreenMixin",
+    "accessor.SliderWidgetAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

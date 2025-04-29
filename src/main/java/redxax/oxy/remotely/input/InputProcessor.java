@@ -6,18 +6,18 @@ import redxax.oxy.remotely.terminal.ServerTerminalInstance;
 import redxax.oxy.remotely.servers.ServerState;
 import org.lwjgl.glfw.GLFW;
 import java.io.IOException;
-import net.minecraft.client.Minecraft;
+import net.minecraft.client.MinecraftClient;
 
 public class InputProcessor {
     private final StringBuilder inputBuffer = new StringBuilder();
     private int cursorPosition = 0;
-    private final Minecraft minecraftClient;
+    private final MinecraftClient minecraftClient;
     private final TerminalInstance terminalInstance;
     private final SSHManager sshManager;
     public TabCompletionHandler tabCompletionHandler;
     public final CommandExecutor commandExecutor;
 
-    public InputProcessor(Minecraft client, TerminalInstance terminalInstance, SSHManager sshManager, TabCompletionHandler tabCompletionHandler, CommandExecutor commandExecutor) {
+    public InputProcessor(MinecraftClient client, TerminalInstance terminalInstance, SSHManager sshManager, TabCompletionHandler tabCompletionHandler, CommandExecutor commandExecutor) {
         this.minecraftClient = client;
         this.terminalInstance = terminalInstance;
         this.sshManager = sshManager;
@@ -88,7 +88,7 @@ public class InputProcessor {
                     return true;
                 case GLFW.GLFW_KEY_V:
                     if (ctrlHeld) {
-                        String clipboard = this.minecraftClient.keyboardHandler.getClipboard();
+                        String clipboard = this.minecraftClient.keyboard.getClipboard();
                         sshManager.setSshPassword(sshManager.getSshPassword() + clipboard);
                         for (int i = 0; i < clipboard.length(); i++) {
                             inputBuffer.append('*');
@@ -226,7 +226,7 @@ public class InputProcessor {
                 return true;
             case GLFW.GLFW_KEY_V:
                 if (ctrlHeld) {
-                    String clipboard = this.minecraftClient.keyboardHandler.getClipboard();
+                    String clipboard = this.minecraftClient.keyboard.getClipboard();
                     wordStart = findWordStart(inputBuffer, cursorPosition);
                     int tokenEnd = wordStart;
                     while (tokenEnd < inputBuffer.length() && !Character.isWhitespace(inputBuffer.charAt(tokenEnd))) {

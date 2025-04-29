@@ -11,23 +11,23 @@ import redxax.oxy.remotely.util.CursorUtils;
 import redxax.oxy.remotely.util.Notification;
 import static redxax.oxy.remotely.config.Config.*;
 
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.Screen;
 
 @Mixin(value = Screen.class)
 public class ScreenMixin {
 
 
     @Inject(method = "render", at = @At("TAIL"))
-    private void render(GuiGraphics context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+    private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
         Config.tickTime();
         Config.globalCursorAnimatedColor = CursorUtils.blendColor();
         for (Notification notification : Notification.getActiveNotifications()) {
             notification.update();
-            context.pose().pushPose();
-            context.pose().translate(0, 0, 499);
+            context.getMatrices().push();
+            context.getMatrices().translate(0, 0, 499);
             notification.render(context, mouseX, mouseY);
-            context.pose().popPose();
+            context.getMatrices().pop();
         }
     }
 
@@ -50,6 +50,9 @@ public class ScreenMixin {
             cir.setReturnValue(true);
         } else if (keyCode == GLFW.GLFW_KEY_I && all) {
             new Notification("Testing Info Notification", Notification.Type.INFO);
+            cir.setReturnValue(true);
+        } else if (keyCode == GLFW.GLFW_KEY_S && all) {
+            new Notification("Testing Success Notification", Notification.Type.SUCCESS);
             cir.setReturnValue(true);
         }
     }

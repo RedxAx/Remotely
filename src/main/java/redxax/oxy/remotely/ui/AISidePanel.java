@@ -18,16 +18,18 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.network.chat.Component;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.text.Text;
+import redxax.oxy.remotely.util.Sound;
 
 import static redxax.oxy.remotely.Render.drawInnerBorder;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.ImageUtil.drawPixelArt;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
+import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
 public class AISidePanel {
 
@@ -60,7 +62,7 @@ public class AISidePanel {
     private final StringBuilder inputBuffer;
     private int inputCursor;
     private String extraContext;
-    private final Minecraft mc;
+    private final MinecraftClient mc;
     private static final Path AI_CONFIG_PATH = Path.of(remotelyDir.toString(), "data", "ai.json");
     private final int topBarHeight = 30;
     public boolean fieldFocused = false;
@@ -77,7 +79,7 @@ public class AISidePanel {
         this.inputBuffer = new StringBuilder();
         this.inputCursor = 0;
         this.extraContext = "";
-        this.mc = Minecraft.getInstance();
+        this.mc = MinecraftClient.getInstance();
         try {
             newChatIcon = loadResourceIcon("/assets/remotely/icons/newchat.png");
             deleteChatIcon = loadResourceIcon("/assets/remotely/icons/delete.png");
@@ -92,9 +94,9 @@ public class AISidePanel {
     public void setExtraContext(String context) {
         StringBuilder sb = new StringBuilder();
         sb.append("Hey Remotely, Here Is Some Handy Context: \n");
-        if (mc.getUser().getName().equalsIgnoreCase("RedxAx")) sb.append("The User Is RedxAx. Your Creator And Programmer Of The Remotely Mod.");
-        else sb.append("The User's Name is ").append(mc.getUser().getName()).append(". \n");
-        sb.append("(Only For You To Know) The User Language (WHICH YOU MUST USE UNLESS THE USER ASKS NOT TO) is: ").append(mc.getLanguageManager().getSelected()).append(". \n");
+        if (mc.getSession().getUsername().equalsIgnoreCase("RedxAx")) sb.append("The User Is RedxAx. Your Creator And Programmer Of The Remotely Mod.");
+        else sb.append("The User's Name is ").append(mc.getSession().getUsername()).append(". \n");
+        sb.append("(Only For You To Know) The User Language (WHICH YOU MUST USE UNLESS THE USER ASKS NOT TO) is: ").append(mc.getLanguageManager().getLanguage()).append(". \n");
         sb.append("(Only For You To Know) The User's Operating System is: ").append(System.getProperty("os.name")).append(". \n");
         sb.append("The Current User's Context is: \n");
         for (String line : context.split("\n")) {
@@ -106,11 +108,13 @@ public class AISidePanel {
 
     public void addUserMessage(String msg) {
         messages.add(new AIMessage("user", msg));
+        playSound(Sound.SEND);
         updateCurrentChatHistory();
     }
 
     public void setErrorMessage(String errMsg) {
         messages.add(new AIMessage("error", errMsg));
+        playSound(Sound.RECEIVEERROR);
         updateCurrentChatHistory();
     }
 
@@ -223,6 +227,7 @@ public class AISidePanel {
                 }
                 int responseCode = conn.getResponseCode();
                 if (responseCode == 200) {
+                    playSound(Sound.RECEIVE);
                     BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
                     AIMessage aiMessage = new AIMessage("ai", "");
                     mc.execute(() -> {
@@ -268,7 +273,7 @@ public class AISidePanel {
                         errorResponse.append(errorLine.trim());
                     }
                     errorReader.close();
-                    mc.execute(() -> setErrorMessage("AI request failed with code: " + responseCode + " response: " + errorResponse.toString()));
+                    mc.execute(() -> setErrorMessage("AI request failed with code: " + responseCode + " response: " + errorResponse));
                 }
             } catch (Exception e) {
                 mc.execute(() -> setErrorMessage("AI request error: " + e.getMessage()));
@@ -278,7 +283,7 @@ public class AISidePanel {
         inputCursor = 0;
     }
 
-    public void render(GuiGraphics context, int panelX, int panelY, int panelWidth, int panelHeight, int mouseX, int mouseY) {
+    public void render(DrawContext context, int panelX, int panelY, int panelWidth, int panelHeight, int mouseX, int mouseY) {
         this.panelWidth = panelWidth;
         this.panelY = panelY;
         this.panelX = panelX;
@@ -288,9 +293,9 @@ public class AISidePanel {
         renderTopBar(context, panelX, panelY, panelWidth, mouseX, mouseY);
         int msgAreaY = panelY + topBarHeight;
         int msgAreaHeight = panelHeight - topBarHeight - 28;
-        int totalHeight = getTotalChatHeight(panelWidth - 10, mc.font);
+        int totalHeight = getTotalChatHeight(panelWidth - 10, mc.textRenderer);
         int maxScroll = Math.max(0, totalHeight - msgAreaHeight);
-        int threshold = (mc.font.lineHeight + 2) * 2;
+        int threshold = (mc.textRenderer.fontHeight + 2) * 2;
         if (targetScrollOffset >= maxScroll - threshold) {
             targetScrollOffset = maxScroll;
         }
@@ -301,23 +306,23 @@ public class AISidePanel {
             if (panelWidth - 10 > 0)
                 panelMineMark.draw(panelX + 5, yStart, panelWidth - 10, mouseX, mouseY, context);
         } else if (messages.isEmpty()) {
-            Font tr = mc.font;
+            TextRenderer tr = mc.textRenderer;
             int iconRect = 100;
             int iconCenterX = panelX + panelWidth / 2 - iconRect / 2;
             int verticalCenter = msgAreaY + msgAreaHeight / 2;
-            int totalContentHeight = iconRect + tr.lineHeight + 5;
+            int totalContentHeight = iconRect + tr.fontHeight + 5;
             int iconY = verticalCenter - totalContentHeight / 2;
             drawPixelArt(context, iconCenterX, iconY, iconRect, iconRect, RemotelyAIcon);
             drawInnerBorder(context, iconCenterX, iconY, iconRect, iconRect, Config.innerBorderColor);
             Render.drawOuterBorder(context, iconCenterX, iconY, iconRect, iconRect, Config.globalOuterBorder);
-            String greeting = Render.trimTextToWidthWithEllipsis("Welcome, " + mc.getUser().getName() + "!", panelWidth - 10);
+            String greeting = Render.trimTextToWidthWithEllipsis("Welcome, " + mc.getSession().getUsername() + "!", panelWidth - 10);
             String greeting2 = "I'm Remotely AI.";
-            int greetingCenterX = panelX + panelWidth / 2 - tr.width(Component.literal(greeting)) / 2;
-            int greeting2CenterX = panelX + panelWidth / 2 - tr.width(Component.literal(greeting2)) / 2;
+            int greetingCenterX = panelX + panelWidth / 2 - tr.getWidth(Text.literal(greeting)) / 2;
+            int greeting2CenterX = panelX + panelWidth / 2 - tr.getWidth(Text.literal(greeting2)) / 2;
             int textY = iconY + iconRect + 5;
-            context.drawString(tr, Component.literal(greeting), greetingCenterX, textY, Config.globalDarkTextColor, Config.shadow);
-            textY += tr.lineHeight + 2;
-            context.drawString(tr, Component.literal(greeting2), greeting2CenterX, textY, Config.globalDarkTextColor, Config.shadow);
+            context.drawText(tr, Text.literal(greeting), greetingCenterX, textY, Config.globalDarkTextColor, Config.shadow);
+            textY += tr.fontHeight + 2;
+            context.drawText(tr, Text.literal(greeting2), greeting2CenterX, textY, Config.globalDarkTextColor, Config.shadow);
         }
         context.disableScissor();
         inputHovered = mouseX >= panelX + 5 && mouseX < panelX + panelWidth - 5 && mouseY >= panelY + panelHeight - 24 && mouseY < panelY + panelHeight - 10;
@@ -327,7 +332,7 @@ public class AISidePanel {
         Render.ContextMenu.renderMenu(context, mc, mouseX, mouseY);
     }
 
-    private void renderTopBar(GuiGraphics context, int panelX, int panelY, int panelWidth, int mouseX, int mouseY) {
+    private void renderTopBar(DrawContext context, int panelX, int panelY, int panelWidth, int mouseX, int mouseY) {
         int buttonSize = 20;
         int gap = 4;
         int barHeight = buttonSize + 2 * gap;
@@ -358,6 +363,7 @@ public class AISidePanel {
         int gap = 4;
         int barHeight = buttonSize + 2 * gap;
         if (inputHovered) {
+            playSound(Sound.SELECT);
             fieldFocused = true;
             return true;
         } else {
@@ -368,15 +374,18 @@ public class AISidePanel {
             int xDelete = xHistory - gap - buttonSize;
             int xNew = xDelete - gap - buttonSize;
             if (mouseX >= xNew && mouseX < xNew + buttonSize) {
+                playSound(Sound.CREATE);
                 newChat();
                 return true;
             }
             if (mouseX >= xDelete && mouseX < xDelete + buttonSize) {
+                playSound(Sound.DELETE);
                 deleteCurrentChat();
                 return true;
             }
             if (mouseX >= xHistory && mouseX < xHistory + buttonSize) {
-                Render.ContextMenu.show((int) mouseX, (int) mouseY + 15, 80, mc.getWindow().getGuiScaledWidth(), mc.getWindow().getGuiScaledHeight());
+                playSound(Sound.CLICK);
+                Render.ContextMenu.show((int) mouseX, (int) mouseY + 15, 80, mc.getWindow().getScaledWidth(), mc.getWindow().getScaledHeight());
                 showChatHistoryContextMenu();
                 return true;
             }
@@ -388,8 +397,8 @@ public class AISidePanel {
         int msgAreaY = panelY + topBarHeight;
         int msgAreaHeight = panelHeight - topBarHeight - 35;
         if (mouseX >= panelX && mouseX < panelX + panelWidth && mouseY >= msgAreaY && mouseY < msgAreaY + msgAreaHeight) {
-            int totalHeight = getTotalChatHeight(panelWidth - 10, mc.font);
-            targetScrollOffset -= (int) (verticalAmount * mc.font.lineHeight * 3);
+            int totalHeight = getTotalChatHeight(panelWidth - 10, mc.textRenderer);
+            targetScrollOffset -= (int) (verticalAmount * mc.textRenderer.fontHeight * 3);
             if (targetScrollOffset < 0) targetScrollOffset = 0;
             if (targetScrollOffset > totalHeight - msgAreaHeight) targetScrollOffset = totalHeight - msgAreaHeight;
             return true;
@@ -397,29 +406,29 @@ public class AISidePanel {
         return false;
     }
 
-    private int getTotalChatHeight(int availableWidth, Font tr) {
+    private int getTotalChatHeight(int availableWidth, TextRenderer tr) {
         if (panelMineMark != null) {
             return (int) panelMineMark.getHeight();
         }
         int total = 0;
         for (AIMessage msg : messages) {
             List<String> wrapped = wrapText(msg.text, availableWidth, tr);
-            total += wrapped.size() * (tr.lineHeight + 2) + 5;
+            total += wrapped.size() * (tr.fontHeight + 2) + 5;
         }
         return total;
     }
 
-    private List<String> wrapText(String text, int maxWidth, Font tr) {
+    private List<String> wrapText(String text, int maxWidth, TextRenderer tr) {
         List<String> result = new ArrayList<>();
         String[] originalLines = text.split("\n");
         for (String orig : originalLines) {
-            if (tr.width(orig) <= maxWidth) {
+            if (tr.getWidth(orig) <= maxWidth) {
                 result.add(orig);
             } else {
                 String[] words = orig.split(" ");
                 StringBuilder line = new StringBuilder();
                 for (String word : words) {
-                    if (tr.width(line + word + " ") > maxWidth && !line.isEmpty()) {
+                    if (tr.getWidth(line + word + " ") > maxWidth && !line.isEmpty()) {
                         result.add(line.toString());
                         line = new StringBuilder();
                     }
@@ -531,7 +540,10 @@ public class AISidePanel {
             for (int i = 0; i < history.size(); i++) {
                 String label = "History " + (i + 1);
                 final int index = i;
-                Render.ContextMenu.addItem(label, () -> loadChatHistory(index), globalHoverTextColor, "");
+                Render.ContextMenu.addItem(label, () -> {
+                    playSound(Sound.CLICK);
+                    loadChatHistory(index);
+                }, globalHoverTextColor, "");
             }
         } catch (IOException e) {
             devPrint("Failed to load chat history: " + e.getMessage());
