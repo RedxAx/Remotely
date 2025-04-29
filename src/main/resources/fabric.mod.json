@@ -1,13 +1,30 @@
 {
   "schemaVersion": 1,
-  "id": "remotely",
-  "name": "Remotely",
-  "version": "2.0.0",
-  "description": "Development Like Never Before.",
+  "id": "${id}",
+  "version": "${version}",
+  "name": "${name}",
+  "description": "",
+  "authors": [
+    "RedxAx, DumbFridge"
+  ],
+  "contact": {
+  },
+  "license": "https://github.com/RedxAx/Remotely/blob/main/LICENSE",
+  "icon": "assets/remotely/Reemotely.png",
   "environment": "*",
   "entrypoints": {
     "main": [
-      "redxax.oxy.remotely.loaders.fabric.FabricEntrypoint"
+      "redxax.oxy.remotely.platforms.fabric.RemotelyFabric"
+    ],
+    "modmenu": [
+      "redxax.oxy.remotely.platforms.fabric.ModMenuIntegration"
     ]
+  },
+  "mixins": [
+    "remotely-common.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.15",
+    "minecraft": "${minecraft}"
   }
 }

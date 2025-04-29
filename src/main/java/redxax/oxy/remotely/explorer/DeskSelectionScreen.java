@@ -17,18 +17,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.network.chat.Component;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.text.Text;
+import redxax.oxy.remotely.util.Sound;
 
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.util.ImageUtil.*;
 import static redxax.oxy.remotely.Render.*;
-import static redxax.oxy.remotely.util.SoundUtils.playClick;
+import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
 public class DeskSelectionScreen extends Screen {
-    private final Minecraft minecraftClient;
+    private final MinecraftClient minecraftClient;
     private final FileExplorerScreen parent;
     private final List<ObjectItem> objectItems = new ArrayList<>();
     private int itemWidth = 200;
@@ -49,13 +50,13 @@ public class DeskSelectionScreen extends Screen {
         boolean isFavorite;
     }
 
-    public DeskSelectionScreen(Minecraft minecraftClient, FileExplorerScreen parent) {
-        super(Component.literal("Desks/Servers"));
+    public DeskSelectionScreen(MinecraftClient minecraftClient, FileExplorerScreen parent) {
+        super(Text.literal("Desks/Servers"));
         this.minecraftClient = minecraftClient;
         this.parent = parent;
-        originalMCScale = minecraftClient.getWindow().getGuiScale();
+        originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
-        minecraftClient.getWindow().setGuiScale(globalScaleFactor);
+        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
     }
 
     @Override
@@ -94,7 +95,7 @@ public class DeskSelectionScreen extends Screen {
                 objectItems.add(item);
             }
 
-            Path serversJson = Paths.get(System.getProperty("user.dir"), "remotely", "servers", "remotehosts.json");
+            Path serversJson = Paths.get(System.getProperty("user.dir"), "assets/remotely", "servers", "remotehosts.json");
             if (Files.exists(serversJson)) {
                 try {
                     String content = new String(Files.readAllBytes(serversJson));
@@ -186,10 +187,10 @@ public class DeskSelectionScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, null, null, null, null, null, null, null, null);
-        context.drawString(this.font, Component.literal("Remotely - New Tab"), 10, 10, globalTextColor, Config.shadow);
+        context.drawText(this.textRenderer, Text.literal("Remotely - New Tab"), 10, 10, globalTextColor, Config.shadow);
         int gridX = 5;
         int gridY = 60;
         int gridWidth = this.width - 5;
@@ -213,8 +214,8 @@ public class DeskSelectionScreen extends Screen {
             float currentOffset = elevationOffsets.getOrDefault(id, 0f);
             currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
             elevationOffsets.put(id, currentOffset);
-            context.pose().pushPose();
-            context.pose().translate(0, currentOffset, 0);
+            context.getMatrices().push();
+            context.getMatrices().translate(0, currentOffset, 0);
             context.fill(drawX, drawY, drawX + itemWidth, drawY + itemHeight, bgColor);
             drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, getElementBorderColor(item.hashCode(), hovered, item.isFavorite, true, false, false, false));
             drawOuterBorder(context, drawX, drawY, itemWidth, itemHeight, globalOuterBorder);
@@ -226,16 +227,16 @@ public class DeskSelectionScreen extends Screen {
             String firstLine = item.displayName;
             String secondLine = item.isRemote ? (item.remoteServerPath != null ? item.remoteServerPath.toString() : "") : item.localPath.toAbsolutePath().normalize().toString();
             int maxTextWidth = itemWidth - 32;
-            if (font.width(secondLine) > maxTextWidth) {
-                while (font.width(secondLine + "...") > maxTextWidth && !secondLine.isEmpty()) {
+            if (textRenderer.getWidth(secondLine) > maxTextWidth) {
+                while (textRenderer.getWidth(secondLine + "...") > maxTextWidth && !secondLine.isEmpty()) {
                     secondLine = secondLine.substring(0, secondLine.length() - 1);
                 }
                 secondLine = secondLine + "...";
             }
-            context.drawString(this.font, Component.literal(firstLine), drawX + 25, drawY + 7, Config.globalTextColor, Config.shadow);
-            context.drawString(this.font, Component.literal(secondLine), drawX + 25, drawY + 18, globalDarkTextColor, Config.shadow);
+            context.drawText(this.textRenderer, Text.literal(firstLine), drawX + 25, drawY + 7, Config.globalTextColor, Config.shadow);
+            context.drawText(this.textRenderer, Text.literal(secondLine), drawX + 25, drawY + 18, globalDarkTextColor, Config.shadow);
             idx++;
-            context.pose().popPose();
+            context.getMatrices().pop();
         }
         animatedScaling(context, this, minecraftClient);
     }
@@ -244,7 +245,7 @@ public class DeskSelectionScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0) {
             if (mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24) {
-                playClick();
+                playSound(Sound.CLICK);
                 minecraftClient.setScreen(parent);
                 return true;
             }
@@ -259,7 +260,7 @@ public class DeskSelectionScreen extends Screen {
                 int drawX = spacing + col * (itemWidth + spacing) + spacing;
                 int drawY = startY + row * (itemHeight + spacing) - scrollOffset;
                 if (mouseX >= drawX && mouseX <= drawX + itemWidth && mouseY >= drawY && mouseY <= drawY + itemHeight) {
-                    playClick();
+                    playSound(Sound.CREATE);
                     if (!item.isRemote) {
                         if (item.isDirectory) {
                             FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(item.localPath.toAbsolutePath().normalize(), false, null);
@@ -301,7 +302,7 @@ public class DeskSelectionScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY,/*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         scaleScroll(verticalAmount);
         scrollOffset -= (int) (verticalAmount * 10);
         if (scrollOffset < 0) scrollOffset = 0;
@@ -311,7 +312,7 @@ public class DeskSelectionScreen extends Screen {
 
     @Override
     public void removed() {
-        minecraftClient.getWindow().setGuiScale(originalMCScale);
+        minecraftClient.getWindow().setScaleFactor(originalMCScale);
         targetScaleFactor = globalScaleFactor = animScaleFactor;
     }
 }

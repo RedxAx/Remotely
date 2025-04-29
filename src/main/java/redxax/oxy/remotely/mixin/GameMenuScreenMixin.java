@@ -17,13 +17,12 @@ import redxax.oxy.remotely.servers.ServerManagerScreen;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.screens.PauseScreen;
-import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.resources.language.I18n;
-import net.minecraft.network.chat.Component;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.GameMenuScreen;
+import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.resource.language.I18n;
+import net.minecraft.text.Text;
 
 import static redxax.oxy.remotely.Render.drawCustomButton;
 import static redxax.oxy.remotely.Render.drawSquareButton;
@@ -32,23 +31,23 @@ import static redxax.oxy.remotely.servers.BrowserScreen.checkIfMcefExist;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
 
-@Mixin(PauseScreen.class)
-public abstract class GameMenuScreenMixin extends Screen {
-    @Unique private Button optionsButton;
+@Mixin(GameMenuScreen.class)
+public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.screen.Screen {
+    @Unique private ButtonWidget optionsButton;
     @Unique private BufferedImage remotelyIcon, fileExplorerIcon, terminalIcon, browserIcon;
     @Unique private final List<Style1Button> style1Buttons = new ArrayList<>();
     @Unique private final List<NormalButton> normalButtons = new ArrayList<>();
     @Unique private boolean wasMousePressed = false;
 
-    protected GameMenuScreenMixin(Component title) {
+    protected GameMenuScreenMixin(Text title) {
         super(title);
     }
 
     @Inject(method = "init", at = @At("RETURN"))
     private void addServerManagerButton(CallbackInfo ci) {
-        String returnToMenuButtonText = I18n.get("menu.returnToMenu");
-        String disconnectButtonText = I18n.get("menu.disconnect");
-        optionsButton = this.children().stream().filter(child -> child instanceof Button).map(child -> (Button) child).filter(button -> button.getMessage().getString().equals(returnToMenuButtonText) || button.getMessage().getString().equals(disconnectButtonText)).findFirst().orElse(null);
+        String returnToMenuButtonText = I18n.translate("menu.returnToMenu");
+        String disconnectButtonText = I18n.translate("menu.disconnect");
+        optionsButton = this.children().stream().filter(child -> child instanceof ButtonWidget).map(child -> (ButtonWidget) child).filter(button -> button.getMessage().getString().equals(returnToMenuButtonText) || button.getMessage().getString().equals(disconnectButtonText)).findFirst().orElse(null);
         if (optionsButton != null && mainMenuStyle.equals("Vanilla")) {
             int buttonX = optionsButton.getX();
             int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
@@ -58,12 +57,12 @@ public abstract class GameMenuScreenMixin extends Screen {
             int totalWidth = smallButtonWidth * 2 + largeButtonWidth + gap * 2;
             int excessWidth = totalWidth - 200;
             largeButtonWidth -= excessWidth;
-            Button serverButton = Button.builder(Component.literal("Servers"), btn -> openServerManagerScreen()).bounds(buttonX, buttonY, smallButtonWidth, 20).build();
-            this.addRenderableWidget(serverButton);
-            Button fileExplorerButton = Button.builder(Component.literal("File Explorer"), btn -> openFileExplorerScreen()).bounds(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20).build();
-            this.addRenderableWidget(fileExplorerButton);
-            Button terminalButton = Button.builder(Component.literal("Terminal"), btn -> openMultiTerminalScreen()).bounds(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY, smallButtonWidth, 20).build();
-            this.addRenderableWidget(terminalButton);
+            ButtonWidget serverButton = ButtonWidget.builder(Text.literal("Servers"), btn -> openServerManagerScreen()).dimensions(buttonX, buttonY, smallButtonWidth, 20).build();
+            this.addDrawableChild(serverButton);
+            ButtonWidget fileExplorerButton = ButtonWidget.builder(Text.literal("File Explorer"), btn -> openFileExplorerScreen()).dimensions(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20).build();
+            this.addDrawableChild(fileExplorerButton);
+            ButtonWidget terminalButton = ButtonWidget.builder(Text.literal("Terminal"), btn -> openMultiTerminalScreen()).dimensions(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY, smallButtonWidth, 20).build();
+            this.addDrawableChild(terminalButton);
         }
         if (optionsButton != null && mainMenuStyle.equals("Minimal")) {
             style1Buttons.clear();
@@ -72,7 +71,7 @@ public abstract class GameMenuScreenMixin extends Screen {
             style1Buttons.add(new Style1Button("File Explorer", this::openFileExplorerScreen));
             style1Buttons.add(new Style1Button("Internet Browser", () ->  {
                 if (checkIfMcefExist())
-                    this.minecraft.setScreen(new BrowserScreen(this.minecraft, this, "google.com"));
+                    this.client.setScreen(new BrowserScreen(this.client, this, "google.com"));
             }));
             try {
                 remotelyIcon = loadResourceIcon("/assets/remotely/icons/manager.png");
@@ -98,9 +97,9 @@ public abstract class GameMenuScreenMixin extends Screen {
     }
 
     @Inject(method = "render", at = @At("TAIL"))
-    private void render(GuiGraphics context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
-        context.pose().pushPose();
-        context.pose().translate(0, 0, 499);
+    private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        context.getMatrices().push();
+        context.getMatrices().translate(0, 0, 499);
         if (mainMenuStyle.equals("Minimal") && optionsButton != null) {
             int spacing = 8;
             int totalWidth = style1Buttons.size() * style1Buttons.get(0).size + spacing * (style1Buttons.size() - 1);
@@ -111,7 +110,7 @@ public abstract class GameMenuScreenMixin extends Screen {
                 b.x = startX + i * (b.size + spacing);
                 b.y = buttonY;
                 boolean hovered = mouseX >= b.x && mouseX < b.x + b.size && mouseY >= b.y && mouseY < b.y + b.size;
-                drawSquareButton(context, b.x, b.y, this.minecraft, hovered, mouseX, mouseY, b.label, switch (b.label) { case "Servers" -> remotelyIcon; case "File Explorer" -> fileExplorerIcon; case "Terminal" -> terminalIcon; case "Internet Browser" -> browserIcon; default -> null;});
+                drawSquareButton(context, b.x, b.y, this.client, hovered, mouseX, mouseY, b.label, switch (b.label) { case "Servers" -> remotelyIcon; case "File Explorer" -> fileExplorerIcon; case "Terminal" -> terminalIcon; case "Internet Browser" -> browserIcon; default -> null;});
             }
         }
         if (mainMenuStyle.equals("Normal") && optionsButton != null) {
@@ -139,16 +138,16 @@ public abstract class GameMenuScreenMixin extends Screen {
             }
             for (NormalButton btn : normalButtons) {
                 boolean hovered = mouseX >= btn.x && mouseX < btn.x + btn.width && mouseY >= btn.y && mouseY < btn.y + btn.height;
-                drawCustomButton(context, btn.x, btn.y, btn.label, this.minecraft, hovered, false, true, false, true, btn.width, btn.height, globalTextColor, niceAccentHoverColor, mouseX, mouseY, "");
+                drawCustomButton(context, btn.x, btn.y, btn.label, this.client, hovered, false, true, false, true, btn.width, btn.height, globalTextColor, niceAccentHoverColor, mouseX, mouseY, "");
             }
         }
-        context.pose().popPose();
+        context.getMatrices().pop();
         checkMouseClicked(mouseX, mouseY);
     }
 
     @Unique
     private void checkMouseClicked(int mouseX, int mouseY) {
-        long windowHandle = this.minecraft.getWindow().getWindow();
+        long windowHandle = this.client.getWindow().getHandle();
         boolean currentlyPressed = GLFW.glfwGetMouseButton(windowHandle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
         if (currentlyPressed && !wasMousePressed) {
             if (mainMenuStyle.equals("Minimal")) {
@@ -171,7 +170,7 @@ public abstract class GameMenuScreenMixin extends Screen {
 
     @Unique
     private void openServerManagerScreen() {
-        Minecraft client = Minecraft.getInstance();
+        MinecraftClient client = MinecraftClient.getInstance();
         if (client != null) {
             client.setScreen(new ServerManagerScreen(client, RemotelyClient.INSTANCE, RemotelyClient.INSTANCE.servers));
         }
@@ -179,7 +178,7 @@ public abstract class GameMenuScreenMixin extends Screen {
 
     @Unique
     private void openMultiTerminalScreen() {
-        Minecraft client = Minecraft.getInstance();
+        MinecraftClient client = MinecraftClient.getInstance();
         if (client != null) {
             RemotelyClient.INSTANCE.openMultiTerminalGUI(client);
         }
@@ -187,7 +186,7 @@ public abstract class GameMenuScreenMixin extends Screen {
 
     @Unique
     private void openFileExplorerScreen() {
-        Minecraft client = Minecraft.getInstance();
+        MinecraftClient client = MinecraftClient.getInstance();
         if (client != null) {
             client.setScreen(new FileExplorerScreen(client, this, new ServerInfo(remotelyDir.toString())));
         }

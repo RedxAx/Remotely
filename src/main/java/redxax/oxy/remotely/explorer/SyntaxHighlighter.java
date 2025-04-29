@@ -4,8 +4,8 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.text.MutableText;
+import net.minecraft.text.Text;
 import redxax.oxy.remotely.config.Config;
 
 public class SyntaxHighlighter {
@@ -96,7 +96,7 @@ public class SyntaxHighlighter {
         extensionPatterns.put("txt", textPatterns);
     }
 
-    public static Component highlight(String line, String fileName) {
+    public static Text highlight(String line, String fileName) {
         String ext = getExtension(fileName).toLowerCase();
         List<PatternHighlighter> highlighters = extensionPatterns.getOrDefault(ext, new ArrayList<>());
 
@@ -130,17 +130,17 @@ public class SyntaxHighlighter {
         }
 
         filtered.sort(Comparator.comparingInt(MatchResult::start));
-        MutableComponent mutableText = Component.literal("");
+        MutableText mutableText = Text.literal("");
         int lastIndex = 0;
         for (MatchResult m : filtered) {
             if (m.start > lastIndex) {
-                mutableText.append(Component.literal(line.substring(lastIndex, m.start)));
+                mutableText.append(Text.literal(line.substring(lastIndex, m.start)));
             }
-            mutableText.append(Component.literal(line.substring(m.start, m.end)).withStyle(s -> s.withColor(m.color)));
+            mutableText.append(Text.literal(line.substring(m.start, m.end)).styled(s -> s.withColor(m.color)));
             lastIndex = m.end;
         }
         if (lastIndex < line.length()) {
-            mutableText.append(Component.literal(line.substring(lastIndex)));
+            mutableText.append(Text.literal(line.substring(lastIndex)));
         }
         return mutableText;
     }

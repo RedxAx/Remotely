@@ -6,16 +6,16 @@ import redxax.oxy.remotely.servers.ServerState;
 
 import java.nio.file.Paths;
 import java.util.UUID;
-import net.minecraft.client.Minecraft;
+import net.minecraft.client.MinecraftClient;
 
 public class ServerTerminalInstance extends TerminalInstance {
-    public boolean isServerTerminal = false;
+    public boolean isServerTerminal;
     public String serverJarPath;
     public String serverName = "";
     public ServerInfo serverInfo;
     public TerminalProcessManager processManager;
 
-    public ServerTerminalInstance(Minecraft mc, MultiTerminalScreen screen, UUID id, ServerInfo sInfo) {
+    public ServerTerminalInstance(MinecraftClient mc, MultiTerminalScreen screen, UUID id, ServerInfo sInfo) {
         super(mc, screen, id);
         this.isServerTerminal = true;
         this.serverInfo = sInfo;

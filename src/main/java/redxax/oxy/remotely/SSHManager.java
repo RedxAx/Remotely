@@ -126,7 +126,7 @@ public class SSHManager {
         executorService.submit(() -> {
             try {
                 ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
-                String homePath = user.equals("root") ? "/root/remotely/" : "/home/" + user + "/remotely/";
+                String homePath = user.equals("root") ? "/root/remotely/" : "/home/" + user + "/assets/remotely/";
                 prepareRemoteDirectory(homePath);
                 String command = "wget -O " + homePath + "mrpack-install-linux https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-linux && chmod 0755 " + homePath + "mrpack-install-linux";
                 devPrint("Downloading MrPack binary: " + command);
@@ -158,7 +158,7 @@ public class SSHManager {
         }
         try {
             String user = serverInfo.remoteHost.user;
-            String homePath = user.equals("root") ? "/root/remotely/mrpack-install-linux" : "/home/" + user + "/remotely/mrpack-install-linux";
+            String homePath = user.equals("root") ? "/root/remotely/mrpack-install-linux" : "/home/" + user + "/assets/remotely/mrpack-install-linux";
             if (!remoteFileExists(homePath)) {
                 downloadMrPackBinary(user);
             }
@@ -166,7 +166,7 @@ public class SSHManager {
             StringBuilder cmd = new StringBuilder();
             cmd.append(homePath);
             cmd.append(" ").append(resource.getProjectId()).append(" ").append(resource.getVersion()).append(" ");
-            cmd.append(" --server-dir ").append(remoteHost.getHomeDirectory()).append("/remotely/servers/\"").append(resource.getName()).append("\"");
+            cmd.append(" --server-dir ").append(remoteHost.getHomeDirectory()).append("/assets/remotely/servers/\"").append(resource.getName()).append("\"");
             cmd.append(" --server-file server.jar");
             devPrint("Installing MrPack on remote: " + cmd);
             channelExec.setCommand(cmd.toString());

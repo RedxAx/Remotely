@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.servers;
 
+import net.minecraft.client.gui.screen.Screen;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.SSHManager;
@@ -15,6 +16,8 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.Toolkit;
 import java.io.*;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,10 +26,10 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.network.chat.Component;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.text.Text;
+import redxax.oxy.remotely.util.Sound;
 
 import static redxax.oxy.remotely.RemotelyClient.*;
 import static redxax.oxy.remotely.Render.*;
@@ -34,18 +37,20 @@ import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.config.Themes.importThemesFromJar;
 import static redxax.oxy.remotely.servers.SettingsScreen.ServerSettingType.*;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
-import static redxax.oxy.remotely.util.SoundUtils.playClick;
+import static redxax.oxy.remotely.util.Sound.soundEffects;
+import static redxax.oxy.remotely.util.Sound.soundVolume;
+import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
 public class SettingsScreen extends Screen {
-    private final Minecraft mc;
-    private final ServerManagerScreen parent;
+    private final MinecraftClient mc;
+    private final Screen parent;
     private final String mode;
     private final String settingsRoot;
     private final boolean editServerMode;
     private static boolean configMode = false;
     private ServerInfo serverInfo;
     private int currentTab;
-    private static List<Settings> settings = new ArrayList<>();
+    public static List<Settings> settings = new ArrayList<>();
     private List<String> tabs = new ArrayList<>();
     private final Map<Settings, Float> textInputScrollOffsets = new HashMap<>();
     private final Map<Settings, Float> textInputTargetScrollOffsets = new HashMap<>();
@@ -58,14 +63,14 @@ public class SettingsScreen extends Screen {
     private Settings draggedSlider = null;
     private ImageUtil.IconWithTooltip closeIcon, createIcon;
     public enum ServerSettingType {TOGGLE, SLIDER, SCROLL_SWITCH, TAB_SWITCH, TEXT}
-    List<String> themeOptions = new ArrayList<>();
+    static List<String> themeOptions = new ArrayList<>();
 
-    public SettingsScreen(Minecraft mc, String mode, ServerManagerScreen parent, String settingsRoot, List<Settings> customSettings) {
+    public SettingsScreen(MinecraftClient mc, String mode, Screen parent, String settingsRoot, List<Settings> customSettings) {
         this(mc, mode, parent, settingsRoot, customSettings, null);
     }
 
-    public SettingsScreen(Minecraft mc, String mode, ServerManagerScreen parent, String settingsRoot, List<Settings> customSettings, ServerInfo serverInfo) {
-        super(Component.literal("Server Settings"));
+    public SettingsScreen(MinecraftClient mc, String mode, Screen parent, String settingsRoot, List<Settings> customSettings, ServerInfo serverInfo) {
+        super(Text.literal("Server Settings"));
         this.mc = mc;
         this.parent = parent;
         this.mode = mode;
@@ -102,12 +107,12 @@ public class SettingsScreen extends Screen {
         }
         initTextInputOffsets();
         recalcTabs();
-        originalMCScale = mc.getWindow().getGuiScale();
+        originalMCScale = mc.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
-        mc.getWindow().setGuiScale(globalScaleFactor);
+        mc.getWindow().setScaleFactor(globalScaleFactor);
     }
 
-    private void loadClientConfiguration() {
+    public static void loadClientConfiguration() {
         importThemesFromJar();
         loadThemesFromDir();
         if (RemotelyClient.INSTANCE != null && themes != null && !themes.isEmpty()) {
@@ -129,8 +134,41 @@ public class SettingsScreen extends Screen {
         settings.add(new Settings("Scale Animation Speed", "Set The Global Speed of The Scale Animations.", "Appearance", "none", "scaleAnimationSpeed", SLIDER, String.valueOf(scaleAnimationSpeed), 0, 60));
         settings.add(new Settings("Expand Animation Speed", "Set The Global Speed of The Expand/Shrink Animations.", "Appearance", "none", "globalExpandSpeed", SLIDER, String.valueOf(globalExpandSpeed).replace("f", ""), 0, 30));
         settings.add(new Settings("Enable Tab Close Button", "Adds a Close Button on The Top Right Corner of Tabs.", "Appearance", "none", "tabCloseButtons", TOGGLE, String.valueOf(tabCloseButtons)));
+
+        settings.add(new Settings("Sound Volume", "Set The Volume of The Sounds.", "Sounds", "none", "soundVolume", SLIDER, String.valueOf(soundVolume), 0, 200));
+        settings.add(new Settings("Pitch Variation", "Set The Variation of The Sound Pitch.", "Sounds", "none", "pitchVariation", SLIDER, String.valueOf(Sound.pitchVariation), 0, 200));
+        settings.add(new Settings("Sound Effects", "Enable/Disable The Sound Effects.", "Sounds", "none", "soundEffects", TOGGLE, String.valueOf(soundEffects)));
+        try {
+            Field[] fields = Sound.class.getDeclaredFields();
+            for (Field field : fields) {
+                if (Modifier.isStatic(field.getModifiers()) && Modifier.isPublic(field.getModifiers()) && field.getType() == boolean.class && field.getName().startsWith("sound")) {
+                    String fieldName = field.getName();
+                    String displayName = formatSoundFieldName(fieldName);
+                    String description = "Enable/Disable the " + displayName + ".";
+                    boolean currentValue = field.getBoolean(null);
+                    settings.add(new Settings(displayName, description, "Sounds", "none", fieldName, TOGGLE, String.valueOf(currentValue)));
+                }
+            }
+        } catch (IllegalAccessException e) {
+            devPrint("Error accessing Sound fields for settings: " + e.getMessage());
+        }
+
         settings.add(new Settings("Developer Mode", "Enable Developer Mode.", "Development", "none", "isDev", TOGGLE, String.valueOf(isDev)));
         settings.add(new Settings("Enable Debug Tools", "Enable Visual Tools For Debugging.", "Development", "none", "enableDebugTools", TOGGLE, String.valueOf(enableDebugTools)));
+    }
+
+    private static String formatSoundFieldName(String fieldName) {
+        if (fieldName.startsWith("sound")) {
+            String namePart = fieldName.substring("sound".length()).toLowerCase();
+            StringBuilder formattedName = new StringBuilder();
+            formattedName.append(Character.toUpperCase(namePart.charAt(0)));
+            for (int i = 1; i < namePart.length(); i++) {
+                char c = namePart.charAt(i);
+                formattedName.append(c);
+            }
+            return formattedName.toString();
+        }
+        return fieldName;
     }
 
     private void initTextInputOffsets() {
@@ -190,26 +228,46 @@ public class SettingsScreen extends Screen {
 
     private static void updateClientConfigSetting(String key, String value) {
         devPrint("Updated client config setting: " + key + " = " + value);
-        switch (key) {
-            case "background" -> background = Boolean.parseBoolean(value);
-            case "redesignMainMenu" -> redesignMainMenu = Boolean.parseBoolean(value);
-            case "wallpaper" -> wallpaper = Boolean.parseBoolean(value);
-            case "shadow" -> shadow = Boolean.parseBoolean(value);
-            case "mainMenuButtonsStyle" -> mainMenuStyle = value;
-            case "globalScrollSpeed" -> globalScrollSpeed = Math.round(Float.parseFloat(value));
-            case "globalMovementSpeed" -> globalMovementSpeed = Math.round(Float.parseFloat(value));
-            case "globalExpandSpeed" -> globalExpandSpeed = Math.round(Float.parseFloat(value));
-            case "scaleAnimationSpeed" -> scaleAnimationSpeed = Math.round(Float.parseFloat(value));
-            case "tabCloseButtons" -> tabCloseButtons = Boolean.parseBoolean(value);
-            case "isDev" -> isDev = Boolean.parseBoolean(value);
-            case "enableDebugTools" -> enableDebugTools = Boolean.parseBoolean(value);
-        }
-        if (key.equals("theme") && RemotelyClient.INSTANCE != null) {
-            for (MultiTerminalScreen.Theme theme : themes) {
-                if (theme.name.equals(value)) {
-                    Themes.applyTheme(theme);
-                    break;
+        boolean updated = false;
+        if (key.startsWith("sound")) {
+            try {
+                Field field = Sound.class.getDeclaredField(key);
+                if (Modifier.isStatic(field.getModifiers()) && Modifier.isPublic(field.getModifiers()) && field.getType() == boolean.class) {
+                    field.setBoolean(null, Boolean.parseBoolean(value));
+                    updated = true;
                 }
+            } catch (NoSuchFieldException | IllegalAccessException e) {
+                devPrint("Error updating sound setting '" + key + "': " + e.getMessage());
+            }
+        }
+        if (!updated) {
+            switch (key) {
+                case "background" -> background = Boolean.parseBoolean(value);
+                case "redesignMainMenu" -> redesignMainMenu = Boolean.parseBoolean(value);
+                case "wallpaper" -> wallpaper = Boolean.parseBoolean(value);
+                case "shadow" -> shadow = Boolean.parseBoolean(value);
+                case "mainMenuButtonsStyle" -> mainMenuStyle = value;
+                case "globalScrollSpeed" -> globalScrollSpeed = Math.round(Float.parseFloat(value));
+                case "globalMovementSpeed" -> globalMovementSpeed = Math.round(Float.parseFloat(value));
+                case "globalExpandSpeed" -> globalExpandSpeed = Math.round(Float.parseFloat(value));
+                case "scaleAnimationSpeed" -> scaleAnimationSpeed = Math.round(Float.parseFloat(value));
+                case "tabCloseButtons" -> tabCloseButtons = Boolean.parseBoolean(value);
+                case "soundEffects" -> soundEffects = Boolean.parseBoolean(value);
+                case "soundVolume" -> soundVolume = Integer.parseInt(value);
+                case "pitchVariation" -> Sound.pitchVariation = Integer.parseInt(value);
+                case "isDev" -> isDev = Boolean.parseBoolean(value);
+                case "enableDebugTools" -> enableDebugTools = Boolean.parseBoolean(value);
+                case "theme" -> {
+                    if (RemotelyClient.INSTANCE != null) {
+                        for (MultiTerminalScreen.Theme theme : themes) {
+                            if (theme.name.equals(value)) {
+                                Themes.applyTheme(theme);
+                                break;
+                            }
+                        }
+                    }
+                }
+                default -> devPrint("Unrecognized client config key: " + key);
             }
         }
         saveClientConfigToJson();
@@ -299,8 +357,8 @@ public class SettingsScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        this.width = mc.getWindow().getGuiScaledWidth();
-        this.height = mc.getWindow().getGuiScaledHeight();
+        this.width = mc.getWindow().getScaledWidth();
+        this.height = mc.getWindow().getScaledHeight();
         try {
             closeIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/close.png", "Cancel");
             createIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/create.png", editServerMode ? "Apply Changes" : "Create Server");
@@ -310,13 +368,13 @@ public class SettingsScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, mc, closeIcon, configMode ? null : createIcon, null, null, null, null, null, null, null);
         recalcTabs();
         int headerHeight = 30;
-        context.drawString(mc.font, Component.literal("Create New Server"), 10, 10, globalTextColor, Config.shadow);
-        drawTabs(context, mc.font, tabs, currentTab, mouseX, mouseY, false, false);
+        context.drawText(mc.textRenderer, Text.literal("Create New Server"), 10, 10, globalTextColor, Config.shadow);
+        drawTabs(context, mc.textRenderer, tabs, currentTab, mouseX, mouseY, false, false);
         int tabAreaHeight = 18;
         int contentY = headerHeight + tabAreaHeight + 10;
         int contentX = 5;
@@ -340,8 +398,8 @@ public class SettingsScreen extends Screen {
             drawInnerBorder(context, contentX, rowY, contentWidth, rowHeight - 2, getElementBorderColor(currentSettings.get(i).name.hashCode(), false, false, true, false, false, false));
             drawOuterBorder(context, contentX, rowY, contentWidth, rowHeight - 2, globalOuterBorder);
             String name = currentSettings.get(i).name;
-            context.drawString(mc.font, Component.literal(name), contentX + 5, rowY + 5, globalTextColor, Config.shadow);
-            context.drawString(mc.font, Component.literal(currentSettings.get(i).description), contentX + 5, rowY + 5 + mc.font.lineHeight + 2, Config.globalDarkTextColor, Config.shadow);
+            context.drawText(mc.textRenderer, Text.literal(name), contentX + 5, rowY + 5, globalTextColor, Config.shadow);
+            context.drawText(mc.textRenderer, Text.literal(currentSettings.get(i).description), contentX + 5, rowY + 5 + mc.textRenderer.fontHeight + 2, Config.globalDarkTextColor, Config.shadow);
             Settings s = currentSettings.get(i);
             int widgetY = rowY + (rowHeight - 20) / 2;
             boolean widgetHovered = mouseX >= widgetAreaX && mouseX <= widgetAreaX + widgetWidth && mouseY >= rowY && mouseY <= rowY + 18;
@@ -386,9 +444,9 @@ public class SettingsScreen extends Screen {
             if (mouseY >= 35 && mouseY <= 35 + tabAreaHeight) {
                 int tabX = 5;
                 for (int i = 0; i < tabs.size(); i++) {
-                    int tabWidth = mc.font.width(tabs.get(i)) + 10;
+                    int tabWidth = mc.textRenderer.getWidth(tabs.get(i)) + 10;
                     if (mouseX >= tabX && mouseX <= tabX + tabWidth) {
-                        playClick();
+                        playSound(Sound.SWITCHTAB);
                         currentTab = i;
                         targetSettingsScroll = 0;
                         currentSettingsScroll = 0;
@@ -402,13 +460,11 @@ public class SettingsScreen extends Screen {
             int cancelButtonX = this.width - 23;
             if (mouseY >= buttonY && mouseY <= buttonY + 18) {
                 if (mouseX >= createButtonX && mouseX <= createButtonX + 18) {
-                    playClick();
                     createServer();
                     return true;
                 }
                 if (mouseX >= cancelButtonX && mouseX <= cancelButtonX + 18) {
-                    playClick();
-                    onClose();
+                    close();
                     return true;
                 }
             }
@@ -434,7 +490,7 @@ public class SettingsScreen extends Screen {
                         int toggleWidth = 40;
                         boolean toggleHovered = mouseX >= toggleX && mouseX <= toggleX + toggleWidth && mouseY >= rowY && mouseY <= rowY + rowHeight;
                         if (toggleHovered) {
-                            playClick();
+                            playSound(Sound.CLICK);
                             s.value = s.value.equals("true") ? "false" : "true";
                             if (configMode) updateClientConfigSetting(s.key, s.value);
                         }
@@ -442,7 +498,7 @@ public class SettingsScreen extends Screen {
                     case SLIDER -> {
                         boolean sliderHovered = mouseX >= widgetAreaX && mouseX <= widgetAreaX + widgetWidth;
                         if (sliderHovered) {
-                            playClick();
+                            playSound(Sound.CLICK);
                             float relativeX = (float) (mouseX - widgetAreaX);
                             relativeX = Math.max(0, Math.min(relativeX, widgetWidth));
                             double percent = relativeX / (double) widgetWidth;
@@ -453,7 +509,7 @@ public class SettingsScreen extends Screen {
                         }
                     }
                     case SCROLL_SWITCH -> {
-                        playClick();
+                        playSound(Sound.CLICK);
                         if (s.index == selectedDropDown) {
                             int centerX = widgetAreaX + widgetWidth / 2;
                             if (mouseX < centerX - 10) {
@@ -483,7 +539,7 @@ public class SettingsScreen extends Screen {
                         double relativeX = mouseX - widgetAreaX;
                         double relativeY = mouseY - rowY;
                         if (relativeX >= 0 && relativeX <= widgetWidth && relativeY >= 0 && relativeY <= 18) {
-                            playClick();
+                            playSound(Sound.CLICK);
                             int segmentCount = s.options.size();
                             double segmentWidth = (double) widgetWidth / segmentCount;
                             int newIndex = (int) (relativeX / segmentWidth);
@@ -493,12 +549,13 @@ public class SettingsScreen extends Screen {
                     }
                     case TEXT -> {
                         if (mouseX >= widgetAreaX && mouseX <= widgetAreaX + widgetWidth && mouseY >= rowY && mouseY <= rowY + rowHeight) {
+                            playSound(Sound.SELECT);
                             s.focused = true;
                             int clickX = (int) mouseX - widgetAreaX - 5;
                             int pos = 0;
                             int cumulativeWidth = 0;
                             for (int j = 0; j < s.value.length(); j++) {
-                                int charWidth = mc.font.width(s.value.substring(j, j + 1));
+                                int charWidth = mc.textRenderer.getWidth(s.value.substring(j, j + 1));
                                 if (cumulativeWidth + charWidth / 2 > clickX) {
                                     pos = j;
                                     break;
@@ -540,7 +597,7 @@ public class SettingsScreen extends Screen {
                     int pos = 0;
                     int cumulativeWidth = 0;
                     for (int j = 0; j < s.value.length(); j++) {
-                        int charWidth = mc.font.width(s.value.substring(j, j + 1));
+                        int charWidth = mc.textRenderer.getWidth(s.value.substring(j, j + 1));
                         if (cumulativeWidth + charWidth / 2 > clickX) {
                             pos = j;
                             break;
@@ -579,7 +636,7 @@ public class SettingsScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY,/*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         scaleScroll(verticalAmount);
         int headerHeight = 30;
         int tabAreaHeight = 18;
@@ -599,7 +656,7 @@ public class SettingsScreen extends Screen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            onClose();
+            close();
             return true;
         }
         for (Settings s : settings) {
@@ -793,7 +850,7 @@ public class SettingsScreen extends Screen {
     }
 
     private void ensureRemoteMcman(SSHManager ssh, String remoteHome) {
-        String remotePath = remoteHome + "/remotely/mcman";
+        String remotePath = remoteHome + "/assets/remotely/mcman";
         devPrint("Checking if remote mcman exists at: " + remotePath);
         if (!ssh.remoteFileExists(remotePath)) {
             devPrint("Remote mcman not found. Downloading...");
@@ -929,7 +986,7 @@ public class SettingsScreen extends Screen {
         if (editServerMode && serverInfo != null) {
             editServer(serverName, serverType.toLowerCase(), serverVersion.toLowerCase());
             new Notification("Server updated successfully", Type.INFO);
-            onClose();
+            close();
         } else {
             int exitCode = ServerFactory.createServer(serverName, serverType.toLowerCase(), serverVersion.toLowerCase(), settingsRoot, ramAmount, aikarsFlags);
             if (exitCode == 0) {
@@ -943,7 +1000,7 @@ public class SettingsScreen extends Screen {
             } else {
                 new Notification("Server creation failed with exit code: " + exitCode, Type.ERROR);
             }
-            onClose();
+            close();
         }
     }
 
@@ -1006,15 +1063,15 @@ public class SettingsScreen extends Screen {
             } else {
                 RemoteHostInfo rh = serverInfo.remoteHost;
                 String remoteHome = rh.getHomeDirectory();
-                String remoteMcmanPath = remoteHome + "/remotely/mcman";
-                String remoteServersPath = remoteHome + "/remotely/servers";
+                String remoteMcmanPath = remoteHome + "/assets/remotely/mcman";
+                String remoteServersPath = remoteHome + "/assets/remotely/servers";
                 SSHManager ssh = new SSHManager(rh);
                 ssh.connectToRemoteHost(rh.getUser(), rh.getIp(), rh.getPort(), rh.getPassword());
                 while (!ssh.isSFTPConnected()) {
                     Thread.sleep(100);
                 }
                 devPrint("Preparing remote directories for edit...");
-                ssh.prepareRemoteDirectory(remoteHome + "/remotely");
+                ssh.prepareRemoteDirectory(remoteHome + "/assets/remotely");
                 ssh.prepareRemoteDirectory(remoteServersPath);
                 ensureRemoteMcman(ssh, remoteHome);
                 String cmdMkdir = "mkdir -p " + remoteServersPath + "/" + serverName;
@@ -1044,20 +1101,26 @@ public class SettingsScreen extends Screen {
             serverInfo.name = serverName;
             serverInfo.type = serverType;
             serverInfo.version = serverVersion;
-            parent.saveServers();
-            parent.saveRemoteHosts();
+            ServerManagerScreen.saveServers();
+            ServerManagerScreen.saveRemoteHosts();
         } catch (Exception e) {
             devPrint("Failed to update server: " + e.getMessage());
         }
     }
 
     @Override
-    public void removed() {
-        mc.getWindow().setGuiScale(originalMCScale);
-        targetScaleFactor = globalScaleFactor = animScaleFactor;
+    public void onDisplayed() {
+        playSound(Sound.SCREEN);
     }
 
-    public void onClose() {
+    @Override
+    public void removed() {
+        mc.getWindow().setScaleFactor(originalMCScale);
+        targetScaleFactor = globalScaleFactor = animScaleFactor;
+        if (parent == null) playSound(Sound.SCREEN);
+    }
+
+    public void close() {
         mc.setScreen(parent);
     }
 }

@@ -1,9 +1,19 @@
 package redxax.oxy.remotely.config;
 
+import redxax.oxy.remotely.explorer.DeskSelectionScreen;
+import redxax.oxy.remotely.explorer.FileEditorScreen;
+import redxax.oxy.remotely.explorer.FileExplorerScreen;
+import redxax.oxy.remotely.servers.BrowserScreen;
+import redxax.oxy.remotely.servers.PluginModManagerScreen;
+import redxax.oxy.remotely.servers.ResourcePageScreen;
+import redxax.oxy.remotely.servers.ServerManagerScreen;
+import redxax.oxy.remotely.terminal.MultiTerminalScreen;
+
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class Config {
@@ -33,6 +43,8 @@ public class Config {
     public static long lastFrameTime = System.nanoTime();
 
     public static boolean aiMode = false;
+    public static List remotelyScreens = List.of(new Class[]{DeskSelectionScreen.class, FileEditorScreen.class, FileExplorerScreen.class, BrowserScreen.class, PluginModManagerScreen.class, ResourcePageScreen.class, ServerManagerScreen.class, MultiTerminalScreen.class});
+
 
     public static int elementBackgroundColor = 0xFF2C2C2C;
     public static int elementBorderColor = 0xFF444444;

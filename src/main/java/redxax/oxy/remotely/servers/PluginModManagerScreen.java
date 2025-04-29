@@ -10,11 +10,13 @@ import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.util.ImageUtil;
 
 import javax.imageio.ImageIO;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.network.chat.Component;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.text.Text;
+import redxax.oxy.remotely.util.Sound;
+
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
@@ -32,10 +34,10 @@ import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.ImageUtil.drawBufferedImage;
 import static redxax.oxy.remotely.Render.*;
-import static redxax.oxy.remotely.util.SoundUtils.playClick;
+import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
 public class PluginModManagerScreen extends Screen {
-    private final Minecraft minecraftClient;
+    private final MinecraftClient minecraftClient;
     private final Screen parent;
     private final ServerInfo serverInfo;
     private final List<IRemotelyResource> resources = Collections.synchronizedList(new ArrayList<>());
@@ -68,7 +70,7 @@ public class PluginModManagerScreen extends Screen {
     private int selectionEnd = -1;
     private long lastBlinkTime = 0;
     private boolean showCursor = true;
-    private Font font;
+    private TextRenderer textRenderer;
     private final Map<String, Integer> imageLoadRetries = new ConcurrentHashMap<>();
     private static final int MAX_IMAGE_LOAD_RETRIES = 3;
     private long lastResourceClickTime = 0;
@@ -101,19 +103,19 @@ public class PluginModManagerScreen extends Screen {
     private static int savedCurrentTabIndex = 0;
     private static Map<String, List<IRemotelyResource>> savedResourceCache = new ConcurrentHashMap<>();
 
-    public PluginModManagerScreen(Minecraft mc, Screen parent, ServerInfo info) {
-        super(Component.literal(info.isModServer() ? "Remotely - Mods Browser" : (info.isPluginServer() ? "Remotely - Plugins Browser" : "Remotely - Modpacks Browser")));
+    public PluginModManagerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
+        super(Text.literal(info.isModServer() ? "Remotely - Mods Browser" : (info.isPluginServer() ? "Remotely - Plugins Browser" : "Remotely - Modpacks Browser")));
         this.minecraftClient = mc;
         this.parent = parent;
         this.serverInfo = info;
-        originalMCScale = minecraftClient.getWindow().getGuiScale();
+        originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
-        minecraftClient.getWindow().setGuiScale(globalScaleFactor);    }
+        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);    }
 
     @Override
     protected void init() {
         super.init();
-        this.font = this.minecraftClient.font;
+        this.textRenderer = this.minecraftClient.textRenderer;
         tabs.clear();
         tabs.add(new Tab(TabMode.MODRINTH, "Modrinth"));
         if (serverInfo.isPluginServer()) {
@@ -180,9 +182,9 @@ public class PluginModManagerScreen extends Screen {
         for (int i = 0; i < tabs.size(); i++) {
             Tab tab = tabs.get(i);
             int TAB_PADDING = 5;
-            int tabWidth = this.font.width(tab.name) + 2 * TAB_PADDING;
+            int tabWidth = this.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
             if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight) {
-                playClick();
+                playSound(Sound.SEARCH);
                 if (tab.mode == TabMode.SORT) {
                     nextSort();
                     loadResourcesAsync(currentSearch, true);
@@ -206,7 +208,6 @@ public class PluginModManagerScreen extends Screen {
         if (!handled) {
             boolean hoveredClose = mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24;
             if (hoveredClose && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                playClick();
                 minecraftClient.setScreen(parent);
                 return true;
             }
@@ -227,12 +228,13 @@ public class PluginModManagerScreen extends Screen {
                     int relativeY = (int) mouseY - contentY + (int) smoothOffset;
                     int index = relativeY / (entryHeight + gapBetweenEntries);
                     if (index >= 0 && index < resources.size()) {
-                        playClick();
                         selectedIndex = index;
                         long currentTime = System.currentTimeMillis();
                         if (lastResourceClickIndex == index && (currentTime - lastResourceClickTime < 250)) {
                             minecraftClient.setScreen(new ResourcePageScreen(minecraftClient, this, resources.get(index), serverInfo));
                             return true;
+                        } else {
+                            playSound(Sound.SELECT);
                         }
                         lastResourceClickIndex = index;
                         lastResourceClickTime = currentTime;
@@ -366,7 +368,7 @@ public class PluginModManagerScreen extends Screen {
                     selectionStart = -1;
                     selectionEnd = -1;
                 }
-                String clipboard = minecraftClient.keyboardHandler.getClipboard();
+                String clipboard = minecraftClient.keyboard.getClipboard();
                 fieldText.insert(cursorPosition, clipboard);
                 cursorPosition += clipboard.length();
             }
@@ -376,7 +378,7 @@ public class PluginModManagerScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY,/*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         scaleScroll(verticalAmount);
         targetOffset -= (float) (verticalAmount * entryHeight);
         targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, resources.size() * (entryHeight + gapBetweenEntries) - (this.height - 70))));
@@ -385,16 +387,16 @@ public class PluginModManagerScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, null, null, null , null, null, null, null, null);
         int titleBarHeight = 30;
-        context.drawString(this.font, Component.literal(this.getTitle().getString()), 10, 10, globalTextColor, Config.shadow);
+        context.drawText(this.textRenderer, Text.literal(this.getTitle().getString()), 10, 10, globalTextColor, Config.shadow);
         int tabBarY = titleBarHeight + 5;
-        drawTabs(context, this.font, tabs, currentTabIndex, mouseX, mouseY, false, false);
+        drawTabs(context, this.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
         float pathScrollOffset = 0;
         float pathTargetScrollOffset = 0;
-        drawSearchBar(context, font, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, false, "PluginModManagerScreen", mouseX, mouseY, "Search For Resources");
+        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, false, "PluginModManagerScreen", mouseX, mouseY, "Search For Resources");
         smoothOffset += (targetOffset - smoothOffset) * globalScrollSpeed * deltaTime;
         int contentY = tabBarY + TAB_HEIGHT + 30;
         int contentHeight = this.height - contentY - 5;
@@ -403,7 +405,7 @@ public class PluginModManagerScreen extends Screen {
         context.fill(contentX, contentY - 25, contentX + contentWidth, contentY, Config.innerBackgroundColor);
         drawInnerBorder(context, contentX, contentY - 25, contentWidth, 25, Config.innerBorderColor);
         drawOuterBorder(context, contentX, contentY - 25, contentWidth, 25, globalOuterBorder);
-        context.drawString(font, Component.literal("Name"), contentX + 10, contentY - 18, globalTextColor, Config.shadow);
+        context.drawText(textRenderer, Text.literal("Name"), contentX + 10, contentY - 18, globalTextColor, Config.shadow);
         context.enableScissor(contentX - 1, contentY, contentX + contentWidth + 1, contentY + contentHeight);
         if (isLoading && resources.isEmpty()) {
             drawLoading(context, super.height, super.width);
@@ -422,8 +424,8 @@ public class PluginModManagerScreen extends Screen {
             float currentOffset = elevationOffsets.getOrDefault(elevId, 0f);
             currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
             elevationOffsets.put(elevId, currentOffset);
-            context.pose().pushPose();
-            context.pose().translate(0, currentOffset, 0);
+            context.getMatrices().push();
+            context.getMatrices().translate(0, currentOffset, 0);
             int bg = getElementBackgroundColor(resource.hashCode(), hovered, i == selectedIndex, true, false, false, false);
             int borderColorFinal = getElementBorderColor(resource.hashCode(), hovered, i == selectedIndex, true, false, false, false);
             context.fill(contentX, baseY, contentX + contentWidth, baseY + entryHeight, bg);
@@ -432,28 +434,28 @@ public class PluginModManagerScreen extends Screen {
             BufferedImage icon = resource.getIconUrl().isEmpty() ? placeholderIcon : iconImages.getOrDefault(resource.getIconUrl(), placeholderIcon);
             drawBufferedImage(context, icon, contentX + 5, baseY + (entryHeight - 30) / 2, 30, 30);
             String resourceName = resource.getName();
-            context.drawString(font, Component.literal(resourceName), contentX + 40, baseY + 5, 0xFFFFFFFF, Config.shadow);
+            context.drawText(textRenderer, Text.literal(resourceName), contentX + 40, baseY + 5, 0xFFFFFFFF, Config.shadow);
             String resourceDesc = resource.getDescription();
             int descMaxWidth = contentWidth - 50;
-            if (font.width(resourceDesc) > descMaxWidth) {
-                while (font.width(resourceDesc + "...") > descMaxWidth && resourceDesc.length() > 0) {
+            if (textRenderer.getWidth(resourceDesc) > descMaxWidth) {
+                while (textRenderer.getWidth(resourceDesc + "...") > descMaxWidth && resourceDesc.length() > 0) {
                     resourceDesc = resourceDesc.substring(0, resourceDesc.length() - 1);
                 }
                 resourceDesc += "...";
             }
-            context.drawString(font, Component.literal(resourceDesc), contentX + 40, baseY + 16, globalTextColor, Config.shadow);
+            context.drawText(textRenderer, Text.literal(resourceDesc), contentX + 40, baseY + 16, globalTextColor, Config.shadow);
             String mrInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getVersion()  + " | " + resource.getFollowers() + " Followers";
             String spInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getAverageRating() + " Star Rating";
             String hgInfo = formatDownloads(resource.getDownloads()) + " | " + resource.getVersion()  + " | " + resource.getFollowers() + " Stars";
             if (tabs.get(currentTabIndex).mode == TabMode.MODRINTH) {
-                context.drawString(font, Component.literal(mrInfo), contentX + 40, baseY + 30, Config.globalDarkTextColor, Config.shadow);
+                context.drawText(textRenderer, Text.literal(mrInfo), contentX + 40, baseY + 30, Config.globalDarkTextColor, Config.shadow);
             } else if (tabs.get(currentTabIndex).mode == TabMode.SPIGOT) {
-                context.drawString(font, Component.literal(spInfo), contentX + 40, baseY + 30, Config.globalDarkTextColor, Config.shadow);
+                context.drawText(textRenderer, Text.literal(spInfo), contentX + 40, baseY + 30, Config.globalDarkTextColor, Config.shadow);
             } else if (tabs.get(currentTabIndex).mode == TabMode.HANGAR) {
-                context.drawString(font, Component.literal(hgInfo), contentX + 40, baseY + 30, Config.globalDarkTextColor, Config.shadow);
+                context.drawText(textRenderer, Text.literal(hgInfo), contentX + 40, baseY + 30, Config.globalDarkTextColor, Config.shadow);
             }
 
-            context.pose().popPose();
+            context.getMatrices().pop();
         }
         context.disableScissor();
         if (smoothOffset > 0) {
@@ -658,6 +660,11 @@ public class PluginModManagerScreen extends Screen {
     }
 
     @Override
+    public void onDisplayed() {
+        playSound(Sound.SCREEN);
+    }
+
+    @Override
     public void removed() {
         hasSavedState = true;
         savedResources = new ArrayList<>(resources);
@@ -667,6 +674,7 @@ public class PluginModManagerScreen extends Screen {
         savedSearch = currentSearch;
         savedCurrentTabIndex = currentTabIndex;
         savedResourceCache = new ConcurrentHashMap<>(resourceCache);
+        if (parent == null) playSound(Sound.SCREEN);
         super.removed();
     }
 }

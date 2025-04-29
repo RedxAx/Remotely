@@ -4,12 +4,15 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.Render.ContextMenu;
 import redxax.oxy.remotely.Render.ScrollBar;
+import redxax.oxy.remotely.Render.TabsBar;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.explorer.FileExplorerScreen.EntryData;
 import redxax.oxy.remotely.ui.AISidePanel;
 import redxax.oxy.remotely.util.ImageUtil;
 import redxax.oxy.remotely.util.Notification;
+import redxax.oxy.remotely.util.Sound;
 import redxax.oxy.remotely.util.TextAnimator;
 
 import java.io.*;
@@ -18,19 +21,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.network.chat.Component;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.text.Text;
 
 import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.explorer.FileExplorerScreen.*;
-import static redxax.oxy.remotely.util.SoundUtils.playClick;
+import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
 public class FileEditorScreen extends Screen {
     private static final Map<Path, SavedTabState> SAVED_TABS = new HashMap<>();
-    private final Minecraft minecraftClient;
+    private final MinecraftClient minecraftClient;
     private MultiLineTextEditor textEditor;
     private final Screen parent;
     private final ServerInfo serverInfo;
@@ -219,8 +222,8 @@ public class FileEditorScreen extends Screen {
         }
     }
 
-    public FileEditorScreen(Minecraft mc, Screen parent, Path filePath, ServerInfo info) {
-        super(Component.literal("File Editor"));
+    public FileEditorScreen(MinecraftClient mc, Screen parent, Path filePath, ServerInfo info) {
+        super(Text.literal("File Editor"));
         this.minecraftClient = mc;
         this.parent = parent;
         this.serverInfo = info;
@@ -234,9 +237,9 @@ public class FileEditorScreen extends Screen {
         Tab initialTab = new Tab(filePath);
         tabs.add(initialTab);
         this.textEditor = initialTab.textEditor;
-        originalMCScale = minecraftClient.getWindow().getGuiScale();
+        originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
-        minecraftClient.getWindow().setGuiScale(globalScaleFactor);
+        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
     }
 
     @Override
@@ -314,7 +317,7 @@ public class FileEditorScreen extends Screen {
     }
 
     @Override
-    public void onClose() {
+    public void close() {
         for (Tab t : tabs) {
             saveTabState(t);
         }
@@ -483,7 +486,7 @@ public class FileEditorScreen extends Screen {
                 }
                 case GLFW.GLFW_KEY_V -> {
                     if (ctrlHeld) {
-                        String clipboard = minecraftClient.keyboardHandler.getClipboard();
+                        String clipboard = minecraftClient.keyboard.getClipboard();
                         if (customSelectionStart != -1 && customSelectionEnd != -1 && customSelectionStart != customSelectionEnd) {
                             int selStart = Math.min(customSelectionStart, customSelectionEnd);
                             int selEnd = Math.max(customSelectionStart, customSelectionEnd);
@@ -503,8 +506,8 @@ public class FileEditorScreen extends Screen {
             }
             return true;
         }
-        if (keyCode == this.minecraftClient.options.keyDown.getDefaultKey().getValue() && keyCode != GLFW.GLFW_KEY_S) {
-            onClose();
+        if (keyCode == this.minecraftClient.options.backKey.getDefaultKey().getCode() && keyCode != GLFW.GLFW_KEY_S) {
+            close();
             return true;
         }
         if (ctrlHeld && keyCode == GLFW.GLFW_KEY_Z) {
@@ -565,7 +568,7 @@ public class FileEditorScreen extends Screen {
             return true;
         }
         if (mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24 && button == 0) {
-            playClick();
+            playSound(Sound.PANEL);
             if (aiMode && showSidePanel) aiMode = false;
             else {
                 showSidePanel = !showSidePanel;
@@ -574,7 +577,7 @@ public class FileEditorScreen extends Screen {
             return true;
         }
         if (mouseX >= width - 92 && mouseX <= width - 75 && mouseY >= 6 && mouseY <= 24 && button == 0) {
-            playClick();
+            playSound(Sound.PANEL);
             if (aiMode && showSidePanel) showSidePanel = false;
             else {
                 aiMode = true;
@@ -586,12 +589,12 @@ public class FileEditorScreen extends Screen {
         int searchBarY = 5;
         int clearSearchButtonX = searchBarX + searchBarWidth;
         if (mouseX >= searchBarX && mouseX <= searchBarX + searchBarWidth && mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight) {
-            playClick();
+            playSound(Sound.SEARCH);
             customSearchBarFocused = true;
             return true;
         } else {
             if (mouseX >= clearSearchButtonX && mouseX <= clearSearchButtonX + clearSearchButtonWidth && mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight) {
-                playClick();
+                playSound(Sound.CLICK);
                 customSearchText.setLength(0);
                 customCursorPosition = 0;
                 customSelectionStart = -1;
@@ -609,10 +612,10 @@ public class FileEditorScreen extends Screen {
         int tabY = tabBarY;
         for (int i = 0; i < tabs.size(); i++) {
             Tab tab = tabs.get(i);
-            int tabWidth = minecraftClient.font.width(tab.name) + 2 * TAB_PADDING;
+            int tabWidth = minecraftClient.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
             if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabY && mouseY <= tabY + tabBarHeight) {
                 if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
-                    playClick();
+                    playSound(Sound.CLOSETAB);
                     SAVED_TABS.remove(tab.path);
                     tabs.remove(i);
                     if (i < tabsBar.getTabs().size()) {
@@ -627,12 +630,12 @@ public class FileEditorScreen extends Screen {
                         }
                         this.textEditor = tabs.get(currentTabIndex).textEditor;
                     } else {
-                        onClose();
+                        close();
                     }
                     RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
                     return true;
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                    playClick();
+                    playSound(Sound.SWITCHTAB);
                     if (currentTabIndex != i) {
                         currentTabIndex = i;
                         this.textEditor = tab.textEditor;
@@ -643,7 +646,7 @@ public class FileEditorScreen extends Screen {
                     clickedTab = true;
                     break;
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
-                    playClick();
+                    playSound(Sound.RIGHTCLICK);
                     ContextMenu.hide();
                     int finalI = i;
                     ContextMenu.addItem("Close", () -> {
@@ -658,7 +661,7 @@ public class FileEditorScreen extends Screen {
                         if (!tabs.isEmpty()) {
                             this.textEditor = tabs.get(currentTabIndex).textEditor;
                         } else {
-                            onClose();
+                            close();
                         }
                         RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
                     }, globalHoverTextColor, "Close The Tab.");
@@ -685,14 +688,13 @@ public class FileEditorScreen extends Screen {
         }
         boolean clickedSave = mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24 && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
         if (clickedSave) {
-            playClick();
+            playSound(Sound.SAVE);
             tabs.get(currentTabIndex).saveFile();
             return true;
         }
         boolean clickedBack = mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24 && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
         if (clickedBack) {
-            playClick();
-            onClose();
+            close();
             return true;
         }
         float animWidth = animatedSidePanelWidth;
@@ -821,7 +823,7 @@ public class FileEditorScreen extends Screen {
         return new EntryData(p, isDirectory, "", "", dn);
     }
 
-    private void renderSidePanel(GuiGraphics context, int x, int y, int width, int height, int mouseX, int mouseY) {
+    private void renderSidePanel(DrawContext context, int x, int y, int width, int height, int mouseX, int mouseY) {
         Tab currentTab = tabs.get(currentTabIndex);
         currentTab.sidePanelScrollOffset += (currentTab.targetSidePanelScrollOffset - currentTab.sidePanelScrollOffset) * Config.globalScrollSpeed * deltaTime;
         int entryHeight = 20;
@@ -838,7 +840,7 @@ public class FileEditorScreen extends Screen {
             }
             boolean hovered = mouseX >= x && mouseX <= x + width && mouseY >= currentY && mouseY < currentY + entryHeight;
             int indent = entry.depth * 5;
-            drawExplorerElements(context, hovered, entry.data.displayName.equals(tabs.get(currentTabIndex).name), false, entry.data, x + indent, currentY, width - indent, entryHeight, minecraftClient.font, false, null, null, 0);
+            drawExplorerElements(context, hovered, entry.data.displayName.equals(tabs.get(currentTabIndex).name), false, entry.data, x + indent, currentY, width - indent, entryHeight, minecraftClient.textRenderer, false, null, null, 0);
             currentY += totalEntryHeight;
         }
     }
@@ -876,7 +878,7 @@ public class FileEditorScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY,/*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         scaleScroll(verticalAmount);
         if (tabsBar.handleTabsBarScroll(verticalAmount, mouseX, mouseY)) return true;
         if (aiMode && aiSidePanel.mouseScrolled(mouseX, mouseY, verticalAmount, this.width - (int) animatedSidePanelWidth - 5, ContentYStart, (int) animatedSidePanelWidth, this.height - ContentYStart - 5)) {
@@ -896,7 +898,7 @@ public class FileEditorScreen extends Screen {
             if (currentTab.targetSidePanelScrollOffset > maxScroll) currentTab.targetSidePanelScrollOffset = maxScroll;
             return true;
         }
-        long windowHandle = minecraftClient.getWindow().getWindow();
+        long windowHandle = minecraftClient.getWindow().getHandle();
         boolean shiftHeld = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS ||
                 GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
         boolean ctrlHeld = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS ||
@@ -913,13 +915,13 @@ public class FileEditorScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         drawScreenHeader(context, width, height, width - 5 - (int)animatedSidePanelWidth, mouseX, mouseY, this, minecraftClient, closeIcon, saveIcon, explorerIcon, aiIcon, null, null, null, null, null);
-        drawSearchBar(context, font, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, aiMode, "FileEditorScreen", mouseX, mouseY, "Search For Text In The File.");
+        drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, aiMode, "FileEditorScreen", mouseX, mouseY, "Search For Text In The File.");
         int tabOffsetY = 35;
         tabsBar.setTabBarBounds(5, tabOffsetY, this.width, TAB_HEIGHT);
-        tabsBar.renderTabsBar(context, font, tabsBar, mouseX, mouseY, Config.shadow);
+        tabsBar.renderTabsBar(context, textRenderer, tabsBar, mouseX, mouseY, Config.shadow);
         float targetWidth = showSidePanel ? sidePanelWidth : 0;
         animatedSidePanelWidth += (targetWidth - animatedSidePanelWidth) * Config.globalExpandSpeed * deltaTime;
         int animWidth = (int)animatedSidePanelWidth;
@@ -946,13 +948,19 @@ public class FileEditorScreen extends Screen {
     }
 
     @Override
+    public void onDisplayed() {
+        playSound(Sound.FILEEDITOR);
+    }
+
+    @Override
     public void removed() {
-        minecraftClient.getWindow().setGuiScale(originalMCScale);
+        minecraftClient.getWindow().setScaleFactor(originalMCScale);
         targetScaleFactor = globalScaleFactor = animScaleFactor;
+        if (parent == null) playSound(Sound.SCREEN);
     }
 
     private static class MultiLineTextEditor {
-        private final Minecraft mc;
+        private final MinecraftClient mc;
         private final Tab parentTab;
         public final ArrayList<String> lines;
         private final String fileName;
@@ -980,7 +988,7 @@ public class FileEditorScreen extends Screen {
         private double lastDragX;
         private double lastDragY;
 
-        public MultiLineTextEditor(Minecraft mc, ArrayList<String> content, String fileName, Tab parentTab) {
+        public MultiLineTextEditor(MinecraftClient mc, ArrayList<String> content, String fileName, Tab parentTab) {
             this.mc = mc;
             this.lines = new ArrayList<>(content);
             this.fileName = fileName;
@@ -1001,19 +1009,19 @@ public class FileEditorScreen extends Screen {
             pushState();
         }
 
-        public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+        public void render(DrawContext context, int mouseX, int mouseY, float delta) {
             smoothScrollOffsetVert += (targetScrollOffsetVert - smoothScrollOffsetVert) * globalScrollSpeed * deltaTime;
             smoothScrollOffsetHoriz += (targetScrollOffsetHoriz - smoothScrollOffsetHoriz) * globalScrollSpeed * deltaTime;
             context.enableScissor(x, y, x + width, y + height);
-            int lineHeight = mc.font.lineHeight + 2;
+            int lineHeight = mc.textRenderer.fontHeight + 2;
             int visibleLines = height / lineHeight + 6;
             for (int i = 0; i < visibleLines; i++) {
                 int lineIndex = (int) Math.floor(smoothScrollOffsetVert / lineHeight) + i;
                 if (lineIndex < 0 || lineIndex >= lines.size()) continue;
                 int renderY = y + i * lineHeight - (int) smoothScrollOffsetVert % lineHeight + 1;
                 String text = lines.get(lineIndex);
-                Component syntaxColoredLine = SyntaxHighlighter.highlight(text, fileName);
-                context.drawString(mc.font, syntaxColoredLine, x + textPadding - (int) smoothScrollOffsetHoriz, renderY, 0xFFFFFF, Config.shadow);
+                Text syntaxColoredLine = SyntaxHighlighter.highlight(text, fileName);
+                context.drawText(mc.textRenderer, syntaxColoredLine, x + textPadding - (int) smoothScrollOffsetHoriz, renderY, 0xFFFFFF, Config.shadow);
                 if (isLineSelected(lineIndex)) {
                     drawSelection(context, lineIndex, renderY, text, textPadding);
                 }
@@ -1021,13 +1029,13 @@ public class FileEditorScreen extends Screen {
                     if (pos.line == lineIndex) {
                         int safeStart = Math.max(0, Math.min(pos.start, text.length()));
                         int safeEnd = Math.max(0, Math.min(pos.end, text.length()));
-                        int startX = mc.font.width(text.substring(0, safeStart));
-                        int endX = mc.font.width(text.substring(0, safeEnd));
+                        int startX = mc.textRenderer.getWidth(text.substring(0, safeStart));
+                        int endX = mc.textRenderer.getWidth(text.substring(0, safeEnd));
                         context.fill(x + textPadding - (int) smoothScrollOffsetHoriz + startX, renderY, x + textPadding - (int) smoothScrollOffsetHoriz + endX, renderY + lineHeight - 2, globalSelectionColor);
                     }
                 }
                 if (lineIndex == cursorLine && !hasSelection()) {
-                    int cursorX = mc.font.width(text.substring(0, Math.min(cursorPos, text.length())));
+                    int cursorX = mc.textRenderer.getWidth(text.substring(0, Math.min(cursorPos, text.length())));
                     int cy = renderY -1;
                     context.fill(x + textPadding - (int) smoothScrollOffsetHoriz + cursorX, cy, x + textPadding - (int) smoothScrollOffsetHoriz + cursorX + 1, cy + lineHeight - 2, globalCursorAnimatedColor);
                 }
@@ -1037,7 +1045,7 @@ public class FileEditorScreen extends Screen {
 
         public void tickDragScroll() {
             if (!isDraggingSelection) return;
-            int lineHeight = mc.font.lineHeight + 2;
+            int lineHeight = mc.textRenderer.fontHeight + 2;
             int dragLine = (int) ((lastDragY - y + smoothScrollOffsetVert) / lineHeight);
             if (dragLine < 0) dragLine = 0;
             if (dragLine >= lines.size()) dragLine = lines.size() - 1;
@@ -1047,7 +1055,7 @@ public class FileEditorScreen extends Screen {
             int cPos = 0;
             int widthSum = 0;
             for (char c : text.toCharArray()) {
-                int charWidth = mc.font.width(String.valueOf(c));
+                int charWidth = mc.textRenderer.getWidth(String.valueOf(c));
                 if (widthSum + charWidth / 2 >= localX) break;
                 widthSum += charWidth;
                 cPos++;
@@ -1062,7 +1070,7 @@ public class FileEditorScreen extends Screen {
         private int getMaxLineWidth() {
             int maxWidth = 0;
             for (String line : lines) {
-                int lineWidth = mc.font.width(line);
+                int lineWidth = mc.textRenderer.getWidth(line);
                 if (lineWidth > maxWidth) {
                     maxWidth = lineWidth;
                 }
@@ -1259,7 +1267,7 @@ public class FileEditorScreen extends Screen {
                     if (ctrlHeld) {
                         deleteSelection();
                         pushState();
-                        String clipboard = mc.keyboardHandler.getClipboard();
+                        String clipboard = mc.keyboard.getClipboard();
                         String[] splitted = clipboard.replace("\r\n", "\n").split("\n");
                         for (int i = 0; i < splitted.length; i++) {
                             for (char c : splitted[i].toCharArray()) {
@@ -1479,7 +1487,7 @@ public class FileEditorScreen extends Screen {
                 }
                 lastLeftClickTime = currentTime;
                 clearSelection();
-                int lineHeight = mc.font.lineHeight + 2;
+                int lineHeight = mc.textRenderer.fontHeight + 2;
                 int clickedLine = (int) ((mouseY - y + smoothScrollOffsetVert) / lineHeight);
                 if (clickedLine < 0) clickedLine = 0;
                 if (clickedLine >= lines.size()) clickedLine = lines.size() - 1;
@@ -1489,7 +1497,7 @@ public class FileEditorScreen extends Screen {
                 int cPos = 0;
                 int widthSum = 0;
                 for (char c : text.toCharArray()) {
-                    int charWidth = mc.font.width(String.valueOf(c));
+                    int charWidth = mc.textRenderer.getWidth(String.valueOf(c));
                     if (widthSum + charWidth / 2 >= localX) break;
                     widthSum += charWidth;
                     cPos++;
@@ -1541,7 +1549,7 @@ public class FileEditorScreen extends Screen {
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && isDraggingSelection) {
                 lastDragX = mouseX;
                 lastDragY = mouseY;
-                int lineHeight = mc.font.lineHeight + 2;
+                int lineHeight = mc.textRenderer.fontHeight + 2;
                 int dragLine = (int) ((mouseY - y + smoothScrollOffsetVert) / lineHeight);
                 if (dragLine < 0) dragLine = 0;
                 if (dragLine >= lines.size()) dragLine = lines.size() - 1;
@@ -1551,7 +1559,7 @@ public class FileEditorScreen extends Screen {
                 int cPos = 0;
                 int widthSum = 0;
                 for (char c : text.toCharArray()) {
-                    int charWidth = mc.font.width(String.valueOf(c));
+                    int charWidth = mc.textRenderer.getWidth(String.valueOf(c));
                     if (widthSum + charWidth / 2 >= localX) break;
                     widthSum += charWidth;
                     cPos++;
@@ -1579,7 +1587,7 @@ public class FileEditorScreen extends Screen {
             int maxScroll = Math.max(0, lines.size() * lineHeight - height);
             if (targetScrollOffsetVert > maxScroll) targetScrollOffsetVert = maxScroll;
             String lineText = cursorLine >= 0 && cursorLine < lines.size() ? lines.get(cursorLine) : "";
-            int cursorX = mc.font.width(lineText.substring(0, Math.min(cursorPos, lineText.length())));
+            int cursorX = mc.textRenderer.getWidth(lineText.substring(0, Math.min(cursorPos, lineText.length())));
             int leftVisible = (int) Math.floor(smoothScrollOffsetHoriz);
             int rightVisible = leftVisible + width - 20;
             if (cursorX < leftVisible) {
@@ -1594,10 +1602,10 @@ public class FileEditorScreen extends Screen {
         }
 
         public void scrollVert(int amount) {
-            targetScrollOffsetVert += amount * (mc.font.lineHeight + 2);
+            targetScrollOffsetVert += amount * (mc.textRenderer.fontHeight + 2);
             if (targetScrollOffsetVert < 0) targetScrollOffsetVert = 0;
-            int additionalScroll = 30 * (mc.font.lineHeight + 2);
-            int maxScroll = Math.max(0, lines.size() * (mc.font.lineHeight + 2) - height + additionalScroll);
+            int additionalScroll = 30 * (mc.textRenderer.fontHeight + 2);
+            int maxScroll = Math.max(0, lines.size() * (mc.textRenderer.fontHeight + 2) - height + additionalScroll);
             if (targetScrollOffsetVert > maxScroll) targetScrollOffsetVert = maxScroll;
         }
 
@@ -1660,7 +1668,7 @@ public class FileEditorScreen extends Screen {
             return lineNumber >= startLine && lineNumber <= endLine;
         }
 
-        private void drawSelection(GuiGraphics context, int lineNumber, int yPosition, String lineText, int padding) {
+        private void drawSelection(DrawContext context, int lineNumber, int yPosition, String lineText, int padding) {
             int selectionStart = 0;
             int selectionEnd = lineText.length();
             if (lineNumber == selectionStartLine) {
@@ -1681,16 +1689,16 @@ public class FileEditorScreen extends Screen {
             selectionEnd = Math.min(lineText.length(), selectionEnd);
             String beforeSelection = lineText.substring(0, selectionStart);
             String selectionText = lineText.substring(selectionStart, selectionEnd);
-            int selectionXStart = x + padding + mc.font.width(beforeSelection) - (int) smoothScrollOffsetHoriz;
-            int selectionWidth = mc.font.width(selectionText);
-            int lineHeight = mc.font.lineHeight + 2;
+            int selectionXStart = x + padding + mc.textRenderer.getWidth(beforeSelection) - (int) smoothScrollOffsetHoriz;
+            int selectionWidth = mc.textRenderer.getWidth(selectionText);
+            int lineHeight = mc.textRenderer.fontHeight + 2;
             context.fill(selectionXStart, yPosition, selectionXStart + selectionWidth, yPosition + lineHeight - 2, globalSelectionColor);
         }
 
         public void copySelectionToClipboard() {
             String selectedText = getSelectedText();
             if (!selectedText.isEmpty()) {
-                mc.keyboardHandler.setClipboard(selectedText);
+                mc.keyboard.setClipboard(selectedText);
             }
         }
 
@@ -1792,7 +1800,7 @@ public class FileEditorScreen extends Screen {
 
         private void scrollToCursor() {
             if (cursorLine < 0 || cursorLine >= lines.size()) return;
-            int lineHeight = mc.font.lineHeight + 2;
+            int lineHeight = mc.textRenderer.fontHeight + 2;
             int cursorY = cursorLine * lineHeight;
             int halfHeight = height / 2;
             targetScrollOffsetVert = cursorY - halfHeight + lineHeight / 2;
@@ -1800,7 +1808,7 @@ public class FileEditorScreen extends Screen {
             int maxScrollVert = Math.max(0, lines.size() * lineHeight - height + lineHeight);
             if (targetScrollOffsetVert > maxScrollVert) targetScrollOffsetVert = maxScrollVert;
             String lineText = lines.get(cursorLine);
-            int cursorX = mc.font.width(lineText.substring(0, Math.min(cursorPos, lineText.length())));
+            int cursorX = mc.textRenderer.getWidth(lineText.substring(0, Math.min(cursorPos, lineText.length())));
             int halfWidth = width / 2;
             targetScrollOffsetHoriz = cursorX - halfWidth;
             if (targetScrollOffsetHoriz < 0) targetScrollOffsetHoriz = 0;
@@ -1836,7 +1844,7 @@ public class FileEditorScreen extends Screen {
         }
 
         public int getTotalScrollHeight() {
-            int lineHeight = mc.font.lineHeight + 2;
+            int lineHeight = mc.textRenderer.fontHeight + 2;
             return lines.size() * lineHeight;
         }
 
