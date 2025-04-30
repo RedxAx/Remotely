@@ -180,7 +180,7 @@ public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.scree
     private void openMultiTerminalScreen() {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client != null) {
-            RemotelyClient.INSTANCE.openMultiTerminalGUI(client);
+            RemotelyClient.INSTANCE.openMultiTerminalGUI(client, this);
         }
     }
 

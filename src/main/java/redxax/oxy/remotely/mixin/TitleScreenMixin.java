@@ -180,7 +180,7 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screen.S
     @Unique
     private void openMultiTerminalScreen() {
         MinecraftClient client = MinecraftClient.getInstance();
-        RemotelyClient.INSTANCE.openMultiTerminalGUI(client);
+        RemotelyClient.INSTANCE.openMultiTerminalGUI(client, this);
     }
 
     @Unique

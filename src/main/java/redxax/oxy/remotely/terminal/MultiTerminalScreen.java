@@ -112,7 +112,7 @@ public class MultiTerminalScreen extends Screen {
     private final List<Float> currentColumnWeights = new ArrayList<>();
     private final List<Float> currentRowWeights    = new ArrayList<>();
 
-    static class MergeGroup {
+    public static class MergeGroup {
         List<TerminalInstance> members = new ArrayList<>();
         MergeGroup(TerminalInstance t) { members.add(t); }
     }
@@ -164,9 +164,12 @@ public class MultiTerminalScreen extends Screen {
             }
             globalSnippets.add(CREATE_SNIPPET);
         }
-
-        for (TerminalInstance t : terminals) {
-            mergeGroups.put(t.terminalId, new MergeGroup(t));
+        if (remotelyClient.multiMergeGroups != null && !remotelyClient.multiMergeGroups.isEmpty()) {
+            mergeGroups.putAll(remotelyClient.multiMergeGroups);
+        } else {
+            for (TerminalInstance t : terminals) {
+                mergeGroups.put(t.terminalId, new MergeGroup(t));
+            }
         }
         initializeWeights();
 
@@ -1943,6 +1946,7 @@ public class MultiTerminalScreen extends Screen {
         remotelyClient.showSnippetsPanel = this.showSnippetsPanel;
         remotelyClient.multiTerminals = new ArrayList<>(terminals);
         remotelyClient.multiTabNames = new ArrayList<>(tabNames);
+        remotelyClient.multiMergeGroups = new LinkedHashMap<>(mergeGroups);
         if (parent == null) playSound(Sound.SCREEN);
     }
 }
