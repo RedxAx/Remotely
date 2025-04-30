@@ -24,6 +24,7 @@ import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.resource.language.I18n;
 import net.minecraft.text.Text;
 
+import static redxax.oxy.remotely.Render.drawCustomButton;
 import static redxax.oxy.remotely.Render.drawSquareButton;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.servers.BrowserScreen.checkIfMcefExist;
@@ -144,7 +145,7 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screen.S
             }
             for (NormalButton btn : normalButtons) {
                 boolean hovered = mouseX >= btn.x && mouseX < btn.x + btn.width && mouseY >= btn.y && mouseY < btn.y + btn.height;
-                redxax.oxy.remotely.Render.drawCustomButton(context, btn.x, btn.y, btn.label, this.client, hovered, false, true, false, true, btn.width, btn.height, globalTextColor, niceAccentHoverColor, mouseX, mouseY, "");
+                drawCustomButton(context, btn.x, btn.y, btn.label, this.client, hovered, false, true, false, true, btn.width, btn.height, globalTextColor, accentHoverColor, mouseX, mouseY, "");
             }
         }
     }
