@@ -957,9 +957,9 @@ public class MultiTerminalScreen extends Screen {
                     if (button == 1) {
                         playSound(Sound.RIGHTCLICK);
                         int finalI = i;
-                        ContextMenu.addItem("Close", () -> closeTerminal(finalI), globalHoverTextColor, "Close Terminal");
-                        if (finalI != activeTerminalIndex) ContextMenu.addItem("Merge", () -> mergeTerminal(finalI), globalHoverTextColor, "Merge Terminal / Split Screen");
-                        ContextMenu.addItem("Rename", () -> tabsBar.renameTab(finalI), globalHoverTextColor, "Rename Terminal");
+                        ContextMenu.addItem("Close", () -> closeTerminal(finalI), false, false, false, "Close Terminal");
+                        if (finalI != activeTerminalIndex) ContextMenu.addItem("Merge", () -> mergeTerminal(finalI), false, false, false, "Merge Terminal / Split Screen");
+                        ContextMenu.addItem("Rename", () -> tabsBar.renameTab(finalI), false, false, false, "Rename Terminal");
                         ContextMenu.show((int) mouseX, (int) mouseY, 60, this.width, this.height);
                         return true;
                     } else if (button == 2) {
@@ -1130,8 +1130,8 @@ public class MultiTerminalScreen extends Screen {
                         TerminalInstance ti = mg.members.get(idx2);
                         if (button == 1) {
                             final int p = idx2;
-                            ContextMenu.addItem("Unmerge", () -> unmergePanel(p), globalHoverTextColor, "Unmerge Pane");
-                            ContextMenu.addItem("Close",   () -> closePanel(p), dangerLightAccentColor, "Close Pane");
+                            ContextMenu.addItem("Unmerge", () -> unmergePanel(p), false, false, false, "Unmerge Pane");
+                            ContextMenu.addItem("Close",   () -> closePanel(p), false, false, false, "Close Pane");
                             ContextMenu.show((int)mouseX,(int)mouseY,100,this.width,this.height);
                             return true;
                         } else if (button == 0) {

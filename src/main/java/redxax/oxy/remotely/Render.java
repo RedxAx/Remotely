@@ -102,16 +102,21 @@ public class Render {
     }
 
     public static class ContextMenu {
-        private static int MenuHoverColor = 0xFFd6f264;
 
         private static class MenuItem {
             String label;
             Runnable action;
             String tooltipText;
-            MenuItem(String label, Runnable action, String tooltipText) {
+            boolean danger;
+            boolean nice;
+            boolean calm;
+            MenuItem(String label, Runnable action, String tooltipText, boolean danger, boolean nice, boolean calm) {
                 this.label = label;
                 this.action = action;
                 this.tooltipText = tooltipText;
+                this.danger = danger;
+                this.nice = nice;
+                this.calm = calm;
             }
         }
 
@@ -143,9 +148,8 @@ public class Render {
             items.clear();
         }
 
-        public static void addItem(String label, Runnable action, int HoverColor, String tooltipText) {
-            items.add(new MenuItem(label, action, tooltipText));
-            MenuHoverColor = HoverColor;
+        public static void addItem(String label, Runnable action, boolean danger, boolean nice, boolean calm, String tooltipText) {
+            items.add(new MenuItem(label, action, tooltipText, danger, nice, calm));
         }
 
         public static boolean isOpen() {
@@ -159,7 +163,7 @@ public class Render {
             context.getMatrices().translate(0, 0, 499);
             for (MenuItem item : items) {
                 boolean hovered = mouseX >= menuX && mouseX <= menuX + itemWidth && mouseY >= currentY && mouseY < currentY + itemHeight;
-                drawCustomButton(context, menuX, currentY, item.label, mc, hovered, false, false, false, true, 60, 18, globalTextColor,  MenuHoverColor, mouseX, mouseY, item.tooltipText);
+                drawCustomButton(context, menuX, currentY, item.label, mc, hovered, false, false, false, true, 60, 18, globalTextColor, getTextColor((item.label + item.tooltipText + item.action.hashCode()).hashCode(), hovered, true, true, item.danger, item.nice, item.calm), mouseX, mouseY, item.tooltipText);
                 currentY += itemHeight + gap;
             }
             context.getMatrices().pop();
@@ -342,7 +346,7 @@ public class Render {
             drawInnerBorder(context, x, tabBarY, tabWidth, tabBarHeight, Config.getElementBorderColor(1000 + i, isHovered, isActive, true, isUnsaved, false, false));
             drawOuterBorder(context, x, tabBarY, tabWidth, tabBarHeight, globalOuterBorder);
             context.enableScissor(x + 1, tabBarY, x2 - 1, tabBarY + tabBarHeight);
-            context.drawText(textRenderer, Text.literal(name), x + tabPadding, tabBarY + 5, getTextColor(isHovered, false), shadow);
+            context.drawText(textRenderer, Text.literal(name), x + tabPadding, tabBarY + 5, getTextColor(1000 + i, isHovered, isActive, true, isUnsaved, false, false), shadow);
             context.disableScissor();
             context.getMatrices().pop();
             x += tabWidth + tabGap;
@@ -360,7 +364,7 @@ public class Render {
             context.fill(x, tabBarY, x + plusTabWidth, tabBarY + tabBarHeight, bgColor);
             drawInnerBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, Config.getElementBorderColor(1000 + tabs.size(), isPlusTabHovered, false, true, false, false, false));
             drawOuterBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, globalOuterBorder);
-            context.drawText(textRenderer, Text.literal(plusSign), x + plusTabWidth / 2 - textRenderer.getWidth(plusSign) / 2, tabBarY + 5, getTextColor(isPlusTabHovered, false), shadow);
+            context.drawText(textRenderer, Text.literal(plusSign), x + plusTabWidth / 2 - textRenderer.getWidth(plusSign) / 2, tabBarY + 5, getTextColor(1000 + tabs.size(), isPlusTabHovered, false, true, isUnsaved, false, false), shadow);
             context.getMatrices().pop();
         }
     }
@@ -405,7 +409,7 @@ public class Render {
             context.fill(selX, searchBarY + 4, selX + selW, searchBarY + 4 + textRenderer.fontHeight, 0x80FFFFFF);
         }
         if (fieldFocused && isSpecialMode && displayText.isEmpty()) {
-            context.drawText(textRenderer, Text.literal("Search..."), searchBarX + 5, searchBarY + 5, getTextColor(hovered, true), shadow);
+            context.drawText(textRenderer, Text.literal("Search..."), searchBarX + 5, searchBarY + 5, getTextColor(id, hovered, fieldFocused, true, false, caller.equals("FileExplorerScreen") && isSpecialMode, caller.equals("FileEditorScreen") && isSpecialMode), shadow);
         }
         int displayWidth = searchBarWidth - 10;
         int textWidth = textRenderer.getWidth(displayText);
@@ -428,7 +432,7 @@ public class Render {
             isAnimating = false;
         }
         context.enableScissor(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight);
-        context.drawText(textRenderer, Text.literal(displayText), searchBarX + 5 - (int) currentScrollOffset, searchBarY + 5, Config.getTextColor(hovered, fieldFocused), Config.shadow);
+        context.drawText(textRenderer, Text.literal(displayText), searchBarX + 5 - (int) currentScrollOffset, searchBarY + 5, Config.getTextColor(id, hovered, fieldFocused, true, false, caller.equals("FileExplorerScreen") && isSpecialMode, caller.equals("FileEditorScreen") && isSpecialMode), Config.shadow);
         if (fieldFocused) {
             int cursorPosX = searchBarX + 5 + textRenderer.getWidth(beforeCursor) - (int) currentScrollOffset;
             context.fill(cursorPosX, searchBarY + 5, cursorPosX + 1, searchBarY + 5 + textRenderer.fontHeight, Config.globalCursorAnimatedColor);
@@ -1002,6 +1006,7 @@ public class Render {
         public void setAllowClose(boolean b) { allowClose = b; }
         public void setAllowDrag(boolean b) { allowDrag = b; }
         public void setAllowScroll(boolean b) { allowScroll = b; }
+        public void setIsUnsaved(int idx, boolean b) { tabs.get(idx).unsaved = b; }
         public void setTabBarBounds(int x, int y, int w, int h) { tabBarX = x; tabBarY = y; tabBarW = w; tabBarH = h; }
         public void setOnTabOrderChanged(Runnable r) { onTabOrderChanged = r; }
         public void setOnTabClosed(Runnable r) { onTabClosed = r; }
@@ -1090,12 +1095,12 @@ public class Render {
                     int textY = tabBarY + 5;
                     String beforeCursor = renameBuffer.substring(0, Math.min(renameCursor, renameBuffer.length()));
                     int cursorX = textX + textRenderer.getWidth(beforeCursor);
-                    context.drawText(textRenderer, Text.literal(renameBuffer.toString()), textX, textY, Config.getTextColor(isHovered, false), shadow);
+                    context.drawText(textRenderer, Text.literal(renameBuffer.toString()), textX, textY, Config.getTextColor(1000 + i, isHovered, isActive, true, tab.unsaved, false, false), shadow);
                     context.fill(cursorX, textY, cursorX + 1, textY + textRenderer.fontHeight, globalCursorAnimatedColor);
                 } else {
                     int textX = (int) newPos + tabPadding;
                     int textY = tabBarY + 5;
-                    context.drawText(textRenderer, Text.literal(name), textX, textY, Config.getTextColor(isHovered, false), shadow);
+                    context.drawText(textRenderer, Text.literal(name), textX, textY, Config.getTextColor(1000 + i, isHovered, isActive, true, tab.unsaved, false, false), shadow);
                 }
                 if (allowClose) {
                     int closeX = (int) (newPos + tabWidth - 5 - 1);
@@ -1126,7 +1131,7 @@ public class Render {
                 context.fill(drawX, tabBarY, drawX + plusTabWidth, tabBarY + tabBarHeight, bgColor);
                 drawInnerBorder(context, drawX, tabBarY, plusTabWidth, tabBarHeight, Config.getElementBorderColor(1000 + tabs.size(), isPlusHovered, false, true, false, false, false));
                 drawOuterBorder(context, drawX, tabBarY, plusTabWidth, tabBarHeight, globalOuterBorder);
-                context.drawText(textRenderer, Text.literal("+"), drawX + plusTabWidth / 2 - (textRenderer.getWidth("+") / 2), tabBarY + 4, Config.getTextColor(isPlusHovered, false), shadow);
+                context.drawText(textRenderer, Text.literal("+"), drawX + plusTabWidth / 2 - (textRenderer.getWidth("+") / 2), tabBarY + 4, Config.getTextColor((this.getClass() + "plusTabsBar").hashCode(), isPlusHovered, false, true, false, false, false), shadow);
                 context.getMatrices().pop();
             }
         }

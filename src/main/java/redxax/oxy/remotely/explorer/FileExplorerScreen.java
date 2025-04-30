@@ -955,7 +955,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                     ContextMenu.addItem("Close", () -> {
                         closeTab(finalI);
                         tabsBar.closeTab(finalI);
-                    }, globalHoverTextColor, "");
+                    }, false, false, false, "");
                     int finalI1 = i;
                     ContextMenu.addItem("Duplicate", () -> {
                         TabData originalTabData = tabs.get(finalI1).tabData;
@@ -965,9 +965,9 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                         currentTabIndex = tabs.size() - 1;
                         loadDirectory(newTabData.path, false, false, false);
                         saveFileExplorerTabs(tabs.stream().map(t1 -> new TabData(t1.tabData.path, t1.tabData.isRemote, t1.tabData.remoteHostInfo)).collect(Collectors.toList()), Math.min(currentTabIndex, tabs.size() - 1));
-                    }, globalHoverTextColor, "Duplicate This Tab.");
-                    ContextMenu.addItem("Externally", () -> openExternally(tabs.get(finalI1).tabData.path), globalHoverTextColor, "Open In The Windows File Explorer.");
-                    ContextMenu.addItem("Rename Tab", () -> tabsBar.renameTab(finalI), globalHoverTextColor, "Are You a Psychopath or Something?");
+                    }, false, false, false, "Duplicate This Tab.");
+                    ContextMenu.addItem("Externally", () -> openExternally(tabs.get(finalI1).tabData.path), false, false, false, "Open In The Windows File Explorer.");
+                    ContextMenu.addItem("Rename Tab", () -> tabsBar.renameTab(finalI), false, false, false, "Are You a Psychopath or Something?");
                     ContextMenu.show((int) mouseX, (int) mouseY, 60, this.width, this.height);
                 }
                 handled = true;
@@ -1217,24 +1217,24 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                     ContextMenu.addItem("Copy", () -> {
                         playSound(Sound.COPY);
                         fileManager.copySelected(currentTab.tabData.selectedPaths);
-                    }, globalHoverTextColor, "");
+                    }, false, false, false, "");
                     ContextMenu.addItem("Cut", () -> {
                         playSound(Sound.COPY);
                         fileManager.cutSelected(currentTab.tabData.selectedPaths);
-                    }, globalHoverTextColor, "");
+                    }, false, false, false, "");
                     ContextMenu.addItem("Paste", () -> {
                         playSound(Sound.PASTE);
                         fileManager.paste(currentPath);
-                    }, globalHoverTextColor, "");
+                    }, false, false, false, "");
                     ContextMenu.addItem("Delete", () -> {
                         playSound(Sound.DELETE);
                         fileManager.deleteSelected(currentTab.tabData.selectedPaths, currentPath);
-                    }, Config.dangerDarkAccentColor, "");
+                    }, false, false, false, "");
                     ContextMenu.addItem("Copy Path", () -> {
                         playSound(Sound.COPY);
                         String quotedPath = "\"" + entryData.path.toString() + "\"";
                         minecraftClient.keyboard.setClipboard(quotedPath);
-                    }, globalHoverTextColor, "");
+                    }, false, false, false, "");
                     ContextMenu.addItem("Undo", () -> {
                         if (serverInfo.isRemote) {
                             showNotification("Undo not supported for remote files.", Notification.Type.ERROR);
@@ -1242,7 +1242,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                             playSound(Sound.UNDO);
                             fileManager.undo(currentPath);
                         }
-                    }, globalHoverTextColor, "");
+                    }, false, false, false, "");
                     ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
                     playSound(Sound.RIGHTCLICK);
                 }

@@ -144,6 +144,7 @@ public class FileEditorScreen extends Screen {
         public void checkIfChanged(List<String> lines) {
             String joined = String.join("\n", lines);
             this.unsaved = !joined.equals(originalContent);
+            if (tabsBar != null) tabsBar.setIsUnsaved(currentTabIndex, unsaved);
         }
         private void loadFileContent() {
             ArrayList<String> fileContent = new ArrayList<>();
@@ -219,6 +220,7 @@ public class FileEditorScreen extends Screen {
                     }
                 }
             }
+            if (tabsBar != null) tabsBar.setIsUnsaved(currentTabIndex, false);
         }
     }
 
@@ -664,10 +666,10 @@ public class FileEditorScreen extends Screen {
                             close();
                         }
                         RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
-                    }, globalHoverTextColor, "Close The Tab.");
+                    }, false, false, false, "Close The Tab.");
                     ContextMenu.addItem("Save", () -> {
                         tabs.get(finalI).saveFile();
-                    }, globalHoverTextColor, (tabs.get(finalI).unsaved ? "Save The Current File." : " It's Already Saved!"));
+                    }, false, false, false, (tabs.get(finalI).unsaved ? "Save The Current File." : " It's Already Saved!"));
                     ContextMenu.addItem("Externally", () -> {
                         ProcessBuilder pb = new ProcessBuilder("explorer.exe", tab.path.toString());
                         try {
@@ -675,7 +677,7 @@ public class FileEditorScreen extends Screen {
                         } catch (IOException e) {
                             e.printStackTrace();
                         }
-                    }, globalHoverTextColor, "Open In The Default App.");
+                    }, false, false, false, "Open In The Default App.");
                     ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
                     clickedTab = true;
                     break;
