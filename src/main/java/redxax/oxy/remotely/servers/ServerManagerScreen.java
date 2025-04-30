@@ -81,7 +81,7 @@ public class ServerManagerScreen extends Screen {
     private final List<BufferedImage> loadingFrames = new ArrayList<>();
     private final int entryHeight = 25;
     private final int topBarHeight = 30;
-    private BufferedImage terminal, serverIcon, paper, vanilla, fabric, forge, neoforge, quilt;
+    private BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf;
     private IconWithTooltip terminalIcon, explorerIcon, editorIcon, browserIcon, settingsIcon;
     private final int taskbarHeight = 28;
     private final List<IconRect> serverIconRects = new ArrayList<>();
@@ -153,13 +153,15 @@ public class ServerManagerScreen extends Screen {
             editorIcon = new IconWithTooltip("/assets/remotely/icons/text.png", "Text Editor");
             serverIcon = loadResourceIcon("/assets/remotely/icons/server.png");
 
-            terminal = loadResourceIcon("/assets/remotely/icons/script.png");
+            unknown = loadResourceIcon("/assets/remotely/icons/unknown.png");
             paper = loadResourceIcon("/assets/remotely/icons/paper.png");
             vanilla = loadResourceIcon("/assets/remotely/icons/vanilla.png");
             fabric =loadResourceIcon("/assets/remotely/icons/fabric.png");
             forge = loadResourceIcon("/assets/remotely/icons/forge.png");
             neoforge = loadResourceIcon("/assets/remotely/icons/neoforge.png");
-            quilt = loadResourceIcon("/assets/remotely/icons/quilt.png");
+            waterfall = loadResourceIcon("/assets/remotely/icons/waterfall.png");
+            velocity = loadResourceIcon("/assets/remotely/icons/velocity.png");
+            leaf = loadResourceIcon("/assets/remotely/icons/leaf.png");
         } catch (Exception e) {
             new Notification("Failed to load icons: " + e.getMessage(), Notification.Type.ERROR);
         }
@@ -172,7 +174,7 @@ public class ServerManagerScreen extends Screen {
         settings.add(new Settings("Difficulty", "server.properties", "difficulty", TAB_SWITCH, "Normal", "General", "Set the difficulty level of the server.", Arrays.asList("Peaceful", "Easy", "Normal", "Hard")));
         settings.add(new Settings("PvP", "Toggle player vs player combat.", "General", "server.properties", "pvp", TOGGLE, "true"));
         settings.add(new Settings("Hardcore", "Toggle hardcore mode (one life).", "General", "server.properties", "hardcore", TOGGLE, "false"));
-        settings.add(new Settings("Server Type", "none", "server-type", SCROLL_SWITCH, "Paper", "General", "Choose the server software type.", Arrays.asList("Paper", "Vanilla", "Fabric", "Forge", "Neoforge", "Quilt")));
+        settings.add(new Settings("Server Type", "none", "server-type", SCROLL_SWITCH, "Paper", "General", "Choose the server software type.", Arrays.asList("Paper", "Leaf", "Vanilla", "Fabric", "Neoforge", "Forge", "Velocity", "Waterfall")));
         settings.add(new Settings("Server Version", "Specify the Minecraft server version to run.", "General", "none", "server-version", TEXT, minecraftClient.getGameVersion()));
         settings.add(new Settings("Max Players", "server.properties", "max-players", SLIDER, "20", "Advanced", "Max online players limit.", 1, 200));
         settings.add(new Settings("MOTD", "Description for the server list.", "Advanced", "server.properties", "motd", TEXT, minecraftClient.getSession().getUsername() + "'s Server"));
@@ -1656,9 +1658,10 @@ public class ServerManagerScreen extends Screen {
             case "forge" -> forge;
             case "paper" -> paper;
             case "neoforge" -> neoforge;
-            case "quilt" -> quilt;
-            case "modpack" -> vanilla;
-            default -> terminal;
+            case "velocity" -> velocity;
+            case "waterfall" -> waterfall;
+            case "leaf" -> leaf;
+            default -> unknown;
         };
     }
 

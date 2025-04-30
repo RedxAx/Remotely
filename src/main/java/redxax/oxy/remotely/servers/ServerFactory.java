@@ -17,6 +17,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class ServerFactory {
 
@@ -36,16 +38,20 @@ public class ServerFactory {
             String typeLower = serverType.toLowerCase();
             String versionLower = serverVersion.toLowerCase();
             System.out.println("Attempting to get download URL for type: " + typeLower + ", version: " + versionLower);
+
             String url = getDownloadURL(typeLower, versionLower);
+            String fileName = "server.jar";
+            boolean isInstaller = false;
+
             if (url == null) {
                 System.err.println("Could not determine download URL for server type '" + serverType + "' and version '" + serverVersion + "'.");
                 System.err.println("This type/version might not be supported, require manual steps or the version might be invalid.");
                 return 3;
             }
+
             System.out.println("Download URL determined: " + url);
-            String fileName = "server.jar";
-            boolean isInstaller = false;
-            if (typeLower.equals("fabric") || typeLower.equals("quilt") || typeLower.equals("forge") || typeLower.equals("neoforge")) {
+
+            if (typeLower.equals("fabric") || typeLower.equals("forge") || typeLower.equals("neoforge")) {
                 isInstaller = true;
                 Matcher installerMatcher = Pattern.compile("([^/]+\\.jar)$").matcher(url);
                 if (installerMatcher.find()) {
@@ -54,9 +60,7 @@ public class ServerFactory {
                     fileName = typeLower + "-installer.jar";
                 }
                 System.out.println("Note: Downloading an installer (" + fileName + ").");
-            } else if (typeLower.equals("bungeecord")) {
-                fileName = "BungeeCord.jar";
-            } else if (typeLower.equals("paper") || typeLower.equals("velocity")) {
+            } else if (typeLower.equals("paper") || typeLower.equals("velocity") || typeLower.equals("waterfall")) {
                 Matcher apiMatcher = Pattern.compile("/downloads/([^/]+)$").matcher(url);
                 if (apiMatcher.find()) {
                     fileName = apiMatcher.group(1);
@@ -70,7 +74,16 @@ public class ServerFactory {
                 } else {
                     fileName = "vanilla-" + versionLower + ".jar";
                 }
+            } else if (typeLower.equals("leaf")) {
+                Matcher leafMatcher = Pattern.compile("([^/]+\\.jar)$").matcher(url);
+                if (leafMatcher.find()) {
+                    fileName = leafMatcher.group(1);
+                } else {
+                    fileName = "Leaf-" + versionLower + ".jar";
+                }
             }
+
+
             Path jarPath = serverDir.resolve(fileName);
             System.out.println("Starting download to: " + jarPath.toAbsolutePath());
             int downloadCode = downloadServerBuild(url, jarPath);
@@ -78,21 +91,20 @@ public class ServerFactory {
                 System.err.println("Download failed with code: " + downloadCode);
                 return downloadCode;
             }
+
             if (isInstaller) {
-                if (typeLower.equals("fabric") || typeLower.equals("quilt")) {
+                if (typeLower.equals("fabric")) {
                     int setupCode = setupFabricServer(serverDir, jarPath, versionLower);
-                    if (setupCode != 0) {
-                        System.err.println("Failed to setup Fabric server with code: " + setupCode);
-                        return setupCode;
-                    }
-                } else if (typeLower.equals("forge") || typeLower.equals("neoforge")) {
-                    int setupCode = setupForgeNeoForgeServer(serverDir, jarPath);
                     if (setupCode != 0) {
                         System.err.println("Failed to setup " + serverType + " server with code: " + setupCode);
                         return setupCode;
                     }
                 } else {
-                    System.out.println("Skipping start script generation for installer (" + serverType + ").");
+                    int setupCode = setupForgeNeoForgeServer(serverDir, jarPath);
+                    if (setupCode != 0) {
+                        System.err.println("Failed to setup " + serverType + " server with code: " + setupCode);
+                        return setupCode;
+                    }
                 }
             } else {
                 int scriptCode = createStartScript(serverDir, fileName, ramAmount, aikarsFlags);
@@ -101,9 +113,10 @@ public class ServerFactory {
                     return scriptCode;
                 }
             }
+
             System.out.println("Server '" + serverName + "' setup process initiated successfully in " + serverDir.toAbsolutePath());
             Path eulaPath = serverDir.resolve("eula.txt");
-            if (Files.exists(eulaPath)) {
+            if (!typeLower.equals("velocity") && !typeLower.equals("waterfall") && Files.exists(eulaPath)) {
                 try {
                     List<String> lines = Files.readAllLines(eulaPath);
                     List<String> updatedLines = new ArrayList<>();
@@ -124,7 +137,10 @@ public class ServerFactory {
                 } catch (IOException e) {
                     System.err.println("Failed to accept EULA: " + e.getMessage());
                 }
+            } else if (!typeLower.equals("velocity") && !typeLower.equals("waterfall")) {
+                System.out.println("eula.txt not found, it will likely be generated on first run. Please accept it manually.");
             }
+
             return 0;
         } catch (IOException e) {
             System.err.println("IO Error during server creation: " + e.getMessage());
@@ -137,10 +153,6 @@ public class ServerFactory {
         }
     }
 
-    public static int createServer(String serverName, String serverType, String serverVersion, String serverDirectory) {
-        return createServer(serverName, serverType, serverVersion, serverDirectory, "2048", "-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:+UseStringDeduplication");
-    }
-
     private static String getDownloadURL(String serverType, String serverVersion) {
         try {
             switch (serverType) {
@@ -149,11 +161,15 @@ public class ServerFactory {
                 case "paper":
                     return getPaperDownloadUrl("paper", serverVersion);
                 case "velocity":
-                    return getPaperDownloadUrl("velocity", serverVersion);
-                case "spigot":
-                    System.err.println("Spigot server jars must be built using BuildTools.");
-                    System.err.println("See: https://www.spigotmc.org/wiki/buildtools/");
-                    return null;
+                case "waterfall":
+                    System.out.println("Note: " + serverType + " uses its own versioning. Finding latest release...");
+                    String latestVersion = getLatestPaperMCReleaseVersion(serverType);
+                    if (latestVersion == null) {
+                        System.err.println("Could not determine the latest release version for " + serverType + ".");
+                        return null;
+                    }
+                    System.out.println("Latest " + serverType + " release version found: " + latestVersion);
+                    return getPaperDownloadUrl(serverType, latestVersion);
                 case "fabric":
                     System.out.println("Note: Fabric requires running the downloaded installer.");
                     String fabricMetaUrl = "https://meta.fabricmc.net/v2/versions/installer";
@@ -173,32 +189,13 @@ public class ServerFactory {
                     }
                 case "forge":
                     System.out.println("Note: Downloading Forge installer.");
-                    System.err.println("Automated download for Forge installers is complex. Please manually download the installer for Minecraft version " + serverVersion + " from https://files.minecraftforge.net/net/minecraftforge/forge/");
-                    return null;
+                    return getForgeDownloadUrl(serverVersion);
                 case "neoforge":
                     System.out.println("Note: Downloading NeoForge installer.");
-                    System.err.println("Automated download for NeoForge installers is complex. Please manually download the installer for Minecraft version " + serverVersion + " from https://neoforged.net/files");
-                    return null;
-                case "quilt":
-                    System.out.println("Note: Quilt requires running the downloaded installer.");
-                    String quiltMetaUrl = "https://meta.quiltmc.org/v3/versions/installer";
-                    String quiltMetaResponse = simpleHttpGet(quiltMetaUrl);
-                    if (quiltMetaResponse != null) {
-                        Pattern quiltPattern = Pattern.compile("\\{\\s*\"version\"\\s*:\\s*\"[^\"]+\",\\s*\"url\"\\s*:\\s*\"([^\"]+)\"");
-                        Matcher quiltMatcher = quiltPattern.matcher(quiltMetaResponse);
-                        if (quiltMatcher.find()) {
-                            return quiltMatcher.group(1);
-                        } else {
-                            System.err.println("Could not parse installer URL from Quilt Meta API response.");
-                            return null;
-                        }
-                    } else {
-                        System.err.println("Failed to fetch Quilt Meta API.");
-                        return null;
-                    }
-                case "bungeecord":
-                    System.out.println("Warning: Using BungeeCord CI build. Consider using Waterfall for more stability.");
-                    return "https://ci.md-5.net/job/BungeeCord/lastSuccessfulBuild/artifact/bootstrap/target/BungeeCord.jar";
+                    return getNeoForgeDownloadUrl(serverVersion);
+                case "leaf":
+                    System.out.println("Note: Leaf is a high-performance Paper fork.");
+                    return getLeafDownloadUrl(serverVersion);
                 default:
                     System.err.println("Unknown server type: " + serverType);
                     return null;
@@ -209,6 +206,85 @@ public class ServerFactory {
         } catch (Exception e) {
             System.err.println("Unexpected error while determining download URL: " + e.getMessage());
             e.printStackTrace();
+            return null;
+        }
+    }
+
+    private static String getLatestPaperMCReleaseVersion(String project) throws IOException {
+        String projectApiUrl = "https://api.papermc.io/v2/projects/" + project;
+        System.out.println("Fetching project info from PaperMC API: " + projectApiUrl);
+        String projectResponse = simpleHttpGet(projectApiUrl);
+        if (projectResponse == null) {
+            System.err.println("Failed to get project info from PaperMC API for " + project);
+            return null;
+        }
+
+        Pattern versionsArrayPattern = Pattern.compile("\"versions\"\\s*:\\s*\\[([^\\]]+)\\]");
+        Matcher versionsArrayMatcher = versionsArrayPattern.matcher(projectResponse);
+
+        if (versionsArrayMatcher.find()) {
+            String versionsContent = versionsArrayMatcher.group(1);
+            Pattern versionPattern = Pattern.compile("\"([^\"]+)\"");
+            Matcher versionMatcher = versionPattern.matcher(versionsContent);
+            String lastVersion = null;
+            while (versionMatcher.find()) {
+                String currentVersion = versionMatcher.group(1);
+                if (!currentVersion.contains("-SNAPSHOT")) {
+                    lastVersion = currentVersion;
+                } else if (lastVersion == null) {
+                    lastVersion = currentVersion;
+                }
+            }
+            if (lastVersion != null) {
+                String checkBuildUrl = "https://api.papermc.io/v2/projects/" + project + "/versions/" + lastVersion + "/builds";
+                if (simpleHttpGet(checkBuildUrl) != null) {
+                    return lastVersion;
+                } else {
+                    System.err.println("Latest version found (" + lastVersion + ") seems to have no builds available via API. Checking previous...");
+                    return null;
+                }
+            } else {
+                System.err.println("Could not find any version string within the 'versions' array for project " + project);
+                return null;
+            }
+        } else {
+            System.err.println("Could not find 'versions' array in PaperMC API response for project " + project);
+            return null;
+        }
+    }
+
+    private static String getLeafDownloadUrl(String serverVersion) throws IOException {
+        String apiUrl;
+        String targetTag = "ver-" + serverVersion;
+
+        if (serverVersion.equalsIgnoreCase("latest")) {
+            apiUrl = "https://api.github.com/repos/Winds-Studio/Leaf/releases/latest";
+            System.out.println("Fetching latest Leaf release info from GitHub API: " + apiUrl);
+        } else {
+            apiUrl = "https://api.github.com/repos/Winds-Studio/Leaf/releases/tags/" + targetTag;
+            System.out.println("Fetching Leaf release info for tag " + targetTag + " from GitHub API: " + apiUrl);
+        }
+        String releaseJson = simpleHttpGet(apiUrl);
+        if (releaseJson == null) {
+            System.err.println("Failed to fetch release data from GitHub API for Leaf version/tag: " + serverVersion + "/" + targetTag);
+            return null;
+        }
+        Pattern assetPattern = Pattern.compile("\\{\\s*" + ".*?" + "\"name\"\\s*:\\s*\"([^\"]*?\\.jar)\"" + ".*?" + "\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"" + ".*?" + "}", Pattern.DOTALL);
+        Matcher assetMatcher = assetPattern.matcher(releaseJson);
+        String downloadUrl = null;
+        String jarFileName = null;
+        if (assetMatcher.find()) {
+            jarFileName = assetMatcher.group(1);
+            downloadUrl = assetMatcher.group(2);
+        }
+        if (downloadUrl != null) {
+            System.out.println("Found Leaf download URL: " + downloadUrl + " (Filename: " + jarFileName + ")");
+            return downloadUrl;
+        } else {
+            System.err.println("Could not find a .jar asset download URL in the GitHub release data for Leaf version: " + serverVersion);
+            int snippetLength = Math.min(releaseJson.length(), 1000);
+            System.err.println("Response snippet (check 'assets' array structure): " + releaseJson.substring(0, snippetLength) + (releaseJson.length() > snippetLength ? "..." : ""));
+            System.err.println("Please check the release page manually: https://github.com/Winds-Studio/Leaf/releases");
             return null;
         }
     }
@@ -248,6 +324,93 @@ public class ServerFactory {
             System.err.println("Attempting fallback filename: " + downloadFileName);
         }
         return "https://api.papermc.io/v2/projects/" + project + "/versions/" + serverVersion + "/builds/" + latestBuild + "/downloads/" + downloadFileName;
+    }
+
+    private static String getForgeDownloadUrl(String serverVersion) throws IOException {
+        String promotionsUrl = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
+        System.out.println("Fetching Forge promotions data from: " + promotionsUrl);
+        String promotionsJson = simpleHttpGet(promotionsUrl);
+        if (promotionsJson == null) {
+            System.err.println("Failed to fetch Forge promotions data.");
+            return null;
+        }
+        String forgeVersion = null;
+        Pattern recommendedPattern = Pattern.compile("\"" + Pattern.quote(serverVersion) + "-recommended\"\\s*:\\s*\"([^\"]+)\"");
+        Matcher recommendedMatcher = recommendedPattern.matcher(promotionsJson);
+        if (recommendedMatcher.find()) {
+            forgeVersion = recommendedMatcher.group(1);
+            System.out.println("Found recommended Forge version: " + forgeVersion);
+        } else {
+            Pattern latestPattern = Pattern.compile("\"" + Pattern.quote(serverVersion) + "-latest\"\\s*:\\s*\"([^\"]+)\"");
+            Matcher latestMatcher = latestPattern.matcher(promotionsJson);
+            if (latestMatcher.find()) {
+                forgeVersion = latestMatcher.group(1);
+                System.out.println("Found latest Forge version: " + forgeVersion);
+            }
+        }
+        if (forgeVersion == null) {
+            System.err.println("Could not find a suitable Forge version for Minecraft " + serverVersion + " in promotions data.");
+            System.err.println("Please check if the Minecraft version is supported by Forge and available at https://files.minecraftforge.net/");
+            return null;
+        }
+        String downloadUrl = String.format("https://maven.minecraftforge.net/net/minecraftforge/forge/%s-%s/forge-%s-%s-installer.jar", serverVersion, forgeVersion, serverVersion, forgeVersion);
+        System.out.println("Constructed Forge installer download URL: " + downloadUrl);
+        return downloadUrl;
+    }
+
+    private static String getNeoForgeDownloadUrl(String serverVersion) throws IOException {
+        String metadataUrl = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+        System.out.println("Fetching NeoForge metadata from: " + metadataUrl);
+        String metadataXml = simpleHttpGet(metadataUrl);
+        if (metadataXml == null) {
+            System.err.println("Failed to fetch NeoForge metadata.");
+            return null;
+        }
+
+        List<String> allVersions = new ArrayList<>();
+        Pattern versionPattern = Pattern.compile("<version>(.*?)</version>");
+        Matcher versionMatcher = versionPattern.matcher(metadataXml);
+        while (versionMatcher.find()) {
+            allVersions.add(versionMatcher.group(1));
+        }
+
+        if (allVersions.isEmpty()) {
+            System.err.println("Could not find any versions in NeoForge metadata.");
+            return null;
+        }
+
+        String versionPrefix = mapMcToNeoForgePrefix(serverVersion);
+        if (versionPrefix == null) {
+            System.err.println("Could not determine NeoForge version prefix for Minecraft version: " + serverVersion);
+            return null;
+        }
+        String latestMatchingVersion = allVersions.stream().filter(v -> v.startsWith(versionPrefix)).max(Comparator.naturalOrder()).orElse(null);
+        if (latestMatchingVersion == null) {
+            System.err.println("Could not find a suitable NeoForge version for Minecraft " + serverVersion + " (prefix " + versionPrefix + ") in metadata.");
+            System.err.println("Available versions starting with prefix: " +
+                    allVersions.stream().filter(v -> v.startsWith(versionPrefix)).collect(Collectors.joining(", ")));
+            System.err.println("Please check if the Minecraft version is supported by NeoForge and available at https://neoforged.net/files");
+            return null;
+        }
+
+        System.out.println("Found latest NeoForge version for " + serverVersion + ": " + latestMatchingVersion);
+        String downloadUrl = String.format("https://maven.neoforged.net/releases/net/neoforged/neoforge/%s/neoforge-%s-installer.jar", latestMatchingVersion, latestMatchingVersion);
+        System.out.println("Constructed NeoForge installer download URL: " + downloadUrl);
+        return downloadUrl;
+    }
+
+    private static String mapMcToNeoForgePrefix(String mcVersion) {
+        String[] parts = mcVersion.split("\\.");
+        if (parts.length >= 2) {
+            String major = parts[1];
+            String minor = (parts.length > 2) ? parts[2] : "0";
+            major = major.replaceAll("[^0-9]", "");
+            minor = minor.replaceAll("[^0-9]", "");
+            if (!major.isEmpty() && !minor.isEmpty()) {
+                return major + "." + minor + ".";
+            }
+        }
+        return null;
     }
 
     private static String getVanillaDownloadUrl(String serverVersion) throws IOException {
@@ -294,26 +457,6 @@ public class ServerFactory {
             }
             return null;
         }
-    }
-
-    private static String extractJsonValue(String json, String key) {
-        return extractJsonValue(json, key, false);
-    }
-
-    private static String extractJsonValue(String json, String key, boolean fullBlock) {
-        if (json == null || key == null)
-            return null;
-        Pattern pattern;
-        if (fullBlock) {
-            pattern = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*(\\{.*?\\}|\\[.*?\\])", Pattern.DOTALL);
-        } else {
-            pattern = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*\"?([^\"\\{\\[,]+)\"?");
-        }
-        Matcher matcher = pattern.matcher(json);
-        if (matcher.find()) {
-            return matcher.group(1).trim();
-        }
-        return null;
     }
 
     private static String simpleHttpGet(String urlString) throws IOException {
@@ -422,10 +565,8 @@ public class ServerFactory {
             e.printStackTrace();
             return 1;
         } finally {
-            if (in != null)
-                try { in.close(); } catch (IOException e) {}
-            if (connection != null)
-                connection.disconnect();
+            if (in != null) try { in.close(); } catch (IOException ignored) {}
+            if (connection != null) connection.disconnect();
         }
     }
 
@@ -449,7 +590,7 @@ public class ServerFactory {
             } else {
                 Path shFile = serverDir.resolve("start.sh");
                 String shContent = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\n" + javaCommand;
-                Files.write(shFile, shContent.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                Files.writeString(shFile, shContent, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
                 try {
                     java.util.Set<java.nio.file.attribute.PosixFilePermission> perms = new java.util.HashSet<>();
                     perms.add(java.nio.file.attribute.PosixFilePermission.OWNER_READ);
@@ -514,9 +655,7 @@ public class ServerFactory {
         } catch (InterruptedException e) {
             System.err.println("Installer process was interrupted: " + e.getMessage());
             e.printStackTrace();
-            if (process != null) {
-                process.destroyForcibly();
-            }
+            process.destroyForcibly();
             Thread.currentThread().interrupt();
             return 101;
         }
@@ -531,22 +670,27 @@ public class ServerFactory {
         args.add(".");
         args.add("-installDeps");
         args.add("--no-gui");
+
         int exitCode = runJavaProcess(serverDir, installerJar, args);
         if (exitCode == 0) {
             System.out.println("Fabric installation completed successfully.");
-            Path launchJar = serverDir.resolve("fabric-server-launch.jar");
-            if (!Files.exists(launchJar)) {
-                try {
-                    launchJar = Files.list(serverDir)
-                            .filter(p -> p.getFileName().toString().toLowerCase().contains("fabric-server"))
-                            .max(Comparator.comparingLong(p -> p.toFile().length()))
-                            .orElse(null);
-                } catch (IOException e) {
-                    System.err.println("Error finding Fabric server jar: " + e.getMessage());
-                    return 102;
-                }
+            Path launchJar;
+            String launchJarNamePattern = "fabric-server-launch.jar";
+            try (Stream<Path> stream = Files.list(serverDir)) {
+                launchJar = stream.filter(p -> {
+                            String name = p.getFileName().toString().toLowerCase();
+                            return name.equals(launchJarNamePattern) ||
+                                    (name.startsWith("fabric-server-") && name.endsWith(".jar"));
+                        }).max(Comparator.comparingLong(p -> p.toFile().lastModified()))
+                        .orElse(null);
+            } catch (IOException e) {
+                System.err.println("Error finding Fabric server jar: " + e.getMessage());
+                return 102;
             }
+
+
             if (launchJar != null) {
+                System.out.println("Located server launch jar: " + launchJar.getFileName());
                 int scriptCode = createStartScript(serverDir, launchJar.getFileName().toString(), "2048", "-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:+UseStringDeduplication");
                 if (scriptCode != 0) {
                     System.err.println("Failed to create start script for Fabric server with code: " + scriptCode);
@@ -575,12 +719,9 @@ public class ServerFactory {
         int exitCode = runJavaProcess(serverDir, installerJar, args);
         if (exitCode == 0) {
             System.out.println("Forge/NeoForge installation completed successfully.");
-            Path serverJar = null;
+            Path serverJar;
             try {
-                serverJar = Files.list(serverDir)
-                        .filter(p -> p.toString().endsWith(".jar") && !p.getFileName().toString().equals(installerJar.getFileName().toString()))
-                        .max(Comparator.comparingLong(p -> p.toFile().lastModified()))
-                        .orElse(null);
+                serverJar = Files.list(serverDir).filter(p -> p.toString().endsWith(".jar") && !p.getFileName().toString().equals(installerJar.getFileName().toString())).max(Comparator.comparingLong(p -> p.toFile().lastModified())).orElse(null);
             } catch (IOException e) {
                 System.err.println("Error finding Forge/NeoForge server jar: " + e.getMessage());
                 return 102;
