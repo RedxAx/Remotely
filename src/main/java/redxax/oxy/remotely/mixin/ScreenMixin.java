@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.mixin;
 
+import net.minecraft.client.gui.screen.TitleScreen;
 import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -20,7 +21,7 @@ public class ScreenMixin {
 
     @Inject(method = "render", at = @At("TAIL"))
     private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
-        Config.tickTime();
+        if (!((Object)this instanceof TitleScreen)) Config.tickTime();
         Config.globalCursorAnimatedColor = CursorUtils.blendColor();
         for (Notification notification : Notification.getActiveNotifications()) {
             notification.update();
