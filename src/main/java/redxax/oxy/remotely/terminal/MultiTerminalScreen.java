@@ -374,8 +374,15 @@ public class MultiTerminalScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         if (!terminals.isEmpty()) {
-            MergeGroup mg = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
-            TerminalInstance headerTerminal = mg.members.size() > 1 ? mg.members.get(focusedPaneIndex) : terminals.get(activeTerminalIndex);
+            TerminalInstance safeTerminal = terminals.get(Math.min(activeTerminalIndex, terminals.size() - 1));
+            MergeGroup mg = mergeGroups.get(safeTerminal.terminalId);
+            TerminalInstance headerTerminal = safeTerminal;
+            if (mg != null && !mg.members.isEmpty()) {
+                if (mg.members.size() > 1) {
+                    int safeFocusedPaneIndex = Math.min(focusedPaneIndex, mg.members.size() - 1);
+                    headerTerminal = mg.members.get(safeFocusedPaneIndex);
+                }
+            }
             if (headerTerminal instanceof ServerTerminalInstance serverTerminal) {
                 ServerInfo sInfo = serverTerminal.getServerInfo();
                 boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
@@ -397,11 +404,21 @@ public class MultiTerminalScreen extends Screen {
         tabsBar.setTabBarBounds(5, tabOffsetY, animatedWidth - 5, tabAreaHeight);
         tabsBar.renderTabsBar(context, minecraftClient.textRenderer, tabsBar, mouseX, mouseY, shadow);
         activeTerminalIndex = Math.min(tabsBar.getActiveTab(), terminals.size() - 1);
+        if (terminals.isEmpty()) return;
         TerminalInstance activeTerminal = terminals.get(Math.min(activeTerminalIndex, terminals.size() - 1));
         int contentYStart = tabOffsetY + tabAreaHeight + verticalPadding;
         ContentYStart = contentYStart + 5;
         MergeGroup mergedGroup = mergeGroups.get(terminals.get(activeTerminalIndex).terminalId);
-        if (mergedGroup.members.size() > 1) {
+
+        if (mergedGroup != null && !mergedGroup.members.isEmpty() && mergedGroup.members.size() > 1) {
+            int expectedCols = gridColumns;
+            int expectedRows = gridRows;
+            boolean needsInit = false;
+            if (currentColumnWeights.size() != expectedCols || gridColumnWeights.size() != expectedCols) needsInit = true;
+            if (currentRowWeights.size() != expectedRows || gridRowWeights.size() != expectedRows) needsInit = true;
+            if (needsInit) {
+                initializeWeights();
+            }
             for (int i = 0; i < gridColumns; i++) {
                 float curr = currentColumnWeights.get(i);
                 float targ = gridColumnWeights.get(i);
@@ -413,7 +430,7 @@ public class MultiTerminalScreen extends Screen {
                 currentRowWeights.set(i, curr + (targ - curr) * globalExpandSpeed * deltaTime);
             }
         }
-        if (mergedGroup.members.size() == 1) {
+        if (mergedGroup == null || mergedGroup.members.isEmpty() || mergedGroup.members.size() == 1) {
             int terminalX = 5;
             int terminalY = ContentYStart;
             int terminalW = this.width - animatedWidth - 10;
