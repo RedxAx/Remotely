@@ -1,19 +1,9 @@
 package redxax.oxy.remotely.config;
 
-import redxax.oxy.remotely.explorer.DeskSelectionScreen;
-import redxax.oxy.remotely.explorer.FileEditorScreen;
-import redxax.oxy.remotely.explorer.FileExplorerScreen;
-import redxax.oxy.remotely.servers.BrowserScreen;
-import redxax.oxy.remotely.servers.PluginModManagerScreen;
-import redxax.oxy.remotely.servers.ResourcePageScreen;
-import redxax.oxy.remotely.servers.ServerManagerScreen;
-import redxax.oxy.remotely.terminal.MultiTerminalScreen;
-
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 public class Config {
@@ -43,7 +33,6 @@ public class Config {
     public static long lastFrameTime = System.nanoTime();
 
     public static boolean aiMode = false;
-    public static List remotelyScreens = List.of(new Class[]{DeskSelectionScreen.class, FileEditorScreen.class, FileExplorerScreen.class, BrowserScreen.class, PluginModManagerScreen.class, ResourcePageScreen.class, ServerManagerScreen.class, MultiTerminalScreen.class});
 
 
     public static int elementBackgroundColor = 0xFF2C2C2C;
@@ -65,6 +54,8 @@ public class Config {
     public static int dangerDarkHoverAccentColor = 0xFF581d35;
     public static int calmDarkAccentColor = 0xFF17253B;
     public static int calmAccentColor = 0xFF6CC4F1;
+    public static int calmDarkHoverAccentColor = 0xFF1d3b58;
+    public static int calmHoverAccentColor = 0xFF6CC4F1;
 
     public static int inClickableBackgroundColor = 0xFF181818;
     public static int inClickableBorderColor = 0xFF2c2c2c;
@@ -108,6 +99,7 @@ public class Config {
     public static float colorTransitionSpeed = 10f;
     private static final Map<Integer, float[]> animatedBackgroundColorsMap = new HashMap<>();
     private static final Map<Integer, float[]> animatedBorderColorsMap = new HashMap<>();
+    private static final Map<Integer, float[]> animatedTextColorsMap = new HashMap<>();
 
     public static void tickTime() {
         currentTime = System.nanoTime();
@@ -189,7 +181,28 @@ public class Config {
         return floatArrayToInt(newColorFloats);
     }
 
-    public static int getTextColor(boolean hovered, boolean selected) {
-        return selected ? globalHoverTextColor : hovered ? globalHoverTextColor : globalTextColor;
+
+    public static int getTextColor(int id, boolean hovered, boolean selected, boolean clickable, boolean danger, boolean nice, boolean calm) {
+        int target;
+        if (!clickable) {
+            target = globalDarkTextColor;
+        } else if (danger) {
+            target = hovered && selected ? dangerHoverAccentColor : hovered ? dangerAccentColor : globalTextColor;
+        } else if (nice) {
+            target = hovered && selected ? niceAccentHoverColor : hovered ? niceAccentColor : globalTextColor;
+        } else if (calm) {
+            target = hovered && selected ? calmHoverAccentColor : hovered ? calmAccentColor : globalTextColor;
+        } else {
+            target = hovered && selected ? globalHoverTextColor : globalTextColor;
+        }
+        if (!animatedTextColorsMap.containsKey(id)) {
+            animatedTextColorsMap.put(id, intToFloatArray(target));
+        }
+        float t = Math.min(colorTransitionSpeed * deltaTime, 1f);
+        float[] current = animatedTextColorsMap.get(id);
+        float[] targetFloats = intToFloatArray(target);
+        float[] newColorFloats = updateColor(current, targetFloats, t);
+        animatedTextColorsMap.put(id, newColorFloats);
+        return floatArrayToInt(newColorFloats);
     }
 }

@@ -578,12 +578,12 @@ public class ServerManagerScreen extends Screen {
                     ContextMenu.addItem("Edit", () -> {
                         ServerInfo info = getCurrentServers().get(rect.serverIndex);
                         minecraftClient.setScreen(new SettingsScreen(minecraftClient, "editServer", this, info.path, settings, info));
-                    }, globalHoverTextColor, "Open The Server's Settings");
-                    ContextMenu.addItem("Open Folder", () -> minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, getCurrentServers().get(rect.serverIndex), false)), globalHoverTextColor, "Open The Server's Folder");
+                    }, false, false, false, "Open The Server's Settings");
+                    ContextMenu.addItem("Open Folder", () -> minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, getCurrentServers().get(rect.serverIndex), false)), false, false, false, "Open The Server's Folder");
                     ContextMenu.addItem("Delete", () -> {
                         deletionPopupActive = true;
                         deletionPopupServerIndex = rect.serverIndex;
-                    }, globalHoverTextColor, "Show Deletion Options");
+                    }, false, false, false, "Show Deletion Options");
                     ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
                     return true;
                 }

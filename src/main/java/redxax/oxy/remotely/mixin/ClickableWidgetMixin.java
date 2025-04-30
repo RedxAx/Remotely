@@ -31,12 +31,15 @@ public abstract class ClickableWidgetMixin {
     @Shadow public abstract int getX();
     @Shadow public abstract int getY();
     @Shadow public abstract Text getMessage();
+    @Shadow private int navigationOrder;
     @Shadow public abstract boolean isMouseOver(double mouseX, double mouseY);
     @Shadow public abstract boolean isFocused();
     @Shadow public abstract int getWidth();
     @Shadow public abstract int getHeight();
     @Shadow public boolean visible;
     @Shadow public boolean active;
+
+    @Shadow private Text message;
 
     @Inject(method = "render", at = @At("HEAD"), cancellable = true)
     private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
@@ -72,7 +75,7 @@ public abstract class ClickableWidgetMixin {
             Render.drawSquareButton(context, getX(), getY(), mc, hovered, mouseX, mouseY, getMessage().getString(), null);
             ci.cancel();
         } else if (visible) {
-            Render.drawCustomButton(context, getX(), getY(), getMessage().getString(), mc, hovered, false, true, isFocused(), active, getWidth(), getHeight() == 20 ? 18 : getHeight(), Config.globalTextColor, Config.accentHoverColor, mouseX, mouseY, "");
+            Render.drawCustomButton(context, getX(), getY(), getMessage().getString(), mc, hovered, false, true, isFocused(), active, getWidth(), getHeight() == 20 ? 18 : getHeight(), Config.globalTextColor, Config.getTextColor(message.hashCode() + navigationOrder, hovered, true, active, false, false, false), mouseX, mouseY, "");
             ci.cancel();
         }
     }

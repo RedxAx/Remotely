@@ -543,7 +543,7 @@ public class AISidePanel {
                 Render.ContextMenu.addItem(label, () -> {
                     playSound(Sound.CLICK);
                     loadChatHistory(index);
-                }, globalHoverTextColor, "");
+                }, false, false, false, "");
             }
         } catch (IOException e) {
             devPrint("Failed to load chat history: " + e.getMessage());
