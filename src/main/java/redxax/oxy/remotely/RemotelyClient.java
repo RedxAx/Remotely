@@ -2,6 +2,7 @@ package redxax.oxy.remotely;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import net.minecraft.client.gui.screen.Screen;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
@@ -35,6 +36,7 @@ public class RemotelyClient {
     private static final Path FILE_EDITOR_TABS_FILE = Paths.get(String.valueOf(remotelyDir), "data", "file_editor_tabs.json");
     public static List<MultiTerminalScreen.Theme> themes = new ArrayList<>();
 
+
     private static final Gson GSON = new Gson();
     public List<TerminalInstance> terminals = new ArrayList<>();
     public List<String> tabNames = new ArrayList<>();
@@ -45,6 +47,7 @@ public class RemotelyClient {
     public static List<CommandSnippet> globalSnippets = new ArrayList<>();
     public static RemotelyClient INSTANCE;
     public final List<ServerInfo> servers = new ArrayList<>();
+    public Map<UUID,? extends MultiTerminalScreen.MergeGroup> multiMergeGroups;
     private int activeHostIndex = 0;
     private final Map<String, SSHManager> hostSSHManagers = new HashMap<>();
     public static String os;
@@ -111,7 +114,7 @@ public class RemotelyClient {
         return null;
     }
 
-    public void openMultiTerminalGUI(MinecraftClient client) {
+    public void openMultiTerminalGUI(MinecraftClient client, Screen parent) {
         if (multiTerminalScreen == null || !client.isWindowFocused()) {
             if (multiTerminals.isEmpty() && terminals.isEmpty()) {
                 loadSavedTerminals();
