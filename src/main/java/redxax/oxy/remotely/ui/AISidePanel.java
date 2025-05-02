@@ -36,6 +36,8 @@ public class AISidePanel {
     private int panelY;
     private int panelWidth;
     private int panelX;
+    private int panelHeight;
+
     public static class AIMessage {
         public String sender;
         public String text;
@@ -73,6 +75,7 @@ public class AISidePanel {
     private static final Path CHAT_HISTORY_PATH = Path.of(remotelyDir.toString(), "data", "chat_history.json");
     private MineMarkDrawable panelMineMark;
     private String lastPanelMineMarkText;
+    private boolean hasValidToken = true;
 
     public AISidePanel() {
         this.messages = new ArrayList<>();
@@ -89,6 +92,32 @@ public class AISidePanel {
             devPrint("Failed to load icons: " + e.getMessage());
         }
         loadLatestChatHistory();
+        checkTokenValidity();
+    }
+
+    private void checkTokenValidity() {
+        JsonObject aiConfig = readAIConfig();
+        String apiToken = aiConfig.has("apiToken") ? aiConfig.get("apiToken").getAsString() : "";
+        hasValidToken = !(apiToken.isEmpty() || apiToken.contains("your-api-token"));
+        if (!hasValidToken) {
+            setErrorMessage("Please enter your Gemini API token in the input field below");
+        }
+    }
+
+    private void updateApiToken(String token) {
+        try {
+            JsonObject config = readAIConfig();
+            config.addProperty("apiToken", token);
+            try (FileWriter writer = new FileWriter(AI_CONFIG_PATH.toFile())) {
+                writer.write(config.toString());
+            }
+            hasValidToken = true;
+            inputBuffer.setLength(0);
+            inputCursor = 0;
+            setErrorMessage("API token updated successfully! You can now chat with Remotely AI.");
+        } catch (IOException e) {
+            setErrorMessage("Failed to update API token: " + e.getMessage());
+        }
     }
 
     public void setExtraContext(String context) {
@@ -117,7 +146,7 @@ public class AISidePanel {
         playSound(Sound.RECEIVEERROR);
         updateCurrentChatHistory();
     }
-
+    
     public void newChat() {
         updateCurrentChatHistory();
         try {
@@ -135,6 +164,8 @@ public class AISidePanel {
         }
         messages.clear();
         updatePanelMineMark();
+        targetScrollOffset = 0;
+        currentScrollOffset = 0;
     }
 
     private JsonObject readAIConfig() {
@@ -161,6 +192,12 @@ public class AISidePanel {
         String userMsg = inputBuffer.toString().trim();
         if (userMsg.isEmpty())
             return;
+
+        if (!hasValidToken && userMsg.length() > 20) {
+            updateApiToken(userMsg);
+            return;
+        }
+
         addUserMessage(userMsg);
         JsonObject requestBodyJson = new JsonObject();
         JsonObject systemInstruction = new JsonObject();
@@ -203,14 +240,14 @@ public class AISidePanel {
         JsonObject aiConfig = readAIConfig();
         String apiToken = aiConfig.has("apiToken") ? aiConfig.get("apiToken").getAsString() : "";
         if (apiToken.isEmpty() || apiToken.contains("your-api-token")) {
-            setErrorMessage("Missing valid API token in ai.json");
+            hasValidToken = false;
+            setErrorMessage("Please enter your Gemini API token in the input field below");
             inputBuffer.setLength(0);
             inputCursor = 0;
             return;
         }
-        String entryPoint = aiConfig.has("entryPoint")
-                ? aiConfig.get("entryPoint").getAsString()
-                : "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse";
+        hasValidToken = true;
+        String entryPoint = aiConfig.has("entryPoint") ? aiConfig.get("entryPoint").getAsString() : "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse";
         String urlWithKey = entryPoint + (entryPoint.contains("?") ? "&" : "?") + "key=" + apiToken;
         String requestBody = requestBodyJson.toString();
         CompletableFuture.runAsync(() -> {
@@ -287,6 +324,7 @@ public class AISidePanel {
         this.panelWidth = panelWidth;
         this.panelY = panelY;
         this.panelX = panelX;
+        this.panelHeight = panelHeight;
         context.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, Config.innerBackgroundColor);
         drawInnerBorder(context, panelX, panelY, panelWidth, panelHeight, Config.innerBorderColor);
         Render.drawOuterBorder(context, panelX, panelY, panelWidth, panelHeight, Config.globalOuterBorder);
@@ -294,9 +332,11 @@ public class AISidePanel {
         int msgAreaY = panelY + topBarHeight;
         int msgAreaHeight = panelHeight - topBarHeight - 28;
         int totalHeight = getTotalChatHeight(panelWidth - 10, mc.textRenderer);
-        int maxScroll = Math.max(0, totalHeight - msgAreaHeight);
-        int threshold = (mc.textRenderer.fontHeight + 2) * 2;
-        if (targetScrollOffset >= maxScroll - threshold) {
+        int maxScroll = Math.max(0, totalHeight - msgAreaHeight) + 11;
+
+        if (targetScrollOffset < 0) {
+            targetScrollOffset = 0;
+        } else if (targetScrollOffset > maxScroll) {
             targetScrollOffset = maxScroll;
         }
         context.enableScissor(panelX, msgAreaY + 1, panelX + panelWidth, msgAreaY + msgAreaHeight + 4);
@@ -327,8 +367,10 @@ public class AISidePanel {
         context.disableScissor();
         inputHovered = mouseX >= panelX + 5 && mouseX < panelX + panelWidth - 5 && mouseY >= panelY + panelHeight - 24 && mouseY < panelY + panelHeight - 10;
         drawInnerBorder(context, panelX, panelY + panelHeight - 24, panelWidth, 35, Config.innerBorderColor);
-        if (panelX + 5 <= panelX + panelWidth - 10)
-            Render.drawTextInput(context, mc, panelX + 5, panelY + panelHeight - 20, "AI Input", inputBuffer.toString(), fieldFocused, inputCursor, -1, -1, inputHovered, panelWidth - 10, 14, "Ask Remotely...");
+        if (panelX + 5 <= panelX + panelWidth - 10) {
+            String placeholder = hasValidToken ? "Ask Remotely..." : "Enter Gemini Token";
+            Render.drawTextInput(context, mc, panelX + 5, panelY + panelHeight - 20, "AI Input", inputBuffer.toString(), fieldFocused, inputCursor, -1, -1, inputHovered, panelWidth - 10, 14, placeholder);
+        }
         Render.ContextMenu.renderMenu(context, mc, mouseX, mouseY);
     }
 
@@ -398,9 +440,11 @@ public class AISidePanel {
         int msgAreaHeight = panelHeight - topBarHeight - 35;
         if (mouseX >= panelX && mouseX < panelX + panelWidth && mouseY >= msgAreaY && mouseY < msgAreaY + msgAreaHeight) {
             int totalHeight = getTotalChatHeight(panelWidth - 10, mc.textRenderer);
-            targetScrollOffset -= (int) (verticalAmount * mc.textRenderer.fontHeight * 3);
+            int maxScroll = Math.max(0, totalHeight - msgAreaHeight);
+            float scrollSpeed = Math.max(1, mc.textRenderer.fontHeight * 3);
+            targetScrollOffset -= (int) (verticalAmount * scrollSpeed);
             if (targetScrollOffset < 0) targetScrollOffset = 0;
-            if (targetScrollOffset > totalHeight - msgAreaHeight) targetScrollOffset = totalHeight - msgAreaHeight;
+            else if (targetScrollOffset > maxScroll) targetScrollOffset = maxScroll;
             return true;
         }
         return false;
@@ -612,6 +656,10 @@ public class AISidePanel {
             devPrint("Failed to delete current chat: " + e.getMessage());
         }
         updatePanelMineMark();
+        if (messages.isEmpty()) {
+            targetScrollOffset = 0;
+            currentScrollOffset = 0;
+        }
     }
 
     private void updatePanelMineMark() {
