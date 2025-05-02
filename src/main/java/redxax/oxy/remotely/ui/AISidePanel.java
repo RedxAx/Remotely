@@ -145,7 +145,7 @@ public class AISidePanel {
                     config = JsonParser.parseReader(reader).getAsJsonObject();
                 }
             } else {
-                config.addProperty("entryPoint", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent");
+                config.addProperty("entryPoint", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse");
                 config.addProperty("apiToken", "your-api-token");
                 try (FileWriter writer = new FileWriter(AI_CONFIG_PATH.toFile())) {
                     writer.write(config.toString());
@@ -459,6 +459,14 @@ public class AISidePanel {
         }
         if (keyCode == GLFW.GLFW_KEY_RIGHT) {
             if (inputCursor < inputBuffer.length()) inputCursor++;
+            return true;
+        }
+        if (keyCode == GLFW.GLFW_KEY_V && (modifiers & GLFW.GLFW_MOD_CONTROL) != 0) {
+            String clipboardText = mc.keyboard.getClipboard();
+            if (clipboardText != null) {
+                inputBuffer.insert(inputCursor, clipboardText);
+                inputCursor += clipboardText.length();
+            }
             return true;
         }
         return keyCode == GLFW.GLFW_KEY_SPACE;
