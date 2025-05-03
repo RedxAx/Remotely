@@ -36,6 +36,26 @@ public class SSHManager {
     private long remoteCommandsLastFetched = 0;
     private static final long REMOTE_COMMANDS_CACHE_DURATION = 60000;
     private volatile boolean readingSSHOutput = false;
+    private static final int CONNECTION_TIMEOUT = 10000; // 10 seconds
+    private static final int OPERATION_TIMEOUT = 30000; // 30 seconds
+    private final ScheduledExecutorService connectionMonitor = Executors.newSingleThreadScheduledExecutor();
+    private ScheduledFuture<?> monitorTask;
+    private final Map<String, CachedDirectoryListing> directoryCache = new ConcurrentHashMap<>();
+    private static final long DIRECTORY_CACHE_DURATION = 30000; // 30 seconds
+
+    private static class CachedDirectoryListing {
+        final List<ChannelSftp.LsEntry> entries;
+        final long timestamp;
+
+        CachedDirectoryListing(List<ChannelSftp.LsEntry> entries) {
+            this.entries = entries;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        boolean isExpired() {
+            return System.currentTimeMillis() - timestamp > DIRECTORY_CACHE_DURATION;
+        }
+    }
 
     public SSHManager(ServerInfo serverInfo) {
         this.serverInfo = serverInfo;
@@ -56,19 +76,87 @@ public class SSHManager {
     public void connectToRemoteHost(String user, String host, int port, String password) {
         try {
             if (sshSession != null && sshSession.isConnected()) return;
+
+            // Store connection info in remoteHost for reconnection
+            if (remoteHost == null) {
+                remoteHost = new RemoteHostInfo();
+            }
+            remoteHost.setUser(user);
+            remoteHost.setIp(host);
+            remoteHost.setPort(port);
+            remoteHost.setPassword(password);
+
             JSch jsch = new JSch();
             sshSession = jsch.getSession(user, host, port);
             sshSession.setConfig("StrictHostKeyChecking", "no");
             sshSession.setConfig("ServerAliveInterval", "30");
             sshSession.setConfig("ServerAliveCountMax", "5");
             sshSession.setPassword(password);
-            sshSession.connect(10000);
+            sshSession.connect(CONNECTION_TIMEOUT);
             isSSH = true;
             connectSFTP();
+
+            // Start connection monitoring
+            startConnectionMonitor();
         } catch (Exception e) {
             if (terminalInstance != null) {
                 terminalInstance.appendOutput("SSH connection failed: " + e.getMessage() + "\n");
             }
+            isSSH = false;
+        }
+    }
+
+    private void startConnectionMonitor() {
+        if (monitorTask != null && !monitorTask.isDone()) {
+            monitorTask.cancel(false);
+        }
+
+        monitorTask = connectionMonitor.scheduleAtFixedRate(() -> {
+            try {
+                if (remoteHost == null) return;
+
+                // Check SSH connection
+                if (sshSession == null || !sshSession.isConnected()) {
+                    devPrint("SSH connection lost. Attempting to reconnect...");
+                    reconnect();
+                }
+
+                // Check SFTP connection
+                if (isSSH && (sftpChannel == null || !sftpChannel.isConnected())) {
+                    devPrint("SFTP connection lost. Attempting to reconnect...");
+                    connectSFTP();
+                }
+            } catch (Exception e) {
+                devPrint("Error in connection monitor: " + e.getMessage());
+            }
+        }, 30, 30, TimeUnit.SECONDS);
+    }
+
+    private void reconnect() {
+        if (remoteHost == null) return;
+
+        try {
+            // Clean up existing connections
+            if (sftpChannel != null && sftpChannel.isConnected()) {
+                sftpChannel.disconnect();
+            }
+            if (sshSession != null && sshSession.isConnected()) {
+                sshSession.disconnect();
+            }
+
+            // Reconnect
+            JSch jsch = new JSch();
+            sshSession = jsch.getSession(remoteHost.getUser(), remoteHost.getIp(), remoteHost.getPort());
+            sshSession.setConfig("StrictHostKeyChecking", "no");
+            sshSession.setConfig("ServerAliveInterval", "30");
+            sshSession.setConfig("ServerAliveCountMax", "5");
+            sshSession.setPassword(remoteHost.getPassword());
+            sshSession.connect(CONNECTION_TIMEOUT);
+            isSSH = true;
+            connectSFTP();
+            devPrint("Successfully reconnected to " + remoteHost.getIp());
+        } catch (Exception e) {
+            devPrint("Reconnection failed: " + e.getMessage());
             isSSH = false;
         }
     }
@@ -436,19 +524,60 @@ public class SSHManager {
 
     public void shutdown() {
         try {
+            // Stop the connection monitor
+            if (monitorTask != null && !monitorTask.isDone()) {
+                monitorTask.cancel(false);
+            }
+            connectionMonitor.shutdown();
+
+            // Clear directory cache
+            directoryCache.clear();
+
+            // Disconnect SFTP
             if (sftpChannel != null && sftpChannel.isConnected()) {
                 sftpChannel.disconnect();
             }
+            sftpConnected = false;
+
+            // Disconnect SSH channel
             if (sshChannel != null && sshChannel.isConnected()) {
                 sshChannel.disconnect();
             }
+
+            // Disconnect SSH session
             if (sshSession != null && sshSession.isConnected()) {
                 sshSession.disconnect();
             }
+
             isSSH = false;
             awaitingPassword = false;
-            sftpConnected = false;
-        } catch (Exception ignored) {}
+
+            // Shutdown executors
+            executorService.shutdown();
+            sftpExecutor.shutdown();
+
+            try {
+                // Wait for tasks to complete with a timeout
+                if (!executorService.awaitTermination(2, TimeUnit.SECONDS)) {
+                    executorService.shutdownNow();
+                }
+                if (!sftpExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
+                    sftpExecutor.shutdownNow();
+                }
+                if (!connectionMonitor.awaitTermination(2, TimeUnit.SECONDS)) {
+                    connectionMonitor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executorService.shutdownNow();
+                sftpExecutor.shutdownNow();
+                connectionMonitor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+
+            devPrint("SSH connection shutdown completed");
+        } catch (Exception e) {
+            devPrint("Error during SSH shutdown: " + e.getMessage());
+        }
     }
 
     public boolean isSSH() {
@@ -493,12 +622,94 @@ public class SSHManager {
     }
 
     public List<String> listRemoteDirectory(String dir) throws Exception {
-        if (!sftpConnected) return Collections.emptyList();
-        Vector<ChannelSftp.LsEntry> entries = sftpChannel.ls(dir);
-        return entries.parallelStream()
-                .map(ChannelSftp.LsEntry::getFilename)
-                .filter(name -> !name.equals(".") && !name.equals(".."))
-                .collect(Collectors.toList());
+        if (!sftpConnected) {
+            // Try to reconnect SFTP if not connected
+            connectSFTPSync();
+            if (!sftpConnected) {
+                return Collections.emptyList();
+            }
+        }
+
+        // Check cache first
+        String cacheKey = dir;
+        CachedDirectoryListing cachedListing = directoryCache.get(cacheKey);
+        if (cachedListing != null && !cachedListing.isExpired()) {
+            return cachedListing.entries.stream()
+                    .map(ChannelSftp.LsEntry::getFilename)
+                    .filter(name -> !name.equals(".") && !name.equals(".."))
+                    .collect(Collectors.toList());
+        }
+
+        // Set up a timeout for the operation
+        Future<Vector<ChannelSftp.LsEntry>> future = sftpExecutor.submit(() -> sftpChannel.ls(dir));
+
+        try {
+            Vector<ChannelSftp.LsEntry> entries = future.get(OPERATION_TIMEOUT, TimeUnit.MILLISECONDS);
+
+            // Cache the result
+            directoryCache.put(cacheKey, new CachedDirectoryListing(new ArrayList<>(entries)));
+
+            return entries.stream()
+                    .map(ChannelSftp.LsEntry::getFilename)
+                    .filter(name -> !name.equals(".") && !name.equals(".."))
+                    .collect(Collectors.toList());
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            devPrint("SFTP listing operation timed out for: " + dir);
+            throw new Exception("Operation timed out");
+        } catch (Exception e) {
+            devPrint("Error listing remote directory: " + e.getMessage());
+            throw e;
+        }
+    }
+
+    /**
+     * Lists remote directory and returns both filenames and whether each entry is a directory.
+     * This is more efficient than calling isRemoteDirectory separately for each file.
+     */
+    public Map<String, Boolean> listRemoteDirectoryWithTypes(String dir) throws Exception {
+        if (!sftpConnected) {
+            connectSFTPSync();
+            if (!sftpConnected) {
+                return Collections.emptyMap();
+            }
+        }
+
+        // Check cache first
+        String cacheKey = dir;
+        CachedDirectoryListing cachedListing = directoryCache.get(cacheKey);
+        if (cachedListing != null && !cachedListing.isExpired()) {
+            return cachedListing.entries.stream()
+                    .filter(entry -> !entry.getFilename().equals(".") && !entry.getFilename().equals(".."))
+                    .collect(Collectors.toMap(
+                            ChannelSftp.LsEntry::getFilename,
+                            entry -> entry.getAttrs().isDir()
+                    ));
+        }
+
+        // Set up a timeout for the operation
+        Future<Vector<ChannelSftp.LsEntry>> future = sftpExecutor.submit(() -> sftpChannel.ls(dir));
+
+        try {
+            Vector<ChannelSftp.LsEntry> entries = future.get(OPERATION_TIMEOUT, TimeUnit.MILLISECONDS);
+
+            // Cache the result
+            directoryCache.put(cacheKey, new CachedDirectoryListing(new ArrayList<>(entries)));
+
+            return entries.stream()
+                    .filter(entry -> !entry.getFilename().equals(".") && !entry.getFilename().equals(".."))
+                    .collect(Collectors.toMap(
+                            ChannelSftp.LsEntry::getFilename,
+                            entry -> entry.getAttrs().isDir()
+                    ));
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            devPrint("SFTP listing operation timed out for: " + dir);
+            throw new Exception("Operation timed out");
+        } catch (Exception e) {
+            devPrint("Error listing remote directory with types: " + e.getMessage());
+            throw e;
+        }
     }
 
     public void copyRemote(String source, String dest) throws Exception {

@@ -941,7 +941,7 @@ public class FileEditorScreen extends Screen {
             int panelHeight = this.height - 65;
             context.fill(panelX, panelY, panelX + animWidth, panelY + panelHeight, innerBackgroundColor);
             drawInnerBorder(context, panelX, panelY, animWidth, panelHeight, innerBorderColor);
-            drawOuterBorder(context, panelX, panelY, animWidth, panelHeight, globalOuterBorder);
+            drawOuterBorder(context, panelX, panelY, animWidth, panelHeight, innerBackgroundColor);
             context.enableScissor(panelX, panelY, panelX + animWidth, panelY + panelHeight);
             if (aiMode) aiSidePanel.render(context, panelX, panelY, animWidth, panelHeight, mouseX, mouseY);
             else renderSidePanel(context, panelX, panelY, animWidth, panelHeight, mouseX, mouseY);

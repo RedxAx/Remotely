@@ -327,7 +327,7 @@ public class AISidePanel {
         this.panelHeight = panelHeight;
         context.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, Config.innerBackgroundColor);
         drawInnerBorder(context, panelX, panelY, panelWidth, panelHeight, Config.innerBorderColor);
-        Render.drawOuterBorder(context, panelX, panelY, panelWidth, panelHeight, Config.globalOuterBorder);
+        Render.drawOuterBorder(context, panelX, panelY, panelWidth, panelHeight, innerBackgroundColor);
         renderTopBar(context, panelX, panelY, panelWidth, mouseX, mouseY);
         int msgAreaY = panelY + topBarHeight;
         int msgAreaHeight = panelHeight - topBarHeight - 28;
@@ -354,7 +354,7 @@ public class AISidePanel {
             int iconY = verticalCenter - totalContentHeight / 2;
             drawPixelArt(context, iconCenterX, iconY, iconRect, iconRect, RemotelyAIcon);
             drawInnerBorder(context, iconCenterX, iconY, iconRect, iconRect, Config.innerBorderColor);
-            Render.drawOuterBorder(context, iconCenterX, iconY, iconRect, iconRect, Config.globalOuterBorder);
+            Render.drawOuterBorder(context, iconCenterX, iconY, iconRect, iconRect, innerBorderColor);
             String greeting = Render.trimTextToWidthWithEllipsis("Welcome, " + mc.getSession().getUsername() + "!", panelWidth - 10);
             String greeting2 = "I'm Remotely AI.";
             int greetingCenterX = panelX + panelWidth / 2 - tr.getWidth(Text.literal(greeting)) / 2;
@@ -380,7 +380,7 @@ public class AISidePanel {
         int barHeight = buttonSize + 2 * gap;
         context.fill(panelX, panelY, panelX + panelWidth, panelY + barHeight, Config.innerBackgroundColor);
         drawInnerBorder(context, panelX, panelY, panelWidth, barHeight, Config.innerBorderColor);
-        Render.drawOuterBorder(context, panelX, panelY, panelWidth, barHeight, Config.globalOuterBorder);
+        Render.drawOuterBorder(context, panelX, panelY, panelWidth, barHeight, Config.innerBackgroundColor);
         int xHistory = panelX + panelWidth - gap - buttonSize;
         int xDelete = xHistory - gap - buttonSize;
         int xNew = xDelete - gap - buttonSize;

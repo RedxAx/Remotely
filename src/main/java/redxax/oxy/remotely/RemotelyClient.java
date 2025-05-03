@@ -272,14 +272,46 @@ public class RemotelyClient {
     }
 
     public SSHManager getSSHManagerForHost(RemoteHostInfo host) {
-        String key = host.getIp() + ":" + host.getPort() + ":" + host.getUser();
-        if (hostSSHManagers.containsKey(key)) {
-            return hostSSHManagers.get(key);
-        } else {
-            SSHManager manager = new SSHManager(host);
-            hostSSHManagers.put(key, manager);
-            return manager;
+        if (host == null) {
+            devPrint("Cannot get SSH manager for null host");
+            return null;
         }
+
+        String key = host.getIp() + ":" + host.getPort() + ":" + host.getUser();
+
+        // Check if we have an existing manager
+        if (hostSSHManagers.containsKey(key)) {
+            SSHManager existingManager = hostSSHManagers.get(key);
+
+            // Check if the existing manager is still valid
+            if (existingManager != null && existingManager.isSSH()) {
+                return existingManager;
+            } else {
+                // Clean up invalid manager
+                if (existingManager != null) {
+                    existingManager.shutdown();
+                }
+                hostSSHManagers.remove(key);
+            }
+        }
+
+        // Create a new manager
+        SSHManager manager = new SSHManager(host);
+
+        // Try to connect
+        try {
+            manager.connectToRemoteHost(
+                host.getUser(),
+                host.getIp(),
+                host.getPort(),
+                host.getPassword()
+            );
+        } catch (Exception e) {
+            devPrint("Failed to connect to host " + host.getIp() + ": " + e.getMessage());
+        }
+
+        hostSSHManagers.put(key, manager);
+        return manager;
     }
 
     public static void migrateRemotelyData() {
