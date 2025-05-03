@@ -238,7 +238,7 @@ public class DeskSelectionScreen extends Screen {
             idx++;
             context.getMatrices().pop();
         }
-        animatedScaling(context, this, minecraftClient);
+        animatedScaling(this);
     }
 
     @Override

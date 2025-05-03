@@ -429,7 +429,7 @@ public class SettingsScreen extends Screen {
         if ((int) currentSettingsScroll <= maxScroll + 3) {
             context.fillGradient(contentX, height - 5, contentX + contentWidth, contentY + contentHeight, 0x00000000, 0x55000000);
         }
-        animatedScaling(context, this, mc);
+        animatedScaling(this);
     }
 
     @Override

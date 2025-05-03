@@ -6,10 +6,10 @@ import redxax.oxy.remotely.Render.ContextMenu;
 import redxax.oxy.remotely.Render.ScrollBar;
 import redxax.oxy.remotely.Render.TabsBar;
 import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.explorer.DeskSelectionScreen;
+import redxax.oxy.remotely.explorer.FileEditorScreen;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
-import redxax.oxy.remotely.servers.PluginModManagerScreen;
-import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.servers.ServerState;
+import redxax.oxy.remotely.servers.*;
 import redxax.oxy.remotely.ui.AISidePanel;
 import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
 
@@ -27,6 +27,7 @@ import net.minecraft.util.math.MathHelper;
 import redxax.oxy.remotely.util.Sound;
 
 import static redxax.oxy.remotely.RemotelyClient.globalSnippets;
+import static redxax.oxy.remotely.RemotelyClient.mcScreen;
 import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
@@ -144,6 +145,9 @@ public class MultiTerminalScreen extends Screen {
         this.terminals = terminals;
         this.tabNames = tabNames;
         this.parent = parent;
+        if (!(parent instanceof FileExplorerScreen || parent instanceof PluginModManagerScreen || parent instanceof ServerManagerScreen || parent instanceof FileEditorScreen || parent instanceof DeskSelectionScreen || parent instanceof BrowserScreen || parent instanceof MultiTerminalScreen)) {
+            RemotelyClient.mcScreen = parent;
+        }
         if (terminals.isEmpty()) {
             addNewTerminal();
         }
@@ -470,7 +474,7 @@ public class MultiTerminalScreen extends Screen {
         if (ContextMenu.isOpen()) {
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
-        animatedScaling(context, this, minecraftClient);
+        animatedScaling(this);
     }
 
     private void renderSnippetPopup(DrawContext context, int mouseX, int mouseY) {
@@ -1947,7 +1951,7 @@ public class MultiTerminalScreen extends Screen {
         remotelyClient.multiTerminals = new ArrayList<>(terminals);
         remotelyClient.multiTabNames = new ArrayList<>(tabNames);
         remotelyClient.multiMergeGroups = new LinkedHashMap<>(mergeGroups);
-        if (parent == null) playSound(Sound.SCREEN);
+        if (parent.equals(mcScreen)) playSound(Sound.SCREEN);
     }
 }
 

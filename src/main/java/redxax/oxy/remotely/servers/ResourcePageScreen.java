@@ -494,7 +494,7 @@ public class ResourcePageScreen extends Screen {
                 versionsTargetScrollOffset = ScrollBar.getPendingOffset();
             }
         }
-        animatedScaling(context, this, minecraftClient);
+        animatedScaling(this);
     }
 
     private String getRelativeTime(String dateStr) {

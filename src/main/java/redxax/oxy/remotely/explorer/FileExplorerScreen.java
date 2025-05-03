@@ -456,7 +456,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
         loadMoreIfNeeded(explorerHeight);
-        animatedScaling(context, this, minecraftClient);
+        animatedScaling(this);
     }
 
     private boolean remoteHostInfosEqual(RemoteHostInfo a, RemoteHostInfo b) {
@@ -1872,6 +1872,8 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
     @Override
     public void removed() {
         minecraftClient.getWindow().setScaleFactor(originalMCScale);
+        parent.width = minecraftClient.getWindow().getScaledWidth();
+        parent.height = minecraftClient.getWindow().getScaledHeight();
         targetScaleFactor = globalScaleFactor = animScaleFactor;
         if (parent == null) playSound(Sound.SCREEN);
     }

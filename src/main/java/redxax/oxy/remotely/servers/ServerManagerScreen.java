@@ -101,6 +101,7 @@ public class ServerManagerScreen extends Screen {
     private boolean canDrag = false;
     private final ArrayList<Settings> settings = new ArrayList<>();
     private final ArrayList<Settings> clientSettings = new ArrayList<>();
+    private final Screen parent;
 
     public List<RemoteHostInfo> getRemoteHosts() {
         return remoteHosts;
@@ -123,11 +124,12 @@ public class ServerManagerScreen extends Screen {
         }
     }
 
-    public ServerManagerScreen(MinecraftClient minecraftClient, RemotelyClient remotelyClient, List<ServerInfo> servers) {
+    public ServerManagerScreen(MinecraftClient minecraftClient, Screen parent, RemotelyClient remotelyClient, List<ServerInfo> servers) {
         super(Text.literal("Server Setup"));
         this.minecraftClient = minecraftClient;
         this.remotelyClient = remotelyClient;
         this.localServers = servers;
+        this.parent = parent;
         originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
         minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
@@ -310,7 +312,7 @@ public class ServerManagerScreen extends Screen {
             renderDeletePopup(context, mouseX, mouseY);
         }
         ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
-        animatedScaling(context, this, minecraftClient);
+        animatedScaling(this);
     }
 
     private void renderDesktopIcons(DrawContext context, int mouseX, int mouseY) {
@@ -1712,6 +1714,8 @@ public class ServerManagerScreen extends Screen {
     @Override
     public void removed() {
         minecraftClient.getWindow().setScaleFactor(originalMCScale);
+        parent.width = minecraftClient.getWindow().getScaledWidth();
+        parent.height = minecraftClient.getWindow().getScaledHeight();
         targetScaleFactor = globalScaleFactor = animScaleFactor;
     }
 }

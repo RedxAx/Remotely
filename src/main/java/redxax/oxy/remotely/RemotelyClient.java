@@ -51,6 +51,7 @@ public class RemotelyClient {
     private int activeHostIndex = 0;
     private final Map<String, SSHManager> hostSSHManagers = new HashMap<>();
     public static String os;
+    public static Screen mcScreen = null;
 
     public void initialize() {
         INSTANCE = this;
@@ -125,7 +126,7 @@ public class RemotelyClient {
                 tabNames.clear();
                 tabNames.addAll(multiTabNames);
             }
-            multiTerminalScreen = new MultiTerminalScreen(client, null, this, terminals, tabNames);
+            multiTerminalScreen = new MultiTerminalScreen(client, parent, this, terminals, tabNames);
             client.setScreen(multiTerminalScreen);
         } else {
             if (multiTerminals.isEmpty() && terminals.isEmpty()) {
@@ -137,7 +138,7 @@ public class RemotelyClient {
                 tabNames.clear();
                 tabNames.addAll(multiTabNames);
             }
-            multiTerminalScreen = new MultiTerminalScreen(client, null, this, terminals, tabNames);
+            multiTerminalScreen = new MultiTerminalScreen(client, parent, this, terminals, tabNames);
             client.setScreen(multiTerminalScreen);
         }
     }

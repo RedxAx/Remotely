@@ -172,7 +172,7 @@ public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.scree
     private void openServerManagerScreen() {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client != null) {
-            client.setScreen(new ServerManagerScreen(client, RemotelyClient.INSTANCE, RemotelyClient.INSTANCE.servers));
+            client.setScreen(new ServerManagerScreen(client, this, RemotelyClient.INSTANCE, RemotelyClient.INSTANCE.servers));
         }
     }
 

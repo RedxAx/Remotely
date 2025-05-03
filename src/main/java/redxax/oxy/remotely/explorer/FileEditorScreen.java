@@ -934,7 +934,7 @@ public class FileEditorScreen extends Screen {
         if (ContextMenu.isOpen()) {
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
-        animatedScaling(context, this, minecraftClient);
+        animatedScaling(this);
         if (animWidth > 0) {
             int panelX = this.width - animWidth;
             int panelY = 60;
