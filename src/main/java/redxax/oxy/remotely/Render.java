@@ -1,5 +1,6 @@
 package redxax.oxy.remotely;
 
+import net.minecraft.client.util.Window;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.SettingsScreen;
@@ -885,29 +886,24 @@ public class Render {
         context.getMatrices().pop();
     }
 
-    public static void animatedScaling(DrawContext context, Screen parent, MinecraftClient minecraftClient) {
+    public static void animatedScaling(Screen parent) {
         animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
+        Window mcw = MinecraftClient.getInstance().getWindow();
         if (Math.abs(animScaleFactor - targetScaleFactor) < 0.005f) {
             animScaleFactor = targetScaleFactor;
         }
         if (targetScaleFactor != animScaleFactor) {
-            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
-            parent.width = minecraftClient.getWindow().getScaledWidth();
-            parent.height = minecraftClient.getWindow().getScaledHeight();
+            mcw.setScaleFactor(animScaleFactor);
+            parent.width = mcw.getScaledWidth();
+            parent.height = mcw.getScaledHeight();
             globalScaleFactor = animScaleFactor;
             lastRounding = true;
         } else if (lastRounding) {
-            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
-            parent.width = minecraftClient.getWindow().getScaledWidth();
-            parent.height = minecraftClient.getWindow().getScaledHeight();
+            mcw.setScaleFactor(animScaleFactor);
+            parent.width = mcw.getScaledWidth();
+            parent.height = mcw.getScaledHeight();
             globalScaleFactor = animScaleFactor;
             lastRounding = false;
-        }
-        if (isDev & enableDebugTools) {
-            String animatedAndTargetScaleFactorVisulization = "Animated Scale: " + animScaleFactor + " | Target Scale: " + targetScaleFactor;
-            String isRounded = "Rounded?: " + (lastRounding ? "No" : "Yes");
-            context.drawTextWithShadow(minecraftClient.textRenderer, animatedAndTargetScaleFactorVisulization, 5, 5, globalHoverTextColor);
-            context.drawTextWithShadow(minecraftClient.textRenderer, isRounded, 5, 15, globalHoverTextColor);
         }
     }
 

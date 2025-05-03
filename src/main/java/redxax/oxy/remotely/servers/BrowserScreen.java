@@ -14,7 +14,6 @@ import redxax.oxy.remotely.util.TextAnimator;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.rmi.Remote;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.MinecraftClient;
@@ -212,7 +211,7 @@ public class BrowserScreen extends Screen {
         drawHeader(context, width, height, mouseX, mouseY);
         drawBrowser(currentBrowser, fullScreenMode, width, height, TOP_OFFSET, BROWSER_DRAW_OFFSET);
         drawInnerBorder(context, 5, 60, width - 5 * 2, height - 60 - 5, innerBorderColor);
-        animatedScaling(context, this, minecraftClient);
+        animatedScaling(this);
     }
 
     private void drawHeader(DrawContext context, int width, int height, int mouseX, int mouseY) {
@@ -720,6 +719,8 @@ public class BrowserScreen extends Screen {
     @Override
     public void removed() {
         minecraftClient.getWindow().setScaleFactor(originalMCScale);
+        parent.width = minecraftClient.getWindow().getScaledWidth();
+        parent.height = minecraftClient.getWindow().getScaledHeight();
         targetScaleFactor = globalScaleFactor = animScaleFactor;
         if (parent == null) playSound(Sound.SCREEN);
     }

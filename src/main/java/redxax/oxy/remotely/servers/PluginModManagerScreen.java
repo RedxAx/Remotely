@@ -468,7 +468,7 @@ public class PluginModManagerScreen extends Screen {
         ScrollBar.render(context, this, mouseX, mouseY, resources.size() * (entryHeight + gapBetweenEntries), targetOffset);
         targetOffset = ScrollBar.getPendingOffset();
         loadMoreIfNeeded();
-        animatedScaling(context, this, minecraftClient);
+        animatedScaling(this);
     }
 
 
