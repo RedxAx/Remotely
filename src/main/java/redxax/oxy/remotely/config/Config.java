@@ -198,7 +198,7 @@ public class Config {
         if (!animatedTextColorsMap.containsKey(id)) {
             animatedTextColorsMap.put(id, intToFloatArray(target));
         }
-        float t = Math.min(colorTransitionSpeed * deltaTime, 1f);
+        float t = Math.min((colorTransitionSpeed * 0.5f) * deltaTime, 1f);
         float[] current = animatedTextColorsMap.get(id);
         float[] targetFloats = intToFloatArray(target);
         float[] newColorFloats = updateColor(current, targetFloats, t);
