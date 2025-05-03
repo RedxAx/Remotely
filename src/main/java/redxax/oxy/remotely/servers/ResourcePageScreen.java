@@ -456,7 +456,7 @@ public class ResourcePageScreen extends Screen {
                 int borderColor = getElementBorderColor(ver.hashCode(), hovered, false, true, false, false, false);
                 context.fill(contentX, y, contentX + contentWidth, y + itemHeight, bg);
                 drawInnerBorder(context, contentX, y, contentWidth, itemHeight, borderColor);
-                drawOuterBorder(context, contentX, y, contentWidth, itemHeight, globalOuterBorder);
+                drawOuterBorder(context, contentX, y, contentWidth, itemHeight, bg);
                 String title = resource.getName() + ": " + ver.version;
                 context.drawText(minecraftClient.textRenderer, Text.literal(title), contentX + 4, y + 3, 0xFFFFFFFF, Config.shadow);
                 String desc = formatMCVersions(ver.mcVersions);
@@ -468,10 +468,11 @@ public class ResourcePageScreen extends Screen {
                     int barHeight = Render.buttonH;
                     int barX = contentX + contentWidth - barWidth - 10;
                     int barY = y + (itemHeight - barHeight) / 2;
-                    context.fill(barX, barY, barX + barWidth, barY + barHeight, getElementBackgroundColor(ver.hashCode(), hovered, true, true, false, false, false));
+                    int bgColor = getElementBackgroundColor(ver.hashCode(), hovered, true, true, false, false, false);
+                    context.fill(barX, barY, barX + barWidth, barY + barHeight, bgColor);
                     int fillWidth = (int) (barWidth * ver.progress);
                     context.fill(barX, barY, barX + fillWidth, barY + barHeight, globalHoverTextColor);
-                    drawOuterBorder(context, barX, barY, barWidth, barHeight, globalOuterBorder);
+                    drawOuterBorder(context, barX, barY, barWidth, barHeight, bgColor);
                     drawInnerBorder(context, barX, barY, barWidth, barHeight, getElementBorderColor(ver.hashCode(), hovered, true, true, false, false, false));
                     String percentText = (int) (ver.progress * 100) + "%";
                     context.drawText(minecraftClient.textRenderer, Text.literal(percentText), barX + barWidth / 2 - minecraftClient.textRenderer.getWidth(Text.literal(percentText)) / 2, barY + (barHeight - minecraftClient.textRenderer.fontHeight) / 2, 0xFFFFFFFF, Config.shadow);

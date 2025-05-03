@@ -394,7 +394,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
         drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, currentMode == Mode.SEARCH, "FileExplorerScreen", mouseX, mouseY, "Search For Files or Directories");
         context.fill(explorerX, headerY, explorerX + explorerWidth, headerY + 27, Config.innerBackgroundColor);
         drawInnerBorder(context, explorerX, headerY, explorerWidth, 23, innerBorderColor);
-        drawOuterBorder(context, explorerX, headerY, explorerWidth, 23, globalOuterBorder);
+        drawOuterBorder(context, explorerX, headerY, explorerWidth, 23, innerBackgroundColor);
         context.drawText(this.textRenderer, Text.literal("Name"), explorerX + 10, headerY + 5, globalTextColor, Config.shadow);
         if (!serverInfo.isRemote) {
             int createdX = explorerX + explorerWidth - 100;
@@ -1677,22 +1677,28 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
         if (!forceReload && remoteCache.containsKey(key)) {
             return remoteCache.get(key);
         }
-        List<String> entries;
+
+        List<EntryData> temp = new ArrayList<>();
         try {
-            entries = serverInfo.remoteHost.getSSHManager().listRemoteDirectory(remotePath);
+            // Use the new method that returns both filenames and directory status in a single call
+            Map<String, Boolean> entriesWithTypes = serverInfo.remoteHost.getSSHManager().listRemoteDirectoryWithTypes(remotePath);
+
+            for (Map.Entry<String, Boolean> entry : entriesWithTypes.entrySet()) {
+                String filename = entry.getKey();
+                boolean isDirectory = entry.getValue();
+
+                Path p = dir.resolve(filename);
+                String displayName = filename;
+                if (textRenderer.getWidth(displayName) > MAX_NAME_WIDTH) {
+                    displayName = doEllipsize(displayName);
+                }
+                temp.add(new EntryData(p, isDirectory, "", "", displayName));
+            }
         } catch (Exception e) {
+            devPrint("Error loading remote directory: " + e.getMessage());
             return new ArrayList<>();
         }
-        List<EntryData> temp = new ArrayList<>();
-        for (String e : entries) {
-            Path p = dir.resolve(e);
-            boolean d = serverInfo.remoteHost.getSSHManager().isRemoteDirectory(p.toString().replace("\\", "/"));
-            String dn = e;
-            if (textRenderer.getWidth(dn) > MAX_NAME_WIDTH) {
-                dn = doEllipsize(dn);
-            }
-            temp.add(new EntryData(p, d, "", "", dn));
-        }
+
         synchronized (favoritePathsLock) {
             temp.sort(Comparator.comparing((EntryData x) -> !favoritePaths.contains(x.path))
                     .thenComparing(x -> !x.isDirectory)
@@ -1743,11 +1749,32 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
 
     public void ensureRemoteConnected() {
         if (serverInfo.remoteHost == null) {
+            devPrint("Remote host is null, cannot connect");
             return;
         }
-        serverInfo.remoteSSHManager = serverInfo.remoteHost.getSSHManager();
-        if (!serverInfo.remoteSSHManager.isSFTPConnected()) {
-            serverInfo.remoteSSHManager.connectSFTPSync();
+
+        try {
+            // Get or create SSH manager
+            serverInfo.remoteSSHManager = serverInfo.remoteHost.getSSHManager();
+
+            // Check if SSH is connected
+            if (!serverInfo.remoteSSHManager.isSSH()) {
+                devPrint("SSH not connected, attempting to connect to " + serverInfo.remoteHost.getIp());
+                serverInfo.remoteSSHManager.connectToRemoteHost(
+                    serverInfo.remoteHost.getUser(),
+                    serverInfo.remoteHost.getIp(),
+                    serverInfo.remoteHost.getPort(),
+                    serverInfo.remoteHost.getPassword()
+                );
+            }
+
+            // Check if SFTP is connected
+            if (!serverInfo.remoteSSHManager.isSFTPConnected()) {
+                devPrint("SFTP not connected, attempting to connect");
+                serverInfo.remoteSSHManager.connectSFTPSync();
+            }
+        } catch (Exception e) {
+            devPrint("Error ensuring remote connection: " + e.getMessage());
         }
     }
 
