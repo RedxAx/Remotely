@@ -6,16 +6,19 @@ import redxax.oxy.remotely.terminal.ServerTerminalInstance;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
 import redxax.oxy.remotely.terminal.TerminalProcessManager;
+import redxax.oxy.remotely.config.Themes;
+import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.Writer;
 
+import static redxax.oxy.remotely.RemotelyClient.themes;
+
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
 public class CommandExecutor {
     private final TerminalInstance terminalInstance;
-    //private final SSHManager sshManager;
     private SSHManager sshManager;
     private SSHManager localSshManager;
     private ServerInfo serverInfo;
@@ -77,6 +80,21 @@ public class CommandExecutor {
             }
         } else if (command.startsWith("ssh ")) {
             sshManager.startSSHConnection(command);
+        } else if (command.startsWith("theme ")) {
+            String themeName = command.substring(6).trim();
+            boolean themeFound = false;
+            for (MultiTerminalScreen.Theme theme : themes) {
+                if (theme.name.equalsIgnoreCase(themeName)) {
+                    Themes.applyTheme(theme);
+                    terminalInstance.appendOutput("Theme changed to: " + theme.name + "\n");
+                    themeFound = true;
+                    break;
+                }
+            }
+            if (!themeFound) {
+                terminalInstance.appendOutput("Theme not found: " + themeName + "\n");
+                terminalInstance.appendOutput("Available themes: " + getAvailableThemes() + "\n");
+            }
         } else if (sshManager.isSSH()) {
             sshManager.getSshWriter().write(inputBuffer.toString() + "\n");
             sshManager.getSshWriter().flush();
@@ -121,5 +139,16 @@ public class CommandExecutor {
 
     public TerminalProcessManager getTerminalProcessManager() {
         return terminalProcessManager;
+    }
+
+    private String getAvailableThemes() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < themes.size(); i++) {
+            sb.append(themes.get(i).name);
+            if (i < themes.size() - 1) {
+                sb.append(", ");
+            }
+        }
+        return sb.toString();
     }
 }
