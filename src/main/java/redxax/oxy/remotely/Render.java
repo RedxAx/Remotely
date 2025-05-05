@@ -1,5 +1,6 @@
 package redxax.oxy.remotely;
 
+import net.minecraft.client.util.Window;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.SettingsScreen;
@@ -95,7 +96,7 @@ public class Render {
             int scaledY = (int)(drawY / scaleFactor);
             context.fill(scaledX, scaledY, scaledX + boxWidth, scaledY + boxHeight, elementBackgroundColor);
             drawInnerBorder(context, scaledX, scaledY, boxWidth, boxHeight, elementBorderColor);
-            drawOuterBorder(context, scaledX, scaledY, boxWidth, boxHeight, globalOuterBorder);
+            drawOuterBorder(context, scaledX, scaledY, boxWidth, boxHeight, elementBackgroundColor);
             context.drawText(tr, Text.literal(tooltipText), scaledX + padding, scaledY + padding, globalTextColor, Config.shadow);
             context.getMatrices().pop();
         }
@@ -214,7 +215,7 @@ public class Render {
             int lineX = (scrollbarX - (lineWidth - scrollbarWidth) / 2);
             context.fill(scrollbarX, explorerY, scrollbarX + scrollbarWidth, lineY + lineHeight / 2, Config.getElementBackgroundColor(3000 + "topScroll".hashCode(), true, dragging, true, false, false, false));
             context.fill(scrollbarX, lineY + lineHeight / 2, scrollbarX + scrollbarWidth, explorerY + explorerHeight, Config.getElementBackgroundColor(3000 + "bottomScroll".hashCode(), dragging, false, true, false, false, false));
-            drawOuterBorder(context, scrollbarX, explorerY, scrollbarWidth, explorerHeight, globalOuterBorder);
+            drawOuterBorder(context, scrollbarX, explorerY, scrollbarWidth, explorerHeight, elementBackgroundColor);
             lineHovered = mouseX >= lineX && mouseX <= lineX + lineWidth && mouseY >= lineY && mouseY <= lineY + lineHeight;
             int lineColor = Config.getElementBackgroundColor(3000 + "scrollLine".hashCode(), lineHovered, dragging, true, false, false, false);
             context.fill(lineX, lineY, lineX + lineWidth, lineY + lineHeight, lineColor);
@@ -344,7 +345,7 @@ public class Render {
             int bgColor = Config.getElementBackgroundColor(1000 + i, isHovered, isActive, true, isUnsaved, false, false);
             context.fill(x, tabBarY, x2, tabBarY + tabBarHeight, bgColor);
             drawInnerBorder(context, x, tabBarY, tabWidth, tabBarHeight, Config.getElementBorderColor(1000 + i, isHovered, isActive, true, isUnsaved, false, false));
-            drawOuterBorder(context, x, tabBarY, tabWidth, tabBarHeight, globalOuterBorder);
+            drawOuterBorder(context, x, tabBarY, tabWidth, tabBarHeight, bgColor);
             context.enableScissor(x + 1, tabBarY, x2 - 1, tabBarY + tabBarHeight);
             context.drawText(textRenderer, Text.literal(name), x + tabPadding, tabBarY + 5, getTextColor(1000 + i, isHovered, isActive, true, isUnsaved, false, false), shadow);
             context.disableScissor();
@@ -363,7 +364,7 @@ public class Render {
             int bgColor = Config.getElementBackgroundColor(1000 + tabs.size(), isPlusTabHovered, false, true, isUnsaved, false, false);
             context.fill(x, tabBarY, x + plusTabWidth, tabBarY + tabBarHeight, bgColor);
             drawInnerBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, Config.getElementBorderColor(1000 + tabs.size(), isPlusTabHovered, false, true, false, false, false));
-            drawOuterBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, globalOuterBorder);
+            drawOuterBorder(context, x, tabBarY, plusTabWidth, tabBarHeight, bgColor);
             context.drawText(textRenderer, Text.literal(plusSign), x + plusTabWidth / 2 - textRenderer.getWidth(plusSign) / 2, tabBarY + 5, getTextColor(1000 + tabs.size(), isPlusTabHovered, false, true, isUnsaved, false, false), shadow);
             context.getMatrices().pop();
         }
@@ -397,7 +398,7 @@ public class Render {
         int bgColor = getElementBackgroundColor(id, hovered, fieldFocused, true, false, caller.equals("FileExplorerScreen") && isSpecialMode, caller.equals("FileEditorScreen") && isSpecialMode);
         context.fill(searchBarX, searchBarY, searchBarX + searchBarWidth, searchBarY + searchBarHeight, bgColor);
         drawInnerBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, getElementBorderColor(id, hovered, fieldFocused, true, false, caller.equals("FileExplorerScreen") && isSpecialMode, caller.equals("FileEditorScreen") && isSpecialMode));
-        drawOuterBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, globalOuterBorder);
+        drawOuterBorder(context, searchBarX, searchBarY, searchBarWidth, searchBarHeight, bgColor);
         if (selectionStart != -1 && selectionEnd != -1 && selectionStart != selectionEnd) {
             int selStart = Math.max(0, Math.min(selectionStart, selectionEnd));
             int selEnd = Math.min(displayText.length(), Math.max(selectionStart, selectionEnd));
@@ -453,7 +454,7 @@ public class Render {
         context.getMatrices().translate(0, currentOffset, 0);
         int bg = Config.getElementBackgroundColor(entry.hashCode(), hovered, isSelected, true, isFavorite, entry.isMatched, false);
         int borderWithOpacity = Config.getElementBorderColor(entry.hashCode(), hovered, isSelected, true, isFavorite, entry.isMatched, false);
-        drawOuterBorder(context, explorerX, entryY, explorerWidth, entryHeight, globalOuterBorder);
+        drawOuterBorder(context, explorerX, entryY, explorerWidth, entryHeight, bg);
         context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
         drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
         context.fill(explorerX, entryY + entryHeight - 1, explorerX + explorerWidth, entryY + entryHeight, borderWithOpacity);
@@ -485,7 +486,7 @@ public class Render {
         int bgColor = Config.getElementBackgroundColor(snippet.hashCode(), hovered, selected, true, false, false, false);
         context.fill(snippetX, snippetY, snippetX + snippetMaxWidth, snippetY + snippetHeight, bgColor);
         drawInnerBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, Config.getElementBorderColor(snippet.hashCode(), hovered, selected, true, false, false, false));
-        drawOuterBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, globalOuterBorder);
+        drawOuterBorder(context, snippetX, snippetY, snippetMaxWidth, snippetHeight, bgColor);
         String displayName = trimTextToWidthWithEllipsis(snippet.name, snippetMaxWidth - 10);
         context.drawText(minecraftClient.textRenderer, Text.literal(displayName), snippetX + 5, snippetY + 5, globalTextColor, shadow);
         int lineSeparatorY = snippetY + 5 + minecraftClient.textRenderer.fontHeight + 2;
@@ -513,9 +514,10 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        context.fill(x, y, x + bW, y + bH, Config.getElementBackgroundColor(id, hovered, selected, clickable, false, false, false));
+        int bgColor = Config.getElementBackgroundColor(id, hovered, selected, clickable, false, false, false);
+        context.fill(x, y, x + bW, y + bH, bgColor);
         drawInnerBorder(context, x, y, bW, bH, Config.getElementBorderColor(id, hovered, selected, clickable, false, false, false));
-        drawOuterBorder(context, x, y, bW, bH, globalOuterBorder);
+        drawOuterBorder(context, x, y, bW, bH, bgColor);
         int tw = mc.textRenderer.getWidth(text);
         int tx = centered ? x + (bW - tw) / 2 : x + 5;
         int ty = y + 5;
@@ -536,9 +538,10 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        context.fill(x, y, x + w, y + h, Config.getElementBackgroundColor(id, hovered, false, true, false, false, false));
+        int bgColor = Config.getElementBackgroundColor(id, hovered, false, true, false, false, false);
+        context.fill(x, y, x + w, y + h, bgColor);
         drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, true, false, false, false));
-        drawOuterBorder(context, x, y, w, h, globalOuterBorder);
+        drawOuterBorder(context, x, y, w, h, bgColor);
         if (icon != null) {
             drawPixelArt(context, x + 1, y + 1, 16, 16, icon);
         }
@@ -557,9 +560,10 @@ public class Render {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        context.fill(x, y, x + w, y + h, Config.getElementBackgroundColor(id, hovered, false, true, false, false, false));
+        int bgColor = Config.getElementBackgroundColor(id, hovered, false, true, false, false, false);
+        context.fill(x, y, x + w, y + h, bgColor);
         drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, true, false, false, false));
-        drawOuterBorder(context, x, y, w, h, globalOuterBorder);
+        drawOuterBorder(context, x, y, w, h, bgColor);
         if (icon != null) {
             warpedDrawGuiTexture(context, x + 2, y + 2, icon, iconWidth, iconHeight);
         }
@@ -608,14 +612,14 @@ public class Render {
         //?}
         context.fill(0, 0, width, 30, innerBackgroundColor);
         drawInnerBorder(context, 0, 0, parent.width, 30, innerBorderColor);
-        drawOuterBorder(context, 0, 0, parent.width, 30, globalOuterBorder);
+        drawOuterBorder(context, 0, 0, parent.width, 30, innerBackgroundColor);
         if (!(parent instanceof MultiTerminalScreen)) {
             if (!(parent instanceof FileExplorerScreen && !(((FileExplorerScreen) parent).isCanScroll()))) {
                 if (!(parent instanceof PluginModManagerScreen && !((PluginModManagerScreen) parent).isCanScroll())) {
                     if (!(parent instanceof SettingsScreen)) {
                         context.fill(5, 60, backgroundWidth, height - 5, innerBackgroundColor);
                         drawInnerBorder(context, 5, 60, backgroundWidth - 5, height - 65, innerBorderColor);
-                        drawOuterBorder(context, 5, 60, backgroundWidth - 5, height - 65, globalOuterBorder);
+                        drawOuterBorder(context, 5, 60, backgroundWidth - 5, height - 65, innerBackgroundColor);
                     }
                 }
             }
@@ -672,7 +676,7 @@ public class Render {
         context.fill(x, y, x + trackWidth, y + trackHeight, trackColor);
         context.fill(x, y + (int)(trackHeight * 0.75), x + trackWidth, y + trackHeight, 0x20000000);
         drawInnerBorder(context, x, y, trackWidth, trackHeight, Config.getElementBorderColor(id, hovered, value, true, false, false, false));
-        drawOuterBorder(context, x, y, trackWidth, trackHeight, globalOuterBorder);
+        drawOuterBorder(context, x, y, trackWidth, trackHeight, trackColor);
         int knobId = (id + "knob").hashCode();
         float knobTargetX = value ? x + trackWidth - (trackHeight - 4) - 2 : x + 2;
         float currentKnobX = elevationOffsets.getOrDefault(knobId, knobTargetX);
@@ -703,9 +707,10 @@ public class Render {
 
         float ratio = (float)(currentValue - minValue) / (float)(maxValue - minValue);
         int fillWidth = (int)(ratio * (sliderWidth - 2));
-        context.fill(x + 1, y + 1, x + 1 + fillWidth, y + sliderHeight - 1, Config.getElementBorderColor(id + "Inner".hashCode(), hovered, true, true, false, false, false));
+        int bgColor = Config.getElementBorderColor(id + "Inner".hashCode(), hovered, true, true, false, false, false);
+        context.fill(x + 1, y + 1, x + 1 + fillWidth, y + sliderHeight - 1, bgColor);
         drawInnerBorder(context, x, y, sliderWidth, sliderHeight, Config.getElementBorderColor(id, hovered, false, true, false, false, false));
-        drawOuterBorder(context, x, y, sliderWidth, sliderHeight, globalOuterBorder);
+        drawOuterBorder(context, x, y, sliderWidth, sliderHeight, bgColor);
         context.fill(x + 1, y + sliderHeight - (int)(sliderHeight * 0.25), x + 1 + fillWidth, y + sliderHeight - 1, 0x20000000);
 
         String text = String.valueOf(currentValue);
@@ -729,7 +734,7 @@ public class Render {
         int bg = Config.getElementBackgroundColor(id, hovered, selected, true, false, false, false);
         context.fill(x, y, x + sliderWidth, y + sliderHeight, bg);
         drawInnerBorder(context, x, y, sliderWidth, sliderHeight, Config.getElementBorderColor(id, hovered, selected, true, false, false, false));
-        drawOuterBorder(context, x, y, sliderWidth, sliderHeight, globalOuterBorder);
+        drawOuterBorder(context, x, y, sliderWidth, sliderHeight, bg);
         float clampedValue = (float) MathHelper.clamp(currentValue, 0f, 1f);
         int knobDiameter = sliderHeight - 4;
         int availableWidth = sliderWidth - knobDiameter - 4;
@@ -782,7 +787,7 @@ public class Render {
         int bg = Config.getElementBackgroundColor(id, hovered, false, true, false, false, false);
         context.fill(x, y, x + w, y + h, bg);
         drawInnerBorder(context, x, y, w, h, Config.getElementBorderColor(id, hovered, false, true, false, false, false));
-        drawOuterBorder(context, x, y, w, h, globalOuterBorder);
+        drawOuterBorder(context, x, y, w, h, bg);
         int contentX = x + 1;
         int contentWidth = x + w - contentX - 1;
         context.enableScissor(contentX, y, contentX + contentWidth, y + h);
@@ -813,7 +818,7 @@ public class Render {
     public static void drawTabSwitch(DrawContext context, MinecraftClient mc, int x, int y, String label, List<String> options, int currentIndex, int mouseX, int mouseY, int barWidth, int barHeight) {
         context.fill(x, y, x + barWidth, y + barHeight, Config.elementBackgroundColor);
         drawInnerBorder(context, x, y, barWidth, barHeight, Config.elementBorderColor);
-        drawOuterBorder(context, x, y, barWidth, barHeight, globalOuterBorder);
+        drawOuterBorder(context, x, y, barWidth, barHeight, elementBackgroundColor);
         int segmentCount = options.size();
         int segmentWidth = barWidth / segmentCount;
         for (int i = 0; i < segmentCount; i++) {
@@ -850,7 +855,7 @@ public class Render {
         int bg = Config.getElementBackgroundColor(id, hovered, focused, true, false, false, false);
         context.fill(x, y, x + inputWidth, y + inputHeight, bg);
         drawInnerBorder(context, x, y, inputWidth, inputHeight, Config.getElementBorderColor(id, hovered, focused, true, false, false, false));
-        drawOuterBorder(context, x, y, inputWidth, inputHeight, globalOuterBorder);
+        drawOuterBorder(context, x, y, inputWidth, inputHeight, bg);
         int displayWidth = inputWidth - 10;
         int textWidth = mc.textRenderer.getWidth(textValue);
         int textY = y + (inputHeight - mc.textRenderer.fontHeight) / 2 + 1;
@@ -885,29 +890,24 @@ public class Render {
         context.getMatrices().pop();
     }
 
-    public static void animatedScaling(DrawContext context, Screen parent, MinecraftClient minecraftClient) {
+    public static void animatedScaling(Screen parent) {
         animScaleFactor += (targetScaleFactor - animScaleFactor) * scaleAnimationSpeed * deltaTime;
+        Window mcw = MinecraftClient.getInstance().getWindow();
         if (Math.abs(animScaleFactor - targetScaleFactor) < 0.005f) {
             animScaleFactor = targetScaleFactor;
         }
         if (targetScaleFactor != animScaleFactor) {
-            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
-            parent.width = minecraftClient.getWindow().getScaledWidth();
-            parent.height = minecraftClient.getWindow().getScaledHeight();
+            mcw.setScaleFactor(animScaleFactor);
+            parent.width = mcw.getScaledWidth();
+            parent.height = mcw.getScaledHeight();
             globalScaleFactor = animScaleFactor;
             lastRounding = true;
         } else if (lastRounding) {
-            minecraftClient.getWindow().setScaleFactor(animScaleFactor);
-            parent.width = minecraftClient.getWindow().getScaledWidth();
-            parent.height = minecraftClient.getWindow().getScaledHeight();
+            mcw.setScaleFactor(animScaleFactor);
+            parent.width = mcw.getScaledWidth();
+            parent.height = mcw.getScaledHeight();
             globalScaleFactor = animScaleFactor;
             lastRounding = false;
-        }
-        if (isDev & enableDebugTools) {
-            String animatedAndTargetScaleFactorVisulization = "Animated Scale: " + animScaleFactor + " | Target Scale: " + targetScaleFactor;
-            String isRounded = "Rounded?: " + (lastRounding ? "No" : "Yes");
-            context.drawTextWithShadow(minecraftClient.textRenderer, animatedAndTargetScaleFactorVisulization, 5, 5, globalHoverTextColor);
-            context.drawTextWithShadow(minecraftClient.textRenderer, isRounded, 5, 15, globalHoverTextColor);
         }
     }
 
@@ -929,11 +929,11 @@ public class Render {
     }
 
     public static void drawOuterBorder(DrawContext context, int x, int y, int w, int h, int color) {
-        context.fill(x - 1, y - 1, x + w + 1, y, color);
-        context.fill(x - 1, y + h, x + w + 1, y + h + 3, color);
-        context.fill(x - 1, y, x, y + h, color);
-        context.fill(x + w, y, x + w + 1, y + h, color);
-        context.fill(x, y + h, x + w, y + h + 2, elementBackgroundColor);
+        context.fill(x - 1, y - 1, x + w + 1, y, globalOuterBorder);
+        context.fill(x - 1, y + h, x + w + 1, y + h + 3, globalOuterBorder);
+        context.fill(x - 1, y, x, y + h, globalOuterBorder);
+        context.fill(x + w, y, x + w + 1, y + h, globalOuterBorder);
+        context.fill(x, y + h, x + w, y + h + 2, color);
         context.fill(x, y + h, x + w, y + h + 2, 0x40000000);
         context.fillGradient(x, y + h + 2, x + w, y + h + 4, 0x00000000, 0x60000000);
     }
@@ -1088,7 +1088,7 @@ public class Render {
                 int bgColor = Config.getElementBackgroundColor(1000 + i, isHovered, isActive, true, tab.unsaved, false, false);
                 context.fill((int) newPos, tabBarY, (int) newPos + (int) tabWidth, tabBarY + tabBarHeight, bgColor);
                 drawInnerBorder(context, (int) newPos, tabBarY, (int) tabWidth, tabBarHeight, Config.getElementBorderColor(1000 + i, isHovered, isActive, true, tab.unsaved, false, false));
-                drawOuterBorder(context, (int) newPos, tabBarY, (int) tabWidth, tabBarHeight, globalOuterBorder);
+                drawOuterBorder(context, (int) newPos, tabBarY, (int) tabWidth, tabBarHeight, bgColor);
                 context.enableScissor((int) newPos + 1, (int) (tabBarY + currentOffset), (int) newPos + (int) tabWidth - 1, tabBarY + tabBarHeight);
                 if (renamingTab == i) {
                     int textX = (int) newPos + tabPadding;
@@ -1130,7 +1130,7 @@ public class Render {
                 int bgColor = Config.getElementBackgroundColor(1000 + tabs.size(), isPlusHovered, false, true, false, false, false);
                 context.fill(drawX, tabBarY, drawX + plusTabWidth, tabBarY + tabBarHeight, bgColor);
                 drawInnerBorder(context, drawX, tabBarY, plusTabWidth, tabBarHeight, Config.getElementBorderColor(1000 + tabs.size(), isPlusHovered, false, true, false, false, false));
-                drawOuterBorder(context, drawX, tabBarY, plusTabWidth, tabBarHeight, globalOuterBorder);
+                drawOuterBorder(context, drawX, tabBarY, plusTabWidth, tabBarHeight, bgColor);
                 context.drawText(textRenderer, Text.literal("+"), drawX + plusTabWidth / 2 - (textRenderer.getWidth("+") / 2), tabBarY + 4, Config.getTextColor((this.getClass() + "plusTabsBar").hashCode(), isPlusHovered, false, true, false, false, false), shadow);
                 context.getMatrices().pop();
             }

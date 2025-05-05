@@ -394,9 +394,10 @@ public class SettingsScreen extends Screen {
         for (int i = 0; i < currentSettings.size(); i++) {
             int rowY = contentY + i * rowHeight - (int) currentSettingsScroll;
             if (rowY + rowHeight < contentY || rowY > contentY + contentHeight) continue;
-            context.fill(contentX, rowY, contentX + contentWidth, rowY + rowHeight - 2, getElementBackgroundColor(currentSettings.get(i).name.hashCode(), false, false, true, false, false, false));
+            int bgColor = getElementBackgroundColor(currentSettings.get(i).name.hashCode(), false, false, true, false, false, false);
+            context.fill(contentX, rowY, contentX + contentWidth, rowY + rowHeight - 2, bgColor);
             drawInnerBorder(context, contentX, rowY, contentWidth, rowHeight - 2, getElementBorderColor(currentSettings.get(i).name.hashCode(), false, false, true, false, false, false));
-            drawOuterBorder(context, contentX, rowY, contentWidth, rowHeight - 2, globalOuterBorder);
+            drawOuterBorder(context, contentX, rowY, contentWidth, rowHeight - 2, bgColor);
             String name = currentSettings.get(i).name;
             context.drawText(mc.textRenderer, Text.literal(name), contentX + 5, rowY + 5, globalTextColor, Config.shadow);
             context.drawText(mc.textRenderer, Text.literal(currentSettings.get(i).description), contentX + 5, rowY + 5 + mc.textRenderer.fontHeight + 2, Config.globalDarkTextColor, Config.shadow);
@@ -429,7 +430,7 @@ public class SettingsScreen extends Screen {
         if ((int) currentSettingsScroll <= maxScroll + 3) {
             context.fillGradient(contentX, height - 5, contentX + contentWidth, contentY + contentHeight, 0x00000000, 0x55000000);
         }
-        animatedScaling(context, this, mc);
+        animatedScaling(this);
     }
 
     @Override

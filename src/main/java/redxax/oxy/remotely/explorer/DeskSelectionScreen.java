@@ -218,7 +218,7 @@ public class DeskSelectionScreen extends Screen {
             context.getMatrices().translate(0, currentOffset, 0);
             context.fill(drawX, drawY, drawX + itemWidth, drawY + itemHeight, bgColor);
             drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, getElementBorderColor(item.hashCode(), hovered, item.isFavorite, true, false, false, false));
-            drawOuterBorder(context, drawX, drawY, itemWidth, itemHeight, globalOuterBorder);
+            drawOuterBorder(context, drawX, drawY, itemWidth, itemHeight, bgColor);
             BufferedImage icon = (item.isDirectory ? folderIcon.getImage() : fileIcon.getImage());
             drawPixelArt(context, drawX + 7, drawY + (itemHeight / 2) - 8, 16, 16, icon);
             if (item.isFavorite) {
@@ -238,7 +238,7 @@ public class DeskSelectionScreen extends Screen {
             idx++;
             context.getMatrices().pop();
         }
-        animatedScaling(context, this, minecraftClient);
+        animatedScaling(this);
     }
 
     @Override

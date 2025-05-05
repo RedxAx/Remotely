@@ -129,7 +129,7 @@ public class Notification {
         int textColor = getTextColor(notificationId, hovered, true, true, type == Type.ERROR, type == Type.SUCCESS, type == Type.INFO);
         context.fill((int) currentX, (int) currentY, (int) currentX + width, (int) currentY + height, bgColor);
         drawInnerBorder(context, (int) currentX, (int) currentY, width, height, borderColor);
-        drawOuterBorder(context, (int) currentX, (int) currentY, width, height, globalOuterBorder);
+        drawOuterBorder(context, (int) currentX, (int) currentY, width, height, backgroundColor);
         context.drawText(this.textRenderer, Text.literal(message), (int) currentX + padding, (int) currentY + padding, textColor, Config.shadow);
     }
 

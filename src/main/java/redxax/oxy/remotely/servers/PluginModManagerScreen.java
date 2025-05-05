@@ -404,7 +404,7 @@ public class PluginModManagerScreen extends Screen {
         int contentWidth = this.width - 10;
         context.fill(contentX, contentY - 25, contentX + contentWidth, contentY, Config.innerBackgroundColor);
         drawInnerBorder(context, contentX, contentY - 25, contentWidth, 25, Config.innerBorderColor);
-        drawOuterBorder(context, contentX, contentY - 25, contentWidth, 25, globalOuterBorder);
+        drawOuterBorder(context, contentX, contentY - 25, contentWidth, 25, innerBackgroundColor);
         context.drawText(textRenderer, Text.literal("Name"), contentX + 10, contentY - 18, globalTextColor, Config.shadow);
         context.enableScissor(contentX - 1, contentY, contentX + contentWidth + 1, contentY + contentHeight);
         if (isLoading && resources.isEmpty()) {
@@ -430,7 +430,7 @@ public class PluginModManagerScreen extends Screen {
             int borderColorFinal = getElementBorderColor(resource.hashCode(), hovered, i == selectedIndex, true, false, false, false);
             context.fill(contentX, baseY, contentX + contentWidth, baseY + entryHeight, bg);
             drawInnerBorder(context, contentX, baseY, contentWidth, entryHeight, borderColorFinal);
-            drawOuterBorder(context, contentX, baseY, contentWidth, entryHeight, globalOuterBorder);
+            drawOuterBorder(context, contentX, baseY, contentWidth, entryHeight, bg);
             BufferedImage icon = resource.getIconUrl().isEmpty() ? placeholderIcon : iconImages.getOrDefault(resource.getIconUrl(), placeholderIcon);
             drawBufferedImage(context, icon, contentX + 5, baseY + (entryHeight - 30) / 2, 30, 30);
             String resourceName = resource.getName();
@@ -468,7 +468,7 @@ public class PluginModManagerScreen extends Screen {
         ScrollBar.render(context, this, mouseX, mouseY, resources.size() * (entryHeight + gapBetweenEntries), targetOffset);
         targetOffset = ScrollBar.getPendingOffset();
         loadMoreIfNeeded();
-        animatedScaling(context, this, minecraftClient);
+        animatedScaling(this);
     }
 
 

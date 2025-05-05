@@ -79,7 +79,7 @@ public class TerminalRenderer {
         terminalHeight = height;
         int padding = 2;
         context.fill(terminalX, terminalY, terminalX + terminalWidth, terminalY + terminalHeight, backgroundColor);
-        drawOuterBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, globalOuterBorder);
+        drawOuterBorder(context, terminalX, terminalY, terminalWidth, terminalHeight, backgroundColor);
         int textAreaX = terminalX + padding;
         int textAreaY2 = terminalY + padding;
         int textAreaWidth = terminalWidth - 2 * padding;

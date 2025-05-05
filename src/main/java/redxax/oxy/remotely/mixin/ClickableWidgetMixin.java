@@ -75,7 +75,7 @@ public abstract class ClickableWidgetMixin {
             Render.drawSquareButton(context, getX(), getY(), mc, hovered, mouseX, mouseY, getMessage().getString(), null);
             ci.cancel();
         } else if (visible) {
-            Render.drawCustomButton(context, getX(), getY(), getMessage().getString(), mc, hovered, false, true, isFocused(), active, getWidth(), getHeight() == 20 ? 18 : getHeight(), Config.globalTextColor, Config.getTextColor(message.hashCode() + navigationOrder, hovered, true, active, false, false, false), mouseX, mouseY, "");
+            Render.drawCustomButton(context, getX(), getY(), getMessage().getString(), mc, hovered, false, true, isFocused(), active, getWidth(), getHeight() == 20 ? 18 : getHeight(), Config.getTextColor(message.hashCode() + navigationOrder, hovered, true, active, false, false, false), Config.getTextColor(message.hashCode() + navigationOrder, hovered, true, active, false, false, false), mouseX, mouseY, "");
             ci.cancel();
         }
     }

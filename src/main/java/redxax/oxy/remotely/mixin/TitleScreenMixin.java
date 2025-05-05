@@ -175,7 +175,7 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screen.S
     @Unique
     private void openServerManagerScreen() {
         MinecraftClient client = MinecraftClient.getInstance();
-        client.setScreen(new ServerManagerScreen(client, RemotelyClient.INSTANCE, RemotelyClient.INSTANCE.servers));
+        client.setScreen(new ServerManagerScreen(client, this, RemotelyClient.INSTANCE, RemotelyClient.INSTANCE.servers));
     }
 
     @Unique

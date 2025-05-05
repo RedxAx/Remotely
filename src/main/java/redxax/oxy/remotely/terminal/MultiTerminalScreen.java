@@ -6,10 +6,10 @@ import redxax.oxy.remotely.Render.ContextMenu;
 import redxax.oxy.remotely.Render.ScrollBar;
 import redxax.oxy.remotely.Render.TabsBar;
 import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.explorer.DeskSelectionScreen;
+import redxax.oxy.remotely.explorer.FileEditorScreen;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
-import redxax.oxy.remotely.servers.PluginModManagerScreen;
-import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.servers.ServerState;
+import redxax.oxy.remotely.servers.*;
 import redxax.oxy.remotely.ui.AISidePanel;
 import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
 
@@ -27,6 +27,7 @@ import net.minecraft.util.math.MathHelper;
 import redxax.oxy.remotely.util.Sound;
 
 import static redxax.oxy.remotely.RemotelyClient.globalSnippets;
+import static redxax.oxy.remotely.RemotelyClient.mcScreen;
 import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
@@ -144,6 +145,9 @@ public class MultiTerminalScreen extends Screen {
         this.terminals = terminals;
         this.tabNames = tabNames;
         this.parent = parent;
+        if (!(parent instanceof FileExplorerScreen || parent instanceof PluginModManagerScreen || parent instanceof ServerManagerScreen || parent instanceof FileEditorScreen || parent instanceof DeskSelectionScreen || parent instanceof BrowserScreen || parent instanceof MultiTerminalScreen)) {
+            RemotelyClient.mcScreen = parent;
+        }
         if (terminals.isEmpty()) {
             addNewTerminal();
         }
@@ -450,7 +454,7 @@ public class MultiTerminalScreen extends Screen {
             context.fill(panelX, panelY, panelX, panelY + panelHeight, innerBorderColor);
             context.fill(panelX, panelY, panelX + animatedWidth, panelY + panelHeight, innerBackgroundColor);
             drawInnerBorder(context, panelX, panelY, animatedWidth, panelHeight, innerBorderColor);
-            drawOuterBorder(context, panelX, panelY, animatedWidth, panelHeight, globalOuterBorder);
+            drawOuterBorder(context, panelX, panelY, animatedWidth, panelHeight, innerBorderColor);
             context.enableScissor(panelX, panelY + 1, panelX + animatedWidth, panelY + panelHeight - 1);
             if (aiMode) {
                 aiSidePanel.render(context, panelX, panelY, animatedWidth, panelHeight, mouseX, mouseY);
@@ -470,7 +474,7 @@ public class MultiTerminalScreen extends Screen {
         if (ContextMenu.isOpen()) {
             ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         }
-        animatedScaling(context, this, minecraftClient);
+        animatedScaling(this);
     }
 
     private void renderSnippetPopup(DrawContext context, int mouseX, int mouseY) {
@@ -478,16 +482,16 @@ public class MultiTerminalScreen extends Screen {
         if (snippetPopupY + snippetPopupHeight > this.height) snippetPopupY = this.height - snippetPopupHeight - 5;
         context.getMatrices().push();
         context.getMatrices().translate(0, 0, 499);
-        context.fill(snippetPopupX, snippetPopupY, snippetPopupX + snippetPopupWidth, snippetPopupY + snippetPopupHeight, backgroundColor);
+        context.fill(snippetPopupX, snippetPopupY, snippetPopupX + snippetPopupWidth, snippetPopupY + snippetPopupHeight, innerBackgroundColor);
         drawInnerBorder(context, snippetPopupX, snippetPopupY, snippetPopupWidth, snippetPopupHeight, elementBorderColor);
-        drawOuterBorder(context, snippetPopupX, snippetPopupY, snippetPopupWidth, snippetPopupHeight, globalOuterBorder);
+        drawOuterBorder(context, snippetPopupX, snippetPopupY, snippetPopupWidth, snippetPopupHeight, innerBackgroundColor);
         int nameLabelY = snippetPopupY + 5;
         trimAndDrawText(context, "Name:", snippetPopupX + 5, nameLabelY, snippetPopupWidth - 10, globalTextColor);
         int nameBoxY = nameLabelY + 12;
         int nameBoxHeight = 12;
         int nameBoxWidth = snippetPopupWidth - 10;
         context.fill(snippetPopupX + 5, nameBoxY, snippetPopupX + 5 + nameBoxWidth, nameBoxY + nameBoxHeight, snippetNameFocused ? innerBackgroundSelectedColor : innerBackgroundColor);
-        drawOuterBorder(context, snippetPopupX + 5, nameBoxY, nameBoxWidth, nameBoxHeight, globalOuterBorder);
+        drawInnerBorder(context, snippetPopupX + 5, nameBoxY, nameBoxWidth, nameBoxHeight, innerBorderColor);
         String fullName = snippetNameBuffer.toString();
         int wBeforeCursor = minecraftClient.textRenderer.getWidth(fullName.substring(0, Math.min(snippetNameCursorPos, fullName.length())));
         if (wBeforeCursor < snippetNameScrollOffset) snippetNameScrollOffset = wBeforeCursor;
@@ -525,7 +529,7 @@ public class MultiTerminalScreen extends Screen {
         if (commandsBoxHeight < 20) commandsBoxHeight = 20;
         int commandsBoxWidth = snippetPopupWidth - 10;
         context.fill(snippetPopupX + 5, commandsBoxY, snippetPopupX + 5 + commandsBoxWidth, commandsBoxY + commandsBoxHeight, !snippetNameFocused ? innerBackgroundSelectedColor : innerBackgroundColor);
-        drawOuterBorder(context, snippetPopupX + 5, commandsBoxY, commandsBoxWidth, commandsBoxHeight, globalOuterBorder);
+        drawInnerBorder(context, snippetPopupX + 5, commandsBoxY, commandsBoxWidth, commandsBoxHeight, innerBorderColor);
         String fullCommands = snippetCommandsBuffer.toString();
         fullCommands = ensureCursorBounds(fullCommands);
         String[] cmdLines = fullCommands.split("\n", -1);
@@ -572,7 +576,7 @@ public class MultiTerminalScreen extends Screen {
         int shortcutBoxHight = 12;
         int shortcutBoxWidth = snippetPopupWidth - 10;
         context.fill(snippetPopupX + 5, shortcutBoxY, snippetPopupX + 5 + shortcutBoxWidth, shortcutBoxY + shortcutBoxHight, innerBackgroundColor);
-        drawOuterBorder(context, snippetPopupX + 5, shortcutBoxY, shortcutBoxWidth, shortcutBoxHight, globalOuterBorder);
+        drawInnerBorder(context, snippetPopupX + 5, shortcutBoxY, shortcutBoxWidth, shortcutBoxHight, innerBackgroundColor);
         String shortcutText = snippetShortcutBuffer.isEmpty() ? "No Shortcut" : snippetShortcutBuffer.toString();
         shortcutText = trimTextToWidthWithEllipsis(shortcutText, shortcutBoxWidth - 2);
         context.drawText(minecraftClient.textRenderer, Text.literal(shortcutText), snippetPopupX + 8, shortcutBoxY + 2, globalTextColor, shadow);
@@ -1947,7 +1951,7 @@ public class MultiTerminalScreen extends Screen {
         remotelyClient.multiTerminals = new ArrayList<>(terminals);
         remotelyClient.multiTabNames = new ArrayList<>(tabNames);
         remotelyClient.multiMergeGroups = new LinkedHashMap<>(mergeGroups);
-        if (parent == null) playSound(Sound.SCREEN);
+        if (parent.equals(mcScreen)) playSound(Sound.SCREEN);
     }
 }
 
