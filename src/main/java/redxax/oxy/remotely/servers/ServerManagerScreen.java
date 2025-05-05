@@ -101,6 +101,7 @@ public class ServerManagerScreen extends Screen {
     private boolean canDrag = false;
     private final ArrayList<Settings> settings = new ArrayList<>();
     private final ArrayList<Settings> clientSettings = new ArrayList<>();
+    private final Screen parent;
 
     public List<RemoteHostInfo> getRemoteHosts() {
         return remoteHosts;
@@ -123,11 +124,12 @@ public class ServerManagerScreen extends Screen {
         }
     }
 
-    public ServerManagerScreen(MinecraftClient minecraftClient, RemotelyClient remotelyClient, List<ServerInfo> servers) {
+    public ServerManagerScreen(MinecraftClient minecraftClient, Screen parent, RemotelyClient remotelyClient, List<ServerInfo> servers) {
         super(Text.literal("Server Setup"));
         this.minecraftClient = minecraftClient;
         this.remotelyClient = remotelyClient;
         this.localServers = servers;
+        this.parent = parent;
         originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
         minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
@@ -220,9 +222,9 @@ public class ServerManagerScreen extends Screen {
         renderDesktopIcons(context, mouseX, mouseY);
         renderTaskbar(context, mouseX, mouseY);
         if (serverTypePopupActive) {
-            context.fill(serverTypePopupX, serverTypePopupY, serverTypePopupX + serverTypePopupWidth, serverTypePopupY + serverTypePopupHeight, Config.backgroundColor);
+            context.fill(serverTypePopupX, serverTypePopupY, serverTypePopupX + serverTypePopupWidth, serverTypePopupY + serverTypePopupHeight, innerBackgroundColor);
             drawInnerBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, Config.elementBorderColor);
-            drawOuterBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, globalOuterBorder);
+            drawOuterBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, innerBackgroundColor);
             String stTitle = "Select Action";
             int stTitleW = minecraftClient.textRenderer.getWidth(stTitle);
             int stTitleX = serverTypePopupX + (serverTypePopupWidth - stTitleW) / 2;
@@ -243,9 +245,9 @@ public class ServerManagerScreen extends Screen {
             int py = (this.height - remoteHostPopupH) / 2;
             context.getMatrices().push();
             context.getMatrices().translate(0, 0, 499);
-            context.fill(px, py, px + remoteHostPopupW, py + remoteHostPopupH, Config.backgroundColor);
+            context.fill(px, py, px + remoteHostPopupW, py + remoteHostPopupH, innerBackgroundColor);
             drawInnerBorder(context, px, py, remoteHostPopupW, remoteHostPopupH, Config.innerBorderColor);
-            drawOuterBorder(context, px, py, remoteHostPopupW, remoteHostPopupH, globalOuterBorder);
+            drawOuterBorder(context, px, py, remoteHostPopupW, remoteHostPopupH, innerBackgroundColor);
             int labelY = py + 5;
             context.drawText(minecraftClient.textRenderer, Text.literal("Host Name:"), px + 5, labelY, globalTextColor, false);
             int nameBoxY = labelY + 10;
@@ -310,7 +312,7 @@ public class ServerManagerScreen extends Screen {
             renderDeletePopup(context, mouseX, mouseY);
         }
         ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
-        animatedScaling(context, this, minecraftClient);
+        animatedScaling(this);
     }
 
     private void renderDesktopIcons(DrawContext context, int mouseX, int mouseY) {
@@ -383,11 +385,12 @@ public class ServerManagerScreen extends Screen {
                 ServerInfo server = currentServers.get(i);
                 BufferedImage icon = getServerIcon(server);
                 drawPixelArt(context, (int) currentX, (int) currentY, iconSize, iconSize, icon);
+                int selectionColor = getElementBorderColor(i, hovered, selectedDesktopIndex == i, true, false, false, false);
                 if (selectedDesktopIndex == i) {
-                    drawInnerBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, accentColor);
-                    drawOuterBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, globalOuterBorder);
+                    drawInnerBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, selectionColor);
+                    drawOuterBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, selectionColor);
                 } else {
-                    drawOuterBorder(context, (int) currentX, (int) currentY, iconSize, iconSize, globalOuterBorder);
+                    drawOuterBorder(context, (int) currentX, (int) currentY, iconSize, iconSize, selectionColor);
                 }
                 if (hovered) {
                     context.fill((int) currentX, (int) currentY, (int) currentX + iconSize, (int) currentY + iconSize, 0x40FFFFFF);
@@ -399,7 +402,7 @@ public class ServerManagerScreen extends Screen {
                 context.drawText(minecraftClient.textRenderer, Text.literal(trimmed), textX, (int) currentY + iconSize + 2, globalTextColor, Config.shadow);
             } else {
                 drawPixelArt(context, (int) currentX, (int) currentY, iconSize, iconSize, serverIcon);
-                drawOuterBorder(context, (int) currentX, (int) currentY, iconSize, iconSize, globalOuterBorder);
+                drawOuterBorder(context, (int) currentX, (int) currentY, iconSize, iconSize, elementBackgroundColor);
                 if (hovered) {
                     context.fill((int) currentX, (int) currentY, (int) currentX + iconSize, (int) currentY + iconSize, 0x40FFFFFF);
                 }
@@ -420,7 +423,7 @@ public class ServerManagerScreen extends Screen {
     private void renderTaskbar(DrawContext context, int mouseX, int mouseY) {
         context.fill(0, this.height - taskbarHeight, this.width, this.height, Config.innerBackgroundColor);
         drawInnerBorder(context, 0, this.height - taskbarHeight, this.width, taskbarHeight, Config.innerBorderColor);
-        drawOuterBorder(context, 0, this.height - taskbarHeight, this.width, taskbarHeight, globalOuterBorder);
+        drawOuterBorder(context, 0, this.height - taskbarHeight, this.width, taskbarHeight, innerBackgroundColor);
         int iconSize = 20;
         int padding = 5;
         int yTask = this.height - taskbarHeight + ((taskbarHeight - iconSize) / 2);
@@ -466,9 +469,10 @@ public class ServerManagerScreen extends Screen {
         elevationOffsets.put(id, currentOffset);
         context.getMatrices().push();
         context.getMatrices().translate(0, currentOffset, 0);
-        context.fill(plusX, y, plusX + height, y + height, getElementBackgroundColor(id, isPlusHovered, false, true,false, true, false));
+        int bgp = getElementBackgroundColor(id, isPlusHovered, false, true,false, true, false);
+        context.fill(plusX, y, plusX + height, y + height, bgp);
         drawInnerBorder(context, plusX, y, height, height, getElementBorderColor(id, isPlusHovered, false, true, false, false, false));
-        drawOuterBorder(context, plusX, y, height, height, globalOuterBorder);
+        drawOuterBorder(context, plusX, y, height, height, bgp);
         context.drawText(minecraftClient.textRenderer, Text.literal("+"), plusX + (height - plusTextWidth) / 2, y + ((height - minecraftClient.textRenderer.fontHeight) / 2) + 1, globalTextColor, Config.shadow);
         context.getMatrices().pop();
         int currentX = startX;
@@ -486,7 +490,7 @@ public class ServerManagerScreen extends Screen {
             context.getMatrices().translate(0, tabsCurrentOffset, 0);
             context.fill(currentX, y, currentX + w, y + height, bg);
             drawInnerBorder(context, currentX, y, w, height, getElementBorderColor(500 + i, isHovered, isActive, true, false, false, false));
-            drawOuterBorder(context, currentX, y, w, height, globalOuterBorder);
+            drawOuterBorder(context, currentX, y, w, height, bg);
             String tabText = tabs.get(i);
             int textWidth = minecraftClient.textRenderer.getWidth(tabText);
             int textX = currentX + (w - textWidth) / 2;
@@ -1533,9 +1537,9 @@ public class ServerManagerScreen extends Screen {
         int popupH = serverPopupHeight;
         int popupX = (this.width - popupW) / 2;
         int popupY = (this.height - popupH) / 2;
-        context.fill(popupX, popupY, popupX + popupW, popupY + popupH, Config.backgroundColor);
+        context.fill(popupX, popupY, popupX + popupW, popupY + popupH, innerBackgroundColor);
         drawInnerBorder(context, popupX, popupY, popupW, popupH, Config.elementBorderColor);
-        drawOuterBorder(context, popupX, popupY, popupW, popupH, globalOuterBorder);
+        drawOuterBorder(context, popupX, popupY, popupW, popupH, innerBackgroundColor);
         String warn = "Are you sure you want to delete this server?";
         int warnW = minecraftClient.textRenderer.getWidth(warn);
         context.drawText(minecraftClient.textRenderer, Text.literal(warn), popupX + (popupW - warnW) / 2, popupY + 20, 0xFFFF5555, Config.shadow);
@@ -1634,7 +1638,7 @@ public class ServerManagerScreen extends Screen {
         context.getMatrices().translate(0, currentOffset, 0);
         context.fill(boxX, boxY, boxX + boxW, boxY + boxH, bg);
         drawInnerBorder(context, boxX, boxY, boxW, boxH, getElementBorderColor(text.hashCode(), hovered, false, true, false, false, false));
-        drawOuterBorder(context, boxX, boxY, boxW, boxH, globalOuterBorder);
+        drawOuterBorder(context, boxX, boxY, boxW, boxH, bg);
         int tw = minecraftClient.textRenderer.getWidth(text);
         int tx = boxX + (boxW - tw) / 2;
         int ty = boxY + (boxH - minecraftClient.textRenderer.fontHeight) / 2;
@@ -1712,6 +1716,8 @@ public class ServerManagerScreen extends Screen {
     @Override
     public void removed() {
         minecraftClient.getWindow().setScaleFactor(originalMCScale);
+        parent.width = minecraftClient.getWindow().getScaledWidth();
+        parent.height = minecraftClient.getWindow().getScaledHeight();
         targetScaleFactor = globalScaleFactor = animScaleFactor;
     }
 }
