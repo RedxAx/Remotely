@@ -81,7 +81,7 @@ public class CommandExecutor {
         } else if (command.startsWith("ssh ")) {
             sshManager.startSSHConnection(command);
         } else if (command.startsWith("theme ")) {
-            String themeName = command.substring(6).trim();
+            String themeName = command.substring(6).trim().replace('_', ' ');
             boolean themeFound = false;
             for (MultiTerminalScreen.Theme theme : themes) {
                 if (theme.name.equalsIgnoreCase(themeName)) {
