@@ -113,8 +113,7 @@ public class ImageUtil {
             MinecraftClient.getInstance().getTextureManager().registerTexture(textureId, texture);
             textureCache.put(image, textureId);
         }
-        context.drawTexture(RenderLayer::getGuiTextured, textureId, x, y, 0F, 0F,
-                width, height, width, height);
+        context.drawTexture(RenderLayer::getGuiTextured, textureId, x, y, 0F, 0F, width, height, width, height);
         //?}
     }
 

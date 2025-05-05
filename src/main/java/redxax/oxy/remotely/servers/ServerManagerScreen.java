@@ -384,7 +384,9 @@ public class ServerManagerScreen extends Screen {
             if (i < currentServers.size()) {
                 ServerInfo server = currentServers.get(i);
                 BufferedImage icon = getServerIcon(server);
-                drawPixelArt(context, (int) currentX, (int) currentY, iconSize, iconSize, icon);
+                int imageSize = icon.getHeight();
+                if (imageSize == 16) drawPixelArt(context, (int) currentX, (int) currentY, iconSize, iconSize, icon);
+                else drawBufferedImage(context, icon, (int) currentX, (int) currentY, iconSize, iconSize);
                 int selectionColor = getElementBorderColor(i, hovered, selectedDesktopIndex == i, true, false, false, false);
                 if (selectedDesktopIndex == i) {
                     drawInnerBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, selectionColor);
