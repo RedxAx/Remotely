@@ -32,7 +32,7 @@ public enum Sound {
 
 
     private final String path;
-    public static boolean soundEffects = true;
+    public static boolean enableSFX = true;
     public static int pitchVariation = 20;
     public static int soundVolume = 50;
 
@@ -75,7 +75,7 @@ public enum Sound {
     }
 
     public boolean isEnabled() {
-        if (!soundEffects) return false;
+        if (!enableSFX) return false;
         return switch (this) {
             case CLICK -> soundCLICK;
             case RIGHTCLICK -> soundRIGHTCLICK;
