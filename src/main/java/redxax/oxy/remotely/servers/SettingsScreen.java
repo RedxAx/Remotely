@@ -37,7 +37,7 @@ import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.config.Themes.importThemesFromJar;
 import static redxax.oxy.remotely.servers.SettingsScreen.ServerSettingType.*;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
-import static redxax.oxy.remotely.util.Sound.soundEffects;
+import static redxax.oxy.remotely.util.Sound.enableSFX;
 import static redxax.oxy.remotely.util.Sound.soundVolume;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
@@ -84,10 +84,6 @@ public class SettingsScreen extends Screen {
             settings.addAll(customSettings);
         } else {
             settings.add(new Settings("Error While Loading Settings", "No Settings Found.", "404", "none", "none", TEXT, "Please Try Again."));
-        }
-        if (!configMode && !editServerMode) {
-            settings.add(new Settings("RAM Amount", "Set the maximum memory allocation for the server.", "Performance", "none", "launcher.memory", TEXT, "4G"));
-            settings.add(new Settings("Aikars Flags", "Custom flags that highly optimizes server performance.", "Performance", "none", "launcher.aikars_flags", TOGGLE, "true"));
         }
         if (editServerMode) {
             loadSettingsFromFiles();
@@ -137,14 +133,14 @@ public class SettingsScreen extends Screen {
 
         settings.add(new Settings("Sound Volume", "Set The Volume of The Sounds.", "Sounds", "none", "soundVolume", SLIDER, String.valueOf(soundVolume), 0, 200));
         settings.add(new Settings("Pitch Variation", "Set The Variation of The Sound Pitch.", "Sounds", "none", "pitchVariation", SLIDER, String.valueOf(Sound.pitchVariation), 0, 200));
-        settings.add(new Settings("Sound Effects", "Enable/Disable The Sound Effects.", "Sounds", "none", "soundEffects", TOGGLE, String.valueOf(soundEffects)));
+        settings.add(new Settings("Sound Effects", "Toggle Sound Effects.", "Sounds", "none", "soundEffects", TOGGLE, String.valueOf(enableSFX)));
         try {
             Field[] fields = Sound.class.getDeclaredFields();
             for (Field field : fields) {
                 if (Modifier.isStatic(field.getModifiers()) && Modifier.isPublic(field.getModifiers()) && field.getType() == boolean.class && field.getName().startsWith("sound")) {
                     String fieldName = field.getName();
                     String displayName = formatSoundFieldName(fieldName);
-                    String description = "Enable/Disable the " + displayName + ".";
+                    String description = "Toggle " + displayName + " Sound Effect.";
                     boolean currentValue = field.getBoolean(null);
                     settings.add(new Settings(displayName, description, "Sounds", "none", fieldName, TOGGLE, String.valueOf(currentValue)));
                 }
@@ -162,10 +158,7 @@ public class SettingsScreen extends Screen {
             String namePart = fieldName.substring("sound".length()).toLowerCase();
             StringBuilder formattedName = new StringBuilder();
             formattedName.append(Character.toUpperCase(namePart.charAt(0)));
-            for (int i = 1; i < namePart.length(); i++) {
-                char c = namePart.charAt(i);
-                formattedName.append(c);
-            }
+            for (int i = 1; i < namePart.length(); i++) formattedName.append(namePart.charAt(i));
             return formattedName.toString();
         }
         return fieldName;
@@ -252,7 +245,7 @@ public class SettingsScreen extends Screen {
                 case "globalExpandSpeed" -> globalExpandSpeed = Math.round(Float.parseFloat(value));
                 case "scaleAnimationSpeed" -> scaleAnimationSpeed = Math.round(Float.parseFloat(value));
                 case "tabCloseButtons" -> tabCloseButtons = Boolean.parseBoolean(value);
-                case "soundEffects" -> soundEffects = Boolean.parseBoolean(value);
+                case "soundEffects" -> enableSFX = Boolean.parseBoolean(value);
                 case "soundVolume" -> soundVolume = Integer.parseInt(value);
                 case "pitchVariation" -> Sound.pitchVariation = Integer.parseInt(value);
                 case "isDev" -> isDev = Boolean.parseBoolean(value);
