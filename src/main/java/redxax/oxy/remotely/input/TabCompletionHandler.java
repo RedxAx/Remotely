@@ -61,13 +61,14 @@ public class TabCompletionHandler {
             List<String> dirs = sshManager.isSSH() ? getRemoteDirectoryCompletions(base, originalPrefix)
                     : getLocalDirectoryCompletions(base, originalPrefix);
             cycleCompletion(originalPrefix, dirs);
-        } else if (tokens[0].equals("theme") && tokens.length <= 2) {
-            String partial = tokens.length == 2 ? tokens[1] : "";
+        } else if (tokens[0].equals("theme")) {
+            String afterCommand = textBeforeCursor.substring(5).trim();
+            String partial = afterCommand.replace(" ", "_");
             if (!originalPrefixSet) {
                 originalPrefix = partial;
                 originalPrefixSet = true;
             }
-            List<String> themeNames = getThemeCompletions(originalPrefix);
+            List<String> themeNames = getThemeCompletions(originalPrefix).stream().map(name -> name.replace(" ", "_")).collect(Collectors.toList());
             cycleCompletion(originalPrefix, themeNames);
         } else {
             if (!originalPrefixSet) {
