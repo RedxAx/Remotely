@@ -1,12 +1,15 @@
 package redxax.oxy.remotely.input;
 
 import redxax.oxy.remotely.SSHManager;
+import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import static redxax.oxy.remotely.RemotelyClient.themes;
 
 public class TabCompletionHandler {
     private List<String> completions = new ArrayList<>();
@@ -58,6 +61,14 @@ public class TabCompletionHandler {
             List<String> dirs = sshManager.isSSH() ? getRemoteDirectoryCompletions(base, originalPrefix)
                     : getLocalDirectoryCompletions(base, originalPrefix);
             cycleCompletion(originalPrefix, dirs);
+        } else if (tokens[0].equals("theme") && tokens.length <= 2) {
+            String partial = tokens.length == 2 ? tokens[1] : "";
+            if (!originalPrefixSet) {
+                originalPrefix = partial;
+                originalPrefixSet = true;
+            }
+            List<String> themeNames = getThemeCompletions(originalPrefix);
+            cycleCompletion(originalPrefix, themeNames);
         } else {
             if (!originalPrefixSet) {
                 originalPrefix = tokens[tokens.length - 1];
@@ -125,6 +136,9 @@ public class TabCompletionHandler {
         }
         refreshAvailableCommands();
         List<String> result = new ArrayList<>();
+        if ("theme".toLowerCase().startsWith(prefix.toLowerCase())) {
+            result.add("theme");
+        }
         for (String cmd : allCommands) {
             if (cmd.toLowerCase().startsWith(prefix.toLowerCase())) {
                 result.add(cmd);
@@ -201,6 +215,17 @@ public class TabCompletionHandler {
         return dirs;
     }
 
+    private List<String> getThemeCompletions(String prefix) {
+        List<String> themeNames = new ArrayList<>();
+        for (MultiTerminalScreen.Theme theme : themes) {
+            if (theme.name.toLowerCase().startsWith(prefix.toLowerCase())) {
+                themeNames.add(theme.name);
+            }
+        }
+        themeNames.sort(String.CASE_INSENSITIVE_ORDER);
+        return themeNames;
+    }
+
     public void updateTabCompletionSuggestion(StringBuilder inputBuffer) {
         String input = inputBuffer.toString();
         if (input.trim().isEmpty()) {
@@ -238,6 +263,19 @@ public class TabCompletionHandler {
                 return;
             }
             String candidate = dirs.get(0);
+            suggestion = candidate.toLowerCase().startsWith(originalPrefix.toLowerCase()) ? candidate.substring(originalPrefix.length()) : candidate;
+        } else if (input.startsWith("theme ")) {
+            String partial = input.substring(6).trim();
+            if (!originalPrefixSet) {
+                originalPrefix = partial;
+                originalPrefixSet = true;
+            }
+            List<String> themeNames = getThemeCompletions(originalPrefix);
+            if (themeNames.isEmpty()) {
+                suggestion = "";
+                return;
+            }
+            String candidate = themeNames.get(0);
             suggestion = candidate.toLowerCase().startsWith(originalPrefix.toLowerCase()) ? candidate.substring(originalPrefix.length()) : candidate;
         } else {
             if (!originalPrefixSet) {
