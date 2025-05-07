@@ -33,47 +33,49 @@ public class TerminalProcessManager {
     }
 
     public void launchTerminal() {
-        try {
-            if (terminalProcess != null && terminalProcess.isAlive()) {
-                shutdown();
-            }
-            if (terminalInstance instanceof ServerTerminalInstance sti && sti.serverInfo != null) {
-                if (checkExistingServerPID()) {
-                    if (ProcessHandle.of(existingServerPID).isPresent()) {
-                        terminalInstance.appendOutput("Reattaching to existing server process. PID = " + existingServerPID + "\n");
-                        isDetachedServer = true;
-                        isRunning = true;
-                        terminalProcess = ProcessHandle.of(existingServerPID).get().info().command().isPresent() ? (Process) ProcessHandle.of(existingServerPID).get() : null;
-                        writer = null;
-                        return;
-                    } else {
-                        Files.deleteIfExists(PID_STORE);
+        new Thread(() -> {
+            try {
+                if (terminalProcess != null && terminalProcess.isAlive()) {
+                    shutdown();
+                }
+                if (terminalInstance instanceof ServerTerminalInstance sti && sti.serverInfo != null) {
+                    if (checkExistingServerPID()) {
+                        if (ProcessHandle.of(existingServerPID).isPresent()) {
+                            terminalInstance.appendOutput("Reattaching to existing server process. PID = " + existingServerPID + "\n");
+                            isDetachedServer = true;
+                            isRunning = true;
+                            terminalProcess = ProcessHandle.of(existingServerPID).get().info().command().isPresent() ? (Process) ProcessHandle.of(existingServerPID).get() : null;
+                            writer = null;
+                            return;
+                        } else {
+                            Files.deleteIfExists(PID_STORE);
+                        }
                     }
                 }
+                String os = System.getProperty("os.name").toLowerCase();
+                ProcessBuilder processBuilder;
+                if (os.contains("win")) {
+                    processBuilder = new ProcessBuilder("cmd.exe", "/k", "powershell");
+                } else if (os.contains("mac") || os.contains("darwin")) {
+                    processBuilder = new ProcessBuilder("/bin/zsh", "-l");
+                } else {
+                    processBuilder = new ProcessBuilder("/bin/bash", "-l");
+                }
+                processBuilder.redirectErrorStream(true);
+                terminalProcess = processBuilder.start();
+                terminalInputStream = terminalProcess.getInputStream();
+                terminalErrorStream = terminalProcess.getErrorStream();
+                writer = new OutputStreamWriter(terminalProcess.getOutputStream(), StandardCharsets.UTF_8);
+                if (terminalInstance instanceof ServerTerminalInstance sti2) {
+                    isDetachedServer = true;
+                    storeServerPID(terminalProcess.pid());
+                }
+                startReaders();
+            } catch (Exception e) {
+                terminalInstance.appendOutput("Failed to launch terminal process: " + e.getMessage() + "\n");
+                logger.log(Level.SEVERE, "Failed to launch terminal process", e);
             }
-            String os = System.getProperty("os.name").toLowerCase();
-            ProcessBuilder processBuilder;
-            if (os.contains("win")) {
-                processBuilder = new ProcessBuilder("cmd.exe", "/k", "powershell");
-            } else if (os.contains("mac") || os.contains("darwin")) {
-                processBuilder = new ProcessBuilder("/bin/zsh", "-l");
-            } else {
-                processBuilder = new ProcessBuilder("/bin/bash", "-l");
-            }
-            processBuilder.redirectErrorStream(true);
-            terminalProcess = processBuilder.start();
-            terminalInputStream = terminalProcess.getInputStream();
-            terminalErrorStream = terminalProcess.getErrorStream();
-            writer = new OutputStreamWriter(terminalProcess.getOutputStream(), StandardCharsets.UTF_8);
-            if (terminalInstance instanceof ServerTerminalInstance sti2) {
-                isDetachedServer = true;
-                storeServerPID(terminalProcess.pid());
-            }
-            startReaders();
-        } catch (Exception e) {
-            terminalInstance.appendOutput("Failed to launch terminal process: " + e.getMessage() + "\n");
-            logger.log(Level.SEVERE, "Failed to launch terminal process", e);
-        }
+        }, "Terminal-Launcher-" + System.currentTimeMillis()).start();
     }
 
     protected void startReaders() {
