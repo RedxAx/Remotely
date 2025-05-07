@@ -63,10 +63,10 @@ public class ServerManagerScreen extends Screen {
     private boolean versionFieldFocused = false;
     private float targetOffset = 0;
     private boolean serverTypePopupActive;
-    private int serverTypePopupX;
-    private int serverTypePopupY;
     private final int serverTypePopupWidth = 260;
     private final int serverTypePopupHeight = 140;
+    private int serverTypePopupX = (this.width - serverTypePopupWidth) / 2;
+    private int serverTypePopupY = (this.height - serverTypePopupHeight) / 2;
     private boolean remoteHostPopupActive;
     private final int remoteHostPopupW = 360;
     private final int remoteHostPopupH = 210;
@@ -81,7 +81,7 @@ public class ServerManagerScreen extends Screen {
     private final List<BufferedImage> loadingFrames = new ArrayList<>();
     private final int entryHeight = 25;
     private final int topBarHeight = 30;
-    private BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf;
+    private BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt;
     private IconWithTooltip terminalIcon, explorerIcon, editorIcon, browserIcon, settingsIcon;
     private final int taskbarHeight = 28;
     private final List<IconRect> serverIconRects = new ArrayList<>();
@@ -164,6 +164,7 @@ public class ServerManagerScreen extends Screen {
             waterfall = loadResourceIcon("/assets/remotely/icons/waterfall.png");
             velocity = loadResourceIcon("/assets/remotely/icons/velocity.png");
             leaf = loadResourceIcon("/assets/remotely/icons/leaf.png");
+            quilt = loadResourceIcon("/assets/remotely/icons/quilt.png");
         } catch (Exception e) {
             new Notification("Failed to load icons: " + e.getMessage(), Notification.Type.ERROR);
         }
@@ -174,9 +175,10 @@ public class ServerManagerScreen extends Screen {
         settings.add(new Settings("Server Name", "The name of your server.", "General", "none", "server-name", TEXT, "My Server"));
         settings.add(new Settings("Game Mode", "server.properties", "gamemode", TAB_SWITCH, "Survival", "General", "Select the default game mode for players.", Arrays.asList("Survival", "Creative", "Adventure")));
         settings.add(new Settings("Difficulty", "server.properties", "difficulty", TAB_SWITCH, "Normal", "General", "Set the difficulty level of the server.", Arrays.asList("Peaceful", "Easy", "Normal", "Hard")));
+        settings.add(new Settings("End User License Agreement", "Do You Agree To Minecraft's EULA?", "General", "eula.txt", "eula", TOGGLE, "true"));
         settings.add(new Settings("PvP", "Toggle player vs player combat.", "General", "server.properties", "pvp", TOGGLE, "true"));
         settings.add(new Settings("Hardcore", "Toggle hardcore mode (one life).", "General", "server.properties", "hardcore", TOGGLE, "false"));
-        settings.add(new Settings("Server Type", "none", "server-type", SCROLL_SWITCH, "Paper", "General", "Choose the server software type.", Arrays.asList("Paper", "Leaf", "Vanilla", "Fabric", "Neoforge", "Forge", "Velocity", "Waterfall")));
+        settings.add(new Settings("Server Type", "none", "server-type", SCROLL_SWITCH, "Paper", "General", "Choose the server software type.", Arrays.asList("Paper", "Leaf", "Vanilla", "Fabric", "Neoforge", "Forge", "Quilt", "Velocity", "Waterfall")));
         settings.add(new Settings("Server Version", "Specify the Minecraft server version to run.", "General", "none", "server-version", TEXT, minecraftClient.getGameVersion()));
         settings.add(new Settings("Max Players", "server.properties", "max-players", SLIDER, "20", "Advanced", "Max online players limit.", 1, 200));
         settings.add(new Settings("MOTD", "Description for the server list.", "Advanced", "server.properties", "motd", TEXT, minecraftClient.getSession().getUsername() + "'s Server"));
@@ -194,9 +196,8 @@ public class ServerManagerScreen extends Screen {
         settings.add(new Settings("Java Version", "none", "launcher.java_version", TEXT, "", "Advanced", "Specify the Java version to use.", "usecustomjava", "true"));
         settings.add(new Settings("View Distance", "server.properties", "view-distance", SLIDER, "8", "Performance", "Adjust the number of chunks visible to players.", 1, 64));
         settings.add(new Settings("Simulation Distance", "server.properties", "simulation-distance", SLIDER, "8", "Performance", "Set the simulation distance (server tick radius).", 1, 64));
-        settings.add(new Settings("Memory", "Set the maximum memory allocation for the server.", "Performance", "none", "launcher.memory", TEXT, "4G"));
-        settings.add(new Settings("Aikars Flags", "Custom flags that highly optimizes server performance.", "Performance", "none", "launcher.aikars_flags", TOGGLE, "true"));
-        settings.add(new Settings("JVM Arguments", "Custom JVM arguments.", "Advanced", "none", "launcher.jvm_args", TEXT, "-Dnet.kyori.ansi.colorLevel=indexed256"));
+        settings.add(new Settings("Memory", "Set the maximum memory allocation for the server.", "Performance", "none", "memory", TEXT, "4G"));
+        settings.add(new Settings("Aikars Flags", "Custom flags that highly optimizes server performance.", "Performance", "none", "aikars_flags", TOGGLE, "true"));
     }
 
     public void background(DrawContext context) {
@@ -215,17 +216,15 @@ public class ServerManagerScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         background(context);
-        if (serverTypePopupActive) {
-            serverTypePopupX = (this.width - serverTypePopupWidth) / 2;
-            serverTypePopupY = (this.height - serverTypePopupHeight) / 2;
-        }
         renderDesktopIcons(context, mouseX, mouseY);
         renderTaskbar(context, mouseX, mouseY);
+        serverTypePopupX = (this.width - serverTypePopupWidth) / 2;
+        serverTypePopupY = (this.height - serverTypePopupHeight) / 2;
         if (serverTypePopupActive) {
             context.fill(serverTypePopupX, serverTypePopupY, serverTypePopupX + serverTypePopupWidth, serverTypePopupY + serverTypePopupHeight, innerBackgroundColor);
             drawInnerBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, Config.elementBorderColor);
             drawOuterBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, innerBackgroundColor);
-            String stTitle = "Select Action";
+            String stTitle = "Add a Server";
             int stTitleW = minecraftClient.textRenderer.getWidth(stTitle);
             int stTitleX = serverTypePopupX + (serverTypePopupWidth - stTitleW) / 2;
             int stTitleY = serverTypePopupY + 5;
@@ -236,9 +235,28 @@ public class ServerManagerScreen extends Screen {
             String option1 = "Server Creation";
             String option2 = "Server Import";
             String option3 = "Modpack Installation";
-            drawOptionBox(context, option1, serverTypePopupX, option1Y, mouseX, mouseY);
-            drawOptionBox(context, option2, serverTypePopupX, option2Y, mouseX, mouseY);
-            drawOptionBox(context, option3, serverTypePopupX, option3Y, mouseX, mouseY);
+            drawOptionBox(context, option1, serverTypePopupX, option1Y, mouseX, mouseY, "Create a New Server With Remotely.");
+            drawOptionBox(context, option2, serverTypePopupX, option2Y, mouseX, mouseY, "Import An Existing Server Via File Explorer.");
+            drawOptionBox(context, option3, serverTypePopupX, option3Y, mouseX, mouseY, "Create a Server Using a Modpack On Modrinth.");
+        }
+        if (deletionPopupActive) {
+            context.fill(serverTypePopupX, serverTypePopupY, serverTypePopupX + serverTypePopupWidth, serverTypePopupY + serverTypePopupHeight, innerBackgroundColor);
+            drawInnerBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, Config.elementBorderColor);
+            drawOuterBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, innerBackgroundColor);
+            String stTitle = "Are You Sure?";
+            int stTitleW = minecraftClient.textRenderer.getWidth(stTitle);
+            int stTitleX = serverTypePopupX + (serverTypePopupWidth - stTitleW) / 2;
+            int stTitleY = serverTypePopupY + 5;
+            context.drawText(minecraftClient.textRenderer, Text.literal(stTitle), stTitleX, stTitleY, globalTextColor, Config.shadow);
+            int option1Y = stTitleY + 20;
+            int option2Y = option1Y + 30;
+            int option3Y = option2Y + 30;
+            String option1 = "Delete The Server";
+            String option2 = "Remove From List";
+            String option3 = "Cancel";
+            drawOptionBox(context, option1, serverTypePopupX, option1Y, mouseX, mouseY, "Move The Server And The Files To The Trash.");
+            drawOptionBox(context, option2, serverTypePopupX, option2Y, mouseX, mouseY, "Remove The Server From The List \nWithout Trashing Files.");
+            drawOptionBox(context, option3, serverTypePopupX, option3Y, mouseX, mouseY, "");
         }
         if (remoteHostPopupActive) {
             int px = (this.width - remoteHostPopupW) / 2;
@@ -307,9 +325,6 @@ public class ServerManagerScreen extends Screen {
                 int ww = minecraftClient.textRenderer.getWidth(warning);
                 context.drawText(minecraftClient.textRenderer, Text.literal(warning), px + (remoteHostPopupW - ww) / 2, passBoxY + 20, 0xFFFF4444, Config.shadow);
             }
-        }
-        if (deletionPopupActive) {
-            renderDeletePopup(context, mouseX, mouseY);
         }
         ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         animatedScaling(this);
@@ -384,9 +399,7 @@ public class ServerManagerScreen extends Screen {
             if (i < currentServers.size()) {
                 ServerInfo server = currentServers.get(i);
                 BufferedImage icon = getServerIcon(server);
-                int imageSize = icon.getHeight();
-                if (imageSize == 16) drawPixelArt(context, (int) currentX, (int) currentY, iconSize, iconSize, icon);
-                else drawBufferedImage(context, icon, (int) currentX, (int) currentY, iconSize, iconSize);
+                drawPixelArt(context, (int) currentX, (int) currentY, iconSize, iconSize, icon);
                 int selectionColor = getElementBorderColor(i, hovered, selectedDesktopIndex == i, true, false, false, false);
                 if (selectedDesktopIndex == i) {
                     drawInnerBorder(context, (int) currentX - 1, (int) currentY - 1, iconSize + 2, iconSize + 2, selectionColor);
@@ -514,32 +527,26 @@ public class ServerManagerScreen extends Screen {
             }
         }
         if (deletionPopupActive) {
+            int option1Y = serverTypePopupY + 25;
+            int option2Y = option1Y + 30;
+            int option3Y = option2Y + 30;
             int popupW = serverPopupWidth;
             int popupH = serverPopupHeight;
             int popupX = (this.width - popupW) / 2;
             int popupY = (this.height - popupH) / 2;
-            if (mouseX < popupX || mouseX > popupX + popupW || mouseY < popupY || mouseY > popupY + popupH) {
-                deletionPopupActive = false;
-                return true;
-            }
-            int btnWidth = (popupW - 40) / 3;
-            int btnY = popupY + popupH - 40;
-            int deleteX = popupX + 10;
-            int removeX = deleteX + btnWidth + 10;
-            int cancelX = removeX + btnWidth + 10;
-            if (mouseX >= deleteX && mouseX <= deleteX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20 && button == 0) {
+            if (isInsideOptionBox(mouseX, mouseY, serverTypePopupX, option1Y)) {
                 playSound(Sound.DELETE);
                 deleteServerTrash(deletionPopupServerIndex);
                 deletionPopupActive = false;
                 return true;
             }
-            if (mouseX >= removeX && mouseX <= removeX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20 && button == 0) {
+            if (isInsideOptionBox(mouseX, mouseY, serverTypePopupX, option2Y)) {
                 playSound(Sound.DELETE);
                 deleteServerRemove(deletionPopupServerIndex);
                 deletionPopupActive = false;
                 return true;
             }
-            if (mouseX >= cancelX && mouseX <= cancelX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20 && button == 0) {
+            if (isInsideOptionBox(mouseX, mouseY, serverTypePopupX, option3Y) || (mouseX < popupX || mouseX > popupX + popupW || mouseY < popupY || mouseY > popupY + popupH)) {
                 playSound(Sound.CLICK);
                 deletionPopupActive = false;
                 return true;
@@ -989,14 +996,11 @@ public class ServerManagerScreen extends Screen {
     }
 
     private boolean handleServerTypePopupClick(double mouseX, double mouseY, int button) {
-        String option1 = "Server Creation";
-        String option2 = "Server Import";
-        String option3 = "Modpack Installation";
         int option1Y = serverTypePopupY + 25;
         int option2Y = option1Y + 30;
         int option3Y = option2Y + 30;
         if (button == 0) {
-            if (isInsideOptionBox(mouseX, mouseY, option1, serverTypePopupX, option1Y)) {
+            if (isInsideOptionBox(mouseX, mouseY, serverTypePopupX, option1Y)) {
                 minecraftClient.setScreen(new SettingsScreen(minecraftClient, "createServer", this, Path.of(String.valueOf(remotelyDir), "servers").toString(), settings));
                 serverTypePopupActive = false;
                 editingServer = false;
@@ -1009,14 +1013,18 @@ public class ServerManagerScreen extends Screen {
                 serverVersionCursorPos = 0;
                 return true;
             }
-            if (isInsideOptionBox(mouseX, mouseY, option2, serverTypePopupX, option2Y)) {
+            if (isInsideOptionBox(mouseX, mouseY, serverTypePopupX, option2Y)) {
                 serverTypePopupActive = false;
                 openImportFileExplorer();
                 return true;
             }
-            if (isInsideOptionBox(mouseX, mouseY, option3, serverTypePopupX, option3Y)) {
+            if (isInsideOptionBox(mouseX, mouseY, serverTypePopupX, option3Y)) {
                 serverTypePopupActive = false;
                 openModpackInstallation();
+                return true;
+            }
+            if (mouseX < serverTypePopupX || mouseX > serverTypePopupX + serverPopupWidth || mouseY < serverTypePopupY || mouseY > serverTypePopupY + serverPopupHeight) {
+                serverTypePopupActive = false;
                 return true;
             }
         }
@@ -1324,10 +1332,13 @@ public class ServerManagerScreen extends Screen {
                             try (ZipFile zip = new ZipFile(serverJarPath.toFile())) {
                                 Enumeration<? extends ZipEntry> entriesZip = zip.entries();
                                 boolean hasPaper = false;
+                                boolean hasWaterfall = false;
+                                boolean hasVelocity = false;
                                 boolean hasFabric = false;
                                 boolean hasVanilla = false;
                                 boolean hasForge = false;
                                 boolean hasNeoforge = false;
+                                boolean hasLeaf = false;
                                 boolean hasQuilt = false;
                                 while (entriesZip.hasMoreElements()) {
                                     ZipEntry ze = entriesZip.nextElement();
@@ -1335,20 +1346,29 @@ public class ServerManagerScreen extends Screen {
                                     if (name.startsWith("io/papermc/")) {
                                         hasPaper = true;
                                     }
+                                    if (name.startsWith("io/github/waterfallmc/")) {
+                                        hasWaterfall = true;
+                                    }
+                                    if (name.startsWith("com/velocitypowered/")) {
+                                        hasVelocity = true;
+                                    }
                                     if (name.equals("install.properties")) {
                                         hasFabric = true;
                                     }
                                     if (name.startsWith("net/minecraftforge/")) {
                                         hasForge = true;
                                     }
-                                    if (name.startsWith("cpw/mods/")) {
+                                    if (name.startsWith("dev/mcvapi/")) {
                                         hasNeoforge = true;
                                     }
-                                    if (name.startsWith("net/minecraft/")) {
-                                        hasVanilla = true;
+                                    if (name.startsWith("cn/dreeam/")) {
+                                        hasLeaf = true;
                                     }
                                     if (name.equals("lang/installer.properties")) {
                                         hasQuilt = true;
+                                    }
+                                    if (name.startsWith("net/minecraft/")) {
+                                        hasVanilla = true;
                                     }
                                 }
                                 if (hasPaper) {
@@ -1361,6 +1381,10 @@ public class ServerManagerScreen extends Screen {
                                             version = obj.get("id").getAsString();
                                         }
                                     }
+                                } else if (hasVelocity) {
+                                    type = "Velocity";
+                                } else if (hasWaterfall) {
+                                    type = "Waterfall";
                                 } else if (hasFabric) {
                                     type = "Fabric";
                                     ZipEntry installProps = zip.getEntry("install.properties");
@@ -1383,6 +1407,16 @@ public class ServerManagerScreen extends Screen {
                                     }
                                 } else if (hasNeoforge) {
                                     type = "Neoforge";
+                                    ZipEntry versionJson = zip.getEntry("metadata.json");
+                                    if (versionJson != null) {
+                                        try (InputStream is = zip.getInputStream(versionJson);
+                                             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
+                                            JsonObject obj = JsonParser.parseReader(reader).getAsJsonObject();
+                                            version = obj.get("version").getAsString();
+                                        }
+                                    }
+                                } else if (hasLeaf) {
+                                    type = "Leaf";
                                     ZipEntry versionJson = zip.getEntry("version.json");
                                     if (versionJson != null) {
                                         try (InputStream is = zip.getInputStream(versionJson);
@@ -1414,7 +1448,7 @@ public class ServerManagerScreen extends Screen {
                             } catch (IOException e) {
                                 e.printStackTrace();
                             }
-                            addServer(folderName, normalizedPath.toString(), type, version);
+                            if (scanServers) addServer(folderName, normalizedPath.toString(), type, version);
                         }
                     }
                 }
@@ -1442,7 +1476,7 @@ public class ServerManagerScreen extends Screen {
         return false;
     }
 
-    private void addServer(String name, String path, String type, String version) {
+    public static void addServer(String name, String path, String type, String version) {
         ServerInfo newServer = new ServerInfo(path);
         newServer.name = name;
         newServer.path = path;
@@ -1534,26 +1568,6 @@ public class ServerManagerScreen extends Screen {
         return entry.substring(quote1 + 1, quote2);
     }
 
-    private void renderDeletePopup(DrawContext context, int mouseX, int mouseY) {
-        int popupW = serverPopupWidth;
-        int popupH = serverPopupHeight;
-        int popupX = (this.width - popupW) / 2;
-        int popupY = (this.height - popupH) / 2;
-        context.fill(popupX, popupY, popupX + popupW, popupY + popupH, innerBackgroundColor);
-        drawInnerBorder(context, popupX, popupY, popupW, popupH, Config.elementBorderColor);
-        drawOuterBorder(context, popupX, popupY, popupW, popupH, innerBackgroundColor);
-        String warn = "Are you sure you want to delete this server?";
-        int warnW = minecraftClient.textRenderer.getWidth(warn);
-        context.drawText(minecraftClient.textRenderer, Text.literal(warn), popupX + (popupW - warnW) / 2, popupY + 20, 0xFFFF5555, Config.shadow);
-        int btnWidth = (popupW - 40) / 3;
-        int btnY = popupY + popupH - 40;
-        int deleteX = popupX + 10;
-        int removeX = deleteX + btnWidth + 10;
-        int cancelX = removeX + btnWidth + 10;
-        drawCustomButton(context, deleteX, btnY, "Delete", minecraftClient, (mouseX >= deleteX && mouseX <= deleteX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, false, true, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Delete The Server And The Files.");
-        drawCustomButton(context, removeX, btnY, "Remove", minecraftClient, (mouseX >= removeX && mouseX <= removeX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, false, true, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Remove The Server From The List \n Without Deleting Files.");
-        drawCustomButton(context, cancelX, btnY, "Cancel", minecraftClient, (mouseX >= cancelX && mouseX <= cancelX + btnWidth && mouseY >= btnY && mouseY <= btnY + 20), true, true, false, true, 60, 20, globalTextColor, dangerLightAccentColor, mouseX, mouseY, "");
-    }
 
     private String[] splitJsonObjects(String json) {
         List<String> objs = new ArrayList<>();
@@ -1618,34 +1632,19 @@ public class ServerManagerScreen extends Screen {
         return "[]";
     }
 
-    private boolean isInsideOptionBox(double mouseX, double mouseY, String text, int popupX, int boxY) {
-        int boxW = 140;
-        int boxH = 16 + minecraftClient.textRenderer.fontHeight;
-        int boxX = popupX + (serverTypePopupWidth - boxW) / 2;
+    private boolean isInsideOptionBox(double mouseX, double mouseY, int popupX, int boxY) {
+        int boxW = 220;
+        int boxH = 27;
+        int boxX = (popupX + (serverTypePopupWidth - boxW) / 2);
         return (mouseX >= boxX && mouseX <= boxX + boxW && mouseY >= boxY && mouseY <= boxY + boxH);
     }
 
-    private void drawOptionBox(DrawContext context, String text, int popupX, int boxY, double mouseX, double mouseY) {
-        int boxW = 140;
-        int boxH = 16 + minecraftClient.textRenderer.fontHeight;
-        int boxX = popupX + (serverTypePopupWidth - boxW) / 2;
+    private void drawOptionBox(DrawContext context, String text, int popupX, int boxY, double mouseX, double mouseY, String tooltip) {
+        int boxW = 220;
+        int boxH = 27;
+        int boxX = (popupX + (serverTypePopupWidth - boxW) / 2);
         boolean hovered = mouseX >= boxX && mouseX <= boxX + boxW && mouseY >= boxY && mouseY <= boxY + boxH;
-        int bg = getElementBackgroundColor(text.hashCode(), hovered, false, true, false, false, false);
-        float targetOffset = hovered ? -2f : 0f;
-        int id = text.hashCode();
-        float currentOffset = elevationOffsets.getOrDefault(id, 0f);
-        currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
-        elevationOffsets.put(id, currentOffset);
-        context.getMatrices().push();
-        context.getMatrices().translate(0, currentOffset, 0);
-        context.fill(boxX, boxY, boxX + boxW, boxY + boxH, bg);
-        drawInnerBorder(context, boxX, boxY, boxW, boxH, getElementBorderColor(text.hashCode(), hovered, false, true, false, false, false));
-        drawOuterBorder(context, boxX, boxY, boxW, boxH, bg);
-        int tw = minecraftClient.textRenderer.getWidth(text);
-        int tx = boxX + (boxW - tw) / 2;
-        int ty = boxY + (boxH - minecraftClient.textRenderer.fontHeight) / 2;
-        context.drawText(minecraftClient.textRenderer, Text.literal(text), tx, ty, globalTextColor, false);
-        context.getMatrices().pop();
+        drawCustomButton(context, boxX, boxY, text, minecraftClient, hovered, false, true, false, true, boxW, boxH, globalTextColor, globalHoverTextColor, (int) mouseX, (int) mouseY, tooltip);
     }
 
 
@@ -1667,6 +1666,7 @@ public class ServerManagerScreen extends Screen {
             case "velocity" -> velocity;
             case "waterfall" -> waterfall;
             case "leaf" -> leaf;
+            case "quilt" -> quilt;
             default -> unknown;
         };
     }
@@ -1682,16 +1682,25 @@ public class ServerManagerScreen extends Screen {
                 String newRemotePath = s.path.replace("/servers/", "/trash/") + "-" + dateOfDeletion;
                 try {
                     s.remoteSSHManager.renameRemoteFolder(s.path, newRemotePath);
-                } catch (Exception ignored) {}
+                    new Notification("Server Moved To Trash.", Notification.Type.INFO);
+                    currentServers.remove(index);
+                } catch (Exception e) {
+                    new Notification("Failed To Trash Remote Server.", Notification.Type.ERROR);
+                }
             } else {
                 File folderPath = new File(s.path);
                 if (folderPath.exists()) {
                     String newLocalName = s.name + "-" + dateOfDeletion;
                     File trashSub = new File(trashDir, newLocalName);
-                    folderPath.renameTo(trashSub);
+                    if (folderPath.renameTo(trashSub)) {
+                        new Notification("Server Moved To Trash.", Notification.Type.INFO);
+                        currentServers.remove(index);
+                    } else {
+                        new Notification("Failed To Move Server To Trash.", Notification.Type.ERROR);
+                    }
+
                 }
             }
-            currentServers.remove(index);
             saveServers();
             saveRemoteHosts();
         }

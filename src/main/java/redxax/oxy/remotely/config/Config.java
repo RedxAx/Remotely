@@ -30,6 +30,7 @@ public class Config {
     public static String mainMenuStyle = "Minimal";
     public static boolean redesignMainMenu = false;
     public static boolean tabCloseButtons = false;
+    public static boolean scanServers = true;
     public static long lastFrameTime = System.nanoTime();
 
     public static boolean aiMode = false;

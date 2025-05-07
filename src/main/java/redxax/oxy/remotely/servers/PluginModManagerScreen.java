@@ -104,7 +104,7 @@ public class PluginModManagerScreen extends Screen {
     private static Map<String, List<IRemotelyResource>> savedResourceCache = new ConcurrentHashMap<>();
 
     public PluginModManagerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
-        super(Text.literal(info.isModServer() ? "Remotely - Mods Browser" : (info.isPluginServer() ? "Remotely - Plugins Browser" : "Remotely - Modpacks Browser")));
+        super(Text.literal(info.isModServer() ? "Remotely - Mods Browser" : (info.isPluginServer() || info.isProxyServer() ? "Remotely - Plugins Browser" : "Remotely - Modpacks Browser")));
         this.minecraftClient = mc;
         this.parent = parent;
         this.serverInfo = info;
@@ -118,7 +118,7 @@ public class PluginModManagerScreen extends Screen {
         this.textRenderer = this.minecraftClient.textRenderer;
         tabs.clear();
         tabs.add(new Tab(TabMode.MODRINTH, "Modrinth"));
-        if (serverInfo.isPluginServer()) {
+        if (serverInfo.isPluginServer() || serverInfo.isProxyServer()) {
             tabs.add(new Tab(TabMode.SPIGOT, "Spigot"));
             tabs.add(new Tab(TabMode.HANGAR, "Hangar"));
         }
