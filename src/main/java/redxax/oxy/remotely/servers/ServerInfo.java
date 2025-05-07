@@ -32,7 +32,15 @@ public class ServerInfo {
     }
 
     public boolean isPluginServer() {
-        return Objects.equals(type, "paper");
+        return type.equalsIgnoreCase("paper") ||
+                type.equalsIgnoreCase("spigot") ||
+                type.equalsIgnoreCase("leaf") ||
+                type.equalsIgnoreCase("purpur");
+    }
+    public boolean isProxyServer() {
+        return type.equalsIgnoreCase("bungee") ||
+               type.equalsIgnoreCase("waterfall") ||
+                type.equalsIgnoreCase("velocity");
     }
 
     public String getVersion() {

@@ -1,5 +1,8 @@
 package redxax.oxy.remotely.servers;
 
+import redxax.oxy.remotely.config.Themes;
+import redxax.oxy.remotely.util.Notification;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -15,6 +18,9 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
@@ -30,6 +36,19 @@ public class ServerFactory {
             devPrint("Created server cache directory: " + cacheDir.toAbsolutePath());
         }
         return cacheDir;
+    }
+
+    public static void createServerAsync(String serverName, String serverType, String serverVersion, String serverDirectory, String ramAmount, String aikarsFlags, ServerCreationCallback callback) {
+        new Thread(() -> {
+            int exitCode = createServer(serverName, serverType, serverVersion, serverDirectory, ramAmount, aikarsFlags);
+            if (callback != null) {
+                callback.onServerCreationComplete(exitCode);
+            }
+        }, "ServerCreationThread").start();
+    }
+
+    public interface ServerCreationCallback {
+        void onServerCreationComplete(int exitCode);
     }
 
     public static int createServer(String serverName, String serverType, String serverVersion, String serverDirectory, String ramAmount, String aikarsFlags) {
@@ -57,12 +76,13 @@ public class ServerFactory {
                 System.err.println("Download failed with code: " + downloadCode);
                 return downloadCode;
             }
-            int scriptCode = createStartScript(serverDir, fileName, ramAmount, aikarsFlags);
+            int scriptCode = ramAmount.isEmpty() ? 0 : createStartScript(serverDir, fileName, ramAmount, aikarsFlags);
             if (scriptCode != 0) {
                 System.err.println("Failed to create start script with code: " + scriptCode);
                 return scriptCode;
             }
             devPrint("Server '" + serverName + "' setup process initiated successfully in " + serverDir.toAbsolutePath());
+            ServerManagerScreen.addServer(serverName, serverDir.toString(), serverType, serverVersion);
             return 0;
         } catch (IOException e) {
             System.err.println("IO Error during server creation: " + e.getMessage());
@@ -84,13 +104,19 @@ public class ServerFactory {
                 System.err.println("Failed to fetch server build info from MCJars API.");
                 return null;
             }
-            Pattern jarUrlPattern = Pattern.compile("\"jarUrl\"\\s*:\\s*\"([^\"]+)\"");
+            Pattern jarUrlPattern = Pattern.compile("\"jarUrl\"\\s*:\\s*\"([^\"]*)\"");
             Matcher matcher = jarUrlPattern.matcher(jsonResponse);
-            if (matcher.find()) {
+            if (matcher.find() && matcher.group(1) != null && !matcher.group(1).isEmpty()) {
                 return matcher.group(1);
             } else {
-                System.err.println("jarUrl not found in MCJars API response.");
-                return null;
+                Pattern zipUrlPattern = Pattern.compile("\"zipUrl\"\\s*:\\s*\"([^\"]*)\"");
+                Matcher zipMatcher = zipUrlPattern.matcher(jsonResponse);
+                if (zipMatcher.find() && zipMatcher.group(1) != null && !zipMatcher.group(1).isEmpty()) {
+                    return zipMatcher.group(1);
+                } else {
+                    System.err.println("Neither jarUrl nor zipUrl found in MCJars API response.");
+                    return null;
+                }
             }
         } catch (Exception e) {
             System.err.println("Error fetching download URL from MCJars API: " + e.getMessage());
@@ -157,9 +183,9 @@ public class ServerFactory {
             }
         } finally {
             if (reader != null)
-                try { reader.close(); } catch (IOException e) {}
+                try { reader.close(); } catch (IOException ignored) {}
             if (inputStream != null)
-                try { inputStream.close(); } catch (IOException e) {}
+                try { inputStream.close(); } catch (IOException ignored) {}
             if (connection != null)
                 connection.disconnect();
         }
@@ -172,26 +198,25 @@ public class ServerFactory {
             if (typeMatcher.find()) {
                 serverType = typeMatcher.group(1).toLowerCase();
             }
-
             String fileName;
-            Matcher fileNameMatcher = Pattern.compile("([^/]+\\.jar)$").matcher(fileURL);
+            Matcher fileNameMatcher = Pattern.compile("([^/]+\\.(jar|jar\\.zip))$").matcher(fileURL);
             if (fileNameMatcher.find()) {
                 fileName = fileNameMatcher.group(1);
             } else {
                 fileName = "server.jar";
             }
-
             Path cacheDir = getCacheDirectory();
             Path cachedFile = cacheDir.resolve(serverType + "_" + serverVersion + "_" + fileName);
-
             if (Files.exists(cachedFile)) {
-                devPrint("Using cached server jar: " + cachedFile.getFileName());
-                Files.copy(cachedFile, destination.getParent().resolve("server.jar"), StandardCopyOption.REPLACE_EXISTING);
-                devPrint("Copied cached jar to: " + destination.getParent().resolve("server.jar"));
+                devPrint("Using cached server file: " + cachedFile.getFileName());
+                if (fileURL.toLowerCase().endsWith(".zip")) {
+                    unzip(cachedFile, destination.getParent());
+                } else {
+                    Files.copy(cachedFile, destination.getParent().resolve("server.jar"), StandardCopyOption.REPLACE_EXISTING);
+                }
                 return 0;
             }
-
-            devPrint("Server jar not found in cache, downloading...");
+            new Notification("Downloading server...", Notification.Type.INFO);
             HttpURLConnection connection = null;
             InputStream in = null;
             try {
@@ -223,12 +248,14 @@ public class ServerFactory {
                 long fileSize = connection.getContentLengthLong();
                 devPrint("Downloading " + (fileSize > 0 ? (fileSize / 1024 / 1024) + " MB" : "Unknown size") + " from " + connection.getURL() + " ...");
                 in = connection.getInputStream();
-
                 Files.copy(in, cachedFile, StandardCopyOption.REPLACE_EXISTING);
                 devPrint("Download complete, saved to cache: " + cachedFile.getFileName());
-
-                Files.copy(cachedFile, destination.getParent().resolve("server.jar"), StandardCopyOption.REPLACE_EXISTING);
-                devPrint("Copied jar to: " + destination.getParent().resolve("server.jar"));
+                if (fileURL.toLowerCase().endsWith(".zip")) {
+                    unzip(cachedFile, destination.getParent());
+                } else {
+                    Files.copy(cachedFile, destination.getParent().resolve("server.jar"), StandardCopyOption.REPLACE_EXISTING);
+                    devPrint("Copied jar to: " + destination.getParent().resolve("server.jar"));
+                }
                 return 0;
             } catch (IOException e) {
                 System.err.println("Error downloading server build from " + fileURL + ": " + e.getMessage());
@@ -246,6 +273,28 @@ public class ServerFactory {
             return 1;
         }
     }
+
+    private static void unzip(Path zipFilePath, Path destDir) throws IOException {
+        try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipFilePath))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                Path newPath = destDir.resolve(entry.getName()).normalize();
+                if (!newPath.startsWith(destDir)) {
+                    throw new IOException("Bad zip entry: " + entry.getName());
+                }
+                if (entry.isDirectory()) {
+                    Files.createDirectories(newPath);
+                } else {
+                    if (newPath.getParent() != null && !Files.exists(newPath.getParent())) {
+                        Files.createDirectories(newPath.getParent());
+                    }
+                    Files.copy(zis, newPath, StandardCopyOption.REPLACE_EXISTING);
+                }
+                zis.closeEntry();
+            }
+        }
+    }
+
 
     private static int createStartScript(Path serverDir, String jarName, String ramAmount, String aikarsFlags) {
         try {

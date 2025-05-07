@@ -23,7 +23,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.minecraft.client.MinecraftClient;
@@ -129,7 +128,6 @@ public class SettingsScreen extends Screen {
         settings.add(new Settings("Movement Animation Speed", "Set The Global Speed of The Movement Animations.", "Appearance", "none", "globalMovementSpeed", SLIDER, String.valueOf(globalMovementSpeed), 0, 60));
         settings.add(new Settings("Scale Animation Speed", "Set The Global Speed of The Scale Animations.", "Appearance", "none", "scaleAnimationSpeed", SLIDER, String.valueOf(scaleAnimationSpeed), 0, 60));
         settings.add(new Settings("Expand Animation Speed", "Set The Global Speed of The Expand/Shrink Animations.", "Appearance", "none", "globalExpandSpeed", SLIDER, String.valueOf(globalExpandSpeed).replace("f", ""), 0, 30));
-        settings.add(new Settings("Enable Tab Close Button", "Adds a Close Button on The Top Right Corner of Tabs.", "Appearance", "none", "tabCloseButtons", TOGGLE, String.valueOf(tabCloseButtons)));
 
         settings.add(new Settings("Sound Volume", "Set The Volume of The Sounds.", "Sounds", "none", "soundVolume", SLIDER, String.valueOf(soundVolume), 0, 200));
         settings.add(new Settings("Pitch Variation", "Set The Variation of The Sound Pitch.", "Sounds", "none", "pitchVariation", SLIDER, String.valueOf(Sound.pitchVariation), 0, 200));
@@ -148,6 +146,8 @@ public class SettingsScreen extends Screen {
         } catch (IllegalAccessException e) {
             devPrint("Error accessing Sound fields for settings: " + e.getMessage());
         }
+
+        settings.add(new Settings("Scan For Servers", "Scan For Available Servers In User/Remotely/Servers.", "Servers", "none", "scanServers", TOGGLE, String.valueOf(scanServers)));
 
         settings.add(new Settings("Developer Mode", "Enable Developer Mode.", "Development", "none", "isDev", TOGGLE, String.valueOf(isDev)));
         settings.add(new Settings("Enable Debug Tools", "Enable Visual Tools For Debugging.", "Development", "none", "enableDebugTools", TOGGLE, String.valueOf(enableDebugTools)));
@@ -244,7 +244,7 @@ public class SettingsScreen extends Screen {
                 case "globalMovementSpeed" -> globalMovementSpeed = Math.round(Float.parseFloat(value));
                 case "globalExpandSpeed" -> globalExpandSpeed = Math.round(Float.parseFloat(value));
                 case "scaleAnimationSpeed" -> scaleAnimationSpeed = Math.round(Float.parseFloat(value));
-                case "tabCloseButtons" -> tabCloseButtons = Boolean.parseBoolean(value);
+                case  "scanServers" -> scanServers = Boolean.parseBoolean(value);
                 case "soundEffects" -> enableSFX = Boolean.parseBoolean(value);
                 case "soundVolume" -> soundVolume = Integer.parseInt(value);
                 case "pitchVariation" -> Sound.pitchVariation = Integer.parseInt(value);
@@ -954,7 +954,7 @@ public class SettingsScreen extends Screen {
                 serverType = s.value.trim();
             if (s.key.equals("server-version"))
                 serverVersion = s.value.trim();
-            if (s.key.equals("launcher.memory")) {
+            if (s.key.equals("memory")) {
                 ramAmount = s.value.trim();
                 if (ramAmount.toLowerCase().endsWith("g")) {
                     double g = Double.parseDouble(ramAmount.substring(0, ramAmount.length() - 1));
@@ -964,7 +964,7 @@ public class SettingsScreen extends Screen {
                     ramAmount = ramAmount.substring(0, ramAmount.length() - 1);
                 }
             }
-            if (s.key.equals("launcher.aikars_flags")) {
+            if (s.key.equals("aikars_flags")) {
                 if (s.value.equalsIgnoreCase("true"))
                     aikarsFlags = "-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch";
                 else
@@ -979,22 +979,17 @@ public class SettingsScreen extends Screen {
             ramAmount = "2048";
         if (editServerMode && serverInfo != null) {
             editServer(serverName, serverType.toLowerCase(), serverVersion.toLowerCase());
-            new Notification("Server updated successfully", Type.INFO);
             close();
         } else {
-            int exitCode = ServerFactory.createServer(serverName, serverType.toLowerCase(), serverVersion.toLowerCase(), settingsRoot, ramAmount, aikarsFlags);
-            if (exitCode == 0) {
-                new Notification("Server created successfully!", Type.INFO);
-            } else if (exitCode == 3) {
-                new Notification("Unsupported server type or version!", Type.WARN);
-            } else if (exitCode == 1) {
-                new Notification("Download failed!", Type.ERROR);
-            } else if (exitCode == 2) {
-                new Notification("Failed to create start script!", Type.ERROR);
-            } else {
-                new Notification("Server creation failed with exit code: " + exitCode, Type.ERROR);
-            }
-            close();
+            String finalServerName = serverName;
+            ServerFactory.createServerAsync(serverName, serverType.toLowerCase(), serverVersion.toLowerCase(), settingsRoot, ramAmount, aikarsFlags, exitCode -> {
+                if (exitCode == 0) {
+                    new Notification(finalServerName + " created successfully!", Type.SUCCESS);
+                    String serverDir = settingsRoot + File.separator + finalServerName;
+                    writeSettings(null, serverDir);
+                } else errorNotification(exitCode);
+                close();
+            });
         }
     }
 
@@ -1002,57 +997,16 @@ public class SettingsScreen extends Screen {
         boolean shouldRebuild = !serverInfo.version.equals(serverVersion) || !serverInfo.type.equalsIgnoreCase(serverType);
         try {
             if (!serverInfo.isRemote) {
-                String mcmanPath = ensureLocalMcman();
                 File serverDir = new File(settingsRoot);
-                devPrint("Running local init command...");
-                ProcessBuilder pb = new ProcessBuilder(mcmanPath, "init", "--name", serverName);
-                pb.directory(serverDir);
-                pb.redirectErrorStream(true);
-                Process proc = pb.start();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(proc.getInputStream()));
-                StringBuilder output = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    output.append(line).append("\n");
-                }
-                boolean finished = proc.waitFor(10, TimeUnit.SECONDS);
-                if (!finished) {
-                    proc.destroyForcibly();
-                    devPrint("mcman init process timed out and was terminated.");
-                }
-                devPrint("mcman init process exited with code: " + proc.exitValue() + " With output: " + output);
                 writeSettings(null, serverDir.getAbsolutePath());
-                Path serverToml = Paths.get(serverDir.getAbsolutePath(), "server.toml");
-                List<String> tomlLines = new ArrayList<>();
-                tomlLines.add("name = \"" + serverName + "\"");
-                tomlLines.add("mc_version = \"" + serverVersion + "\"");
-                tomlLines.add("[jar]");
-                tomlLines.add("type = \"" + serverType.toLowerCase() + "\"");
-                for (Settings s : settings) {
-                    if (s.key.startsWith("launcher.")) {
-                        String key = s.key.substring("launcher.".length());
-                        tomlLines.add(key + " = \"" + s.value + "\"");
-                    }
-                }
-                Files.write(serverToml, String.join("\n", tomlLines).getBytes());
                 if (shouldRebuild) {
-                    ProcessBuilder pbBuild = new ProcessBuilder(mcmanPath, "build", "--output", ".");
-                    pbBuild.directory(serverDir);
-                    pbBuild.redirectErrorStream(true);
-                    Process procBuild = pbBuild.start();
-                    BufferedReader readerBuild = new BufferedReader(new InputStreamReader(procBuild.getInputStream()));
-                    String lineBuild;
-                    while ((lineBuild = readerBuild.readLine()) != null) {
-                        devPrint(lineBuild);
-                    }
-                    boolean finishedBuild = procBuild.waitFor(10, TimeUnit.SECONDS);
-                    if (!finishedBuild) {
-                        procBuild.destroyForcibly();
-                        devPrint("mcman build process timed out and was terminated.");
-                    }
-                    devPrint("mcman build process exited with code: " + procBuild.exitValue());
+                    ServerFactory.createServerAsync(serverName, serverType.toLowerCase(), serverVersion.toLowerCase(), settingsRoot, "", "", exitCode -> {
+                        if (exitCode == 0) {
+                            new Notification(serverName + " Updated Successfully!", Type.SUCCESS);
+                        } else errorNotification(exitCode);
+                    });
                 } else {
-                    devPrint("Local server edited without rebuilding.");
+                    new Notification(serverName + " Edited Successfully!", Type.SUCCESS);
                 }
             } else {
                 RemoteHostInfo rh = serverInfo.remoteHost;
@@ -1099,6 +1053,18 @@ public class SettingsScreen extends Screen {
             ServerManagerScreen.saveRemoteHosts();
         } catch (Exception e) {
             devPrint("Failed to update server: " + e.getMessage());
+        }
+    }
+
+    private void errorNotification(int existCode) {
+        if (existCode == 3) {
+            new Notification("Unsupported Server Type or Version!", Type.ERROR);
+        } else if (existCode == 1) {
+            new Notification("Download Failed!", Type.ERROR);
+        } else if (existCode == 2) {
+            new Notification("Failed To Create Start Script!", Type.ERROR);
+        } else {
+            new Notification("Server Creation Failed With Exit Code: " + existCode, Type.ERROR);
         }
     }
 
