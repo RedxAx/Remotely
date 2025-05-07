@@ -520,7 +520,7 @@ public class Render {
         drawOuterBorder(context, x, y, bW, bH, bgColor);
         int tw = mc.textRenderer.getWidth(text);
         int tx = centered ? x + (bW - tw) / 2 : x + 5;
-        int ty = y + 5;
+        int ty = y + (bH - mc.textRenderer.fontHeight) / 2;
         context.drawText(mc.textRenderer, Text.literal(text), tx, ty, hovered ? hoverColor : txColor, Config.shadow);
         CustomTooltip.show(tooltipText, mouseX, mouseY, context.getScaledWindowWidth(), context.getScaledWindowHeight(), mc.textRenderer, hovered);
         CustomTooltip.renderTooltip(context, mc.textRenderer, context.getScaledWindowWidth(), context.getScaledWindowHeight());
