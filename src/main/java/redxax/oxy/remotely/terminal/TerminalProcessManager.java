@@ -24,8 +24,6 @@ public class TerminalProcessManager {
     private String currentDirectory = System.getProperty("user.dir");
     private static final Logger logger = Logger.getLogger(TerminalProcessManager.class.getName());
     protected boolean isDetachedServer = false;
-    protected long existingServerPID = -1L;
-    public static final Path PID_STORE = Paths.get("server_pid.txt");
 
     public TerminalProcessManager(TerminalInstance terminalInstance, SSHManager sshManager) {
         this.terminalInstance = terminalInstance;
@@ -37,20 +35,6 @@ public class TerminalProcessManager {
             try {
                 if (terminalProcess != null && terminalProcess.isAlive()) {
                     shutdown();
-                }
-                if (terminalInstance instanceof ServerTerminalInstance sti && sti.serverInfo != null) {
-                    if (checkExistingServerPID()) {
-                        if (ProcessHandle.of(existingServerPID).isPresent()) {
-                            terminalInstance.appendOutput("Reattaching to existing server process. PID = " + existingServerPID + "\n");
-                            isDetachedServer = true;
-                            isRunning = true;
-                            terminalProcess = ProcessHandle.of(existingServerPID).get().info().command().isPresent() ? (Process) ProcessHandle.of(existingServerPID).get() : null;
-                            writer = null;
-                            return;
-                        } else {
-                            Files.deleteIfExists(PID_STORE);
-                        }
-                    }
                 }
                 String os = System.getProperty("os.name").toLowerCase();
                 ProcessBuilder processBuilder;
@@ -68,7 +52,6 @@ public class TerminalProcessManager {
                 writer = new OutputStreamWriter(terminalProcess.getOutputStream(), StandardCharsets.UTF_8);
                 if (terminalInstance instanceof ServerTerminalInstance sti2) {
                     isDetachedServer = true;
-                    storeServerPID(terminalProcess.pid());
                 }
                 startReaders();
             } catch (Exception e) {
@@ -81,25 +64,6 @@ public class TerminalProcessManager {
     protected void startReaders() {
         executorService.submit(this::readTerminalOutput);
         executorService.submit(this::readErrorOutput);
-    }
-
-    private boolean checkExistingServerPID() {
-        if (Files.exists(PID_STORE)) {
-            try {
-                String pidStr = Files.readString(PID_STORE).trim();
-                existingServerPID = Long.parseLong(pidStr);
-                return true;
-            } catch (IOException | NumberFormatException ignored) {}
-        }
-        return false;
-    }
-
-    private void storeServerPID(long pid) {
-        try {
-            Files.writeString(PID_STORE, String.valueOf(pid), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        } catch (IOException e) {
-            terminalInstance.appendOutput("Failed to store server PID: " + e.getMessage() + "\n");
-        }
     }
 
     private void readTerminalOutput() {
