@@ -5,7 +5,6 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.Render.ContextMenu;
 import redxax.oxy.remotely.Render.ScrollBar;
 import redxax.oxy.remotely.Render.TabsBar;
-import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.explorer.DeskSelectionScreen;
 import redxax.oxy.remotely.explorer.FileEditorScreen;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
@@ -146,7 +145,7 @@ public class MultiTerminalScreen extends Screen {
         this.tabNames = tabNames;
         this.parent = parent;
         if (!(parent instanceof FileExplorerScreen || parent instanceof PluginModManagerScreen || parent instanceof ServerManagerScreen || parent instanceof FileEditorScreen || parent instanceof DeskSelectionScreen || parent instanceof BrowserScreen || parent instanceof MultiTerminalScreen)) {
-            RemotelyClient.mcScreen = parent;
+            mcScreen = parent;
         }
         if (terminals.isEmpty()) {
             addNewTerminal();
@@ -406,7 +405,7 @@ public class MultiTerminalScreen extends Screen {
         int tabOffsetY = topBarHeight + 5;
         int tabAreaHeight = TAB_HEIGHT;
         float targetPanelWidth = showSnippetsPanel ? snippetPanelWidth : 0;
-        animatedSnippetPanelWidth += (targetPanelWidth - animatedSnippetPanelWidth) * Config.globalExpandSpeed * deltaTime;
+        animatedSnippetPanelWidth += (targetPanelWidth - animatedSnippetPanelWidth) * globalExpandSpeed * deltaTime;
         int animatedWidth = (int) animatedSnippetPanelWidth;
         tabsBar.setTabBarBounds(5, tabOffsetY, animatedWidth - 5, tabAreaHeight);
         tabsBar.renderTabsBar(context, minecraftClient.textRenderer, tabsBar, mouseX, mouseY, shadow);
@@ -420,8 +419,7 @@ public class MultiTerminalScreen extends Screen {
         if (mergedGroup != null && !mergedGroup.members.isEmpty() && mergedGroup.members.size() > 1) {
             int expectedCols = gridColumns;
             int expectedRows = gridRows;
-            boolean needsInit = false;
-            if (currentColumnWeights.size() != expectedCols || gridColumnWeights.size() != expectedCols) needsInit = true;
+            boolean needsInit = currentColumnWeights.size() != expectedCols || gridColumnWeights.size() != expectedCols;
             if (currentRowWeights.size() != expectedRows || gridRowWeights.size() != expectedRows) needsInit = true;
             if (needsInit) {
                 initializeWeights();
