@@ -5,10 +5,13 @@ import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
-
 import static redxax.oxy.remotely.RemotelyClient.themes;
 
 public class TabCompletionHandler {
@@ -18,12 +21,28 @@ public class TabCompletionHandler {
     private String originalPrefix = "";
     private boolean originalPrefixSet = false;
     private String suggestion = "";
+    private String currentBase = "";
     private final SSHManager sshManager;
     private String currentDirectory;
-    private List<String> allCommands = new ArrayList<>();
-    private long commandsLastFetched = 0;
+    private volatile List<String> allCommands = new ArrayList<>();
+    private volatile long commandsLastFetched = 0;
     private static final long COMMANDS_CACHE_DURATION = 60 * 1000;
-    private String currentBase = "";
+    private volatile boolean isRefreshingCommands = false;
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final Map<String, CachedDirectory> localDirectoryCache = new HashMap<>();
+    private static final long LOCAL_DIR_CACHE_DURATION = 5000;
+    private final Map<String, CachedDirectory> remoteDirectoryCache = new HashMap<>();
+    private static final long REMOTE_DIR_CACHE_DURATION = 5000;
+
+    private static class CachedDirectory {
+        List<String> directories;
+        long fetchedAt;
+
+        CachedDirectory(List<String> directories, long fetchedAt) {
+            this.directories = directories;
+            this.fetchedAt = fetchedAt;
+        }
+    }
 
     public TabCompletionHandler(SSHManager sshManager, String currentDirectory) {
         this.sshManager = sshManager;
@@ -45,7 +64,7 @@ public class TabCompletionHandler {
         if (tokens[0].equals("cd")) {
             String pathPart = textBeforeCursor.substring(textBeforeCursor.indexOf("cd") + 2).trim();
             String base = "";
-            String partial = "";
+            String partial;
             int lastSep = Math.max(pathPart.lastIndexOf('/'), pathPart.lastIndexOf('\\'));
             if (lastSep != -1) {
                 base = pathPart.substring(0, lastSep + 1);
@@ -58,8 +77,7 @@ public class TabCompletionHandler {
                 originalPrefix = partial;
                 originalPrefixSet = true;
             }
-            List<String> dirs = sshManager.isSSH() ? getRemoteDirectoryCompletions(base, originalPrefix)
-                    : getLocalDirectoryCompletions(base, originalPrefix);
+            List<String> dirs = sshManager.isSSH() ? getRemoteDirectoryCompletions(base, originalPrefix) : getLocalDirectoryCompletions(base, originalPrefix);
             cycleCompletion(originalPrefix, dirs);
         } else if (tokens[0].equals("theme")) {
             String afterCommand = textBeforeCursor.substring(5).trim();
@@ -130,12 +148,13 @@ public class TabCompletionHandler {
 
     private List<String> getAvailableCommands(String prefix) {
         if (sshManager.isSSH()) {
-            return sshManager.getSSHCommands(prefix).stream()
-                    .filter(cmd -> cmd.toLowerCase().startsWith(prefix.toLowerCase()))
-                    .sorted(String.CASE_INSENSITIVE_ORDER)
-                    .collect(Collectors.toList());
+            return sshManager.getSSHCommands(prefix).stream().filter(cmd -> cmd.toLowerCase().startsWith(prefix.toLowerCase())).sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList());
         }
-        refreshAvailableCommands();
+        long now = System.currentTimeMillis();
+        if (now - commandsLastFetched > COMMANDS_CACHE_DURATION && !isRefreshingCommands) {
+            isRefreshingCommands = true;
+            executor.submit(this::refreshAvailableCommandsInternal);
+        }
         List<String> result = new ArrayList<>();
         if ("theme".toLowerCase().startsWith(prefix.toLowerCase())) {
             result.add("theme");
@@ -149,14 +168,15 @@ public class TabCompletionHandler {
         return result;
     }
 
-    private synchronized void refreshAvailableCommands() {
+    private synchronized void refreshAvailableCommandsInternal() {
         if (sshManager.isSSH()) {
             return;
         }
-        if (System.currentTimeMillis() - commandsLastFetched < COMMANDS_CACHE_DURATION) {
+        long now = System.currentTimeMillis();
+        if (now - commandsLastFetched < COMMANDS_CACHE_DURATION) {
+            isRefreshingCommands = false;
             return;
         }
-        commandsLastFetched = System.currentTimeMillis();
         Set<String> cmds = new HashSet<>();
         String pathEnv = System.getenv("PATH");
         if (pathEnv != null) {
@@ -176,44 +196,60 @@ public class TabCompletionHandler {
             }
         }
         allCommands = new ArrayList<>(cmds);
+        commandsLastFetched = now;
+        isRefreshingCommands = false;
     }
 
     private List<String> getLocalDirectoryCompletions(String base, String partial) {
         File dir = base.isEmpty() ? new File(currentDirectory) : new File(currentDirectory, base);
-        List<String> dirs = new ArrayList<>();
-        if (dir.isDirectory()) {
-            File[] files = dir.listFiles();
-            if (files != null) {
-                for (File f : files) {
-                    if (f.isDirectory() && !f.isHidden()) {
-                        String name = f.getName();
-                        if (name.toLowerCase().startsWith(partial.toLowerCase())) {
-                            dirs.add(name);
+        String cacheKey = dir.getAbsolutePath();
+        long now = System.currentTimeMillis();
+        List<String> allDirs;
+        CachedDirectory cached = localDirectoryCache.get(cacheKey);
+        if (cached != null && (now - cached.fetchedAt) < LOCAL_DIR_CACHE_DURATION) {
+            allDirs = cached.directories;
+        } else {
+            allDirs = new ArrayList<>();
+            if (dir.isDirectory()) {
+                File[] files = dir.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        if (f.isDirectory() && !f.isHidden()) {
+                            allDirs.add(f.getName());
                         }
                     }
                 }
             }
+            allDirs.sort(String.CASE_INSENSITIVE_ORDER);
+            localDirectoryCache.put(cacheKey, new CachedDirectory(allDirs, now));
         }
-        dirs.sort(String.CASE_INSENSITIVE_ORDER);
-        return dirs;
+        return allDirs.stream().filter(name -> name.toLowerCase().startsWith(partial.toLowerCase())).collect(Collectors.toList());
     }
 
     private List<String> getRemoteDirectoryCompletions(String base, String partial) {
-        List<String> dirs = new ArrayList<>();
-        try {
-            String remotePath = base.isEmpty() ? currentDirectory : currentDirectory + "/" + base;
-            List<String> entries = sshManager.listRemoteDirectory(remotePath);
-            for (String entry : entries) {
-                String fullPath = remotePath.endsWith("/") ? remotePath + entry : remotePath + "/" + entry;
-                if (sshManager.isRemoteDirectory(fullPath) && entry.toLowerCase().startsWith(partial.toLowerCase())) {
-                    dirs.add(entry);
+        String remotePath = base.isEmpty() ? currentDirectory : currentDirectory + "/" + base;
+        List<String> dirs;
+        long now = System.currentTimeMillis();
+        CachedDirectory cached = remoteDirectoryCache.get(remotePath);
+        if (cached != null && (now - cached.fetchedAt) < REMOTE_DIR_CACHE_DURATION) {
+            dirs = cached.directories;
+        } else {
+            dirs = new ArrayList<>();
+            try {
+                List<String> entries = sshManager.listRemoteDirectory(remotePath);
+                for (String entry : entries) {
+                    String fullPath = remotePath.endsWith("/") ? remotePath + entry : remotePath + "/" + entry;
+                    if (sshManager.isRemoteDirectory(fullPath)) {
+                        dirs.add(entry);
+                    }
                 }
+                dirs.sort(String.CASE_INSENSITIVE_ORDER);
+                remoteDirectoryCache.put(remotePath, new CachedDirectory(dirs, now));
+            } catch (Exception e) {
+                dirs.clear();
             }
-            dirs.sort(String.CASE_INSENSITIVE_ORDER);
-        } catch (Exception e) {
-            dirs.clear();
         }
-        return dirs;
+        return dirs.stream().filter(name -> name.toLowerCase().startsWith(partial.toLowerCase())).collect(Collectors.toList());
     }
 
     private List<String> getThemeCompletions(String prefix) {
@@ -244,7 +280,7 @@ public class TabCompletionHandler {
         if (input.startsWith("cd ")) {
             String pathPart = input.substring(3).trim();
             String base = "";
-            String partial = "";
+            String partial;
             int lastSep = Math.max(pathPart.lastIndexOf('/'), pathPart.lastIndexOf('\\'));
             if (lastSep != -1) {
                 base = pathPart.substring(0, lastSep + 1);
@@ -257,8 +293,7 @@ public class TabCompletionHandler {
                 originalPrefix = partial;
                 originalPrefixSet = true;
             }
-            List<String> dirs = sshManager.isSSH() ? getRemoteDirectoryCompletions(base, originalPrefix)
-                    : getLocalDirectoryCompletions(base, originalPrefix);
+            List<String> dirs = sshManager.isSSH() ? getRemoteDirectoryCompletions(base, originalPrefix) : getLocalDirectoryCompletions(base, originalPrefix);
             if (dirs.isEmpty()) {
                 suggestion = "";
                 return;
