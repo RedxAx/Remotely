@@ -147,7 +147,7 @@ public class SettingsScreen extends Screen {
             devPrint("Error accessing Sound fields for settings: " + e.getMessage());
         }
 
-        settings.add(new Settings("Scan For Servers", "Scan For Available Servers In User/Remotely/Servers.", "Servers", "none", "scanServers", TOGGLE, String.valueOf(scanServers)));
+        settings.add(new Settings("Scan For Servers", "Scan For Servers In The Default Remotely Directory.", "Servers", "none", "scanServers", TOGGLE, String.valueOf(scanServers)));
 
         settings.add(new Settings("Developer Mode", "Enable Developer Mode.", "Development", "none", "isDev", TOGGLE, String.valueOf(isDev)));
         settings.add(new Settings("Enable Debug Tools", "Enable Visual Tools For Debugging.", "Development", "none", "enableDebugTools", TOGGLE, String.valueOf(enableDebugTools)));

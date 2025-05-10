@@ -37,10 +37,12 @@ public class DeskSelectionScreen extends Screen {
     private final int columns = 3;
     private final int spacing = 2;
     private IconWithTooltip folderIcon, fileIcon, pinIcon, closeIcon;
+    private BufferedImage diskIcon;
     private int scrollOffset = 0;
     private int maxScroll = 0;
 
     static class ObjectItem {
+        public boolean isDisk;
         String displayName;
         boolean isDirectory;
         Path localPath;
@@ -63,6 +65,7 @@ public class DeskSelectionScreen extends Screen {
     protected void init() {
         super.init();
         try {
+            diskIcon = loadResourceIcon("/assets/remotely/icons/disk.png");
             folderIcon = new IconWithTooltip("/assets/remotely/icons/folder.png", "");
             fileIcon = new IconWithTooltip("/assets/remotely/icons/file.png", "");
             pinIcon = new IconWithTooltip("/assets/remotely/icons/pin.png", "");
@@ -88,7 +91,7 @@ public class DeskSelectionScreen extends Screen {
             for (File root : File.listRoots()) {
                 ObjectItem item = new ObjectItem();
                 item.displayName = root.toString();
-                item.isDirectory = true;
+                item.isDisk = true;
                 item.localPath = root.toPath();
                 item.isRemote = false;
                 item.isFavorite = favoriteLines.contains(root.toString());
@@ -219,7 +222,7 @@ public class DeskSelectionScreen extends Screen {
             context.fill(drawX, drawY, drawX + itemWidth, drawY + itemHeight, bgColor);
             drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, getElementBorderColor(item.hashCode(), hovered, item.isFavorite, true, false, false, false));
             drawOuterBorder(context, drawX, drawY, itemWidth, itemHeight, bgColor);
-            BufferedImage icon = (item.isDirectory ? folderIcon.getImage() : fileIcon.getImage());
+            BufferedImage icon = (item.isDisk ? diskIcon : item.isDirectory ? folderIcon.getImage() : fileIcon.getImage());
             drawPixelArt(context, drawX + 7, drawY + (itemHeight / 2) - 8, 16, 16, icon);
             if (item.isFavorite) {
                 drawPixelArt(context, item.isDirectory ? drawX + 2 : drawX + 4, drawY + (itemHeight / 2) - 8, 16, 16, pinIcon.getImage());

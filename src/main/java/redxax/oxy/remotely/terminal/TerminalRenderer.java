@@ -3,9 +3,7 @@ package redxax.oxy.remotely.terminal;
 import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStyle;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.remotely.Render;
 import redxax.oxy.remotely.Render.ScrollBar;
-import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.ServerInfo;
 
 import java.lang.reflect.Field;
@@ -25,7 +23,6 @@ import java.text.SimpleDateFormat;
 import static redxax.oxy.remotely.RemotelyClient.os;
 import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.terminal.MultiTerminalScreen.isRenaming;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
 public class TerminalRenderer {

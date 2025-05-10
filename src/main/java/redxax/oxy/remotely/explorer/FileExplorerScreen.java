@@ -95,16 +95,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
     boolean canScroll = false;
     private final List<EntryData> fullEntries = new ArrayList<>();
     private static final int MAX_NAME_WIDTH = 500;
-    public static BufferedImage appsIcon;
-    public static BufferedImage cssIcon;
-    public static BufferedImage jsIcon;
-    public static BufferedImage jsonIcon;
-    public static BufferedImage minecraftIcon;
-    public static BufferedImage pyIcon;
-    public static BufferedImage javaIcon;
-    public static BufferedImage scriptIcon;
-    public static BufferedImage shadersIcon;
-    public static BufferedImage textIcon;
+    public static BufferedImage appsIcon, textIcon, shadersIcon, scriptIcon, javaIcon, pyIcon, minecraftIcon, jsonIcon, jsIcon, cssIcon, zipIcon, audioIcon, videoIcon, imageIcon, docxIcon, pdfIcon, pptxIcon, xlsxIcon;
     public static IconWithTooltip closeIcon, backIcon, forwardIcon, searchIcon, reloadIcon, newFileIcon, copyIcon, editIcon, favoriteIcon, winExplorerIcon, pasteIcon, deleteIcon, cutIcon;
     private TabsBar<Tab> tabsBar;
 
@@ -265,6 +256,14 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
             scriptIcon = loadResourceIcon("/assets/remotely/icons/script.png");
             shadersIcon = loadResourceIcon("/assets/remotely/icons/shaders.png");
             textIcon = loadResourceIcon("/assets/remotely/icons/text.png");
+            zipIcon = loadResourceIcon("/assets/remotely/icons/zip.png");
+            audioIcon = loadResourceIcon("/assets/remotely/icons/audio.png");
+            videoIcon = loadResourceIcon("/assets/remotely/icons/video.png");
+            imageIcon = loadResourceIcon("/assets/remotely/icons/image.png");
+            docxIcon = loadResourceIcon("/assets/remotely/icons/docx.png");
+            pdfIcon = loadResourceIcon("/assets/remotely/icons/pdf.png");
+            pptxIcon = loadResourceIcon("/assets/remotely/icons/pptx.png");
+            xlsxIcon = loadResourceIcon("/assets/remotely/icons/xlsx.png");
             closeIcon = new IconWithTooltip("/assets/remotely/icons/close.png", "");
             backIcon = new IconWithTooltip("/assets/remotely/icons/goback.png", "");
             forwardIcon = new IconWithTooltip("/assets/remotely/icons/goforward.png", "");
@@ -496,6 +495,30 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
         }
         if (fileName.endsWith(".vsh") || fileName.endsWith(".fsh") || fileName.endsWith(".glsl")) {
             return shadersIcon;
+        }
+        if (fileName.endsWith(".zip") || fileName.endsWith(".rar") || fileName.endsWith(".tar") || fileName.endsWith(".gz") || fileName.endsWith(".7z") || fileName.endsWith(".tar.gz") || fileName.endsWith(".tar.bz2")) {
+            return zipIcon;
+        }
+        if (fileName.endsWith(".mp3") || fileName.endsWith(".wav") || fileName.endsWith(".flac") || fileName.endsWith(".aac") || fileName.endsWith(".ogg") || fileName.endsWith(".m4a") || fileName.endsWith(".wma")) {
+            return audioIcon;
+        }
+        if (fileName.endsWith(".mp4") || fileName.endsWith(".avi") || fileName.endsWith(".mkv") || fileName.endsWith(".mov") || fileName.endsWith(".flv") || fileName.endsWith(".wmv")) {
+            return videoIcon;
+        }
+        if (fileName.endsWith(".png") || fileName.endsWith(".jpg") || fileName.endsWith(".jpeg") || fileName.endsWith(".webp") || fileName.endsWith(".gif")) {
+            return imageIcon;
+        }
+        if (fileName.endsWith(".docx") || fileName.endsWith(".doc")) {
+            return docxIcon;
+        }
+        if (fileName.endsWith(".pdf")) {
+            return pdfIcon;
+        }
+        if (fileName.endsWith(".pptx") || fileName.endsWith(".ppt")) {
+            return pptxIcon;
+        }
+        if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+            return xlsxIcon;
         }
         if (fileName.endsWith(".txt") || fileName.endsWith(".yml") || fileName.endsWith(".yaml") || fileName.endsWith(".properties") ||
                 fileName.endsWith(".toml") || fileName.endsWith(".md") || fileName.endsWith(".log") || fileName.endsWith(".html")) {
