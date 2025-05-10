@@ -9,6 +9,7 @@
     "ClickableWidgetMixin",
     "GameMenuScreenMixin",
     "MinecraftClientMixin",
+    "ParentElementMixin",
     "ScreenMixin",
     "TitleScreenMixin",
     "accessor.SliderWidgetAccessor"
