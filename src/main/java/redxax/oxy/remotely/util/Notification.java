@@ -22,7 +22,11 @@ public class Notification {
     private final MinecraftClient client;
     public enum Type { INFO, WARN, ERROR, SUCCESS }
     private final String message;
+    private final String description;
     private final Type type;
+    private final Runnable action;
+    private boolean hovered;
+    private boolean ignoreHover;
     private float currentX;
     private float targetX;
     private float currentY;
@@ -37,10 +41,12 @@ public class Notification {
     private static final Map<Integer, Float> elevationOffsets = new HashMap<>();
     private final int notificationId;
 
-    public Notification(String message, Type type) {
+    public Notification(String message, String description, Type type, Runnable action) {
         this.message = message;
+        this.description = description;
         this.type = type;
         this.notificationId = (message + System.currentTimeMillis()).hashCode();
+        this.action = action;
         MinecraftClient minecraftClient = MinecraftClient.getInstance();
         this.client = minecraftClient;
         this.textRenderer = minecraftClient.textRenderer;
@@ -51,6 +57,7 @@ public class Notification {
         this.targetX = minecraftClient.currentScreen.width - width - padding;
         this.currentY = calculateYPosition();
         this.targetY = this.currentY;
+        this.ignoreHover = false;
         elevationOffsets.put(notificationId, this.currentX);
         activeNotifications.add(this);
         if (type == Type.ERROR) {
@@ -63,6 +70,11 @@ public class Notification {
         } else if (type == Type.SUCCESS) {
             playSound(Sound.SUCCESS);
         }
+    }
+
+    public Notification(String message, Type type) {
+        this(message, "", type, null);
+        paused = true;
     }
 
     private float calculateYPosition() {
@@ -116,13 +128,9 @@ public class Notification {
         } else {
             targetX = client.currentScreen.width;
         }
-
         if (currentX >= client.currentScreen.width) return;
-
-        boolean hovered = mouseX >= currentX && mouseX <= currentX + width &&
-                mouseY >= currentY && mouseY <= currentY + height;
-
-        paused = hovered;
+        hovered = mouseX >= currentX && mouseX <= currentX + width && mouseY >= currentY && mouseY <= currentY + height;
+        paused = hovered && !ignoreHover;
 
         int bgColor = getElementBackgroundColor(notificationId, hovered, true, true, type == Type.ERROR, type == Type.SUCCESS, type == Type.INFO);
         int borderColor = getElementBorderColor(notificationId, hovered, true, true, type == Type.ERROR, type == Type.SUCCESS, type == Type.INFO);
@@ -130,7 +138,38 @@ public class Notification {
         context.fill((int) currentX, (int) currentY, (int) currentX + width, (int) currentY + height, bgColor);
         drawInnerBorder(context, (int) currentX, (int) currentY, width, height, borderColor);
         drawOuterBorder(context, (int) currentX, (int) currentY, width, height, backgroundColor);
-        context.drawText(this.textRenderer, Text.literal(message), (int) currentX + padding, (int) currentY + padding, textColor, Config.shadow);
+        if (description.isEmpty()) {
+            context.drawText(this.textRenderer, Text.literal(message), (int) currentX + padding, (int) currentY + padding, textColor, Config.shadow);
+        } else {
+            context.drawText(this.textRenderer, Text.literal(message), (int) currentX + padding, (int) currentY + padding, textColor, Config.shadow);
+            float scale = 0.75f;
+            int descriptionY = (int) (currentY + padding + textRenderer.fontHeight * 1.5f);
+            context.getMatrices().push();
+            context.getMatrices().scale(scale, scale, 1.0f);
+            float scaledX = Math.round((currentX + padding) / scale);
+            float scaledY = Math.round((descriptionY + padding) / scale);
+            context.drawText(this.textRenderer, Text.literal(description), (int) scaledX, (int) scaledY, globalDarkTextColor, Config.shadow);
+            context.getMatrices().pop();
+        }
+    }
+
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (hovered) {
+            if (action != null && button == 0) {
+                action.run();
+                paused = false;
+                ignoreHover = true;
+                slidingOut = true;
+                playSound(Sound.START);
+            } else if (button == 1 || button == 2) {
+                paused = false;
+                ignoreHover = true;
+                slidingOut = true;
+                playSound(Sound.STOP);
+            }
+            return true;
+        }
+        return false;
     }
 
     public static Notification[] getActiveNotifications() {
