@@ -10,6 +10,9 @@ public class Config {
     public static boolean shadow = true;
     public static boolean wallpaper = false;
     public static boolean background = false;
+    public static boolean customReverseProxy = false;
+    public static String proxyHost = "RedxAx.net";
+    public static String proxyUser = "tunnel";
     public static boolean isDev = false;
     public static boolean enableDebugTools = false;
     public static BufferedImage windowsBackground;
