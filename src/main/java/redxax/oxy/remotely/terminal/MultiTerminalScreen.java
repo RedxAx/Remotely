@@ -124,7 +124,7 @@ public class MultiTerminalScreen extends Screen {
     public static final Path THEMES_DIR = remotelyDir.resolve("themes");
 
     private final Screen parent;
-    private IconWithTooltip closeIcon, startIcon, stopIcon, explorerIcon, resourcesIcon, snippetsIcon, aiIcon;
+    private IconWithTooltip closeIcon, startIcon, stopIcon, explorerIcon, resourcesIcon, snippetsIcon, aiIcon, reverseIcon, closeReverseIcon;
     private float targetSnippetListScrollOffset = 0;
     private float snippetListScrollOffset;
     private final Map<Integer, Float> snippetExpandProgress = new HashMap<>();
@@ -253,6 +253,8 @@ public class MultiTerminalScreen extends Screen {
             resourcesIcon = new IconWithTooltip("/assets/remotely/icons/resources.png", "Open Resource Browser");
             snippetsIcon = new IconWithTooltip("/assets/remotely/icons/snippets.png", "Open Snippets Panel");
             aiIcon = new IconWithTooltip("/assets/remotely/icons/ReemotelyAI.png", "Open RemotelyAI Panel");
+            reverseIcon = new IconWithTooltip("/assets/remotely/icons/reverse.png", "Open Your Server To Everyone");
+            closeReverseIcon = new IconWithTooltip("/assets/remotely/icons/closeReverse.png", "Close Port Forwarding");
         } catch (Exception ignored) {}
         aiSidePanel = new AISidePanel();
         List<TabsBar.Tab<Void>> tabList = new ArrayList<>();
@@ -393,7 +395,7 @@ public class MultiTerminalScreen extends Screen {
                 ServerInfo sInfo = serverTerminal.getServerInfo();
                 boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
                 ServerState st = sInfo.state;
-                drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, snippetsIcon, aiIcon, (st == ServerState.RUNNING || st == ServerState.STARTING) ? stopIcon : startIcon, isProxy ? null : resourcesIcon, null, null, null);
+                drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, snippetsIcon, aiIcon, (st == ServerState.RUNNING || st == ServerState.STARTING) ? stopIcon : startIcon, isProxy ? null : resourcesIcon, (st == ServerState.RUNNING || st == ServerState.STARTING) ? ReverseProxyManager.isPortForwarded(serverTerminal.serverInfo.getPort()) ? closeReverseIcon : reverseIcon : null, null, null);
             } else {
                 drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, snippetsIcon, aiIcon, null, null, null, null, null);
             }
@@ -821,6 +823,14 @@ public class MultiTerminalScreen extends Screen {
                     }
                     if (mouseX >= 28 && mouseX <= 45 && mouseY >= 6 && mouseY <= 24) {
                         minecraftClient.setScreen(new PluginModManagerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
+                        return true;
+                    }
+                    if (mouseX >= 51 && mouseX <= 68 && mouseY >= 6 && mouseY <= 24) {
+                        if (ReverseProxyManager.isPortForwarded(serverTerminal.serverInfo.getPort())) {
+                            ReverseProxyManager.shutdown(serverTerminal.serverInfo.getPort());
+                        } else {
+                            ReverseProxyManager.reverse(serverTerminal.serverInfo.getPort());
+                        }
                         return true;
                     }
                 }
