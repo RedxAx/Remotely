@@ -395,7 +395,7 @@ public class MultiTerminalScreen extends Screen {
                 ServerInfo sInfo = serverTerminal.getServerInfo();
                 boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
                 ServerState st = sInfo.state;
-                drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, snippetsIcon, aiIcon, (st == ServerState.RUNNING || st == ServerState.STARTING) ? stopIcon : startIcon, isProxy ? null : resourcesIcon, (st == ServerState.RUNNING || st == ServerState.STARTING) ? ReverseProxyManager.isPortForwarded(serverTerminal.serverInfo.getPort()) ? closeReverseIcon : reverseIcon : null, null, null);
+                drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, snippetsIcon, aiIcon, (st == ServerState.RUNNING || st == ServerState.STARTING) ? stopIcon : startIcon, isProxy ? null : resourcesIcon, (!serverTerminal.serverInfo.isRemote && st == ServerState.RUNNING || st == ServerState.STARTING) ? ReverseProxyManager.isPortForwarded(serverTerminal.serverInfo.getPort()) ? closeReverseIcon : reverseIcon : null, null, null);
             } else {
                 drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, explorerIcon, snippetsIcon, aiIcon, null, null, null, null, null);
             }
@@ -825,7 +825,7 @@ public class MultiTerminalScreen extends Screen {
                         minecraftClient.setScreen(new PluginModManagerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
                         return true;
                     }
-                    if (mouseX >= 51 && mouseX <= 68 && mouseY >= 6 && mouseY <= 24) {
+                    if (mouseX >= 51 && mouseX <= 68 && mouseY >= 6 && mouseY <= 24 && !serverTerminal.serverInfo.isRemote) {
                         if (ReverseProxyManager.isPortForwarded(serverTerminal.serverInfo.getPort())) {
                             ReverseProxyManager.shutdown(serverTerminal.serverInfo.getPort());
                         } else {
