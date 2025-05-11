@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.servers;
 
-import redxax.oxy.remotely.config.Themes;
 import redxax.oxy.remotely.util.Notification;
 
 import java.io.BufferedReader;
@@ -28,6 +27,7 @@ public class ServerFactory {
 
     private static final int CONNECT_TIMEOUT = 15000;
     private static final int READ_TIMEOUT = 30000;
+    public static Notification notification;
 
     private static Path getCacheDirectory() throws IOException {
         Path cacheDir = Paths.get(remotelyDir.toString(), "data", "cache", "ServerBuilds");
@@ -57,40 +57,27 @@ public class ServerFactory {
             Path serverDir = baseDir.resolve(serverName);
             if (!Files.exists(serverDir)) {
                 Files.createDirectories(serverDir);
-                devPrint("Created server directory: " + serverDir.toAbsolutePath());
-            } else {
-                devPrint("Server directory already exists: " + serverDir.toAbsolutePath());
             }
-            devPrint("Fetching build info for type: " + serverType + ", version: " + serverVersion);
             String downloadURL = getDownloadURL(serverType, serverVersion);
             if (downloadURL == null) {
-                System.err.println("Could not determine download URL for server type '" + serverType + "' and version '" + serverVersion + "'.");
                 return 3;
             }
-            devPrint("Download URL determined: " + downloadURL);
             String fileName = "server.jar";
             Path jarPath = serverDir.resolve(fileName);
-            devPrint("Starting download to: " + jarPath.toAbsolutePath());
             int downloadCode = downloadServerBuild(downloadURL, jarPath, serverVersion);
             if (downloadCode != 0) {
-                System.err.println("Download failed with code: " + downloadCode);
                 return downloadCode;
             }
             int scriptCode = ramAmount.isEmpty() ? 0 : createStartScript(serverDir, fileName, ramAmount, aikarsFlags);
             if (scriptCode != 0) {
-                System.err.println("Failed to create start script with code: " + scriptCode);
                 return scriptCode;
             }
             devPrint("Server '" + serverName + "' setup process initiated successfully in " + serverDir.toAbsolutePath());
             ServerManagerScreen.addServer(serverName, serverDir.toString(), serverType, serverVersion);
             return 0;
         } catch (IOException e) {
-            System.err.println("IO Error during server creation: " + e.getMessage());
-            e.printStackTrace();
             return 98;
         } catch (Exception e) {
-            System.err.println("Unexpected Error during server creation: " + e.getMessage());
-            e.printStackTrace();
             return 99;
         }
     }
@@ -98,10 +85,8 @@ public class ServerFactory {
     private static String getDownloadURL(String serverType, String serverVersion) {
         try {
             String apiEndpoint = "https://mcjars.app/api/v1/builds/" + serverType.toUpperCase() + "/" + serverVersion + "/latest";
-            devPrint("Fetching server build info from: " + apiEndpoint);
             String jsonResponse = simpleHttpGet(apiEndpoint);
             if (jsonResponse == null) {
-                System.err.println("Failed to fetch server build info from MCJars API.");
                 return null;
             }
             Pattern jarUrlPattern = Pattern.compile("\"jarUrl\"\\s*:\\s*\"([^\"]*)\"");
@@ -114,13 +99,11 @@ public class ServerFactory {
                 if (zipMatcher.find() && zipMatcher.group(1) != null && !zipMatcher.group(1).isEmpty()) {
                     return zipMatcher.group(1);
                 } else {
-                    System.err.println("Neither jarUrl nor zipUrl found in MCJars API response.");
                     return null;
                 }
             }
         } catch (Exception e) {
-            System.err.println("Error fetching download URL from MCJars API: " + e.getMessage());
-            e.printStackTrace();
+            devPrint("Error fetching download URL from MCJars API: " + e.getMessage());
             return null;
         }
     }
@@ -216,7 +199,7 @@ public class ServerFactory {
                 }
                 return 0;
             }
-            new Notification("Downloading server...", Notification.Type.INFO);
+            notification = new Notification("Downloading server...", "This Might Take Some Time..", Notification.Type.INFO);
             HttpURLConnection connection = null;
             InputStream in = null;
             try {
@@ -249,27 +232,20 @@ public class ServerFactory {
                 devPrint("Downloading " + (fileSize > 0 ? (fileSize / 1024 / 1024) + " MB" : "Unknown size") + " from " + connection.getURL() + " ...");
                 in = connection.getInputStream();
                 Files.copy(in, cachedFile, StandardCopyOption.REPLACE_EXISTING);
-                devPrint("Download complete, saved to cache: " + cachedFile.getFileName());
                 if (fileURL.toLowerCase().endsWith(".zip")) {
                     unzip(cachedFile, destination.getParent());
                 } else {
                     Files.copy(cachedFile, destination.getParent().resolve("server.jar"), StandardCopyOption.REPLACE_EXISTING);
-                    devPrint("Copied jar to: " + destination.getParent().resolve("server.jar"));
                 }
                 return 0;
             } catch (IOException e) {
-                System.err.println("Error downloading server build from " + fileURL + ": " + e.getMessage());
-                e.printStackTrace();
                 return 1;
             } finally {
                 if (in != null)
                     try { in.close(); } catch (IOException ignored) {}
-                if (connection != null)
-                    connection.disconnect();
+                if (connection != null) connection.disconnect();
             }
         } catch (IOException e) {
-            System.err.println("Error setting up cache for server build: " + e.getMessage());
-            e.printStackTrace();
             return 1;
         }
     }
@@ -301,7 +277,6 @@ public class ServerFactory {
             boolean windows = System.getProperty("os.name").toLowerCase().contains("win");
             String ramDigits = ramAmount.replaceAll("[^0-9]", "");
             if (ramDigits.isEmpty()) {
-                System.err.println("Invalid RAM amount specified: " + ramAmount + ". Using default 1024M.");
                 ramDigits = "1024";
             }
             String memSettings = "-Xms" + ramDigits + "M -Xmx" + ramDigits + "M";
@@ -312,7 +287,6 @@ public class ServerFactory {
                 Path batFile = serverDir.resolve("start.bat");
                 String batContent = "@echo off\n" + javaCommand + "\npause";
                 Files.writeString(batFile, batContent, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-                devPrint("Created Windows start script: " + batFile.getFileName());
             } else {
                 Path shFile = serverDir.resolve("start.sh");
                 String shContent = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\n" + javaCommand;
@@ -330,19 +304,15 @@ public class ServerFactory {
                 } catch (UnsupportedOperationException | IOException | SecurityException e) {
                     if (!shFile.toFile().setExecutable(true, false)) {
                         System.err.println("Warning: Could not set start.sh as executable using fallback. You may need to run 'chmod +x start.sh' manually.");
-                    } else {
-                        devPrint("Set start.sh as executable using fallback method.");
                     }
                     if (!(e instanceof UnsupportedOperationException)) {
                         System.err.println("Warning: Could not set POSIX permissions for start.sh: " + e.getMessage());
                     }
                 }
-                devPrint("Created Linux/macOS start script: " + shFile.getFileName());
             }
             return 0;
         } catch (IOException e) {
-            System.err.println("Error creating start script: " + e.getMessage());
-            e.printStackTrace();
+            devPrint("Error creating start script: " + e.getMessage());
             return 2;
         }
     }
