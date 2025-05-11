@@ -69,7 +69,7 @@ public class ReverseProxyManager {
                 throw new JSchException("No forwarding found for port " + localPort);
             }
             int allocatedPort = Integer.parseInt(mappingStr.split(":")[0]);
-            notification.change("Reverse Proxy Started on Port " + allocatedPort, "Click To Copy The IP", Notification.Type.SUCCESS, () -> MinecraftClient.getInstance().keyboard.setClipboard(Config.proxyHost + allocatedPort));
+            notification.change("Reverse Proxy Started on Port " + allocatedPort, "Click To Copy The IP", Notification.Type.SUCCESS, () -> MinecraftClient.getInstance().keyboard.setClipboard(Config.proxyHost + ":" + allocatedPort));
             notification.loading = false;
         } catch (JSchException e) {
             notification.change("Error Setting Up Reverse Proxy: ", e.getMessage(), Notification.Type.ERROR, null);
