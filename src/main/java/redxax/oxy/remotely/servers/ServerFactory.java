@@ -200,6 +200,8 @@ public class ServerFactory {
                 return 0;
             }
             notification = new Notification("Downloading server...", "This Might Take Some Time..", Notification.Type.INFO);
+            notification.loading = true;
+            notification.autoSlideOut = false;
             HttpURLConnection connection = null;
             InputStream in = null;
             try {
