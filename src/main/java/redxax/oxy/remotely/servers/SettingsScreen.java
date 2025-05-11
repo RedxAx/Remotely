@@ -34,6 +34,7 @@ import static redxax.oxy.remotely.RemotelyClient.*;
 import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.config.Themes.importThemesFromJar;
+import static redxax.oxy.remotely.servers.ServerFactory.notification;
 import static redxax.oxy.remotely.servers.SettingsScreen.ServerSettingType.*;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.Sound.enableSFX;
@@ -990,10 +991,10 @@ public class SettingsScreen extends Screen {
             String finalServerName = serverName;
             ServerFactory.createServerAsync(serverName, serverType.toLowerCase(), serverVersion.toLowerCase(), settingsRoot, ramAmount, aikarsFlags, exitCode -> {
                 if (exitCode == 0) {
-                    new Notification(finalServerName + " created successfully!", Type.SUCCESS);
+                    notification.change(finalServerName + " Created Successfully!", "Click To Open", Type.SUCCESS, () -> ServerManagerScreen.openServerScreen(settingsRoot + File.separator + finalServerName));
                     String serverDir = settingsRoot + File.separator + finalServerName;
                     writeSettings(null, serverDir);
-                } else errorNotification(exitCode);
+                } else errorNotification(exitCode, notification);
                 close();
             });
         }
@@ -1009,7 +1010,7 @@ public class SettingsScreen extends Screen {
                     ServerFactory.createServerAsync(serverName, serverType.toLowerCase(), serverVersion.toLowerCase(), settingsRoot, "", "", exitCode -> {
                         if (exitCode == 0) {
                             new Notification(serverName + " Updated Successfully!", Type.SUCCESS);
-                        } else errorNotification(exitCode);
+                        } else errorNotification(exitCode, notification);
                     });
                 } else {
                     new Notification(serverName + " Edited Successfully!", Type.SUCCESS);
@@ -1062,15 +1063,15 @@ public class SettingsScreen extends Screen {
         }
     }
 
-    private void errorNotification(int existCode) {
+    private void errorNotification(int existCode, Notification notification) {
         if (existCode == 3) {
-            new Notification("Unsupported Server Type or Version!", Type.ERROR);
+            notification.change("Unsupported Server Type or Version!", "Please Try Again.", Type.ERROR, null);
         } else if (existCode == 1) {
-            new Notification("Download Failed!", Type.ERROR);
+            notification.change("Download Failed!", "Check Your Internet Connection.", Type.ERROR, null);
         } else if (existCode == 2) {
-            new Notification("Failed To Create Start Script!", Type.ERROR);
+            notification.change("Failed To Create Start Script!", "", Type.ERROR, null);
         } else {
-            new Notification("Server Creation Failed With Exit Code: " + existCode, Type.ERROR);
+            notification.change("Server Creation Failed", "Exit Code:  + existCode", Type.ERROR, null);
         }
     }
 

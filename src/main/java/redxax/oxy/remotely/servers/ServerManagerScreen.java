@@ -1088,6 +1088,25 @@ public class ServerManagerScreen extends Screen {
         minecraftClient.setScreen(mts);
     }
 
+    public static void openServerScreen(String path) {
+        List<ServerInfo> allServers = new ArrayList<>(localServers);
+        for (RemoteHostInfo rh : remoteHosts) {
+            allServers.addAll(rh.servers);
+        }
+        for (ServerInfo info : allServers) {
+            if (info.path.equals(path)) {
+                MinecraftClient mc = MinecraftClient.getInstance();
+                MultiTerminalScreen mts = new MultiTerminalScreen(mc, null, RemotelyClient.INSTANCE, info);
+                if (info.terminal == null) {
+                    info.terminal = new ServerTerminalInstance(mc, mts, UUID.randomUUID(), info);
+                    info.isRunning = false;
+                }
+                mc.setScreen(mts);
+                return;
+            }
+        }
+    }
+
     private void closeRemoteHostPopup() {
         remoteHostPopupActive = false;
         remoteHostCreationWarning = false;
