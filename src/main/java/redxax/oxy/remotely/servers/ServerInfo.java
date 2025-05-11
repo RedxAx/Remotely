@@ -4,6 +4,7 @@ import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.terminal.TerminalInstance;
 
 import java.util.Objects;
+import java.util.Properties;
 
 public class ServerInfo {
     public String name;
@@ -45,5 +46,22 @@ public class ServerInfo {
 
     public String getVersion() {
         return version;
+    }
+
+    public int getPort() {
+        if (isRemote) {
+            return remoteHost.getPort();
+        } else {
+            Properties properties = new Properties();
+            try (java.io.FileInputStream fis = new java.io.FileInputStream(path + "/server.properties")) {
+                properties.load(fis);
+                String portStr = properties.getProperty("server-port");
+                if (portStr != null) {
+                    return Integer.parseInt(portStr);
+                }
+            } catch (Exception ignored) {}
+            return -1;
+
+        }
     }
 }

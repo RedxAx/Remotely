@@ -600,6 +600,28 @@ public class Render {
         drawPixelArt(context, centerX, centerY, imgWidth, imgHeight, currentFrame);
     }
 
+    public static void drawSnakeLoading(DrawContext context, int x, int y, int height, int width) {
+        try {
+            loadingAnim = loadSpriteSheet("/assets/remotely/icons/loadingLoop.png");
+        } catch (Exception e) {
+            devPrint("Failed to load loading animation");
+        }
+        int frameWidth = 8;
+        int frameHeight = 8;
+        int rows = loadingAnim.getHeight() / frameHeight;
+        for (int i = rows - 1; i >= 0; i--) {
+            BufferedImage frame = loadingAnim.getSubimage(0, i * frameHeight, frameWidth, frameHeight);
+            loadingFrames.add(frame);
+        }
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastFrameTime >= 40) {
+            currentLoadingFrame = (currentLoadingFrame + 1) % loadingFrames.size();
+            lastFrameTime = currentTime;
+        }
+        BufferedImage currentFrame = loadingFrames.get(currentLoadingFrame);
+        drawPixelArt(context, x, y, width, height, currentFrame);
+    }
+
     public static void drawScreenHeader(DrawContext context, int width, int height, int backgroundWidth, int mouseX, int mouseY, Screen parent, MinecraftClient minecraftClient, IconWithTooltip icon1, IconWithTooltip icon2, IconWithTooltip icon3, IconWithTooltip icon4, IconWithTooltip icon5, IconWithTooltip icon6, IconWithTooltip icon7, IconWithTooltip icon8, IconWithTooltip specialIcon) {
         //? if =1.20.1 {
         /*context.fill(0, 0, parent.width, parent.height, Config.backgroundColor);

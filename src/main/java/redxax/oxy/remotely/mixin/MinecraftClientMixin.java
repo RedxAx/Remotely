@@ -6,6 +6,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.terminal.ReverseProxyManager;
 
 // Example using Mixin
 @Mixin(MinecraftClient.class)
@@ -13,5 +14,6 @@ public class MinecraftClientMixin {
     @Inject(method = "close", at = @At("HEAD"))
     private void onClose(CallbackInfo ci) {
         RemotelyClient.INSTANCE.shutdownAllTerminals();
+        ReverseProxyManager.shutdownAll();
     }
 }
