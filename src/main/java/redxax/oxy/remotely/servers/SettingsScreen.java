@@ -148,6 +148,9 @@ public class SettingsScreen extends Screen {
         }
 
         settings.add(new Settings("Scan For Servers", "Scan For Servers In The Default Remotely Directory.", "Servers", "none", "scanServers", TOGGLE, String.valueOf(scanServers)));
+        settings.add(new Settings("Use Custom Reverse Proxy", "Replace The Default Server With Your Own.", "Servers", "none", "customReverseProxy", TOGGLE, String.valueOf(customReverseProxy)));
+        settings.add(new Settings("Reverse Proxy Host", "Enter The Host To Your Server (e.g. `RedxAx.net`)", "Servers", "none", "proxyHost", TEXT, String.valueOf(proxyHost)));
+        settings.add(new Settings("Reverse Proxy User", "Enter The User Of Your Proxy Server (e.g. `tunnel`)", "Servers", "none", "proxyUser", TEXT, String.valueOf(proxyUser)));
 
         settings.add(new Settings("Developer Mode", "Enable Developer Mode.", "Development", "none", "isDev", TOGGLE, String.valueOf(isDev)));
         settings.add(new Settings("Enable Debug Tools", "Enable Visual Tools For Debugging.", "Development", "none", "enableDebugTools", TOGGLE, String.valueOf(enableDebugTools)));
@@ -245,6 +248,9 @@ public class SettingsScreen extends Screen {
                 case "globalExpandSpeed" -> globalExpandSpeed = Math.round(Float.parseFloat(value));
                 case "scaleAnimationSpeed" -> scaleAnimationSpeed = Math.round(Float.parseFloat(value));
                 case  "scanServers" -> scanServers = Boolean.parseBoolean(value);
+                case "customReverseProxy" -> customReverseProxy = Boolean.parseBoolean(value);
+                case "proxyHost" -> proxyHost = value;
+                case "proxyUser" -> proxyUser = value;
                 case "soundEffects" -> enableSFX = Boolean.parseBoolean(value);
                 case "soundVolume" -> soundVolume = Integer.parseInt(value);
                 case "pitchVariation" -> Sound.pitchVariation = Integer.parseInt(value);

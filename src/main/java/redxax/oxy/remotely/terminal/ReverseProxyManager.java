@@ -4,6 +4,7 @@ import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
 import net.minecraft.client.MinecraftClient;
+import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.util.Notification;
 
 import java.util.HashMap;
@@ -24,8 +25,15 @@ public class ReverseProxyManager {
                 return;
             }
         }
-        String user = "tunnel";
-        String host = "RedxAx.net";
+        String host;
+        String user;
+        if (Config.customReverseProxy){
+            host = Config.proxyHost;
+            user = Config.proxyUser;
+        } else {
+            host = "RedxAx.net";
+            user = "tunnel";
+        }
         int port = 722;
         new Thread(() -> {
             try {
