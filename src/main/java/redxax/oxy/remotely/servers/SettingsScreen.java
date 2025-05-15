@@ -51,7 +51,7 @@ public class SettingsScreen extends Screen {
     private ServerInfo serverInfo;
     private int currentTab;
     public static List<Settings> settings = new ArrayList<>();
-    private List<String> tabs = new ArrayList<>();
+    private List<String> tabs;
     private final Map<Settings, Float> textInputScrollOffsets = new HashMap<>();
     private final Map<Settings, Float> textInputTargetScrollOffsets = new HashMap<>();
     private final Map<Settings, Integer> textSelectionStart = new HashMap<>();

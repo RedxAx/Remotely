@@ -48,7 +48,6 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
     private int lastClickedIndex = -1;
     private static final int DOUBLE_CLICK_INTERVAL = 500;
     private final Deque<Path> history = new ArrayDeque<>();
-    private final Deque<Path> forwardHistory = new ArrayDeque<>();
     private final List<Notification> notifications = new ArrayList<>();
     private final TextRenderer textRenderer;
     private final FileManager fileManager;
@@ -390,7 +389,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
         Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
         float pathScrollOffset = 0;
         float pathTargetScrollOffset = 0;
-        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathScrollOffset, pathTargetScrollOffset, currentMode == Mode.SEARCH, "FileExplorerScreen", mouseX, mouseY, "Search For Files or Directories");
+        drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathTargetScrollOffset, currentMode == Mode.SEARCH, "FileExplorerScreen", mouseX, mouseY, "Search For Files or Directories");
         context.fill(explorerX, headerY, explorerX + explorerWidth, headerY + 27, Config.innerBackgroundColor);
         drawInnerBorder(context, explorerX, headerY, explorerWidth, 23, innerBorderColor);
         drawOuterBorder(context, explorerX, headerY, explorerWidth, 23, innerBackgroundColor);
@@ -668,9 +667,6 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                         if (cursorPosition < fieldText.length()) {
                             fieldText.deleteCharAt(cursorPosition);
                         }
-                    }
-                    if (currentMode == Mode.SEARCH) {
-                        filterFileEntries();
                     }
                     return true;
                 }
@@ -1146,7 +1142,6 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                                 }
                             }
                             lastClickedIndex = -1;
-                            return true;
                         } else {
                             if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE && entryData.isDirectory) {
                                 playSound(Sound.CREATE);
@@ -1187,8 +1182,8 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                                 if (selectedPath != null) playSound(Sound.SELECT);
                                 currentTab.tabData.lastSelectedIndex = clickedIndex;
                             }
-                            return true;
                         }
+                        return true;
                     }
                 }
                 int fieldWidthDynamic = 200;
@@ -1400,7 +1395,6 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
     private void navigateBack() {
         if (!history.isEmpty()) {
             Path previousPath = history.pop();
-            forwardHistory.push(currentPath);
             int foundIndex = -1;
             for (int i = 0; i < tabs.size(); i++) {
                 TabData td = tabs.get(i).tabData;
@@ -1562,7 +1556,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                 if (data.containsKey(CURRENT_TAB_INDEX_KEY)) {
                     return ((Number) data.get(CURRENT_TAB_INDEX_KEY)).intValue();
                 }
-            } catch (IOException e) {}
+            } catch (IOException ignored) {}
         }
         return 0;
     }
@@ -1630,7 +1624,6 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
         Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
         if (addToHistory && currentPath != null && !currentPath.equals(dir)) {
             history.push(currentPath);
-            forwardHistory.clear();
             currentTab.tabData.targetOffset = 0;
         }
         if (currentMode == Mode.SEARCH) {
@@ -1688,7 +1681,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                         remoteCache.put(key, temp);
                     }
                 }
-            } catch (Exception e) {}
+            } catch (Exception ignored) {}
             loading = false;
             saveFileExplorerTabs(tabs.stream().map(t -> new TabData(t.tabData.path, t.tabData.isRemote, t.tabData.remoteHostInfo)).collect(Collectors.toList()), currentTabIndex);
         });
@@ -1925,6 +1918,5 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
         parent.width = minecraftClient.getWindow().getScaledWidth();
         parent.height = minecraftClient.getWindow().getScaledHeight();
         targetScaleFactor = globalScaleFactor = animScaleFactor;
-        if (parent == null) playSound(Sound.SCREEN);
     }
 }

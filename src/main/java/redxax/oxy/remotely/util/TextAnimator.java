@@ -5,15 +5,14 @@ import java.util.TimerTask;
 
 public class TextAnimator {
     private String fullText;
-    private String previousText = "";
-    private String currentText = "";
+    private String previousText;
+    private String currentText;
     private int currentIndex = 0;
     private Timer timer = new Timer();
     private final int delay;
     private final int period;
     private boolean isAnimating = false;
-    private boolean isReversing = false;
-    private boolean hasCompleted = false;
+    private boolean hasCompleted;
     private Runnable onAnimationEnd;
 
     public TextAnimator(String text, int delay, int period) {
@@ -35,7 +34,6 @@ public class TextAnimator {
     public void start() {
         if (isAnimating || hasCompleted) return;
         isAnimating = true;
-        isReversing = false;
         int commonLength = getCommonPrefixLength(previousText, fullText);
         currentText = previousText.substring(0, commonLength);
         currentIndex = commonLength;
@@ -60,7 +58,6 @@ public class TextAnimator {
     public void reverse() {
         if (isAnimating) return;
         isAnimating = true;
-        isReversing = true;
         int commonLength = getCommonPrefixLength(previousText, fullText);
         currentText = previousText;
         currentIndex = previousText.length();

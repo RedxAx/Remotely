@@ -827,7 +827,7 @@ public class FileEditorScreen extends Screen {
 
     private void renderSidePanel(DrawContext context, int x, int y, int width, int height, int mouseX, int mouseY) {
         Tab currentTab = tabs.get(currentTabIndex);
-        currentTab.sidePanelScrollOffset += (currentTab.targetSidePanelScrollOffset - currentTab.sidePanelScrollOffset) * Config.globalScrollSpeed * deltaTime;
+        currentTab.sidePanelScrollOffset += (currentTab.targetSidePanelScrollOffset - currentTab.sidePanelScrollOffset) * globalScrollSpeed * deltaTime;
         int entryHeight = 20;
         int entryGap = 2;
         int totalEntryHeight = entryHeight + entryGap;
@@ -872,11 +872,7 @@ public class FileEditorScreen extends Screen {
             return true;
         }
         boolean handled = false;
-        boolean anyWindowDragging = false;
-        if (anyWindowDragging) {
-            return handled;
-        }
-        return tabs.get(currentTabIndex).textEditor.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || handled;
+        return tabs.get(currentTabIndex).textEditor.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
     }
 
     @Override
@@ -920,12 +916,12 @@ public class FileEditorScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         drawScreenHeader(context, width, height, width - 5 - (int)animatedSidePanelWidth, mouseX, mouseY, this, minecraftClient, closeIcon, saveIcon, explorerIcon, aiIcon, null, null, null, null, null);
-        drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathScrollOffset, customPathTargetScrollOffset, aiMode, "FileEditorScreen", mouseX, mouseY, "Search For Text In The File.");
+        drawSearchBar(context, textRenderer, customSearchText, customSearchBarFocused, customCursorPosition, customSelectionStart, customSelectionEnd, customPathTargetScrollOffset, aiMode, "FileEditorScreen", mouseX, mouseY, "Search For Text In The File.");
         int tabOffsetY = 35;
         tabsBar.setTabBarBounds(5, tabOffsetY, this.width, TAB_HEIGHT);
-        tabsBar.renderTabsBar(context, textRenderer, tabsBar, mouseX, mouseY, Config.shadow);
+        tabsBar.renderTabsBar(context, textRenderer, tabsBar, mouseX, mouseY, shadow);
         float targetWidth = showSidePanel ? sidePanelWidth : 0;
-        animatedSidePanelWidth += (targetWidth - animatedSidePanelWidth) * Config.globalExpandSpeed * deltaTime;
+        animatedSidePanelWidth += (targetWidth - animatedSidePanelWidth) * globalExpandSpeed * deltaTime;
         int animWidth = (int)animatedSidePanelWidth;
         tabs.get(currentTabIndex).textEditor.updateBounds(10, 60, this.width - animWidth - 15, this.height - 65);
         tabs.get(currentTabIndex).textEditor.render(context, mouseX, mouseY, delta);
@@ -1023,7 +1019,7 @@ public class FileEditorScreen extends Screen {
                 int renderY = y + i * lineHeight - (int) smoothScrollOffsetVert % lineHeight + 1;
                 String text = lines.get(lineIndex);
                 Text syntaxColoredLine = SyntaxHighlighter.highlight(text, fileName);
-                context.drawText(mc.textRenderer, syntaxColoredLine, x + textPadding - (int) smoothScrollOffsetHoriz, renderY, 0xFFFFFF, Config.shadow);
+                context.drawText(mc.textRenderer, syntaxColoredLine, x + textPadding - (int) smoothScrollOffsetHoriz, renderY, 0xFFFFFF, shadow);
                 if (isLineSelected(lineIndex)) {
                     drawSelection(context, lineIndex, renderY, text, textPadding);
                 }
@@ -1091,12 +1087,11 @@ public class FileEditorScreen extends Screen {
                     lines.set(cursorLine, before);
                     lines.add(cursorLine + 1, after);
                     cursorLine++;
-                    cursorPos = 0;
                 } else {
                     lines.add("");
                     cursorLine = lines.size() - 1;
-                    cursorPos = 0;
                 }
+                cursorPos = 0;
                 scrollToCursor();
                 parentTab.checkIfChanged(lines);
                 return true;
@@ -1156,26 +1151,16 @@ public class FileEditorScreen extends Screen {
                     return true;
                 }
                 case GLFW.GLFW_KEY_LEFT -> {
+                    if (shiftHeld && !hasSelection()) {
+                        selectionStartLine = cursorLine;
+                        selectionStartChar = cursorPos;
+                    } else if (!shiftHeld) {
+                        clearSelection();
+                    }
                     if (ctrlHeld) {
-                        if (shiftHeld && !hasSelection()) {
-                            selectionStartLine = cursorLine;
-                            selectionStartChar = cursorPos;
-                        } else if (!shiftHeld) {
-                            clearSelection();
-                        }
                         int newPos = moveCursorLeftWord();
                         cursorPos = newPos;
-                        if (shiftHeld) {
-                            selectionEndLine = cursorLine;
-                            selectionEndChar = cursorPos;
-                        }
                     } else {
-                        if (shiftHeld && !hasSelection()) {
-                            selectionStartLine = cursorLine;
-                            selectionStartChar = cursorPos;
-                        } else if (!shiftHeld) {
-                            clearSelection();
-                        }
                         if (cursorPos > 0) {
                             cursorPos--;
                         } else {
@@ -1184,35 +1169,25 @@ public class FileEditorScreen extends Screen {
                                 cursorPos = lines.get(cursorLine).length();
                             }
                         }
-                        if (shiftHeld) {
-                            selectionEndLine = cursorLine;
-                            selectionEndChar = cursorPos;
-                        }
+                    }
+                    if (shiftHeld) {
+                        selectionEndLine = cursorLine;
+                        selectionEndChar = cursorPos;
                     }
                     scrollToCursor();
                     return true;
                 }
                 case GLFW.GLFW_KEY_RIGHT -> {
+                    if (shiftHeld && !hasSelection()) {
+                        selectionStartLine = cursorLine;
+                        selectionStartChar = cursorPos;
+                    } else if (!shiftHeld) {
+                        clearSelection();
+                    }
                     if (ctrlHeld) {
-                        if (shiftHeld && !hasSelection()) {
-                            selectionStartLine = cursorLine;
-                            selectionStartChar = cursorPos;
-                        } else if (!shiftHeld) {
-                            clearSelection();
-                        }
                         int newPos = moveCursorRightWord();
                         cursorPos = newPos;
-                        if (shiftHeld) {
-                            selectionEndLine = cursorLine;
-                            selectionEndChar = cursorPos;
-                        }
                     } else {
-                        if (shiftHeld && !hasSelection()) {
-                            selectionStartLine = cursorLine;
-                            selectionStartChar = cursorPos;
-                        } else if (!shiftHeld) {
-                            clearSelection();
-                        }
                         if (cursorPos < lines.get(cursorLine).length()) {
                             cursorPos++;
                         } else {
@@ -1221,10 +1196,10 @@ public class FileEditorScreen extends Screen {
                                 cursorPos = 0;
                             }
                         }
-                        if (shiftHeld) {
-                            selectionEndLine = cursorLine;
-                            selectionEndChar = cursorPos;
-                        }
+                    }
+                    if (shiftHeld) {
+                        selectionEndLine = cursorLine;
+                        selectionEndChar = cursorPos;
                     }
                     scrollToCursor();
                     return true;
@@ -1757,9 +1732,9 @@ public class FileEditorScreen extends Screen {
                 undoStack.pop();
                 EditorState state = undoStack.peek();
                 lines.clear();
-                lines.addAll(state.lines);
-                cursorLine = state.cursorLine;
-                cursorPos = state.cursorPos;
+                lines.addAll(state != null ? state.lines : null);
+                cursorLine = state != null ? state.cursorLine : 0;
+                cursorPos = state != null ? state.cursorPos : 0;
                 clearSelection();
                 scrollToCursor();
                 parentTab.checkIfChanged(lines);
@@ -1805,7 +1780,7 @@ public class FileEditorScreen extends Screen {
             int lineHeight = mc.textRenderer.fontHeight + 2;
             int cursorY = cursorLine * lineHeight;
             int halfHeight = height / 2;
-            targetScrollOffsetVert = cursorY - halfHeight + lineHeight / 2;
+            targetScrollOffsetVert = cursorY - halfHeight + lineHeight / 2f;
             if (targetScrollOffsetVert < 0) targetScrollOffsetVert = 0;
             int maxScrollVert = Math.max(0, lines.size() * lineHeight - height + lineHeight);
             if (targetScrollOffsetVert > maxScrollVert) targetScrollOffsetVert = maxScrollVert;

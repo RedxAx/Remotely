@@ -63,6 +63,7 @@ public class InputProcessor {
                 return false;
             }
         }
+        int wordStart;
         boolean ctrlHeld = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
         if (sshManager.isAwaitingPassword()) {
             switch (keyCode) {
@@ -105,7 +106,7 @@ public class InputProcessor {
         }
         switch (keyCode) {
             case GLFW.GLFW_KEY_TAB:
-                int wordStart = findWordStart(inputBuffer, cursorPosition);
+                wordStart = findWordStart(inputBuffer, cursorPosition);
                 tabCompletionHandler.handleTabCompletion(inputBuffer, cursorPosition);
                 String suggestion = tabCompletionHandler.getTabCompletionSuggestion();
                 if (!suggestion.isEmpty()) {

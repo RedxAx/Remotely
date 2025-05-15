@@ -116,31 +116,17 @@ public class RemotelyClient {
     }
 
     public void openMultiTerminalGUI(MinecraftClient client, Screen parent) {
-        if (multiTerminalScreen == null || !client.isWindowFocused()) {
-            if (multiTerminals.isEmpty() && terminals.isEmpty()) {
-                loadSavedTerminals();
-            }
-            if (!multiTerminals.isEmpty()) {
-                terminals.clear();
-                terminals.addAll(multiTerminals);
-                tabNames.clear();
-                tabNames.addAll(multiTabNames);
-            }
-            multiTerminalScreen = new MultiTerminalScreen(client, parent, this, terminals, tabNames);
-            client.setScreen(multiTerminalScreen);
-        } else {
-            if (multiTerminals.isEmpty() && terminals.isEmpty()) {
-                loadSavedTerminals();
-            }
-            if (!multiTerminals.isEmpty()) {
-                terminals.clear();
-                terminals.addAll(multiTerminals);
-                tabNames.clear();
-                tabNames.addAll(multiTabNames);
-            }
-            multiTerminalScreen = new MultiTerminalScreen(client, parent, this, terminals, tabNames);
-            client.setScreen(multiTerminalScreen);
+        if (multiTerminals.isEmpty() && terminals.isEmpty()) {
+            loadSavedTerminals();
         }
+        if (!multiTerminals.isEmpty()) {
+            terminals.clear();
+            terminals.addAll(multiTerminals);
+            tabNames.clear();
+            tabNames.addAll(multiTabNames);
+        }
+        multiTerminalScreen = new MultiTerminalScreen(client, parent, this, terminals, tabNames);
+        client.setScreen(multiTerminalScreen);
     }
 
     private void loadSavedTerminals() {
