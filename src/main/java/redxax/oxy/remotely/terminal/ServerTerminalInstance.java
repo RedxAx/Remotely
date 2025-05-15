@@ -39,7 +39,7 @@ public class ServerTerminalInstance extends TerminalInstance {
                     serverInfo.remoteHost.password
             );
             serverInfo.remoteSSHManager.connectSFTP();
-            serverInfo.remoteSSHManager.launchRemoteServer(serverInfo.path, serverJarPath);
+            serverInfo.remoteSSHManager.launchRemoteServer(serverInfo.path);
             super.setServerInfo(this.serverInfo);
         } else {
             if (processManager != null) {

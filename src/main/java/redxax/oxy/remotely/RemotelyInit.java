@@ -5,7 +5,7 @@ import org.slf4j.LoggerFactory;
 
 public class RemotelyInit
 {
-	public static final Logger LOGGER = LoggerFactory.getLogger("assets/remotely");
+	public static final Logger LOGGER = LoggerFactory.getLogger("remotely");
 	public static ModPlatform PLATFORM = null;
 
 	public static void entrypoint(ModPlatform platform) {

@@ -98,7 +98,7 @@ public class Notification {
         this.targetX = client.currentScreen.width - width - widthPadding;
         this.currentY = calculateYPosition();
         this.justAdded = true;
-        this.loading = true;
+        this.loading = false;
         this.autoSlideOut = true;
         if (type == Type.ERROR) {
             devPrint("[NotificationError] " + message + "\n" + description);

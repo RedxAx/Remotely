@@ -65,24 +65,9 @@ public class ServerProcessManager extends TerminalProcessManager {
 
             String os = System.getProperty("os.name").toLowerCase();
             ProcessBuilder mainProcess;
-            ProcessBuilder sshTunnelProcess;
             if (os.contains("mac") || os.contains("nix") || os.contains("nux") || os.contains("darwin")) {
                 mainProcess = new ProcessBuilder("/bin/bash", "-l", "-c", "./start.sh");
             } else if (os.contains("win")) {
-                sshTunnelProcess = new ProcessBuilder("ssh", "-N", "-T", "-R", "0:localhost:25565", "tunnel@redxax.net", "-p", "722");
-                sshTunnelProcess.redirectErrorStream(true);
-                Process tunnelProcess = sshTunnelProcess.start();
-                new Thread(() -> {
-                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(tunnelProcess.getInputStream(), Charset.defaultCharset()))) {
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            serverInstance.appendOutput(line + "\n");
-                            devPrint(line);
-                        }
-                    } catch (IOException e) {
-                        devPrint("Error reading ssh tunnel output: " + e.getMessage());
-                    }
-                }).start();
                 mainProcess = new ProcessBuilder("cmd.exe", "/c", ".\\start.bat");
             } else {
                 mainProcess = new ProcessBuilder("/bin/bash", "-l", "-c", "./start.sh");

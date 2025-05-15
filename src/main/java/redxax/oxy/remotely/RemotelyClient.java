@@ -279,15 +279,12 @@ public class RemotelyClient {
 
         String key = host.getIp() + ":" + host.getPort() + ":" + host.getUser();
 
-        // Check if we have an existing manager
         if (hostSSHManagers.containsKey(key)) {
             SSHManager existingManager = hostSSHManagers.get(key);
 
-            // Check if the existing manager is still valid
             if (existingManager != null && existingManager.isSSH()) {
                 return existingManager;
             } else {
-                // Clean up invalid manager
                 if (existingManager != null) {
                     existingManager.shutdown();
                 }
@@ -295,10 +292,8 @@ public class RemotelyClient {
             }
         }
 
-        // Create a new manager
         SSHManager manager = new SSHManager(host);
 
-        // Try to connect
         try {
             manager.connectToRemoteHost(
                 host.getUser(),
@@ -318,7 +313,7 @@ public class RemotelyClient {
         Path oldPath = Paths.get("C:/remotely");
         if (System.getProperty("os.name").toLowerCase().contains("win") && Files.exists(oldPath)) {
             try {
-                Path target = Paths.get(System.getProperty("user.home"), "assets/remotely");
+                Path target = Paths.get(System.getProperty("user.home"), "/remotely");
                 if (!Files.exists(target)) {
                     Files.createDirectories(target);
                 }
