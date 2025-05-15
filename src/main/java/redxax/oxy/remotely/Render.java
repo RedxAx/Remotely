@@ -370,7 +370,7 @@ public class Render {
         }
     }
 
-    public static void drawSearchBar(DrawContext context, TextRenderer textRenderer, StringBuilder fieldText, boolean fieldFocused, int cursorPosition, int selectionStart, int selectionEnd, float pathScrollOffset, float pathTargetScrollOffset, boolean isSpecialMode, String caller, int mouseX, int mouseY, String tooltipText) {
+    public static void drawSearchBar(DrawContext context, TextRenderer textRenderer, StringBuilder fieldText, boolean fieldFocused, int cursorPosition, int selectionStart, int selectionEnd, float pathTargetScrollOffset, boolean isSpecialMode, String caller, int mouseX, int mouseY, String tooltipText) {
         if (!fieldText.toString().equals(previousFieldText)) {
             if (!fieldFocused) {
                 searchTextAnimator.updateText(fieldText.toString());
@@ -410,7 +410,7 @@ public class Render {
             context.fill(selX, searchBarY + 4, selX + selW, searchBarY + 4 + textRenderer.fontHeight, 0x80FFFFFF);
         }
         if (fieldFocused && isSpecialMode && displayText.isEmpty()) {
-            context.drawText(textRenderer, Text.literal("Search..."), searchBarX + 5, searchBarY + 5, getTextColor(id, hovered, fieldFocused, true, false, caller.equals("FileExplorerScreen") && isSpecialMode, caller.equals("FileEditorScreen") && isSpecialMode), shadow);
+            context.drawText(textRenderer, Text.literal("Search..."), searchBarX + 5, searchBarY + 5, getTextColor(id, hovered, true, true, false, caller.equals("FileExplorerScreen"), false), shadow);
         }
         int displayWidth = searchBarWidth - 10;
         int textWidth = textRenderer.getWidth(displayText);

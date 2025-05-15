@@ -100,7 +100,6 @@ public class ServerManagerScreen extends Screen {
     private final List<Float> iconPosY = new ArrayList<>();
     private boolean canDrag = false;
     private final ArrayList<Settings> settings = new ArrayList<>();
-    private final ArrayList<Settings> clientSettings = new ArrayList<>();
     private final Screen parent;
 
     public static List<RemoteHostInfo> getRemoteHosts() {
@@ -298,10 +297,10 @@ public class ServerManagerScreen extends Screen {
             context.drawText(minecraftClient.textRenderer, Text.literal("Password:"), px + 5, passLabelY, globalTextColor, false);
             int passBoxY = passLabelY + 10;
             context.fill(px + 5, passBoxY, px + remoteHostPopupW - 5, passBoxY + 12, remoteHostActiveField == RemoteHostField.PASSWORD ? innerBackgroundSelectedColor : Config.innerBackgroundColor);
-            String mask = "";
-            for (int i = 0; i < remoteHostPasswordBuffer.length(); i++) mask += "*";
-            mask = trimTextToWidthWithEllipsis(mask, remoteHostPopupW - 12);
-            context.drawText(minecraftClient.textRenderer, Text.literal(mask), px + 8, passBoxY + 2, globalTextColor, false);
+            StringBuilder mask = new StringBuilder();
+            mask.append("*".repeat(Math.max(0, remoteHostPasswordBuffer.length())));
+            mask = new StringBuilder(trimTextToWidthWithEllipsis(mask.toString(), remoteHostPopupW - 12));
+            context.drawText(minecraftClient.textRenderer, Text.literal(mask.toString()), px + 8, passBoxY + 2, globalTextColor, false);
             int confirmButtonY = passBoxY + 33;
             String createText = isEditingHost ? "Save" : "Test & Add";
             int cw = minecraftClient.textRenderer.getWidth(createText) + 10;
@@ -570,7 +569,6 @@ public class ServerManagerScreen extends Screen {
                     if (rect.isCreate) {
                         playSound(Sound.CREATE);
                         serverTypePopupActive = true;
-                        return true;
                     } else {
                         long currentTime = System.currentTimeMillis();
                         if (lastClickedIndex == rect.serverIndex && (currentTime - lastClickTime) < 500) {
@@ -585,8 +583,8 @@ public class ServerManagerScreen extends Screen {
                             draggingStartX = (int) mouseX;
                             draggingStartY = (int) mouseY;
                         }
-                        return true;
                     }
+                    return true;
                 } else if (button == 1 && !rect.isCreate) {
                     playSound(Sound.RIGHTCLICK);
                     ContextMenu.hide();
@@ -781,7 +779,6 @@ public class ServerManagerScreen extends Screen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_S && modifiers == GLFW.GLFW_MOD_CONTROL) {
-            clientSettings.clear();
             minecraftClient.setScreen(new SettingsScreen(minecraftClient, "config", this, "", null));
             return true;
         }
@@ -911,8 +908,9 @@ public class ServerManagerScreen extends Screen {
                 remoteHostCreationWarning = true;
                 return true;
             }
+            RemoteHostInfo rh;
             if (isEditingHost) {
-                RemoteHostInfo rh = remoteHosts.get(activeTabIndex - 1);
+                rh = remoteHosts.get(activeTabIndex - 1);
                 rh.name = remoteHostNameBuffer.toString().trim();
                 rh.user = remoteHostUserBuffer.toString().trim();
                 rh.ip = remoteHostIPBuffer.toString().trim();
@@ -924,9 +922,8 @@ public class ServerManagerScreen extends Screen {
                 rh.password = remoteHostPasswordBuffer.toString();
                 saveRemoteHosts();
                 remoteHostPopupActive = false;
-                return true;
             } else {
-                RemoteHostInfo rh = new RemoteHostInfo();
+                rh = new RemoteHostInfo();
                 rh.name = remoteHostNameBuffer.toString().trim();
                 rh.user = remoteHostUserBuffer.toString().trim();
                 rh.ip = remoteHostIPBuffer.toString().trim();
@@ -941,8 +938,8 @@ public class ServerManagerScreen extends Screen {
                 saveRemoteHosts();
                 activeTabIndex = remoteHosts.size();
                 closeRemoteHostPopup();
-                return true;
             }
+            return true;
         }
         String cancelText = "Cancel";
         int cancW = minecraftClient.textRenderer.getWidth(cancelText) + 10;

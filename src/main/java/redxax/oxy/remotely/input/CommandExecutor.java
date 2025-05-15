@@ -49,7 +49,7 @@ public class CommandExecutor {
                 if (sshManager != null){
                     devPrint("Command DEBUG: SSH Manager is not null");
                 }
-                if (sshManager.getSshWriter() != null) {
+                if ((sshManager != null ? sshManager.getSshWriter() : null) != null) {
                     devPrint("Command DEBUG: SSH Writer is not null");
                 }else {
                     devPrint("Command DEBUG: SSH Manager writer is not initialized.");

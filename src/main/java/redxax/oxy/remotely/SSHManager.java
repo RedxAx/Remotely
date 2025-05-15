@@ -445,7 +445,6 @@ public class SSHManager {
                         if (terminalInstance != null) {
                             terminalInstance.appendOutput("Invalid port. Using 22.\n");
                         }
-                        port = 22;
                     }
                 } else {
                     host = hostPort;

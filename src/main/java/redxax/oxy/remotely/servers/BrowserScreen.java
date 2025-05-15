@@ -205,7 +205,7 @@ public class BrowserScreen extends Screen {
         super.render(context, mouseX, mouseY, delta);
         MCEFBrowser currentBrowser = tabs.get(currentTabIndex).browser;
         if (fullScreenMode) {
-            drawBrowser(currentBrowser, fullScreenMode, width, height, 0, 0);
+            drawBrowser(currentBrowser, true, width, height, 0, 0);
             return;
         }
         drawHeader(context, width, height, mouseX, mouseY);
@@ -220,7 +220,7 @@ public class BrowserScreen extends Screen {
         tabsBar.renderTabsBar(context, minecraftClient.textRenderer, tabsBar, mouseX, mouseY, shadow);
         tabsBar.setActiveTabName(tabs.get(Math.min(currentTabIndex, tabs.size()-1)).getAnimatedText());
         String displayUrl = urlFieldFocused ? urlFieldText.toString() : trimUrl(urlFieldText.toString());
-        drawSearchBar(context, minecraftClient.textRenderer, new StringBuilder(displayUrl), urlFieldFocused, urlCursorPosition, urlSelectionStart, urlSelectionEnd, urlScrollOffset, urlTargetScrollOffset, false, "BrowserScreen", mouseX, mouseY, "Search In Google or Enter a URL");
+        drawSearchBar(context, minecraftClient.textRenderer, new StringBuilder(displayUrl), urlFieldFocused, urlCursorPosition, urlSelectionStart, urlSelectionEnd, urlTargetScrollOffset, false, "BrowserScreen", mouseX, mouseY, "Search In Google or Enter a URL");
     }
 
     private int convertMouseX(double x) {
@@ -722,6 +722,5 @@ public class BrowserScreen extends Screen {
         parent.width = minecraftClient.getWindow().getScaledWidth();
         parent.height = minecraftClient.getWindow().getScaledHeight();
         targetScaleFactor = globalScaleFactor = animScaleFactor;
-        if (parent == null) playSound(Sound.SCREEN);
     }
 }

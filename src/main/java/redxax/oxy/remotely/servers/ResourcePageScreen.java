@@ -82,7 +82,7 @@ public class ResourcePageScreen extends Screen {
 
     private void loadMarkdown() {
         new Thread(() -> {
-            String markdownContent = "";
+            String markdownContent;
             try {
                 String url;
                 if (resource.getSlug().startsWith("spigot_")) {
