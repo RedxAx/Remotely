@@ -50,7 +50,7 @@ public class ServerManagerScreen extends Screen {
     private final RemotelyClient remotelyClient;
     private static List<ServerInfo> localServers;
     private static final List<RemoteHostInfo> remoteHosts = new ArrayList<>();
-    private int activeTabIndex = 0;
+    private static int activeTabIndex = 0;
     private boolean editingServer;
     private final int serverPopupWidth = 350;
     private final int serverPopupHeight = 160;
@@ -103,11 +103,11 @@ public class ServerManagerScreen extends Screen {
     private final ArrayList<Settings> clientSettings = new ArrayList<>();
     private final Screen parent;
 
-    public List<RemoteHostInfo> getRemoteHosts() {
+    public static List<RemoteHostInfo> getRemoteHosts() {
         return remoteHosts;
     }
 
-    public int getActiveTabIndex() {
+    public static int getActiveTabIndex() {
         return activeTabIndex;
     }
 
@@ -1096,7 +1096,7 @@ public class ServerManagerScreen extends Screen {
         for (ServerInfo info : allServers) {
             if (info.path.equals(path)) {
                 MinecraftClient mc = MinecraftClient.getInstance();
-                MultiTerminalScreen mts = new MultiTerminalScreen(mc, null, RemotelyClient.INSTANCE, info);
+                MultiTerminalScreen mts = new MultiTerminalScreen(mc, mc.currentScreen, RemotelyClient.INSTANCE, info);
                 if (info.terminal == null) {
                     info.terminal = new ServerTerminalInstance(mc, mts, UUID.randomUUID(), info);
                     info.isRunning = false;
@@ -1467,7 +1467,7 @@ public class ServerManagerScreen extends Screen {
                             } catch (IOException e) {
                                 e.printStackTrace();
                             }
-                            if (scanServers) addServer(folderName, normalizedPath.toString(), type, version);
+                            if (scanServers) addServer(folderName, normalizedPath.toString(), type, version, false, null);
                         }
                     }
                 }
@@ -1495,16 +1495,22 @@ public class ServerManagerScreen extends Screen {
         return false;
     }
 
-    public static void addServer(String name, String path, String type, String version) {
+    public static void addServer(String name, String path, String type, String version, boolean isRemote, RemoteHostInfo host) {
         ServerInfo newServer = new ServerInfo(path);
         newServer.name = name;
         newServer.path = path;
         newServer.type = type;
         newServer.version = version;
         newServer.isRunning = false;
-        newServer.isRemote = false;
-        localServers.add(newServer);
-        saveServers();
+        newServer.isRemote = isRemote;
+        if (isRemote) {
+            newServer.remoteHost = host;
+            host.servers.add(newServer);
+            saveRemoteHosts();
+        } else {
+            localServers.add(newServer);
+            saveServers();
+        }
     }
 
     static void saveServers() {

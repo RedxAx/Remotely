@@ -36,12 +36,12 @@ public class SSHManager {
     private long remoteCommandsLastFetched = 0;
     private static final long REMOTE_COMMANDS_CACHE_DURATION = 60000;
     private volatile boolean readingSSHOutput = false;
-    private static final int CONNECTION_TIMEOUT = 10000; // 10 seconds
-    private static final int OPERATION_TIMEOUT = 30000; // 30 seconds
+    private static final int CONNECTION_TIMEOUT = 10000;
+    private static final int OPERATION_TIMEOUT = 30000;
     private final ScheduledExecutorService connectionMonitor = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> monitorTask;
     private final Map<String, CachedDirectoryListing> directoryCache = new ConcurrentHashMap<>();
-    private static final long DIRECTORY_CACHE_DURATION = 30000; // 30 seconds
+    private static final long DIRECTORY_CACHE_DURATION = 30000;
 
     private static class CachedDirectoryListing {
         final List<ChannelSftp.LsEntry> entries;
@@ -77,7 +77,6 @@ public class SSHManager {
         try {
             if (sshSession != null && sshSession.isConnected()) return;
 
-            // Store connection info in remoteHost for reconnection
             if (remoteHost == null) {
                 remoteHost = new RemoteHostInfo();
             }
@@ -96,7 +95,6 @@ public class SSHManager {
             isSSH = true;
             connectSFTP();
 
-            // Start connection monitoring
             startConnectionMonitor();
         } catch (Exception e) {
             if (terminalInstance != null) {
@@ -115,13 +113,11 @@ public class SSHManager {
             try {
                 if (remoteHost == null) return;
 
-                // Check SSH connection
                 if (sshSession == null || !sshSession.isConnected()) {
                     devPrint("SSH connection lost. Attempting to reconnect...");
                     reconnect();
                 }
 
-                // Check SFTP connection
                 if (isSSH && (sftpChannel == null || !sftpChannel.isConnected())) {
                     devPrint("SFTP connection lost. Attempting to reconnect...");
                     connectSFTP();
@@ -136,7 +132,6 @@ public class SSHManager {
         if (remoteHost == null) return;
 
         try {
-            // Clean up existing connections
             if (sftpChannel != null && sftpChannel.isConnected()) {
                 sftpChannel.disconnect();
             }
@@ -144,7 +139,6 @@ public class SSHManager {
                 sshSession.disconnect();
             }
 
-            // Reconnect
             JSch jsch = new JSch();
             sshSession = jsch.getSession(remoteHost.getUser(), remoteHost.getIp(), remoteHost.getPort());
             sshSession.setConfig("StrictHostKeyChecking", "no");
@@ -183,7 +177,7 @@ public class SSHManager {
     }
 
     public void prepareRemoteDirectory(String path) {
-        if (!sftpConnected) return;
+        if (!sftpConnected || this.remoteFileExists(path)) return;
         sftpExecutor.submit(() -> {
             try {
                 String[] parts = path.replace("\\", "/").split("/");
@@ -214,7 +208,7 @@ public class SSHManager {
         executorService.submit(() -> {
             try {
                 ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
-                String homePath = user.equals("root") ? "/root/remotely/" : "/home/" + user + "/assets/remotely/";
+                String homePath = user.equals("root") ? "/root/remotely/" : "/home/" + user + "/remotely/";
                 prepareRemoteDirectory(homePath);
                 String command = "wget -O " + homePath + "mrpack-install-linux https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-linux && chmod 0755 " + homePath + "mrpack-install-linux";
                 devPrint("Downloading MrPack binary: " + command);
@@ -246,7 +240,7 @@ public class SSHManager {
         }
         try {
             String user = serverInfo.remoteHost.user;
-            String homePath = user.equals("root") ? "/root/remotely/mrpack-install-linux" : "/home/" + user + "/assets/remotely/mrpack-install-linux";
+            String homePath = user.equals("root") ? "/root/remotely/mrpack-install-linux" : "/home/" + user + "/remotely/mrpack-install-linux";
             if (!remoteFileExists(homePath)) {
                 downloadMrPackBinary(user);
             }
@@ -254,7 +248,7 @@ public class SSHManager {
             StringBuilder cmd = new StringBuilder();
             cmd.append(homePath);
             cmd.append(" ").append(resource.getProjectId()).append(" ").append(resource.getVersion()).append(" ");
-            cmd.append(" --server-dir ").append(remoteHost.getHomeDirectory()).append("/assets/remotely/servers/\"").append(resource.getName()).append("\"");
+            cmd.append(" --server-dir ").append(remoteHost.getHomeDirectory()).append("remotely/servers/\"").append(resource.getName()).append("\"");
             cmd.append(" --server-file server.jar");
             devPrint("Installing MrPack on remote: " + cmd);
             channelExec.setCommand(cmd.toString());
@@ -296,7 +290,7 @@ public class SSHManager {
         }
     }
 
-    public void launchRemoteServer(String folder, String jarPath) {
+    public void launchRemoteServer(String folder) {
         if (!isSSH || sshSession == null || !sshSession.isConnected()) {
             if (terminalInstance != null) {
                 terminalInstance.appendOutput("SSH not connected.\n");
@@ -524,27 +518,22 @@ public class SSHManager {
 
     public void shutdown() {
         try {
-            // Stop the connection monitor
             if (monitorTask != null && !monitorTask.isDone()) {
                 monitorTask.cancel(false);
             }
             connectionMonitor.shutdown();
 
-            // Clear directory cache
             directoryCache.clear();
 
-            // Disconnect SFTP
             if (sftpChannel != null && sftpChannel.isConnected()) {
                 sftpChannel.disconnect();
             }
             sftpConnected = false;
 
-            // Disconnect SSH channel
             if (sshChannel != null && sshChannel.isConnected()) {
                 sshChannel.disconnect();
             }
 
-            // Disconnect SSH session
             if (sshSession != null && sshSession.isConnected()) {
                 sshSession.disconnect();
             }
@@ -552,12 +541,10 @@ public class SSHManager {
             isSSH = false;
             awaitingPassword = false;
 
-            // Shutdown executors
             executorService.shutdown();
             sftpExecutor.shutdown();
 
             try {
-                // Wait for tasks to complete with a timeout
                 if (!executorService.awaitTermination(2, TimeUnit.SECONDS)) {
                     executorService.shutdownNow();
                 }
@@ -623,14 +610,12 @@ public class SSHManager {
 
     public List<String> listRemoteDirectory(String dir) throws Exception {
         if (!sftpConnected) {
-            // Try to reconnect SFTP if not connected
             connectSFTPSync();
             if (!sftpConnected) {
                 return Collections.emptyList();
             }
         }
 
-        // Check cache first
         String cacheKey = dir;
         CachedDirectoryListing cachedListing = directoryCache.get(cacheKey);
         if (cachedListing != null && !cachedListing.isExpired()) {
@@ -640,13 +625,11 @@ public class SSHManager {
                     .collect(Collectors.toList());
         }
 
-        // Set up a timeout for the operation
         Future<Vector<ChannelSftp.LsEntry>> future = sftpExecutor.submit(() -> sftpChannel.ls(dir));
 
         try {
             Vector<ChannelSftp.LsEntry> entries = future.get(OPERATION_TIMEOUT, TimeUnit.MILLISECONDS);
 
-            // Cache the result
             directoryCache.put(cacheKey, new CachedDirectoryListing(new ArrayList<>(entries)));
 
             return entries.stream()
@@ -663,10 +646,6 @@ public class SSHManager {
         }
     }
 
-    /**
-     * Lists remote directory and returns both filenames and whether each entry is a directory.
-     * This is more efficient than calling isRemoteDirectory separately for each file.
-     */
     public Map<String, Boolean> listRemoteDirectoryWithTypes(String dir) throws Exception {
         if (!sftpConnected) {
             connectSFTPSync();
@@ -675,7 +654,6 @@ public class SSHManager {
             }
         }
 
-        // Check cache first
         String cacheKey = dir;
         CachedDirectoryListing cachedListing = directoryCache.get(cacheKey);
         if (cachedListing != null && !cachedListing.isExpired()) {
@@ -687,13 +665,11 @@ public class SSHManager {
                     ));
         }
 
-        // Set up a timeout for the operation
         Future<Vector<ChannelSftp.LsEntry>> future = sftpExecutor.submit(() -> sftpChannel.ls(dir));
 
         try {
             Vector<ChannelSftp.LsEntry> entries = future.get(OPERATION_TIMEOUT, TimeUnit.MILLISECONDS);
 
-            // Cache the result
             directoryCache.put(cacheKey, new CachedDirectoryListing(new ArrayList<>(entries)));
 
             return entries.stream()
@@ -712,7 +688,7 @@ public class SSHManager {
         }
     }
 
-    public void copyRemote(String source, String dest) throws Exception {
+    public void copyRemote(String source, String dest) {
         runRemoteCommand("cp -r \"" + source + "\" \"" + dest + "\"");
     }
 
@@ -941,6 +917,7 @@ public class SSHManager {
         }
         try {
             return executorService.submit(() -> {
+                StringBuilder outputBuilder = new StringBuilder();
                 try {
                     ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
                     channelExec.setCommand(sizeCommand);
@@ -948,15 +925,27 @@ public class SSHManager {
                     channelExec.setOutputStream(out);
                     channelExec.setErrStream(out);
                     channelExec.connect();
-                    while (!channelExec.isClosed()) {
+                    InputStream in = channelExec.getInputStream();
+                    byte[] buffer = new byte[1024];
+                    int len;
+                    while (!channelExec.isClosed() || in.available() > 0) {
+                        while ((len = in.read(buffer)) != -1) {
+                            String chunk = new String(buffer, 0, len, StandardCharsets.UTF_8);
+                            outputBuilder.append(chunk);
+                            if (terminalInstance != null) {
+                                terminalInstance.appendOutput(chunk);
+                            }
+                            if (in.available() == 0 && channelExec.isClosed()) {
+                                break;
+                            }
+                        }
                         Thread.sleep(50);
                     }
-                    String output = out.toString(StandardCharsets.UTF_8);
                     channelExec.disconnect();
-                    return output;
+                    return outputBuilder.toString();
                 } catch (Exception e) {
                     devPrint("Failed to run remote command: " + sizeCommand + ": " + e.getMessage());
-                    return "";
+                    return outputBuilder.toString();
                 }
             }).get();
         } catch (Exception e) {

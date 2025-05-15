@@ -53,6 +53,7 @@ public class ServerFactory {
 
     public static int createServer(String serverName, String serverType, String serverVersion, String serverDirectory, String ramAmount, String aikarsFlags) {
         try {
+            notification = new Notification("Preparing To Create..", "Buckle Up!", Notification.Type.INFO);
             Path baseDir = Paths.get(serverDirectory);
             Path serverDir = baseDir.resolve(serverName);
             if (!Files.exists(serverDir)) {
@@ -73,7 +74,7 @@ public class ServerFactory {
                 return scriptCode;
             }
             devPrint("Server '" + serverName + "' setup process initiated successfully in " + serverDir.toAbsolutePath());
-            ServerManagerScreen.addServer(serverName, serverDir.toString(), serverType, serverVersion);
+            ServerManagerScreen.addServer(serverName, serverDir.toString(), serverType, serverVersion, false, null);
             return 0;
         } catch (IOException e) {
             return 98;
@@ -82,7 +83,7 @@ public class ServerFactory {
         }
     }
 
-    private static String getDownloadURL(String serverType, String serverVersion) {
+    static String getDownloadURL(String serverType, String serverVersion) {
         try {
             String apiEndpoint = "https://mcjars.app/api/v1/builds/" + serverType.toUpperCase() + "/" + serverVersion + "/latest";
             String jsonResponse = simpleHttpGet(apiEndpoint);
@@ -199,7 +200,7 @@ public class ServerFactory {
                 }
                 return 0;
             }
-            notification = new Notification("Downloading server...", "This Might Take Some Time..", Notification.Type.INFO);
+            notification.change("Downloading server...", "This Might Take Some Time..", Notification.Type.INFO, null);
             notification.loading = true;
             notification.autoSlideOut = false;
             HttpURLConnection connection = null;

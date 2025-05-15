@@ -18,10 +18,10 @@ import java.awt.Toolkit;
 import java.io.*;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.rmi.Remote;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -86,7 +86,11 @@ public class SettingsScreen extends Screen {
             settings.add(new Settings("Error While Loading Settings", "No Settings Found.", "404", "none", "none", TEXT, "Please Try Again."));
         }
         if (editServerMode) {
-            loadSettingsFromFiles();
+            if (serverInfo.isRemote) {
+                loadSettingsRemote(serverInfo);
+            } else {
+                loadSettingsFromFiles();
+            }
             for (Settings s : settings) {
                 if (s.key.equalsIgnoreCase("server-name")) {
                     s.value = serverInfo.name;
@@ -197,6 +201,39 @@ public class SettingsScreen extends Screen {
                     devPrint("Error loading setting " + s.key + ": " + e.getMessage());
                 }
             }
+        }
+    }
+
+    private void loadSettingsRemote(ServerInfo serverInfo) {
+        if (serverInfo == null || !serverInfo.isRemote || serverInfo.remoteHost == null) return;
+        try {
+            RemoteHostInfo rh = serverInfo.remoteHost;
+            SSHManager ssh = INSTANCE.getSSHManagerForHost(serverInfo.remoteHost);
+            if (!ssh.isSFTPConnected()) {
+                ssh.connectToRemoteHost(rh.getUser(), rh.getIp(), rh.getPort(), rh.getPassword());
+                while (!ssh.isSFTPConnected()) {
+                    Thread.sleep(100);
+                }
+            }
+            for (Settings s : settings) {
+                if (!s.file.equals("none")) {
+                    String remoteFilePath = serverInfo.path + "/" + s.file;
+                    String fileContent = ssh.readRemoteFile(remoteFilePath);
+                    if (fileContent != null) {
+                        String[] lines = fileContent.split("\n");
+                        for (String line : lines) {
+                            if (line.startsWith(s.key + "=")) {
+                                String val = line.substring((s.key + "=").length()).trim();
+                                if (!val.isEmpty()) {
+                                    s.value = val;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            devPrint("Error loading remote setting: " + e.getMessage());
         }
     }
 
@@ -357,8 +394,6 @@ public class SettingsScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        this.width = mc.getWindow().getScaledWidth();
-        this.height = mc.getWindow().getScaledHeight();
         try {
             closeIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/close.png", "Cancel");
             createIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/create.png", editServerMode ? "Apply Changes" : "Create Server");
@@ -637,7 +672,7 @@ public class SettingsScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         scaleScroll(verticalAmount);
         int headerHeight = 30;
         int tabAreaHeight = 18;
@@ -834,54 +869,6 @@ public class SettingsScreen extends Screen {
         return super.charTyped(chr, modifiers);
     }
 
-    private String ensureLocalMcman() throws Exception {
-        String os = System.getProperty("os.name").toLowerCase();
-        String fileName = os.contains("win") ? "mcman.exe" : "mcman";
-        File file = new File(fileName);
-        if (!file.exists()) {
-            String url = os.contains("win") ? "https://github.com/ParadigmMC/mcman/releases/latest/download/mcman.exe" : "https://github.com/ParadigmMC/mcman/releases/latest/download/mcman";
-            devPrint("Local mcman not found. Downloading from " + url);
-            try (InputStream in = new URL(url).openStream()) {
-                Files.copy(in, file.toPath());
-            }
-            file.setExecutable(true);
-            devPrint("Local mcman downloaded to " + file.getAbsolutePath());
-        }
-        return file.getAbsolutePath();
-    }
-
-    private void ensureRemoteMcman(SSHManager ssh, String remoteHome) {
-        String remotePath = remoteHome + "/assets/remotely/mcman";
-        devPrint("Checking if remote mcman exists at: " + remotePath);
-        if (!ssh.remoteFileExists(remotePath)) {
-            devPrint("Remote mcman not found. Downloading...");
-            String cmd = "wget -O " + remotePath + " https://github.com/ParadigmMC/mcman/releases/latest/download/mcman && chmod +x " + remotePath;
-            ssh.runRemoteCommand(cmd);
-            try {
-                Thread.sleep(2000);
-            } catch (InterruptedException e) {
-            }
-            devPrint("Downloaded remote mcman at: " + remotePath);
-        } else {
-            devPrint("Remote mcman exists at: " + remotePath);
-        }
-    }
-
-    private String getMcmanSettings() {
-        StringBuilder sb = new StringBuilder();
-        boolean headerAdded = false;
-        for (Settings s : settings) {
-            if (s.key.startsWith("launcher.")) {
-                if (!headerAdded) {
-                    sb.append(" && echo '[launcher]' >> server.toml");
-                    headerAdded = true;
-                }
-                String key = s.key.substring("launcher.".length());
-                sb.append(" && echo '").append(key).append(" = \"").append(s.value).append("\"' >> server.toml");
-            }
-        }
-        return sb.toString();
-    }
 
     private void writeSettings(SSHManager manager, String basePath) {
         Map<String, List<Settings>> fileGroups = new HashMap<>();
@@ -984,19 +971,84 @@ public class SettingsScreen extends Screen {
             serverVersion = "latest";
         if (ramAmount.isEmpty())
             ramAmount = "2048";
+
         if (editServerMode && serverInfo != null) {
             editServer(serverName, serverType.toLowerCase(), serverVersion.toLowerCase());
             close();
+            return;
+        }
+
+        int tabIndex = ServerManagerScreen.getActiveTabIndex();
+        if (tabIndex > 0) {
+            createRemoteServer(serverName, serverType.toLowerCase(), serverVersion.toLowerCase(), ramAmount, aikarsFlags);
         } else {
             String finalServerName = serverName;
             ServerFactory.createServerAsync(serverName, serverType.toLowerCase(), serverVersion.toLowerCase(), settingsRoot, ramAmount, aikarsFlags, exitCode -> {
                 if (exitCode == 0) {
-                    notification.change(finalServerName + " Created Successfully!", "Click To Open", Type.SUCCESS, () -> ServerManagerScreen.openServerScreen(settingsRoot + File.separator + finalServerName));
+                    notification.change(finalServerName + " Created Successfully!", "Click To Open", Notification.Type.SUCCESS, () -> ServerManagerScreen.openServerScreen(settingsRoot + File.separator + finalServerName));
                     String serverDir = settingsRoot + File.separator + finalServerName;
                     writeSettings(null, serverDir);
                 } else errorNotification(exitCode, notification);
                 close();
             });
+        }
+    }
+
+    private void createRemoteServer(String serverName, String serverType, String serverVersion, String ramAmount, String aikarsFlags) {
+        try {
+            int tabIndex = ServerManagerScreen.getActiveTabIndex();
+            RemoteHostInfo rh = ServerManagerScreen.getRemoteHosts().get(tabIndex - 1);
+            String remoteHome = rh.getHomeDirectory();
+            String remoteServersPath = remoteHome + "remotely/servers";
+            String remoteServerPath = remoteServersPath + "/" + serverName;
+
+            notification = new Notification("Creating Remote Server...", "This Might Take Some Time..", Notification.Type.INFO);
+            notification.loading = true;
+            notification.autoSlideOut = false;
+
+            SSHManager ssh = INSTANCE.getSSHManagerForHost(rh);
+            if (!ssh.isSFTPConnected()) {
+                ssh.connectToRemoteHost(rh.getUser(), rh.getIp(), rh.getPort(), rh.getPassword());
+                while (!ssh.isSFTPConnected()) {
+                    Thread.sleep(100);
+                }
+            }
+
+            ssh.prepareRemoteDirectory(remoteHome + "/remotely");
+            ssh.prepareRemoteDirectory(remoteServersPath);
+            ssh.prepareRemoteDirectory(remoteServerPath);
+
+            String downloadURL = ServerFactory.getDownloadURL(serverType, serverVersion);
+            if (downloadURL == null) {
+                notification.change("Unsupported Server Type or Version!", "Please Try Again.", Notification.Type.ERROR, null);
+                close();
+                return;
+            }
+
+            String remoteCmd = "cd " + remoteServerPath + " && " + "wget -O server.jar \"" + downloadURL + "\"";
+            ssh.runRemoteCommand(remoteCmd);
+            String memSettings = "-Xms" + ramAmount + "M -Xmx" + ramAmount + "M";
+            String javaCommand = "java " + memSettings + " " + aikarsFlags + " -jar server.jar nogui";
+            String shContent = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\n" + javaCommand;
+            ssh.writeRemoteFile(remoteServerPath + "/start.sh", shContent);
+            ssh.runRemoteCommand("chmod +x " + remoteServerPath + "/start.sh");
+
+            writeSettings(ssh, remoteServerPath);
+            ServerManagerScreen.addServer(serverName, remoteServerPath, serverType, serverVersion, true, rh);
+            String url = ServerFactory.getDownloadURL(serverType, serverVersion);
+            if (url != null) {
+                ssh.runRemoteCommandWithOutput("cd " + remoteServerPath + " && wget -O server.jar \"" + url + "\"");
+            } else {
+                notification.change("Failed To Get Download URL", "Unsupported Server Type / Version", Notification.Type.ERROR, null);
+                return;
+            }
+            notification.change(serverName + " Created Successfully!", "Click To Open", Notification.Type.SUCCESS, () -> ServerManagerScreen.openServerScreen(remoteServerPath));
+
+        } catch (Exception e) {
+            devPrint("Failed to create remote server: " + e.getMessage());
+            notification.change("Server Creation Failed", e.getMessage(), Notification.Type.ERROR, null);
+        } finally {
+            close();
         }
     }
 
@@ -1018,41 +1070,37 @@ public class SettingsScreen extends Screen {
             } else {
                 RemoteHostInfo rh = serverInfo.remoteHost;
                 String remoteHome = rh.getHomeDirectory();
-                String remoteMcmanPath = remoteHome + "/assets/remotely/mcman";
-                String remoteServersPath = remoteHome + "/assets/remotely/servers";
+                String remoteServersPath = remoteHome + "remotely/servers";
+                String remoteServerPath = remoteServersPath + "/" + serverName;
                 SSHManager ssh = new SSHManager(rh);
                 ssh.connectToRemoteHost(rh.getUser(), rh.getIp(), rh.getPort(), rh.getPassword());
                 while (!ssh.isSFTPConnected()) {
                     Thread.sleep(100);
                 }
-                devPrint("Preparing remote directories for edit...");
-                ssh.prepareRemoteDirectory(remoteHome + "/assets/remotely");
+                ssh.prepareRemoteDirectory(remoteHome + "remotely");
                 ssh.prepareRemoteDirectory(remoteServersPath);
-                ensureRemoteMcman(ssh, remoteHome);
-                String cmdMkdir = "mkdir -p " + remoteServersPath + "/" + serverName;
-                devPrint("Executing remote mkdir command: " + cmdMkdir);
-                String mkdirOutput = ssh.runRemoteCommandWithOutput(cmdMkdir);
-                devPrint("Remote mkdir output: " + mkdirOutput);
-                String cmdUpdate = "cd " + remoteServersPath + "/" + serverName +
-                        " && echo 'name = \"" + serverName + "\"' > server.toml" +
-                        " && echo 'mc_version = \"" + serverVersion + "\"' >> server.toml" +
-                        " && echo '[jar]' >> server.toml" +
-                        " && echo 'type = \"" + serverType.toLowerCase() + "\"' >> server.toml" + getMcmanSettings();
-                devPrint("Executing remote update command: " + cmdUpdate);
-                String updateOutput = ssh.runRemoteCommandWithOutput(cmdUpdate);
-                devPrint("Remote update output: " + updateOutput);
-                writeSettings(ssh, remoteServersPath + "/" + serverName);
+                ssh.prepareRemoteDirectory(remoteServerPath);
+
                 if (shouldRebuild) {
-                    String cmdBuild = "cd " + remoteServersPath + "/" + serverName + " && " + remoteMcmanPath + " build --output .";
-                    devPrint("Executing remote build command: " + cmdBuild);
-                    String buildOutput = ssh.runRemoteCommandWithOutput(cmdBuild);
-                    for (String l : buildOutput.split("\n")) {
-                        devPrint(l);
+                    String downloadURL = ServerFactory.getDownloadURL(serverType, serverVersion);
+                    if (downloadURL == null) {
+                        new Notification("Failed to get download URL", "Unsupported server type or version", Type.ERROR);
+                        return;
                     }
-                } else {
-                    devPrint("Remote server edited without rebuilding.");
+                    String remoteCmd = "mkdir -p " + remoteServerPath + " && " + "cd " + remoteServerPath + " && " + "wget -O server.jar \"" + downloadURL + "\"";
+                    new Notification("Updating remote server...", "This might take some time", Type.INFO);
+                    ssh.runRemoteCommand(remoteCmd);
                 }
+                String ramDigits = "2048";
+                String memSettings = "-Xms" + ramDigits + "M -Xmx" + ramDigits + "M";
+                String javaCommand = "java " + memSettings + " -jar server.jar nogui";
+                String shContent = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\n" + javaCommand;
+                ssh.writeRemoteFile(remoteServerPath + "/start.sh", shContent);
+                ssh.runRemoteCommand("chmod +x " + remoteServerPath + "/start.sh");
+                writeSettings(ssh, remoteServerPath);
+                new Notification(serverName + " Updated Successfully!", Type.SUCCESS);
             }
+
             serverInfo.name = serverName;
             serverInfo.type = serverType;
             serverInfo.version = serverVersion;
@@ -1060,6 +1108,7 @@ public class SettingsScreen extends Screen {
             ServerManagerScreen.saveRemoteHosts();
         } catch (Exception e) {
             devPrint("Failed to update server: " + e.getMessage());
+            new Notification("Server Update Failed", e.getMessage(), Type.ERROR);
         }
     }
 
@@ -1084,7 +1133,6 @@ public class SettingsScreen extends Screen {
     public void removed() {
         mc.getWindow().setScaleFactor(originalMCScale);
         targetScaleFactor = globalScaleFactor = animScaleFactor;
-        if (parent == null) playSound(Sound.SCREEN);
     }
 
     public void close() {
