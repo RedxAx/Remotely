@@ -181,7 +181,7 @@ public class FileEditorScreen extends Screen {
                     }
                 }
             }
-            this.textEditor = new MultiLineTextEditor(minecraftClient, fileContent, path.getFileName().toString(), this);
+            this.textEditor = new MultiLineTextEditor(minecraftClient, fileContent, path.getFileName() != null ? path.getFileName().toString() : "NULL", this);
             this.originalContent = String.join("\n", fileContent);
             this.unsaved = false;
         }

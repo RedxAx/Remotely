@@ -2,9 +2,7 @@ package redxax.oxy.remotely.servers;
 
 import net.minecraft.client.gui.screen.Screen;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.SSHManager;
-import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.config.Themes;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import redxax.oxy.remotely.util.ImageUtil;
@@ -21,7 +19,6 @@ import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.rmi.Remote;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -42,7 +39,7 @@ import static redxax.oxy.remotely.util.Sound.soundVolume;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
 public class SettingsScreen extends Screen {
-    private final MinecraftClient mc;
+    private static final MinecraftClient mc = MinecraftClient.getInstance();
     private final Screen parent;
     private final String mode;
     private final String settingsRoot;
@@ -65,13 +62,12 @@ public class SettingsScreen extends Screen {
     public enum ServerSettingType {TOGGLE, SLIDER, SCROLL_SWITCH, TAB_SWITCH, TEXT}
     static List<String> themeOptions = new ArrayList<>();
 
-    public SettingsScreen(MinecraftClient mc, String mode, Screen parent, String settingsRoot, List<Settings> customSettings) {
-        this(mc, mode, parent, settingsRoot, customSettings, null);
+    public SettingsScreen(String mode, Screen parent, String settingsRoot, List<Settings> customSettings) {
+        this(mode, parent, settingsRoot, customSettings, null);
     }
 
-    public SettingsScreen(MinecraftClient mc, String mode, Screen parent, String settingsRoot, List<Settings> customSettings, ServerInfo serverInfo) {
+    public SettingsScreen(String mode, Screen parent, String settingsRoot, List<Settings> customSettings, ServerInfo serverInfo) {
         super(Text.literal("Server Settings"));
-        this.mc = mc;
         this.parent = parent;
         this.mode = mode;
         this.settingsRoot = settingsRoot;
@@ -83,7 +79,7 @@ public class SettingsScreen extends Screen {
         if (customSettings != null && !customSettings.isEmpty()) {
             settings.addAll(customSettings);
         } else {
-            settings.add(new Settings("Error While Loading Settings", "No Settings Found.", "404", "none", "none", TEXT, "Please Try Again."));
+           settings.add(new Settings.Builder("Error While Loading Settings", "No Settings Found.", "404", "none", TEXT, "Please Try Again.").build());
         }
         if (editServerMode) {
             if (serverInfo.isRemote) {
@@ -115,7 +111,8 @@ public class SettingsScreen extends Screen {
     public static void loadClientConfiguration() {
         importThemesFromJar();
         loadThemesFromDir();
-        if (RemotelyClient.INSTANCE != null && themes != null && !themes.isEmpty()) {
+        themeOptions.clear();
+        if (INSTANCE != null && themes != null && !themes.isEmpty()) {
             for (MultiTerminalScreen.Theme theme : themes) {
                 themeOptions.add(theme.name);
             }
@@ -123,20 +120,20 @@ public class SettingsScreen extends Screen {
             themeOptions.add("Default");
         }
         settings.clear();
-        settings.add(new Settings("Theme", "Select and apply a theme on startup.", "Appearance", "none", "theme", SCROLL_SWITCH, getCurrentTheme(), themeOptions));
-        settings.add(new Settings("Menus Buttons Style", "Choose The Style of The Buttons In The Menus.", "Appearance", "none", "mainMenuButtonsStyle", TAB_SWITCH, (mainMenuStyle.equals("Vanilla") ? "Vanilla" : mainMenuStyle.equals("Minimal") ? "Minimal" : mainMenuStyle.equals("Normal") ? "Normal" : "Disable"), Arrays.asList("Vanilla", "Minimal", "Normal", "Disable")));
-        settings.add(new Settings("Redesign Minecraft Buttons", "Enable The New Button Design.", "Appearance", "none", "redesignMainMenu", TOGGLE, String.valueOf(redesignMainMenu)));
-        settings.add(new Settings("Show Minecraft Background", "Display The Minecraft Panorama As The Background.", "Appearance", "none", "background", TOGGLE, String.valueOf(background)));
-        settings.add(new Settings("Show Wallpaper", "Display Your PC Wallpaper As The Background.", "Appearance", "none", "wallpaper", TOGGLE, String.valueOf(wallpaper)));
-        settings.add(new Settings("Text Shadow", "Enable Text Background / Shadow Effect.", "Appearance", "none", "shadow", TOGGLE, String.valueOf(shadow)));
-        settings.add(new Settings("Scroll Animation Speed", "Set The Global Speed of The Scrolling Animations.", "Appearance", "none", "globalScrollSpeed", SLIDER, String.valueOf(globalScrollSpeed), 0, 60));
-        settings.add(new Settings("Movement Animation Speed", "Set The Global Speed of The Movement Animations.", "Appearance", "none", "globalMovementSpeed", SLIDER, String.valueOf(globalMovementSpeed), 0, 60));
-        settings.add(new Settings("Scale Animation Speed", "Set The Global Speed of The Scale Animations.", "Appearance", "none", "scaleAnimationSpeed", SLIDER, String.valueOf(scaleAnimationSpeed), 0, 60));
-        settings.add(new Settings("Expand Animation Speed", "Set The Global Speed of The Expand/Shrink Animations.", "Appearance", "none", "globalExpandSpeed", SLIDER, String.valueOf(globalExpandSpeed).replace("f", ""), 0, 30));
+        settings.add(new Settings.Builder("Theme", "Select and apply a theme on startup.", "Appearance", "theme", SCROLL_SWITCH, getCurrentTheme()).options(themeOptions).build());
+        settings.add(new Settings.Builder("Menus Buttons Style", "Choose The Style of The Buttons In The Menus.", "Appearance", "mainMenuButtonsStyle", TAB_SWITCH, (mainMenuStyle.equals("Vanilla") ? "Vanilla" : mainMenuStyle.equals("Minimal") ? "Minimal" : mainMenuStyle.equals("Normal") ? "Normal" : "Disable")).options(Arrays.asList("Vanilla", "Minimal", "Normal", "Disable")).build());
+        settings.add(new Settings.Builder("Redesign Minecraft Buttons", "Enable The New Button Design.", "Appearance", "redesignMainMenu", TOGGLE, String.valueOf(redesignMainMenu)).build());
+        settings.add(new Settings.Builder("Show Minecraft Background", "Display The Minecraft Panorama As The Background.", "Appearance", "background", TOGGLE, String.valueOf(background)).build());
+        settings.add(new Settings.Builder("Show Wallpaper", "Display Your PC Wallpaper As The Background.", "Appearance", "wallpaper", TOGGLE, String.valueOf(wallpaper)).build());
+        settings.add(new Settings.Builder("Text Shadow", "Enable Text Background / Shadow Effect.", "Appearance", "shadow", TOGGLE, String.valueOf(shadow)).build());
+        settings.add(new Settings.Builder("Scroll Animation Speed", "Set The Global Speed of The Scrolling Animations.", "Appearance", "globalScrollSpeed", SLIDER, String.valueOf(globalScrollSpeed)).range(0, 60).build());
+        settings.add(new Settings.Builder("Movement Animation Speed", "Set The Global Speed of The Movement Animations.", "Appearance", "globalMovementSpeed", SLIDER, String.valueOf(globalMovementSpeed)).range(0, 60).build());
+        settings.add(new Settings.Builder("Scale Animation Speed", "Set The Global Speed of The Scale Animations.", "Appearance", "scaleAnimationSpeed", SLIDER, String.valueOf(scaleAnimationSpeed)).range(0, 60).build());
+        settings.add(new Settings.Builder("Expand Animation Speed", "Set The Global Speed of The Expand/Shrink Animations.", "Appearance", "globalExpandSpeed", SLIDER, String.valueOf(globalExpandSpeed).replace("f", "")).range(0, 30).build());
 
-        settings.add(new Settings("Sound Volume", "Set The Volume of The Sounds.", "Sounds", "none", "soundVolume", SLIDER, String.valueOf(soundVolume), 0, 200));
-        settings.add(new Settings("Pitch Variation", "Set The Variation of The Sound Pitch.", "Sounds", "none", "pitchVariation", SLIDER, String.valueOf(Sound.pitchVariation), 0, 200));
-        settings.add(new Settings("Sound Effects", "Toggle Sound Effects.", "Sounds", "none", "soundEffects", TOGGLE, String.valueOf(enableSFX)));
+        settings.add(new Settings.Builder("Sound Volume", "Set The Volume of The Sounds.", "Sounds", "soundVolume", SLIDER, String.valueOf(soundVolume)).range(0, 200).build());
+        settings.add(new Settings.Builder("Pitch Variation", "Set The Variation of The Sound Pitch.", "Sounds", "pitchVariation", SLIDER, String.valueOf(Sound.pitchVariation)).range(0, 200).build());
+        settings.add(new Settings.Builder("Sound Effects", "Toggle Sound Effects.", "Sounds", "soundEffects", TOGGLE, String.valueOf(enableSFX)).build());
         try {
             Field[] fields = Sound.class.getDeclaredFields();
             for (Field field : fields) {
@@ -145,21 +142,52 @@ public class SettingsScreen extends Screen {
                     String displayName = formatSoundFieldName(fieldName);
                     String description = "Toggle " + displayName + " Sound Effect.";
                     boolean currentValue = field.getBoolean(null);
-                    settings.add(new Settings(displayName, description, "Sounds", "none", fieldName, TOGGLE, String.valueOf(currentValue)));
+                    settings.add(new Settings.Builder(displayName, description, "Sounds", fieldName, TOGGLE, String.valueOf(currentValue)).build());
                 }
             }
         } catch (IllegalAccessException e) {
             devPrint("Error accessing Sound fields for settings: " + e.getMessage());
         }
 
-        settings.add(new Settings("Scan For Servers", "Scan For Servers In The Default Remotely Directory.", "Servers", "none", "scanServers", TOGGLE, String.valueOf(scanServers)));
-        settings.add(new Settings("Use Custom Reverse Proxy", "Replace The Default Server With Your Own.", "Servers", "none", "customReverseProxy", TOGGLE, String.valueOf(customReverseProxy)));
-        settings.add(new Settings("Reverse Proxy Host", "Enter The Host To Your Server (e.g. `RedxAx.net`)", "Servers", "none", "proxyHost", TEXT, String.valueOf(proxyHost)));
-        settings.add(new Settings("Reverse Proxy User", "Enter The User Of Your Proxy Server (e.g. `tunnel`)", "Servers", "none", "proxyUser", TEXT, String.valueOf(proxyUser)));
+        settings.add(new Settings.Builder("Scan For Servers", "Scan For Servers In The Default Remotely Directory.", "Servers", "scanServers", TOGGLE, String.valueOf(scanServers)).build());
+        settings.add(new Settings.Builder("Use Custom Reverse Proxy", "Replace The Default Server With Your Own.", "Servers", "customReverseProxy", TOGGLE, String.valueOf(customReverseProxy)).build());
+        settings.add(new Settings.Builder("Reverse Proxy Host", "Enter The Host To Your Server (e.g. `RedxAx.net`)", "Servers", "proxyHost", TEXT, String.valueOf(proxyHost)).build());
+        settings.add(new Settings.Builder("Reverse Proxy User", "Enter The User Of Your Proxy Server (e.g. `tunnel`)", "Servers", "proxyUser", TEXT, String.valueOf(proxyUser)).build());
 
-        settings.add(new Settings("Developer Mode", "Enable Developer Mode.", "Development", "none", "isDev", TOGGLE, String.valueOf(isDev)));
-        settings.add(new Settings("Enable Debug Tools", "Enable Visual Tools For Debugging.", "Development", "none", "enableDebugTools", TOGGLE, String.valueOf(enableDebugTools)));
+        settings.add(new Settings.Builder("Developer Mode", "Enable Developer Mode.", "Development", "isDev", TOGGLE, String.valueOf(isDev)).build());
+        settings.add(new Settings.Builder("Enable Debug Tools", "Enable Visual Tools For Debugging.", "Development", "enableDebugTools", TOGGLE, String.valueOf(enableDebugTools)).build());
     }
+
+    public static void defineSettings() {
+        settings.clear();
+        settings.add(new Settings.Builder("Server Name", "The name of your server.", "General", "server-name", TEXT, "My Server").build());
+        settings.add(new Settings.Builder("Game Mode", "Select the default game mode for players.", "General", "gamemode", TAB_SWITCH, "Survival").file("server.properties").options(Arrays.asList("Survival", "Creative", "Adventure")).build());
+        settings.add(new Settings.Builder("Difficulty", "Set the difficulty level of the server.", "General", "difficulty", TAB_SWITCH, "Normal").file("server.properties").options(Arrays.asList("Peaceful", "Easy", "Normal", "Hard")).build());
+        settings.add(new Settings.Builder("End User License Agreement", "Do You Agree To Minecraft's EULA?", "General", "eula", TOGGLE, "true").file("eula.txt").build());
+        settings.add(new Settings.Builder("PvP", "Toggle player vs player combat.", "General", "pvp", TOGGLE, "true").file("server.properties").build());
+        settings.add(new Settings.Builder("Hardcore", "Toggle hardcore mode (one life).", "General", "hardcore", TOGGLE, "false").file("server.properties").build());
+        settings.add(new Settings.Builder("Server Type", "Choose the server software type.", "General", "server-type", SCROLL_SWITCH, "Paper").options(Arrays.asList("Paper", "Leaf", "Vanilla", "Fabric", "Neoforge", "Forge", "Quilt", "Velocity", "Waterfall")).build());
+        settings.add(new Settings.Builder("Server Version", "Specify the Minecraft server version to run.", "General", "server-version", TEXT, mc.getGameVersion()).build());
+        settings.add(new Settings.Builder("Max Players", "Max online players limit.", "Advanced", "max-players", SLIDER, "20").file("server.properties").range(1, 200).build());
+        settings.add(new Settings.Builder("MOTD", "Description for the server list.", "Advanced", "motd", TEXT, mc.getSession().getUsername() + "'s Server").file("server.properties").build());
+        settings.add(new Settings.Builder("Seed", "Enter a specific seed (optional).", "Advanced", "level-seed", TEXT, "").file("server.properties").build());
+        settings.add(new Settings.Builder("Spawn Protection", "Set the radius of spawn protection (set 0 to disable).", "Advanced", "spawn-protection", SLIDER, "16").file("server.properties").range(0, 32).build());
+        settings.add(new Settings.Builder("Max Build Height", "Set the maximum height players can build to.", "Advanced", "max-build-height", SLIDER, "320").file("server.properties").range(0, 2048).build());
+        settings.add(new Settings.Builder("Generate Structures", "Toggle whether structures are generated in the world.", "Advanced", "generate-structures", TOGGLE, "true").file("server.properties").build());
+        settings.add(new Settings.Builder("Port", "Set the port number on which the server will run.", "Advanced", "server-port", TEXT, "25565").file("server.properties").build());
+        settings.add(new Settings.Builder("Online Mode", "Authenticate with Minecraft (Secure).", "Advanced", "online-mode", TOGGLE, "true").file("server.properties").build());
+        settings.add(new Settings.Builder("Whitelist", "Enable or disable the server whitelist.", "Advanced", "white-list", TOGGLE, "false").file("server.properties").build());
+        settings.add(new Settings.Builder("Hide Online Players", "Hide online players from the server list.", "Advanced", "hide-online-players", TOGGLE, "false").file("server.properties").build());
+        settings.add(new Settings.Builder("Allow Nether", "Toggle whether the Nether dimension is accessible.", "Advanced", "allow-nether", TOGGLE, "true").file("server.properties").build());
+        settings.add(new Settings.Builder("Allow End", "Toggle whether the End dimension is accessible.", "Advanced", "allow-end", TOGGLE, "true").file("bukkit.yml").dependency("server-type", "Paper").dependency("server-type", "Leaf").build());
+        settings.add(new Settings.Builder("Use Custom Java", "Use a custom Java installation (Not recommended).", "Advanced", "usecustomjava", TOGGLE, "false").build());
+        settings.add(new Settings.Builder("Java Version", "Specify the Java version to use.", "Advanced", "launcher.java_version", TEXT, "").dependency("usecustomjava", "true").build());
+        settings.add(new Settings.Builder("View Distance", "Adjust the number of chunks visible to players.", "Performance", "view-distance", SLIDER, "8").file("server.properties").range(1, 64).build());
+        settings.add(new Settings.Builder("Simulation Distance", "Set the simulation distance (server tick radius).", "Performance", "simulation-distance", SLIDER, "8").file("server.properties").range(1, 64).build());
+        settings.add(new Settings.Builder("Memory", "Set the maximum memory allocation for the server.", "Performance", "memory", TEXT, "4G").build());
+        settings.add(new Settings.Builder("Aikars Flags", "Custom flags that highly optimizes server performance.", "Performance", "aikars_flags", TOGGLE, "true").build());
+    }
+
 
     private static String formatSoundFieldName(String fieldName) {
         if (fieldName.startsWith("sound")) {
@@ -174,7 +202,7 @@ public class SettingsScreen extends Screen {
 
     private void initTextInputOffsets() {
         for (Settings s : settings) {
-            if (s.type == ServerSettingType.TEXT) {
+            if (s.type == TEXT) {
                 textInputScrollOffsets.put(s, 0f);
                 textInputTargetScrollOffsets.put(s, 0f);
             }
@@ -295,7 +323,7 @@ public class SettingsScreen extends Screen {
                 case "isDev" -> isDev = Boolean.parseBoolean(value);
                 case "enableDebugTools" -> enableDebugTools = Boolean.parseBoolean(value);
                 case "theme" -> {
-                    if (RemotelyClient.INSTANCE != null) {
+                    if (INSTANCE != null) {
                         for (MultiTerminalScreen.Theme theme : themes) {
                             if (theme.name.equals(value)) {
                                 Themes.applyTheme(theme);
@@ -316,10 +344,11 @@ public class SettingsScreen extends Screen {
             Path configFile = configDir.resolve("config.json");
             if (Files.exists(configFile)) {
                 String jsonContent = new String(Files.readAllBytes(configFile));
-                jsonContent = jsonContent.trim();
-                if (jsonContent.startsWith("{") && jsonContent.endsWith("}")) {
-                    jsonContent = jsonContent.substring(1, jsonContent.length() - 1);
-                    String[] pairs = jsonContent.split(",");
+                Pattern pattern = Pattern.compile("\"settings\"\\s*:\\s*\\{([^}]*)}");
+                Matcher matcher = pattern.matcher(jsonContent);
+                if (matcher.find()) {
+                    String innerContent = matcher.group(1);
+                    String[] pairs = innerContent.split(",");
                     for (String pair : pairs) {
                         String[] keyValue = pair.split(":");
                         if (keyValue.length == 2) {
@@ -335,6 +364,27 @@ public class SettingsScreen extends Screen {
                         }
                     }
                     devPrint("Loaded client config from: " + configFile);
+                } else {
+                    jsonContent = jsonContent.trim();
+                    if (jsonContent.startsWith("{") && jsonContent.endsWith("}")) {
+                        jsonContent = jsonContent.substring(1, jsonContent.length() - 1);
+                        String[] pairs = jsonContent.split(",");
+                        for (String pair : pairs) {
+                            String[] keyValue = pair.split(":");
+                            if (keyValue.length == 2) {
+                                String key = keyValue[0].trim();
+                                if (key.startsWith("\"") && key.endsWith("\"")) {
+                                    key = key.substring(1, key.length() - 1);
+                                }
+                                String value = keyValue[1].trim();
+                                if (value.startsWith("\"") && value.endsWith("\"")) {
+                                    value = value.substring(1, value.length() - 1);
+                                }
+                                updateClientConfigSetting(key, value);
+                            }
+                        }
+                        devPrint("Loaded client config (flat) from: " + configFile);
+                    }
                 }
             } else {
                 devPrint("Config file does not exist, using defaults");
@@ -350,17 +400,18 @@ public class SettingsScreen extends Screen {
         for (Settings s : settings) {
             configMap.put(s.key, s.value);
         }
-        StringBuilder json = new StringBuilder("{");
-        boolean first = true;
+        StringBuilder innerJson = new StringBuilder("{");
+        boolean firstInner = true;
         for (Map.Entry<String, String> entry : configMap.entrySet()) {
-            if (!first) json.append(",");
-            json.append("\"").append(entry.getKey()).append("\":");
-            if (entry.getValue().equals("true") || entry.getValue().equals("false") || entry.getValue().matches("-?\\d+"))
-                json.append(entry.getValue());
-            else
-                json.append("\"").append(entry.getValue()).append("\"");
-            first = false;
+            if (!firstInner) innerJson.append(",");
+            innerJson.append("\"").append(entry.getKey()).append("\":");
+            if (entry.getValue().equals("true") || entry.getValue().equals("false") || entry.getValue().matches("-?\\d+")) innerJson.append(entry.getValue());
+            else innerJson.append("\"").append(entry.getValue()).append("\"");
+            firstInner = false;
         }
+        innerJson.append("}");
+        StringBuilder json = new StringBuilder("{\"settings\":");
+        json.append(innerJson);
         json.append("}");
         try {
             Path configDir = Paths.get(String.valueOf(remotelyDir), "data");
@@ -408,7 +459,7 @@ public class SettingsScreen extends Screen {
         drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, mc, closeIcon, configMode ? null : createIcon, null, null, null, null, null, null, null);
         recalcTabs();
         int headerHeight = 30;
-        context.drawText(mc.textRenderer, Text.literal("Create New Server"), 10, 10, globalTextColor, Config.shadow);
+        context.drawText(mc.textRenderer, Text.literal("Create New Server"), 10, 10, globalTextColor, shadow);
         drawTabs(context, mc.textRenderer, tabs, currentTab, mouseX, mouseY, false, false);
         int tabAreaHeight = 18;
         int contentY = headerHeight + tabAreaHeight + 10;
@@ -434,8 +485,8 @@ public class SettingsScreen extends Screen {
             drawInnerBorder(context, contentX, rowY, contentWidth, rowHeight - 2, getElementBorderColor(currentSettings.get(i).name.hashCode(), false, false, true, false, false, false));
             drawOuterBorder(context, contentX, rowY, contentWidth, rowHeight - 2, bgColor);
             String name = currentSettings.get(i).name;
-            context.drawText(mc.textRenderer, Text.literal(name), contentX + 5, rowY + 5, globalTextColor, Config.shadow);
-            context.drawText(mc.textRenderer, Text.literal(currentSettings.get(i).description), contentX + 5, rowY + 5 + mc.textRenderer.fontHeight + 2, Config.globalDarkTextColor, Config.shadow);
+            context.drawText(mc.textRenderer, Text.literal(name), contentX + 5, rowY + 5, globalTextColor, shadow);
+            context.drawText(mc.textRenderer, Text.literal(currentSettings.get(i).description), contentX + 5, rowY + 5 + mc.textRenderer.fontHeight + 2, globalDarkTextColor, shadow);
             Settings s = currentSettings.get(i);
             int widgetY = rowY + (rowHeight - 20) / 2;
             boolean widgetHovered = mouseX >= widgetAreaX && mouseX <= widgetAreaX + widgetWidth && mouseY >= rowY && mouseY <= rowY + 18;
@@ -472,7 +523,7 @@ public class SettingsScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0) {
             for (Settings s : settings) {
-                if (s.type == ServerSettingType.TEXT) {
+                if (s.type == TEXT) {
                     s.focused = false;
                 }
             }
@@ -511,7 +562,7 @@ public class SettingsScreen extends Screen {
             int widgetAreaX = this.width - widgetWidth - 12;
             List<Settings> currentSettings = new ArrayList<>();
             for (Settings s : settings) {
-                if (s.tab.equals(tabs.get(currentTab))) {
+                if (s.tab.equals(tabs.get(currentTab)) && dependencySatisfied(s)) {
                     currentSettings.add(s);
                 }
             }
@@ -614,7 +665,7 @@ public class SettingsScreen extends Screen {
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         for (Settings s : settings) {
-            if (s.type == ServerSettingType.TEXT && s.focused) {
+            if (s.type == TEXT && s.focused) {
                 int widgetWidth = 180;
                 int widgetAreaX = this.width - widgetWidth - 12;
                 List<Settings> currentSettings = new ArrayList<>();
@@ -696,7 +747,7 @@ public class SettingsScreen extends Screen {
             return true;
         }
         for (Settings s : settings) {
-            if (s.type == ServerSettingType.TEXT && s.focused) {
+            if (s.type == TEXT && s.focused) {
                 boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
                 boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
                 int start = Math.min(textSelectionStart.getOrDefault(s, s.cursorPos), textSelectionEnd.getOrDefault(s, s.cursorPos));
@@ -846,7 +897,7 @@ public class SettingsScreen extends Screen {
     @Override
     public boolean charTyped(char chr, int modifiers) {
         for (Settings s : settings) {
-            if (s.type == ServerSettingType.TEXT && s.focused) {
+            if (s.type == TEXT && s.focused) {
                 int selStart = Math.min(textSelectionStart.getOrDefault(s, s.cursorPos), textSelectionEnd.getOrDefault(s, s.cursorPos));
                 int selEnd = Math.max(textSelectionStart.getOrDefault(s, s.cursorPos), textSelectionEnd.getOrDefault(s, s.cursorPos));
                 if (selStart != selEnd) {
@@ -985,7 +1036,7 @@ public class SettingsScreen extends Screen {
             String finalServerName = serverName;
             ServerFactory.createServerAsync(serverName, serverType.toLowerCase(), serverVersion.toLowerCase(), settingsRoot, ramAmount, aikarsFlags, exitCode -> {
                 if (exitCode == 0) {
-                    notification.change(finalServerName + " Created Successfully!", "Click To Open", Notification.Type.SUCCESS, () -> ServerManagerScreen.openServerScreen(settingsRoot + File.separator + finalServerName));
+                    notification.change(finalServerName + " Created Successfully!", "Click To Open", Type.SUCCESS, () -> ServerManagerScreen.openServerScreen(settingsRoot + File.separator + finalServerName));
                     String serverDir = settingsRoot + File.separator + finalServerName;
                     writeSettings(null, serverDir);
                 } else errorNotification(exitCode, notification);
@@ -1002,7 +1053,7 @@ public class SettingsScreen extends Screen {
             String remoteServersPath = remoteHome + "remotely/servers";
             String remoteServerPath = remoteServersPath + "/" + serverName;
 
-            notification = new Notification("Creating Remote Server...", "This Might Take Some Time..", Notification.Type.INFO);
+            notification = new Notification("Creating Remote Server...", "This Might Take Some Time..", Type.INFO);
             notification.loading = true;
             notification.autoSlideOut = false;
 
@@ -1020,7 +1071,7 @@ public class SettingsScreen extends Screen {
 
             String downloadURL = ServerFactory.getDownloadURL(serverType, serverVersion);
             if (downloadURL == null) {
-                notification.change("Unsupported Server Type or Version!", "Please Try Again.", Notification.Type.ERROR, null);
+                notification.change("Unsupported Server Type or Version!", "Please Try Again.", Type.ERROR, null);
                 close();
                 return;
             }
@@ -1039,14 +1090,14 @@ public class SettingsScreen extends Screen {
             if (url != null) {
                 ssh.runRemoteCommandWithOutput("cd " + remoteServerPath + " && wget -O server.jar \"" + url + "\"");
             } else {
-                notification.change("Failed To Get Download URL", "Unsupported Server Type / Version", Notification.Type.ERROR, null);
+                notification.change("Failed To Get Download URL", "Unsupported Server Type / Version", Type.ERROR, null);
                 return;
             }
-            notification.change(serverName + " Created Successfully!", "Click To Open", Notification.Type.SUCCESS, () -> ServerManagerScreen.openServerScreen(remoteServerPath));
+            notification.change(serverName + " Created Successfully!", "Click To Open", Type.SUCCESS, () -> ServerManagerScreen.openServerScreen(remoteServerPath));
 
         } catch (Exception e) {
             devPrint("Failed to create remote server: " + e.getMessage());
-            notification.change("Server Creation Failed", e.getMessage(), Notification.Type.ERROR, null);
+            notification.change("Server Creation Failed", e.getMessage(), Type.ERROR, null);
         } finally {
             close();
         }
