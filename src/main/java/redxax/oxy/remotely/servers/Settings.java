@@ -1,7 +1,6 @@
 package redxax.oxy.remotely.servers;
 
 import java.util.List;
-
 import redxax.oxy.remotely.servers.SettingsScreen.ServerSettingType;
 
 public class Settings {
@@ -20,7 +19,8 @@ public class Settings {
     public int index;
     public String dependencyKey;
     public String dependencyValue;
-    public Settings(String name, String description, String tab, String file, String key, ServerSettingType type, String defaultValue) {
+
+    private Settings(String name, String description, String tab, String file, String key, ServerSettingType type, String defaultValue) {
         this.name = name;
         this.file = file;
         this.key = key;
@@ -32,29 +32,7 @@ public class Settings {
         this.cursorPos = this.value.length();
         this.index = 0;
     }
-    public Settings(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, List<String> options) {
-        this(name, description, tab, file, key, type, defaultValue);
-        this.options = options;
-    }
-    public Settings(String name, String description, String tab, String file, String key, ServerSettingType type, String defaultValue, List<String> options) {
-        this(name, description, tab, file, key, type, defaultValue);
-        this.options = options;
-    }
-    public Settings(String name, String description, String tab, String file, String key, ServerSettingType type, String defaultValue, int min, int max) {
-        this(name, description, tab, file, key, type, defaultValue);
-        this.min = min;
-        this.max = max;
-    }
-    public Settings(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, int min, int max) {
-        this(name, description, tab, file, key, type, defaultValue);
-        this.min = min;
-        this.max = max;
-    }
-    public Settings(String name, String file, String key, ServerSettingType type, String defaultValue, String tab, String description, String dependencyKey, String dependencyValue) {
-        this(name, description, tab, file, key, type, defaultValue);
-        this.dependencyKey = dependencyKey;
-        this.dependencyValue = dependencyValue;
-    }
+
     public int getIntValue() {
         try {
             return Math.round(Float.parseFloat(value));
@@ -62,6 +40,7 @@ public class Settings {
             return min;
         }
     }
+
     public int getSelectedIndex() {
         if (options == null || options.isEmpty()) return 0;
         for (int i = 0; i < options.size(); i++) {
@@ -71,9 +50,68 @@ public class Settings {
         }
         return 0;
     }
+
     public void setOption(int newIndex) {
-        if (options == null || options.isEmpty()) return;
-        if (newIndex < 0 || newIndex >= options.size()) return;
+        if (options == null || options.isEmpty())
+            return;
+        if (newIndex < 0 || newIndex >= options.size())
+            return;
         value = options.get(newIndex);
+    }
+
+    public static class Builder {
+        private String name;
+        private String description;
+        private String tab;
+        private String file = "none";
+        private String key;
+        private ServerSettingType type;
+        private String defaultValue;
+        private List<String> options;
+        private int min = 0;
+        private int max = 100;
+        private String dependencyKey;
+        private String dependencyValue;
+
+        public Builder(String name, String description, String tab, String key, ServerSettingType type, String defaultValue) {
+            this.name = name;
+            this.description = description;
+            this.tab = tab;
+            this.key = key;
+            this.type = type;
+            this.defaultValue = defaultValue;
+        }
+
+        public Builder file(String file) {
+            this.file = file;
+            return this;
+        }
+
+        public Builder options(List<String> options) {
+            this.options = options;
+            return this;
+        }
+
+        public Builder range(int min, int max) {
+            this.min = min;
+            this.max = max;
+            return this;
+        }
+
+        public Builder dependency(String dependencyKey, String dependencyValue) {
+            this.dependencyKey = dependencyKey;
+            this.dependencyValue = dependencyValue;
+            return this;
+        }
+
+        public Settings build() {
+            Settings s = new Settings(this.name, this.description, this.tab, this.file, this.key, this.type, this.defaultValue);
+            s.options = this.options;
+            s.min = this.min;
+            s.max = this.max;
+            s.dependencyKey = this.dependencyKey;
+            s.dependencyValue = this.dependencyValue;
+            return s;
+        }
     }
 }

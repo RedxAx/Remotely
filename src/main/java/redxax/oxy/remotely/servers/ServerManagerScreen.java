@@ -14,7 +14,6 @@ import redxax.oxy.remotely.terminal.TerminalInstance;
 import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
 
 import static redxax.oxy.remotely.servers.BrowserScreen.checkIfMcefExist;
-import static redxax.oxy.remotely.servers.SettingsScreen.ServerSettingType.*;
 
 import javax.imageio.ImageIO;
 import net.minecraft.client.MinecraftClient;
@@ -41,6 +40,8 @@ import redxax.oxy.remotely.util.Sound;
 
 import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
+import static redxax.oxy.remotely.servers.SettingsScreen.defineSettings;
+import static redxax.oxy.remotely.servers.SettingsScreen.settings;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.ImageUtil.*;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;
@@ -99,7 +100,6 @@ public class ServerManagerScreen extends Screen {
     private final List<Float> iconPosX = new ArrayList<>();
     private final List<Float> iconPosY = new ArrayList<>();
     private boolean canDrag = false;
-    private final ArrayList<Settings> settings = new ArrayList<>();
     private final Screen parent;
 
     public static List<RemoteHostInfo> getRemoteHosts() {
@@ -168,37 +168,6 @@ public class ServerManagerScreen extends Screen {
             new Notification("Failed to load icons: " + e.getMessage(), Notification.Type.ERROR);
         }
     }
-
-    private void defineSettings() {
-        settings.clear();
-        settings.add(new Settings("Server Name", "The name of your server.", "General", "none", "server-name", TEXT, "My Server"));
-        settings.add(new Settings("Game Mode", "server.properties", "gamemode", TAB_SWITCH, "Survival", "General", "Select the default game mode for players.", Arrays.asList("Survival", "Creative", "Adventure")));
-        settings.add(new Settings("Difficulty", "server.properties", "difficulty", TAB_SWITCH, "Normal", "General", "Set the difficulty level of the server.", Arrays.asList("Peaceful", "Easy", "Normal", "Hard")));
-        settings.add(new Settings("End User License Agreement", "Do You Agree To Minecraft's EULA?", "General", "eula.txt", "eula", TOGGLE, "true"));
-        settings.add(new Settings("PvP", "Toggle player vs player combat.", "General", "server.properties", "pvp", TOGGLE, "true"));
-        settings.add(new Settings("Hardcore", "Toggle hardcore mode (one life).", "General", "server.properties", "hardcore", TOGGLE, "false"));
-        settings.add(new Settings("Server Type", "none", "server-type", SCROLL_SWITCH, "Paper", "General", "Choose the server software type.", Arrays.asList("Paper", "Leaf", "Vanilla", "Fabric", "Neoforge", "Forge", "Quilt", "Velocity", "Waterfall")));
-        settings.add(new Settings("Server Version", "Specify the Minecraft server version to run.", "General", "none", "server-version", TEXT, minecraftClient.getGameVersion()));
-        settings.add(new Settings("Max Players", "server.properties", "max-players", SLIDER, "20", "Advanced", "Max online players limit.", 1, 200));
-        settings.add(new Settings("MOTD", "Description for the server list.", "Advanced", "server.properties", "motd", TEXT, minecraftClient.getSession().getUsername() + "'s Server"));
-        settings.add(new Settings("Seed", "Enter a specific seed (optional).", "Advanced", "server.properties", "level-seed", TEXT, ""));
-        settings.add(new Settings("Spawn Protection", "server.properties", "spawn-protection", SLIDER, "16", "Advanced", "Set the radius of spawn protection (set 0 to disable).", 0, 32));
-        settings.add(new Settings("Max Build Height", "server.properties", "max-build-height", SLIDER, "320", "Advanced", "Set the maximum height players can build to.", 0, 2048));
-        settings.add(new Settings("Generate Structures", "Toggle whether structures are generated in the world.", "Advanced", "server.properties", "generate-structures", TOGGLE, "true"));
-        settings.add(new Settings("Port", "Set the port number on which the server will run.", "Advanced", "server.properties", "server-port", TEXT, "25565"));
-        settings.add(new Settings("Online Mode", "Authenticate with Minecraft (Secure).", "Advanced", "server.properties", "online-mode", TOGGLE, "true"));
-        settings.add(new Settings("Whitelist", "Enable or disable the server whitelist.", "Advanced", "server.properties", "white-list", TOGGLE, "false"));
-        settings.add(new Settings("Hide Online Players", "Hide online players from the server list.", "Advanced", "server.properties", "hide-online-players", TOGGLE, "false"));
-        settings.add(new Settings("Allow Nether", "Toggle whether the Nether dimension is accessible.", "Advanced", "server.properties", "allow-nether", TOGGLE, "true"));
-        settings.add(new Settings("Allow End", "Toggle whether the End dimension is accessible.", "Advanced", "bukkit.yml", "allow-end", TOGGLE, "true"));
-        settings.add(new Settings("Use Custom Java", "Use a custom Java installation (Not recommended).", "Advanced", "none", "usecustomjava", TOGGLE, "false"));
-        settings.add(new Settings("Java Version", "none", "launcher.java_version", TEXT, "", "Advanced", "Specify the Java version to use.", "usecustomjava", "true"));
-        settings.add(new Settings("View Distance", "server.properties", "view-distance", SLIDER, "8", "Performance", "Adjust the number of chunks visible to players.", 1, 64));
-        settings.add(new Settings("Simulation Distance", "server.properties", "simulation-distance", SLIDER, "8", "Performance", "Set the simulation distance (server tick radius).", 1, 64));
-        settings.add(new Settings("Memory", "Set the maximum memory allocation for the server.", "Performance", "none", "memory", TEXT, "4G"));
-        settings.add(new Settings("Aikars Flags", "Custom flags that highly optimizes server performance.", "Performance", "none", "aikars_flags", TOGGLE, "true"));
-    }
-
     public void background(DrawContext context) {
         //? if =1.20.1 {
         /*context.fill(0, 0, this.width, this.height, Config.backgroundColor);
@@ -590,7 +559,7 @@ public class ServerManagerScreen extends Screen {
                     ContextMenu.hide();
                     ContextMenu.addItem("Edit", () -> {
                         ServerInfo info = getCurrentServers().get(rect.serverIndex);
-                        minecraftClient.setScreen(new SettingsScreen(minecraftClient, "editServer", this, info.path, settings, info));
+                        minecraftClient.setScreen(new SettingsScreen("editServer", this, info.path, settings, info));
                     }, false, false, false, "Open The Server's Settings");
                     ContextMenu.addItem("Open Folder", () -> minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, getCurrentServers().get(rect.serverIndex), false)), false, false, false, "Open The Server's Folder");
                     ContextMenu.addItem("Delete", () -> {
@@ -630,7 +599,7 @@ public class ServerManagerScreen extends Screen {
             }
             xTask += iconSize + padding;
             if (mouseX >= xTask && mouseX <= xTask + iconSize) {
-                minecraftClient.setScreen(new SettingsScreen(minecraftClient, "config", this, remotelyDir.toString(), settings));
+                minecraftClient.setScreen(new SettingsScreen("config", this, remotelyDir.toString(), settings));
                 return true;
             }
         }
@@ -779,7 +748,7 @@ public class ServerManagerScreen extends Screen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_S && modifiers == GLFW.GLFW_MOD_CONTROL) {
-            minecraftClient.setScreen(new SettingsScreen(minecraftClient, "config", this, "", null));
+            minecraftClient.setScreen(new SettingsScreen("config", this, "", null));
             return true;
         }
         if ((modifiers & GLFW.GLFW_MOD_CONTROL) != 0 && keyCode == GLFW.GLFW_KEY_V) {
@@ -998,7 +967,7 @@ public class ServerManagerScreen extends Screen {
         int option3Y = option2Y + 30;
         if (button == 0) {
             if (isInsideOptionBox(mouseX, mouseY, serverTypePopupX, option1Y)) {
-                minecraftClient.setScreen(new SettingsScreen(minecraftClient, "createServer", this, Path.of(String.valueOf(remotelyDir), "servers").toString(), settings));
+                minecraftClient.setScreen(new SettingsScreen("createServer", this, Path.of(String.valueOf(remotelyDir), "servers").toString(), settings));
                 serverTypePopupActive = false;
                 editingServer = false;
                 serverNameBuffer.setLength(0);
