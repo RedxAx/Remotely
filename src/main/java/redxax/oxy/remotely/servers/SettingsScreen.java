@@ -945,7 +945,6 @@ public class SettingsScreen extends Screen {
                         originalLines = Files.readAllLines(filePath);
                     }
                     if (isYaml) {
-                        // Build nested map for YAML
                         Map<String, Object> yamlMap = new LinkedHashMap<>();
                         for (Settings st : fileGroups.get(fileName)) {
                             String[] parts = st.key.split("\\.");
@@ -953,7 +952,6 @@ public class SettingsScreen extends Screen {
                             for (int i = 0; i < parts.length - 1; i++) {
                                 current = (Map<String, Object>) current.computeIfAbsent(parts[i], k -> new LinkedHashMap<>());
                             }
-                            // Try to parse boolean/int, else string
                             Object value;
                             if (st.value.equalsIgnoreCase("true") || st.value.equalsIgnoreCase("false")) {
                                 value = Boolean.parseBoolean(st.value);
@@ -966,7 +964,6 @@ public class SettingsScreen extends Screen {
                             }
                             current.put(parts[parts.length - 1], value);
                         }
-                        // Convert map to YAML string
                         StringBuilder yamlBuilder = new StringBuilder();
                         writeYaml(yamlMap, yamlBuilder, 0);
                         Files.write(filePath, yamlBuilder.toString().getBytes());
@@ -1049,7 +1046,6 @@ public class SettingsScreen extends Screen {
         }
     }
 
-    // Helper to write nested map as YAML
     private void writeYaml(Map<String, Object> map, StringBuilder builder, int indent) {
         String indentStr = "  ".repeat(indent);
         for (Map.Entry<String, Object> entry : map.entrySet()) {
