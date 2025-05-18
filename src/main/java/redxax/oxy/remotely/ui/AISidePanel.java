@@ -72,6 +72,7 @@ public class AISidePanel {
     BufferedImage newChatIcon, deleteChatIcon, chatHistoryIcon, RemotelyAIcon;
     private float targetScrollOffset = 0;
     private float currentScrollOffset = 0;
+    private int prevMessageCount = 0;
     private static final Path CHAT_HISTORY_PATH = Path.of(remotelyDir.toString(), "data", "chat_history.json");
     private MineMarkDrawable panelMineMark;
     private String lastPanelMineMarkText;
@@ -93,6 +94,7 @@ public class AISidePanel {
         }
         loadLatestChatHistory();
         checkTokenValidity();
+        prevMessageCount = messages.size();
     }
 
     private void checkTokenValidity() {
@@ -331,8 +333,13 @@ public class AISidePanel {
         renderTopBar(context, panelX, panelY, panelWidth, mouseX, mouseY);
         int msgAreaY = panelY + topBarHeight;
         int msgAreaHeight = panelHeight - topBarHeight - 28;
-        int totalHeight = getTotalChatHeight(panelWidth - 10, mc.textRenderer);
-        int maxScroll = Math.max(0, totalHeight - msgAreaHeight) + 11;
+        int bottomMargin = 16;
+        int totalHeight = getTotalChatHeight(panelWidth - 10, mc.textRenderer) + bottomMargin;
+        int maxScroll = Math.max(0, totalHeight - msgAreaHeight);
+        if (messages.size() > prevMessageCount) {
+            targetScrollOffset = maxScroll;
+        }
+        prevMessageCount = messages.size();
 
         if (targetScrollOffset < 0) {
             targetScrollOffset = 0;
