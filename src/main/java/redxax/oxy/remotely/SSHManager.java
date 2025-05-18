@@ -917,39 +917,52 @@ public class SSHManager {
         try {
             return executorService.submit(() -> {
                 StringBuilder outputBuilder = new StringBuilder();
+                ChannelExec channelExec = null;
                 try {
-                    ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
+                    channelExec = (ChannelExec) sshSession.openChannel("exec");
                     channelExec.setCommand(sizeCommand);
                     ByteArrayOutputStream out = new ByteArrayOutputStream();
                     channelExec.setOutputStream(out);
                     channelExec.setErrStream(out);
                     channelExec.connect();
-                    InputStream in = channelExec.getInputStream();
-                    byte[] buffer = new byte[1024];
-                    int len;
-                    while (!channelExec.isClosed() || in.available() > 0) {
-                        while ((len = in.read(buffer)) != -1) {
-                            String chunk = new String(buffer, 0, len, StandardCharsets.UTF_8);
-                            outputBuilder.append(chunk);
-                            if (terminalInstance != null) {
-                                terminalInstance.appendOutput(chunk);
-                            }
-                            if (in.available() == 0 && channelExec.isClosed()) {
-                                break;
-                            }
-                        }
+                    while (!channelExec.isClosed()) {
                         Thread.sleep(50);
                     }
+
+                    String output = out.toString(StandardCharsets.UTF_8);
+                    outputBuilder.append(output);
+                    if (terminalInstance != null && !output.isEmpty()) {
+                        terminalInstance.appendOutput(output);
+                    }
                     channelExec.disconnect();
-                    return outputBuilder.toString();
                 } catch (Exception e) {
                     devPrint("Failed to run remote command: " + sizeCommand + ": " + e.getMessage());
-                    return outputBuilder.toString();
+                } finally {
+                    if (channelExec != null && channelExec.isConnected()) {
+                        channelExec.disconnect();
+                    }
                 }
+                return outputBuilder.toString();
             }).get();
         } catch (Exception e) {
             devPrint("Failed to run remote command: " + sizeCommand + ": " + e.getMessage());
             return "";
         }
+    }
+
+    public void prepareRemoteDirectorySync(String path) throws Exception {
+        if (!sftpConnected || remoteFileExists(path)) return;
+        String[] parts = path.replace("\\", "/").split("/");
+        StringBuilder current = new StringBuilder();
+        for (String p : parts) {
+            if (p.trim().isEmpty()) continue;
+            current.append("/").append(p);
+            try {
+                sftpChannel.cd(current.toString());
+            } catch (SftpException e) {
+                sftpChannel.mkdir(current.toString());
+            }
+        }
+        devPrint("Prepared remote directory (sync): " + path);
     }
 }

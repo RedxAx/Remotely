@@ -1137,9 +1137,9 @@ public class SettingsScreen extends Screen {
                 }
             }
 
-            ssh.prepareRemoteDirectory(remoteHome + "/remotely");
-            ssh.prepareRemoteDirectory(remoteServersPath);
-            ssh.prepareRemoteDirectory(remoteServerPath);
+            ssh.prepareRemoteDirectorySync(remoteHome + "/remotely");
+            ssh.prepareRemoteDirectorySync(remoteServersPath);
+            ssh.prepareRemoteDirectorySync(remoteServerPath);
 
             String downloadURL = ServerFactory.getDownloadURL(serverType, serverVersion);
             if (downloadURL == null) {
@@ -1149,7 +1149,8 @@ public class SettingsScreen extends Screen {
             }
 
             String remoteCmd = "cd " + remoteServerPath + " && " + "wget -O server.jar \"" + downloadURL + "\"";
-            ssh.runRemoteCommand(remoteCmd);
+            String output = ssh.runRemoteCommandWithOutput(remoteCmd);
+            devPrint("wget output: " + output);
             String memSettings = "-Xms" + ramAmount + "M -Xmx" + ramAmount + "M";
             String javaCommand = "java " + memSettings + " " + aikarsFlags + " -jar server.jar nogui";
             String shContent = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\n" + javaCommand;
@@ -1200,9 +1201,9 @@ public class SettingsScreen extends Screen {
                 while (!ssh.isSFTPConnected()) {
                     Thread.sleep(100);
                 }
-                ssh.prepareRemoteDirectory(remoteHome + "remotely");
-                ssh.prepareRemoteDirectory(remoteServersPath);
-                ssh.prepareRemoteDirectory(remoteServerPath);
+                ssh.prepareRemoteDirectorySync(remoteHome + "remotely");
+                ssh.prepareRemoteDirectorySync(remoteServersPath);
+                ssh.prepareRemoteDirectorySync(remoteServerPath);
 
                 if (shouldRebuild) {
                     String downloadURL = ServerFactory.getDownloadURL(serverType, serverVersion);
