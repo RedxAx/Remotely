@@ -179,7 +179,7 @@ public class SettingsScreen extends Screen {
         settings.add(new Settings.Builder("Whitelist", "Enable or disable the server whitelist.", "Advanced", "white-list", TOGGLE, "false").file("server.properties").build());
         settings.add(new Settings.Builder("Hide Online Players", "Hide online players from the server list.", "Advanced", "hide-online-players", TOGGLE, "false").file("server.properties").build());
         settings.add(new Settings.Builder("Allow Nether", "Toggle whether the Nether dimension is accessible.", "Advanced", "allow-nether", TOGGLE, "true").file("server.properties").build());
-        settings.add(new Settings.Builder("Allow End", "Toggle whether the End dimension is accessible.", "Advanced", "allow-end", TOGGLE, "true").file("bukkit.yml").dependency("server-type", "Paper").dependency("server-type", "Leaf").build());
+        settings.add(new Settings.Builder("Allow End", "Toggle whether the End dimension is accessible.", "Advanced", "settings.allow-end", TOGGLE, "true").file("bukkit.yml").dependency("server-type", "Paper", "Leaf", "Spigot", "Bukkit", "Purpur").build());
         settings.add(new Settings.Builder("Use Custom Java", "Use a custom Java installation (Not recommended).", "Advanced", "usecustomjava", TOGGLE, "false").build());
         settings.add(new Settings.Builder("Java Version", "Specify the Java version to use.", "Advanced", "launcher.java_version", TEXT, "").dependency("usecustomjava", "true").build());
         settings.add(new Settings.Builder("View Distance", "Adjust the number of chunks visible to players.", "Performance", "view-distance", SLIDER, "8").file("server.properties").range(1, 64).build());
@@ -279,13 +279,20 @@ public class SettingsScreen extends Screen {
     }
 
     private boolean dependencySatisfied(Settings s) {
-        if (s.dependencyKey == null || s.dependencyKey.isEmpty()) return true;
-        for (Settings setting : settings) {
-            if (setting.key.equals(s.dependencyKey)) {
-                return setting.value.equals(s.dependencyValue);
+        if (s.dependencies == null || s.dependencies.isEmpty()) return true;
+        for (Map.Entry<String, List<String>> entry : s.dependencies.entrySet()) {
+            String depKey = entry.getKey();
+            List<String> depValues = entry.getValue();
+            boolean found = false;
+            for (Settings setting : settings) {
+                if (setting.key.equals(depKey) && depValues.contains(setting.value)) {
+                    found = true;
+                    break;
+                }
             }
+            if (!found) return false;
         }
-        return false;
+        return true;
     }
 
     private static void updateClientConfigSetting(String key, String value) {
@@ -929,6 +936,7 @@ public class SettingsScreen extends Screen {
             }
         }
         for (String fileName : fileGroups.keySet()) {
+            boolean isYaml = fileName.endsWith(".yml") || fileName.endsWith(".yaml");
             if (manager == null) {
                 try {
                     Path filePath = Paths.get(basePath, fileName);
@@ -936,52 +944,120 @@ public class SettingsScreen extends Screen {
                     if (Files.exists(filePath)) {
                         originalLines = Files.readAllLines(filePath);
                     }
-                    Map<String, String> newSettings = new LinkedHashMap<>();
-                    for (Settings st : fileGroups.get(fileName)) {
-                        String value = st.value;
-                        if (st.key.equalsIgnoreCase("gamemode") || st.key.equalsIgnoreCase("difficulty")) {
-                            value = value.toLowerCase();
+                    if (isYaml) {
+                        // Build nested map for YAML
+                        Map<String, Object> yamlMap = new LinkedHashMap<>();
+                        for (Settings st : fileGroups.get(fileName)) {
+                            String[] parts = st.key.split("\\.");
+                            Map<String, Object> current = yamlMap;
+                            for (int i = 0; i < parts.length - 1; i++) {
+                                current = (Map<String, Object>) current.computeIfAbsent(parts[i], k -> new LinkedHashMap<>());
+                            }
+                            // Try to parse boolean/int, else string
+                            Object value;
+                            if (st.value.equalsIgnoreCase("true") || st.value.equalsIgnoreCase("false")) {
+                                value = Boolean.parseBoolean(st.value);
+                            } else {
+                                try {
+                                    value = Integer.parseInt(st.value);
+                                } catch (NumberFormatException e) {
+                                    value = st.value;
+                                }
+                            }
+                            current.put(parts[parts.length - 1], value);
                         }
-                        newSettings.put(st.key, st.key + "=" + value);
-                    }
-                    List<String> updatedLines = new ArrayList<>();
-                    Set<String> keysUpdated = new HashSet<>();
-                    for (String line : originalLines) {
-                        boolean found = false;
-                        for (String key : newSettings.keySet()) {
-                            if (line.startsWith(key + "=")) {
-                                updatedLines.add(newSettings.get(key));
-                                keysUpdated.add(key);
-                                found = true;
-                                break;
+                        // Convert map to YAML string
+                        StringBuilder yamlBuilder = new StringBuilder();
+                        writeYaml(yamlMap, yamlBuilder, 0);
+                        Files.write(filePath, yamlBuilder.toString().getBytes());
+                        devPrint("Wrote YAML settings to local file: " + filePath);
+                    } else {
+                        Map<String, String> newSettings = new LinkedHashMap<>();
+                        for (Settings st : fileGroups.get(fileName)) {
+                            String value = st.value;
+                            if (st.key.equalsIgnoreCase("gamemode") || st.key.equalsIgnoreCase("difficulty")) {
+                                value = value.toLowerCase();
+                            }
+                            newSettings.put(st.key, st.key + "=" + value);
+                        }
+                        List<String> updatedLines = new ArrayList<>();
+                        Set<String> keysUpdated = new HashSet<>();
+                        for (String line : originalLines) {
+                            boolean found = false;
+                            for (String key : newSettings.keySet()) {
+                                if (line.startsWith(key + "=")) {
+                                    updatedLines.add(newSettings.get(key));
+                                    keysUpdated.add(key);
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                updatedLines.add(line);
                             }
                         }
-                        if (!found) {
-                            updatedLines.add(line);
+                        for (String key : newSettings.keySet()) {
+                            if (!keysUpdated.contains(key)) {
+                                updatedLines.add(newSettings.get(key));
+                            }
                         }
+                        Files.write(filePath, String.join("\n", updatedLines).getBytes());
+                        devPrint("Wrote settings to local file: " + filePath);
                     }
-                    for (String key : newSettings.keySet()) {
-                        if (!keysUpdated.contains(key)) {
-                            updatedLines.add(newSettings.get(key));
-                        }
-                    }
-                    Files.write(filePath, String.join("\n", updatedLines).getBytes());
-                    devPrint("Wrote settings to local file: " + filePath);
                 } catch (Exception e) {
                     devPrint("Error writing local settings to file " + fileName + ": " + e.getMessage());
                 }
             } else {
-                List<String> lines = new ArrayList<>();
-                for (Settings st : fileGroups.get(fileName)) {
-                    if (st.key.equalsIgnoreCase("gamemode") || st.key.equalsIgnoreCase("difficulty")) {
-                        lines.add(st.key + "=" + st.value.toLowerCase());
-                    } else {
-                        if (dependencySatisfied(st) && !st.value.isEmpty())
-                            lines.add(st.key + "=" + st.value);
+                if (isYaml) {
+                    Map<String, Object> yamlMap = new LinkedHashMap<>();
+                    for (Settings st : fileGroups.get(fileName)) {
+                        String[] parts = st.key.split("\\.");
+                        Map<String, Object> current = yamlMap;
+                        for (int i = 0; i < parts.length - 1; i++) {
+                            current = (Map<String, Object>) current.computeIfAbsent(parts[i], k -> new LinkedHashMap<>());
+                        }
+                        Object value;
+                        if (st.value.equalsIgnoreCase("true") || st.value.equalsIgnoreCase("false")) {
+                            value = Boolean.parseBoolean(st.value);
+                        } else {
+                            try {
+                                value = Integer.parseInt(st.value);
+                            } catch (NumberFormatException e) {
+                                value = st.value;
+                            }
+                        }
+                        current.put(parts[parts.length - 1], value);
                     }
+                    StringBuilder yamlBuilder = new StringBuilder();
+                    writeYaml(yamlMap, yamlBuilder, 0);
+                    manager.writeRemoteFile(basePath + "/" + fileName, yamlBuilder.toString());
+                    devPrint("Wrote YAML settings to remote file: " + basePath + "/" + fileName);
+                } else {
+                    List<String> lines = new ArrayList<>();
+                    for (Settings st : fileGroups.get(fileName)) {
+                        if (st.key.equalsIgnoreCase("gamemode") || st.key.equalsIgnoreCase("difficulty")) {
+                            lines.add(st.key + "=" + st.value.toLowerCase());
+                        } else {
+                            if (dependencySatisfied(st) && !st.value.isEmpty())
+                                lines.add(st.key + "=" + st.value);
+                        }
+                    }
+                    manager.writeRemoteFile(basePath + "/" + fileName, String.join("\n", lines));
+                    devPrint("Wrote settings to remote file: " + basePath + "/" + fileName);
                 }
-                manager.writeRemoteFile(basePath + "/" + fileName, String.join("\n", lines));
-                devPrint("Wrote settings to remote file: " + basePath + "/" + fileName);
+            }
+        }
+    }
+
+    // Helper to write nested map as YAML
+    private void writeYaml(Map<String, Object> map, StringBuilder builder, int indent) {
+        String indentStr = "  ".repeat(indent);
+        for (Map.Entry<String, Object> entry : map.entrySet()) {
+            if (entry.getValue() instanceof Map<?, ?> nested) {
+                builder.append(indentStr).append(entry.getKey()).append(":\n");
+                writeYaml((Map<String, Object>) nested, builder, indent + 1);
+            } else {
+                builder.append(indentStr).append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
             }
         }
     }
