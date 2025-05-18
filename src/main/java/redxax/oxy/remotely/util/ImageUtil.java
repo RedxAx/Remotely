@@ -5,7 +5,7 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import javax.imageio.ImageIO;
 import net.minecraft.client.MinecraftClient;
 //? if >1.21.1 && !=1.21.5
-import net.minecraft.client.gl.ShaderProgramKeys;
+/*import net.minecraft.client.gl.ShaderProgramKeys;*/
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.*;
 import net.minecraft.client.texture.NativeImage;
@@ -70,7 +70,7 @@ public class ImageUtil {
 
     public static void drawBufferedImage(DrawContext context, BufferedImage image, int x, int y, int width, int height) {
         //? if <=1.21.1 {
-        /*Identifier textureId = textureCache.get(image);
+        Identifier textureId = textureCache.get(image);
         if (textureId == null) {
             int imgWidth = image.getWidth();
             int imgHeight = image.getHeight();
@@ -91,8 +91,8 @@ public class ImageUtil {
             textureCache.put(image, textureId);
         }
         context.drawTexture(textureId, x, y, 0, 0, width, height, width, height);
-        *///?} elif <=1.21.5 {
-        Identifier textureId = textureCache.get(image);
+        //?} elif <=1.21.5 {
+        /*Identifier textureId = textureCache.get(image);
         if (textureId == null) {
             int imgWidth = image.getWidth();
             int imgHeight = image.getHeight();
@@ -104,9 +104,9 @@ public class ImageUtil {
                 }
             }
             //? if =1.21.5 {
-            /*Supplier<String> textureName = () -> "redxax.oxy:image_" + image.hashCode();
+            /^Supplier<String> textureName = () -> "redxax.oxy:image_" + image.hashCode();
             NativeImageBackedTexture texture = new NativeImageBackedTexture(textureName, nativeImage);
-            *///?} else {
+            ^///?} else {
              NativeImageBackedTexture texture = new NativeImageBackedTexture(nativeImage);
             //?}
             textureId = Identifier.tryParse("redxax.oxy:image_" + image.hashCode());
@@ -114,12 +114,12 @@ public class ImageUtil {
             textureCache.put(image, textureId);
         }
         context.drawTexture(RenderLayer::getGuiTextured, textureId, x, y, 0F, 0F, width, height, width, height);
-        //?}
+        *///?}
     }
 
     public static void drawPixelArt(DrawContext context, int x, int y, int width, int height, BufferedImage image) {
         //? if <=1.21.1 {
-        /*Identifier textureId = textureCache.get(image);
+        Identifier textureId = textureCache.get(image);
         if (textureId == null) {
             BufferedImage scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g2d = scaledImage.createGraphics();
@@ -142,8 +142,8 @@ public class ImageUtil {
             textureCache.put(image, textureId);
         }
         context.drawTexture(textureId, x, y, 0, 0, width, height, width, height);
-        *///?} elif <=1.21.4 {
-        Identifier textureId = textureCache.get(image);
+        //?} elif <=1.21.4 {
+        /*Identifier textureId = textureCache.get(image);
         if (textureId == null) {
             BufferedImage scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g2d = scaledImage.createGraphics();
@@ -162,32 +162,31 @@ public class ImageUtil {
             textureCache.put(image, textureId);
         }
         context.drawTexture(RenderLayer::getGuiTextured, textureId, x, y, 0F, 0F, width, height, width, height);
-        //?}
+        *///?}
     }
 
     public static void warpedDrawGuiTexture(DrawContext context, int x, int y, Identifier icon, int iconWidth, int iconHeight) {
         //? if <=1.21.1 && !=1.20.1 {
-        /*context.drawTexture(icon, x, y, iconWidth, iconHeight, 0, 0, iconWidth, iconHeight, iconWidth, iconHeight);
-         *///?} elif >1.21.1 {
-        context.drawGuiTexture(RenderLayer::getGuiTextured, icon, x, y, iconWidth, iconHeight);
-        //?}
+        context.drawTexture(icon, x, y, iconWidth, iconHeight, 0, 0, iconWidth, iconHeight, iconWidth, iconHeight);
+         //?} elif >1.21.1 {
+        /*context.drawGuiTexture(RenderLayer::getGuiTextured, icon, x, y, iconWidth, iconHeight);
+        *///?}
     }
 
     public static void drawBrowser(MCEFBrowser currentBrowser, boolean fullscreen,
                                    int width, int height, int TOP_OFFSET, int BROWSER_DRAW_OFFSET) {
         //? if <=1.21.1 {
-        /*if (fullscreen) {
+        if (fullscreen) {
             RenderSystem.disableDepthTest();
             RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
             RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
             Tessellator t = Tessellator.getInstance();
-            BufferBuilder buffer = t.getBuffer();
-            buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
-            buffer.vertex(0, height, 0).texture(0.0f, 1.0f).color(255,255,255,255).next();
-            buffer.vertex(width, height, 0).texture(1.0f, 1.0f).color(255,255,255,255).next();
-            buffer.vertex(width, 0, 0).texture(1.0f, 0.0f).color(255,255,255,255).next();
-            buffer.vertex(0, 0, 0).texture(0.0f, 0.0f).color(255,255,255,255).next();
-            t.draw();
+            BufferBuilder buffer = t.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
+            buffer.vertex(0, height, 0).texture(0.0f, 1.0f).color(255,255,255,255);
+            buffer.vertex(width, height, 0).texture(1.0f, 1.0f).color(255,255,255,255);
+            buffer.vertex(width, 0, 0).texture(1.0f, 0.0f).color(255,255,255,255);
+            buffer.vertex(0, 0, 0).texture(0.0f, 0.0f).color(255,255,255,255);
+            BufferRenderer.drawWithGlobalProgram(buffer.end());
             RenderSystem.setShaderTexture(0, 0);
             RenderSystem.enableDepthTest();
         } else {
@@ -195,18 +194,17 @@ public class ImageUtil {
             RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
             RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
             Tessellator t = Tessellator.getInstance();
-            BufferBuilder buffer = t.getBuffer();
-            buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
-            buffer.vertex(BROWSER_DRAW_OFFSET, height - BROWSER_DRAW_OFFSET, 0).texture(0.0f, 1.0f).color(255, 255, 255, 255).next();
-            buffer.vertex(width - BROWSER_DRAW_OFFSET, height - BROWSER_DRAW_OFFSET, 0).texture(1.0f, 1.0f).color(255, 255, 255, 255).next();
-            buffer.vertex(width - BROWSER_DRAW_OFFSET, TOP_OFFSET, 0).texture(1.0f, 0.0f).color(255, 255, 255, 255).next();
-            buffer.vertex(BROWSER_DRAW_OFFSET, TOP_OFFSET, 0).texture(0.0f, 0.0f).color(255, 255, 255, 255).next();
-            t.draw();
+            BufferBuilder buffer = t.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
+            buffer.vertex(BROWSER_DRAW_OFFSET, height - BROWSER_DRAW_OFFSET, 0).texture(0.0f, 1.0f).color(255, 255, 255, 255);
+            buffer.vertex(width - BROWSER_DRAW_OFFSET, height - BROWSER_DRAW_OFFSET, 0).texture(1.0f, 1.0f).color(255, 255, 255, 255);
+            buffer.vertex(width - BROWSER_DRAW_OFFSET, TOP_OFFSET, 0).texture(1.0f, 0.0f).color(255, 255, 255, 255);
+            buffer.vertex(BROWSER_DRAW_OFFSET, TOP_OFFSET, 0).texture(0.0f, 0.0f).color(255, 255, 255, 255);
+            BufferRenderer.drawWithGlobalProgram(buffer.end());
             RenderSystem.setShaderTexture(0, 0);
             RenderSystem.enableDepthTest();
         }
-        *///?} elif <=1.21.4 {
-        if (fullscreen) {
+        //?} elif <=1.21.4 {
+        /*if (fullscreen) {
             RenderSystem.disableDepthTest();
             RenderSystem.setShader(ShaderProgramKeys.POSITION_TEX_COLOR);
             RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
@@ -233,6 +231,6 @@ public class ImageUtil {
             RenderSystem.setShaderTexture(0, 0);
             RenderSystem.enableDepthTest();
         }
-        //?}
+        *///?}
     }
 }
