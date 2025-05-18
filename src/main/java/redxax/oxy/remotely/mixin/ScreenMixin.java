@@ -7,6 +7,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import redxax.oxy.remotely.MouseCursor;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.terminal.ReverseProxyManager;
 import redxax.oxy.remotely.util.CursorUtils;
@@ -24,7 +25,10 @@ public class ScreenMixin {
 
     @Inject(method = "render", at = @At("TAIL"))
     private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
-        if (!((Object)this instanceof TitleScreen)) Config.tickTime();
+        if (!((Object)this instanceof TitleScreen)) {
+            Config.tickTime();
+            MouseCursor.updateAndRender(context, mouseX, mouseY);
+        }
         Config.globalCursorAnimatedColor = CursorUtils.blendColor();
         for (Notification notification : Notification.getActiveNotifications()) {
             notification.update();
@@ -65,5 +69,10 @@ public class ScreenMixin {
         } else if (keyCode == GLFW.GLFW_KEY_P && all) {
             ReverseProxyManager.listActivePorts();
         }
+    }
+
+    @Inject(method = "onDisplayed", at = @At("HEAD"))
+    private void onDisplayed(CallbackInfo ci) {
+        MouseCursor.reset();
     }
 }

@@ -122,6 +122,7 @@ public class SettingsScreen extends Screen {
         settings.clear();
         settings.add(new Settings.Builder("Theme", "Select and apply a theme on startup.", "Appearance", "theme", SCROLL_SWITCH, getCurrentTheme()).options(themeOptions).build());
         settings.add(new Settings.Builder("Menus Buttons Style", "Choose The Style of The Buttons In The Menus.", "Appearance", "mainMenuButtonsStyle", TAB_SWITCH, (mainMenuStyle.equals("Vanilla") ? "Vanilla" : mainMenuStyle.equals("Minimal") ? "Minimal" : mainMenuStyle.equals("Normal") ? "Normal" : "Disable")).options(Arrays.asList("Vanilla", "Minimal", "Normal", "Disable")).build());
+        settings.add(new Settings.Builder("Custom Mouse Cursor", "Remotely's 2 Cute Little Squares.", "Appearance", "customMouse", TOGGLE, String.valueOf(customMouse)).build());
         settings.add(new Settings.Builder("Redesign Minecraft Buttons", "Enable The New Button Design.", "Appearance", "redesignMainMenu", TOGGLE, String.valueOf(redesignMainMenu)).build());
         settings.add(new Settings.Builder("Show Minecraft Background", "Display The Minecraft Panorama As The Background.", "Appearance", "background", TOGGLE, String.valueOf(background)).build());
         settings.add(new Settings.Builder("Show Wallpaper", "Display Your PC Wallpaper As The Background.", "Appearance", "wallpaper", TOGGLE, String.valueOf(wallpaper)).build());
@@ -312,6 +313,7 @@ public class SettingsScreen extends Screen {
         if (!updated) {
             switch (key) {
                 case "background" -> background = Boolean.parseBoolean(value);
+                case "customMouse" -> customMouse = Boolean.parseBoolean(value);
                 case "redesignMainMenu" -> redesignMainMenu = Boolean.parseBoolean(value);
                 case "wallpaper" -> wallpaper = Boolean.parseBoolean(value);
                 case "shadow" -> shadow = Boolean.parseBoolean(value);
