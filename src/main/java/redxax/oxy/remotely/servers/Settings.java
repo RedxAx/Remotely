@@ -1,6 +1,9 @@
 package redxax.oxy.remotely.servers;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import redxax.oxy.remotely.servers.SettingsScreen.ServerSettingType;
 
 public class Settings {
@@ -19,6 +22,7 @@ public class Settings {
     public int index;
     public String dependencyKey;
     public String dependencyValue;
+    public Map<String, List<String>> dependencies;
 
     private Settings(String name, String description, String tab, String file, String key, ServerSettingType type, String defaultValue) {
         this.name = name;
@@ -31,6 +35,7 @@ public class Settings {
         this.focused = false;
         this.cursorPos = this.value.length();
         this.index = 0;
+        this.dependencies = new HashMap<>();
     }
 
     public int getIntValue() {
@@ -72,6 +77,7 @@ public class Settings {
         private int max = 100;
         private String dependencyKey;
         private String dependencyValue;
+        private Map<String, List<String>> dependencies = new HashMap<>();
 
         public Builder(String name, String description, String tab, String key, ServerSettingType type, String defaultValue) {
             this.name = name;
@@ -98,9 +104,13 @@ public class Settings {
             return this;
         }
 
-        public Builder dependency(String dependencyKey, String dependencyValue) {
-            this.dependencyKey = dependencyKey;
-            this.dependencyValue = dependencyValue;
+        public Builder dependency(String dependencyKey, String... dependencyValues) {
+            this.dependencies.computeIfAbsent(dependencyKey, k -> new ArrayList<>());
+            for (String v : dependencyValues) {
+                if (!this.dependencies.get(dependencyKey).contains(v)) {
+                    this.dependencies.get(dependencyKey).add(v);
+                }
+            }
             return this;
         }
 
@@ -111,6 +121,7 @@ public class Settings {
             s.max = this.max;
             s.dependencyKey = this.dependencyKey;
             s.dependencyValue = this.dependencyValue;
+            s.dependencies = this.dependencies;
             return s;
         }
     }
