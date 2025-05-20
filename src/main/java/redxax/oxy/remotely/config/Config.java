@@ -33,6 +33,9 @@ public class Config {
     public static String mainMenuStyle = "Minimal";
     public static boolean redesignMainMenu = false;
     public static boolean customMouse = false;
+    public static float mouseSize = 12f;
+    public static float tailSize = 7f;
+    public static float tailFollowSpeed = 10f;
     public static boolean tabCloseButtons = false;
     public static boolean scanServers = true;
     public static long lastFrameTime = System.nanoTime();

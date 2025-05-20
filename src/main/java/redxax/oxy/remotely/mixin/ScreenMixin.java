@@ -73,6 +73,6 @@ public class ScreenMixin {
 
     @Inject(method = "onDisplayed", at = @At("HEAD"))
     private void onDisplayed(CallbackInfo ci) {
-        MouseCursor.reset();
+        MouseCursor.reset(false);
     }
 }
