@@ -123,6 +123,9 @@ public class SettingsScreen extends Screen {
         settings.add(new Settings.Builder("Theme", "Select and apply a theme on startup.", "Appearance", "theme", SCROLL_SWITCH, getCurrentTheme()).options(themeOptions).build());
         settings.add(new Settings.Builder("Menus Buttons Style", "Choose The Style of The Buttons In The Menus.", "Appearance", "mainMenuButtonsStyle", TAB_SWITCH, (mainMenuStyle.equals("Vanilla") ? "Vanilla" : mainMenuStyle.equals("Minimal") ? "Minimal" : mainMenuStyle.equals("Normal") ? "Normal" : "Disable")).options(Arrays.asList("Vanilla", "Minimal", "Normal", "Disable")).build());
         settings.add(new Settings.Builder("Custom Mouse Cursor", "Remotely's 2 Cute Little Squares.", "Appearance", "customMouse", TOGGLE, String.valueOf(customMouse)).build());
+        settings.add(new Settings.Builder("Mouse Size", "Set The Size of The Custom Mouse Cursor.", "Appearance", "mouseSize", SLIDER, String.valueOf(mouseSize)).range(1, 100).dependency("customMouse", "true").build());
+        settings.add(new Settings.Builder("Mouse Tail Size", "Set The Size of The Custom Mouse Tail.", "Appearance", "tailSize", SLIDER, String.valueOf(tailSize)).range(1, 100).dependency("customMouse", "true").build());
+        settings.add(new Settings.Builder("Mouse Tail Speed", "Set The Speed of The Mouse Tail Following The Cursor.", "Appearance", "tailFollowSpeed", SLIDER, String.valueOf(tailFollowSpeed)).range(1, 100).dependency("customMouse", "true").build());
         settings.add(new Settings.Builder("Redesign Minecraft Buttons", "Enable The New Button Design.", "Appearance", "redesignMainMenu", TOGGLE, String.valueOf(redesignMainMenu)).build());
         settings.add(new Settings.Builder("Show Minecraft Background", "Display The Minecraft Panorama As The Background.", "Appearance", "background", TOGGLE, String.valueOf(background)).build());
         settings.add(new Settings.Builder("Show Wallpaper", "Display Your PC Wallpaper As The Background.", "Appearance", "wallpaper", TOGGLE, String.valueOf(wallpaper)).build());
@@ -331,6 +334,9 @@ public class SettingsScreen extends Screen {
                 case "pitchVariation" -> Sound.pitchVariation = Integer.parseInt(value);
                 case "isDev" -> isDev = Boolean.parseBoolean(value);
                 case "enableDebugTools" -> enableDebugTools = Boolean.parseBoolean(value);
+                case "mouseSize" -> mouseSize = Integer.parseInt(value);
+                case "tailSize" -> tailSize = Integer.parseInt(value);
+                case "tailFollowSpeed" -> tailFollowSpeed = Integer.parseInt(value);
                 case "theme" -> {
                     if (INSTANCE != null) {
                         for (MultiTerminalScreen.Theme theme : themes) {
