@@ -831,7 +831,10 @@ public class Render {
             int textW = mc.textRenderer.getWidth(s);
             float textX = offsetX - textW / 2f;
             float textY = (y + (h - mc.textRenderer.fontHeight) / 2f) + 1;
-            context.drawText(mc.textRenderer, Text.literal(s), (int) textX, (int) textY, Config.globalTextColor, Config.shadow);
+            int current = Math.round(scrollIndex) % options.size();
+            if (current < 0) current += options.size();
+            int textColor = getTextColor(id + i, hovered, i == current && hovered, i == current, false, false, false);
+            context.drawText(mc.textRenderer, Text.literal(s), (int) textX, (int) textY, textColor, Config.shadow);
         }
         context.disableScissor();
         context.getMatrices().pop();
