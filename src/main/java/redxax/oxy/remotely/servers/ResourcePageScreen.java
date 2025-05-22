@@ -38,7 +38,6 @@ public class ResourcePageScreen extends Screen {
     private final MinecraftClient minecraftClient;
     private final PluginModManagerScreen parentScreen;
     private final IRemotelyResource resource;
-    private boolean isLoadingMarkdown = true;
     private float descScrollOffset = 0;
     private float descTargetScrollOffset = 0;
     private float versionsScrollOffset = 0;
@@ -137,7 +136,7 @@ public class ResourcePageScreen extends Screen {
                     devPrint("Failed to load markdown: " + ex.getMessage());
                 }
             }
-            isLoadingMarkdown = false;
+            loading = false;
             minecraftClient.execute(() -> {});
         }).start();
     }
@@ -434,8 +433,7 @@ public class ResourcePageScreen extends Screen {
         int contentX = 5;
         int contentWidth = this.width - 10;
         if (getCurrentTabType() == TabType.DESCRIPTION) {
-            if (isLoadingMarkdown) {
-                drawLoading(context, this.height, this.width);
+            if (loading) {
                 return;
             }
             descScrollOffset += (descTargetScrollOffset - descScrollOffset) * globalScrollSpeed * deltaTime;

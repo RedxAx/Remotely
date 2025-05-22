@@ -60,7 +60,6 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
     );
     private final ExecutorService directoryLoader = Executors.newSingleThreadExecutor();
     private static final Map<String, List<EntryData>> remoteCache = new ConcurrentHashMap<>();
-    private boolean loading = false;
     public static BufferedImage fileIcon;
     public static BufferedImage folderIcon;
     public static BufferedImage pinIcon;
@@ -401,7 +400,6 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
             context.drawText(this.textRenderer, Text.literal("Size"), sizeX, headerY + 5, globalTextColor, Config.shadow);
         }
         if (loading && currentTab.tabData.isRemote) {
-            drawLoading(context, this.height, this.width);
             return;
         }
         currentTab.tabData.smoothOffset += (currentTab.tabData.targetOffset - currentTab.tabData.smoothOffset) * globalScrollSpeed * deltaTime;

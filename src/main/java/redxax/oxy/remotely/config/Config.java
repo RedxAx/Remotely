@@ -41,6 +41,7 @@ public class Config {
     public static long lastFrameTime = System.nanoTime();
 
     public static boolean aiMode = false;
+    public static boolean loading = false;
 
 
     public static int elementBackgroundColor = 0xFF2C2C2C;

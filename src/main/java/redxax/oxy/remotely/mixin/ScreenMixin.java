@@ -3,6 +3,8 @@ package redxax.oxy.remotely.mixin;
 import net.minecraft.client.gui.screen.TitleScreen;
 import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -10,6 +12,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import redxax.oxy.remotely.MouseCursor;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.terminal.ReverseProxyManager;
+import redxax.oxy.remotely.ui.LoadingAnimation;
 import redxax.oxy.remotely.util.CursorUtils;
 import redxax.oxy.remotely.util.Notification;
 import static redxax.oxy.remotely.config.Config.*;
@@ -22,6 +25,9 @@ import redxax.oxy.remotely.util.Sound;
 @Mixin(value = Screen.class)
 public class ScreenMixin {
 
+    @Shadow public int width;
+    @Shadow public int height;
+
 
     @Inject(method = "render", at = @At("TAIL"))
     private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
@@ -30,6 +36,10 @@ public class ScreenMixin {
             MouseCursor.updateAndRender(context, mouseX, mouseY);
         }
         Config.globalCursorAnimatedColor = CursorUtils.blendColor();
+        context.getMatrices().push();
+        context.getMatrices().translate(0, 0, 500);
+        LoadingAnimation.render(context, width, height, mouseX, mouseY);
+        context.getMatrices().pop();
         for (Notification notification : Notification.getActiveNotifications()) {
             notification.update();
             context.getMatrices().push();
