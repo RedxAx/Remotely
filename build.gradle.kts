@@ -51,10 +51,7 @@ dependencies {
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     implementation("com.jcraft:jsch:0.1.55")
     implementation("com.vladsch.flexmark:flexmark:0.62.2")
-    implementation("org.jsoup:jsoup:1.15.3")
     implementation("org.jline:jline:3.1.3")
-    implementation("org.fusesource.jansi:jansi:1.8")
-    implementation("com.fifesoft:rsyntaxtextarea:3.6.0")
     modImplementation("dev.dediamondpro:minemark-minecraft-" + mineMarkVer + "-" + loader + (if (loader == "neoforge" && minecraft == "1.20.4") ":1.2.3" else ":1.3.1"))
     implementation("dev.dediamondpro:minemark-core:1.3.1")
     modCompileOnly("com.cinemamod:mcef:2.1.6-$mcefVer")
@@ -62,11 +59,7 @@ dependencies {
 
     shadow("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     shadow("com.jcraft:jsch:0.1.55")
-    shadow("com.vladsch.flexmark:flexmark:0.62.2")
-    shadow("org.jsoup:jsoup:1.15.3")
     shadow("org.jline:jline:3.1.3")
-    shadow("org.fusesource.jansi:jansi:1.8")
-    shadow("com.fifesoft:rsyntaxtextarea:3.6.0")
     shadow("dev.dediamondpro:minemark-core:1.3.1")
     shadow("dev.dediamondpro:minemark-minecraft-" + mineMarkVer + "-" + loader + (if (loader == "neoforge" && minecraft == "1.20.4") ":1.2.3" else ":1.3.1"))
     if (loader == "fabric") {
