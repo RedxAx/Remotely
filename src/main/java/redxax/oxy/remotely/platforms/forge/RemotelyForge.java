@@ -1,4 +1,4 @@
-//? !neoforge && !fabric {
+//? !neoforge || !fabric {
 /*package redxax.oxy.remotely.platforms.forge;
 
 import redxax.oxy.remotely.RemotelyInit;

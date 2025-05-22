@@ -155,11 +155,12 @@ public class SettingsScreen extends Screen {
 
         settings.add(new Settings.Builder("Scan For Servers", "Scan For Servers In The Default Remotely Directory.", "Servers", "scanServers", TOGGLE, String.valueOf(scanServers)).build());
         settings.add(new Settings.Builder("Use Custom Reverse Proxy", "Replace The Default Server With Your Own.", "Servers", "customReverseProxy", TOGGLE, String.valueOf(customReverseProxy)).build());
-        settings.add(new Settings.Builder("Reverse Proxy Host", "Enter The Host To Your Server (e.g. `RedxAx.net`)", "Servers", "proxyHost", TEXT, String.valueOf(proxyHost)).build());
-        settings.add(new Settings.Builder("Reverse Proxy User", "Enter The User Of Your Proxy Server (e.g. `tunnel`)", "Servers", "proxyUser", TEXT, String.valueOf(proxyUser)).build());
+        settings.add(new Settings.Builder("Reverse Proxy Host", "Enter The Host To Your Server.", "Servers", "proxyHost", TEXT, String.valueOf(proxyHost)).build());
+        settings.add(new Settings.Builder("Reverse Proxy User", "Enter The User Of Your Proxy Server.", "Servers", "proxyUser", TEXT, String.valueOf(proxyUser)).build());
 
         settings.add(new Settings.Builder("Developer Mode", "Enable Developer Mode.", "Development", "isDev", TOGGLE, String.valueOf(isDev)).build());
         settings.add(new Settings.Builder("Enable Debug Tools", "Enable Visual Tools For Debugging.", "Development", "enableDebugTools", TOGGLE, String.valueOf(enableDebugTools)).build());
+        settings.add(new Settings.Builder("Show IP Address", "Don't Obfuscate (§k127.0.0.1§r) Your IP.", "Development", "showIp", TOGGLE, String.valueOf(showIp)).build());
     }
 
     public static void defineSettings() {
@@ -334,6 +335,7 @@ public class SettingsScreen extends Screen {
                 case "pitchVariation" -> Sound.pitchVariation = Integer.parseInt(value);
                 case "isDev" -> isDev = Boolean.parseBoolean(value);
                 case "enableDebugTools" -> enableDebugTools = Boolean.parseBoolean(value);
+                case "showIp" -> showIp = Boolean.parseBoolean(value);
                 case "mouseSize" -> mouseSize = Integer.parseInt(value);
                 case "tailSize" -> tailSize = Integer.parseInt(value);
                 case "tailFollowSpeed" -> tailFollowSpeed = Integer.parseInt(value);
