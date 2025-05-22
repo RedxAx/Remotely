@@ -42,7 +42,7 @@ public class Config {
 
     public static boolean aiMode = false;
     public static boolean loading = false;
-
+    public static boolean showIp = true;
 
     public static int elementBackgroundColor = 0xFF2C2C2C;
     public static int elementBorderColor = 0xFF444444;

@@ -36,6 +36,7 @@ public class TerminalRenderer {
     public int scrollOffset = 0;
     private static final Pattern TMUX_STATUS_PATTERN = Pattern.compile(".*\\d{1,2}:\\d{2}\\s\\d{2}-[A-Za-z]{3}-\\d{2}.*");
     private final Pattern BRACKET_KEYWORD_PATTERN = Pattern.compile("\\[(.*?)\\b(WARNING|WARN|ERROR|INFO)\\b(.*?)]");
+    private static final Pattern IP_PATTERN = Pattern.compile("(?<![\\w:])((?:\\d{1,3}\\.){3}\\d{1,3})(?![\\w:])");
     private boolean isSelecting = false;
     private int selectionStartLine = -1;
     private int selectionStartChar = -1;
@@ -161,7 +162,7 @@ public class TerminalRenderer {
         int wrapWidth = terminalWidth - 10;
         for (String rawLine : lines) {
             if (rawLine.isEmpty()) continue;
-            String line = rawLine.replace("\0", "");
+            String line = obfuscateIps(rawLine.replace("\0", ""));
             String trimmed = line.trim();
             if (trimmed.equals(">")) continue;
             String plain = removeAllAnsiSequences(line);
@@ -415,24 +416,24 @@ public class TerminalRenderer {
                     case CRASHED -> serverStatus = "Crashed";
                     default -> serverStatus = "Unknown";
                 }
-                leftStatus = "Remotely - 2.0.0 | " + sInfo.name + " - " + serverStatus;
+                leftStatus = obfuscateIps("Remotely - 2.0.0 | " + sInfo.name + " - " + serverStatus);
                 if (sInfo.remoteHost != null && sInfo.remoteSSHManager != null && sInfo.isRemote) {
                     boolean connected = sInfo.remoteSSHManager.isSSH();
-                    rightStatus = connected ? sInfo.remoteHost.name + " - Connected" : sInfo.remoteHost.name + ": Disconnected";
+                    rightStatus = obfuscateIps(connected ? sInfo.remoteHost.name + " - Connected" : sInfo.remoteHost.name + ": Disconnected");
                 } else {
-                    rightStatus = "Local Host | " + new Date();
+                    rightStatus = obfuscateIps("Local Host | " + new Date());
                 }
             } else {
-                leftStatus = "Remotely - 2.0.0 | DevBuild4 19/4/2025";
-                rightStatus = new Date().toString();
+                leftStatus = obfuscateIps("Remotely - 2.0.0 | DevBuild4 19/4/2025");
+                rightStatus = obfuscateIps(new Date().toString());
             }
         } else {
             int idx = tmuxStatusLine.indexOf("     ");
             if (idx != -1) {
-                leftStatus = tmuxStatusLine.substring(0, idx).trim();
-                rightStatus = tmuxStatusLine.substring(idx).trim();
+                leftStatus = obfuscateIps(tmuxStatusLine.substring(0, idx).trim());
+                rightStatus = obfuscateIps(tmuxStatusLine.substring(idx).trim());
             } else {
-                leftStatus = tmuxStatusLine;
+                leftStatus = obfuscateIps(tmuxStatusLine);
                 rightStatus = "";
             }
         }
@@ -645,6 +646,19 @@ public class TerminalRenderer {
             return true;
         }
         return false;
+    }
+
+    private static String obfuscateIps(String input) {
+        if (showIp) return input;
+        Matcher matcher = IP_PATTERN.matcher(input);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String ip = matcher.group(1);
+            String obfuscated = "§k" + ip + "§r";
+            matcher.appendReplacement(sb, obfuscated);
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
     }
 
     private static class StyleTextPair {
