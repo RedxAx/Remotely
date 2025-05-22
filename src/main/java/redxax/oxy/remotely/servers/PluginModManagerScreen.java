@@ -58,7 +58,6 @@ public class PluginModManagerScreen extends Screen {
     private final int entryHeight = 40;
     private final int gapBetweenEntries = 2;
     private int selectedIndex = -1;
-    private volatile boolean isLoading = false;
     private volatile boolean isLoadingMore = false;
     private boolean hasMore = false;
     private int loadedCount = 0;
@@ -407,8 +406,7 @@ public class PluginModManagerScreen extends Screen {
         drawOuterBorder(context, contentX, contentY - 25, contentWidth, 25, innerBackgroundColor);
         context.drawText(textRenderer, Text.literal("Name"), contentX + 10, contentY - 18, globalTextColor, Config.shadow);
         context.enableScissor(contentX - 1, contentY, contentX + contentWidth + 1, contentY + contentHeight);
-        if (isLoading && resources.isEmpty()) {
-            drawLoading(context, super.height, super.width);
+        if (loading && resources.isEmpty()) {
             context.disableScissor();
             return;
         }
@@ -483,7 +481,7 @@ public class PluginModManagerScreen extends Screen {
     }
 
     private void loadMoreIfNeeded() {
-        if (!hasMore || isLoadingMore || isLoading) return;
+        if (!hasMore || isLoadingMore || loading) return;
         if (smoothOffset + (this.height - 70) >= resources.size() * (entryHeight + gapBetweenEntries) - (entryHeight + gapBetweenEntries)) {
             isLoadingMore = true;
             loadedCount += 30;
@@ -507,7 +505,7 @@ public class PluginModManagerScreen extends Screen {
             }
             return;
         }
-        isLoading = true;
+        loading = true;
         CompletableFuture<List<IRemotelyResource>> searchFuture;
         String serverVersion = serverInfo.getVersion();
         int limit = 30;
@@ -546,7 +544,7 @@ public class PluginModManagerScreen extends Screen {
                 resources.addAll(uniqueResources);
             }
             resourceCache.put(cacheKey, new ArrayList<>(uniqueResources));
-            isLoading = false;
+            loading = false;
             isLoadingMore = false;
             uniqueResources.forEach(resource -> {
                 if (!resource.getIconUrl().isEmpty() && !iconImages.containsKey(resource.getIconUrl())) {
@@ -555,7 +553,7 @@ public class PluginModManagerScreen extends Screen {
             });
         }).exceptionally(e -> {
             devPrint("Failed to load resources: " + e.getMessage());
-            isLoading = false;
+            loading = false;
             isLoadingMore = false;
             return null;
         });

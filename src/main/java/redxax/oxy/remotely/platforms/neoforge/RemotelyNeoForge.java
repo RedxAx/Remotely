@@ -24,10 +24,10 @@ public class RemotelyNeoForge {
                 //? if <1.21 {
                 /^ConfigScreenHandler.ConfigScreenFactory.class,
                 () -> new ConfigScreenHandler.ConfigScreenFactory(
-                        ((client, parent) -> new SettingsScreen(MinecraftClient.getInstance(), "config", parent, remotelyDir.toString(), SettingsScreen.settings)
+                        ((client, parent) -> new SettingsScreen("config", parent, remotelyDir.toString(), SettingsScreen.settings)
                 )
                 ^///?} else {
-                IConfigScreenFactory.class, () -> (client, parent) -> new SettingsScreen(MinecraftClient.getInstance(), "config", parent, remotelyDir.toString(), SettingsScreen.settings)
+                IConfigScreenFactory.class, () -> (client, parent) -> new SettingsScreen("config", parent, remotelyDir.toString(), SettingsScreen.settings)
                 //?}
         );
 	}
