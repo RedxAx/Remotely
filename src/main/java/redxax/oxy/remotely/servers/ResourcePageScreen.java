@@ -4,7 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import dev.dediamondpro.minemark.minecraft.MineMarkDrawable;
+import redxax.oxy.remotely.renderer.MarkdownRenderer;
 import org.lwjgl.glfw.GLFW;
 import org.xml.sax.SAXException;
 import redxax.oxy.remotely.Render;
@@ -49,7 +49,7 @@ public class ResourcePageScreen extends Screen {
     private static ServerInfo serverInfo;
     private boolean isDownloadingMrpack = false;
     private IconWithTooltip closeIcon, siteIcon, downloadIcon;
-    private MineMarkDrawable mineMarkDrawable;
+    private MarkdownRenderer markdownRenderer;
 
     public ResourcePageScreen(MinecraftClient mc, PluginModManagerScreen parent, IRemotelyResource resource, ServerInfo serverInfo) {
         super(Text.literal(resource.getName()));
@@ -128,13 +128,9 @@ public class ResourcePageScreen extends Screen {
                 markdownContent = resource.getDescription();
             }
             try {
-                mineMarkDrawable = new MineMarkDrawable(markdownContent);
+                markdownRenderer = new MarkdownRenderer(markdownContent);
             } catch (Exception e) {
-                try {
-                    mineMarkDrawable = new MineMarkDrawable(resource.getDescription());
-                } catch (IOException | SAXException ex) {
-                    devPrint("Failed to load markdown: " + ex.getMessage());
-                }
+                markdownRenderer = new MarkdownRenderer(resource.getDescription());
             }
             loading = false;
             minecraftClient.execute(() -> {});
@@ -281,9 +277,9 @@ public class ResourcePageScreen extends Screen {
         int contentY = headerHeight + tabAreaHeight + 10;
         int contentHeight = this.height - contentY - 5;
         if (mouseY >= contentY && mouseY <= contentY + contentHeight) {
-            if (getCurrentTabType() == TabType.DESCRIPTION && mineMarkDrawable != null) {
+            if (getCurrentTabType() == TabType.DESCRIPTION && markdownRenderer != null) {
                 descTargetScrollOffset -= (float) (verticalAmount * 30);
-                int totalMarkdownHeight = (int) mineMarkDrawable.getHeight();
+                int totalMarkdownHeight = (int) markdownRenderer.getHeight();
                 int max = Math.max(0, totalMarkdownHeight + 20 - contentHeight);
                 descTargetScrollOffset = Math.max(0, Math.min(descTargetScrollOffset, max));
             } else if (getCurrentTabType() == TabType.VERSIONS) {
@@ -301,7 +297,7 @@ public class ResourcePageScreen extends Screen {
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         if (getCurrentTabType() == TabType.DESCRIPTION) {
-            if (ScrollBar.handleMouseDragged(this, (int) mouseY, mineMarkDrawable != null ? (int) (mineMarkDrawable.getHeight() + 20f) : 0)) {
+            if (ScrollBar.handleMouseDragged(this, (int) mouseY, markdownRenderer != null ? (int) (markdownRenderer.getHeight() + 20f) : 0)) {
                 return true;
             }
         } else if (getCurrentTabType() == TabType.VERSIONS) {
@@ -325,7 +321,7 @@ public class ResourcePageScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         int totalVersionHeight = versions.size() * (35 + 2);
         if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY,
-            getCurrentTabType() == TabType.DESCRIPTION ? (int) (mineMarkDrawable != null ? mineMarkDrawable.getHeight() + 20 : 0) : totalVersionHeight,
+            getCurrentTabType() == TabType.DESCRIPTION ? (int) (markdownRenderer != null ? markdownRenderer.getHeight() + 20 : 0) : totalVersionHeight,
             getCurrentTabType() == TabType.DESCRIPTION ? descScrollOffset : versionsScrollOffset)) {
             return true;
         }
@@ -375,8 +371,8 @@ public class ResourcePageScreen extends Screen {
             minecraftClient.setScreen(parentScreen);
             return true;
         }
-        if (getCurrentTabType() == TabType.DESCRIPTION && mineMarkDrawable != null) {
-            mineMarkDrawable.onMouseClicked(15, 70 - descScrollOffset, (float) mouseX, (float) mouseY, button);
+        if (getCurrentTabType() == TabType.DESCRIPTION && markdownRenderer != null) {
+            markdownRenderer.onMouseClicked(15, (int) (70 - descScrollOffset), (float) mouseX, (float) mouseY, button);
             playSound(Sound.CLICK);
             return true;
         }
@@ -432,13 +428,25 @@ public class ResourcePageScreen extends Screen {
         int contentHeight = this.height - contentY - 5;
         int contentX = 5;
         int contentWidth = this.width - 10;
+        loading = markdownRenderer == null;
         if (getCurrentTabType() == TabType.DESCRIPTION) {
-            if (loading) {
+            if (loading || markdownRenderer == null) {
+                // Display loading message when content isn't ready
+                String loadingText = "Loading content...";
+                int textWidth = minecraftClient.textRenderer.getWidth(loadingText);
+                context.drawText(
+                    minecraftClient.textRenderer,
+                    Text.literal(loadingText),
+                    contentX + (contentWidth - textWidth) / 2,
+                    contentY + 50,
+                    0xDDDDDD,
+                    Config.shadow
+                );
                 return;
             }
             descScrollOffset += (descTargetScrollOffset - descScrollOffset) * globalScrollSpeed * deltaTime;
             context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
-            mineMarkDrawable.draw(contentX + 10, contentY + 10 - (int) descScrollOffset, contentWidth - 20, mouseX, mouseY, context);
+            markdownRenderer.draw(contentX + 10, contentY + 10 - (int) descScrollOffset, contentWidth - 20, mouseX, mouseY, context);
             context.disableScissor();
         } else if (getCurrentTabType() == TabType.VERSIONS) {
             versionButtonRegions.clear();
@@ -485,7 +493,7 @@ public class ResourcePageScreen extends Screen {
             }
             context.disableScissor();
         }
-        ScrollBar.render(context, this, mouseX, mouseY, getCurrentTabType() == TabType.DESCRIPTION ? (int) (mineMarkDrawable != null ? mineMarkDrawable.getHeight() + 20 : 0) : versions.size() * (35 + 2), getCurrentTabType() == TabType.DESCRIPTION ? descTargetScrollOffset : versionsTargetScrollOffset);
+        ScrollBar.render(context, this, mouseX, mouseY, getCurrentTabType() == TabType.DESCRIPTION ? (int) (markdownRenderer != null ? markdownRenderer.getHeight() + 20 : 0) : versions.size() * (35 + 2), getCurrentTabType() == TabType.DESCRIPTION ? descTargetScrollOffset : versionsTargetScrollOffset);
         if (ScrollBar.isDragging()) {
             if (getCurrentTabType() == TabType.DESCRIPTION) {
                 descTargetScrollOffset = ScrollBar.getPendingOffset();
