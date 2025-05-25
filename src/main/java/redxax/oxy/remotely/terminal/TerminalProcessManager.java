@@ -21,7 +21,7 @@ public class TerminalProcessManager {
     private volatile boolean isRunning = true;
     public final TerminalInstance terminalInstance;
     private final SSHManager sshManager;
-    private String currentDirectory = System.getProperty("user.dir");
+    private String currentDirectory = System.getProperty("user.home");
     private static final Logger logger = Logger.getLogger(TerminalProcessManager.class.getName());
     protected boolean isDetachedServer = false;
 
