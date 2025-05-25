@@ -372,7 +372,7 @@ public class ResourcePageScreen extends Screen {
             return true;
         }
         if (getCurrentTabType() == TabType.DESCRIPTION && markdownRenderer != null) {
-            markdownRenderer.onMouseClicked(15, (int) (70 - descScrollOffset), (float) mouseX, (float) mouseY, button);
+            markdownRenderer.handleClick(15, (int) (70 - descScrollOffset), width - 20, (float) mouseX, (float) mouseY);
             playSound(Sound.CLICK);
             return true;
         }
@@ -446,7 +446,7 @@ public class ResourcePageScreen extends Screen {
             }
             descScrollOffset += (descTargetScrollOffset - descScrollOffset) * globalScrollSpeed * deltaTime;
             context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
-            markdownRenderer.draw(contentX + 10, contentY + 10 - (int) descScrollOffset, contentWidth - 20, mouseX, mouseY, context);
+            markdownRenderer.render(contentX + 10, contentY + 10 - (int) descScrollOffset, contentWidth - 20, context);
             context.disableScissor();
         } else if (getCurrentTabType() == TabType.VERSIONS) {
             versionButtonRegions.clear();
