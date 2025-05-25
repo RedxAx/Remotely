@@ -1,5 +1,8 @@
 package redxax.oxy.remotely.config;
 
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
+
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -142,19 +145,26 @@ public class Config {
         return current;
     }
 
-    public static int getElementBorderColor(int id, boolean hovered, boolean selected, boolean clickable, boolean danger, boolean nice, boolean calm) {
+    public enum AccentType {
+        DEFAULT,
+        NICE,
+        CALM,
+        DANGER
+    }
+
+    public static int getElementBackgroundColor(int id, boolean hovered, boolean selected, boolean clickable, boolean isDanger, boolean isNice, boolean isCalm) {return getElementBackgroundColor(id, hovered, selected, clickable, isDanger ? AccentType.DANGER : isNice ? AccentType.NICE : isCalm ? AccentType.CALM : AccentType.DEFAULT);}
+    public static int getElementBorderColor(int id, boolean hovered, boolean selected, boolean clickable, boolean isDanger, boolean isNice, boolean isCalm) {return getElementBorderColor(id, hovered, selected, clickable, isDanger ? AccentType.DANGER : isNice ? AccentType.NICE : isCalm ? AccentType.CALM : AccentType.DEFAULT);}
+    public static int getTextColor(int id, boolean hovered, boolean selected, boolean clickable, boolean isDanger, boolean isNice, boolean isCalm) {return getTextColor(id, hovered, selected, clickable, isDanger ? AccentType.DANGER : isNice ? AccentType.NICE : isCalm ? AccentType.CALM : AccentType.DEFAULT);}
+
+    public static int getElementBorderColor(int id, boolean hovered, boolean selected, boolean clickable, AccentType accentType) {
         int target;
-        if (!clickable) {
-            target = inClickableBorderColor;
-        } else if (danger) {
-            target = hovered && selected ? dangerHoverAccentColor : selected ? dangerAccentColor : hovered ? elementHoverBorderColor : elementBorderColor;
-        } else if (nice) {
-            target = hovered && selected ? niceAccentHoverColor : selected ? niceAccentColor : hovered ? elementHoverBorderColor : elementBorderColor;
-        } else if (calm) {
-            target = selected ? calmAccentColor : hovered ? elementHoverBorderColor : elementBorderColor;
-        } else {
-            target = hovered && selected ? accentHoverColor : selected ? accentColor : hovered ? elementHoverBorderColor : elementBorderColor;
+        switch (accentType) {
+            case DANGER -> target = hovered && selected ? dangerHoverAccentColor : selected ? dangerAccentColor : hovered ? elementHoverBorderColor : elementBorderColor;
+            case NICE -> target = hovered && selected ? niceAccentHoverColor : selected ? niceAccentColor : hovered ? elementHoverBorderColor : elementBorderColor;
+            case CALM -> target = selected ? calmAccentColor : hovered ? elementHoverBorderColor : elementBorderColor;
+            default -> target = hovered && selected ? accentHoverColor : selected ? accentColor : hovered ? elementHoverBorderColor : elementBorderColor;
         }
+        if (!clickable) target = inClickableBorderColor;
         if (!animatedBorderColorsMap.containsKey(id)) {
             animatedBorderColorsMap.put(id, intToFloatArray(target));
         }
@@ -166,19 +176,15 @@ public class Config {
         return floatArrayToInt(newColorFloats);
     }
 
-    public static int getElementBackgroundColor(int id, boolean hovered, boolean selected, boolean clickable, boolean danger, boolean nice, boolean calm) {
+    public static int getElementBackgroundColor(int id, boolean hovered, boolean selected, boolean clickable, AccentType accentType) {
         int target;
-        if (!clickable) {
-            target = inClickableBackgroundColor;
-        } else if (danger) {
-            target = hovered && selected ? dangerDarkHoverAccentColor : selected ? dangerDarkAccentColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;
-        } else if (nice) {
-            target = hovered && selected ? niceDarkHoverAccentColor : selected ? niceDarkAccentColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;
-        } else if (calm) {
-            target = selected ? calmDarkAccentColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;
-        } else {
-            target = hovered && selected ? accentDarkHoverColor : selected ? accentDarkColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;
+        switch (accentType) {
+            case DANGER -> target = hovered && selected ? dangerDarkHoverAccentColor : selected ? dangerDarkAccentColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;
+            case NICE -> target = hovered && selected ? niceDarkHoverAccentColor : selected ? niceDarkAccentColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;
+            case CALM -> target = selected ? calmDarkAccentColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;
+            default -> target = hovered && selected ? accentDarkHoverColor : selected ? accentDarkColor : hovered ? elementHoverBackgroundColor : elementBackgroundColor;
         }
+        if (!clickable) target = inClickableBackgroundColor;
         if (!animatedBackgroundColorsMap.containsKey(id)) {
             animatedBackgroundColorsMap.put(id, intToFloatArray(target));
         }
@@ -191,19 +197,15 @@ public class Config {
     }
 
 
-    public static int getTextColor(int id, boolean hovered, boolean selected, boolean clickable, boolean danger, boolean nice, boolean calm) {
+    public static int getTextColor(int id, boolean hovered, boolean selected, boolean clickable, AccentType accentType) {
         int target;
-        if (!clickable) {
-            target = globalDarkTextColor;
-        } else if (danger) {
-            target = hovered && selected ? dangerHoverAccentColor : hovered ? dangerAccentColor : globalTextColor;
-        } else if (nice) {
-            target = hovered && selected ? niceAccentHoverColor : hovered ? niceAccentColor : globalTextColor;
-        } else if (calm) {
-            target = hovered && selected ? calmHoverAccentColor : hovered ? calmAccentColor : globalTextColor;
-        } else {
-            target = hovered && selected ? globalHoverTextColor : globalTextColor;
+        switch (accentType) {
+            case DANGER -> target = hovered && selected ? dangerHoverAccentColor : selected ? dangerDarkAccentColor : hovered ? globalHoverTextColor : globalTextColor;
+            case NICE -> target = hovered && selected ? niceDarkHoverAccentColor : selected ? niceDarkAccentColor : hovered ? globalHoverTextColor : globalTextColor;
+            case CALM -> target = selected ? calmDarkAccentColor : hovered ? globalHoverTextColor : globalTextColor;
+            default -> target = hovered && selected ? globalHoverTextColor : globalTextColor;
         }
+        if (!clickable) target = globalDarkTextColor;
         if (!animatedTextColorsMap.containsKey(id)) {
             animatedTextColorsMap.put(id, intToFloatArray(target));
         }

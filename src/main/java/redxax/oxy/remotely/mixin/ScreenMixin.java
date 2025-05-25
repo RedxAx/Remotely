@@ -1,10 +1,10 @@
 package redxax.oxy.remotely.mixin;
 
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.TitleScreen;
 import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -13,14 +13,13 @@ import redxax.oxy.remotely.MouseCursor;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.terminal.ReverseProxyManager;
 import redxax.oxy.remotely.ui.LoadingAnimation;
+import redxax.oxy.remotely.ui.TestingScreen;
 import redxax.oxy.remotely.util.CursorUtils;
 import redxax.oxy.remotely.util.Notification;
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import redxax.oxy.remotely.util.Sound;
 
 @Mixin(value = Screen.class)
 public class ScreenMixin {
@@ -73,9 +72,7 @@ public class ScreenMixin {
             new Notification("Testing Success Notification", Notification.Type.SUCCESS);
             cir.setReturnValue(true);
         } else if (keyCode == GLFW.GLFW_KEY_T && all) {
-            new Notification("Testing Terminal Notification", "This Is a Test", Notification.Type.INFO, () -> {
-                playSound(Sound.CLICK);
-            });
+            MinecraftClient.getInstance().setScreen(new TestingScreen());
         } else if (keyCode == GLFW.GLFW_KEY_P && all) {
             ReverseProxyManager.listActivePorts();
         }

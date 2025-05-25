@@ -6,7 +6,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import redxax.oxy.remotely.renderer.MarkdownRenderer;
 import org.lwjgl.glfw.GLFW;
-import org.xml.sax.SAXException;
 import redxax.oxy.remotely.Render;
 import redxax.oxy.remotely.Render.ScrollBar;
 import redxax.oxy.remotely.api.IRemotelyResource;
@@ -72,7 +71,7 @@ public class ResourcePageScreen extends Screen {
         currentTabIndex = 0;
         try {
             closeIcon = new IconWithTooltip("/assets/remotely/icons/close.png", "");
-            siteIcon = new IconWithTooltip("/assets/remotely/icons/site.png", "Open The Resource's Page In Your Default Browser.");
+            siteIcon = new IconWithTooltip("/assets/remotely/icons/external.png", "Open The Resource's Page In Your Default Browser.");
             downloadIcon = new IconWithTooltip("/assets/remotely/icons/download.png", "Download The Latest Compatible Version.");
         } catch (Exception e) {
             devPrint("Failed to load icons: " + e.getMessage());
