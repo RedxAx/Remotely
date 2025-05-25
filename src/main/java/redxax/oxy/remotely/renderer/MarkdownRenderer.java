@@ -40,6 +40,7 @@ public class MarkdownRenderer {
     private static final Pattern IMAGE_PATTERN = Pattern.compile("!\\[([^]]*)]\\(([^)]+)\\)");
     private static final Pattern BOLD_PATTERN = Pattern.compile("\\*\\*([^*]+?)\\*\\*");
     private static final Pattern ITALIC_PATTERN = Pattern.compile("\\*([^*]+?)\\*");
+    private static final Pattern ITALIC_UNDERSCORE_PATTERN = Pattern.compile("_([^_]+?)_");
     private static final Pattern CODE_PATTERN = Pattern.compile("`([^`]+?)`");
     private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile("^```([a-zA-Z0-9+-]+)?\\s*$");
     private static final Pattern LIST_PATTERN = Pattern.compile("^(\\s*)[*+-]\\s+(.+)$");
@@ -47,9 +48,14 @@ public class MarkdownRenderer {
     private static final Pattern TABLE_ROW_PATTERN = Pattern.compile("^\\|(.+)\\|\\s*$");
     private static final Pattern TABLE_SEPARATOR = Pattern.compile("^\\|(?::?-+:?\\|)+\\s*$");
     private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<(\\w+)([^>]*)(?:/>|>([^<]*)</\\1>)", Pattern.DOTALL);
+    private static final Pattern QUOTE_PATTERN = Pattern.compile("^>\\s*(.*)$");
+    private static final Pattern REFERENCE_LINK_PATTERN = Pattern.compile("^\\s*\\[([^]]+)]:\\s*<?([^>\\s]+)>?\\s*(?:\"([^\"]*)\"|'([^']*)')?\\s*$");
+    private static final Pattern REFERENCE_USE_PATTERN = Pattern.compile("\\[([^]]+)](?!\\()");
+    private static final Pattern BR_TAG_PATTERN = Pattern.compile("<br\\s*/?>");
     private final String rawMarkdown;
     private final List<RenderElement> elements = new ArrayList<>();
     private final MinecraftClient client = MinecraftClient.getInstance();
+    private static final Map<String, String> linkReferences = new HashMap<>();
     private int totalHeight = 0;
     private int lastWidth = 0;
     private boolean parsed = false;
@@ -87,10 +93,21 @@ public class MarkdownRenderer {
         totalHeight = 0;
         lastWidth = width;
         parsed = true;
+        linkReferences.clear();
 
         if (rawMarkdown.isEmpty()) return;
 
         String[] lines = rawMarkdown.replace("\r\n", "\n").split("\n");
+
+        for (String line : lines) {
+            Matcher refMatcher = REFERENCE_LINK_PATTERN.matcher(line);
+            if (refMatcher.matches()) {
+                String name = refMatcher.group(1).toLowerCase();
+                String url = refMatcher.group(2);
+                linkReferences.put(name, url);
+            }
+        }
+
         int currentY = 0;
         int i = 0;
 
@@ -103,12 +120,35 @@ public class MarkdownRenderer {
                 continue;
             }
 
+            if (REFERENCE_LINK_PATTERN.matcher(line).matches()) {
+                i++;
+                continue;
+            }
+
             Matcher headerMatcher = HEADER_PATTERN.matcher(line.trim());
             if (headerMatcher.matches()) {
                 HeaderElement header = new HeaderElement(headerMatcher.group(2), headerMatcher.group(1).length(), currentY, width);
                 elements.add(header);
-                currentY += header.getHeight() + 10;
+                currentY += header.getHeight() + (headerMatcher.group(1).length() <= 2 ? 15 : 10);
                 i++;
+                continue;
+            }
+
+            Matcher quoteMatcher = QUOTE_PATTERN.matcher(line);
+            if (quoteMatcher.matches()) {
+                StringBuilder quote = new StringBuilder();
+                while (i < lines.length && QUOTE_PATTERN.matcher(lines[i]).matches()) {
+                    Matcher currentQuote = QUOTE_PATTERN.matcher(lines[i]);
+                    if (currentQuote.matches()) {
+                        if (quote.length() > 0) quote.append(" ");
+                        quote.append(currentQuote.group(1));
+                    }
+                    i++;
+                }
+
+                QuoteElement quoteElement = new QuoteElement(quote.toString(), currentY, width);
+                elements.add(quoteElement);
+                currentY += quoteElement.getHeight() + 15;
                 continue;
             }
 
@@ -199,7 +239,9 @@ public class MarkdownRenderer {
                         ORDERED_LIST_PATTERN.matcher(currentLine).matches() ||
                         TABLE_ROW_PATTERN.matcher(currentLine).matches() ||
                         IMAGE_PATTERN.matcher(currentLine).find() ||
-                        HTML_TAG_PATTERN.matcher(currentLine).find()) {
+                        HTML_TAG_PATTERN.matcher(currentLine).find() ||
+                        QUOTE_PATTERN.matcher(currentLine).matches() ||
+                        REFERENCE_LINK_PATTERN.matcher(currentLine).matches()) {
                     break;
                 }
 
@@ -356,9 +398,19 @@ public class MarkdownRenderer {
                 minPos = Math.min(minPos, italicMatcher.start());
             }
 
+            Matcher italicUnderscoreMatcher = ITALIC_UNDERSCORE_PATTERN.matcher(text);
+            if (italicUnderscoreMatcher.find()) {
+                minPos = Math.min(minPos, italicUnderscoreMatcher.start());
+            }
+
             Matcher codeMatcher = CODE_PATTERN.matcher(text);
             if (codeMatcher.find()) {
                 minPos = Math.min(minPos, codeMatcher.start());
+            }
+
+            Matcher refUseMatcher = REFERENCE_USE_PATTERN.matcher(text);
+            if (refUseMatcher.find()) {
+                minPos = Math.min(minPos, refUseMatcher.start());
             }
 
             return minPos == Integer.MAX_VALUE ? -1 : minPos;
@@ -393,9 +445,23 @@ public class MarkdownRenderer {
                 return new FragmentResult(italicMatcher.group(1), FragmentType.ITALIC, null, italicMatcher.group().length());
             }
 
+            Matcher italicUnderscoreMatcher = ITALIC_UNDERSCORE_PATTERN.matcher(fromPosition);
+            if (italicUnderscoreMatcher.find() && italicUnderscoreMatcher.start() == 0) {
+                return new FragmentResult(italicUnderscoreMatcher.group(1), FragmentType.ITALIC, null, italicUnderscoreMatcher.group().length());
+            }
+
             Matcher codeMatcher = CODE_PATTERN.matcher(fromPosition);
             if (codeMatcher.find() && codeMatcher.start() == 0) {
                 return new FragmentResult(codeMatcher.group(1), FragmentType.CODE, null, codeMatcher.group().length());
+            }
+
+            Matcher refUseMatcher = REFERENCE_USE_PATTERN.matcher(fromPosition);
+            if (refUseMatcher.find() && refUseMatcher.start() == 0) {
+                String refName = refUseMatcher.group(1).toLowerCase();
+                String url = linkReferences.get(refName);
+                if (url != null) {
+                    return new FragmentResult(refUseMatcher.group(1), FragmentType.LINK, url, refUseMatcher.group().length());
+                }
             }
 
             return null;
@@ -560,6 +626,37 @@ public class MarkdownRenderer {
                 this.url = url;
                 this.consumed = consumed;
             }
+        }
+    }
+
+    private static class QuoteElement extends RenderElement {
+        private final TextElement textElement;
+
+        public QuoteElement(String text, int y, int width) {
+            super(y, width);
+            this.textElement = new TextElement(text, 0, width - 30);
+            this.height = textElement.getHeight() + 16;
+            this.bounds.height = height;
+        }
+
+        @Override
+        public void render(int baseX, int baseY, DrawContext context, TextRenderer textRenderer) {
+            int renderY = baseY + y;
+
+            context.fill(baseX, renderY, baseX + 4, renderY + height, accentColor);
+            context.fill(baseX + 4, renderY, baseX + width, renderY + height, accentDarkColor);
+
+            textElement.render(baseX + 12, renderY + 10, context, textRenderer);
+        }
+
+        @Override
+        public boolean handleClick(int baseX, int baseY, float mouseX, float mouseY) {
+            return textElement.handleClick(baseX + 12, baseY + y + 10, mouseX, mouseY);
+        }
+
+        @Override
+        public int getHeight() {
+            return height;
         }
     }
 
@@ -1163,7 +1260,7 @@ public class MarkdownRenderer {
         }
     }
 
-    private static class HtmlElement extends RenderElement {
+    private class HtmlElement extends RenderElement {
         private final String tag;
         private final String attributes;
         private final String content;
@@ -1198,7 +1295,8 @@ public class MarkdownRenderer {
                 case "span":
                 case "p":
                     if (!content.isEmpty()) {
-                        contentElement = new TextElement(content, 0, width - 20);
+                        String processedContent = BR_TAG_PATTERN.matcher(content).replaceAll("\n");
+                        contentElement = new TextElement(processedContent, 0, width - 20);
                     }
                     break;
                 case "img":
@@ -1211,9 +1309,10 @@ public class MarkdownRenderer {
                 case "a":
                     String href = parsedAttributes.get("href");
                     if (!content.isEmpty() && href != null) {
-                        contentElement = new LinkTextElement(content, href, 0, width - 20);
+                        contentElement = new ClickableLinkElement(content, href, 0, width - 20);
                     } else if (!content.isEmpty()) {
-                        contentElement = new TextElement(content, 0, width - 20);
+                        String processedContent = BR_TAG_PATTERN.matcher(content).replaceAll("\n");
+                        contentElement = new TextElement(processedContent, 0, width - 20);
                     }
                     break;
                 case "h1":
@@ -1231,9 +1330,13 @@ public class MarkdownRenderer {
                 case "pre":
                     contentElement = new CodeBlockElement(content, "", 0, width - 20);
                     break;
+                case "br":
+                    contentElement = new LineBreakElement(0, width - 20);
+                    break;
                 default:
                     if (!content.isEmpty()) {
-                        contentElement = new TextElement(content, 0, width - 20);
+                        String processedContent = BR_TAG_PATTERN.matcher(content).replaceAll("\n");
+                        contentElement = new TextElement(processedContent, 0, width - 20);
                     }
             }
         }
@@ -1282,24 +1385,57 @@ public class MarkdownRenderer {
             return height;
         }
 
-        private static class LinkTextElement extends RenderElement {
-            private final TextElement textElement;
+        private static class ClickableLinkElement extends RenderElement {
+            private final String text;
+            private final String url;
 
-            public LinkTextElement(String text, String url, int y, int width) {
+            public ClickableLinkElement(String text, String url, int y, int width) {
                 super(y, width);
-                this.textElement = new TextElement("[" + text + "](" + url + ")", y, width);
-                this.height = textElement.getHeight();
+                this.text = text;
+                this.url = url;
+                this.height = MinecraftClient.getInstance().textRenderer.fontHeight;
+                this.bounds.height = height;
+                this.bounds.width = MinecraftClient.getInstance().textRenderer.getWidth(text);
+            }
+
+            @Override
+            public void render(int baseX, int baseY, DrawContext context, TextRenderer textRenderer) {
+                context.drawText(textRenderer, Text.literal(text).formatted(Formatting.UNDERLINE), baseX, baseY + y, LINK_COLOR, Config.shadow);
+            }
+
+            @Override
+            public boolean handleClick(int baseX, int baseY, float mouseX, float mouseY) {
+                if (isMouseOver(baseX, baseY, mouseX, mouseY)) {
+                    try {
+                        String processedUrl = url.trim();
+                        if (!processedUrl.startsWith("http://") && !processedUrl.startsWith("https://")) {
+                            processedUrl = "https://" + processedUrl;
+                        }
+                        ProcessBuilder pb = new ProcessBuilder("cmd", "/c", "start", "\"\"", processedUrl);
+                        pb.start();
+                        return true;
+                    } catch (Exception e) {
+                        return false;
+                    }
+                }
+                return false;
+            }
+
+            @Override
+            public int getHeight() {
+                return height;
+            }
+        }
+
+        private static class LineBreakElement extends RenderElement {
+            public LineBreakElement(int y, int width) {
+                super(y, width);
+                this.height = 10;
                 this.bounds.height = height;
             }
 
             @Override
             public void render(int baseX, int baseY, DrawContext context, TextRenderer textRenderer) {
-                textElement.render(baseX, baseY, context, textRenderer);
-            }
-
-            @Override
-            public boolean handleClick(int baseX, int baseY, float mouseX, float mouseY) {
-                return textElement.handleClick(baseX, baseY, mouseX, mouseY);
             }
 
             @Override
@@ -1309,4 +1445,3 @@ public class MarkdownRenderer {
         }
     }
 }
-
