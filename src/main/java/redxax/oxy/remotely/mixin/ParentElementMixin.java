@@ -1,11 +1,15 @@
 package redxax.oxy.remotely.mixin;
 
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.Element;
 import net.minecraft.client.gui.ParentElement;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import redxax.oxy.remotely.MouseCursor;
 import redxax.oxy.remotely.ui.LoadingAnimation;
+import redxax.oxy.remotely.ui.widgets.ScrollSelectorWidget;
 import redxax.oxy.remotely.util.Notification;
 
 
@@ -33,6 +37,19 @@ public interface ParentElementMixin {
     @Inject(method = "mouseDragged", at = @At("HEAD"))
     private void mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY, CallbackInfoReturnable<Boolean> cir) {
         LoadingAnimation.mouseDragged((int) mouseX, (int) mouseY, button);
+    }
+
+    @Inject(method = "mouseScrolled", at = @At("HEAD"), cancellable = true)
+    private void mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount, CallbackInfoReturnable<Boolean> cir) {
+        MouseCursor.mouseScrolled(verticalAmount);
+        for (Element child : MinecraftClient.getInstance().currentScreen.children()) {
+            if (child instanceof ScrollSelectorWidget scrollSelect) {
+                if (scrollSelect.scroll(mouseX, mouseY, verticalAmount)) {
+                    cir.setReturnValue(false);
+                    return;
+                }
+            }
+        }
     }
 
 }
