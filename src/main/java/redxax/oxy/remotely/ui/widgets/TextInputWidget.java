@@ -164,9 +164,7 @@ public class TextInputWidget extends AnimatedWidget {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        System.out.println("Triggered keyPressed: " + keyCode + ", modifiers: " + modifiers);
         if (!isFocused()) return false;
-        System.out.println("Passed");
         boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
         boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
         int start = Math.min(selectionStart, selectionEnd);
