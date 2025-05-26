@@ -6,11 +6,13 @@ import net.minecraft.text.Text;
 
 public class AnimatedButton extends AnimatedWidget {
     protected Runnable action;
+    protected boolean centered = true;
 
     public static class ButtonBuilder extends Builder<AnimatedButton, ButtonBuilder> {
         public ButtonBuilder() { super(new AnimatedButton(0, 0, 100, 20, Text.empty())); }
         public ButtonBuilder label(Text t) { widget.setMessage(t); return this; }
         public ButtonBuilder onClick(Runnable c) { widget.action = c; return this; }
+        public ButtonBuilder centered(boolean c) { widget.centered = c; return this; }
         @Override protected ButtonBuilder self() { return this; }
     }
 
@@ -27,7 +29,12 @@ public class AnimatedButton extends AnimatedWidget {
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY) {
         String label = getMessage().getString();
         int tw = tr.getWidth(label);
-        int tx = getX() + (getWidth() - tw) / 2;
+        int tx;
+        if (centered) {
+            tx = getX() + (getWidth() - tw) / 2;
+        } else {
+            tx = getX() + 3;
+        }
         int ty = (getY() + (getHeight() - tr.fontHeight) / 2) + 1;
         ctx.drawText(tr, label, tx, ty, textColor, true);
     }
