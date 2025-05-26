@@ -9,15 +9,28 @@ import net.minecraft.text.Text;
 import java.util.HashMap;
 import java.util.Map;
 
-import static redxax.oxy.remotely.Render.drawInnerBorder;
-import static redxax.oxy.remotely.Render.drawOuterBorder;
 import static redxax.oxy.remotely.config.Config.*;
 
-
 public abstract class AnimatedWidget extends ClickableWidget {
+
+    public enum EntranceAnimationType {
+        BOUNCY,
+        ELEVATION
+    }
+
     protected float elevation = 0f;
     protected boolean animateColor = true, animateElevation = true, flat = false;
     protected float animationSpeed = 0.2f;
+
+    protected boolean entranceAnimationEnabled = true;
+    protected EntranceAnimationType entranceAnimationType = EntranceAnimationType.ELEVATION;
+    protected float entranceAnimationStrength = 0.2f;
+    protected float entranceAnimationSpeed = 1.0f;
+
+    protected boolean entranceAnimationStarted = false;
+    protected float entranceAnimationProgress = 0f;
+    protected float entranceAnimationDelay = 0f;
+    protected boolean entranceAnimationDelayCalculated = false;
 
     protected int bgColor = elementBackgroundColor;
     protected int borderColor = elementBorderColor;
@@ -26,7 +39,6 @@ public abstract class AnimatedWidget extends ClickableWidget {
     protected static MinecraftClient mc = MinecraftClient.getInstance();
     protected TextRenderer tr = mc.textRenderer;
     public static final Map<Integer, Float> elevationOffsets = new HashMap<>();
-
 
     public static abstract class Builder<T extends AnimatedWidget, B extends Builder<T, B>> {
         protected final T widget;
@@ -43,6 +55,10 @@ public abstract class AnimatedWidget extends ClickableWidget {
         public B flat(boolean f) { widget.flat = f; return self(); }
         public B animationSpeed(float s) { widget.animationSpeed = s; return self(); }
         public B tooltip(String text) { widget.tooltipText = text; return self(); }
+        public B entranceAnimation(boolean enabled) { widget.entranceAnimationEnabled = enabled; return self(); }
+        public B entranceAnimationType(EntranceAnimationType type) { widget.entranceAnimationType = type; return self(); }
+        public B entranceAnimationStrength(float strength) { widget.entranceAnimationStrength = strength; return self(); }
+        public B entranceAnimationSpeed(float speed) { widget.entranceAnimationSpeed = speed; return self(); }
         protected abstract B self();
         public T build() { return widget; }
     }
@@ -51,7 +67,71 @@ public abstract class AnimatedWidget extends ClickableWidget {
         super(x, y, width, height, message);
     }
 
+    protected void calculateEntranceDelay() {
+        if (!entranceAnimationDelayCalculated) {
+            float distance = (float) Math.sqrt(getX() * getX() + getY() * getY());
+            entranceAnimationDelay = distance * 0.001f;
+            entranceAnimationDelayCalculated = true;
+        }
+    }
+
+    protected void updateEntranceAnimation() {
+        if (!entranceAnimationEnabled) {
+            entranceAnimationProgress = 1f;
+            return;
+        }
+
+        calculateEntranceDelay();
+
+        if (!entranceAnimationStarted) {
+            entranceAnimationDelay -= deltaTime;
+            if (entranceAnimationDelay <= 0) {
+                entranceAnimationStarted = true;
+            }
+            return;
+        }
+
+        if (entranceAnimationProgress < 1f) {
+            entranceAnimationProgress += entranceAnimationSpeed * deltaTime * 2f;
+            entranceAnimationProgress = Math.min(1f, entranceAnimationProgress);
+        }
+    }
+
+    protected float getEntranceAlpha() {
+        if (!entranceAnimationEnabled) return 1f;
+        if (!entranceAnimationStarted) return 0f;
+
+        return Math.min(1f, entranceAnimationProgress * 2f);
+    }
+
+    protected float getEntranceScale() {
+        if (!entranceAnimationEnabled || entranceAnimationType != EntranceAnimationType.BOUNCY) return 1f;
+        if (!entranceAnimationStarted) return 0f;
+
+        float t = entranceAnimationProgress;
+        float bounce = (float) (1f + Math.sin(t * Math.PI * 2) * 0.1f * (1f - t) * entranceAnimationStrength);
+        return Math.max(0.1f, t * bounce);
+    }
+
+    protected float getEntranceElevationOffset() {
+        if (!entranceAnimationEnabled || entranceAnimationType != EntranceAnimationType.ELEVATION) return 0f;
+        if (!entranceAnimationStarted) return 20f * entranceAnimationStrength;
+
+        float t = entranceAnimationProgress;
+        float easeOut = 1f - (float) Math.pow(1f - t, 3);
+        return (1f - easeOut) * 20f * entranceAnimationStrength;
+    }
+
+    protected int applyAlpha(int color, float alpha) {
+        if (alpha >= 1f) return color;
+        int originalAlpha = (color >> 24) & 0xFF;
+        int newAlpha = (int) (originalAlpha * alpha);
+        return (color & 0x00FFFFFF) | (newAlpha << 24);
+    }
+
     public void tick() {
+        updateEntranceAnimation();
+
         if (animateElevation) {
             float elevationTarget = hovered ? -2f : 0f;
             elevation = elevationOffsets.getOrDefault(this.hashCode(), 0f);
@@ -62,7 +142,13 @@ public abstract class AnimatedWidget extends ClickableWidget {
             bgColor = getElementBackgroundColor(this.hashCode(), isHovered(), isFocused(), active, AccentType.DEFAULT);
             borderColor = getElementBorderColor(this.hashCode(), isHovered(), isFocused(), active, AccentType.DEFAULT);
         } else {
-            if (isHovered()) {
+            if (isHovered() && isFocused()) {
+                bgColor = accentDarkHoverColor;
+                borderColor = accentHoverColor;
+            } else if (isFocused()) {
+                bgColor = accentDarkColor;
+                borderColor = accentColor;
+            } else if (isHovered()) {
                 bgColor = elementHoverBackgroundColor;
                 borderColor = elementHoverBorderColor;
             } else {
@@ -76,11 +162,43 @@ public abstract class AnimatedWidget extends ClickableWidget {
     public void renderWidget(DrawContext ctx, int mouseX, int mouseY, float delta) {
         if (!visible) return;
         tick();
+
+        float alpha = getEntranceAlpha();
+        if (alpha <= 0f) return;
+
         ctx.getMatrices().push();
-        ctx.getMatrices().translate(0, elevation, 0);
+
+        float scale = getEntranceScale();
+        float elevationOffset = getEntranceElevationOffset();
+
+        if (scale != 1f) {
+            float centerX = getX() + getWidth() / 2f;
+            float centerY = getY() + getHeight() / 2f;
+            ctx.getMatrices().translate(centerX, centerY, 0);
+            ctx.getMatrices().scale(scale, scale, 1f);
+            ctx.getMatrices().translate(-centerX, -centerY, 0);
+        }
+
+        ctx.getMatrices().translate(0, elevation + elevationOffset, 0);
+
+        int originalBgColor = bgColor;
+        int originalBorderColor = borderColor;
+        int originalTextColor = textColor;
+
+        if (alpha < 1f) {
+            bgColor = applyAlpha(bgColor, alpha);
+            borderColor = applyAlpha(borderColor, alpha);
+            textColor = applyAlpha(textColor, alpha);
+        }
+
         drawBackground(ctx);
         drawBorder(ctx);
         drawContent(ctx, mouseX, mouseY);
+
+        bgColor = originalBgColor;
+        borderColor = originalBorderColor;
+        textColor = originalTextColor;
+
         ctx.getMatrices().pop();
     }
 
@@ -89,9 +207,25 @@ public abstract class AnimatedWidget extends ClickableWidget {
     }
 
     protected void drawBorder(DrawContext ctx) {
-        drawInnerBorder(ctx, getX(), getY(), getWidth(), getHeight(), borderColor);
+        float alpha = getEntranceAlpha();
+        ctx.fill(getX(), getY(), getX() + getWidth(), getY() + 1, borderColor);
+        ctx.fill(getX(), getY() + getHeight() - 1, getX() + getWidth(), getY() + getHeight(), borderColor);
+        ctx.fill(getX(), getY(), getX() + 1, getY() + getHeight(), borderColor);
+        ctx.fill(getX() + getWidth() - 1, getY(), getX() + getWidth(), getY() + getHeight(), borderColor);
         if (!flat) {
-            drawOuterBorder(ctx, getX(), getY(), getWidth(), getHeight(), bgColor);
+            int outerBorderAlpha = applyAlpha(globalOuterBorder, alpha);
+            int bgShadowAlpha = applyAlpha(bgColor, alpha);
+            int shadowAlpha = applyAlpha(0x40000000, alpha);
+            int gradientStartAlpha = applyAlpha(0x00000000, alpha);
+            int gradientEndAlpha = applyAlpha(0x60000000, alpha);
+
+            ctx.fill(getX() - 1, getY() - 1, getX() + getWidth() + 1, getY(), outerBorderAlpha);
+            ctx.fill(getX() - 1, getY() + getHeight(), getX() + getWidth() + 1, getY() + getHeight() + 3, outerBorderAlpha);
+            ctx.fill(getX() - 1, getY(), getX(), getY() + getHeight(), outerBorderAlpha);
+            ctx.fill(getX() + getWidth(), getY(), getX() + getWidth() + 1, getY() + getHeight(), outerBorderAlpha);
+            ctx.fill(getX(), getY() + getHeight(), getX() + getWidth(), getY() + getHeight() + 2, bgShadowAlpha);
+            ctx.fill(getX(), getY() + getHeight(), getX() + getWidth(), getY() + getHeight() + 2, shadowAlpha);
+            ctx.fillGradient(getX(), getY() + getHeight() + 2, getX() + getWidth(), getY() + getHeight() + 4, gradientStartAlpha, gradientEndAlpha);
         }
     }
 
