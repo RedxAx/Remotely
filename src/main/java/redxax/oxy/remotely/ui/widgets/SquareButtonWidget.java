@@ -42,7 +42,7 @@ public class SquareButtonWidget extends AnimatedWidget {
 
     @Override
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY) {
-        drawPixelArt(ctx, getX() + 1, getY() + 1, getWidth() - 2, getHeight() - 2, image != null ? image : missing);
+        drawPixelArt(ctx, getX() + 1, getY() + 1, 16, 16, image != null ? image : missing);
     }
 
     @Override
