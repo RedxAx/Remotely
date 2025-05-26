@@ -17,6 +17,7 @@ import redxax.oxy.remotely.ui.TestingScreen;
 import redxax.oxy.remotely.util.CursorUtils;
 import redxax.oxy.remotely.util.Notification;
 import static redxax.oxy.remotely.config.Config.*;
+import static redxax.oxy.remotely.servers.SettingsScreen.loopOfThemes;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -58,22 +59,19 @@ public class ScreenMixin {
             enableDebugTools = !enableDebugTools;
             new Notification("Toggled Debug Tools To " + enableDebugTools, Notification.Type.INFO);
         }
+        if (keyCode == GLFW.GLFW_KEY_RIGHT && alt) {
+            loopOfThemes(true);
+            cir.setReturnValue(true);
+        }
+        if (keyCode == GLFW.GLFW_KEY_LEFT && alt) {
+            loopOfThemes(false);
+            cir.setReturnValue(true);
+        }
         if (!enableDebugTools) return;
-        if (keyCode == GLFW.GLFW_KEY_E && all) {
-            new Notification("Testing Error Notification", Notification.Type.ERROR);
-            cir.setReturnValue(true);
-        } else if (keyCode == GLFW.GLFW_KEY_W && all) {
-            new Notification("Testing Warning Notification", Notification.Type.WARN);
-            cir.setReturnValue(true);
-        } else if (keyCode == GLFW.GLFW_KEY_I && all) {
-            new Notification("Testing Info Notification", Notification.Type.INFO);
-            cir.setReturnValue(true);
-        } else if (keyCode == GLFW.GLFW_KEY_S && all) {
-            new Notification("Testing Success Notification", Notification.Type.SUCCESS);
-            cir.setReturnValue(true);
-        } else if (keyCode == GLFW.GLFW_KEY_T && all) {
+        if (keyCode == GLFW.GLFW_KEY_T && all) {
             MinecraftClient.getInstance().setScreen(new TestingScreen());
-        } else if (keyCode == GLFW.GLFW_KEY_P && all) {
+        }
+        if (keyCode == GLFW.GLFW_KEY_P && all) {
             ReverseProxyManager.listActivePorts();
         }
     }
