@@ -42,7 +42,6 @@ repositories {
 }
 
 
-val mineMarkVer = if (minecraft <= "1.20.6") if (loader == "neoforge") "1.20.4" else "1.20.1" else if (minecraft <= "1.21.4") "1.21.1" else "1.21.5"
 val mcefVer = if (minecraft == "1.21.5") "1.21.4" else minecraft
 
 dependencies {
@@ -52,16 +51,12 @@ dependencies {
     implementation("com.jcraft:jsch:0.1.55")
     implementation("com.vladsch.flexmark:flexmark:0.62.2")
     implementation("org.jline:jline:3.1.3")
-    modImplementation("dev.dediamondpro:minemark-minecraft-" + mineMarkVer + "-" + loader + (if (loader == "neoforge" && minecraft == "1.20.4") ":1.2.3" else ":1.3.1"))
-    implementation("dev.dediamondpro:minemark-core:1.3.1")
     modCompileOnly("com.cinemamod:mcef:2.1.6-$mcefVer")
     modImplementation("com.cinemamod:mcef-fabric:2.1.6-$mcefVer")
 
     shadow("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     shadow("com.jcraft:jsch:0.1.55")
     shadow("org.jline:jline:3.1.3")
-    shadow("dev.dediamondpro:minemark-core:1.3.1")
-    shadow("dev.dediamondpro:minemark-minecraft-" + mineMarkVer + "-" + loader + (if (loader == "neoforge" && minecraft == "1.20.4") ":1.2.3" else ":1.3.1"))
     if (loader == "fabric") {
         modImplementation("net.fabricmc:fabric-loader:${mod.dep("fabric_loader")}")
         mappings("net.fabricmc:yarn:$minecraft+build.${mod.dep("yarn_build")}:v2")

@@ -3,7 +3,7 @@ package redxax.oxy.remotely.ui;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import dev.dediamondpro.minemark.minecraft.MineMarkDrawable;
+import redxax.oxy.remotely.renderer.MarkdownRenderer;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.Render;
 import redxax.oxy.remotely.config.Config;
@@ -42,7 +42,7 @@ public class AISidePanel {
         public String sender;
         public String text;
         public float animationProgress;
-        public MineMarkDrawable mineMark;
+        public MarkdownRenderer markdown;
 
         public AIMessage(String sender, String text) {
             this.sender = sender;
@@ -50,12 +50,12 @@ public class AISidePanel {
             this.animationProgress = 0f;
             if ("ai".equals(sender)) {
                 try {
-                    this.mineMark = new MineMarkDrawable(text);
+                    this.markdown = new MarkdownRenderer(text);
                 } catch (Exception e) {
-                    this.mineMark = null;
+                    this.markdown = null;
                 }
             } else {
-                this.mineMark = null;
+                this.markdown = null;
             }
         }
     }
@@ -73,8 +73,8 @@ public class AISidePanel {
     private float targetScrollOffset = 0;
     private float currentScrollOffset = 0;
     private static final Path CHAT_HISTORY_PATH = Path.of(remotelyDir.toString(), "data", "chat_history.json");
-    private MineMarkDrawable panelMineMark;
-    private String lastPanelMineMarkText;
+    private MarkdownRenderer markdownPanel;
+    private String lastPanelMarkdownText;
     private boolean hasValidToken = true;
 
     public AISidePanel() {
@@ -132,7 +132,7 @@ public class AISidePanel {
             sb.append(line).append("\n");
         }
         this.extraContext = sb.toString();
-        updatePanelMineMark();
+        updatePanelMarkdown();
     }
 
     public void addUserMessage(String msg) {
@@ -162,7 +162,7 @@ public class AISidePanel {
             devPrint("Failed to create new chat: " + e.getMessage());
         }
         messages.clear();
-        updatePanelMineMark();
+        updatePanelMarkdown();
         targetScrollOffset = 0;
         currentScrollOffset = 0;
     }
@@ -332,10 +332,10 @@ public class AISidePanel {
         int msgAreaHeight = panelHeight - topBarHeight - 28;
         context.enableScissor(panelX, msgAreaY + 1, panelX + panelWidth, msgAreaY + msgAreaHeight + 4);
         currentScrollOffset += (targetScrollOffset - currentScrollOffset) * globalScrollSpeed * deltaTime;
-        if (!messages.isEmpty() && panelMineMark != null) {
+        if (!messages.isEmpty() && markdownPanel != null) {
             int yStart = msgAreaY + 5 - (int) currentScrollOffset;
             if (panelWidth - 10 > 0)
-                panelMineMark.draw(panelX + 5, yStart, panelWidth - 10, mouseX, mouseY, context);
+                markdownPanel.render(panelX + 5, yStart, panelWidth - 10, context);
         } else if (messages.isEmpty()) {
             TextRenderer tr = mc.textRenderer;
             int iconRect = 100;
@@ -391,7 +391,11 @@ public class AISidePanel {
             }
         }
         Render.ContextMenu.hide();
-        panelMineMark.onMouseClicked(panelX + 5, panelY + 5 - currentScrollOffset, (float)mouseX, (float)mouseY, button);
+        if (markdownPanel != null) {
+            if (markdownPanel.handleClick(panelX + 5, panelY + 5 - (int)currentScrollOffset, panelWidth - 10, (float)mouseX, (float)mouseY)) {
+                return true;
+            }
+        }
         int buttonSize = 20;
         int gap = 4;
         int barHeight = buttonSize + 2 * gap;
@@ -442,8 +446,8 @@ public class AISidePanel {
     }
 
     private int getTotalChatHeight(int availableWidth, TextRenderer tr) {
-        if (panelMineMark != null) {
-            return (int) panelMineMark.getHeight();
+        if (markdownPanel != null) {
+            return (int) markdownPanel.getHeight();
         }
         int total = 0;
         for (AIMessage msg : messages) {
@@ -540,7 +544,7 @@ public class AISidePanel {
         } catch (IOException e) {
             devPrint("Failed to update chat history: " + e.getMessage());
         }
-        updatePanelMineMark();
+        updatePanelMarkdown();
     }
 
     private void loadLatestChatHistory() {
@@ -570,7 +574,7 @@ public class AISidePanel {
         } catch (IOException e) {
             devPrint("Failed to load latest chat history: " + e.getMessage());
         }
-        updatePanelMineMark();
+        updatePanelMarkdown();
     }
 
     private void showChatHistoryContextMenu() {
@@ -614,7 +618,7 @@ public class AISidePanel {
         } catch (IOException e) {
             devPrint("Failed to load chat history: " + e.getMessage());
         }
-        updatePanelMineMark();
+        updatePanelMarkdown();
     }
 
     private void deleteCurrentChat() {
@@ -646,14 +650,14 @@ public class AISidePanel {
         } catch (IOException e) {
             devPrint("Failed to delete current chat: " + e.getMessage());
         }
-        updatePanelMineMark();
+        updatePanelMarkdown();
         if (messages.isEmpty()) {
             targetScrollOffset = 0;
             currentScrollOffset = 0;
         }
     }
 
-    private void updatePanelMineMark() {
+    private void updatePanelMarkdown() {
         StringBuilder sb = new StringBuilder();
         for (AIMessage msg : messages) {
             if ("user".equals(msg.sender)) {
@@ -665,12 +669,12 @@ public class AISidePanel {
             }
         }
         String fullText = sb.toString();
-        if (panelMineMark == null || lastPanelMineMarkText == null || !lastPanelMineMarkText.equals(fullText)) {
+        if (markdownPanel == null || lastPanelMarkdownText == null || !lastPanelMarkdownText.equals(fullText)) {
             try {
-                panelMineMark = new MineMarkDrawable(fullText);
-                lastPanelMineMarkText = fullText;
+                markdownPanel = new MarkdownRenderer(fullText);
+                lastPanelMarkdownText = fullText;
             } catch (Exception e) {
-                panelMineMark = null;
+                markdownPanel = null;
             }
         }
     }
