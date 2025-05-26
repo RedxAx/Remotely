@@ -459,6 +459,19 @@ public class SettingsScreen extends Screen {
         return "Default";
     }
 
+    private static int currentThemeIndex = 0;
+    public static void loopOfThemes(boolean next) {
+        if (themeOptions.isEmpty()) return;
+        if (next) {
+            currentThemeIndex = (currentThemeIndex + 1) % themeOptions.size();
+        } else {
+            currentThemeIndex = (currentThemeIndex - 1 + themeOptions.size()) % themeOptions.size();
+        }
+        String newTheme = themeOptions.get(currentThemeIndex);
+        updateClientConfigSetting("theme", newTheme);
+    }
+
+
     @Override
     protected void init() {
         super.init();
