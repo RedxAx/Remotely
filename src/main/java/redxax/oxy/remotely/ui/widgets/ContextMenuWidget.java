@@ -145,7 +145,7 @@ public class ContextMenuWidget extends AnimatedWidget {
         }
 
         for (MenuItem item : items) {
-            int width = tr.getWidth(item.label) + 10;
+            int width = tr.getWidth(item.label) + (item.button instanceof AnimatedButton ? 6 : 6 + 20);
             if (width > maxWidth) {
                 maxWidth = width;
             }
