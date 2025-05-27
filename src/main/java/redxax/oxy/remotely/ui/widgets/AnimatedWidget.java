@@ -24,7 +24,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     protected boolean entranceAnimationEnabled = true;
     protected EntranceAnimationType entranceAnimationType = EntranceAnimationType.ELEVATION;
-    protected float entranceAnimationStrength = 0.2f;
+    protected float entranceAnimationStrength = 0.4f;
     protected float entranceAnimationSpeed = 1.0f;
 
     protected boolean entranceAnimationStarted = false;
@@ -73,6 +73,14 @@ public abstract class AnimatedWidget extends ClickableWidget {
             entranceAnimationDelay = distance * 0.001f;
             entranceAnimationDelayCalculated = true;
         }
+    }
+
+    protected void resetEntranceAnimation() {
+        entranceAnimationStarted = false;
+        entranceAnimationProgress = 0f;
+        entranceAnimationDelayCalculated = false;
+        entranceAnimationDelay = 0f;
+        updateEntranceAnimation();
     }
 
     protected void updateEntranceAnimation() {
