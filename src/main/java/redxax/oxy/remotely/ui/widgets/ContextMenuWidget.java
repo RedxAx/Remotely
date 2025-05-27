@@ -47,7 +47,7 @@ public class ContextMenuWidget extends AnimatedWidget {
             this.nice = nice;
             this.calm = calm;
             this.icon = null;
-            this.button = new AnimatedButton.ButtonBuilder().label(Text.literal(label)).onClick(action).tooltip(tooltipText).centered(false).build();
+            this.button = new AnimatedButton.ButtonBuilder().label(Text.literal(label)).onClick(action).tooltip(tooltipText).centered(false).entranceAnimationStrength(0.6f).build();
         }
 
         MenuItem(String label, BufferedImage icon, Runnable action, String tooltipText, boolean danger, boolean nice, boolean calm) {
@@ -58,7 +58,7 @@ public class ContextMenuWidget extends AnimatedWidget {
             this.nice = nice;
             this.calm = calm;
             this.icon = icon;
-            this.button = new IconButton.Builder().label(Text.literal(label)).image(icon).onClick(action).tooltip(tooltipText).centered(false).build();
+            this.button = new IconButton.Builder().label(Text.literal(label)).image(icon).onClick(action).tooltip(tooltipText).centered(false).entranceAnimationStrength(0.6f).build();
         }
     }
 
@@ -101,7 +101,7 @@ public class ContextMenuWidget extends AnimatedWidget {
         }
 
         public Builder addHeaderButton(BufferedImage image, Runnable action, String tooltipText) {
-            SquareButtonWidget button = new SquareButtonWidget.Builder().image(image).onClick(action).build();
+            SquareButtonWidget button = new SquareButtonWidget.Builder().image(image).onClick(action).entranceAnimationStrength(0.6f).build();
             widget.headerButtons.add(button);
             widget.hasHeader = true;
             widget.recalculateWidth();
@@ -109,7 +109,7 @@ public class ContextMenuWidget extends AnimatedWidget {
         }
 
         public Builder addHeaderButton(String imagePath, Runnable action, String tooltipText) {
-            SquareButtonWidget button = new SquareButtonWidget.Builder().imagePath(imagePath).onClick(action).build();
+            SquareButtonWidget button = new SquareButtonWidget.Builder().imagePath(imagePath).onClick(action).entranceAnimationStrength(0.6f).build();
             widget.headerButtons.add(button);
             widget.hasHeader = true;
             widget.recalculateWidth();
@@ -213,14 +213,10 @@ public class ContextMenuWidget extends AnimatedWidget {
     public void hide() {
         open = false;
         for (MenuItem item : items) {
-            item.button.entranceAnimationStarted = false;
-            float distance = (float) Math.sqrt(Math.pow(item.button.getX() - getX(), 2) + Math.pow(item.button.getY() - getY(), 2));
-            item.button.entranceAnimationProgress = 1f / (1f + distance / 3f);
+            item.button.resetEntranceAnimation();
         }
         for (SquareButtonWidget button : headerButtons) {
-            button.entranceAnimationStarted = false;
-            float distance = (float) Math.sqrt(Math.pow(button.getX() - getX(), 2) + Math.pow(button.getY() - getY(), 2));
-            button.entranceAnimationProgress = 1f / (1f + distance / 3f);
+            button.resetEntranceAnimation();
         }
         headerWidthCurrent = 0;
     }
