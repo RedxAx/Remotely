@@ -298,6 +298,7 @@ public class ContextMenuWidget extends AnimatedWidget {
                 for (SquareButtonWidget headerButton : headerButtons) {
                     if (headerButton.isMouseOver(mouseX, mouseY)) {
                         headerButton.onClick(mouseX, mouseY, button);
+                        this.hide();
                         return true;
                     }
                 }
@@ -312,7 +313,6 @@ public class ContextMenuWidget extends AnimatedWidget {
                 }
             }
         }
-        this.hide();
         return false;
     }
 
