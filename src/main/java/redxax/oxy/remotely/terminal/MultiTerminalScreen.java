@@ -10,6 +10,7 @@ import redxax.oxy.remotely.explorer.FileEditorScreen;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.servers.*;
 import redxax.oxy.remotely.ui.AISidePanel;
+import redxax.oxy.remotely.ui.widgets.ContextMenuWidget;
 import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
 
 import java.io.IOException;
@@ -110,7 +111,7 @@ public class MultiTerminalScreen extends Screen {
     private List<Float> dragStartColWeights = new ArrayList<>();
     private List<Float> dragStartRowWeights = new ArrayList<>();
     private final List<Float> currentColumnWeights = new ArrayList<>();
-    private final List<Float> currentRowWeights    = new ArrayList<>();
+    private final List<Float> currentRowWeights = new ArrayList<>();
 
     public static class MergeGroup {
         List<TerminalInstance> members = new ArrayList<>();
@@ -136,6 +137,9 @@ public class MultiTerminalScreen extends Screen {
     private final Map<RemotelyClient.CommandSnippet, Float> snippetAnimatedY = new HashMap<>();
     private final RemotelyClient.CommandSnippet CREATE_SNIPPET = new RemotelyClient.CommandSnippet("Create Snippet", "Snippets Executes Commands", "");
     AISidePanel aiSidePanel;
+    ContextMenuWidget tabContextMenu = new ContextMenuWidget.Builder(this).build();
+    ContextMenuWidget snippetContextMenu = new ContextMenuWidget.Builder(this).build();
+    ContextMenuWidget terminalContextMenu = new ContextMenuWidget.Builder(this).build();
 
     public MultiTerminalScreen(MinecraftClient minecraftClient, Screen parent, RemotelyClient remotelyClient, List<TerminalInstance> terminals, List<String> tabNames) {
         super(Text.literal("Multi Terminal"));
@@ -471,9 +475,6 @@ public class MultiTerminalScreen extends Screen {
         if (snippetPopupActive) {
             renderSnippetPopup(context, mouseX, mouseY);
         }
-        if (ContextMenu.isOpen()) {
-            ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
-        }
         animatedScaling(this);
     }
 
@@ -729,10 +730,12 @@ public class MultiTerminalScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (ContextMenu.mouseClicked((int) mouseX, (int) mouseY, button)) {
+        if (tabContextMenu.mouseClicked(mouseX, mouseY, button) || terminalContextMenu.mouseClicked(mouseX, mouseY, button) || snippetContextMenu.mouseClicked(mouseX, mouseY, button)) {
+            terminalContextMenu.hide();
+            tabContextMenu.hide();
+            snippetContextMenu.hide();
             return true;
         }
-        ContextMenu.hide();
         if (tabsBar.handleTabsBarMouse((int) mouseX, (int) mouseY, button)) {
             return true;
         }
@@ -969,10 +972,12 @@ public class MultiTerminalScreen extends Screen {
                     if (button == 1) {
                         playSound(Sound.RIGHTCLICK);
                         int finalI = i;
-                        ContextMenu.addItem("Close", () -> closeTerminal(finalI), false, false, false, "Close Terminal");
-                        if (finalI != activeTerminalIndex) ContextMenu.addItem("Merge", () -> mergeTerminal(finalI), false, false, false, "Merge Terminal / Split Screen");
-                        ContextMenu.addItem("Rename", () -> tabsBar.renameTab(finalI), false, false, false, "Rename Terminal");
-                        ContextMenu.show((int) mouseX, (int) mouseY, 60, this.width, this.height);
+                        remove(tabContextMenu);
+                        tabContextMenu = new ContextMenuWidget.Builder(this).addHeaderButton("/assets/remotely/icons/merge.png", () -> mergeTerminal(finalI), "Merge Terminals")
+                                .addHeaderButton("/assets/remotely/icons/edit.png", () -> tabsBar.renameTab(finalI), "Rename")
+                                .addHeaderButton(closeIcon.getImage(), () -> closeTerminal(finalI), "Close Tab").build();
+                        addDrawableChild(tabContextMenu);
+                        tabContextMenu.show((int) mouseX, (int) mouseY);
                         return true;
                     } else if (button == 2) {
                         playSound(Sound.CLOSETAB);
@@ -1142,9 +1147,21 @@ public class MultiTerminalScreen extends Screen {
                         TerminalInstance ti = mg.members.get(idx2);
                         if (button == 1) {
                             final int p = idx2;
+                            if (p == focusedPaneIndex) {
+                                return false;
+                            }
                             ContextMenu.addItem("Unmerge", () -> unmergePanel(p), false, false, false, "Unmerge Pane");
                             ContextMenu.addItem("Close",   () -> closePanel(p), false, false, false, "Close Pane");
                             ContextMenu.show((int)mouseX,(int)mouseY,100,this.width,this.height);
+                            remove(terminalContextMenu);
+                            terminalContextMenu = new ContextMenuWidget.Builder(this).addHeaderButton("/assets/remotely/icons/unmerge.png", () -> unmergePanel(p), "Unmerge Pane")
+                                    .addHeaderButton("/assets/remotely/icons/newTab.png", () -> {
+                                        playSound(Sound.CREATE);
+                                        mergeNewTerminal();
+                                    }, "Add New Pane")
+                                    .addHeaderButton(closeIcon.getImage(), () -> closePanel(p), "Close Pane").build();
+                            addDrawableChild(terminalContextMenu);
+                            terminalContextMenu.show((int) mouseX, (int) mouseY);
                             return true;
                         } else if (button == 0) {
                             playSound(Sound.SELECT);
@@ -1872,6 +1889,17 @@ public class MultiTerminalScreen extends Screen {
             gridRowWeights.add(h);
             currentRowWeights.add(h);
         }
+    }
+
+    private void mergeNewTerminal() {
+        UUID newId = UUID.randomUUID();
+        TerminalInstance newTerminal = new TerminalInstance(minecraftClient, this, newId);
+        terminals.add(newTerminal);
+        tabNames.add("Tab " + terminals.size());
+        tabsBar.getTabs().add(new TabsBar.Tab<>(tabNames.get(terminals.size() - 1), false, null));
+        mergeGroups.put(newId, new MergeGroup(newTerminal));
+        mergeTerminal(terminals.size() - 1);
+        initializeWeights();
     }
 
     private void mergeTerminal(int index) {
