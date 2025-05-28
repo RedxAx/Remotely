@@ -142,7 +142,7 @@ public class ImageUtil {
             textureCache.put(image, textureId);
         }
         context.drawTexture(textureId, x, y, 0, 0, width, height, width, height);
-        //?} elif <=1.21.4 {
+        //?} elif >=1.21.4 {
         /*Identifier textureId = textureCache.get(image);
         if (textureId == null) {
             BufferedImage scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
@@ -156,8 +156,14 @@ public class ImageUtil {
                     nativeImage.setColorArgb(i, j, argb);
                 }
             }
+            //? if =1.21.5 {
+            /^Supplier<String> textureName = () -> "redxax.oxy:image_" + image.hashCode();
+            NativeImageBackedTexture texture = new NativeImageBackedTexture(textureName, nativeImage);
+            textureId = Identifier.tryParse("redxax.oxy:image_" + image.hashCode());
+            ^///?} else {
             NativeImageBackedTexture texture = new NativeImageBackedTexture(nativeImage);
             textureId = Identifier.tryParse("redxax.oxy:image_" + image.hashCode());
+            //?}
             MinecraftClient.getInstance().getTextureManager().registerTexture(textureId, texture);
             textureCache.put(image, textureId);
         }
