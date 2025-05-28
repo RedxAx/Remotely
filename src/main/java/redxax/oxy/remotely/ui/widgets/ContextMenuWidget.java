@@ -32,33 +32,33 @@ public class ContextMenuWidget extends AnimatedWidget {
     public static class MenuItem {
         final String label;
         final Runnable action;
-        final String tooltipText;
+        final String hint;
         final boolean danger;
         final boolean nice;
         final boolean calm;
         final BufferedImage icon;
         final AnimatedWidget button;
 
-        MenuItem(String label, Runnable action, String tooltipText, boolean danger, boolean nice, boolean calm) {
+        MenuItem(String label, Runnable action, String hint, boolean danger, boolean nice, boolean calm) {
             this.label = label;
             this.action = action;
-            this.tooltipText = tooltipText;
+            this.hint = hint;
             this.danger = danger;
             this.nice = nice;
             this.calm = calm;
             this.icon = null;
-            this.button = new AnimatedButton.ButtonBuilder().label(Text.literal(label)).onClick(action).tooltip(tooltipText).centered(false).entranceAnimationStrength(0.6f).build();
+            this.button = new AnimatedButton.ButtonBuilder().label(Text.literal(label)).onClick(action).hint(hint).centered(false).entranceAnimationStrength(0.6f).build();
         }
 
-        MenuItem(String label, BufferedImage icon, Runnable action, String tooltipText, boolean danger, boolean nice, boolean calm) {
+        MenuItem(String label, BufferedImage icon, Runnable action, String hint, boolean danger, boolean nice, boolean calm) {
             this.label = label;
             this.action = action;
-            this.tooltipText = tooltipText;
+            this.hint = hint;
             this.danger = danger;
             this.nice = nice;
             this.calm = calm;
             this.icon = icon;
-            this.button = new IconButton.Builder().label(Text.literal(label)).image(icon).onClick(action).tooltip(tooltipText).centered(false).entranceAnimationStrength(0.6f).build();
+            this.button = new IconButton.Builder().label(Text.literal(label)).image(icon).onClick(action).hint(hint).centered(false).entranceAnimationStrength(0.6f).build();
         }
     }
 
@@ -67,49 +67,49 @@ public class ContextMenuWidget extends AnimatedWidget {
             super(new ContextMenuWidget(parent));
         }
 
-        public Builder addItem(String label, Runnable action, String tooltipText) {
-            return addItem(label, action, tooltipText, false, false, false);
+        public Builder addItem(String label, Runnable action, String hint) {
+            return addItem(label, action, hint, false, false, false);
         }
 
-        public Builder addItem(String label, Runnable action, String tooltipText, boolean danger, boolean nice, boolean calm) {
-            widget.items.add(new MenuItem(label, action, tooltipText, danger, nice, calm));
+        public Builder addItem(String label, Runnable action, String hint, boolean danger, boolean nice, boolean calm) {
+            widget.items.add(new MenuItem(label, action, hint, danger, nice, calm));
             widget.recalculateWidth();
             return this;
         }
 
-        public Builder addIconItem(String label, BufferedImage icon, Runnable action, String tooltipText) {
-            return addIconItem(label, icon, action, tooltipText, false, false, false);
+        public Builder addIconItem(String label, BufferedImage icon, Runnable action, String hint) {
+            return addIconItem(label, icon, action, hint, false, false, false);
         }
 
-        public Builder addIconItem(String label, BufferedImage icon, Runnable action, String tooltipText, boolean danger, boolean nice, boolean calm) {
-            widget.items.add(new MenuItem(label, icon, action, tooltipText, danger, nice, calm));
+        public Builder addIconItem(String label, BufferedImage icon, Runnable action, String hint, boolean danger, boolean nice, boolean calm) {
+            widget.items.add(new MenuItem(label, icon, action, hint, danger, nice, calm));
             widget.recalculateWidth();
             return this;
         }
 
-        public Builder addIconItem(String label, String iconPath, Runnable action, String tooltipText) {
-            return addIconItem(label, iconPath, action, tooltipText, false, false, false);
+        public Builder addIconItem(String label, String iconPath, Runnable action, String hint) {
+            return addIconItem(label, iconPath, action, hint, false, false, false);
         }
 
-        public Builder addIconItem(String label, String iconPath, Runnable action, String tooltipText, boolean danger, boolean nice, boolean calm) {
+        public Builder addIconItem(String label, String iconPath, Runnable action, String hint, boolean danger, boolean nice, boolean calm) {
             try {
                 BufferedImage icon = loadResourceIcon(iconPath);
-                return addIconItem(label, icon, action, tooltipText, danger, nice, calm);
+                return addIconItem(label, icon, action, hint, danger, nice, calm);
             } catch (Exception e) {
-                return addItem(label, action, tooltipText, danger, nice, calm);
+                return addItem(label, action, hint, danger, nice, calm);
             }
         }
 
-        public Builder addHeaderButton(BufferedImage image, Runnable action, String tooltipText) {
-            SquareButtonWidget button = new SquareButtonWidget.Builder().image(image).onClick(action).entranceAnimationStrength(0.6f).build();
+        public Builder addHeaderButton(BufferedImage image, Runnable action, String hint) {
+            SquareButtonWidget button = new SquareButtonWidget.Builder().image(image).onClick(action).entranceAnimationStrength(0.6f).hint(hint).hintDelay(0.5f).build();
             widget.headerButtons.add(button);
             widget.hasHeader = true;
             widget.recalculateWidth();
             return this;
         }
 
-        public Builder addHeaderButton(String imagePath, Runnable action, String tooltipText) {
-            SquareButtonWidget button = new SquareButtonWidget.Builder().imagePath(imagePath).onClick(action).entranceAnimationStrength(0.6f).build();
+        public Builder addHeaderButton(String imagePath, Runnable action, String hint) {
+            SquareButtonWidget button = new SquareButtonWidget.Builder().imagePath(imagePath).onClick(action).entranceAnimationStrength(0.6f).hint(hint).hintDelay(0.5f).build();
             widget.headerButtons.add(button);
             widget.hasHeader = true;
             widget.recalculateWidth();
@@ -164,6 +164,8 @@ public class ContextMenuWidget extends AnimatedWidget {
     public void show(int x, int y) {
         if (items.isEmpty() && headerButtons.isEmpty()) return;
         open = true;
+        this.visible = true;
+        this.active = true;
         int menuX = x;
         int menuY = y;
         this.setX(x);
@@ -212,6 +214,8 @@ public class ContextMenuWidget extends AnimatedWidget {
 
     public void hide() {
         open = false;
+        this.visible = false;
+        this.active = false;
         for (MenuItem item : items) {
             item.button.resetEntranceAnimation();
         }
@@ -248,7 +252,7 @@ public class ContextMenuWidget extends AnimatedWidget {
             context.fill(headerLeft, headerTop, headerRight, headerBottom, headerBgColor);
             Render.drawInnerBorder(context, headerLeft, headerTop, (int)headerWidthCurrent + HEADER_PADDING * 2, HEADER_HEIGHT, Config.getElementBorderColor("contextMenuHeader".hashCode() + this.hashCode(), false, false, false, false, false, false));
             Render.drawOuterBorder(context, headerLeft, headerTop, (int)headerWidthCurrent + HEADER_PADDING * 2, HEADER_HEIGHT, headerBgColor);
-            context.enableScissor(headerLeft, headerTop, headerRight, headerBottom);
+            if (headerWidthTarget - headerWidthCurrent > 2f) context.enableScissor(headerLeft, headerTop, headerRight, headerBottom);
 
             int targetButtonsWidth = 0;
             for (int i = 0; i < headerButtons.size(); i++) {
@@ -270,7 +274,7 @@ public class ContextMenuWidget extends AnimatedWidget {
                     buttonX += BUTTON_GAP;
                 }
             }
-            context.disableScissor();
+            if (headerWidthTarget - headerWidthCurrent > 2f) context.disableScissor();
             currentY += HEADER_HEIGHT + 6;
         }
 

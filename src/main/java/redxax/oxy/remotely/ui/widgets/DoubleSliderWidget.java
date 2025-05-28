@@ -26,7 +26,7 @@ public class DoubleSliderWidget extends AnimatedWidget {
         public Builder() { super(new DoubleSliderWidget(0, 0, 100, 20, "", 0.0)); }
         public Builder value(double v) { widget.currentValue = v; return this; }
         public Builder label(String l) { widget.label = l; return this; }
-        public Builder tooltip(String t) { widget.tooltipText = t; return this; }
+        public Builder hint(String t) { widget.tooltipText = t; return this; }
         public Builder onChange(Runnable r) { widget.onChange = r; return this; }
         @Override protected Builder self() { return this; }
     }
