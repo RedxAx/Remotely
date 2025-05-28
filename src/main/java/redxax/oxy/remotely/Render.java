@@ -1351,6 +1351,11 @@ public class Render {
                 if (activeTab >= tabs.size()) activeTab = tabs.size() - 1;
             }
         }
+
+        public void add(T newTab, String name) {
+            tabs.add(new Tab<T>(name, false, newTab));
+            if (onTabOrderChanged != null) onTabOrderChanged.run();
+        }
     }
 }
 
