@@ -5,6 +5,7 @@ import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.Text;
+import redxax.oxy.remotely.Render;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -34,7 +35,14 @@ public abstract class AnimatedWidget extends ClickableWidget {
     protected int bgColor = elementBackgroundColor;
     protected int borderColor = elementBorderColor;
     protected int textColor = globalTextColor;
-    protected String tooltipText = "";
+    protected String hint = "";
+    protected float hintDelay = 1.5f;
+    protected boolean hintVisible = false;
+    protected float hintHoverTime = 0f;
+    protected float hintWidth = 0f;
+    protected float hintTargetWidth = 0f;
+    protected boolean wasHovered = false;
+
     protected static MinecraftClient mc = MinecraftClient.getInstance();
     protected TextRenderer tr = mc.textRenderer;
     public static final Map<Integer, Float> elevationOffsets = new HashMap<>();
@@ -53,7 +61,8 @@ public abstract class AnimatedWidget extends ClickableWidget {
         public B animateElevation(boolean b) { widget.animateElevation = b; return self(); }
         public B flat(boolean f) { widget.flat = f; return self(); }
         public B animationSpeed(float s) { widget.animationSpeed = s; return self(); }
-        public B tooltip(String text) { widget.tooltipText = text; return self(); }
+        public B hint(String text) { widget.hint = text; return self(); }
+        public B hintDelay(float delay) { widget.hintDelay = delay; return self(); }
         public B entranceAnimation(boolean enabled) { widget.entranceAnimationEnabled = enabled; return self(); }
         public B entranceAnimationType(EntranceAnimationType type) { widget.entranceAnimationType = type; return self(); }
         public B entranceAnimationStrength(float strength) { widget.entranceAnimationStrength = strength; return self(); }
@@ -127,8 +136,74 @@ public abstract class AnimatedWidget extends ClickableWidget {
         return (color & 0x00FFFFFF) | (newAlpha << 24);
     }
 
+    protected void updateHint() {
+        if (hint.isEmpty() || !visible || !active) {
+            hintVisible = false;
+            hintHoverTime = 0f;
+            hintWidth = 0f;
+            return;
+        }
+        boolean currentlyHovered = isHovered();
+        if (currentlyHovered && !wasHovered) {
+            hintHoverTime = 0f;
+        }
+
+        if (currentlyHovered) {
+            hintHoverTime += deltaTime;
+            if (hintHoverTime >= hintDelay && !hintVisible) {
+                hintVisible = true;
+                hintTargetWidth = tr.getWidth(hint) + 8;
+            }
+        } else {
+            hintVisible = false;
+            hintHoverTime = 0f;
+        }
+        if (hintVisible) {
+            hintWidth += (hintTargetWidth - hintWidth) * globalExpandSpeed * deltaTime;
+        } else {
+            hintWidth = 0f;
+        }
+        wasHovered = currentlyHovered;
+    }
+
+    protected void drawHint(DrawContext context) {
+        if (!hintVisible || hint.isEmpty() || hintWidth <= 0) return;
+        int hintHeight = 15;
+        int hintPadding = 4;
+        int hintX = (getX() + getWidth() / 2 - (int)(hintWidth / 2));
+        int hintY = (getY() - hintHeight - 4) - 1;
+        int screenWidth = mc.getWindow().getScaledWidth();
+        int screenHeight = mc.getWindow().getScaledHeight();
+        if (hintX < 4) {
+            hintX = 4;
+        }
+        if (hintX + hintWidth > screenWidth - 4) {
+            hintX = screenWidth - (int)hintWidth - 4;
+        }
+        if (hintY < 4) {
+            hintY = getY() + getHeight() + 4;
+        }
+        if (hintY + hintHeight > screenHeight - 4) {
+            hintY = screenHeight - hintHeight - 4;
+        }
+        context.getMatrices().push();
+        context.getMatrices().translate(0, 0, 500);
+        int hintBgColor = getElementBackgroundColor("hint".hashCode() + this.hashCode(), false, false, false, AccentType.DEFAULT);
+        int hintBorderColor = getElementBorderColor("hint".hashCode() + this.hashCode(), false, false, false, AccentType.DEFAULT);
+        context.fill(hintX, hintY, hintX + (int)hintWidth, hintY + hintHeight, hintBgColor);
+        Render.drawInnerBorder(context, hintX, hintY, (int)hintWidth, hintHeight, hintBorderColor);
+        Render.drawOuterBorder(context, hintX, hintY, (int)hintWidth, hintHeight, hintBgColor);
+        context.enableScissor(hintX, hintY, hintX + (int)hintWidth, hintY + hintHeight);
+        int textX = hintX + hintPadding;
+        int textY = (hintY + (hintHeight - tr.fontHeight) / 2) + 1;
+        context.drawText(tr, hint, textX, textY, globalTextColor, false);
+        context.disableScissor();
+        context.getMatrices().pop();
+    }
+
     public void tick() {
         updateEntranceAnimation();
+        updateHint();
 
         if (animateElevation) {
             float elevationTarget = hovered ? -2f : 0f;
@@ -187,8 +262,8 @@ public abstract class AnimatedWidget extends ClickableWidget {
         bgColor = originalBgColor;
         borderColor = originalBorderColor;
         textColor = originalTextColor;
-
         ctx.getMatrices().pop();
+        drawHint(ctx);
     }
 
     protected void drawBackground(DrawContext ctx) {

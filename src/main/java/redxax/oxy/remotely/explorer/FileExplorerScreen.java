@@ -375,15 +375,15 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                  .addHeaderButton(copyIcon.getImage(), () -> {
                     playSound(Sound.COPY);
                     fileManager.copySelected(tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths);
-                }, "Copy Selected Items")
+                }, "Copy Items")
                 .addHeaderButton(cutIcon.getImage(), () -> {
                     playSound(Sound.COPY);
                     fileManager.cutSelected(tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths);
-                }, "Cut Selected Items")
+                }, "Cut Items")
                 .addHeaderButton(pasteIcon.getImage(), () -> {
                     playSound(Sound.PASTE);
                     fileManager.paste(currentPath);
-                }, "Paste Copied Items")
+                }, "Paste Items")
                 .addHeaderButton(favoriteIcon.getImage(), () -> {
                     playSound(Sound.CLICK);
                     for (Path path : tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths) {
@@ -395,7 +395,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                             }
                         }
                     }
-                }, "Toggle Favorite for Selected Items")
+                }, "Favorite Items")
                 .addHeaderButton(editIcon.getImage(), () -> {
                     playSound(Sound.CLICK);
                     if (tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.size() == 1) {
@@ -406,11 +406,11 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                     } else {
                         showNotification("Please select only one item to rename.", Notification.Type.ERROR);
                     }
-                }, "Rename Selected Item")
+                }, "Rename Items")
                 .addHeaderButton(deleteIcon.getImage(), () -> {
                     playSound(Sound.DELETE);
                     fileManager.deleteSelected(tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths, currentPath);
-                }, "Delete Selected Items")
+                }, "Delete Items")
                 .addIconItem("Open In New Tab", "/assets/remotely/icons/newTab.png", () -> {
                     Path selectedPath = tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.get(0);
                     if (selectedPath.toFile().isDirectory()) {
@@ -432,16 +432,16 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                     } else {
                         showNotification("Please select only one item to open externally.", Notification.Type.ERROR);
                     }
-                }, "Open In The Associated App")
+                }, "")
                 .addIconItem("Create File", newFileIcon.getImage(), () -> {
                     playSound(Sound.CREATE);
                     createFile();
-                }, "Create New File or Folder")
+                }, "")
                 .addIconItem("Copy Path", "/assets/remotely/icons/snippets.png", () -> {
                     playSound(Sound.COPY);
                     String quotedPath = "\"" + tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.get(0).toString() + "\"";
                     minecraftClient.keyboard.setClipboard(quotedPath);
-                }, "Copy Path to Clipboard")
+                }, "")
                 .addIconItem("Undo", backIcon.getImage(), () -> {
                     if (serverInfo.isRemote) {
                         showNotification("Undo not supported for remote files.", Notification.Type.ERROR);
@@ -449,11 +449,11 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                         playSound(Sound.UNDO);
                         fileManager.undo(currentPath);
                     }
-                }, "Undo Last Action")
+                }, "")
                 .addIconItem("Refresh", reloadIcon.getImage(), () -> {
                     playSound(Sound.CLICK);
                     loadDirectory(currentPath, false, true, true);
-                }, "Reload Current Directory")
+                }, "")
                 .build();
         addDrawableChild(itemsContextMenu);
     }
