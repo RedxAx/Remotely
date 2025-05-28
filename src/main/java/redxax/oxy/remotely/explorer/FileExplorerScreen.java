@@ -3,12 +3,12 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWDropCallback;
-import redxax.oxy.remotely.Render.ContextMenu;
 import redxax.oxy.remotely.Render.ScrollBar;
 import redxax.oxy.remotely.Render.TabsBar;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.ui.widgets.ContextMenuWidget;
 import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
 import redxax.oxy.remotely.util.Notification;
 import redxax.oxy.remotely.util.Sound;
@@ -40,6 +40,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
     private final net.minecraft.client.gui.screen.Screen parent;
     private final ServerInfo serverInfo;
     private final List<EntryData> fileEntries;
+    private Tab currentTab;
     private final Object fileEntriesLock = new Object();
     private final int entryHeight = 20;
     private Path currentPath;
@@ -94,9 +95,10 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
     private final List<EntryData> fullEntries = new ArrayList<>();
     private static final int MAX_NAME_WIDTH = 500;
     public static BufferedImage appsIcon, textIcon, shadersIcon, scriptIcon, javaIcon, pyIcon, minecraftIcon, jsonIcon, jsIcon, cssIcon, zipIcon, audioIcon, videoIcon, imageIcon, docxIcon, pdfIcon, pptxIcon, xlsxIcon;
-    public static IconWithTooltip closeIcon, backIcon, forwardIcon, searchIcon, reloadIcon, newFileIcon, copyIcon, editIcon, favoriteIcon, winExplorerIcon, pasteIcon, deleteIcon, cutIcon;
+    public static IconWithTooltip closeIcon, backIcon, forwardIcon, searchIcon, reloadIcon, newFileIcon, copyIcon, editIcon, favoriteIcon, externalIcon, pasteIcon, deleteIcon, cutIcon;
     private TabsBar<Tab> tabsBar;
-
+    private ContextMenuWidget itemsContextMenu;
+    private ContextMenuWidget tabContextMenu = new ContextMenuWidget.Builder(this).build();
     public static class EntryData {
         public Path path;
         public boolean isDirectory;
@@ -208,7 +210,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
         tabs.add(new Tab(new TabData(currentPath, serverInfo.isRemote, serverInfo.remoteHost)));
         originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
-        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
+        minecraftClient.getWindow().setScaleFactor((int) globalScaleFactor);
     }
 
     @Override
@@ -271,7 +273,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
             copyIcon = new IconWithTooltip("/assets/remotely/icons/copy.png", "§6Copy §rSelected Items");
             editIcon = new IconWithTooltip("/assets/remotely/icons/edit.png", "§6Rename §rSelected Items");
             favoriteIcon = new IconWithTooltip("/assets/remotely/icons/favorite.png", "Toggle §6Favorites §rFor Selected Items");
-            winExplorerIcon = new IconWithTooltip("/assets/remotely/icons/winexplorer.png", "Open The Current Directory In §bWindows §6Explorer");
+            externalIcon = new IconWithTooltip("/assets/remotely/icons/external.png", "Open §6Externally");
             pasteIcon = new IconWithTooltip("/assets/remotely/icons/paste.png", "§6Paste §rCopied Items");
             deleteIcon = new IconWithTooltip("/assets/remotely/icons/delete.png", "§cDelete §rSelected Items");
             cutIcon = new IconWithTooltip("/assets/remotely/icons/cut.png", "§6Cut §rSelected Items");
@@ -369,6 +371,91 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                 saveFileExplorerTabs(tabs.stream().map(t -> t.tabData).collect(Collectors.toList()), currentTabIndex);
             }
         });
+        itemsContextMenu = new ContextMenuWidget.Builder(this)
+                 .addHeaderButton(copyIcon.getImage(), () -> {
+                    playSound(Sound.COPY);
+                    fileManager.copySelected(tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths);
+                }, "Copy Selected Items")
+                .addHeaderButton(cutIcon.getImage(), () -> {
+                    playSound(Sound.COPY);
+                    fileManager.cutSelected(tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths);
+                }, "Cut Selected Items")
+                .addHeaderButton(pasteIcon.getImage(), () -> {
+                    playSound(Sound.PASTE);
+                    fileManager.paste(currentPath);
+                }, "Paste Copied Items")
+                .addHeaderButton(favoriteIcon.getImage(), () -> {
+                    playSound(Sound.CLICK);
+                    for (Path path : tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths) {
+                        synchronized (favoritePathsLock) {
+                            if (favoritePaths.contains(path)) {
+                                favoritePaths.remove(path);
+                            } else {
+                                favoritePaths.add(path);
+                            }
+                        }
+                    }
+                }, "Toggle Favorite for Selected Items")
+                .addHeaderButton(editIcon.getImage(), () -> {
+                    playSound(Sound.CLICK);
+                    if (tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.size() == 1) {
+                        renamePath = tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.get(0);
+                        renameBuffer.setLength(0);
+                        renameBuffer.append(renamePath.getFileName().toString());
+                        renameCursorPos = renameBuffer.length();
+                    } else {
+                        showNotification("Please select only one item to rename.", Notification.Type.ERROR);
+                    }
+                }, "Rename Selected Item")
+                .addHeaderButton(deleteIcon.getImage(), () -> {
+                    playSound(Sound.DELETE);
+                    fileManager.deleteSelected(tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths, currentPath);
+                }, "Delete Selected Items")
+                .addIconItem("Open In New Tab", "/assets/remotely/icons/newTab.png", () -> {
+                    Path selectedPath = tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.get(0);
+                    if (selectedPath.toFile().isDirectory()) {
+                        playSound(Sound.CREATE);
+                        TabData newTabData = new TabData(selectedPath, serverInfo.isRemote, serverInfo.remoteHost);
+                        tabs.add(new Tab(newTabData));
+                        currentTabIndex = tabs.size() - 1;
+                        loadDirectory(newTabData.path, false, false, true);
+                        Tab newTab = tabs.get(0);
+                        tabsBar.getTabs().add(new TabsBar.Tab<>(newTab.name, false, newTab));
+                        tabsBar.setActiveTab(Math.min(currentTabIndex, tabs.size() - 1));
+                    }
+                }, "")
+                .addIconItem("Open Externally", externalIcon.getImage(), () -> {
+                    playSound(Sound.CLICK);
+                    if (tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.size() == 1) {
+                        Path selectedPath = tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.get(0);
+                        openExternally(selectedPath);
+                    } else {
+                        showNotification("Please select only one item to open externally.", Notification.Type.ERROR);
+                    }
+                }, "Open In The Associated App")
+                .addIconItem("Create File", newFileIcon.getImage(), () -> {
+                    playSound(Sound.CREATE);
+                    createFile();
+                }, "Create New File or Folder")
+                .addIconItem("Copy Path", "/assets/remotely/icons/snippets.png", () -> {
+                    playSound(Sound.COPY);
+                    String quotedPath = "\"" + tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.get(0).toString() + "\"";
+                    minecraftClient.keyboard.setClipboard(quotedPath);
+                }, "Copy Path to Clipboard")
+                .addIconItem("Undo", backIcon.getImage(), () -> {
+                    if (serverInfo.isRemote) {
+                        showNotification("Undo not supported for remote files.", Notification.Type.ERROR);
+                    } else {
+                        playSound(Sound.UNDO);
+                        fileManager.undo(currentPath);
+                    }
+                }, "Undo Last Action")
+                .addIconItem("Refresh", reloadIcon.getImage(), () -> {
+                    playSound(Sound.CLICK);
+                    loadDirectory(currentPath, false, true, true);
+                }, "Reload Current Directory")
+                .build();
+        addDrawableChild(itemsContextMenu);
     }
 
     @Override
@@ -376,7 +463,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
         super.render(context, mouseX, mouseY, delta);
         int titleBarHeight = 30;
         int tabBarY = titleBarHeight + 5;
-        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.isEmpty() ? !FileManager.getClipboard().isEmpty() ? pasteIcon : null : shiftPressed ? pasteIcon : copyIcon), (tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? deleteIcon : editIcon), (tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? cutIcon : favoriteIcon), backIcon, forwardIcon, newFileIcon, winExplorerIcon, shiftPressed ? reloadIcon : searchIcon);
+        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, (tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.isEmpty() ? !FileManager.getClipboard().isEmpty() ? pasteIcon : null : shiftPressed ? pasteIcon : copyIcon), (tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? deleteIcon : editIcon), (tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).tabData.selectedPaths.isEmpty() ? null : shiftPressed ? cutIcon : favoriteIcon), backIcon, forwardIcon, newFileIcon, externalIcon, shiftPressed ? reloadIcon : searchIcon);
         tabsBar.renderTabsBar(context, this.textRenderer, tabsBar, mouseX, mouseY, Config.shadow);
         currentTabIndex = tabsBar.getActiveTab();
         tabsBar.setActiveTabName(tabs.get(Math.min(currentTabIndex, tabs.size() - 1)).getAnimatedText());
@@ -386,7 +473,6 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
         int explorerWidth = this.width - 10;
         int headerY = explorerY - 23;
         Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
-        float pathScrollOffset = 0;
         float pathTargetScrollOffset = 0;
         drawSearchBar(context, textRenderer, fieldText, fieldFocused, cursorPosition, selectionStart, selectionEnd, pathTargetScrollOffset, currentMode == Mode.SEARCH, "FileExplorerScreen", mouseX, mouseY, "Search For Files or Directories");
         context.fill(explorerX, headerY, explorerX + explorerWidth, headerY + 27, Config.innerBackgroundColor);
@@ -435,7 +521,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                 synchronized (favoritePathsLock) {
                     isFavorite = favoritePaths.contains(entry.path);
                 }
-                drawExplorerElements(context, hovered && !ContextMenu.isOpen(), isSelected, isFavorite, entry, explorerX, entryY, explorerWidth, entryHeight, this.textRenderer, serverInfo.isRemote, String.valueOf(renamePath), renameBuffer, renameCursorPos);
+                drawExplorerElements(context, hovered && !itemsContextMenu.isOpen(), isSelected, isFavorite, entry, explorerX, entryY, explorerWidth, entryHeight, this.textRenderer, serverInfo.isRemote, String.valueOf(renamePath), renameBuffer, renameCursorPos);
             }
         }
         context.disableScissor();
@@ -448,11 +534,9 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
         ScrollBar.render(context, this, mouseX, mouseY, totalHeight + explorerY - tabBarY - 30, currentTab.tabData.targetOffset);
         canScroll = visibleEntries < entriesToRender.size();
         currentTab.tabData.targetOffset = ScrollBar.getPendingOffset();
-        if (ContextMenu.isOpen()) {
-            ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
-        }
         loadMoreIfNeeded(explorerHeight);
         animatedScaling(this);
+        context.drawText(this.textRenderer, Text.literal("Drawable Children: " + this.children().size()), 5, 5, 0xFFFFFF, true);
     }
 
     private boolean remoteHostInfosEqual(RemoteHostInfo a, RemoteHostInfo b) {
@@ -938,10 +1022,9 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (ContextMenu.mouseClicked(mouseX, mouseY, button)) {
+        if (itemsContextMenu.mouseClicked(mouseX, mouseY, button) || tabContextMenu.mouseClicked((int) mouseX, (int) mouseY, button)) {
             return true;
         }
-        ContextMenu.hide();
         if (tabsBar.handleTabsBarMouse((int) mouseX, (int) mouseY, button)) {
             return true;
         }
@@ -956,7 +1039,6 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
         int tabBarYLocal = titleBarHeightLocal + 5;
         int tabBarHeight = TAB_HEIGHT;
         int tabX = 5;
-        Tab currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
         for (int i = 0; i < tabs.size(); i++) {
             Tab tab = tabs.get(i);
             int tabWidth = tab.getCurrentWidth(textRenderer);
@@ -966,32 +1048,50 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
                     closeTab(i);
                     tabsBar.closeTab(i);
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
-                    playSound(Sound.RIGHTCLICK);
-                    ContextMenu.hide();
-                    int finalI = i;
-                    ContextMenu.addItem("Close", () -> {
-                        closeTab(finalI);
-                        tabsBar.closeTab(finalI);
-                    }, false, false, false, "");
-                    int finalI1 = i;
-                    ContextMenu.addItem("Duplicate", () -> {
-                        TabData originalTabData = tabs.get(finalI1).tabData;
-                        TabData newTabData = new TabData(originalTabData.path, originalTabData.isRemote, originalTabData.remoteHostInfo);
-                        Tab newTab = new Tab(newTabData);
-                        tabs.add(newTab);
-                        currentTabIndex = tabs.size() - 1;
-                        loadDirectory(newTabData.path, false, false, false);
-                        saveFileExplorerTabs(tabs.stream().map(t1 -> new TabData(t1.tabData.path, t1.tabData.isRemote, t1.tabData.remoteHostInfo)).collect(Collectors.toList()), Math.min(currentTabIndex, tabs.size() - 1));
-                    }, false, false, false, "Duplicate This Tab.");
-                    ContextMenu.addItem("Externally", () -> openExternally(tabs.get(finalI1).tabData.path), false, false, false, "Open In The Windows File Explorer.");
-                    ContextMenu.addItem("Rename Tab", () -> tabsBar.renameTab(finalI), false, false, false, "Are You a Psychopath or Something?");
-                    ContextMenu.show((int) mouseX, (int) mouseY, 60, this.width, this.height);
+                    remove(tabContextMenu);
+                    int idx = i;
+                    tabContextMenu = new ContextMenuWidget.Builder(this)
+                            .addHeaderButton(closeIcon.getImage(), () -> {
+                                if (idx < tabs.size()) {
+                                    closeTab(idx);
+                                    tabsBar.closeTab(idx);
+                                }
+                            }, "Close Tab")
+                            .addHeaderButton(editIcon.getImage(), () -> tabsBar.renameTab(idx), "Rename Tab")
+                            .addHeaderButton("/assets/remotely/icons/duplicate.png", () -> {
+                                playSound(Sound.CREATE);
+                                TabData originalTabData = tabs.get(idx).tabData;
+                                TabData newTabData = new TabData(originalTabData.path, originalTabData.isRemote, originalTabData.remoteHostInfo);
+                                Tab newTab = new Tab(newTabData);
+                                tabs.add(newTab);
+                                tabsBar.add(newTab, newTab.name);
+                                currentTabIndex = tabs.size() - 1;
+                                loadDirectory(newTabData.path, false, false, false);
+                                saveFileExplorerTabs(tabs.stream().map(t1 -> new TabData(t1.tabData.path, t1.tabData.isRemote, t1.tabData.remoteHostInfo)).collect(Collectors.toList()), Math.min(currentTabIndex, tabs.size() - 1));
+                            }, "Duplicate Current Tab")
+                            .addHeaderButton("/assets/remotely/icons/external.png", () -> openExternally(tabs.get(idx).tabData.path), "Open Current Tab Externally")
+                            .build();
+                    addDrawableChild(tabContextMenu);
+                    tabContextMenu.show((int) mouseX, (int) mouseY);
+                    return true;
                 }
                 handled = true;
                 break;
             }
             int TAB_GAP = 5;
             tabX += tab.getCurrentWidth(textRenderer) + TAB_GAP;
+        }
+        if (tabs.size() > 0)
+            currentTab = tabs.get(Math.min(currentTabIndex, tabs.size() - 1));
+        if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
+            int explorerYLocal = tabBarYLocal + tabBarHeight + 30;
+            int explorerHeightLocal = this.height - explorerYLocal - 10;
+            int explorerXLocal = 5;
+            int explorerWidthLocal = this.width - 10;
+            if (mouseX >= explorerXLocal && mouseX <= explorerXLocal + explorerWidthLocal && mouseY >= explorerYLocal && mouseY <= explorerYLocal + explorerHeightLocal) {
+                itemsContextMenu.show((int) mouseX, (int) mouseY);
+                return true;
+            }
         }
         if (!handled) {
             if (button == GLFW.GLFW_MOUSE_BUTTON_1 || button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
@@ -1215,54 +1315,6 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
         if (!handled && currentMode == Mode.SEARCH) {
             currentMode = Mode.PATH;
             updatePathInfo();
-        }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
-            int explorerYLocal = tabBarYLocal + tabBarHeight + 30;
-            int explorerHeightLocal = this.height - explorerYLocal - 10;
-            int explorerXLocal = 5;
-            int explorerWidthLocal = this.width - 10;
-            if (mouseX >= explorerXLocal && mouseX <= explorerXLocal + explorerWidthLocal && mouseY >= explorerYLocal && mouseY <= explorerYLocal + explorerHeightLocal) {
-                int relativeY = (int) mouseY - explorerYLocal + (int) currentTab.tabData.smoothOffset;
-                int clickedIndex = relativeY / (entryHeight + 1);
-                List<EntryData> entriesToRender;
-                synchronized (fileEntriesLock) {
-                    entriesToRender = new ArrayList<>(fileEntries);
-                }
-                if (clickedIndex >= 0 && clickedIndex < entriesToRender.size()) {
-                    EntryData entryData = entriesToRender.get(clickedIndex);
-                    ContextMenu.addItem("Copy", () -> {
-                        playSound(Sound.COPY);
-                        fileManager.copySelected(currentTab.tabData.selectedPaths);
-                    }, false, false, false, "");
-                    ContextMenu.addItem("Cut", () -> {
-                        playSound(Sound.COPY);
-                        fileManager.cutSelected(currentTab.tabData.selectedPaths);
-                    }, false, false, false, "");
-                    ContextMenu.addItem("Paste", () -> {
-                        playSound(Sound.PASTE);
-                        fileManager.paste(currentPath);
-                    }, false, false, false, "");
-                    ContextMenu.addItem("Delete", () -> {
-                        playSound(Sound.DELETE);
-                        fileManager.deleteSelected(currentTab.tabData.selectedPaths, currentPath);
-                    }, false, false, false, "");
-                    ContextMenu.addItem("Copy Path", () -> {
-                        playSound(Sound.COPY);
-                        String quotedPath = "\"" + entryData.path.toString() + "\"";
-                        minecraftClient.keyboard.setClipboard(quotedPath);
-                    }, false, false, false, "");
-                    ContextMenu.addItem("Undo", () -> {
-                        if (serverInfo.isRemote) {
-                            showNotification("Undo not supported for remote files.", Notification.Type.ERROR);
-                        } else {
-                            playSound(Sound.UNDO);
-                            fileManager.undo(currentPath);
-                        }
-                    }, false, false, false, "");
-                    ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
-                    playSound(Sound.RIGHTCLICK);
-                }
-            }
         }
         return super.mouseClicked(mouseX, mouseY, button);
     }
@@ -1594,7 +1646,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
     }
 
     private void executePath() {
-        Path newPath = Paths.get(fieldText.toString()).toAbsolutePath().normalize();
+        Path newPath = Paths.get(fieldText.toString().replaceAll("\"", "")).toAbsolutePath().normalize();
         boolean isRemote = serverInfo.isRemote;
         if (Files.exists(newPath) && Files.isDirectory(newPath)) {
             loadDirectory(newPath, false, false, false);
@@ -1912,7 +1964,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
 
     @Override
     public void removed() {
-        minecraftClient.getWindow().setScaleFactor(originalMCScale);
+        minecraftClient.getWindow().setScaleFactor((int) originalMCScale);
         parent.width = minecraftClient.getWindow().getScaledWidth();
         parent.height = minecraftClient.getWindow().getScaledHeight();
         targetScaleFactor = globalScaleFactor = animScaleFactor;
