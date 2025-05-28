@@ -162,7 +162,7 @@ public class ContextMenuWidget extends AnimatedWidget {
     }
 
     public void show(int x, int y) {
-        if (items.isEmpty()) return;
+        if (items.isEmpty() && headerButtons.isEmpty()) return;
         open = true;
         int menuX = x;
         int menuY = y;
@@ -313,6 +313,7 @@ public class ContextMenuWidget extends AnimatedWidget {
                 }
             }
         }
+        this.hide();
         return false;
     }
 
