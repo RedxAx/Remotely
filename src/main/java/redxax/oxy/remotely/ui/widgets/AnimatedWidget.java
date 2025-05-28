@@ -14,7 +14,6 @@ import static redxax.oxy.remotely.config.Config.*;
 public abstract class AnimatedWidget extends ClickableWidget {
 
     public enum EntranceAnimationType {
-        BOUNCY,
         ELEVATION
     }
 
@@ -112,15 +111,6 @@ public abstract class AnimatedWidget extends ClickableWidget {
         return Math.min(1f, entranceAnimationProgress * 2f);
     }
 
-    protected float getEntranceScale() {
-        if (!entranceAnimationEnabled || entranceAnimationType != EntranceAnimationType.BOUNCY) return 1f;
-        if (!entranceAnimationStarted) return 0f;
-
-        float t = entranceAnimationProgress;
-        float bounce = (float) (1f + Math.sin(t * Math.PI * 2) * 0.1f * (1f - t) * entranceAnimationStrength);
-        return Math.max(0.1f, t * bounce);
-    }
-
     protected float getEntranceElevationOffset() {
         if (!entranceAnimationEnabled || entranceAnimationType != EntranceAnimationType.ELEVATION) return 0f;
         if (!entranceAnimationStarted) return 20f * entranceAnimationStrength;
@@ -176,16 +166,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
         ctx.getMatrices().push();
 
-        float scale = getEntranceScale();
         float elevationOffset = getEntranceElevationOffset();
-
-        if (scale != 1f) {
-            float centerX = getX() + getWidth() / 2f;
-            float centerY = getY() + getHeight() / 2f;
-            ctx.getMatrices().translate(centerX, centerY, 0);
-            ctx.getMatrices().scale(scale, scale, 1f);
-            ctx.getMatrices().translate(-centerX, -centerY, 0);
-        }
 
         ctx.getMatrices().translate(0, elevation + elevationOffset, 0);
 
