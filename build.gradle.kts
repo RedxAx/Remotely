@@ -26,18 +26,7 @@ repositories {
     maven("https://maven.nucleoid.xyz/")
 
     maven {
-        name = "dediamondproReleases"
-        url = uri("https://maven.dediamondpro.dev/releases")
-        content {
-            includeGroup("dev.dediamondpro")
-        }
-    }
-
-    maven {
         url = uri("https://mcef-download.cinemamod.com/repositories/releases")
-        content {
-            excludeGroup("dev.dediamondpro")
-        }
     }
 }
 
@@ -51,6 +40,7 @@ dependencies {
     implementation("com.jcraft:jsch:0.1.55")
     implementation("com.vladsch.flexmark:flexmark:0.62.2")
     implementation("org.jline:jline:3.1.3")
+    implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     modCompileOnly("com.cinemamod:mcef:2.1.6-$mcefVer")
     modImplementation("com.cinemamod:mcef-fabric:2.1.6-$mcefVer")
 
