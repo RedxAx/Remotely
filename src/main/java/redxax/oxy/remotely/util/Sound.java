@@ -71,7 +71,7 @@ public enum Sound {
     }
 
     public String getPath() {
-        return "/assets/remotely/sounds/" + path;
+        return "/assets/remotely/sfx/" + path;
     }
 
     public boolean isEnabled() {
