@@ -68,7 +68,7 @@ public class ScreenMixin {
             cir.setReturnValue(true);
         }
         if (!enableDebugTools) return;
-        if (keyCode == GLFW.GLFW_KEY_T && all) {
+        if (keyCode == GLFW.GLFW_KEY_T && ctrl) {
             MinecraftClient.getInstance().setScreen(new TestingScreen());
         }
         if (keyCode == GLFW.GLFW_KEY_P && all) {

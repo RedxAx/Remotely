@@ -963,6 +963,15 @@ public class Render {
         context.fillGradient(x, y + h + 2, x + w, y + h + 4, 0x00000000, 0x60000000);
     }
 
+    public static void push(DrawContext context, int amount) {
+        context.getMatrices().push();
+        context.getMatrices().translate(0, 0, amount);
+    }
+
+    public static void pop(DrawContext context) {
+        context.getMatrices().pop();
+    }
+
     public static String trimTextToWidthWithEllipsis(String text, int maxWidth) {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.textRenderer.getWidth(text) <= maxWidth) return text;

@@ -18,12 +18,38 @@ public abstract class AnimatedWidget extends ClickableWidget {
         ELEVATION
     }
 
+    public enum EntranceCorner {
+        TOP_LEFT,
+        TOP_RIGHT,
+        BOTTOM_LEFT,
+        BOTTOM_RIGHT,
+        CENTER
+    }
+
+    private static final Map<EntranceCorner, Float> CORNER_SPEED_MULTIPLIERS = new HashMap<>();
+
+    static {
+        CORNER_SPEED_MULTIPLIERS.put(EntranceCorner.TOP_LEFT, 1.0f);
+        CORNER_SPEED_MULTIPLIERS.put(EntranceCorner.TOP_RIGHT, 1.0f);
+        CORNER_SPEED_MULTIPLIERS.put(EntranceCorner.BOTTOM_LEFT, 1.0f);
+        CORNER_SPEED_MULTIPLIERS.put(EntranceCorner.BOTTOM_RIGHT, 1.0f);
+        CORNER_SPEED_MULTIPLIERS.put(EntranceCorner.CENTER, 1.0f);
+    }
+    public static void setCornerSpeedMultiplier(EntranceCorner corner, float multiplier) {
+        CORNER_SPEED_MULTIPLIERS.put(corner, multiplier);
+    }
+
+    public static float getCornerSpeedMultiplier(EntranceCorner corner) {
+        return CORNER_SPEED_MULTIPLIERS.getOrDefault(corner, 1.0f);
+    }
+
     protected float elevation = 0f;
     protected boolean animateColor = true, animateElevation = true, flat = false;
     protected float animationSpeed = 0.2f;
 
     protected boolean entranceAnimationEnabled = true;
     protected EntranceAnimationType entranceAnimationType = EntranceAnimationType.ELEVATION;
+    protected EntranceCorner entranceCorner = EntranceCorner.TOP_LEFT;
     protected float entranceAnimationStrength = 0.4f;
     protected float entranceAnimationSpeed = 1.0f;
 
@@ -67,6 +93,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
         public B entranceAnimationType(EntranceAnimationType type) { widget.entranceAnimationType = type; return self(); }
         public B entranceAnimationStrength(float strength) { widget.entranceAnimationStrength = strength; return self(); }
         public B entranceAnimationSpeed(float speed) { widget.entranceAnimationSpeed = speed; return self(); }
+        public B entranceCorner(EntranceCorner corner) { widget.entranceCorner = corner; return self(); }
         protected abstract B self();
         public T build() { return widget; }
     }
@@ -77,18 +104,64 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     protected void calculateEntranceDelay() {
         if (!entranceAnimationDelayCalculated) {
-            float distance = (float) Math.sqrt(getX() * getX() + getY() * getY());
-            entranceAnimationDelay = distance * 0.001f;
+            int screenWidth = mc.getWindow().getScaledWidth();
+            int screenHeight = mc.getWindow().getScaledHeight();
+            float startX = 0, startY = 0;
+            if (mc.currentScreen != null) {
+                startY = switch (entranceCorner) {
+                    case TOP_LEFT -> {
+                        startX = 0;
+                        yield 0;
+                    }
+                    case TOP_RIGHT -> {
+                        startX = screenWidth;
+                        yield 0;
+                    }
+                    case BOTTOM_LEFT -> {
+                        startX = 0;
+                        yield screenHeight;
+                    }
+                    case BOTTOM_RIGHT -> {
+                        startX = screenWidth;
+                        yield screenHeight;
+                    }
+                    case CENTER -> {
+                        startX = screenWidth / 2.0f;
+                        yield screenHeight / 2.0f;
+                    }
+                };
+            }
+            float distanceX = getX() - startX;
+            float distanceY = getY() - startY;
+            float distance = (float) Math.sqrt(distanceX * distanceX + distanceY * distanceY);
+
+            float guiScale = (float) mc.getWindow().getScaleFactor();
+            if (guiScale > 0) {
+                distance = distance * guiScale;
+            }
+            float cornerSpeedMultiplier = getCornerSpeedMultiplier(entranceCorner);
+            entranceAnimationDelay = distance * 0.001f * cornerSpeedMultiplier;
             entranceAnimationDelayCalculated = true;
         }
     }
 
-    protected void resetEntranceAnimation() {
+    public void resetEntranceAnimation() {
         entranceAnimationStarted = false;
         entranceAnimationProgress = 0f;
         entranceAnimationDelayCalculated = false;
         entranceAnimationDelay = 0f;
         updateEntranceAnimation();
+    }
+
+    public void setEntranceCorner(EntranceCorner corner) {
+        if (this.entranceCorner != corner) {
+            this.entranceCorner = corner;
+            resetEntranceAnimation();
+        }
+    }
+
+    public EntranceCorner getEntranceCorner() {
+        return entranceCorner;
     }
 
     protected void updateEntranceAnimation() {
@@ -306,3 +379,4 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     protected void onClick(double mouseX, double mouseY, int button) {}
 }
+

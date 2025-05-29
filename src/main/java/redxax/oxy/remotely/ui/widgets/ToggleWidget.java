@@ -10,6 +10,8 @@ import static redxax.oxy.remotely.config.Config.*;
 public class ToggleWidget extends AnimatedWidget {
     private boolean toggled;
     private Runnable onChange;
+    private Runnable toggleOff;
+    private Runnable toggleOn;
     private float currentKnobX;
     private float targetKnobX;
 
@@ -17,6 +19,8 @@ public class ToggleWidget extends AnimatedWidget {
         public Builder() { super(new ToggleWidget(0, 0, 40, 18, Text.empty())); }
         public Builder toggled(boolean value) { widget.toggled = value; return this; }
         public Builder onChange(Runnable r) { widget.onChange = r; return this; }
+        public Builder toggleOff(Runnable r) { widget.toggleOff = r; return this; }
+        public Builder toggleOn(Runnable r) { widget.toggleOn = r; return this; }
         @Override protected Builder self() { return this; }
     }
 
@@ -50,6 +54,11 @@ public class ToggleWidget extends AnimatedWidget {
         updateTargetPosition();
         if (onChange != null) {
             onChange.run();
+        }
+        if (toggled && toggleOn != null) {
+            toggleOn.run();
+        } else if (!toggled && toggleOff != null) {
+            toggleOff.run();
         }
     }
 

@@ -7,12 +7,14 @@ import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.Render;
 import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.util.Sound;
 
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
+import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
 public class ContextMenuWidget extends AnimatedWidget {
     private final List<MenuItem> items = new ArrayList<>();
@@ -163,6 +165,7 @@ public class ContextMenuWidget extends AnimatedWidget {
 
     public void show(int x, int y) {
         if (items.isEmpty() && headerButtons.isEmpty()) return;
+        playSound(Sound.RIGHTCLICK);
         open = true;
         this.visible = true;
         this.active = true;

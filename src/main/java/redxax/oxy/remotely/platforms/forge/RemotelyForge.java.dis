@@ -1,5 +1,5 @@
 //? !neoforge || !fabric {
-/*package redxax.oxy.remotely.platforms.forge;
+package redxax.oxy.remotely.platforms.forge;
 
 import redxax.oxy.remotely.RemotelyInit;
 import redxax.oxy.remotely.ModPlatform;
@@ -29,4 +29,4 @@ public class RemotelyForge {
 	}
 
 }
-*///?}
+//?}
