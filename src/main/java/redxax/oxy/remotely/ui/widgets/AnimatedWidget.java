@@ -68,6 +68,9 @@ public abstract class AnimatedWidget extends ClickableWidget {
     protected float hintWidth = 0f;
     protected float hintTargetWidth = 0f;
     protected boolean wasHovered = false;
+    protected float pivotX = 0f;
+    protected float pivotY = 0f;
+    protected boolean absolutePivot = false;
 
     protected static MinecraftClient mc = MinecraftClient.getInstance();
     protected TextRenderer tr = mc.textRenderer;
@@ -94,6 +97,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
         public B entranceAnimationStrength(float strength) { widget.entranceAnimationStrength = strength; return self(); }
         public B entranceAnimationSpeed(float speed) { widget.entranceAnimationSpeed = speed; return self(); }
         public B entranceCorner(EntranceCorner corner) { widget.entranceCorner = corner; return self(); }
+        public B pivot(float x, float y) { widget.setAbsolutePivot(x, y); return self(); }
         protected abstract B self();
         public T build() { return widget; }
     }
@@ -314,9 +318,19 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
         ctx.getMatrices().push();
 
-        float elevationOffset = getEntranceElevationOffset();
+        float pivotPosX, pivotPosY;
+        if (absolutePivot) {
+            pivotPosX = pivotX;
+            pivotPosY = pivotY;
+        } else {
+            pivotPosX = getX() + (getWidth() * pivotX);
+            pivotPosY = getY() + (getHeight() * pivotY);
+        }
+        ctx.getMatrices().translate(pivotPosX, pivotPosY, 0);
 
+        float elevationOffset = getEntranceElevationOffset();
         ctx.getMatrices().translate(0, elevation + elevationOffset, 0);
+        ctx.getMatrices().translate(-pivotPosX, -pivotPosY, 0);
 
         int originalBgColor = bgColor;
         int originalBorderColor = borderColor;
@@ -378,5 +392,10 @@ public abstract class AnimatedWidget extends ClickableWidget {
     }
 
     protected void onClick(double mouseX, double mouseY, int button) {}
-}
 
+    public void setAbsolutePivot(float x, float y) {
+        this.pivotX = x;
+        this.pivotY = y;
+        this.absolutePivot = true;
+    }
+}

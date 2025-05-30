@@ -1,22 +1,22 @@
-package redxax.oxy.remotely.ui;
+package redxax.oxy.remotely.ui.tests;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
+import redxax.oxy.remotely.ui.ReScreen;
 import redxax.oxy.remotely.ui.widgets.*;
 import redxax.oxy.remotely.util.Notification;
 
 import java.util.List;
 
 
-public class TestingScreen extends ReScreen {
+public class WidgetsTestingScreen extends ReScreen {
 
     ContextMenuWidget contextMenu;
-    public TestingScreen() {
+    public WidgetsTestingScreen() {
         super(Text.of("Testing Screen"));
     }
 
@@ -53,9 +53,9 @@ public class TestingScreen extends ReScreen {
                 .build();
         addDrawableChild(contextMenu);
 
-        headerBuilder.addLeft("/assets/remotely/icons/remotely.png", () -> MinecraftClient.getInstance().setScreen(new TestingScreen()), "Reload Screen")
+        headerBuilder.addLeft("/assets/remotely/icons/remotely.png", () -> MinecraftClient.getInstance().setScreen(new WidgetsTestingScreen()), "Reload Screen")
                 .addLeft("/assets/remotely/icons/terminal.png", () -> MinecraftClient.getInstance().setScreen(new MultiTerminalScreen(MinecraftClient.getInstance(), this, RemotelyClient.INSTANCE)), "Terminal")
-                .addLeft("/assets/remotely/icons/external.png", null, "Open External Link")
+                .addLeft("/assets/remotely/icons/external.png", () -> client.setScreen(new ContainerTestingScreen(Text.of("Container Testing"))), "Open Container Testing Screen")
                 .addLeft("/assets/remotely/icons/start.png", null, "Start")
                 .addRight("/assets/remotely/icons/close.png", () -> MinecraftClient.getInstance().setScreen(null), "Close Screen")
                 .addRight("/assets/remotely/icons/merge.png", null, "Merge")

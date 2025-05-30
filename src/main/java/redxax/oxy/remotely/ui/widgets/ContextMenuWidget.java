@@ -187,6 +187,14 @@ public class ContextMenuWidget extends AnimatedWidget {
         this.entranceAnimationStarted = false;
         this.entranceAnimationDelayCalculated = false;
         updateButtonPositions();
+
+        this.setAbsolutePivot((float) x, (float) y);
+        for (SquareButtonWidget button : headerButtons) {
+            button.setAbsolutePivot((float) x, (float) y);
+        }
+        for (MenuItem item : items) {
+            item.button.setAbsolutePivot((float) x, (float) y);
+        }
     }
 
     private void updateButtonPositions() {

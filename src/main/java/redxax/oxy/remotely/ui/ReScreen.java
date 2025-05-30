@@ -2,9 +2,11 @@ package redxax.oxy.remotely.ui;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.Text;
 import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
 import redxax.oxy.remotely.ui.widgets.SquareButtonWidget;
+import redxax.oxy.remotely.Render.ScrollBar;
 
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
@@ -17,30 +19,213 @@ import static redxax.oxy.remotely.util.ImageUtil.drawBufferedImage;
 
 public class ReScreen extends Screen {
     protected HeaderBuilder headerBuilder;
+    protected Container container;
 
     protected ReScreen(Text title) {
         super(title);
         this.headerBuilder = new HeaderBuilder();
-    }
-
-    @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        super.render(context, mouseX, mouseY, delta);
-    }
-
-    @Override
-    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        super.renderBackground(context, mouseX, mouseY, delta);
-        if (wallpaper && windowsBackground != null) {
-            drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
-        } else if (!background) {
-            context.fill(0, 0, width, height, backgroundColor);
-        }
-        headerBuilder.renderHeaders(context, mouseX, mouseY);
+        this.container = new Container(0, 0, 0, 0);
     }
 
     public HeaderBuilder header() {
         return headerBuilder;
+    }
+
+    public Container createContainer(int x, int y, int width, int height) {
+        return new Container(x, y, width, height);
+    }
+
+    public Container container() {
+        return container;
+    }
+
+    public class Container {
+        private final List<AnimatedWidget> widgets = new ArrayList<>();
+        private int x;
+        private int y;
+        private int width;
+        private int height;
+        private int columns = 1;
+        private int padding = 5;
+        private float smoothOffset = 0;
+        private float targetOffset = 0;
+        private boolean canScroll = false;
+
+        public Container(int x, int y, int width, int height) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+        }
+
+        public Container pos(int x, int y) {
+            this.x = x;
+            this.y = y;
+            updateWidgetPositions();
+            return this;
+        }
+
+        public Container size(int width, int height) {
+            this.width = width;
+            this.height = height;
+            updateWidgetPositions();
+            return this;
+        }
+
+        public Container columns(int columns) {
+            this.columns = Math.max(1, columns);
+            updateWidgetPositions();
+            return this;
+        }
+
+        public Container padding(int padding) {
+            this.padding = padding;
+            updateWidgetPositions();
+            return this;
+        }
+
+        public Container addWidget(AnimatedWidget widget) {
+            widgets.add(widget);
+            widget.resetEntranceAnimation();
+            addDrawableChild(widget);
+            updateWidgetPositions();
+            return this;
+        }
+
+        public Container removeWidget(ClickableWidget widget) {
+            widgets.remove(widget);
+            remove(widget);
+            updateWidgetPositions();
+            return this;
+        }
+
+        public Container clearWidgets() {
+            for (ClickableWidget widget : widgets) {
+                remove(widget);
+            }
+            widgets.clear();
+            smoothOffset = 0;
+            targetOffset = 0;
+            return this;
+        }
+
+        private void updateWidgetPositions() {
+            if (widgets.isEmpty()) return;
+
+            int columnWidth = (width - padding * (columns + 1)) / columns;
+            int currentRow = 0;
+            int currentCol = 0;
+
+            for (ClickableWidget widget : widgets) {
+                int widgetX = x + padding + currentCol * (columnWidth + padding);
+                int widgetY = y + padding + currentRow * (widget.getHeight() + padding);
+
+                widget.setPosition(widgetX, widgetY);
+                widget.setWidth(columnWidth);
+
+                currentCol++;
+                if (currentCol >= columns) {
+                    currentCol = 0;
+                    currentRow++;
+                }
+            }
+        }
+
+        public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+            smoothOffset += (targetOffset - smoothOffset) * globalScrollSpeed * deltaTime;
+
+            context.fill(x, y, x + width, height, innerBackgroundColor);
+            drawInnerBorder(context, x, y, width, height - y, innerBorderColor);
+            drawOuterBorder(context, x, y, width, height - y, innerBackgroundColor);
+            context.enableScissor(x, y, x + width, y + height);
+
+            context.drawText(textRenderer, "Testing", x - 5, y + 5, globalTextColor, true);
+
+            int totalHeight = calculateTotalHeight();
+            int visibleHeight = height - 2 * padding;
+            canScroll = totalHeight > visibleHeight;
+
+            for (AnimatedWidget widget : widgets) {
+                int adjustedY = widget.getY() - (int) smoothOffset;
+                if (adjustedY + widget.getHeight() >= y && adjustedY <= height) {
+                    widget.setY(adjustedY);
+                    widget.renderWidget(context, mouseX, mouseY, delta);
+                }
+            }
+            context.disableScissor();
+            if (smoothOffset > 2) {
+                context.fillGradient(x, y, x + width, y + 10, innerBackgroundColor, 0x00000000);
+            }
+            if (smoothOffset < Math.max(0, totalHeight - visibleHeight)) {
+                context.fillGradient(x, height - 10, x + width, height, 0x00000000, innerBackgroundColor);
+            }
+            if (canScroll) {
+                ScrollBar.render(context, ReScreen.this, mouseX, mouseY, totalHeight, targetOffset);
+            }
+
+            targetOffset = ScrollBar.getPendingOffset();
+            targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, totalHeight - visibleHeight)));
+        }
+
+        private int calculateTotalHeight() {
+            if (widgets.isEmpty()) return 0;
+
+            int rows = (int) Math.ceil((double) widgets.size() / columns);
+            int widgetHeight = widgets.get(0).getHeight();
+            return padding + rows * (widgetHeight + padding);
+        }
+
+        public boolean mouseScrolled(double mouseX, double mouseY, double verticalAmount) {
+            if (mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= height) {
+                if (canScroll) {
+                    int widgetHeight = widgets.isEmpty() ? 20 : widgets.get(0).getHeight();
+                    targetOffset -= (float) (verticalAmount * widgetHeight * 0.5f);
+
+                    int totalHeight = calculateTotalHeight();
+                    int visibleHeight = height - 2 * padding;
+                    targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, totalHeight - visibleHeight)));
+
+                    ScrollBar.setPendingOffset(targetOffset);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+            if (canScroll && mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= height) {
+                int totalHeight = calculateTotalHeight();
+                return ScrollBar.handleMouseDragged(ReScreen.this, (int) mouseY, totalHeight);
+            }
+            return false;
+        }
+
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (canScroll && mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= height) {
+                int totalHeight = calculateTotalHeight();
+                return ScrollBar.handleMousePressed(ReScreen.this, (int) mouseX, (int) mouseY, totalHeight, smoothOffset);
+            }
+            return false;
+        }
+
+        public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            if (canScroll) {
+                return ScrollBar.handleMouseReleased();
+            }
+            return false;
+        }
+
+        public boolean isCanScroll() {
+            return canScroll;
+        }
+
+        public List<ClickableWidget> getWidgets() {
+            return new ArrayList<>(widgets);
+        }
+
+        public int getPadding() {
+            return padding;
+        }
     }
 
     public class HeaderBuilder {
@@ -263,7 +448,59 @@ public class ReScreen extends Screen {
         if (headerBuilder != null) {
             headerBuilder.build();
         }
+        this.container = new Container(0, 0, this.width, this.height);
         AnimatedWidget.setCornerSpeedMultiplier(CENTER, .3f);
+    }
+
+    @Override
+    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        super.render(context, mouseX, mouseY, delta);
+        if (container != null) {
+            container.render(context, mouseX, mouseY, delta);
+        }
+    }
+
+    @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        super.renderBackground(context, mouseX, mouseY, delta);
+        if (wallpaper && windowsBackground != null) {
+            drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
+        } else if (!background) {
+            context.fill(0, 0, width, height, backgroundColor);
+        }
+        headerBuilder.renderHeaders(context, mouseX, mouseY);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontal, double verticalAmount) {
+        if (container.mouseScrolled(mouseX, mouseY, verticalAmount)) {
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, horizontal, verticalAmount);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (container.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (container.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (container.mouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override

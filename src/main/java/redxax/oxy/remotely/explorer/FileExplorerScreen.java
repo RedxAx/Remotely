@@ -536,7 +536,6 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
         currentTab.tabData.targetOffset = ScrollBar.getPendingOffset();
         loadMoreIfNeeded(explorerHeight);
         animatedScaling(this);
-        context.drawText(this.textRenderer, Text.literal("Drawable Children: " + this.children().size()), 5, 5, 0xFFFFFF, true);
     }
 
     private boolean remoteHostInfosEqual(RemoteHostInfo a, RemoteHostInfo b) {
