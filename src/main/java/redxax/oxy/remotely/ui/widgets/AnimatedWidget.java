@@ -70,7 +70,11 @@ public abstract class AnimatedWidget extends ClickableWidget {
     protected boolean wasHovered = false;
     protected float pivotX = 0f;
     protected float pivotY = 0f;
+    protected int zLayer = 0;
     protected boolean absolutePivot = false;
+
+    protected boolean hasScissorRegion = false;
+    protected int scissorX1, scissorY1, scissorX2, scissorY2;
 
     protected static MinecraftClient mc = MinecraftClient.getInstance();
     protected TextRenderer tr = mc.textRenderer;
@@ -104,6 +108,18 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     public AnimatedWidget(int x, int y, int width, int height, Text message) {
         super(x, y, width, height, message);
+    }
+
+    public void setScissorRegion(int x1, int y1, int x2, int y2) {
+        this.hasScissorRegion = true;
+        this.scissorX1 = x1;
+        this.scissorY1 = y1;
+        this.scissorX2 = x2;
+        this.scissorY2 = y2;
+    }
+
+    public void clearScissorRegion() {
+        this.hasScissorRegion = false;
     }
 
     protected void calculateEntranceDelay() {
@@ -282,7 +298,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
         updateEntranceAnimation();
         updateHint();
 
-        if (animateElevation) {
+        if (animateElevation && active) {
             float elevationTarget = hovered ? -2f : 0f;
             elevation = elevationOffsets.getOrDefault(this.hashCode(), 0f);
             elevation += (elevationTarget - elevation) * globalMovementSpeed * deltaTime;
@@ -301,7 +317,10 @@ public abstract class AnimatedWidget extends ClickableWidget {
             } else if (isHovered()) {
                 bgColor = elementHoverBackgroundColor;
                 borderColor = elementHoverBorderColor;
-            } else {
+            } else if (!active) {
+                bgColor = innerBackgroundColor;
+                borderColor = inClickableBorderColor;
+            }else {
                 bgColor = elementBackgroundColor;
                 borderColor = elementBorderColor;
             }
@@ -310,13 +329,19 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     @Override
     public void renderWidget(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        if (!visible) return;
         tick();
 
         float alpha = getEntranceAlpha();
         if (alpha <= 0f) return;
 
+        boolean shouldClip = hasScissorRegion && (getX() + getWidth() < scissorX1 || getX() > scissorX2 || getY() + getHeight() < scissorY1 || getY() > scissorY2);
+        if (shouldClip) return;
+
         ctx.getMatrices().push();
+
+        if (hasScissorRegion) {
+            ctx.enableScissor(scissorX1, scissorY1, scissorX2, scissorY2);
+        }
 
         float pivotPosX, pivotPosY;
         if (absolutePivot) {
@@ -341,7 +366,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
             borderColor = applyAlpha(borderColor, alpha);
             textColor = applyAlpha(textColor, alpha);
         }
-
+        ctx.getMatrices().translate(0, 0, zLayer);
         drawBackground(ctx);
         drawBorder(ctx);
         drawContent(ctx, mouseX, mouseY);
@@ -349,6 +374,11 @@ public abstract class AnimatedWidget extends ClickableWidget {
         bgColor = originalBgColor;
         borderColor = originalBorderColor;
         textColor = originalTextColor;
+
+        if (hasScissorRegion) {
+            ctx.disableScissor();
+        }
+
         ctx.getMatrices().pop();
         drawHint(ctx);
     }
@@ -397,5 +427,9 @@ public abstract class AnimatedWidget extends ClickableWidget {
         this.pivotX = x;
         this.pivotY = y;
         this.absolutePivot = true;
+    }
+
+    public void setLayer(int i) {
+        this.zLayer = i;
     }
 }
