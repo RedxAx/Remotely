@@ -195,27 +195,32 @@ public class Render {
         private static float initialOffset = 0;
         private static boolean lineHovered = false;
         private static float pendingOffset = 0;
+        private static float animatedOffset = 0;
 
         public static void render(DrawContext context, Screen parent, int mouseX, int mouseY, int totalHeight, float scrollOffset) {
             int explorerY = 60;
             int explorerHeight = parent.height - 65;
             int screenWidth = parent.width;
-            if (totalHeight <= explorerHeight) {
+            render(context, parent, mouseX, mouseY, totalHeight, scrollOffset, screenWidth - 3, explorerY, 2, explorerHeight);
+        }
+
+        public static void render(DrawContext context, Screen parent, int mouseX, int mouseY, int totalHeight, float scrollOffset, int scrollbarX, int scrollbarY, int scrollbarWidth, int scrollbarHeight) {
+            if (totalHeight <= scrollbarHeight) {
                 return;
             }
-            int scrollbarX = screenWidth - 3;
-            int scrollbarWidth = 2;
             int lineWidth = 4;
-            int lineHeight = Math.max(10, (int)((float)explorerHeight * explorerHeight / totalHeight));
+            int lineHeight = Math.max(10, (int)((float)scrollbarHeight * scrollbarHeight / totalHeight));
             float targetOffset = dragging ? pendingOffset : scrollOffset;
             animatedOffset += (targetOffset - animatedOffset) * globalScrollSpeed * deltaTime;
             float effectiveOffset = animatedOffset;
-            float scrollRatio = effectiveOffset / (float)(totalHeight - explorerHeight);
-            int lineY = explorerY + (int)((explorerHeight - lineHeight) * scrollRatio);
+            float scrollRatio = effectiveOffset / (float)(totalHeight - scrollbarHeight);
+            int lineY = scrollbarY + (int)((scrollbarHeight - lineHeight) * scrollRatio);
             int lineX = (scrollbarX - (lineWidth - scrollbarWidth) / 2);
-            context.fill(scrollbarX, explorerY, scrollbarX + scrollbarWidth, lineY + lineHeight / 2, Config.getElementBackgroundColor(3000 + "topScroll".hashCode(), true, dragging, true, false, false, false));
-            context.fill(scrollbarX, lineY + lineHeight / 2, scrollbarX + scrollbarWidth, explorerY + explorerHeight, Config.getElementBackgroundColor(3000 + "bottomScroll".hashCode(), dragging, false, true, false, false, false));
-            drawOuterBorder(context, scrollbarX, explorerY, scrollbarWidth, explorerHeight, elementBackgroundColor);
+
+            context.fill(scrollbarX, scrollbarY, scrollbarX + scrollbarWidth, lineY + lineHeight / 2, Config.getElementBackgroundColor(3000 + "topScroll".hashCode(), true, dragging, true, false, false, false));
+            context.fill(scrollbarX, lineY + lineHeight / 2, scrollbarX + scrollbarWidth, scrollbarY + scrollbarHeight, Config.getElementBackgroundColor(3000 + "bottomScroll".hashCode(), dragging, false, true, false, false, false));
+            drawOuterBorder(context, scrollbarX, scrollbarY, scrollbarWidth, scrollbarHeight, elementBackgroundColor);
+
             lineHovered = mouseX >= lineX && mouseX <= lineX + lineWidth && mouseY >= lineY && mouseY <= lineY + lineHeight;
             int lineColor = Config.getElementBackgroundColor(3000 + "scrollLine".hashCode(), lineHovered, dragging, true, false, false, false);
             context.fill(lineX, lineY, lineX + lineWidth, lineY + lineHeight, lineColor);
@@ -226,30 +231,37 @@ public class Render {
             int explorerY = 60;
             int explorerHeight = parent.height - 65;
             int screenWidth = parent.width;
-            if (totalHeight <= explorerHeight) {
+            return handleMousePressed(parent, mouseX, mouseY, totalHeight, scrollOffset, screenWidth - 3, explorerY, 2, explorerHeight);
+        }
+
+        public static boolean handleMousePressed(Screen parent, int mouseX, int mouseY, int totalHeight, float scrollOffset, int scrollbarX, int scrollbarY, int scrollbarWidth, int scrollbarHeight) {
+            if (totalHeight <= scrollbarHeight) {
                 return false;
             }
-            int scrollbarX = screenWidth - 3;
-            int scrollbarWidth = 2;
+
             int lineWidth = 4;
-            int lineHeight = Math.max(10, (int)((float)explorerHeight * explorerHeight / totalHeight));
+            int lineHeight = Math.max(10, (int)((float)scrollbarHeight * scrollbarHeight / totalHeight));
             int lineX = (scrollbarX - (lineWidth - scrollbarWidth) / 2);
+
             if (lineHovered) {
                 playSound(Sound.CLICK);
                 dragging = true;
                 dragStartY = mouseY;
                 initialOffset = scrollOffset;
+                pendingOffset = scrollOffset;
                 return true;
             }
-            if (mouseX >= lineX && mouseX <= lineX + lineWidth && mouseY >= explorerY && mouseY <= explorerY + explorerHeight) {
+
+            if (mouseX >= scrollbarX && mouseX <= scrollbarX + scrollbarWidth && mouseY >= scrollbarY && mouseY <= scrollbarY + scrollbarHeight) {
                 float newLineY = mouseY - lineHeight / 2.0f;
-                float newScrollRatio = (newLineY - explorerY) / (explorerHeight - lineHeight);
+                float newScrollRatio = (newLineY - scrollbarY) / (scrollbarHeight - lineHeight);
                 newScrollRatio = Math.max(0, Math.min(newScrollRatio, 1));
-                int maxOffset = Math.max(0, totalHeight - explorerHeight);
+                int maxOffset = Math.max(0, totalHeight - scrollbarHeight);
                 pendingOffset = newScrollRatio * maxOffset;
                 dragging = true;
                 dragStartY = mouseY;
                 initialOffset = pendingOffset;
+                playSound(Sound.CLICK);
                 return true;
             }
             return false;
@@ -257,12 +269,17 @@ public class Render {
 
         public static boolean handleMouseDragged(Screen parent, int mouseY, int totalHeight) {
             int explorerHeight = parent.height - 65;
+            return handleMouseDragged(parent, mouseY, totalHeight, explorerHeight);
+        }
+
+        public static boolean handleMouseDragged(Screen parent, int mouseY, int totalHeight, int scrollbarHeight) {
             if (!dragging) return false;
-            int lineHeight = Math.max(10, (int)((float)explorerHeight * explorerHeight / totalHeight));
+
+            int lineHeight = Math.max(10, (int)((float)scrollbarHeight * scrollbarHeight / totalHeight));
             float deltaY = mouseY - dragStartY;
-            float scrollableHeight = explorerHeight - lineHeight;
+            float scrollableHeight = scrollbarHeight - lineHeight;
             float scrollRatio = scrollableHeight > 0 ? deltaY / scrollableHeight : 0;
-            int maxOffset = Math.max(0, totalHeight - explorerHeight);
+            int maxOffset = Math.max(0, totalHeight - scrollbarHeight);
             pendingOffset = initialOffset + scrollRatio * maxOffset;
             pendingOffset = Math.max(0, Math.min(pendingOffset, maxOffset));
             return true;
@@ -288,7 +305,6 @@ public class Render {
             pendingOffset = value;
         }
     }
-
     public static void drawTabs(DrawContext context, TextRenderer textRenderer, List<?> tabs, int currentTabIndex, int mouseX, int mouseY, boolean hasPlus, boolean isUnsaved) {
         int tabBarX = 5;
         int tabBarY = 35;
@@ -936,14 +952,16 @@ public class Render {
         }
     }
 
-    public static void scaleScroll(double vertAmount) {
+    public static boolean scaleScroll(double vertAmount) {
         MinecraftClient minecraftClient = MinecraftClient.getInstance();
         boolean ctrlHeld = InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_CONTROL);
         boolean altHeld = InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(minecraftClient.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_ALT);
         if (ctrlHeld && altHeld) {
             targetScaleFactor = Math.max(1f, Math.min(4f, targetScaleFactor + (vertAmount > 0 ? 1f : -1f)));
             globalScaleFactor = targetScaleFactor;
+            return true;
         }
+        return false;
     }
 
     public static void drawInnerBorder(DrawContext context, int x, int y, int w, int h, int i) {

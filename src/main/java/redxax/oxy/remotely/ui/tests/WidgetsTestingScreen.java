@@ -55,7 +55,7 @@ public class WidgetsTestingScreen extends ReScreen {
 
         headerBuilder.addLeft("/assets/remotely/icons/remotely.png", () -> MinecraftClient.getInstance().setScreen(new WidgetsTestingScreen()), "Reload Screen")
                 .addLeft("/assets/remotely/icons/terminal.png", () -> MinecraftClient.getInstance().setScreen(new MultiTerminalScreen(MinecraftClient.getInstance(), this, RemotelyClient.INSTANCE)), "Terminal")
-                .addLeft("/assets/remotely/icons/external.png", () -> client.setScreen(new ContainerTestingScreen(Text.of("Container Testing"))), "Open Container Testing Screen")
+                .addLeft("/assets/remotely/icons/external.png", () -> client.setScreen(new ContainerTestingScreen()), "Open Container Testing Screen")
                 .addLeft("/assets/remotely/icons/start.png", null, "Start")
                 .addRight("/assets/remotely/icons/close.png", () -> MinecraftClient.getInstance().setScreen(null), "Close Screen")
                 .addRight("/assets/remotely/icons/merge.png", null, "Merge")

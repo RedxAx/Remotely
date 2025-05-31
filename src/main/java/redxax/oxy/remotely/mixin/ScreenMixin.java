@@ -13,6 +13,7 @@ import redxax.oxy.remotely.MouseCursor;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.terminal.ReverseProxyManager;
 import redxax.oxy.remotely.ui.LoadingAnimation;
+import redxax.oxy.remotely.ui.tests.ContainerTestingScreen;
 import redxax.oxy.remotely.ui.tests.WidgetsTestingScreen;
 import redxax.oxy.remotely.util.CursorUtils;
 import redxax.oxy.remotely.util.Notification;
@@ -70,6 +71,9 @@ public class ScreenMixin {
         if (!enableDebugTools) return;
         if (keyCode == GLFW.GLFW_KEY_T && ctrl) {
             MinecraftClient.getInstance().setScreen(new WidgetsTestingScreen());
+        }
+        if (keyCode == GLFW.GLFW_KEY_C && ctrl) {
+            MinecraftClient.getInstance().setScreen(new ContainerTestingScreen());
         }
         if (keyCode == GLFW.GLFW_KEY_P && all) {
             ReverseProxyManager.listActivePorts();
