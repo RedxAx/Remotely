@@ -974,7 +974,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ /*double horizontalAmount, *//*?}*/ double verticalAmount) {
         if (tabsBar.handleTabsBarScroll(verticalAmount, mouseX, mouseY)) {
             return true;
         }
@@ -1745,7 +1745,6 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
 
         List<EntryData> temp = new ArrayList<>();
         try {
-            // Use the new method that returns both filenames and directory status in a single call
             Map<String, Boolean> entriesWithTypes = serverInfo.remoteHost.getSSHManager().listRemoteDirectoryWithTypes(remotePath);
 
             for (Map.Entry<String, Boolean> entry : entriesWithTypes.entrySet()) {

@@ -7,6 +7,7 @@ import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.remotely.mixin.accessor.ClickableWidgetAccessor;
 import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
 import redxax.oxy.remotely.ui.widgets.SquareButtonWidget;
 import redxax.oxy.remotely.ui.widgets.AnimatedButton;
@@ -298,14 +299,14 @@ public class ReScreen extends Screen {
                         tab.widget.setPosition((int)(worldX - scrollOffset), y);
                     }
                     tab.widget.setWidth(widths.get(i));
-                    tab.widget.setHeight(height);
+                    ((ClickableWidgetAccessor) tab.widget).setHeight(height);
                 }
             }
 
             if (allowAdd && plusButton != null) {
                 plusButton.setPosition((int)(plusPos - scrollOffset), y);
-                plusButton.setWidth(height);
-                plusButton.setHeight(height);
+                plusButton.setWidth(width);
+                ((ClickableWidgetAccessor) plusButton).setHeight(height);
             }
 
             updateTabStates();
@@ -463,7 +464,7 @@ public class ReScreen extends Screen {
                     .build();
             renameWidget.setPosition(tab.widget.getX(), tab.widget.getY());
             renameWidget.setWidth(Math.max(100, tab.widget.getWidth()));
-            renameWidget.setHeight(tab.widget.getHeight());
+            ((ClickableWidgetAccessor) renameWidget).setHeight(tab.widget.getHeight());
             renameWidget.setFocused(true);
             addDrawableChild(renameWidget);
         }
@@ -1085,7 +1086,7 @@ public class ReScreen extends Screen {
                 bottomY -= 23;
             }
         }
-        private void renderHeaders(DrawContext context, int mouseX, int mouseY) {
+        private void renderHeaders(DrawContext context) {
             if (!visible) return;
             switch (position) {
                 case TOP -> renderTopHeader(context);
@@ -1184,18 +1185,18 @@ public class ReScreen extends Screen {
         }
     }
 
-    @Override public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        super.renderBackground(context, mouseX, mouseY, delta);
+    @Override public void renderBackground(DrawContext context /*? !=1.20.1, int mouseX, int mouseY, float delta *//*?}*/) {
+        super.renderBackground(context /*? !=1.20.1, mouseX, mouseY, delta *//*?}*/);
         if (wallpaper && windowsBackground != null) {
             drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
         } else if (!background) {
             context.fill(0, 0, width, height, backgroundColor);
         }
-        headerBuilder.renderHeaders(context, mouseX, mouseY);
+        headerBuilder.renderHeaders(context);
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontal, double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ /*double horizontalAmount, *//*?}*/ double verticalAmount) {
         if (scaleScroll(verticalAmount)) return true;
         if (tabsManager != null && tabsManager.mouseScrolled(mouseX, mouseY, verticalAmount)) {
             return true;
@@ -1206,7 +1207,7 @@ public class ReScreen extends Screen {
         if (container.mouseScrolled(mouseX, mouseY, verticalAmount * scrollSpeed)) {
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, horizontal, verticalAmount);
+        return super.mouseScrolled(mouseX, mouseY, /*? !=1.20.1 {*/ /*horizontal ,*//*?}*/ verticalAmount);
     }
 
     @Override

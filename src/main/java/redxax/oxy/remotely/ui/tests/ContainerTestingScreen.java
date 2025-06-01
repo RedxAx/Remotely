@@ -39,16 +39,15 @@ public class ContainerTestingScreen extends ReScreen {
                         sidePanel.addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Button " + (sidePanel.getWidgets().size() + 1))).build())).build())
                 .addWidget(new TextInputWidget.Builder().size(100, 20).placeholder("Type here...").text("Sample Text").build());
 
-        tabs().addTab("Testing", "data");
-        tabs().addTab("Widgets", "widgets");
-        tabs().addTab("Settings", "settings");
-        tabs().addTab("Animations", "animations");
-        tabs().addTab("Containers", "containers");
-        tabs().addTab("Side Panel", "sidepanel");
-        tabs().addTab("Reorder", "reorder");
-        tabs().addTab("Scrollable", "scrollable");
-        tabs().addTab("State Cache", "statecache");
-        tabs().addTab("Reorderable", "reorderable");
+        Container anotherContainer = createContainer(5, 35, width - 10, 20);
+        anotherContainer.columns(3)
+                .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Another Container Button")).build())
+                .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Add Widget")).onClick(() -> anotherContainer.addWidget(new AnimatedButton.ButtonBuilder()
+                        .size(100, 20).label(Text.literal("Button " + (anotherContainer.getWidgets().size() + 1))).build())).build())
+                .addWidget(new ScrollSelectorWidget.Builder().size(100, 20).options(List.of("Option A", "Option B", "Option C")).build());
+
+        tabs().addTab("First Container", "data");
+        tabs().addTab("Second Container", "data2");
         tabsManager.builder().allowReorder(true).position(5, 35).size(width - 5, 18).enableStateCache(true).allowReorder(true).build();
 
 
