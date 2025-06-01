@@ -1,5 +1,5 @@
 //? if fabric {
-package redxax.oxy.remotely.platforms.fabric;
+/*package redxax.oxy.remotely.platforms.fabric;
 
 import redxax.oxy.remotely.ModPlatform;
 import net.fabricmc.api.ModInitializer;
@@ -25,4 +25,4 @@ public class RemotelyFabric implements ModInitializer {
 		}
 	}
 }
-//?}
+*///?}

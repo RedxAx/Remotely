@@ -40,7 +40,7 @@ public class AnimatedButton extends AnimatedWidget {
     }
 
     @Override
-    protected void onClick(double mouseX, double mouseY, int button) {
+    public void onClick(double mouseX, double mouseY, int button) {
         if (action != null && button == 0) {
             action.run();
         }

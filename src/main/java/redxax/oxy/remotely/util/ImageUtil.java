@@ -173,8 +173,8 @@ public class ImageUtil {
 
     public static void warpedDrawGuiTexture(DrawContext context, int x, int y, Identifier icon, int iconWidth, int iconHeight) {
         //? if <=1.21.1 && !=1.20.1 {
-        /*context.drawTexture(icon, x, y, iconWidth, iconHeight, 0, 0, iconWidth, iconHeight, iconWidth, iconHeight);
-         *///?} elif >1.21.1 {
+        context.drawTexture(icon, x, y, iconWidth, iconHeight, 0, 0, iconWidth, iconHeight, iconWidth, iconHeight);
+         //?} elif >1.21.1 {
         /*context.drawGuiTexture(RenderLayer::getGuiTextured, icon, x, y, iconWidth, iconHeight);
         *///?}
     }
@@ -182,7 +182,7 @@ public class ImageUtil {
     public static void drawBrowser(MCEFBrowser currentBrowser, boolean fullscreen,
                                    int width, int height, int TOP_OFFSET, int BROWSER_DRAW_OFFSET) {
         //? if = 1.20.1 {
-        if (fullscreen) {
+        /*if (fullscreen) {
             RenderSystem.disableDepthTest();
             RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
             RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
@@ -211,8 +211,8 @@ public class ImageUtil {
             RenderSystem.setShaderTexture(0, 0);
             RenderSystem.enableDepthTest();
         }
-        //?} elif <=1.21.1 {
-        /*if (fullscreen) {
+        *///?} elif <=1.21.1 {
+        if (fullscreen) {
             RenderSystem.disableDepthTest();
             RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
             RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
@@ -239,7 +239,7 @@ public class ImageUtil {
             RenderSystem.setShaderTexture(0, 0);
             RenderSystem.enableDepthTest();
         }
-        *///?} elif <=1.21.4 {
+        //?} elif <=1.21.4 {
         /*if (fullscreen) {
             RenderSystem.disableDepthTest();
             RenderSystem.setShader(ShaderProgramKeys.POSITION_TEX_COLOR);

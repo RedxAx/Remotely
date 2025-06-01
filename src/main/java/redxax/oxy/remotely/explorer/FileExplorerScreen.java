@@ -974,7 +974,7 @@ public class FileExplorerScreen extends net.minecraft.client.gui.screen.Screen i
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ /*double horizontalAmount, *//*?}*/ double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         if (tabsBar.handleTabsBarScroll(verticalAmount, mouseX, mouseY)) {
             return true;
         }

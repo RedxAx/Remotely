@@ -424,7 +424,7 @@ public class TerminalRenderer {
                     rightStatus = obfuscateIps("Local Host | " + new Date());
                 }
             } else {
-                leftStatus = obfuscateIps("Remotely - 2.0.0 | DevBuild4 19/4/2025");
+                leftStatus = obfuscateIps("Remotely - 2.0.0 | DevBuild5 1/6/2025");
                 rightStatus = obfuscateIps(new Date().toString());
             }
         } else {

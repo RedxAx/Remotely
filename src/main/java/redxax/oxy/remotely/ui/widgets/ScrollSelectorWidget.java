@@ -132,7 +132,7 @@ public class ScrollSelectorWidget extends AnimatedWidget {
     }
 
     @Override
-    protected void onClick(double mouseX, double mouseY, int button) {
+    public void onClick(double mouseX, double mouseY, int button) {
         int midX = getX() + getWidth() / 2;
         if (mouseX >= midX) {
             selectedIndex = (selectedIndex + 1) % options.size();
