@@ -7,6 +7,7 @@ import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.Render;
 import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.mixin.accessor.ClickableWidgetAccessor;
 import redxax.oxy.remotely.util.Sound;
 
 import java.awt.image.BufferedImage;
@@ -214,7 +215,7 @@ public class ContextMenuWidget extends AnimatedWidget {
             item.button.setX(0);
             item.button.setY(currentY);
             item.button.setWidth(width);
-            item.button.setHeight(ITEM_HEIGHT);
+            ((ClickableWidgetAccessor) item.button).setHeight(ITEM_HEIGHT);
 
             item.button.animateColor = true;
             item.button.setFocused(item.danger || item.nice || item.calm);

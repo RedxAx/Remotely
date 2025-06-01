@@ -424,7 +424,7 @@ public class BrowserScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ /*double horizontalAmount, *//*?}*/ double verticalAmount) {
         if (tabsBar.handleTabsBarScroll(verticalAmount, mouseX, mouseY)) return true;
         scaleScroll(verticalAmount);
         Tab currentTab = tabs.get(currentTabIndex);

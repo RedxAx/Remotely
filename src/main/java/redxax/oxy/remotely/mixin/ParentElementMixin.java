@@ -40,7 +40,7 @@ public interface ParentElementMixin {
     }
 
     @Inject(method = "mouseScrolled", at = @At("HEAD"), cancellable = true)
-    private void mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount, CallbackInfoReturnable<Boolean> cir) {
+    private void mouseScrolled(double mouseX, double mouseY /*? !=1.20.1 {*/ /*, double horizontalAmount *//*?}*/, double verticalAmount, CallbackInfoReturnable<Boolean> cir) {
         MouseCursor.mouseScrolled(verticalAmount);
         for (Element child : MinecraftClient.getInstance().currentScreen.children()) {
             if (child instanceof ScrollSelectorWidget scrollSelect) {

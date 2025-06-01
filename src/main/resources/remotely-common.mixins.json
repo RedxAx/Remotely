@@ -12,6 +12,7 @@
     "ParentElementMixin",
     "ScreenMixin",
     "TitleScreenMixin",
+    "accessor.ClickableWidgetAccessor",
     "accessor.SliderWidgetAccessor"
   ],
   "injectors": {

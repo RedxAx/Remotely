@@ -86,7 +86,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
         protected Builder(T widget) { this.widget = widget; }
 
         public B pos(int x, int y) { widget.setX(x); widget.setY(y); return self(); }
-        public B size(int w, int h) { widget.setWidth(w); widget.setHeight(h); return self(); }
+        public B size(int w, int h) { widget.setWidth(w); widget.height = h; return self(); }
         public B focused(boolean f) { widget.setFocused(f); return self(); }
         public B active(boolean a) { widget.active = a; return self(); }
         public B visible(boolean v) { widget.visible = v; return self(); }
@@ -327,7 +327,13 @@ public abstract class AnimatedWidget extends ClickableWidget {
         }
     }
 
+    //? if = 1.20.1 {
     @Override
+    public void renderButton(DrawContext ctx, int mouseX, int mouseY, float delta) {
+        renderWidget(ctx, mouseX, mouseY, delta);
+    }
+    //?}
+
     public void renderWidget(DrawContext ctx, int mouseX, int mouseY, float delta) {
         tick();
 
