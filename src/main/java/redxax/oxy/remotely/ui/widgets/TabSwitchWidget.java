@@ -90,7 +90,7 @@ public class TabSwitchWidget extends AnimatedWidget {
     }
 
     @Override
-    protected void onClick(double mouseX, double mouseY, int button) {
+    public void onClick(double mouseX, double mouseY, int button) {
         if (button == 0 && !options.isEmpty()) {
             int segmentCount = options.size();
             int segmentWidth = getWidth() / segmentCount;

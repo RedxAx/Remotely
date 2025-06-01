@@ -328,11 +328,11 @@ public abstract class AnimatedWidget extends ClickableWidget {
     }
 
     //? if = 1.20.1 {
-    @Override
+    /*@Override
     public void renderButton(DrawContext ctx, int mouseX, int mouseY, float delta) {
         renderWidget(ctx, mouseX, mouseY, delta);
     }
-    //?}
+    *///?}
 
     public void renderWidget(DrawContext ctx, int mouseX, int mouseY, float delta) {
         tick();
@@ -427,7 +427,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
         return false;
     }
 
-    protected void onClick(double mouseX, double mouseY, int button) {}
+    public void onClick(double mouseX, double mouseY, int button) {}
 
     public void setAbsolutePivot(float x, float y) {
         this.pivotX = x;

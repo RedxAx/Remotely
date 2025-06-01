@@ -1185,8 +1185,8 @@ public class ReScreen extends Screen {
         }
     }
 
-    @Override public void renderBackground(DrawContext context /*? !=1.20.1, int mouseX, int mouseY, float delta *//*?}*/) {
-        super.renderBackground(context /*? !=1.20.1, mouseX, mouseY, delta *//*?}*/);
+    @Override public void renderBackground(DrawContext context /*? !=1.20.1 {*/ , int mouseX, int mouseY, float delta /*?}*/) {
+        super.renderBackground(context /*? !=1.20.1 {*/ , mouseX, mouseY, delta /*?}*/);
         if (wallpaper && windowsBackground != null) {
             drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
         } else if (!background) {
@@ -1196,7 +1196,7 @@ public class ReScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ /*double horizontalAmount, *//*?}*/ double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         if (scaleScroll(verticalAmount)) return true;
         if (tabsManager != null && tabsManager.mouseScrolled(mouseX, mouseY, verticalAmount)) {
             return true;
@@ -1207,7 +1207,7 @@ public class ReScreen extends Screen {
         if (container.mouseScrolled(mouseX, mouseY, verticalAmount * scrollSpeed)) {
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, /*? !=1.20.1 {*/ /*horizontal ,*//*?}*/ verticalAmount);
+        return super.mouseScrolled(mouseX, mouseY, /*? !=1.20.1 {*/ horizontalAmount ,/*?}*/ verticalAmount);
     }
 
     @Override

@@ -7,7 +7,6 @@ import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.remotely.util.Notification;
 
 import java.awt.Toolkit;
 import java.awt.datatransfer.Clipboard;
@@ -110,7 +109,7 @@ public class TextInputWidget extends AnimatedWidget {
     }
 
     @Override
-    protected void onClick(double mouseX, double mouseY, int button) {
+    public void onClick(double mouseX, double mouseY, int button) {
         if (button == 0) {
             setFocused(true);
             MinecraftClient mc = MinecraftClient.getInstance();

@@ -1328,7 +1328,7 @@ public class MultiTerminalScreen extends Screen {
 
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY,/*? !=1.20.1 {*/ /*double horizontalAmount, *//*?}*/ double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         if (aiMode && aiSidePanel.mouseScrolled(mouseX, mouseY, verticalAmount, this.width - (int) animatedSnippetPanelWidth - 5, ContentYStart, (int) animatedSnippetPanelWidth, this.height - ContentYStart - 5)) {
             return true;
         }

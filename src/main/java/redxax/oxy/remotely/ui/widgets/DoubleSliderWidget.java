@@ -91,7 +91,7 @@ public class DoubleSliderWidget extends AnimatedWidget {
     }
 
     @Override
-    protected void onClick(double mouseX, double mouseY, int button) {
+    public void onClick(double mouseX, double mouseY, int button) {
         if (button == 0) {
             dragging = true;
             updateValueFromMouse(mouseX);

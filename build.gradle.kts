@@ -47,6 +47,7 @@ dependencies {
     shadow("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     shadow("com.jcraft:jsch:0.1.55")
     shadow("org.jline:jline:3.1.3")
+    shadow("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     if (loader == "fabric") {
         modImplementation("net.fabricmc:fabric-loader:${mod.dep("fabric_loader")}")
         mappings("net.fabricmc:yarn:$minecraft+build.${mod.dep("yarn_build")}:v2")

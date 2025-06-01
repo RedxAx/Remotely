@@ -170,14 +170,14 @@ public class ServerManagerScreen extends Screen {
     }
     public void background(DrawContext context) {
         //? if =1.20.1 {
-        context.fill(0, 0, this.width, this.height, Config.backgroundColor);
-        //?} else {
-        /*if (wallpaper && windowsBackground != null) {
+        /*context.fill(0, 0, this.width, this.height, Config.backgroundColor);
+        *///?} else {
+        if (wallpaper && windowsBackground != null) {
             drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
         } else if (!background) {
             context.fill(0, 0, width, height, backgroundColor);
         }
-        *///?}
+        //?}
     }
 
     @Override
@@ -732,7 +732,7 @@ public class ServerManagerScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ /*double horizontalAmount, *//*?}*/ double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
         scaleScroll(verticalAmount);
         int tabHeight = 25;
         int contentYStart = topBarHeight + tabHeight + 5 + verticalPadding;
