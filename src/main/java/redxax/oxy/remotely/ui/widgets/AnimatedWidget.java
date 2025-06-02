@@ -35,6 +35,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
         CORNER_SPEED_MULTIPLIERS.put(EntranceCorner.BOTTOM_RIGHT, 1.0f);
         CORNER_SPEED_MULTIPLIERS.put(EntranceCorner.CENTER, 1.0f);
     }
+
     public static void setCornerSpeedMultiplier(EntranceCorner corner, float multiplier) {
         CORNER_SPEED_MULTIPLIERS.put(corner, multiplier);
     }
@@ -45,7 +46,10 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     protected float elevation = 0f;
     protected boolean animateColor = true, animateElevation = true, flat = false;
+    protected boolean animateLayout = false;
     protected float animationSpeed = 0.2f;
+    protected float targetX, targetY, targetWidth, targetHeight;
+    protected float animatedX, animatedY, animatedWidth, animatedHeight;
 
     protected boolean entranceAnimationEnabled = true;
     protected EntranceAnimationType entranceAnimationType = EntranceAnimationType.ELEVATION;
@@ -92,6 +96,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
         public B visible(boolean v) { widget.visible = v; return self(); }
         public B animateColor(boolean b) { widget.animateColor = b; return self(); }
         public B animateElevation(boolean b) { widget.animateElevation = b; return self(); }
+        public B animateLayout(boolean b) { widget.animateLayout = b; return self(); }
         public B flat(boolean f) { widget.flat = f; return self(); }
         public B animationSpeed(float s) { widget.animationSpeed = s; return self(); }
         public B hint(String text) { widget.hint = text; return self(); }
@@ -108,6 +113,10 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     public AnimatedWidget(int x, int y, int width, int height, Text message) {
         super(x, y, width, height, message);
+        targetX = animatedX = x;
+        targetY = animatedY = y;
+        targetWidth = animatedWidth = width;
+        targetHeight = animatedHeight = height;
     }
 
     public void setScissorRegion(int x1, int y1, int x2, int y2) {
@@ -120,6 +129,45 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     public void clearScissorRegion() {
         this.hasScissorRegion = false;
+    }
+
+    @Override
+    public void setX(int x) {
+        if (animateLayout) {
+            targetX = x;
+        } else {
+            super.setX(x);
+            targetX = animatedX = x;
+        }
+    }
+
+    @Override
+    public void setY(int y) {
+        if (animateLayout) {
+            targetY = y;
+        } else {
+            super.setY(y);
+            targetY = animatedY = y;
+        }
+    }
+
+    @Override
+    public void setWidth(int width) {
+        if (animateLayout) {
+            targetWidth = width;
+        } else {
+            super.setWidth(width);
+            targetWidth = animatedWidth = width;
+        }
+    }
+
+    public void setHeight(int height) {
+        if (animateLayout) {
+            targetHeight = height;
+        } else {
+            this.height = height;
+            targetHeight = animatedHeight = height;
+        }
     }
 
     protected void calculateEntranceDelay() {
@@ -154,7 +202,6 @@ public abstract class AnimatedWidget extends ClickableWidget {
             float distanceX = getX() - startX;
             float distanceY = getY() - startY;
             float distance = (float) Math.sqrt(distanceX * distanceX + distanceY * distanceY);
-
             float guiScale = (float) mc.getWindow().getScaleFactor();
             if (guiScale > 0) {
                 distance = distance * guiScale;
@@ -189,9 +236,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
             entranceAnimationProgress = 1f;
             return;
         }
-
         calculateEntranceDelay();
-
         if (!entranceAnimationStarted) {
             entranceAnimationDelay -= deltaTime;
             if (entranceAnimationDelay <= 0) {
@@ -199,7 +244,6 @@ public abstract class AnimatedWidget extends ClickableWidget {
             }
             return;
         }
-
         if (entranceAnimationProgress < 1f) {
             entranceAnimationProgress += entranceAnimationSpeed * deltaTime * 2f;
             entranceAnimationProgress = Math.min(1f, entranceAnimationProgress);
@@ -209,14 +253,12 @@ public abstract class AnimatedWidget extends ClickableWidget {
     protected float getEntranceAlpha() {
         if (!entranceAnimationEnabled) return 1f;
         if (!entranceAnimationStarted) return 0f;
-
         return Math.min(1f, entranceAnimationProgress * 2f);
     }
 
     protected float getEntranceElevationOffset() {
         if (!entranceAnimationEnabled || entranceAnimationType != EntranceAnimationType.ELEVATION) return 0f;
         if (!entranceAnimationStarted) return 20f * entranceAnimationStrength;
-
         float t = entranceAnimationProgress;
         float easeOut = 1f - (float) Math.pow(1f - t, 3);
         return (1f - easeOut) * 20f * entranceAnimationStrength;
@@ -240,7 +282,6 @@ public abstract class AnimatedWidget extends ClickableWidget {
         if (currentlyHovered && !wasHovered) {
             hintHoverTime = 0f;
         }
-
         if (currentlyHovered) {
             hintHoverTime += deltaTime;
             if (hintHoverTime >= hintDelay && !hintVisible) {
@@ -295,9 +336,18 @@ public abstract class AnimatedWidget extends ClickableWidget {
     }
 
     public void tick() {
+        if (animateLayout) {
+            animatedX += (targetX - animatedX) * globalMovementSpeed * deltaTime;
+            animatedY += (targetY - animatedY) * globalMovementSpeed * deltaTime;
+            animatedWidth += (targetWidth - animatedWidth) * globalExpandSpeed * deltaTime;
+            animatedHeight += (targetHeight - animatedHeight) * globalExpandSpeed * deltaTime;
+            super.setX(Math.round(animatedX));
+            super.setY(Math.round(animatedY));
+            super.setWidth(Math.round(animatedWidth));
+            this.height = Math.round(animatedHeight);
+        }
         updateEntranceAnimation();
         updateHint();
-
         if (animateElevation && active) {
             float elevationTarget = hovered ? -2f : 0f;
             elevation = elevationOffsets.getOrDefault(this.hashCode(), 0f);
@@ -320,35 +370,23 @@ public abstract class AnimatedWidget extends ClickableWidget {
             } else if (!active) {
                 bgColor = innerBackgroundColor;
                 borderColor = inClickableBorderColor;
-            }else {
+            } else {
                 bgColor = elementBackgroundColor;
                 borderColor = elementBorderColor;
             }
         }
     }
 
-    //? if = 1.20.1 {
-    /*@Override
-    public void renderButton(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        renderWidget(ctx, mouseX, mouseY, delta);
-    }
-    *///?}
-
     public void renderWidget(DrawContext ctx, int mouseX, int mouseY, float delta) {
         tick();
-
         float alpha = getEntranceAlpha();
         if (alpha <= 0f) return;
-
         boolean shouldClip = hasScissorRegion && (getX() + getWidth() < scissorX1 || getX() > scissorX2 || getY() + getHeight() < scissorY1 || getY() > scissorY2);
         if (shouldClip) return;
-
         ctx.getMatrices().push();
-
         if (hasScissorRegion) {
             ctx.enableScissor(scissorX1, scissorY1, scissorX2, scissorY2);
         }
-
         float pivotPosX, pivotPosY;
         if (absolutePivot) {
             pivotPosX = pivotX;
@@ -358,15 +396,12 @@ public abstract class AnimatedWidget extends ClickableWidget {
             pivotPosY = getY() + (getHeight() * pivotY);
         }
         ctx.getMatrices().translate(pivotPosX, pivotPosY, 0);
-
         float elevationOffset = getEntranceElevationOffset();
         ctx.getMatrices().translate(0, elevation + elevationOffset, 0);
         ctx.getMatrices().translate(-pivotPosX, -pivotPosY, 0);
-
         int originalBgColor = bgColor;
         int originalBorderColor = borderColor;
         int originalTextColor = textColor;
-
         if (alpha < 1f) {
             bgColor = applyAlpha(bgColor, alpha);
             borderColor = applyAlpha(borderColor, alpha);
@@ -376,15 +411,12 @@ public abstract class AnimatedWidget extends ClickableWidget {
         drawBackground(ctx);
         drawBorder(ctx);
         drawContent(ctx, mouseX, mouseY);
-
         bgColor = originalBgColor;
         borderColor = originalBorderColor;
         textColor = originalTextColor;
-
         if (hasScissorRegion) {
             ctx.disableScissor();
         }
-
         ctx.getMatrices().pop();
         drawHint(ctx);
     }
