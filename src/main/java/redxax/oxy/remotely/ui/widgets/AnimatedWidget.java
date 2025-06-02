@@ -47,6 +47,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
     protected float elevation = 0f;
     protected boolean animateColor = true, animateElevation = true, flat = false;
     protected boolean animateLayout = false;
+    private boolean layoutInitialized = false;
     protected float animationSpeed = 0.2f;
     protected float targetX, targetY, targetWidth, targetHeight;
     protected float animatedX, animatedY, animatedWidth, animatedHeight;
@@ -134,7 +135,13 @@ public abstract class AnimatedWidget extends ClickableWidget {
     @Override
     public void setX(int x) {
         if (animateLayout) {
-            targetX = x;
+            if (!layoutInitialized) {
+                super.setX(x);
+                targetX = animatedX = x;
+                layoutInitialized = true;
+            } else {
+                targetX = x;
+            }
         } else {
             super.setX(x);
             targetX = animatedX = x;
@@ -144,7 +151,13 @@ public abstract class AnimatedWidget extends ClickableWidget {
     @Override
     public void setY(int y) {
         if (animateLayout) {
-            targetY = y;
+            if (!layoutInitialized) {
+                super.setY(y);
+                targetY = animatedY = y;
+                layoutInitialized = true;
+            } else {
+                targetY = y;
+            }
         } else {
             super.setY(y);
             targetY = animatedY = y;
@@ -154,7 +167,13 @@ public abstract class AnimatedWidget extends ClickableWidget {
     @Override
     public void setWidth(int width) {
         if (animateLayout) {
-            targetWidth = width;
+            if (!layoutInitialized) {
+                super.setWidth(width);
+                targetWidth = animatedWidth = width;
+                layoutInitialized = true;
+            } else {
+                targetWidth = width;
+            }
         } else {
             super.setWidth(width);
             targetWidth = animatedWidth = width;
@@ -163,7 +182,13 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     public void setHeight(int height) {
         if (animateLayout) {
-            targetHeight = height;
+            if (!layoutInitialized) {
+                this.height = height;
+                targetHeight = animatedHeight = height;
+                layoutInitialized = true;
+            } else {
+                targetHeight = height;
+            }
         } else {
             this.height = height;
             targetHeight = animatedHeight = height;
