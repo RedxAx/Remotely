@@ -45,4 +45,15 @@ public class AnimatedButton extends AnimatedWidget {
             action.run();
         }
     }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == 257 || keyCode == 335) {
+            if (action != null) {
+                action.run();
+                return true;
+            }
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
 }
