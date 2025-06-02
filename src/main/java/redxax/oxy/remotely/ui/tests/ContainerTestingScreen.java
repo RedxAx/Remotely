@@ -15,11 +15,8 @@ public class ContainerTestingScreen extends ReScreen {
     public void init() {
         super.init();
         AnimatedWidget.setCornerSpeedMultiplier(AnimatedWidget.EntranceCorner.TOP_LEFT, .2f);
-        headerBuilder.addRight("/assets/remotely/icons/close.png", () -> client.setScreen(null), "Close Screen")
-        .addRight("/assets/remotely/icons/sidepanel.png", () -> container.sidePanel().toggle(), "Toggle Side Panel")
-        .addLeft("/assets/remotely/icons/remotely.png", () -> client.setScreen(new ContainerTestingScreen()), "Reload Screen").build();
-        createContainer(5, 60, width - 10, height - 5).columns(3).addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Click Me")).build())
-                .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Another Button")).build())
+        Container container = createContainer(String.valueOf("Container 1".hashCode()),5, 60, width - 10, height - 5).columns(3).addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Click Me")).build());
+                container.addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Another Button")).build())
                 .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Add Another Button")).onClick(() -> container.addWidget(new AnimatedButton.ButtonBuilder()
                         .size(100, 20).label(Text.literal("Button " + (container.getWidgets().size() + 1))).build())).build())
                 .addWidget(new ScrollSelectorWidget.Builder().size(100, 20).options(List.of("Option 1", "Option 2", "Option 3", "Option 4", "Option 5")).build())
@@ -29,7 +26,6 @@ public class ContainerTestingScreen extends ReScreen {
                 .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.of("Decrease Columns")).onClick(() -> container.columns(container.getColumns() - 1)).build())
                 .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Increase Padding")).onClick(() -> container.padding(container.getPadding() + 1)).build())
                 .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Decrease Padding")).onClick(() -> container.padding(container.getPadding() - 1)).build()
-
         );
         container.sidePanel().create().addWidget(new AnimatedButton.ButtonBuilder()
                 .size(100, 20).label(Text.literal("Panel Button")).build())
@@ -39,17 +35,21 @@ public class ContainerTestingScreen extends ReScreen {
                         sidePanel.addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Button " + (sidePanel.getWidgets().size() + 1))).build())).build())
                 .addWidget(new TextInputWidget.Builder().size(100, 20).placeholder("Type here...").text("Sample Text").build());
 
-        Container anotherContainer = createContainer(5, 35, width - 10, 20);
-        anotherContainer.columns(3)
-                .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Another Container Button")).build())
-                .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Add Widget")).onClick(() -> anotherContainer.addWidget(new AnimatedButton.ButtonBuilder()
+        Container anotherContainer = createContainer(String.valueOf("Container 2".hashCode()),5, 60, width - 10, height - 5).columns(3).addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Click Me")).build());
+        anotherContainer.addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Another Button")).build())
+                .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Add Another Button")).onClick(() -> anotherContainer.addWidget(new AnimatedButton.ButtonBuilder()
                         .size(100, 20).label(Text.literal("Button " + (anotherContainer.getWidgets().size() + 1))).build())).build())
-                .addWidget(new ScrollSelectorWidget.Builder().size(100, 20).options(List.of("Option A", "Option B", "Option C")).build());
+                .addWidget(new ScrollSelectorWidget.Builder().size(100, 20).options(List.of("Option A", "Option B", "Option C", "Option D", "Option E")).build())
+                .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.of("Increase Columns")).onClick(() -> anotherContainer.columns(anotherContainer.getColumns() + 1)).build())
+                .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.of("Decrease Columns")).onClick(() -> anotherContainer.columns(anotherContainer.getColumns() - 1)).build())
+                .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Increase Padding")).onClick(() -> anotherContainer.padding(anotherContainer.getPadding() + 1)).build())
+                .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Decrease Padding")).onClick(() -> anotherContainer.padding(anotherContainer.getPadding() - 1)).build());
+        tabs().addTab("First Container", container);
+        tabs().addTab("Second Container", anotherContainer);
+        tabsManager.builder().allowReorder(true).allowAdd(true).position(5, 35).size(width - 5, 18).allowReorder(true).build();
 
-        tabs().addTab("First Container", "data");
-        tabs().addTab("Second Container", "data2");
-        tabsManager.builder().allowReorder(true).position(5, 35).size(width - 5, 18).enableStateCache(true).allowReorder(true).build();
-
-
+        headerBuilder.addRight("/assets/remotely/icons/close.png", () -> client.setScreen(null), "Close Screen")
+                .addRight("/assets/remotely/icons/sidepanel.png", () -> container.sidePanel().toggle(), "Toggle Side Panel")
+                .addLeft("/assets/remotely/icons/remotely.png", () -> client.setScreen(new ContainerTestingScreen()), "Reload Screen").build();
     }
 }

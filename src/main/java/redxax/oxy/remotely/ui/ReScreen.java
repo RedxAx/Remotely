@@ -8,10 +8,7 @@ import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.mixin.accessor.ClickableWidgetAccessor;
-import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
-import redxax.oxy.remotely.ui.widgets.SquareButtonWidget;
-import redxax.oxy.remotely.ui.widgets.AnimatedButton;
-import redxax.oxy.remotely.ui.widgets.TextInputWidget;
+import redxax.oxy.remotely.ui.widgets.*;
 import redxax.oxy.remotely.Render.ScrollBar;
 
 import java.awt.image.BufferedImage;
@@ -28,38 +25,77 @@ import static redxax.oxy.remotely.util.ImageUtil.drawBufferedImage;
 
 public class ReScreen extends Screen {
     protected HeaderBuilder headerBuilder;
-    protected Container container;
+    protected Container activeContainer;
+    protected Map<String, Container> containers;
     protected Container sidePanel;
-    protected TabsManager<?> tabsManager;
+    protected TabsManager tabsManager;
 
     protected ReScreen(Text title) {
         super(title);
         this.headerBuilder = new HeaderBuilder();
+        this.containers = new HashMap<>();
     }
 
     public HeaderBuilder header() {
         return headerBuilder;
     }
 
-    public <T> TabsManager<T> tabs() {
+    public TabsManager tabs() {
         if (tabsManager == null) {
-            tabsManager = new TabsManager<>();
+            tabsManager = new TabsManager();
         }
-        return (TabsManager<T>) tabsManager;
+        return tabsManager;
     }
 
     public Container createContainer(int x, int y, int width, int height) {
-        this.container = new Container(x, y, width, height);
+        return new Container(x, y, width, height);
+    }
+
+    public Container createContainer(String id, int x, int y, int width, int height) {
+        Container container = new Container(x, y, width, height);
+        containers.put(id, container);
         return container;
+    }
+
+    public Container getContainer(String id) {
+        return containers.get(id);
+    }
+
+    public void setActiveContainer(Container container) {
+        if (activeContainer != null) {
+            activeContainer.saveStateAndClearScreen();
+        }
+        this.activeContainer = container;
+        if (activeContainer != null) {
+            activeContainer.restoreStateToScreen();
+        }
     }
 
     public Container container() {
-        return container;
+        return activeContainer;
     }
 
-    public class TabsManager<T> {
-        private final List<Tab<T>> tabs = new ArrayList<>();
-        private final Map<T, Object> stateCache = new HashMap<>();
+    public static class ContainerState {
+        private final List<AnimatedWidget> widgets;
+        private final List<Integer> originalYPositions;
+        private final float smoothOffset;
+        private final float targetOffset;
+
+        public ContainerState(List<AnimatedWidget> widgets, List<Integer> originalYPositions, float smoothOffset, float targetOffset) {
+            this.widgets = new ArrayList<>(widgets);
+            this.originalYPositions = new ArrayList<>(originalYPositions);
+            this.smoothOffset = smoothOffset;
+            this.targetOffset = targetOffset;
+        }
+
+        public List<AnimatedWidget> getWidgets() { return widgets; }
+        public List<Integer> getOriginalYPositions() { return originalYPositions; }
+        public float getSmoothOffset() { return smoothOffset; }
+        public float getTargetOffset() { return targetOffset; }
+    }
+
+    public class TabsManager {
+        private final List<Tab> tabs = new ArrayList<>();
         private int activeTabIndex = 0;
         private int x = 0;
         private int y = 0;
@@ -70,7 +106,6 @@ public class ReScreen extends Screen {
         private boolean allowRename = true;
         private boolean allowReorder = true;
         private boolean allowAdd = true;
-        private boolean enableStateCache = false;
         private float scrollOffset = 0f;
         private float targetScrollOffset = 0f;
         private int tabPadding = 6;
@@ -83,23 +118,23 @@ public class ReScreen extends Screen {
         private int dragOverIndex = -1;
         private float dragStartX = 0f;
         private float dragCurrentX = 0f;
-        private Consumer<Tab<T>> onTabSelected;
-        private Consumer<Tab<T>> onTabClosed;
-        private Consumer<Tab<T>> onTabRenamed;
+        private Consumer<Tab> onTabSelected;
+        private Consumer<Tab> onTabClosed;
+        private Consumer<Tab> onTabRenamed;
         private Runnable onTabAdded;
-        private Consumer<List<Tab<T>>> onTabsReordered;
+        private Consumer<List<Tab>> onTabsReordered;
 
-        public static class Tab<T> {
+        public static class Tab {
             private String name;
             private boolean unsaved;
-            private final T data;
+            private Container container;
             private final int id;
             private AnimatedButton widget;
             private boolean visible = true;
 
-            public Tab(String name, T data) {
+            public Tab(String name, Container container) {
                 this.name = name;
-                this.data = data;
+                this.container = container;
                 this.unsaved = false;
                 this.id = System.identityHashCode(this);
             }
@@ -108,7 +143,8 @@ public class ReScreen extends Screen {
             public void setName(String name) { this.name = name; }
             public boolean isUnsaved() { return unsaved; }
             public void setUnsaved(boolean unsaved) { this.unsaved = unsaved; }
-            public T getData() { return data; }
+            public Container getContainer() { return container; }
+            public void setContainer(Container container) { this.container = container; }
             public int getId() { return id; }
             public AnimatedButton getWidget() { return widget; }
             public boolean isVisible() { return visible; }
@@ -146,19 +182,15 @@ public class ReScreen extends Screen {
                 TabsManager.this.allowAdd = allow;
                 return this;
             }
-            public Builder enableStateCache(boolean enable) {
-                TabsManager.this.enableStateCache = enable;
-                return this;
-            }
-            public Builder onTabSelected(Consumer<Tab<T>> callback) {
+            public Builder onTabSelected(Consumer<Tab> callback) {
                 TabsManager.this.onTabSelected = callback;
                 return this;
             }
-            public Builder onTabClosed(Consumer<Tab<T>> callback) {
+            public Builder onTabClosed(Consumer<Tab> callback) {
                 TabsManager.this.onTabClosed = callback;
                 return this;
             }
-            public Builder onTabRenamed(Consumer<Tab<T>> callback) {
+            public Builder onTabRenamed(Consumer<Tab> callback) {
                 TabsManager.this.onTabRenamed = callback;
                 return this;
             }
@@ -166,18 +198,13 @@ public class ReScreen extends Screen {
                 TabsManager.this.onTabAdded = callback;
                 return this;
             }
-            public Builder onTabsReordered(Consumer<List<Tab<T>>> callback) {
+            public Builder onTabsReordered(Consumer<List<Tab>> callback) {
                 TabsManager.this.onTabsReordered = callback;
                 return this;
             }
-            public TabsManager<T> build() {
+            public TabsManager build() {
                 if (allowAdd && plusButton == null) {
-                    plusButton = new SquareButtonWidget.Builder()
-                            .imagePath("/assets/remotely/icons/newTab.png")
-                            .size(height, height)
-                            .onClick(() -> { if (onTabAdded != null) onTabAdded.run(); })
-                            .entranceCorner(CENTER)
-                            .build();
+                    plusButton = new SquareButtonWidget.Builder().imagePath("/assets/remotely/icons/newTab.png").size(18, 18).onClick(() -> { if (onTabAdded != null) onTabAdded.run(); }).entranceCorner(CENTER).build();
                     addDrawableChild(plusButton);
                 } else if (!allowAdd && plusButton != null) {
                     remove(plusButton);
@@ -192,13 +219,10 @@ public class ReScreen extends Screen {
             return new Builder();
         }
 
-        public Tab<T> addTab(String name, T data) {
-            Tab<T> tab = new Tab<>(name, data);
+        public Tab addTab(String name, Container container) {
+            Tab tab = new Tab(name, container);
             tabs.add(tab);
             createTabWidget(tab);
-            if (enableStateCache) {
-                stateCache.put(data, null);
-            }
             if (onTabAdded != null) {
                 onTabAdded.run();
             }
@@ -208,11 +232,15 @@ public class ReScreen extends Screen {
 
         public void removeTab(int index) {
             if (index >= 0 && index < tabs.size()) {
-                Tab<T> tab = tabs.remove(index);
+                Tab tab = tabs.remove(index);
                 if (tab.widget != null) remove(tab.widget);
-                if (enableStateCache) stateCache.remove(tab.data);
                 if (activeTabIndex >= tabs.size()) {
                     activeTabIndex = Math.max(0, tabs.size() - 1);
+                }
+                if (tabs.size() > 0) {
+                    setActiveTab(activeTabIndex);
+                } else {
+                    setActiveContainer(null);
                 }
                 if (onTabClosed != null) onTabClosed.accept(tab);
                 updateLayout();
@@ -221,32 +249,23 @@ public class ReScreen extends Screen {
 
         public void setActiveTab(int index) {
             if (index >= 0 && index < tabs.size()) {
-                if (enableStateCache && activeTabIndex >= 0 && activeTabIndex < tabs.size()) {
-                    stateCache.put(tabs.get(activeTabIndex).data, captureCurrentState());
-                }
                 activeTabIndex = index;
+                Tab activeTab = tabs.get(index);
+                setActiveContainer(activeTab.getContainer());
                 updateTabStates();
-                if (enableStateCache) restoreFromState(tabs.get(index));
-                if (onTabSelected != null) onTabSelected.accept(tabs.get(index));
+                if (onTabSelected != null) onTabSelected.accept(activeTab);
             }
         }
 
-        public Tab<T> getActiveTab() {
+        public Tab getActiveTab() {
             return activeTabIndex >= 0 && activeTabIndex < tabs.size() ? tabs.get(activeTabIndex) : null;
         }
 
-        public List<Tab<T>> getTabs() {
+        public List<Tab> getTabs() {
             return new ArrayList<>(tabs);
         }
 
-        protected Object captureCurrentState() {
-            return null;
-        }
-
-        protected void restoreFromState(Object state) {
-        }
-
-        private void createTabWidget(Tab<T> tab) {
+        private void createTabWidget(Tab tab) {
             String displayName = tab.name + (tab.unsaved ? "*" : "");
             tab.widget = new AnimatedButton.ButtonBuilder()
                     .label(Text.literal(displayName))
@@ -262,7 +281,7 @@ public class ReScreen extends Screen {
         private void updateLayout() {
             if (!visible) return;
             List<Integer> widths = new ArrayList<>();
-            for (Tab<T> tab : tabs) {
+            for (Tab tab : tabs) {
                 String label = tab.name + (tab.unsaved ? "*" : "");
                 widths.add(textRenderer.getWidth(label) + 2 * tabPadding);
             }
@@ -282,7 +301,7 @@ public class ReScreen extends Screen {
             float plusPos = cursor;
 
             for (int i = 0; i < tabs.size(); i++) {
-                Tab<T> tab = tabs.get(i);
+                Tab tab = tabs.get(i);
                 if (tab.widget != null && tab.visible) {
                     int w = widths.get(i);
                     if (dragging && i == draggingTabIndex) {
@@ -305,16 +324,13 @@ public class ReScreen extends Screen {
 
             if (allowAdd && plusButton != null) {
                 plusButton.setPosition((int)(plusPos - scrollOffset), y);
-                plusButton.setWidth(width);
-                ((ClickableWidgetAccessor) plusButton).setHeight(height);
             }
-
             updateTabStates();
         }
 
         private void updateTabStates() {
             for (int i = 0; i < tabs.size(); i++) {
-                Tab<T> tab = tabs.get(i);
+                Tab tab = tabs.get(i);
                 if (tab.widget != null) tab.widget.setFocused(i == activeTabIndex);
             }
         }
@@ -323,7 +339,7 @@ public class ReScreen extends Screen {
             float localX = mouseX + scrollOffset;
             float cursor = x;
             for (int i = 0; i < tabs.size(); i++) {
-                Tab<T> tab = tabs.get(i);
+                Tab tab = tabs.get(i);
                 String label = tab.name + (tab.unsaved ? "*" : "");
                 int w = textRenderer.getWidth(label) + 2 * tabPadding;
                 float center = cursor + w / 2f;
@@ -336,7 +352,7 @@ public class ReScreen extends Screen {
         public void render(DrawContext context, int mouseX, int mouseY, float delta) {
             if (!visible) return;
             updateLayout();
-            for (Tab<T> tab : tabs) {
+            for (Tab tab : tabs) {
                 if (tab.widget != null && tab.visible) {
                     String displayName = tab.name + (tab.unsaved ? "*" : "");
                     tab.widget.setMessage(Text.literal(displayName));
@@ -347,13 +363,14 @@ public class ReScreen extends Screen {
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
             if (!visible) return false;
             for (int i = 0; i < tabs.size(); i++) {
-                Tab<T> tab = tabs.get(i);
+                Tab tab = tabs.get(i);
                 if (tab.widget != null && tab.visible) {
                     int tx = tab.widget.getX(), ty = tab.widget.getY();
                     int tw = tab.widget.getWidth(), th = tab.widget.getHeight();
                     if (mouseX >= tx && mouseX <= tx + tw &&
                             mouseY >= ty && mouseY <= ty + th) {
                         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                            setActiveTab(i);
                             if (allowReorder) {
                                 draggingTabIndex = i;
                                 dragStartX = (float)mouseX;
@@ -402,7 +419,7 @@ public class ReScreen extends Screen {
         public boolean mouseReleased(double mouseX, double mouseY, int button) {
             if (!visible || button != GLFW.GLFW_MOUSE_BUTTON_LEFT || draggingTabIndex < 0) return false;
             if (dragging && allowReorder && dragOverIndex >= 0 && dragOverIndex != draggingTabIndex) {
-                Tab<T> moved = tabs.remove(draggingTabIndex);
+                Tab moved = tabs.remove(draggingTabIndex);
                 tabs.add(dragOverIndex, moved);
                 if (activeTabIndex == draggingTabIndex) {
                     activeTabIndex = dragOverIndex;
@@ -452,10 +469,11 @@ public class ReScreen extends Screen {
             if (!allowRename || index < 0 || index >= tabs.size()) return;
             finishRename();
             renamingTabIndex = index;
-            Tab<T> tab = tabs.get(index);
+            Tab tab = tabs.get(index);
             if (tab.widget != null) remove(tab.widget);
             renameWidget = new TextInputWidget.Builder()
                     .text(tab.name)
+                    .size(tab.widget.getWidth(), tab.widget.getHeight())
                     .onChange(() -> {
                         if (renamingTabIndex >= 0 && renamingTabIndex < tabs.size()) {
                             tabs.get(renamingTabIndex).name = renameWidget.getText();
@@ -471,7 +489,7 @@ public class ReScreen extends Screen {
 
         public void finishRename() {
             if (renamingTabIndex >= 0 && renameWidget != null) {
-                Tab<T> tab = tabs.get(renamingTabIndex);
+                Tab tab = tabs.get(renamingTabIndex);
                 tab.name = renameWidget.getText();
                 remove(renameWidget);
                 renameWidget = null;
@@ -486,15 +504,6 @@ public class ReScreen extends Screen {
             if (index >= 0 && index < tabs.size()) {
                 tabs.get(index).unsaved = unsaved;
             }
-        }
-
-        public void clearCache() {
-            stateCache.clear();
-        }
-
-        public void setCacheEnabled(boolean enabled) {
-            this.enableStateCache = enabled;
-            if (!enabled) clearCache();
         }
     }
 
@@ -669,6 +678,7 @@ public class ReScreen extends Screen {
         private boolean canScroll = false;
         private final int scrollbarWidth = 2;
         private SidePanel sidePanel;
+        private ContainerState savedState;
 
         public Container(int x, int y, int width, int height) {
             this(x, y, width, height, true);
@@ -718,7 +728,9 @@ public class ReScreen extends Screen {
             originalYPositions.add(0);
             widget.resetEntranceAnimation();
             widget.setScissorRegion(x + 1, y + 1, x + getEffectiveWidth() - 1, cHeight - 1);
-            addDrawableChild(widget);
+            if (this == activeContainer) {
+                addDrawableChild(widget);
+            }
             widget.setLayer(490);
             updateWidgetPositions();
             return this;
@@ -750,6 +762,49 @@ public class ReScreen extends Screen {
             smoothOffset = 0;
             targetOffset = 0;
             return this;
+        }
+
+        public ContainerState saveState() {
+            return new ContainerState(widgets, originalYPositions, smoothOffset, targetOffset);
+        }
+
+        public void restoreState(ContainerState state) {
+            clearWidgets();
+            widgets.addAll(state.getWidgets());
+            originalYPositions.addAll(state.getOriginalYPositions());
+            smoothOffset = state.getSmoothOffset();
+            targetOffset = state.getTargetOffset();
+
+            if (this == activeContainer) {
+                for (AnimatedWidget widget : widgets) {
+                    addDrawableChild(widget);
+                    widget.setScissorRegion(x + 1, y + 1, x + getEffectiveWidth() - 1, cHeight - 1);
+                }
+            }
+            updateWidgetPositions();
+        }
+
+        public void saveStateAndClearScreen() {
+            savedState = saveState();
+            for (AnimatedWidget widget : widgets) {
+                remove(widget);
+                if (widget instanceof AnimatedWidget) {
+                    widget.clearScissorRegion();
+                }
+            }
+        }
+
+        public void restoreStateToScreen() {
+            if (savedState != null) {
+                restoreState(savedState);
+                savedState = null;
+            } else {
+                for (AnimatedWidget widget : widgets) {
+                    addDrawableChild(widget);
+                    widget.setScissorRegion(x + 1, y + 1, x + getEffectiveWidth() - 1, cHeight - 1);
+                }
+                updateWidgetPositions();
+            }
         }
 
         private int getEffectiveWidth() {
@@ -810,6 +865,8 @@ public class ReScreen extends Screen {
         }
 
         public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+            if (this != activeContainer) return;
+
             smoothOffset += (targetOffset - smoothOffset) * globalScrollSpeed * deltaTime;
 
             int effectiveWidth = getEffectiveWidth();
@@ -862,6 +919,8 @@ public class ReScreen extends Screen {
         }
 
         public boolean mouseScrolled(double mouseX, double mouseY, double verticalAmount) {
+            if (this != activeContainer) return false;
+
             if (sidePanel != null && sidePanel.mouseScrolled(mouseX, mouseY, verticalAmount)) {
                 return true;
             }
@@ -884,6 +943,8 @@ public class ReScreen extends Screen {
         }
 
         public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+            if (this != activeContainer) return false;
+
             if (sidePanel != null && sidePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
                 return true;
             }
@@ -900,6 +961,8 @@ public class ReScreen extends Screen {
         }
 
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (this != activeContainer) return false;
+
             if (sidePanel != null && sidePanel.mouseClicked(mouseX, mouseY, button)) {
                 return true;
             }
@@ -922,6 +985,8 @@ public class ReScreen extends Screen {
         }
 
         public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            if (this != activeContainer) return false;
+
             if (sidePanel != null && sidePanel.mouseReleased(mouseX, mouseY, button)) {
                 return true;
             }
@@ -1169,7 +1234,11 @@ public class ReScreen extends Screen {
         if (headerBuilder != null) {
             headerBuilder.build();
         }
-        this.container = new Container(0, 0, this.width, this.height);
+        if (activeContainer == null) {
+            this.activeContainer = new Container(0, 0, this.width, this.height);
+        } else {
+            activeContainer.size(this.width, this.height);
+        }
         AnimatedWidget.setCornerSpeedMultiplier(CENTER, .3f);
     }
 
@@ -1177,8 +1246,8 @@ public class ReScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         animatedScaling(this);
-        if (container != null) {
-            container.render(context, mouseX, mouseY, delta);
+        if (activeContainer != null) {
+            activeContainer.render(context, mouseX, mouseY, delta);
         }
         if (tabsManager != null) {
             tabsManager.render(context, mouseX, mouseY, delta);
@@ -1204,7 +1273,7 @@ public class ReScreen extends Screen {
         assert client != null;
         boolean shift = InputUtil.isKeyPressed(client.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) || InputUtil.isKeyPressed(client.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT);
         double scrollSpeed = shift ? 10 : 4;
-        if (container.mouseScrolled(mouseX, mouseY, verticalAmount * scrollSpeed)) {
+        if (activeContainer != null && activeContainer.mouseScrolled(mouseX, mouseY, verticalAmount * scrollSpeed)) {
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, /*? !=1.20.1 {*/ horizontalAmount ,/*?}*/ verticalAmount);
@@ -1212,7 +1281,10 @@ public class ReScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (container.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (tabsManager != null && tabsManager.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+        if (activeContainer != null && activeContainer.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
             return true;
         }
         return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
@@ -1223,7 +1295,7 @@ public class ReScreen extends Screen {
         if (tabsManager != null && tabsManager.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
-        if (container.mouseClicked(mouseX, mouseY, button)) {
+        if (activeContainer != null && activeContainer.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
         return super.mouseClicked(mouseX, mouseY, button);
@@ -1231,7 +1303,10 @@ public class ReScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (container.mouseReleased(mouseX, mouseY, button)) {
+        if (tabsManager != null && tabsManager.mouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (activeContainer != null && activeContainer.mouseReleased(mouseX, mouseY, button)) {
             return true;
         }
         return super.mouseReleased(mouseX, mouseY, button);
