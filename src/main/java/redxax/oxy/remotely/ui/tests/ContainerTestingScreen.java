@@ -39,7 +39,7 @@ public class ContainerTestingScreen extends ReScreen {
                 .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.of("Increase Columns")).onClick(() -> restrictedContainer.columns(restrictedContainer.getColumns() + 1)).build())
                 .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.of("Decrease Columns")).onClick(() -> restrictedContainer.columns(restrictedContainer.getColumns() - 1)).build())
                 .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Increase Padding")).onClick(() -> restrictedContainer.padding(restrictedContainer.getPadding() + 1)).build())
-                .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Decrease Padding")).onClick(() -> restrictedContainer.padding(restrictedContainer.getPadding() - 1)).build())
+                .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Decrease Padding")).onClick(() -> restrictedContainer.padding(restrictedContainer.getPadding() - 1)).build());
 
         Container managedContainer = createContainer(String.valueOf("ManagedContainer".hashCode()), 5, 60, width - 10, height - 5);
         managedContainer.columns(3).layoutStyle(Container.LayoutStyle.MANAGED)
