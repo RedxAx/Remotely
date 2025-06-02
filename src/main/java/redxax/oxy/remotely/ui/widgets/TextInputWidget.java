@@ -24,6 +24,7 @@ public class TextInputWidget extends AnimatedWidget {
     private float scrollOffset = 0f;
     private Runnable onChange;
     private int maxLength = 143;
+    private boolean dynamicWidth = false;
 
     public static class Builder extends AnimatedWidget.Builder<TextInputWidget, Builder> {
         public Builder() { super(new TextInputWidget(0, 0, 150, 20)); }
@@ -37,6 +38,7 @@ public class TextInputWidget extends AnimatedWidget {
         public Builder placeholder(String p) { widget.placeholder = p; return this; }
         public Builder maxLength(int len) { widget.maxLength = len; return this; }
         public Builder onChange(Runnable r) { widget.onChange = r; return this; }
+        public Builder dynamicWidth(boolean dynamic) { widget.dynamicWidth = dynamic; return this; }
         @Override protected Builder self() { return this; }
     }
 
@@ -61,6 +63,9 @@ public class TextInputWidget extends AnimatedWidget {
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY) {
         MinecraftClient mc = MinecraftClient.getInstance();
         TextRenderer tr = mc.textRenderer;
+        if (dynamicWidth) {
+            setWidth(tr.getWidth(textValue) + 10);
+        }
         int textY = getY() + (getHeight() - tr.fontHeight) / 2 + 1;
 
         updateScrollOffset();
@@ -91,6 +96,10 @@ public class TextInputWidget extends AnimatedWidget {
     }
 
     private void updateScrollOffset() {
+        if (dynamicWidth) {
+            scrollOffset = 0f;
+            return;
+        }
         MinecraftClient mc = MinecraftClient.getInstance();
         TextRenderer tr = mc.textRenderer;
         int displayWidth = getWidth() - 10;
@@ -295,7 +304,7 @@ public class TextInputWidget extends AnimatedWidget {
             return true;
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_C) {
-            handleClipboardCopy();
+            mc.keyboard.setClipboard(textValue.substring(Math.min(selectionStart, selectionEnd), Math.max(selectionStart, selectionEnd)));
             return true;
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_V) {
@@ -331,38 +340,18 @@ public class TextInputWidget extends AnimatedWidget {
         return super.charTyped(chr, modifiers);
     }
 
-    private void handleClipboardCopy() {
-        try {
+    private void handleClipboardPaste() {
+        String clipboard = mc.keyboard.getClipboard();
+        if (clipboard != null && !clipboard.isEmpty()) {
             int start = Math.min(selectionStart, selectionEnd);
             int end = Math.max(selectionStart, selectionEnd);
-            if (start < end) {
-                String selectedText = textValue.substring(start, end);
-                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(selectedText), null);
-            }
-        } catch (Exception ignored) {}
-    }
-
-    private void handleClipboardPaste() {
-        try {
-            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-            if (clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
-                String clipboardText = (String) clipboard.getData(DataFlavor.stringFlavor);
-                if (clipboardText != null) {
-                    int start = Math.min(selectionStart, selectionEnd);
-                    int end = Math.max(selectionStart, selectionEnd);
-
-                    int availableSpace = maxLength - (textValue.length() - (end - start));
-                    if (availableSpace > 0) {
-                        String textToPaste = clipboardText.length() <= availableSpace ? clipboardText : clipboardText.substring(0, availableSpace);
-                        textValue = textValue.substring(0, start) + textToPaste + textValue.substring(end);
-                        cursorPos = start + textToPaste.length();
-                        selectionStart = cursorPos;
-                        selectionEnd = cursorPos;
-                        if (onChange != null) onChange.run();
-                    }
-                }
-            }
-        } catch (Exception ignored) {}
+            String newText = textValue.substring(0, start) + clipboard + textValue.substring(end);
+            setText(newText);
+            cursorPos = start + clipboard.length();
+            selectionStart = cursorPos;
+            selectionEnd = cursorPos;
+            if (onChange != null) onChange.run();
+        }
     }
 
     @Override
