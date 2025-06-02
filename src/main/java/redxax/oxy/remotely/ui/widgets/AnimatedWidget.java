@@ -47,7 +47,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
     protected float elevation = 0f;
     protected boolean animateColor = true, animateElevation = true, flat = false;
     protected boolean animateLayout = false;
-    private boolean layoutInitialized = false;
+    protected boolean layoutInitialized = false;
     protected float animationSpeed = 0.2f;
     protected float targetX, targetY, targetWidth, targetHeight;
     protected float animatedX, animatedY, animatedWidth, animatedHeight;
@@ -135,13 +135,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
     @Override
     public void setX(int x) {
         if (animateLayout) {
-            if (!layoutInitialized) {
-                super.setX(x);
-                targetX = animatedX = x;
-                layoutInitialized = true;
-            } else {
-                targetX = x;
-            }
+            targetX = x;
         } else {
             super.setX(x);
             targetX = animatedX = x;
@@ -151,13 +145,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
     @Override
     public void setY(int y) {
         if (animateLayout) {
-            if (!layoutInitialized) {
-                super.setY(y);
-                targetY = animatedY = y;
-                layoutInitialized = true;
-            } else {
-                targetY = y;
-            }
+            targetY = y;
         } else {
             super.setY(y);
             targetY = animatedY = y;
@@ -167,13 +155,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
     @Override
     public void setWidth(int width) {
         if (animateLayout) {
-            if (!layoutInitialized) {
-                super.setWidth(width);
-                targetWidth = animatedWidth = width;
-                layoutInitialized = true;
-            } else {
-                targetWidth = width;
-            }
+            targetWidth = width;
         } else {
             super.setWidth(width);
             targetWidth = animatedWidth = width;
@@ -182,13 +164,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     public void setHeight(int height) {
         if (animateLayout) {
-            if (!layoutInitialized) {
-                this.height = height;
-                targetHeight = animatedHeight = height;
-                layoutInitialized = true;
-            } else {
-                targetHeight = height;
-            }
+            targetHeight = height;
         } else {
             this.height = height;
             targetHeight = animatedHeight = height;
@@ -362,14 +338,26 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     public void tick() {
         if (animateLayout) {
-            animatedX += (targetX - animatedX) * globalMovementSpeed * deltaTime;
-            animatedY += (targetY - animatedY) * globalMovementSpeed * deltaTime;
-            animatedWidth += (targetWidth - animatedWidth) * globalExpandSpeed * deltaTime;
-            animatedHeight += (targetHeight - animatedHeight) * globalExpandSpeed * deltaTime;
-            super.setX(Math.round(animatedX));
-            super.setY(Math.round(animatedY));
-            super.setWidth(Math.round(animatedWidth));
-            this.height = Math.round(animatedHeight);
+            if (!layoutInitialized) {
+                animatedX = targetX;
+                animatedY = targetY;
+                animatedWidth = targetWidth;
+                animatedHeight = targetHeight;
+                super.setX(Math.round(animatedX));
+                super.setY(Math.round(animatedY));
+                super.setWidth(Math.round(animatedWidth));
+                this.height = Math.round(animatedHeight);
+                layoutInitialized = true;
+            } else {
+                animatedX += (targetX - animatedX) * globalMovementSpeed * deltaTime;
+                animatedY += (targetY - animatedY) * globalMovementSpeed * deltaTime;
+                animatedWidth += (targetWidth - animatedWidth) * globalExpandSpeed * deltaTime;
+                animatedHeight += (targetHeight - animatedHeight) * globalExpandSpeed * deltaTime;
+                super.setX(Math.round(animatedX));
+                super.setY(Math.round(animatedY));
+                super.setWidth(Math.round(animatedWidth));
+                this.height = Math.round(animatedHeight);
+            }
         }
         updateEntranceAnimation();
         updateHint();
@@ -462,7 +450,6 @@ public abstract class AnimatedWidget extends ClickableWidget {
             int shadowAlpha = applyAlpha(0x40000000, alpha);
             int gradientStartAlpha = applyAlpha(0x00000000, alpha);
             int gradientEndAlpha = applyAlpha(0x60000000, alpha);
-
             ctx.fill(getX() - 1, getY() - 1, getX() + getWidth() + 1, getY(), outerBorderAlpha);
             ctx.fill(getX() - 1, getY() + getHeight(), getX() + getWidth() + 1, getY() + getHeight() + 3, outerBorderAlpha);
             ctx.fill(getX() - 1, getY(), getX(), getY() + getHeight(), outerBorderAlpha);
