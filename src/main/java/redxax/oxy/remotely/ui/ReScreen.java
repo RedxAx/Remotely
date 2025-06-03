@@ -10,6 +10,7 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.mixin.accessor.ClickableWidgetAccessor;
 import redxax.oxy.remotely.ui.widgets.*;
 import redxax.oxy.remotely.Render.ScrollBar;
+import redxax.oxy.remotely.util.searchUtils;
 
 import java.awt.image.BufferedImage;
 import java.util.*;
@@ -100,23 +101,13 @@ public class ReScreen extends Screen {
         for (Container c : containers.values()) c.updateWidgetWidths();
     }
 
-    public static class ContainerState {
-        private final List<AnimatedWidget> widgets;
-        private final List<Integer> originalYPositions;
-        private final float smoothOffset;
-        private final float targetOffset;
-
+    public record ContainerState(List<AnimatedWidget> widgets, List<Integer> originalYPositions, float smoothOffset, float targetOffset) {
         public ContainerState(List<AnimatedWidget> widgets, List<Integer> originalYPositions, float smoothOffset, float targetOffset) {
             this.widgets = new ArrayList<>(widgets);
             this.originalYPositions = new ArrayList<>(originalYPositions);
             this.smoothOffset = smoothOffset;
             this.targetOffset = targetOffset;
         }
-
-        public List<AnimatedWidget> getWidgets() { return widgets; }
-        public List<Integer> getOriginalYPositions() { return originalYPositions; }
-        public float getSmoothOffset() { return smoothOffset; }
-        public float getTargetOffset() { return targetOffset; }
     }
 
     public class TabsManager {
@@ -651,12 +642,10 @@ public class ReScreen extends Screen {
                 int panelY = yPos;
                 int panelWidth = (int) animatedWidth;
                 int panelHeight = this.panelHeight;
-
                 if (Math.abs(mouseX - (panelX - 1)) < 5 && mouseY >= panelY && mouseY <= panelY + panelHeight && button == 0) {
                     isResizing = true;
                     return true;
                 }
-
                 if (mouseX >= panelX && mouseX <= panelX + panelWidth && mouseY >= panelY && mouseY <= panelY + panelHeight) {
                     return innerContainer.mouseClicked(mouseX, mouseY, button);
                 }
@@ -693,7 +682,6 @@ public class ReScreen extends Screen {
                 int panelY = yPos;
                 int panelWidth = (int) animatedWidth;
                 int panelHeight = this.panelHeight;
-
                 if (mouseX >= panelX && mouseX <= panelX + panelWidth && mouseY >= panelY && mouseY <= panelY + panelHeight) {
                     return innerContainer.mouseScrolled(mouseX, mouseY, verticalAmount);
                 }
@@ -812,10 +800,10 @@ public class ReScreen extends Screen {
 
         public void restoreState(ContainerState state) {
             clearWidgets();
-            widgets.addAll(state.getWidgets());
-            originalYPositions.addAll(state.getOriginalYPositions());
-            smoothOffset = state.getSmoothOffset();
-            targetOffset = state.getTargetOffset();
+            widgets.addAll(state.widgets());
+            originalYPositions.addAll(state.originalYPositions());
+            smoothOffset = state.smoothOffset();
+            targetOffset = state.targetOffset();
             if (this == activeContainer || sidePanelContainer) {
                 for (AnimatedWidget widget : widgets) {
                     addDrawableChild(widget);
@@ -991,9 +979,7 @@ public class ReScreen extends Screen {
             if (!sidePanelContainer && this != activeContainer) return;
             smoothOffset += (targetOffset - smoothOffset) * globalScrollSpeed * deltaTime;
             int effectiveWidth = getEffectiveWidth();
-            context.fill(x, y, x + effectiveWidth, cHeight, innerBackgroundColor);
-            drawInnerBorder(context, x, y, effectiveWidth, cHeight - y, innerBorderColor);
-            drawOuterBorder(context, x, y, effectiveWidth, cHeight - y, innerBackgroundColor);
+            drawBackground(context, effectiveWidth);
             int totalHeight = calculateTotalHeight();
             int visibleHeight = cHeight - y - 2 * padding;
             canScroll = totalHeight > visibleHeight;
@@ -1042,8 +1028,13 @@ public class ReScreen extends Screen {
             return false;
         }
 
-        public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX,
-                                    double deltaY) {
+        public void drawBackground(DrawContext context, int effectiveWidth) {
+            context.fill(x, y, x + effectiveWidth, cHeight, innerBackgroundColor);
+            drawInnerBorder(context, x, y, effectiveWidth, cHeight - y, innerBorderColor);
+            drawOuterBorder(context, x, y, effectiveWidth, cHeight - y, innerBackgroundColor);
+        }
+
+        public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
             if (!sidePanelContainer && this != activeContainer) return false;
             if (canScroll) {
                 int totalHeight = calculateTotalHeight();
@@ -1106,7 +1097,9 @@ public class ReScreen extends Screen {
         private Position position = Position.TOP;
         private int headerSize = 30;
         private boolean visible = true;
-
+        private TextInputWidget searchBox;
+        private SearchMode currentSearchMode;
+        private boolean liveUpdate = false;
         public enum Position {
             TOP, BOTTOM, LEFT, RIGHT
         }
@@ -1151,6 +1144,44 @@ public class ReScreen extends Screen {
             rightButtons.add(button);
             return this;
         }
+        public HeaderBuilder setSearchMode(SearchMode mode, boolean liveUpdate) {
+            currentSearchMode = mode;
+            this.liveUpdate = liveUpdate;
+            if (mode != null) {
+                if (searchBox == null) {
+                    searchBox = new SearchTextInputWidget(0, 0, 200, 18);
+                    ((SearchTextInputWidget) searchBox).onEnter = text -> {
+                        if (currentSearchMode != null && currentSearchMode.getOnSearchEnter() != null) {
+                            currentSearchMode.getOnSearchEnter().accept(text);
+                        }
+                        if (currentSearchMode != null && currentSearchMode.isSortMode() && container() != null) {
+                            container().widgets.sort((w1, w2) -> {
+                                String t1 = w1.getMessage().getString();
+                                String t2 = w2.getMessage().getString();
+                                boolean m1 = searchUtils.isFuzzyMatch(t1, text);
+                                boolean m2 = searchUtils.isFuzzyMatch(t2, text);
+                                if (m1 && !m2) return -1;
+                                if (!m1 && m2) return 1;
+                                return 0;
+                            });
+                            container().updateWidgetPositions();
+                        }
+                    };
+                    ((SearchTextInputWidget) searchBox).onTextChange = text -> {
+                        if (currentSearchMode != null && currentSearchMode.getOnTextChange() != null) {
+                            currentSearchMode.getOnTextChange().accept(text);
+                        }
+                    };
+                }
+            } else {
+                if (searchBox != null) {
+                    ReScreen.this.remove(searchBox);
+                    searchBox = null;
+                }
+            }
+            updateButtonPositions();
+            return headerBuilder;
+        }
         public void build() {
             clearHeaderWidgets();
             if (!visible) return;
@@ -1160,6 +1191,10 @@ public class ReScreen extends Screen {
             }
             for (SquareButtonWidget button : rightButtons) {
                 addDrawableChild(button);
+            }
+            if (searchBox != null) {
+                ReScreen.this.remove(searchBox);
+                ReScreen.this.addDrawableChild(searchBox);
             }
         }
         private void clearHeaderWidgets() {
@@ -1182,6 +1217,14 @@ public class ReScreen extends Screen {
             }
             for (SquareButtonWidget button : rightButtons) {
                 button.resetEntranceAnimation();
+            }
+            if (searchBox != null) {
+                switch (position) {
+                    case TOP -> searchBox.setPosition((width - 200) / 2, (headerSize - searchBox.getHeight()) / 2);
+                    case BOTTOM -> searchBox.setPosition((width - 200) / 2, height - headerSize + (headerSize - searchBox.getHeight()) / 2);
+                    case LEFT -> searchBox.setPosition((headerSize - 200) / 2, (height - searchBox.getHeight()) / 2);
+                    case RIGHT -> searchBox.setPosition(width - headerSize + (headerSize - 200) / 2, (height - searchBox.getHeight()) / 2);
+                }
             }
         }
         private void updateTopPositions() {
@@ -1264,6 +1307,56 @@ public class ReScreen extends Screen {
             context.fill(x, 0, width, height, innerBackgroundColor);
             drawInnerBorder(context, x, 0, headerSize, height, innerBorderColor);
             drawOuterBorder(context, x, 0, headerSize, height, innerBackgroundColor);
+        }
+    }
+
+    public class SearchTextInputWidget extends TextInputWidget {
+        public Consumer<String> onEnter;
+        public Consumer<String> onTextChange;
+        public SearchTextInputWidget(int x, int y, int width, int height) {
+            super(x, y, width, height);
+        }
+        @Override
+        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            if (keyCode == GLFW.GLFW_KEY_ENTER && onEnter != null) {
+                onEnter.accept(getText());
+            }
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
+        @Override
+        public boolean charTyped(char chr, int modifiers) {
+            boolean result = super.charTyped(chr, modifiers);
+            if (onTextChange != null) {
+                onTextChange.accept(getText());
+                if (header().liveUpdate) {
+                    onEnter.accept(getText());
+                }
+            }
+            return result;
+        }
+    }
+
+    public static class SearchMode {
+        private boolean sortMode;
+        private Consumer<String> onSearchEnter;
+        private Consumer<String> onTextChange;
+        public SearchMode(boolean sortMode) {
+            this.sortMode = sortMode;
+        }
+        public boolean isSortMode() {
+            return sortMode;
+        }
+        public void setOnSearchEnter(Consumer<String> onSearchEnter) {
+            this.onSearchEnter = onSearchEnter;
+        }
+        public Consumer<String> getOnSearchEnter() {
+            return onSearchEnter;
+        }
+        public void setOnTextChange(Consumer<String> onTextChange) {
+            this.onTextChange = onTextChange;
+        }
+        public Consumer<String> getOnTextChange() {
+            return onTextChange;
         }
     }
 

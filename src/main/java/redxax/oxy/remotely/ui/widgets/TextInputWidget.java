@@ -16,8 +16,8 @@ import java.awt.datatransfer.StringSelection;
 import static redxax.oxy.remotely.config.Config.*;
 
 public class TextInputWidget extends AnimatedWidget {
-    private String textValue = "Type...";
-    private String placeholder = "";
+    private String textValue = "";
+    private String placeholder = "Type...";
     private int cursorPos = 0;
     private int selectionStart = 0;
     private int selectionEnd = 0;
