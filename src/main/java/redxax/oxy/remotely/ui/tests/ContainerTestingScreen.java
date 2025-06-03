@@ -3,6 +3,7 @@ package redxax.oxy.remotely.ui.tests;
 import net.minecraft.text.Text;
 import redxax.oxy.remotely.ui.ReScreen;
 import redxax.oxy.remotely.ui.widgets.*;
+import redxax.oxy.remotely.util.searchUtils;
 
 import java.util.List;
 import java.util.Random;
@@ -68,9 +69,12 @@ public class ContainerTestingScreen extends ReScreen {
         tabsManager.builder().allowReorder(true).allowAdd(true).position(5, 36).size(width - 5, 18).onPlusButtonClicked(() -> tabs().addTab("Tab " + tabsManager.getTabs().size(), createContainer(5, 60, width - 10, height - 5)
                         .addWidget(new AnimatedButton(0, 0, 100, 20, Text.of("Berger " + tabsManager.getTabs().size()))))).build();
         tabsManager.setActiveTab(restrictedContainer);
+
+        SearchMode searchMode = new SearchMode(true);
         headerBuilder.addRight("/assets/remotely/icons/close.png", () -> client.setScreen(null), "Close Screen")
                 .addRight("/assets/remotely/icons/unmerge.png", sidePanel::toggle, "Toggle Side Panel")
                 .addLeft("/assets/remotely/icons/remotely.png", () -> client.setScreen(new ContainerTestingScreen()), "Reload Screen")
+                .setSearchMode(searchMode, true)
                 .build();
     }
 }
