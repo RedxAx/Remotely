@@ -36,7 +36,9 @@ public class AnimatedButton extends AnimatedWidget {
             tx = getX() + 3;
         }
         int ty = (getY() + (getHeight() - tr.fontHeight) / 2) + 1;
+        ctx.enableScissor(getX() + 1, getY() + 1, getX() + getWidth() - 1, getY() + getHeight() - 1);
         ctx.drawText(tr, label, tx, ty, textColor, true);
+        ctx.disableScissor();
     }
 
     @Override
