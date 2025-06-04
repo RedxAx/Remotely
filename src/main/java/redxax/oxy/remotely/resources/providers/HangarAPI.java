@@ -1,8 +1,9 @@
-package redxax.oxy.remotely.api;
+package redxax.oxy.remotely.resources.providers;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import redxax.oxy.remotely.resources.IRemotelyResource;
 import redxax.oxy.remotely.util.DevUtil;
 
 import java.net.URI;
@@ -22,8 +23,8 @@ public class HangarAPI {
             .build();
     private static final String USER_AGENT = "Remotely";
 
-    public static CompletableFuture<List<HangarResource>> searchPlugins(String query, int limit, int offset, String sortParam) {
-        List<HangarResource> results = new ArrayList<>();
+    public static CompletableFuture<List<IRemotelyResource>> searchPlugins(String query, int limit, int offset, String sortParam) {
+        List<IRemotelyResource> results = new ArrayList<>();
         try {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
             URI uri = new URI(HANGAR_API_URL + "/projects?" + (encodedQuery.isEmpty() ? "" : ("query=" + encodedQuery)) + "&limit=" + limit + "&offset=" + offset + "&platform=PAPER&sort=" + "-" + sortParam);
@@ -52,7 +53,7 @@ public class HangarAPI {
                         return results;
                     });
         } catch (Exception e) {
-            CompletableFuture<List<HangarResource>> failedFuture = new CompletableFuture<>();
+            CompletableFuture<List<IRemotelyResource>> failedFuture = new CompletableFuture<>();
             failedFuture.completeExceptionally(e);
             return failedFuture;
         }

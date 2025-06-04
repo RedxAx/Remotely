@@ -6,7 +6,7 @@ import redxax.oxy.remotely.ModPlatform;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
-import redxax.oxy.remotely.servers.SettingsScreen;
+import redxax.oxy.remotely.config.SettingsScreen;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 

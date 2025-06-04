@@ -7,7 +7,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-import redxax.oxy.remotely.MouseCursor;
+import redxax.oxy.remotely.ui.MouseCursor;
 import redxax.oxy.remotely.ui.LoadingAnimation;
 import redxax.oxy.remotely.ui.widgets.ScrollSelectorWidget;
 import redxax.oxy.remotely.util.Notification;

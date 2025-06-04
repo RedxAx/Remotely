@@ -3,7 +3,7 @@ package redxax.oxy.remotely.platforms.fabric;
 
 import com.terraformersmc.modmenu.api.ConfigScreenFactory;
 import com.terraformersmc.modmenu.api.ModMenuApi;
-import redxax.oxy.remotely.servers.SettingsScreen;
+import redxax.oxy.remotely.config.SettingsScreen;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 

@@ -20,9 +20,7 @@ import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.mixin.accessor.ImageWidgetTextureAccessor;
 import redxax.oxy.remotely.mixin.accessor.SliderWidgetAccessor;
 
-import java.awt.image.BufferedImage;
-
-import static redxax.oxy.remotely.Render.drawSlider;
+import static redxax.oxy.remotely.Render.*;
 
 @Mixin(ClickableWidget.class)
 public abstract class ClickableWidgetMixin {

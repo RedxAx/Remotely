@@ -1,30 +1,30 @@
-package redxax.oxy.remotely.api;
+package redxax.oxy.remotely.resources.providers;
 
-public class HangarResource implements IRemotelyResource {
-    private final String id;
+import redxax.oxy.remotely.resources.IRemotelyResource;
+
+public class SpigetResource implements IRemotelyResource {
     private final String name;
-    private final String description;
-    private final String owner;
-    private final String visibility;
-    private final int stars;
-    private final int watchers;
+    private final String tag;
+    private final String iconUrl;
     private final int downloads;
-    private final String avatarUrl;
+    private final int id;
+    private final double averageRating;
+    private final boolean external;
+    private final String fileUrl;
     private final String author;
     private final String mcVersions;
     private final String platforms;
 
-    public HangarResource(String id, String name, String description, String owner, String visibility, int stars, int watchers, int downloads, String avatarUrl, String mcVersions, String platforms) {
-        this.id = id;
+    public SpigetResource(String name, String tag, String iconUrl, int downloads, int id, double averageRating, boolean external, String fileUrl, String author, String mcVersions, String platforms) {
         this.name = name;
-        this.description = description;
-        this.owner = owner;
-        this.visibility = visibility;
-        this.stars = stars;
-        this.watchers = watchers;
+        this.tag = tag;
+        this.iconUrl = iconUrl;
         this.downloads = downloads;
-        this.avatarUrl = avatarUrl;
-        this.author = owner;
+        this.id = id;
+        this.averageRating = averageRating;
+        this.external = external;
+        this.fileUrl = fileUrl;
+        this.author = author;
         this.mcVersions = mcVersions;
         this.platforms = platforms;
     }
@@ -36,12 +36,12 @@ public class HangarResource implements IRemotelyResource {
 
     @Override
     public String getVersion() {
-        return watchers + " Followers";
+        return tag != null && !tag.isBlank() ? tag : "Unknown";
     }
 
     @Override
     public String getDescription() {
-        return description;
+        return tag != null && !tag.isBlank() ? tag : "Unknown";
     }
 
     @Override
@@ -51,7 +51,12 @@ public class HangarResource implements IRemotelyResource {
 
     @Override
     public String getIconUrl() {
-        return avatarUrl;
+        return iconUrl;
+    }
+
+    @Override
+    public String getBannerUrl() {
+        return "";
     }
 
     @Override
@@ -61,17 +66,17 @@ public class HangarResource implements IRemotelyResource {
 
     @Override
     public int getFollowers() {
-        return stars;
+        return 0;
     }
 
     @Override
     public String getSlug() {
-        return "hangar_" + name.toLowerCase().replace(" ", "_");
+        return "spigot_" + id;
     }
 
     @Override
     public String getProjectId() {
-        return id;
+        return String.valueOf(id);
     }
 
     @Override
@@ -80,13 +85,13 @@ public class HangarResource implements IRemotelyResource {
     }
 
     @Override
-    public String getAverageRating() {
-        return "";
+    public double getAverageRating() {
+        return averageRating;
     }
 
     @Override
     public String getAuthor() {
-        return owner;
+        return author;
     }
 
     @Override

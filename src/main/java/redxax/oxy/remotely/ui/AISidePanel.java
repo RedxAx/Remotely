@@ -3,7 +3,7 @@ package redxax.oxy.remotely.ui;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import redxax.oxy.remotely.renderer.MarkdownRenderer;
+import redxax.oxy.remotely.render.MarkdownRenderer;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.Render;
 import redxax.oxy.remotely.config.Config;
@@ -24,7 +24,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.text.Text;
 import redxax.oxy.remotely.util.Sound;
 
-import static redxax.oxy.remotely.Render.drawInnerBorder;
+import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.ImageUtil.drawPixelArt;

@@ -66,7 +66,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
     protected int bgColor = elementBackgroundColor;
     protected int borderColor = elementBorderColor;
     protected int textColor = globalTextColor;
-    protected String hint = "";
+    public String hint = "";
     protected float hintDelay = 1.5f;
     protected boolean hintVisible = false;
     protected float hintHoverTime = 0f;

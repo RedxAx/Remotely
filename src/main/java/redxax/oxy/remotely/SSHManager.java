@@ -1,7 +1,7 @@
 package redxax.oxy.remotely;
 
 import com.jcraft.jsch.*;
-import redxax.oxy.remotely.api.IRemotelyResource;
+import redxax.oxy.remotely.resources.IRemotelyResource;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerProcessManager;

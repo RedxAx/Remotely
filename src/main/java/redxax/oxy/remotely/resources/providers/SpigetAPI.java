@@ -1,8 +1,9 @@
-package redxax.oxy.remotely.api;
+package redxax.oxy.remotely.resources.providers;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import redxax.oxy.remotely.resources.IRemotelyResource;
 import redxax.oxy.remotely.util.DevUtil;
 
 import java.net.URI;
@@ -20,8 +21,8 @@ public class SpigetAPI {
     private static final HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_2).build();
     private static final String USER_AGENT = "Remotely";
 
-    public static CompletableFuture<List<SpigetResource>> searchPlugins(String query, int limit, int page, String sortParam) {
-        List<SpigetResource> results = new ArrayList<>();
+    public static CompletableFuture<List<IRemotelyResource>> searchPlugins(String query, int limit, int page, String sortParam) {
+        List<IRemotelyResource> results = new ArrayList<>();
         try {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
             URI uri;
@@ -55,7 +56,7 @@ public class SpigetAPI {
                         return results;
                     });
         } catch (Exception e) {
-            CompletableFuture<List<SpigetResource>> failedFuture = new CompletableFuture<>();
+            CompletableFuture<List<IRemotelyResource>> failedFuture = new CompletableFuture<>();
             failedFuture.completeExceptionally(e);
             return failedFuture;
         }

@@ -1,20 +1,19 @@
-package redxax.oxy.remotely.servers;
+package redxax.oxy.remotely.resources;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import redxax.oxy.remotely.renderer.MarkdownRenderer;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.Render;
-import redxax.oxy.remotely.Render.ScrollBar;
-import redxax.oxy.remotely.api.IRemotelyResource;
+import redxax.oxy.remotely.Render.*;
 import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
+import redxax.oxy.remotely.render.MarkdownRenderer;
 
 import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.servers.PluginModManagerScreen.formatDownloads;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
@@ -35,7 +34,7 @@ import redxax.oxy.remotely.util.Sound;
 
 public class ResourcePageScreen extends Screen {
     private final MinecraftClient minecraftClient;
-    private final PluginModManagerScreen parentScreen;
+    private final ResourceManagerScreen parentScreen;
     private final IRemotelyResource resource;
     private float descScrollOffset = 0;
     private float descTargetScrollOffset = 0;
@@ -50,7 +49,7 @@ public class ResourcePageScreen extends Screen {
     private IconWithTooltip closeIcon, siteIcon, downloadIcon;
     private MarkdownRenderer markdownRenderer;
 
-    public ResourcePageScreen(MinecraftClient mc, PluginModManagerScreen parent, IRemotelyResource resource, ServerInfo serverInfo) {
+    public ResourcePageScreen(MinecraftClient mc, ResourceManagerScreen parent, IRemotelyResource resource, ServerInfo serverInfo) {
         super(Text.literal(resource.getName()));
         this.minecraftClient = mc;
         this.parentScreen = parent;
@@ -430,7 +429,6 @@ public class ResourcePageScreen extends Screen {
         loading = markdownRenderer == null;
         if (getCurrentTabType() == TabType.DESCRIPTION) {
             if (loading || markdownRenderer == null) {
-                // Display loading message when content isn't ready
                 String loadingText = "Loading content...";
                 int textWidth = minecraftClient.textRenderer.getWidth(loadingText);
                 context.drawText(
@@ -501,6 +499,18 @@ public class ResourcePageScreen extends Screen {
             }
         }
         animatedScaling(this);
+    }
+
+    private String formatDownloads(int downloads) {
+        if (downloads < 1000) {
+            return String.valueOf(downloads);
+        } else if (downloads < 1_000_000) {
+            return String.format("%.1fK", downloads / 1000.0);
+        } else if (downloads < 1_000_000_000) {
+            return String.format("%.1fM", downloads / 1_000_000.0);
+        } else {
+            return String.format("%.1fB", downloads / 1_000_000_000.0);
+        }
     }
 
     private String getRelativeTime(String dateStr) {

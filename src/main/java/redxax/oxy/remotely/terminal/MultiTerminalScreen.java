@@ -8,6 +8,7 @@ import redxax.oxy.remotely.Render.TabsBar;
 import redxax.oxy.remotely.explorer.DeskSelectionScreen;
 import redxax.oxy.remotely.explorer.FileEditorScreen;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
+import redxax.oxy.remotely.resources.ResourceManagerScreen;
 import redxax.oxy.remotely.servers.*;
 import redxax.oxy.remotely.ui.AISidePanel;
 import redxax.oxy.remotely.ui.widgets.ContextMenuWidget;
@@ -148,7 +149,7 @@ public class MultiTerminalScreen extends Screen {
         this.terminals = terminals;
         this.tabNames = tabNames;
         this.parent = parent;
-        if (!(parent instanceof FileExplorerScreen || parent instanceof PluginModManagerScreen || parent instanceof ServerManagerScreen || parent instanceof FileEditorScreen || parent instanceof DeskSelectionScreen || parent instanceof BrowserScreen || parent instanceof MultiTerminalScreen)) {
+        if (!(parent instanceof FileExplorerScreen || parent instanceof ResourceManagerScreen || parent instanceof ServerManagerScreen || parent instanceof FileEditorScreen || parent instanceof DeskSelectionScreen || parent instanceof BrowserScreen || parent instanceof MultiTerminalScreen)) {
             mcScreen = parent;
         }
         if (terminals.isEmpty()) {
@@ -825,7 +826,7 @@ public class MultiTerminalScreen extends Screen {
                         return true;
                     }
                     if (mouseX >= 28 && mouseX <= 45 && mouseY >= 6 && mouseY <= 24) {
-                        minecraftClient.setScreen(new PluginModManagerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
+                        minecraftClient.setScreen(new ResourceManagerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
                         return true;
                     }
                     if (mouseX >= 51 && mouseX <= 68 && mouseY >= 6 && mouseY <= 24 && !serverTerminal.serverInfo.isRemote) {

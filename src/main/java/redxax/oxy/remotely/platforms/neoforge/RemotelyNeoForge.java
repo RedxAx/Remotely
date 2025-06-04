@@ -11,7 +11,7 @@ import net.neoforged.fml.common.Mod;
 /^import net.neoforged.neoforge.client.ConfigScreenHandler;
 ^///?} else {
 import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
-import redxax.oxy.remotely.servers.SettingsScreen;
+import redxax.oxy.remotely.config.SettingsScreen;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 

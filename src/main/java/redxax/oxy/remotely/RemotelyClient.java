@@ -6,7 +6,7 @@ import net.minecraft.client.gui.screen.Screen;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.servers.SettingsScreen;
+import redxax.oxy.remotely.config.SettingsScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import redxax.oxy.remotely.terminal.TerminalInstance;
 

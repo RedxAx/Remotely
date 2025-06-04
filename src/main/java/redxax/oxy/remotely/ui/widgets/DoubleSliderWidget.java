@@ -9,7 +9,7 @@ import net.minecraft.util.math.MathHelper;
 import java.util.HashMap;
 import java.util.Map;
 
-import static redxax.oxy.remotely.Render.drawInnerBorder;
+import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
 
 public class DoubleSliderWidget extends AnimatedWidget {

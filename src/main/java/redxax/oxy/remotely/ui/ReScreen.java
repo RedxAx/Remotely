@@ -7,9 +7,12 @@ import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.remotely.mixin.accessor.ClickableWidgetAccessor;
-import redxax.oxy.remotely.ui.widgets.*;
 import redxax.oxy.remotely.Render.ScrollBar;
+import redxax.oxy.remotely.mixin.accessor.ClickableWidgetAccessor;
+import redxax.oxy.remotely.ui.widgets.AnimatedButton;
+import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
+import redxax.oxy.remotely.ui.widgets.SquareButtonWidget;
+import redxax.oxy.remotely.ui.widgets.TextInputWidget;
 import redxax.oxy.remotely.util.searchUtils;
 
 import java.awt.image.BufferedImage;
@@ -29,6 +32,7 @@ public class ReScreen extends Screen {
     protected Map<String, SidePanel> sidePanels;
     protected List<SidePanel> sidePanelList;
     protected TabsManager tabsManager;
+    public boolean hitBottom;
 
     protected ReScreen(Text title) {
         super(title);
@@ -983,6 +987,7 @@ public class ReScreen extends Screen {
             int totalHeight = calculateTotalHeight();
             int visibleHeight = cHeight - y - 2 * padding;
             canScroll = totalHeight > visibleHeight;
+            hitBottom = smoothOffset > Math.max(0, totalHeight - visibleHeight) - 2;
             for (int i = 0; i < widgets.size(); i++) {
                 AnimatedWidget w = widgets.get(i);
                 int newY = originalYPositions.get(i) - (int) smoothOffset;
@@ -1092,7 +1097,7 @@ public class ReScreen extends Screen {
     }
 
     public class HeaderBuilder {
-        private final List<SquareButtonWidget> leftButtons = new ArrayList<>();
+        public final List<SquareButtonWidget> leftButtons = new ArrayList<>();
         private final List<SquareButtonWidget> rightButtons = new ArrayList<>();
         private Position position = Position.TOP;
         private int headerSize = 30;
@@ -1125,22 +1130,22 @@ public class ReScreen extends Screen {
             return this;
         }
         public HeaderBuilder addLeft(BufferedImage image, Runnable action, String hint) {
-            SquareButtonWidget button = new SquareButtonWidget.Builder().image(image).hint(hint).onClick(action).entranceCorner(CENTER).entranceAnimationStrength(.6f).build();
+            SquareButtonWidget button = new SquareButtonWidget.Builder().image(image).hint(hint).onClick(action).entranceCorner(CENTER).entranceAnimationStrength(.6f).hintDelay(.4f).hintDelay(.4f).build();
             leftButtons.add(button);
             return this;
         }
         public HeaderBuilder addLeft(String imagePath, Runnable action, String hint) {
-            SquareButtonWidget button = new SquareButtonWidget.Builder().imagePath(imagePath).hint(hint).onClick(action).entranceCorner(CENTER).entranceAnimationStrength(.6f).build();
+            SquareButtonWidget button = new SquareButtonWidget.Builder().imagePath(imagePath).hint(hint).onClick(action).entranceCorner(CENTER).entranceAnimationStrength(.6f).hintDelay(.4f).build();
             leftButtons.add(button);
             return this;
         }
         public HeaderBuilder addRight(BufferedImage image, Runnable action, String hint) {
-            SquareButtonWidget button = new SquareButtonWidget.Builder().image(image).hint(hint).onClick(action).entranceCorner(CENTER).entranceAnimationStrength(.6f).build();
+            SquareButtonWidget button = new SquareButtonWidget.Builder().image(image).hint(hint).onClick(action).entranceCorner(CENTER).entranceAnimationStrength(.6f).hintDelay(.4f).build();
             rightButtons.add(button);
             return this;
         }
         public HeaderBuilder addRight(String imagePath, Runnable action, String hint) {
-            SquareButtonWidget button = new SquareButtonWidget.Builder().imagePath(imagePath).hint(hint).onClick(action).entranceCorner(CENTER).entranceAnimationStrength(.6f).build();
+            SquareButtonWidget button = new SquareButtonWidget.Builder().imagePath(imagePath).hint(hint).onClick(action).entranceCorner(CENTER).entranceAnimationStrength(.6f).hintDelay(.4f).build();
             rightButtons.add(button);
             return this;
         }

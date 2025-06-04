@@ -1,4 +1,4 @@
-package redxax.oxy.remotely;
+package redxax.oxy.remotely.ui;
 
 public class NormalButton {
     public int x;

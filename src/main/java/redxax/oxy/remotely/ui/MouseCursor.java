@@ -1,10 +1,11 @@
-package redxax.oxy.remotely;
+package redxax.oxy.remotely.ui;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.Element;
 import net.minecraft.util.math.RotationAxis;
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.remotely.Render;
 import redxax.oxy.remotely.config.Config;
 import static redxax.oxy.remotely.config.Config.*;
 
