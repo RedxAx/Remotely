@@ -23,9 +23,9 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import redxax.oxy.remotely.util.Sound;
 
+import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.util.ImageUtil.*;
-import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
 public class DeskSelectionScreen extends Screen {

@@ -1,13 +1,17 @@
-package redxax.oxy.remotely.servers;
+package redxax.oxy.remotely.config;
 
 import net.minecraft.client.gui.screen.Screen;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.SSHManager;
-import redxax.oxy.remotely.config.Themes;
+import redxax.oxy.remotely.servers.RemoteHostInfo;
+import redxax.oxy.remotely.servers.ServerFactory;
+import redxax.oxy.remotely.servers.ServerInfo;
+import redxax.oxy.remotely.servers.ServerManagerScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import redxax.oxy.remotely.util.ImageUtil;
 import redxax.oxy.remotely.util.Notification;
 import redxax.oxy.remotely.util.Notification.*;
+import redxax.oxy.remotely.Render.*;
 
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
@@ -32,7 +36,7 @@ import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.config.Themes.importThemesFromJar;
 import static redxax.oxy.remotely.servers.ServerFactory.notification;
-import static redxax.oxy.remotely.servers.SettingsScreen.ServerSettingType.*;
+import static redxax.oxy.remotely.config.SettingsScreen.ServerSettingType.*;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.Sound.enableSFX;
 import static redxax.oxy.remotely.util.Sound.soundVolume;

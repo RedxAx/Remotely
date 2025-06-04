@@ -1,4 +1,4 @@
-package redxax.oxy.remotely.renderer;
+package redxax.oxy.remotely.render;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
@@ -21,8 +21,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.imageio.ImageIO;
 
-import static redxax.oxy.remotely.Render.drawInnerBorder;
-import static redxax.oxy.remotely.Render.drawOuterBorder;
+import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
 
 public class MarkdownRenderer {

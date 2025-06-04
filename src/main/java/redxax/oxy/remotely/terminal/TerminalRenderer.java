@@ -3,7 +3,6 @@ package redxax.oxy.remotely.terminal;
 import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStyle;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.remotely.Render.ScrollBar;
 import redxax.oxy.remotely.servers.ServerInfo;
 
 import java.lang.reflect.Field;

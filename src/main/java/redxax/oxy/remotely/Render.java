@@ -3,11 +3,10 @@ package redxax.oxy.remotely;
 import net.minecraft.client.util.Window;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.config.Config;
-import redxax.oxy.remotely.servers.SettingsScreen;
+import redxax.oxy.remotely.config.SettingsScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.explorer.FileEditorScreen;
-import redxax.oxy.remotely.servers.PluginModManagerScreen;
 import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
 import redxax.oxy.remotely.util.Sound;
 import redxax.oxy.remotely.util.TextAnimator;
@@ -329,8 +328,6 @@ public class Render {
                 name = ((FileExplorerScreen.Tab) tab).getAnimatedText();
             } else if (tab instanceof FileEditorScreen.Tab t) {
                 name = t.unsaved ? t.name + "*" : t.name;
-            } else if (tab instanceof PluginModManagerScreen.Tab) {
-                name = ((PluginModManagerScreen.Tab) tab).name;
             } else if (tab instanceof MultiTerminalScreen.TabInfo) {
                 name = ((MultiTerminalScreen.TabInfo) tab).name;
             } else if (tab instanceof MultiTerminalScreen.Theme) {
@@ -653,12 +650,10 @@ public class Render {
         drawOuterBorder(context, 0, 0, parent.width, 30, innerBackgroundColor);
         if (!(parent instanceof MultiTerminalScreen)) {
             if (!(parent instanceof FileExplorerScreen && !(((FileExplorerScreen) parent).isCanScroll()))) {
-                if (!(parent instanceof PluginModManagerScreen && !((PluginModManagerScreen) parent).isCanScroll())) {
-                    if (!(parent instanceof SettingsScreen)) {
-                        context.fill(5, 60, backgroundWidth, height - 5, innerBackgroundColor);
-                        drawInnerBorder(context, 5, 60, backgroundWidth - 5, height - 65, innerBorderColor);
-                        drawOuterBorder(context, 5, 60, backgroundWidth - 5, height - 65, innerBackgroundColor);
-                    }
+                if (!(parent instanceof SettingsScreen)) {
+                    context.fill(5, 60, backgroundWidth, height - 5, innerBackgroundColor);
+                    drawInnerBorder(context, 5, 60, backgroundWidth - 5, height - 65, innerBorderColor);
+                    drawOuterBorder(context, 5, 60, backgroundWidth - 5, height - 65, innerBackgroundColor);
                 }
             }
         }

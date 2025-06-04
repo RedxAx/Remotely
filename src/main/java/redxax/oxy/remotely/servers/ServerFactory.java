@@ -83,7 +83,7 @@ public class ServerFactory {
         }
     }
 
-    static String getDownloadURL(String serverType, String serverVersion) {
+    public static String getDownloadURL(String serverType, String serverVersion) {
         try {
             String apiEndpoint = "https://mcjars.app/api/v1/builds/" + serverType.toUpperCase() + "/" + serverVersion + "/latest";
             String jsonResponse = simpleHttpGet(apiEndpoint);

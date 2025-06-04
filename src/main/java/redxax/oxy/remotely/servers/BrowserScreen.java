@@ -4,8 +4,6 @@ import com.cinemamod.mcef.MCEFBrowser;
 import com.cinemamod.mcef.MCEF;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.Render.ContextMenu;
-import redxax.oxy.remotely.Render.TabsBar;
 import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
 import redxax.oxy.remotely.util.Notification;
 import redxax.oxy.remotely.util.Sound;

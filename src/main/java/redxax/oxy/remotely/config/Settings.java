@@ -1,10 +1,10 @@
-package redxax.oxy.remotely.servers;
+package redxax.oxy.remotely.config;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
-import redxax.oxy.remotely.servers.SettingsScreen.ServerSettingType;
+import redxax.oxy.remotely.config.SettingsScreen.ServerSettingType;
 
 public class Settings {
     public String name;

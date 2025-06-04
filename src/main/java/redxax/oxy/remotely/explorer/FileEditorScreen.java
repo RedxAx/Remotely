@@ -2,8 +2,7 @@ package redxax.oxy.remotely.explorer;
 
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.Render.ScrollBar;
-import redxax.oxy.remotely.Render.TabsBar;
+import redxax.oxy.remotely.Render.*;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.explorer.FileExplorerScreen.EntryData;
@@ -26,6 +25,7 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 
 import static redxax.oxy.remotely.Render.*;
+import static redxax.oxy.remotely.Render.drawOuterBorder;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.explorer.FileExplorerScreen.*;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;

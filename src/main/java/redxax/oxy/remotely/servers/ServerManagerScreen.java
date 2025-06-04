@@ -4,15 +4,18 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.client.gui.screen.Screen;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.Render.ContextMenu;
+import redxax.oxy.remotely.Render.*;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.config.SettingsScreen;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
+import redxax.oxy.remotely.resources.ResourceManagerScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import redxax.oxy.remotely.terminal.ServerTerminalInstance;
 import redxax.oxy.remotely.terminal.TerminalInstance;
 import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
 
+import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.servers.BrowserScreen.checkIfMcefExist;
 
 import javax.imageio.ImageIO;
@@ -38,10 +41,9 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.util.Notification;
 import redxax.oxy.remotely.util.Sound;
 
-import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.servers.SettingsScreen.defineSettings;
-import static redxax.oxy.remotely.servers.SettingsScreen.settings;
+import static redxax.oxy.remotely.config.SettingsScreen.defineSettings;
+import static redxax.oxy.remotely.config.SettingsScreen.settings;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.ImageUtil.*;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;
@@ -1133,7 +1135,7 @@ public class ServerManagerScreen extends Screen {
                 serverInfo.remoteHost = null;
                 serverInfo.path = remotelyDir + "/servers/" + serverInfo.name;
             }
-            PluginModManagerScreen modManagerScreen = new PluginModManagerScreen(minecraftClient, this, serverInfo);
+            ResourceManagerScreen modManagerScreen = new ResourceManagerScreen(minecraftClient, this, serverInfo);
             minecraftClient.setScreen(modManagerScreen);
         } catch (Exception e) {
             e.printStackTrace();
@@ -1233,7 +1235,7 @@ public class ServerManagerScreen extends Screen {
         }
     }
 
-    static void saveRemoteHosts() {
+    public static void saveRemoteHosts() {
         try {
             Path dir = Paths.get(System.getProperty("user.dir"), "assets/remotely", "servers");
             if (!Files.exists(dir)) Files.createDirectories(dir);
@@ -1479,7 +1481,7 @@ public class ServerManagerScreen extends Screen {
         }
     }
 
-    static void saveServers() {
+    public static void saveServers() {
         try {
             Path dir = Paths.get(System.getProperty("user.dir"), "assets/remotely", "servers");
             if (!Files.exists(dir)) Files.createDirectories(dir);

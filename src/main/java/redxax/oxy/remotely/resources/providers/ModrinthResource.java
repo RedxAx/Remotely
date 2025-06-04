@@ -1,4 +1,6 @@
-package redxax.oxy.remotely.api;
+package redxax.oxy.remotely.resources.providers;
+
+import redxax.oxy.remotely.resources.IRemotelyResource;
 
 import java.util.List;
 
@@ -17,8 +19,9 @@ public class ModrinthResource implements IRemotelyResource {
     private final String author;
     private final String mcVersions;
     private final String loaderPlatforms;
+    private final String bannerUrl;
 
-    public ModrinthResource(String name, String version, String description, String fileName, String iconUrl, int downloads, int followers, String slug, List<String> dependencies, String projectId, String versionId, String author, String mcVersions, String loaderPlatforms) {
+    public ModrinthResource(String name, String version, String description, String fileName, String iconUrl, int downloads, int followers, String slug, List<String> dependencies, String projectId, String versionId, String author, String mcVersions, String loaderPlatforms, String bannerUrl) {
         this.name = name;
         this.version = version;
         this.description = description;
@@ -33,6 +36,7 @@ public class ModrinthResource implements IRemotelyResource {
         this.author = author;
         this.mcVersions = mcVersions;
         this.loaderPlatforms = loaderPlatforms;
+        this.bannerUrl = bannerUrl;
     }
 
     @Override
@@ -61,6 +65,11 @@ public class ModrinthResource implements IRemotelyResource {
     }
 
     @Override
+    public String getBannerUrl() {
+        return bannerUrl;
+    }
+
+    @Override
     public int getDownloads() {
         return downloads;
     }
@@ -86,8 +95,8 @@ public class ModrinthResource implements IRemotelyResource {
     }
 
     @Override
-    public String getAverageRating() {
-        return "";
+    public double getAverageRating() {
+        return 0.0;
     }
 
     @Override
@@ -103,5 +112,9 @@ public class ModrinthResource implements IRemotelyResource {
     @Override
     public String getLoaderPlatforms() {
         return loaderPlatforms;
+    }
+
+    public List<String> getDependencies() {
+        return dependencies;
     }
 }

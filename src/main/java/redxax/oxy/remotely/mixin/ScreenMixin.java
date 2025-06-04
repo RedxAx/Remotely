@@ -9,7 +9,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-import redxax.oxy.remotely.MouseCursor;
+import redxax.oxy.remotely.ui.MouseCursor;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.terminal.ReverseProxyManager;
 import redxax.oxy.remotely.ui.LoadingAnimation;
@@ -18,7 +18,7 @@ import redxax.oxy.remotely.ui.tests.WidgetsTestingScreen;
 import redxax.oxy.remotely.util.CursorUtils;
 import redxax.oxy.remotely.util.Notification;
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.servers.SettingsScreen.loopOfThemes;
+import static redxax.oxy.remotely.config.SettingsScreen.loopOfThemes;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;

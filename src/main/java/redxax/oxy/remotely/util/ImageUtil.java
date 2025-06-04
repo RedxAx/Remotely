@@ -45,7 +45,7 @@ public class ImageUtil {
         }
     }
 
-    public static BufferedImage loadResourceIcon(String path) throws Exception {
+    public static BufferedImage loadResourceIcon(String path) {
         InputStream tmp = ImageUtil.class.getResourceAsStream(path);
         final InputStream is = tmp != null ? tmp : ImageUtil.class.getResourceAsStream("assets/remotely/icons/missing.png");
         try (is) {
@@ -56,7 +56,11 @@ public class ImageUtil {
             g2d.dispose();
             return scaled;
         } catch (Exception e) {
-            throw new Exception("Failed to load icon: " + e.getMessage());
+            try {
+                throw new Exception("Failed to load icon: " + e.getMessage());
+            } catch (Exception ex) {
+                throw new RuntimeException(ex);
+            }
         }
     }
 

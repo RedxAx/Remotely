@@ -1,4 +1,4 @@
-package redxax.oxy.remotely.api;
+package redxax.oxy.remotely.resources;
 
 public interface IRemotelyResource {
     String getName();
@@ -6,12 +6,13 @@ public interface IRemotelyResource {
     String getDescription();
     String getFileName();
     String getIconUrl();
+    String getBannerUrl();
     int getDownloads();
     int getFollowers();
     String getSlug();
     String getProjectId();
     String getVersionId();
-    String getAverageRating();
+    double getAverageRating();
     String getAuthor();
     String getMinecraftVersions();
     String getLoaderPlatforms();
