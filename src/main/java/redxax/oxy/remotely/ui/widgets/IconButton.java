@@ -5,6 +5,7 @@ import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
 import net.minecraft.text.Text;
 
 import java.awt.image.BufferedImage;
+import java.util.ConcurrentModificationException;
 
 import static redxax.oxy.remotely.util.ImageUtil.drawPixelArt;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
@@ -71,7 +72,7 @@ public class IconButton extends AnimatedWidget {
     @Override
     public void onClick(double mouseX, double mouseY, int button) {
         if (action != null && button == 0) {
-            action.run();
+            try { action.run(); } catch (ConcurrentModificationException ignored) {} // Hell Yea
         }
     }
 }

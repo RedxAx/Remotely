@@ -244,65 +244,65 @@ public class DeskSelectionScreen extends Screen {
         animatedScaling(this);
     }
 
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 0) {
-            if (mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24) {
-                playSound(Sound.CLICK);
-                minecraftClient.setScreen(parent);
-                return true;
-            }
-            itemWidth = (this.width - (columns + 1) * spacing - 2 * spacing) / columns;
-            int headerY = 35;
-            int gridY = headerY + 10;
-            int startY = gridY + spacing;
-            for (int i = 0; i < objectItems.size(); i++) {
-                ObjectItem item = objectItems.get(i);
-                int row = i / columns;
-                int col = i % columns;
-                int drawX = spacing + col * (itemWidth + spacing) + spacing;
-                int drawY = startY + row * (itemHeight + spacing) - scrollOffset;
-                if (mouseX >= drawX && mouseX <= drawX + itemWidth && mouseY >= drawY && mouseY <= drawY + itemHeight) {
-                    playSound(Sound.CREATE);
-                    if (!item.isRemote) {
-                        if (item.isDirectory) {
-                            FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(item.localPath.toAbsolutePath().normalize(), false, null);
-                            parent.tabs.add(new FileExplorerScreen.Tab(td));
-                            parent.currentTabIndex = parent.tabs.size() - 1;
-                            parent.loadDirectory(td.path, false, false, false);
-                            minecraftClient.setScreen(parent);
-                        } else {
-                            minecraftClient.setScreen(new FileEditorScreen(minecraftClient, parent, item.localPath.toAbsolutePath().normalize(), new ServerInfo(false, null, item.localPath.toAbsolutePath().normalize().toString())));
-                        }
-                    } else {
-                        if (item.remoteServerPath == null || item.remoteHostInfo == null) {
-                            if (item.isDirectory) {
-                                FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(Paths.get("/"), true, item.remoteHostInfo);
-                                parent.tabs.add(new FileExplorerScreen.Tab(td));
-                                parent.currentTabIndex = parent.tabs.size() - 1;
-                                parent.loadDirectory(td.path, false, false, false);
-                                minecraftClient.setScreen(parent);
-                            } else {
-                                minecraftClient.setScreen(new FileEditorScreen(minecraftClient, parent, Paths.get("/"), new ServerInfo(true, item.remoteHostInfo, "/")));
-                            }
-                        } else {
-                            if (item.isDirectory) {
-                                FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(item.remoteServerPath, true, item.remoteHostInfo);
-                                parent.tabs.add(new FileExplorerScreen.Tab(td));
-                                parent.currentTabIndex = parent.tabs.size() - 1;
-                                parent.loadDirectory(td.path, false, false, false);
-                                minecraftClient.setScreen(parent);
-                            } else {
-                                minecraftClient.setScreen(new FileEditorScreen(minecraftClient, parent, item.remoteServerPath, new ServerInfo(true, item.remoteHostInfo, item.remoteServerPath.toString())));
-                            }
-                        }
-                    }
-                    return true;
-                }
-            }
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
+//    @Override
+//    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+//        if (button == 0) {
+//            if (mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24) {
+//                playSound(Sound.CLICK);
+//                minecraftClient.setScreen(parent);
+//                return true;
+//            }
+//            itemWidth = (this.width - (columns + 1) * spacing - 2 * spacing) / columns;
+//            int headerY = 35;
+//            int gridY = headerY + 10;
+//            int startY = gridY + spacing;
+//            for (int i = 0; i < objectItems.size(); i++) {
+//                ObjectItem item = objectItems.get(i);
+//                int row = i / columns;
+//                int col = i % columns;
+//                int drawX = spacing + col * (itemWidth + spacing) + spacing;
+//                int drawY = startY + row * (itemHeight + spacing) - scrollOffset;
+//                if (mouseX >= drawX && mouseX <= drawX + itemWidth && mouseY >= drawY && mouseY <= drawY + itemHeight) {
+//                    playSound(Sound.CREATE);
+//                    if (!item.isRemote) {
+//                        if (item.isDirectory) {
+//                            FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(item.localPath.toAbsolutePath().normalize(), false, null);
+//                            parent.tabs.add(new FileExplorerScreen.Tab(td));
+//                            parent.currentTabIndex = parent.tabs.size() - 1;
+//                            parent.loadDirectory(td.path, false, false, false);
+//                            minecraftClient.setScreen(parent);
+//                        } else {
+//                            minecraftClient.setScreen(new FileEditorScreen(minecraftClient, parent, item.localPath.toAbsolutePath().normalize(), new ServerInfo(false, null, item.localPath.toAbsolutePath().normalize().toString())));
+//                        }
+//                    } else {
+//                        if (item.remoteServerPath == null || item.remoteHostInfo == null) {
+//                            if (item.isDirectory) {
+//                                FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(Paths.get("/"), true, item.remoteHostInfo);
+//                                parent.tabs.add(new FileExplorerScreen.Tab(td));
+//                                parent.currentTabIndex = parent.tabs.size() - 1;
+//                                parent.loadDirectory(td.path, false, false, false);
+//                                minecraftClient.setScreen(parent);
+//                            } else {
+//                                minecraftClient.setScreen(new FileEditorScreen(minecraftClient, parent, Paths.get("/"), new ServerInfo(true, item.remoteHostInfo, "/")));
+//                            }
+//                        } else {
+//                            if (item.isDirectory) {
+//                                FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(item.remoteServerPath, true, item.remoteHostInfo);
+//                                parent.tabs.add(new FileExplorerScreen.Tab(td));
+//                                parent.currentTabIndex = parent.tabs.size() - 1;
+//                                parent.loadDirectory(td.path, false, false, false);
+//                                minecraftClient.setScreen(parent);
+//                            } else {
+//                                minecraftClient.setScreen(new FileEditorScreen(minecraftClient, parent, item.remoteServerPath, new ServerInfo(true, item.remoteHostInfo, item.remoteServerPath.toString())));
+//                            }
+//                        }
+//                    }
+//                    return true;
+//                }
+//            }
+//        }
+//        return super.mouseClicked(mouseX, mouseY, button);
+//    }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
