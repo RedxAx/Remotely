@@ -46,6 +46,9 @@ public class ImageUtil {
     }
 
     public static BufferedImage loadResourceIcon(String path) {
+        if (!path.contains("/assets/remotely/icons/")) {
+            path = "/assets/remotely/icons/" + path;
+        }
         InputStream tmp = ImageUtil.class.getResourceAsStream(path);
         final InputStream is = tmp != null ? tmp : ImageUtil.class.getResourceAsStream("assets/remotely/icons/missing.png");
         try (is) {

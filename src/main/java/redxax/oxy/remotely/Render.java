@@ -23,7 +23,6 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.MathHelper;
 
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.explorer.FileExplorerScreen.getIconForFile;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.ImageUtil.*;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;
@@ -324,9 +323,7 @@ public class Render {
         for (int i = 0; i < tabs.size(); i++) {
             Object tab = tabs.get(i);
             String name;
-            if (tab instanceof FileExplorerScreen.Tab) {
-                name = ((FileExplorerScreen.Tab) tab).getAnimatedText();
-            } else if (tab instanceof FileEditorScreen.Tab t) {
+            if (tab instanceof FileEditorScreen.Tab t) {
                 name = t.unsaved ? t.name + "*" : t.name;
             } else if (tab instanceof MultiTerminalScreen.TabInfo) {
                 name = ((MultiTerminalScreen.TabInfo) tab).name;
@@ -457,36 +454,36 @@ public class Render {
         context.getMatrices().pop();
     }
 
-    public static void drawExplorerElements(DrawContext context, boolean hovered, boolean isSelected, boolean isFavorite, FileExplorerScreen.EntryData entry, int explorerX, int entryY, int explorerWidth, int entryHeight, TextRenderer textRenderer, boolean isRemote, String renamePath, StringBuilder renameBuffer, int renameCursorPos) {
-        int id = ("explorer" + entry.hashCode()).hashCode();
-        float targetOffset = hovered ? -2f : 0f;
-        float currentOffset = elevationOffsets.getOrDefault(id, 0f);
-        currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
-        elevationOffsets.put(id, currentOffset);
-        context.getMatrices().push();
-        context.getMatrices().translate(0, currentOffset, 0);
-        int bg = Config.getElementBackgroundColor(entry.hashCode(), hovered, isSelected, true, isFavorite, entry.isMatched, false);
-        int borderWithOpacity = Config.getElementBorderColor(entry.hashCode(), hovered, isSelected, true, isFavorite, entry.isMatched, false);
-        drawOuterBorder(context, explorerX, entryY, explorerWidth, entryHeight, bg);
-        context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
-        drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
-        context.fill(explorerX, entryY + entryHeight - 1, explorerX + explorerWidth, entryY + entryHeight, borderWithOpacity);
-        BufferedImage icon = entry.isDirectory ? FileExplorerScreen.folderIcon : getIconForFile(entry.path);
-        drawPixelArt(context, explorerX + 10, entryY + 2, 16, 16, icon);
-        if (isFavorite) {
-            drawPixelArt(context, entry.isDirectory ? explorerX + 5 : explorerX + 7, entryY + 2, 16, 16, FileExplorerScreen.pinIcon);
-        }
-        if (!isRemote) {
-            int createdX = explorerX + explorerWidth - 100;
-            int sizeX = createdX - 100;
-            context.drawText(textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 6, globalTextColor, Config.shadow);
-            context.drawText(textRenderer, Text.literal(entry.created), createdX, entryY + 6, globalTextColor, Config.shadow);
-            context.drawText(textRenderer, Text.literal(entry.size), sizeX, entryY + 6, globalTextColor, Config.shadow);
-        } else {
-            context.drawText(textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 5, globalTextColor, Config.shadow);
-        }
-        context.getMatrices().pop();
-    }
+//    public static void drawExplorerElements(DrawContext context, boolean hovered, boolean isSelected, boolean isFavorite, FileExplorerScreen.EntryData entry, int explorerX, int entryY, int explorerWidth, int entryHeight, TextRenderer textRenderer, boolean isRemote, String renamePath, StringBuilder renameBuffer, int renameCursorPos) {
+//        int id = ("explorer" + entry.hashCode()).hashCode();
+//        float targetOffset = hovered ? -2f : 0f;
+//        float currentOffset = elevationOffsets.getOrDefault(id, 0f);
+//        currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
+//        elevationOffsets.put(id, currentOffset);
+//        context.getMatrices().push();
+//        context.getMatrices().translate(0, currentOffset, 0);
+//        int bg = Config.getElementBackgroundColor(entry.hashCode(), hovered, isSelected, true, isFavorite, entry.isMatched, false);
+//        int borderWithOpacity = Config.getElementBorderColor(entry.hashCode(), hovered, isSelected, true, isFavorite, entry.isMatched, false);
+//        drawOuterBorder(context, explorerX, entryY, explorerWidth, entryHeight, bg);
+//        context.fill(explorerX, entryY, explorerX + explorerWidth, entryY + entryHeight, bg);
+//        drawInnerBorder(context, explorerX, entryY, explorerWidth, entryHeight, borderWithOpacity);
+//        context.fill(explorerX, entryY + entryHeight - 1, explorerX + explorerWidth, entryY + entryHeight, borderWithOpacity);
+//        BufferedImage icon = entry.isDirectory ? FileExplorerScreen.folderIcon : getIconForFile(entry.path);
+//        drawPixelArt(context, explorerX + 10, entryY + 2, 16, 16, icon);
+//        if (isFavorite) {
+//            drawPixelArt(context, entry.isDirectory ? explorerX + 5 : explorerX + 7, entryY + 2, 16, 16, FileExplorerScreen.pinIcon);
+//        }
+//        if (!isRemote) {
+//            int createdX = explorerX + explorerWidth - 100;
+//            int sizeX = createdX - 100;
+//            context.drawText(textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 6, globalTextColor, Config.shadow);
+//            context.drawText(textRenderer, Text.literal(entry.created), createdX, entryY + 6, globalTextColor, Config.shadow);
+//            context.drawText(textRenderer, Text.literal(entry.size), sizeX, entryY + 6, globalTextColor, Config.shadow);
+//        } else {
+//            context.drawText(textRenderer, Text.literal(entry.displayName), explorerX + 30, entryY + 5, globalTextColor, Config.shadow);
+//        }
+//        context.getMatrices().pop();
+//    }
 
     public static void renderSnippetBox(DrawContext context, int snippetX, int snippetY, int snippetMaxWidth, int snippetHeight, RemotelyClient.CommandSnippet snippet, boolean hovered, boolean selected, MinecraftClient minecraftClient) {
         int id = ("snippet" + snippet.hashCode()).hashCode();
@@ -649,13 +646,12 @@ public class Render {
         drawInnerBorder(context, 0, 0, parent.width, 30, innerBorderColor);
         drawOuterBorder(context, 0, 0, parent.width, 30, innerBackgroundColor);
         if (!(parent instanceof MultiTerminalScreen)) {
-            if (!(parent instanceof FileExplorerScreen && !(((FileExplorerScreen) parent).isCanScroll()))) {
-                if (!(parent instanceof SettingsScreen)) {
-                    context.fill(5, 60, backgroundWidth, height - 5, innerBackgroundColor);
-                    drawInnerBorder(context, 5, 60, backgroundWidth - 5, height - 65, innerBorderColor);
-                    drawOuterBorder(context, 5, 60, backgroundWidth - 5, height - 65, innerBackgroundColor);
-                }
+            if (!(parent instanceof SettingsScreen)) {
+                context.fill(5, 60, backgroundWidth, height - 5, innerBackgroundColor);
+                drawInnerBorder(context, 5, 60, backgroundWidth - 5, height - 65, innerBorderColor);
+                drawOuterBorder(context, 5, 60, backgroundWidth - 5, height - 65, innerBackgroundColor);
             }
+
         }
         if (icon1 != null) {
             boolean isIcon1Hovered = mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24;

@@ -46,6 +46,9 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     protected float elevation = 0f;
     protected boolean animateColor = true, animateElevation = true, flat = false;
+    protected AccentType accentType = AccentType.DEFAULT;
+    public boolean selected;
+    public boolean selectable = false;
     protected boolean animateLayout = false;
     protected boolean layoutInitialized = false;
     protected float animationSpeed = 0.2f;
@@ -96,6 +99,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
         public B active(boolean a) { widget.active = a; return self(); }
         public B visible(boolean v) { widget.visible = v; return self(); }
         public B animateColor(boolean b) { widget.animateColor = b; return self(); }
+        public B accentType(AccentType type) { widget.accentType = type; return self(); }
         public B animateElevation(boolean b) { widget.animateElevation = b; return self(); }
         public B animateLayout(boolean b) { widget.animateLayout = b; return self(); }
         public B flat(boolean f) { widget.flat = f; return self(); }
@@ -108,8 +112,10 @@ public abstract class AnimatedWidget extends ClickableWidget {
         public B entranceAnimationSpeed(float speed) { widget.entranceAnimationSpeed = speed; return self(); }
         public B entranceCorner(EntranceCorner corner) { widget.entranceCorner = corner; return self(); }
         public B pivot(float x, float y) { widget.setAbsolutePivot(x, y); return self(); }
+        public B setSelectable(boolean b) {widget.selectable = b; return self(); }
         protected abstract B self();
         public T build() { return widget; }
+
     }
 
     public AnimatedWidget(int x, int y, int width, int height, Text message) {
@@ -169,6 +175,14 @@ public abstract class AnimatedWidget extends ClickableWidget {
             this.height = height;
             targetHeight = animatedHeight = height;
         }
+    }
+
+    public void setSelected(boolean selected) {
+        this.selected = selected;
+    }
+
+    public boolean isSelected() {
+        return selected;
     }
 
     protected void calculateEntranceDelay() {
@@ -362,14 +376,15 @@ public abstract class AnimatedWidget extends ClickableWidget {
         updateEntranceAnimation();
         updateHint();
         if (animateElevation && active) {
-            float elevationTarget = hovered ? -2f : 0f;
+            float elevationTarget = hovered || isFocused() ? -2f : 0f;
             elevation = elevationOffsets.getOrDefault(this.hashCode(), 0f);
             elevation += (elevationTarget - elevation) * globalMovementSpeed * deltaTime;
             elevationOffsets.put(this.hashCode(), elevation);
         }
         if (animateColor) {
-            bgColor = getElementBackgroundColor(this.hashCode(), isHovered(), isFocused(), active, AccentType.DEFAULT);
-            borderColor = getElementBorderColor(this.hashCode(), isHovered(), isFocused(), active, AccentType.DEFAULT);
+            boolean selectedColor = selectable ? selected : isFocused();
+            bgColor = getElementBackgroundColor(this.hashCode(), isHovered() || isFocused(), selectedColor, active, accentType);
+            borderColor = getElementBorderColor(this.hashCode(), isHovered() || isFocused(), selectedColor, active, accentType);
         } else {
             if (isHovered() && isFocused()) {
                 bgColor = accentDarkHoverColor;

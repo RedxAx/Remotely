@@ -3,7 +3,6 @@ package redxax.oxy.remotely.ui;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
@@ -33,6 +32,7 @@ public class ReScreen extends Screen {
     protected List<SidePanel> sidePanelList;
     protected TabsManager tabsManager;
     public boolean hitBottom;
+    protected List<AnimatedWidget> currentSelectedWidgets = new ArrayList<>();
 
     protected ReScreen(Text title) {
         super(title);
@@ -74,6 +74,8 @@ public class ReScreen extends Screen {
         this.activeContainer = container;
         if (activeContainer != null) {
             activeContainer.restoreStateToScreen();
+            currentSelectedWidgets.clear();
+            currentSelectedWidgets.addAll(activeContainer.selectedWidgets);
         }
     }
 
@@ -105,12 +107,13 @@ public class ReScreen extends Screen {
         for (Container c : containers.values()) c.updateWidgetWidths();
     }
 
-    public record ContainerState(List<AnimatedWidget> widgets, List<Integer> originalYPositions, float smoothOffset, float targetOffset) {
-        public ContainerState(List<AnimatedWidget> widgets, List<Integer> originalYPositions, float smoothOffset, float targetOffset) {
+    public record ContainerState(List<AnimatedWidget> widgets, List<Integer> originalYPositions, float smoothOffset, float targetOffset, List<AnimatedWidget> selectedWidgets) {
+        public ContainerState(List<AnimatedWidget> widgets, List<Integer> originalYPositions, float smoothOffset, float targetOffset, List<AnimatedWidget> selectedWidgets) {
             this.widgets = new ArrayList<>(widgets);
             this.originalYPositions = new ArrayList<>(originalYPositions);
             this.smoothOffset = smoothOffset;
             this.targetOffset = targetOffset;
+            this.selectedWidgets = new ArrayList<>(selectedWidgets);
         }
     }
 
@@ -131,7 +134,7 @@ public class ReScreen extends Screen {
         private int tabPadding = 5;
         private int tabGap = 4;
         private SquareButtonWidget plusButton;
-        private int renamingTabIndex = -1;
+        public int renamingTabIndex = -1;
         private TextInputWidget renameWidget;
         private int draggingTabIndex = -1;
         private boolean dragging = false;
@@ -324,6 +327,7 @@ public class ReScreen extends Screen {
                     })
                     .entranceCorner(TOP_LEFT)
                     .animateLayout(true)
+                    .setSelectable(true)
                     .build();
             addDrawableChild(tab.widget);
         }
@@ -381,7 +385,7 @@ public class ReScreen extends Screen {
         private void updateTabStates() {
             for (int i = 0; i < tabs.size(); i++) {
                 Tab tab = tabs.get(i);
-                if (tab.widget != null) tab.widget.setFocused(i == activeTabIndex);
+                if (tab.widget != null) tab.widget.setSelected(i == activeTabIndex);
             }
         }
 
@@ -549,6 +553,10 @@ public class ReScreen extends Screen {
                 tabs.get(index).unsaved = unsaved;
             }
         }
+
+        public boolean isInTabsArea(double mouseX, double mouseY) {
+            return visible && mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height;
+        }
     }
 
     public class SidePanel {
@@ -703,6 +711,7 @@ public class ReScreen extends Screen {
 
         private final List<AnimatedWidget> widgets = new ArrayList<>();
         private final List<Integer> originalYPositions = new ArrayList<>();
+        private final List<AnimatedWidget> selectedWidgets = new ArrayList<>();
         private int x;
         private int y;
         private int cWidth;
@@ -716,6 +725,10 @@ public class ReScreen extends Screen {
         private final boolean sidePanelContainer;
         private ContainerState savedState;
         private LayoutStyle layoutStyle = LayoutStyle.RESTRICTED;
+        private boolean enableSelecting = false;
+        private long lastClickTime = 0;
+        private int DOUBLE_CLICK_DELAY = 500;
+        private AnimatedWidget lastClickedWidget = null;
 
         public Container(int x, int y, int width, int height) {
             this(x, y, width, height, false);
@@ -760,11 +773,35 @@ public class ReScreen extends Screen {
             return this;
         }
 
+        public Container enableSelecting(boolean enable) {
+            this.enableSelecting = enable;
+            if (!enable) {
+                clearSelection();
+            }
+            return this;
+        }
+
+        public Container setDoubleClickDelay(int delay) {
+            this.DOUBLE_CLICK_DELAY = delay;
+            return this;
+        }
+
+        public void columnsGlobally(int columns) {
+            for (Container c : containers.values()) {
+                c.columns(columns);
+                c.updateWidgetPositions();
+            }
+            this.columns = Math.max(1, columns);
+        }
+
         public Container addWidget(AnimatedWidget widget) {
             widgets.add(widget);
             originalYPositions.add(0);
             widget.resetEntranceAnimation();
             widget.setScissorRegion(x + 1, y + 1, x + getEffectiveWidth() - 1, cHeight - 1);
+            if (enableSelecting) {
+                widget.selectable = true;
+            }
             if (this == activeContainer || sidePanelContainer) {
                 addDrawableChild(widget);
             }
@@ -773,11 +810,13 @@ public class ReScreen extends Screen {
             return this;
         }
 
-        public Container removeWidget(ClickableWidget widget) {
+        public Container removeWidget(AnimatedWidget widget) {
             int index = widgets.indexOf(widget);
             if (index >= 0) {
                 widgets.remove(index);
                 originalYPositions.remove(index);
+                selectedWidgets.remove(widget);
+                currentSelectedWidgets.remove(widget);
                 if (widget instanceof AnimatedWidget aw)
                     aw.clearScissorRegion();
             }
@@ -793,13 +832,17 @@ public class ReScreen extends Screen {
             }
             widgets.clear();
             originalYPositions.clear();
+            selectedWidgets.clear();
+            if (this == activeContainer) {
+                currentSelectedWidgets.clear();
+            }
             smoothOffset = 0;
             targetOffset = 0;
             return this;
         }
 
         public ContainerState saveState() {
-            return new ContainerState(widgets, originalYPositions, smoothOffset, targetOffset);
+            return new ContainerState(widgets, originalYPositions, smoothOffset, targetOffset, selectedWidgets);
         }
 
         public void restoreState(ContainerState state) {
@@ -808,6 +851,7 @@ public class ReScreen extends Screen {
             originalYPositions.addAll(state.originalYPositions());
             smoothOffset = state.smoothOffset();
             targetOffset = state.targetOffset();
+            selectedWidgets.addAll(state.selectedWidgets());
             if (this == activeContainer || sidePanelContainer) {
                 for (AnimatedWidget widget : widgets) {
                     addDrawableChild(widget);
@@ -838,11 +882,11 @@ public class ReScreen extends Screen {
             }
         }
 
-        private int getEffectiveWidth() {
+        public int getEffectiveWidth() {
             return sidePanelContainer ? cWidth : cWidth - getTotalSidePanelWidth();
         }
 
-        private void updateWidgetPositions() {
+        public void updateWidgetPositions() {
             if (widgets.isEmpty())
                 return;
             switch (layoutStyle) {
@@ -979,6 +1023,46 @@ public class ReScreen extends Screen {
             return maxBottom - y + padding;
         }
 
+        private void selectWidget(AnimatedWidget widget, boolean addToSelection) {
+            if (!enableSelecting) return;
+            if (!addToSelection) {
+                clearSelection();
+            }
+            if (!selectedWidgets.contains(widget)) {
+                selectedWidgets.add(widget);
+                widget.setSelected(true);
+                if (this == activeContainer) {
+                    currentSelectedWidgets.add(widget);
+                }
+            }
+        }
+
+        private void clearSelection() {
+            for (AnimatedWidget widget : selectedWidgets) {
+                widget.setSelected(false);
+            }
+            selectedWidgets.clear();
+            if (this == activeContainer) {
+                currentSelectedWidgets.clear();
+            }
+        }
+
+        private void selectRange(int fromIndex, int toIndex) {
+            if (!enableSelecting) return;
+            int start = Math.min(fromIndex, toIndex);
+            int end = Math.max(fromIndex, toIndex);
+            for (int i = start; i <= end && i < widgets.size(); i++) {
+                AnimatedWidget widget = widgets.get(i);
+                if (!selectedWidgets.contains(widget)) {
+                    selectedWidgets.add(widget);
+                    widget.setSelected(true);
+                    if (this == activeContainer) {
+                        currentSelectedWidgets.add(widget);
+                    }
+                }
+            }
+        }
+
         public void render(DrawContext context, int mouseX, int mouseY, float delta) {
             if (!sidePanelContainer && this != activeContainer) return;
             smoothOffset += (targetOffset - smoothOffset) * globalScrollSpeed * deltaTime;
@@ -994,24 +1078,19 @@ public class ReScreen extends Screen {
                 w.setPosition(w.getX(), newY);
             }
             if (smoothOffset > 2) {
-                context.fillGradient(x, y, x + effectiveWidth, y + 10, innerBackgroundColor,
-                        0x00000000);
+                context.fillGradient(x, y, x + effectiveWidth, y + 10, innerBackgroundColor, 0x00000000);
             }
             if (smoothOffset < Math.max(0, totalHeight - visibleHeight)) {
-                context.fillGradient(x, cHeight - 10, x + effectiveWidth, cHeight,
-                        0x00000000, innerBackgroundColor);
+                context.fillGradient(x, cHeight - 10, x + effectiveWidth, cHeight, 0x00000000, innerBackgroundColor);
             }
             if (canScroll && (sidePanelContainer || getTotalSidePanelWidth() < 10)) {
                 int scrollbarX = x + effectiveWidth + 2;
                 int scrollbarY = y;
                 int scrollbarHeight = cHeight - y;
-                ScrollBar.render(context, ReScreen.this, mouseX, mouseY, totalHeight,
-                        smoothOffset, scrollbarX, scrollbarY, scrollbarWidth,
-                        scrollbarHeight);
+                ScrollBar.render(context, ReScreen.this, mouseX, mouseY, totalHeight, smoothOffset, scrollbarX, scrollbarY, scrollbarWidth, scrollbarHeight);
             }
             targetOffset = ScrollBar.getPendingOffset();
-            targetOffset = Math.max(0,
-                    Math.min(targetOffset, Math.max(0, totalHeight - visibleHeight)));
+            targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, totalHeight - visibleHeight)));
         }
 
         public boolean mouseScrolled(double mouseX, double mouseY, double verticalAmount) {
@@ -1057,6 +1136,50 @@ public class ReScreen extends Screen {
             if (!sidePanelContainer && this != activeContainer) return false;
             int effectiveWidth = getEffectiveWidth();
             int scrollbarX = x + effectiveWidth + 2;
+
+            if (enableSelecting && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                long currentTime = System.currentTimeMillis();
+                boolean isDoubleClick = false;
+                AnimatedWidget clickedWidget = null;
+                for (AnimatedWidget widget : widgets) {
+                    if (mouseX >= widget.getX() && mouseX <= widget.getX() + widget.getWidth() && mouseY >= widget.getY() && mouseY <= widget.getY() + widget.getHeight()) {
+                        clickedWidget = widget;
+                        break;
+                    }
+                }
+
+                if (clickedWidget != null && clickedWidget == lastClickedWidget && currentTime - lastClickTime <= DOUBLE_CLICK_DELAY) {
+                    isDoubleClick = true;
+                }
+
+                if (isDoubleClick) {
+                    lastClickTime = 0;
+                    lastClickedWidget = null;
+                    return false;
+                } else if (clickedWidget != null) {
+                    lastClickTime = currentTime;
+                    lastClickedWidget = clickedWidget;
+                    if (hasShiftDown() && !selectedWidgets.isEmpty()) {
+                        int lastSelectedIndex = widgets.indexOf(selectedWidgets.getLast());
+                        int clickedIndex = widgets.indexOf(clickedWidget);
+                        selectRange(lastSelectedIndex, clickedIndex);
+                    } else if (hasControlDown()) {
+                        if (selectedWidgets.contains(clickedWidget)) {
+                            selectedWidgets.remove(clickedWidget);
+                            clickedWidget.setSelected(false);
+                            if (this == activeContainer) {
+                                currentSelectedWidgets.remove(clickedWidget);
+                            }
+                        } else {
+                            selectWidget(clickedWidget, true);
+                        }
+                    } else {
+                        selectWidget(clickedWidget, false);
+                    }
+                    return true;
+                }
+            }
+
             if (mouseX >= x && mouseX <= scrollbarX + scrollbarWidth &&
                     mouseY >= y && mouseY <= cHeight) {
                 if (canScroll && (sidePanelContainer || getTotalSidePanelWidth() < 10)) {
@@ -1083,8 +1206,12 @@ public class ReScreen extends Screen {
             return canScroll;
         }
 
-        public List<ClickableWidget> getWidgets() {
+        public List<AnimatedWidget> getWidgets() {
             return new ArrayList<>(widgets);
+        }
+
+        public List<AnimatedWidget> getSelectedWidgets() {
+            return new ArrayList<>(selectedWidgets);
         }
 
         public int getPadding() {
@@ -1093,6 +1220,10 @@ public class ReScreen extends Screen {
 
         public int getColumns() {
             return columns;
+        }
+
+        public boolean isEnableSelecting() {
+            return enableSelecting;
         }
     }
 
@@ -1104,7 +1235,7 @@ public class ReScreen extends Screen {
         private boolean visible = true;
         private TextInputWidget searchBox;
         private SearchMode currentSearchMode;
-        private boolean liveUpdate = false;
+        public boolean liveUpdate = false;
         public enum Position {
             TOP, BOTTOM, LEFT, RIGHT
         }
@@ -1313,6 +1444,16 @@ public class ReScreen extends Screen {
             drawInnerBorder(context, x, 0, headerSize, height, innerBorderColor);
             drawOuterBorder(context, x, 0, headerSize, height, innerBackgroundColor);
         }
+
+        public boolean isInHeaderArea(double mouseX, double mouseY) {
+            if (!visible) return false;
+            return switch (position) {
+                case TOP -> mouseY >= 0 && mouseY <= headerSize;
+                case BOTTOM -> mouseY >= height - headerSize && mouseY <= height;
+                case LEFT -> mouseX >= 0 && mouseX <= headerSize;
+                case RIGHT -> mouseX >= width - headerSize && mouseX <= width;
+            };
+        }
     }
 
     public class SearchTextInputWidget extends TextInputWidget {
@@ -1425,7 +1566,7 @@ public class ReScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        super.render(context, mouseX, mouseY, delta);
+        try {super.render(context, mouseX, mouseY, delta);} catch (ConcurrentModificationException ignored) {}
         animatedScaling(this);
         for (SidePanel sp : sidePanelList) {
             sp.render(context, mouseX, mouseY, delta);
@@ -1482,15 +1623,30 @@ public class ReScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        boolean isInTabs = tabsManager != null && tabsManager.isInTabsArea(mouseX, mouseY);
+        boolean isInHeader = headerBuilder.isInHeaderArea(mouseX, mouseY);
+        boolean isInSidePanel = false;
+
         for (SidePanel sp : sidePanelList) {
-            if (sp.mouseClicked(mouseX, mouseY, button)) return true;
+            if (sp.mouseClicked(mouseX, mouseY, button)) {
+                isInSidePanel = true;
+                break;
+            }
         }
+
+        if (isInSidePanel) return true;
+
         if (tabsManager != null && tabsManager.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
         if (activeContainer != null && activeContainer.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
+
+        if (!isInTabs && !isInHeader && activeContainer != null && activeContainer.enableSelecting) {
+            activeContainer.clearSelection();
+        }
+
         return super.mouseClicked(mouseX, mouseY, button);
     }
 

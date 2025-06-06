@@ -29,7 +29,7 @@ public class ContainerTestingScreen extends ReScreen {
 
         Container restrictedContainer = createContainer(String.valueOf("Container 1".hashCode()), 5, 60, width - 10, height - 5);
                 restrictedContainer.columns(3)
-                .layoutStyle(Container.LayoutStyle.RESTRICTED)
+                .layoutStyle(Container.LayoutStyle.RESTRICTED).enableSelecting(true)
                 .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Click Me")).build())
                 .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Another Button")).build())
                 .addWidget(new AnimatedButton.ButtonBuilder().size(100, 20).label(Text.literal("Add Another Button")).onClick(() -> restrictedContainer.addWidget(

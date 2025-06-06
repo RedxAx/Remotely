@@ -5,7 +5,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.Render.*;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.explorer.FileExplorerScreen.EntryData;
+//import redxax.oxy.remotely.explorer.FileExplorerScreen.EntryData;
 import redxax.oxy.remotely.ui.AISidePanel;
 import redxax.oxy.remotely.ui.widgets.ContextMenuWidget;
 import redxax.oxy.remotely.util.ImageUtil;
@@ -59,7 +59,7 @@ public class FileEditorScreen extends Screen {
     private final float customPathTargetScrollOffset = 0;
     private ImageUtil.IconWithTooltip closeIcon, saveIcon, explorerIcon, aiIcon;
     private int sidePanelWidth = 250;
-    private List<SidePanelEntry> sidePanelEntries = new ArrayList<>();
+//    private List<SidePanelEntry> sidePanelEntries = new ArrayList<>();
     private boolean showSidePanel = true;
     private float animatedSidePanelWidth = 0f;
     private boolean isResizingSidePanel = false;
@@ -68,18 +68,18 @@ public class FileEditorScreen extends Screen {
     private TabsBar<Tab> tabsBar;
     private ContextMenuWidget tabContextMenu;
 
-    private static class SidePanelEntry {
-        EntryData data;
-        int depth;
-        boolean isOpen;
-        List<EntryData> children;
-        SidePanelEntry(EntryData data, int depth) {
-            this.data = data;
-            this.depth = depth;
-            this.isOpen = false;
-            this.children = new ArrayList<>();
-        }
-    }
+//    private static class SidePanelEntry {
+//        EntryData data;
+//        int depth;
+//        boolean isOpen;
+//        List<EntryData> children;
+//        SidePanelEntry(EntryData data, int depth) {
+//            this.data = data;
+//            this.depth = depth;
+//            this.isOpen = false;
+//            this.children = new ArrayList<>();
+//        }
+//    }
 
     private static class SavedTabState {
         ArrayList<String> lines;
@@ -279,7 +279,7 @@ public class FileEditorScreen extends Screen {
         } catch (Exception e) {
             new Notification("Failed to load icons: " + e.getMessage(), Notification.Type.ERROR);
         }
-        updateSidePanelEntries();
+//        updateSidePanelEntries();
         aiSidePanel = new AISidePanel();
         List<TabsBar.Tab<Tab>> tabList = new ArrayList<>();
         for (Tab t : tabs) {
@@ -559,288 +559,288 @@ public class FileEditorScreen extends Screen {
         textEditor.setSearchResults(searchResults);
     }
 
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (tabsBar.handleTabsBarMouse((int)mouseX, (int)mouseY, button)) return true;
-        if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), tabs.get(currentTabIndex).textEditor.getScrollOffset())) {
-            return true;
-        }
-        if (aiMode && aiSidePanel.mouseClicked(mouseX, mouseY, button)) {
-            return true;
-        }
-        if (mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24 && button == 0) {
-            playSound(Sound.PANEL);
-            if (aiMode && showSidePanel) aiMode = false;
-            else {
-                showSidePanel = !showSidePanel;
-                aiMode = false;
-            }
-            return true;
-        }
-        if (mouseX >= width - 92 && mouseX <= width - 75 && mouseY >= 6 && mouseY <= 24 && button == 0) {
-            playSound(Sound.PANEL);
-            if (aiMode && showSidePanel) showSidePanel = false;
-            else {
-                aiMode = true;
-                showSidePanel = true;
-            }
-            return true;
-        }
-        int searchBarX = (this.width - searchBarWidth) / 2;
-        int searchBarY = 5;
-        int clearSearchButtonX = searchBarX + searchBarWidth;
-        if (mouseX >= searchBarX && mouseX <= searchBarX + searchBarWidth && mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight) {
-            playSound(Sound.SEARCH);
-            customSearchBarFocused = true;
-            return true;
-        } else {
-            if (mouseX >= clearSearchButtonX && mouseX <= clearSearchButtonX + clearSearchButtonWidth && mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight) {
-                playSound(Sound.CLICK);
-                customSearchText.setLength(0);
-                customCursorPosition = 0;
-                customSelectionStart = -1;
-                customSelectionEnd = -1;
-                updateSearchResults();
-                return true;
-            }
-            customSearchBarFocused = false;
-        }
-        boolean clickedTab = false;
-        int titleBarHeight = 30;
-        int tabBarY = titleBarHeight + 5;
-        int tabX = 5;
-        for (int i = 0; i < tabs.size(); i++) {
-            Tab tab = tabs.get(i);
-            int tabWidth = minecraftClient.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
-            if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabBarY && mouseY <= tabBarY + TAB_HEIGHT) {
-                if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
-                    playSound(Sound.CLOSETAB);
-                    SAVED_TABS.remove(tab.path);
-                    tabs.remove(i);
-                    if (i < tabsBar.getTabs().size()) {
-                        tabsBar.getTabs().remove(i);
-                    }
-                    if (i == currentTabIndex) {
-                        currentTabIndex = Math.max(0, currentTabIndex - 1);
-                    }
-                    if (!tabs.isEmpty()) {
-                        if (currentTabIndex >= tabs.size()) {
-                            currentTabIndex = tabs.size() - 1;
-                        }
-                        this.textEditor = tabs.get(currentTabIndex).textEditor;
-                    } else {
-                        close();
-                    }
-                    RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
-                    return true;
-                } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                    playSound(Sound.SWITCHTAB);
-                    if (currentTabIndex != i) {
-                        currentTabIndex = i;
-                        this.textEditor = tab.textEditor;
-                        ScrollBar.setPendingOffset((float) this.textEditor.targetScrollOffsetVert);
-                        RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
-                        updateSidePanelEntries();
-                    }
-                    clickedTab = true;
-                    break;
-                } else if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
-                    remove(tabContextMenu);
-                    int finalI = i;
-                    tabContextMenu = new ContextMenuWidget.Builder(this)
-                            .addHeaderButton(closeIcon.getImage(), () -> {
-                                playSound(Sound.CLOSETAB);
-                                if (tabs.size() > 1) {
-                                    saveTabState(tab);
-                                    tabs.remove(finalI);
-                                    tabsBar.closeTab(finalI);
-                                    if (!tabs.isEmpty()) {
-                                        this.textEditor = tab.textEditor;
-                                    } else {
-                                        close();
-                                    }
-                                    RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
-                                } else {
-                                    close();
-                                }
-                            }, "Close The Tab")
-                            .addHeaderButton(saveIcon.getImage(), () -> {
-                                playSound(Sound.SAVE);
-                                tab.saveFile(finalI);
-                            }, "Save The Current File")
-                            .addHeaderButton("/assets/remotely/icons/external.png", () -> {
-                                playSound(Sound.CLICK);
-                                openExternally(tab.path);
-                            }, "Open In The Default App")
-                            .build();
-                    addDrawableChild(tabContextMenu);
-                    tabContextMenu.show((int) mouseX, (int) mouseY);
-                    return true;
-                } else {
-                    tabContextMenu.hide();
-                }
-            }
-            tabX += tabWidth + TAB_GAP;
-        }
-        if (clickedTab) {
-            return true;
-        }
-        boolean clickedSave = mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24 && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
-        if (clickedSave) {
-            playSound(Sound.SAVE);
-            tabs.get(currentTabIndex).saveFile();
-            return true;
-        }
-        boolean clickedBack = mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24 && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
-        if (clickedBack) {
-            close();
-            return true;
-        }
-        float animWidth = animatedSidePanelWidth;
-        int panelX = this.width - (int) animWidth;
-        int panelY = 60;
-        int panelHeight = this.height - 65;
-        if (animWidth > 0) {
-            if (Math.abs(mouseX - (panelX - 1)) < 5 && mouseY >= panelY && mouseY <= panelY + panelHeight && button == 0) {
-                isResizingSidePanel = true;
-                return true;
-            }
-            if (mouseX >= panelX && mouseX <= panelX + animWidth && mouseY >= panelY && mouseY <= panelY + panelHeight && !aiMode) {
-                int entryHeight = 20 + 2;
-                double localY = mouseY - panelY + tabs.get(currentTabIndex).sidePanelScrollOffset;
-                int indexPos = 0;
-                for (SidePanelEntry entry : sidePanelEntries) {
-                    if (localY >= indexPos && localY < indexPos + entryHeight) {
-                        if (Files.isDirectory(entry.data.path)) {
-                            Tab currentTab = tabs.get(currentTabIndex);
-                            if (currentTab.openedPathsForSidePanel.contains(entry.data.path)) {
-                                currentTab.openedPathsForSidePanel.remove(entry.data.path);
-                            } else {
-                                currentTab.openedPathsForSidePanel.add(entry.data.path);
-                            }
-                            updateSidePanelEntries();
-                        } else {
-                            if (!entry.data.path.equals(tabs.get(currentTabIndex).path) && isSupportedFile(entry.data.path)) {
-                                boolean found = false;
-                                for (int j = 0; j < tabs.size(); j++) {
-                                    if (tabs.get(j).path.equals(entry.data.path.normalize())) {
-                                        currentTabIndex = j;
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                                if (!found) {
-                                    Tab newTab = new Tab(entry.data.path);
-                                    tabs.add(newTab);
-                                    currentTabIndex = tabs.size() - 1;
-                                }
-                                this.textEditor = tabs.get(currentTabIndex).textEditor;
-                                updateSidePanelEntries();
-                            } else {
-                                openExternally(entry.data.path);
-                            }
-                        }
-                        return true;
-                    }
-                    indexPos += entryHeight;
-                }
-                return true;
-            }
-        }
-        return super.mouseClicked(mouseX, mouseY, button) || tabs.get(currentTabIndex).textEditor.mouseClicked(mouseX, mouseY, button);
-    }
-
-    private void updateSidePanelEntries() {
-        sidePanelEntries.clear();
-        if (tabs.isEmpty()) return;
-        Tab currentTab = tabs.get(currentTabIndex);
-        Path filePath = currentTab.path;
-        if (filePath == null) return;
-        if (!currentTab.sidePanelInitialized) {
-            Path current = filePath;
-            while (current != null) {
-                currentTab.openedPathsForSidePanel.add(current);
-                current = current.getParent();
-            }
-            currentTab.sidePanelScrollOffset = 0f;
-            currentTab.targetSidePanelScrollOffset = 0f;
-            currentTab.sidePanelInitialized = true;
-        }
-        Path rootPath = filePath;
-        while (rootPath.getParent() != null) {
-            rootPath = rootPath.getParent();
-        }
-        buildSidePanelData(rootPath, 0, currentTab.openedPathsForSidePanel);
-        if (!currentTab.initialScrollSet) {
-            int index = 0;
-            int entryHeight = 22;
-            for (int i = 0; i < sidePanelEntries.size(); i++) {
-                if (sidePanelEntries.get(i).data.path.equals(filePath)) {
-                    index = i;
-                    break;
-                }
-            }
-            currentTab.sidePanelScrollOffset = index * entryHeight;
-            currentTab.targetSidePanelScrollOffset = index * entryHeight;
-            currentTab.initialScrollSet = true;
-        }
-    }
-
-    private void buildSidePanelData(Path currentPath, int depth, Set<Path> openedPaths) {
-        if (currentPath == null || !Files.exists(currentPath)) return;
-        EntryData data = getEntryDataForPath(currentPath);
-        SidePanelEntry entry = new SidePanelEntry(data, depth);
-        entry.isOpen = openedPaths.contains(currentPath);
-        sidePanelEntries.add(entry);
-        try {
-            if (Files.isDirectory(currentPath) && entry.isOpen) {
-                List<Path> dirChildren = new ArrayList<>();
-                DirectoryStream<Path> stream = Files.newDirectoryStream(currentPath);
-                for (Path child : stream) {
-                    dirChildren.add(child);
-                }
-                stream.close();
-                dirChildren.sort((p1, p2) -> {
-                    boolean d1 = Files.isDirectory(p1);
-                    boolean d2 = Files.isDirectory(p2);
-                    if (d1 && !d2) return -1;
-                    if (!d1 && d2) return 1;
-                    return p1.getFileName().toString().compareToIgnoreCase(p2.getFileName().toString());
-                });
-                for (Path child : dirChildren) {
-                    buildSidePanelData(child, depth + 1, openedPaths);
-                }
-            }
-        } catch (Exception ignored) {}
-    }
-
-    public EntryData getEntryDataForPath(Path p) {
-        String dn = p.getFileName() != null ? p.getFileName().toString() : p.toString();
-        boolean isDirectory = Files.isDirectory(p);
-        return new EntryData(p, isDirectory, "", "", dn);
-    }
-
-    private void renderSidePanel(DrawContext context, int x, int y, int width, int height, int mouseX, int mouseY) {
-        Tab currentTab = tabs.get(currentTabIndex);
-        currentTab.sidePanelScrollOffset += (currentTab.targetSidePanelScrollOffset - currentTab.sidePanelScrollOffset) * globalScrollSpeed * deltaTime;
-        int entryHeight = 20;
-        int entryGap = 2;
-        int totalEntryHeight = entryHeight + entryGap;
-        int currentY = y - (int) currentTab.sidePanelScrollOffset;
-        for (SidePanelEntry entry : sidePanelEntries) {
-            if (currentY + entryHeight < y) {
-                currentY += totalEntryHeight;
-                continue;
-            }
-            if (currentY > y + height) {
-                break;
-            }
-            boolean hovered = mouseX >= x && mouseX <= x + width && mouseY >= currentY && mouseY < currentY + entryHeight;
-            int indent = entry.depth * 5;
-            drawExplorerElements(context, hovered, entry.data.displayName.equals(tabs.get(currentTabIndex).name), false, entry.data, x + indent, currentY, width - indent, entryHeight, minecraftClient.textRenderer, false, null, null, 0);
-            currentY += totalEntryHeight;
-        }
-    }
+//    @Override
+//    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+//        if (tabsBar.handleTabsBarMouse((int)mouseX, (int)mouseY, button)) return true;
+//        if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY, tabs.get(currentTabIndex).textEditor.getTotalScrollHeight(), tabs.get(currentTabIndex).textEditor.getScrollOffset())) {
+//            return true;
+//        }
+//        if (aiMode && aiSidePanel.mouseClicked(mouseX, mouseY, button)) {
+//            return true;
+//        }
+//        if (mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24 && button == 0) {
+//            playSound(Sound.PANEL);
+//            if (aiMode && showSidePanel) aiMode = false;
+//            else {
+//                showSidePanel = !showSidePanel;
+//                aiMode = false;
+//            }
+//            return true;
+//        }
+//        if (mouseX >= width - 92 && mouseX <= width - 75 && mouseY >= 6 && mouseY <= 24 && button == 0) {
+//            playSound(Sound.PANEL);
+//            if (aiMode && showSidePanel) showSidePanel = false;
+//            else {
+//                aiMode = true;
+//                showSidePanel = true;
+//            }
+//            return true;
+//        }
+//        int searchBarX = (this.width - searchBarWidth) / 2;
+//        int searchBarY = 5;
+//        int clearSearchButtonX = searchBarX + searchBarWidth;
+//        if (mouseX >= searchBarX && mouseX <= searchBarX + searchBarWidth && mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight) {
+//            playSound(Sound.SEARCH);
+//            customSearchBarFocused = true;
+//            return true;
+//        } else {
+//            if (mouseX >= clearSearchButtonX && mouseX <= clearSearchButtonX + clearSearchButtonWidth && mouseY >= searchBarY && mouseY <= searchBarY + searchBarHeight) {
+//                playSound(Sound.CLICK);
+//                customSearchText.setLength(0);
+//                customCursorPosition = 0;
+//                customSelectionStart = -1;
+//                customSelectionEnd = -1;
+//                updateSearchResults();
+//                return true;
+//            }
+//            customSearchBarFocused = false;
+//        }
+//        boolean clickedTab = false;
+//        int titleBarHeight = 30;
+//        int tabBarY = titleBarHeight + 5;
+//        int tabX = 5;
+//        for (int i = 0; i < tabs.size(); i++) {
+//            Tab tab = tabs.get(i);
+//            int tabWidth = minecraftClient.textRenderer.getWidth(tab.name) + 2 * TAB_PADDING;
+//            if (mouseX >= tabX && mouseX <= tabX + tabWidth && mouseY >= tabBarY && mouseY <= tabBarY + TAB_HEIGHT) {
+//                if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
+//                    playSound(Sound.CLOSETAB);
+//                    SAVED_TABS.remove(tab.path);
+//                    tabs.remove(i);
+//                    if (i < tabsBar.getTabs().size()) {
+//                        tabsBar.getTabs().remove(i);
+//                    }
+//                    if (i == currentTabIndex) {
+//                        currentTabIndex = Math.max(0, currentTabIndex - 1);
+//                    }
+//                    if (!tabs.isEmpty()) {
+//                        if (currentTabIndex >= tabs.size()) {
+//                            currentTabIndex = tabs.size() - 1;
+//                        }
+//                        this.textEditor = tabs.get(currentTabIndex).textEditor;
+//                    } else {
+//                        close();
+//                    }
+//                    RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
+//                    return true;
+//                } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+//                    playSound(Sound.SWITCHTAB);
+//                    if (currentTabIndex != i) {
+//                        currentTabIndex = i;
+//                        this.textEditor = tab.textEditor;
+//                        ScrollBar.setPendingOffset((float) this.textEditor.targetScrollOffsetVert);
+//                        RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
+//                        updateSidePanelEntries();
+//                    }
+//                    clickedTab = true;
+//                    break;
+//                } else if (button == GLFW.GLFW_MOUSE_BUTTON_2) {
+//                    remove(tabContextMenu);
+//                    int finalI = i;
+//                    tabContextMenu = new ContextMenuWidget.Builder(this)
+//                            .addHeaderButton(closeIcon.getImage(), () -> {
+//                                playSound(Sound.CLOSETAB);
+//                                if (tabs.size() > 1) {
+//                                    saveTabState(tab);
+//                                    tabs.remove(finalI);
+//                                    tabsBar.closeTab(finalI);
+//                                    if (!tabs.isEmpty()) {
+//                                        this.textEditor = tab.textEditor;
+//                                    } else {
+//                                        close();
+//                                    }
+//                                    RemotelyClient.INSTANCE.saveFileEditorTabs(tabs.stream().map(t -> t.path).collect(Collectors.toList()));
+//                                } else {
+//                                    close();
+//                                }
+//                            }, "Close The Tab")
+//                            .addHeaderButton(saveIcon.getImage(), () -> {
+//                                playSound(Sound.SAVE);
+//                                tab.saveFile(finalI);
+//                            }, "Save The Current File")
+//                            .addHeaderButton("/assets/remotely/icons/external.png", () -> {
+//                                playSound(Sound.CLICK);
+//                                openExternally(tab.path);
+//                            }, "Open In The Default App")
+//                            .build();
+//                    addDrawableChild(tabContextMenu);
+//                    tabContextMenu.show((int) mouseX, (int) mouseY);
+//                    return true;
+//                } else {
+//                    tabContextMenu.hide();
+//                }
+//            }
+//            tabX += tabWidth + TAB_GAP;
+//        }
+//        if (clickedTab) {
+//            return true;
+//        }
+//        boolean clickedSave = mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24 && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
+//        if (clickedSave) {
+//            playSound(Sound.SAVE);
+//            tabs.get(currentTabIndex).saveFile();
+//            return true;
+//        }
+//        boolean clickedBack = mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24 && button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
+//        if (clickedBack) {
+//            close();
+//            return true;
+//        }
+//        float animWidth = animatedSidePanelWidth;
+//        int panelX = this.width - (int) animWidth;
+//        int panelY = 60;
+//        int panelHeight = this.height - 65;
+//        if (animWidth > 0) {
+//            if (Math.abs(mouseX - (panelX - 1)) < 5 && mouseY >= panelY && mouseY <= panelY + panelHeight && button == 0) {
+//                isResizingSidePanel = true;
+//                return true;
+//            }
+//            if (mouseX >= panelX && mouseX <= panelX + animWidth && mouseY >= panelY && mouseY <= panelY + panelHeight && !aiMode) {
+//                int entryHeight = 20 + 2;
+//                double localY = mouseY - panelY + tabs.get(currentTabIndex).sidePanelScrollOffset;
+//                int indexPos = 0;
+//                for (SidePanelEntry entry : sidePanelEntries) {
+//                    if (localY >= indexPos && localY < indexPos + entryHeight) {
+//                        if (Files.isDirectory(entry.data.path)) {
+//                            Tab currentTab = tabs.get(currentTabIndex);
+//                            if (currentTab.openedPathsForSidePanel.contains(entry.data.path)) {
+//                                currentTab.openedPathsForSidePanel.remove(entry.data.path);
+//                            } else {
+//                                currentTab.openedPathsForSidePanel.add(entry.data.path);
+//                            }
+//                            updateSidePanelEntries();
+//                        } else {
+//                            if (!entry.data.path.equals(tabs.get(currentTabIndex).path) && isSupportedFile(entry.data.path)) {
+//                                boolean found = false;
+//                                for (int j = 0; j < tabs.size(); j++) {
+//                                    if (tabs.get(j).path.equals(entry.data.path.normalize())) {
+//                                        currentTabIndex = j;
+//                                        found = true;
+//                                        break;
+//                                    }
+//                                }
+//                                if (!found) {
+//                                    Tab newTab = new Tab(entry.data.path);
+//                                    tabs.add(newTab);
+//                                    currentTabIndex = tabs.size() - 1;
+//                                }
+//                                this.textEditor = tabs.get(currentTabIndex).textEditor;
+//                                updateSidePanelEntries();
+//                            } else {
+//                                openExternally(entry.data.path);
+//                            }
+//                        }
+//                        return true;
+//                    }
+//                    indexPos += entryHeight;
+//                }
+//                return true;
+//            }
+//        }
+//        return super.mouseClicked(mouseX, mouseY, button) || tabs.get(currentTabIndex).textEditor.mouseClicked(mouseX, mouseY, button);
+//    }
+//
+//    private void updateSidePanelEntries() {
+//        sidePanelEntries.clear();
+//        if (tabs.isEmpty()) return;
+//        Tab currentTab = tabs.get(currentTabIndex);
+//        Path filePath = currentTab.path;
+//        if (filePath == null) return;
+//        if (!currentTab.sidePanelInitialized) {
+//            Path current = filePath;
+//            while (current != null) {
+//                currentTab.openedPathsForSidePanel.add(current);
+//                current = current.getParent();
+//            }
+//            currentTab.sidePanelScrollOffset = 0f;
+//            currentTab.targetSidePanelScrollOffset = 0f;
+//            currentTab.sidePanelInitialized = true;
+//        }
+//        Path rootPath = filePath;
+//        while (rootPath.getParent() != null) {
+//            rootPath = rootPath.getParent();
+//        }
+//        buildSidePanelData(rootPath, 0, currentTab.openedPathsForSidePanel);
+//        if (!currentTab.initialScrollSet) {
+//            int index = 0;
+//            int entryHeight = 22;
+//            for (int i = 0; i < sidePanelEntries.size(); i++) {
+//                if (sidePanelEntries.get(i).data.path.equals(filePath)) {
+//                    index = i;
+//                    break;
+//                }
+//            }
+//            currentTab.sidePanelScrollOffset = index * entryHeight;
+//            currentTab.targetSidePanelScrollOffset = index * entryHeight;
+//            currentTab.initialScrollSet = true;
+//        }
+//    }
+//
+//    private void buildSidePanelData(Path currentPath, int depth, Set<Path> openedPaths) {
+//        if (currentPath == null || !Files.exists(currentPath)) return;
+//        EntryData data = getEntryDataForPath(currentPath);
+//        SidePanelEntry entry = new SidePanelEntry(data, depth);
+//        entry.isOpen = openedPaths.contains(currentPath);
+//        sidePanelEntries.add(entry);
+//        try {
+//            if (Files.isDirectory(currentPath) && entry.isOpen) {
+//                List<Path> dirChildren = new ArrayList<>();
+//                DirectoryStream<Path> stream = Files.newDirectoryStream(currentPath);
+//                for (Path child : stream) {
+//                    dirChildren.add(child);
+//                }
+//                stream.close();
+//                dirChildren.sort((p1, p2) -> {
+//                    boolean d1 = Files.isDirectory(p1);
+//                    boolean d2 = Files.isDirectory(p2);
+//                    if (d1 && !d2) return -1;
+//                    if (!d1 && d2) return 1;
+//                    return p1.getFileName().toString().compareToIgnoreCase(p2.getFileName().toString());
+//                });
+//                for (Path child : dirChildren) {
+//                    buildSidePanelData(child, depth + 1, openedPaths);
+//                }
+//            }
+//        } catch (Exception ignored) {}
+//    }
+//
+//    public EntryData getEntryDataForPath(Path p) {
+//        String dn = p.getFileName() != null ? p.getFileName().toString() : p.toString();
+//        boolean isDirectory = Files.isDirectory(p);
+//        return new EntryData(p, isDirectory, "", "", dn);
+//    }
+//
+//    private void renderSidePanel(DrawContext context, int x, int y, int width, int height, int mouseX, int mouseY) {
+//        Tab currentTab = tabs.get(currentTabIndex);
+//        currentTab.sidePanelScrollOffset += (currentTab.targetSidePanelScrollOffset - currentTab.sidePanelScrollOffset) * globalScrollSpeed * deltaTime;
+//        int entryHeight = 20;
+//        int entryGap = 2;
+//        int totalEntryHeight = entryHeight + entryGap;
+//        int currentY = y - (int) currentTab.sidePanelScrollOffset;
+//        for (SidePanelEntry entry : sidePanelEntries) {
+//            if (currentY + entryHeight < y) {
+//                currentY += totalEntryHeight;
+//                continue;
+//            }
+//            if (currentY > y + height) {
+//                break;
+//            }
+//            boolean hovered = mouseX >= x && mouseX <= x + width && mouseY >= currentY && mouseY < currentY + entryHeight;
+//            int indent = entry.depth * 5;
+//            drawExplorerElements(context, hovered, entry.data.displayName.equals(tabs.get(currentTabIndex).name), false, entry.data, x + indent, currentY, width - indent, entryHeight, minecraftClient.textRenderer, false, null, null, 0);
+//            currentY += totalEntryHeight;
+//        }
+//    }
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
@@ -885,7 +885,7 @@ public class FileEditorScreen extends Screen {
             int scrollDir = verticalAmount >= 0 ? (int) Math.ceil(verticalAmount * 20) : (int) Math.floor(verticalAmount * 20);
             Tab currentTab = tabs.get(currentTabIndex);
             currentTab.targetSidePanelScrollOffset -= scrollDir;
-            int totalHeight = sidePanelEntries.size() * 20;
+            int totalHeight =  20;
             int maxScroll = Math.max(0, totalHeight - panelHeight + 10);
             if (currentTab.targetSidePanelScrollOffset < 0) currentTab.targetSidePanelScrollOffset = 0;
             if (currentTab.targetSidePanelScrollOffset > maxScroll) currentTab.targetSidePanelScrollOffset = maxScroll;
@@ -932,7 +932,7 @@ public class FileEditorScreen extends Screen {
             drawOuterBorder(context, panelX, panelY, animWidth, panelHeight, innerBackgroundColor);
             context.enableScissor(panelX, panelY, panelX + animWidth, panelY + panelHeight);
             if (aiMode) aiSidePanel.render(context, panelX, panelY, animWidth, panelHeight, mouseX, mouseY);
-            else renderSidePanel(context, panelX, panelY, animWidth, panelHeight, mouseX, mouseY);
+//            else renderSidePanel(context, panelX, panelY, animWidth, panelHeight, mouseX, mouseY);
             context.disableScissor();
         }
     }
