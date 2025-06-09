@@ -22,7 +22,7 @@ public class WidgetsTestingScreen extends ReScreen {
 
     public void init() {
         super.init();
-        addDrawableChild(new AnimatedButton.ButtonBuilder().pos(70, 42).size(100, 20).label(Text.literal("Click Me")).onClick(() -> headerBuilder.nextPosition()).build());
+        addDrawableChild(new AnimatedButton.Builder().pos(70, 42).size(100, 20).label(Text.literal("Click Me")).onClick(() -> headerBuilder.nextPosition()).build());
         addDrawableChild(new SquareButtonWidget.Builder().pos(70, 72).size(18, 18).image(null).build());
         addDrawableChild(new SquareButtonWidget.Builder().pos(90, 72).size(18, 18).imagePath("/assets/remotely/icons/remotely.png").hint("Best Mod Ever!").build());
         addDrawableChild(new SquareButtonWidget.Builder().pos(110, 72).size(18, 18).imagePath("/assets/remotely/icons/external.png").build());
@@ -35,10 +35,10 @@ public class WidgetsTestingScreen extends ReScreen {
         addDrawableChild(new TextInputWidget.Builder().pos(70, 192).size(100, 20).placeholder("Type here...").text("90% Bug Free!").build());
         addDrawableChild(new DoubleSliderWidget.Builder().pos(70, 222).size(100, 20).label("Volume").value(50).build());
         addDrawableChild(new IconButton.Builder().pos(70, 252).size(100, 20).imagePath("/assets/remotely/icons/zip.png").label(Text.literal("Iconic Button")).centered(true).build());
-        addDrawableChild(new AnimatedButton.ButtonBuilder().pos(360, 42).size(120, 20).label(Text.literal("No Color Animation")).animateColor(false).build());
-        addDrawableChild(new AnimatedButton.ButtonBuilder().pos(360, 72).size(120, 20).label(Text.literal("No Elevation Animation")).animateElevation(false).hint("No Annoying Movements").build());
-        addDrawableChild(new AnimatedButton.ButtonBuilder().pos(360, 102).size(120, 20).label(Text.literal("Flat Button")).flat(true).hint("Pretty Flat").build());
-        addDrawableChild(new AnimatedButton.ButtonBuilder().pos(360, 132).size(120, 20).label(Text.literal("No Open Animation")).entranceAnimation(false).hint("Animation Won't Play On Open").build());
+        addDrawableChild(new AnimatedButton.Builder().pos(360, 42).size(120, 20).label(Text.literal("No Color Animation")).animateColor(false).build());
+        addDrawableChild(new AnimatedButton.Builder().pos(360, 72).size(120, 20).label(Text.literal("No Elevation Animation")).animateElevation(false).hint("No Annoying Movements").build());
+        addDrawableChild(new AnimatedButton.Builder().pos(360, 102).size(120, 20).label(Text.literal("Flat Button")).flat(true).hint("Pretty Flat").build());
+        addDrawableChild(new AnimatedButton.Builder().pos(360, 132).size(120, 20).label(Text.literal("No Open Animation")).entranceAnimation(false).hint("Animation Won't Play On Open").build());
         contextMenu = new ContextMenuWidget.Builder(this)
                 .addItem("Menu Context", null, "Hell Yea")
                 .addIconItem("Berger", "/assets/remotely/icons/download.png", () -> new Notification("SAY BURGER OR DIE", "I'M NOT JOKING", Notification.Type.ERROR), "")

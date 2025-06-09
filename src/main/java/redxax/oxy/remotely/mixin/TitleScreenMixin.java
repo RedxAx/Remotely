@@ -186,6 +186,6 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screen.S
     @Unique
     private void openFileExplorerScreen() {
         MinecraftClient client = MinecraftClient.getInstance();
-        client.setScreen(new FileExplorerScreen(client, this, new ServerInfo(remotelyDir.toString())));
+        client.setScreen(new FileExplorerScreen(this, new ServerInfo(remotelyDir.toString())));
     }
 }

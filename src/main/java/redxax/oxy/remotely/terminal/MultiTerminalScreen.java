@@ -822,7 +822,7 @@ public class MultiTerminalScreen extends Screen {
                         return true;
                     }
                     if (mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24) {
-                        minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, serverTerminal.getServerInfo()));
+                        minecraftClient.setScreen(new FileExplorerScreen(this, serverTerminal.getServerInfo()));
                         return true;
                     }
                     if (mouseX >= 28 && mouseX <= 45 && mouseY >= 6 && mouseY <= 24) {
@@ -841,7 +841,7 @@ public class MultiTerminalScreen extends Screen {
             } else {
                 if (button == 0) {
                     if (mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24) {
-                        minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo(headerTerminal.getCurrentDir())));
+                        minecraftClient.setScreen(new FileExplorerScreen(this, new ServerInfo(headerTerminal.getCurrentDir())));
                         return true;
                     }
                 }
