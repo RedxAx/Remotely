@@ -187,7 +187,7 @@ public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.scree
     private void openFileExplorerScreen() {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client != null) {
-            client.setScreen(new FileExplorerScreen(client, this, new ServerInfo(remotelyDir.toString())));
+            client.setScreen(new FileExplorerScreen(this, new ServerInfo(remotelyDir.toString())));
         }
     }
 }

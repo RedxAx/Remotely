@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 import static redxax.oxy.remotely.config.Config.*;
+import static redxax.oxy.remotely.ui.widgets.AnimatedWidget.EntranceCorner.TOP_LEFT;
 import static redxax.oxy.remotely.util.ImageUtil.drawPixelArt;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
@@ -69,16 +70,17 @@ public class FileEntryWidget extends AnimatedWidget {
         boolean isFavorite;
         synchronized (favoritePathsLock) {
             isFavorite = favoritePaths.contains(fileEntry.path);
+            accentType = isFavorite ? AccentType.DANGER : AccentType.DEFAULT;
         }
         BufferedImage icon = fileEntry.isDirectory ? FileExplorerScreen.folderIcon : FileExplorerScreen.getIconForFile(fileEntry.path);
-        drawPixelArt(context, getX() + 10, getY() + 2, 16, 16, icon);
+        drawPixelArt(context, getX() + 8, getY() + 2, 16, 16, icon);
         if (isFavorite) {
-            drawPixelArt(context, fileEntry.isDirectory ? getX() + 5 : getX() + 7, getY() + 2, 16, 16, FileExplorerScreen.pinIcon);
+            drawPixelArt(context, fileEntry.isDirectory ? getX() + 3 : getX() + 5, getY() + 2, 16, 16, FileExplorerScreen.pinIcon);
         }
         if (!isRemote) {
-            int createdX = getX() + getWidth() - 100;
-            int sizeX = createdX - 100;
-            context.drawText(tr, Text.literal(fileEntry.displayName), getX() + 30, getY() + 6, globalTextColor, Config.shadow);
+            int createdX = getX() + getWidth() - tr.getWidth(fileEntry.created) - 2;
+            int sizeX = createdX - tr.getWidth(fileEntry.size) - 8;
+            context.drawText(tr, Text.literal(fileEntry.displayName), getX() + 28, getY() + 6, globalTextColor, Config.shadow);
             context.drawText(tr, Text.literal(fileEntry.created), createdX, getY() + 6, globalTextColor, Config.shadow);
             context.drawText(tr, Text.literal(fileEntry.size), sizeX, getY() + 6, globalTextColor, Config.shadow);
         } else {
@@ -88,15 +90,14 @@ public class FileEntryWidget extends AnimatedWidget {
 
     @Override
     public void onClick(double mouseX, double mouseY, int button) {
+        FileExplorerScreen explorer = (FileExplorerScreen) MinecraftClient.getInstance().currentScreen;
         if (button == 0) {
             onDoubleClick.accept(this);
         } else if (button == 1 && onRightClick != null) {
             onRightClick.accept(this);
         } else if (button == 2) {
-            playSound(Sound.CREATE);
-            FileExplorerScreen explorer = (FileExplorerScreen) MinecraftClient.getInstance().currentScreen;
-            if (explorer != null) {
-                explorer.createTab(fileEntry.path);
+            if (explorer != null && fileEntry.isDirectory) {
+                explorer.createTab(fileEntry.path, true);
             }
         }
     }

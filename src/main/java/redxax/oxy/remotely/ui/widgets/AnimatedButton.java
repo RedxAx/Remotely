@@ -8,12 +8,12 @@ public class AnimatedButton extends AnimatedWidget {
     protected Runnable action;
     protected boolean centered = true;
 
-    public static class ButtonBuilder extends Builder<AnimatedButton, ButtonBuilder> {
-        public ButtonBuilder() { super(new AnimatedButton(0, 0, 100, 20, Text.empty())); }
-        public ButtonBuilder label(Text t) { widget.setMessage(t); return this; }
-        public ButtonBuilder onClick(Runnable c) { widget.action = c; return this; }
-        public ButtonBuilder centered(boolean c) { widget.centered = c; return this; }
-        @Override protected ButtonBuilder self() { return this; }
+    public static class Builder extends AnimatedWidget.Builder<AnimatedButton, Builder> {
+        public Builder() { super(new AnimatedButton(0, 0, 100, 20, Text.empty())); }
+        public Builder label(Text t) { widget.setMessage(t); return this; }
+        public Builder onClick(Runnable c) { widget.action = c; return this; }
+        public Builder centered(boolean c) { widget.centered = c; return this; }
+        @Override protected Builder self() { return this; }
     }
 
     public AnimatedButton(int x, int y, int width, int height, Text message) {

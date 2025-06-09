@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import net.minecraft.client.gui.screen.Screen;
 import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.config.SettingsScreen;
@@ -35,6 +36,7 @@ public class RemotelyClient {
     private static final Path SNIPPETS_FILE = Paths.get(String.valueOf(remotelyDir), "data", "snippets.json");
     private static final Path FILE_EDITOR_TABS_FILE = Paths.get(String.valueOf(remotelyDir), "data", "file_editor_tabs.json");
     public static List<MultiTerminalScreen.Theme> themes = new ArrayList<>();
+    public static FileExplorerScreen fileExplorer;
 
 
     private static final Gson GSON = new Gson();
@@ -52,6 +54,7 @@ public class RemotelyClient {
     private final Map<String, SSHManager> hostSSHManagers = new HashMap<>();
     public static String os;
     public static Screen mcScreen = null;
+    public static MinecraftClient mc = MinecraftClient.getInstance();
 
     public void initialize() {
         INSTANCE = this;
@@ -135,7 +138,7 @@ public class RemotelyClient {
                 for (Path entry : stream) {
                     String fileName = entry.getFileName().toString();
                     String tabName = fileName.substring(0, fileName.length() - 4);
-                    TerminalInstance terminal = new TerminalInstance(MinecraftClient.getInstance(), multiTerminalScreen, UUID.randomUUID());
+                    TerminalInstance terminal = new TerminalInstance(mc, multiTerminalScreen, UUID.randomUUID());
                     terminal.loadTerminalOutput(entry);
                     terminals.add(terminal);
                     tabNames.add(tabName);
@@ -144,8 +147,8 @@ public class RemotelyClient {
                     multiTerminalScreen.activeTerminalIndex = activeTerminalIndex;
                 }
             } catch (IOException e) {
-                if (MinecraftClient.getInstance().player != null) {
-                    MinecraftClient.getInstance().player.sendMessage(Text.literal("Failed to load saved terminals."), false);
+                if (mc.player != null) {
+                    mc.player.sendMessage(Text.literal("Failed to load saved terminals."), false);
                 }
             }
         }

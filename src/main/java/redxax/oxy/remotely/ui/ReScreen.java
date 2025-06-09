@@ -26,7 +26,7 @@ import static redxax.oxy.remotely.util.ImageUtil.drawBufferedImage;
 
 public class ReScreen extends Screen {
     protected HeaderBuilder headerBuilder;
-    protected Container activeContainer;
+    public Container activeContainer;
     protected Map<String, Container> containers;
     protected Map<String, SidePanel> sidePanels;
     protected List<SidePanel> sidePanelList;
@@ -156,6 +156,15 @@ public class ReScreen extends Screen {
                 activeTabIndex = (activeTabIndex - 1 + tabs.size()) % tabs.size();
             }
             setActiveTab(activeTabIndex);
+        }
+
+        public void clearWidgets() {
+            for (Tab tab : tabs) {
+                if (tab.widget != null) {
+                    remove(tab.widget);
+                    tab.widget = null;
+                }
+            }
         }
 
         public static class Tab {
@@ -313,13 +322,17 @@ public class ReScreen extends Screen {
             return activeTabIndex >= 0 && activeTabIndex < tabs.size() ? tabs.get(activeTabIndex) : null;
         }
 
+        public int getActiveTabIndex() {
+            return activeTabIndex;
+        }
+
         public List<Tab> getTabs() {
             return new ArrayList<>(tabs);
         }
 
         private void createTabWidget(Tab tab) {
             String displayName = tab.name + (tab.unsaved ? "*" : "");
-            tab.widget = new AnimatedButton.ButtonBuilder()
+            tab.widget = new AnimatedButton.Builder()
                     .label(Text.literal(displayName))
                     .onClick(() -> {
                         int idx = tabs.indexOf(tab);
@@ -797,7 +810,6 @@ public class ReScreen extends Screen {
         public Container addWidget(AnimatedWidget widget) {
             widgets.add(widget);
             originalYPositions.add(0);
-            widget.resetEntranceAnimation();
             widget.setScissorRegion(x + 1, y + 1, x + getEffectiveWidth() - 1, cHeight - 1);
             if (enableSelecting) {
                 widget.selectable = true;
@@ -1214,6 +1226,23 @@ public class ReScreen extends Screen {
             return new ArrayList<>(selectedWidgets);
         }
 
+        public void addSelectedWidget(AnimatedWidget widget) {
+            if (enableSelecting && !selectedWidgets.contains(widget)) {
+                selectWidget(widget, true);
+            }
+        }
+
+        public void selectAllWidgets() {
+            if (enableSelecting) {
+                clearSelection();
+                selectedWidgets.addAll(widgets);
+                currentSelectedWidgets.addAll(widgets);
+                for (AnimatedWidget widget : widgets) {
+                    widget.setSelected(true);
+                }
+            }
+        }
+
         public int getPadding() {
             return padding;
         }
@@ -1556,9 +1585,7 @@ public class ReScreen extends Screen {
         if (headerBuilder != null) {
             headerBuilder.build();
         }
-        if (activeContainer == null) {
-            this.activeContainer = new Container(0, 0, this.width, this.height);
-        } else {
+        if (activeContainer != null) {
             activeContainer.size(this.width, this.height);
         }
         AnimatedWidget.setCornerSpeedMultiplier(CENTER, .3f);
@@ -1676,6 +1703,10 @@ public class ReScreen extends Screen {
                 tabsManager.loopTabs(!shift);
                 return true;
             }
+        }
+        if (keyCode == GLFW.GLFW_KEY_A && ctrl) {
+            activeContainer.selectAllWidgets();
+            return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }

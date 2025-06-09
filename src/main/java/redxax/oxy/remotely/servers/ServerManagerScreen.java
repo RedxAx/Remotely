@@ -4,7 +4,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.client.gui.screen.Screen;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.Render.*;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.config.SettingsScreen;
@@ -563,7 +562,7 @@ public class ServerManagerScreen extends Screen {
                         ServerInfo info = getCurrentServers().get(rect.serverIndex);
                         minecraftClient.setScreen(new SettingsScreen("editServer", this, info.path, settings, info));
                     }, false, false, false, "Open The Server's Settings");
-                    ContextMenu.addItem("Open Folder", () -> minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, getCurrentServers().get(rect.serverIndex), false)), false, false, false, "Open The Server's Folder");
+                    ContextMenu.addItem("Open Folder", () -> minecraftClient.setScreen(new FileExplorerScreen(this, getCurrentServers().get(rect.serverIndex), false)), false, false, false, "Open The Server's Folder");
                     ContextMenu.addItem("Delete", () -> {
                         deletionPopupActive = true;
                         deletionPopupServerIndex = rect.serverIndex;
@@ -586,7 +585,7 @@ public class ServerManagerScreen extends Screen {
             xTask += iconSize + padding;
             if (mouseX >= xTask && mouseX <= xTask + iconSize) {
                 try {
-                    minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo(remotelyDir.toString()), false));
+                    minecraftClient.setScreen(new FileExplorerScreen(this, new ServerInfo(remotelyDir.toString()), false));
                 } catch (Exception ignored) {}
                 return true;
             }
@@ -1090,7 +1089,7 @@ public class ServerManagerScreen extends Screen {
     private void openImportFileExplorer() {
         if (activeTabIndex == 0) {
             try {
-                minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, new ServerInfo(remotelyDir.toString()), true));
+                minecraftClient.setScreen(new FileExplorerScreen(this, new ServerInfo(remotelyDir.toString()), true));
             } catch (Exception ignored) {}
         } else {
             try {
@@ -1101,7 +1100,7 @@ public class ServerManagerScreen extends Screen {
                 ServerInfo rinfo = new ServerInfo(path);
                 rinfo.isRemote = true;
                 rinfo.remoteHost = remoteHost;
-                minecraftClient.setScreen(new FileExplorerScreen(minecraftClient, this, rinfo, true));
+                minecraftClient.setScreen(new FileExplorerScreen(this, rinfo, true));
             } catch (Exception ignored) {}
         }
     }

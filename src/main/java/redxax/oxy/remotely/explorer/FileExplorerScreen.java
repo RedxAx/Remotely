@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.explorer;
 
-import net.minecraft.client.MinecraftClient;
+import com.google.common.reflect.TypeToken;
+import com.google.gson.Gson;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
@@ -16,6 +17,8 @@ import redxax.oxy.remotely.util.Notification;
 import redxax.oxy.remotely.util.Sound;
 
 import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
@@ -27,7 +30,6 @@ import static redxax.oxy.remotely.util.SoundUtils.playSound;
 import static redxax.oxy.remotely.util.searchUtils.isFuzzyMatch;
 
 public class FileExplorerScreen extends ReScreen {
-    private final MinecraftClient minecraftClient;
     private final Screen parent;
     private final ServerInfo serverInfo;
     private final RemotelyCoreAPI fileAPI;
@@ -37,7 +39,7 @@ public class FileExplorerScreen extends ReScreen {
     private final List<FileEntryWidget> allWidgets = new CopyOnWriteArrayList<>();
     private final boolean importMode;
     private ContextMenuWidget itemsContextMenu;
-
+    private Map<Container, Path> containerPaths = new HashMap<>();
     public static BufferedImage fileIcon;
     public static BufferedImage folderIcon;
     public static BufferedImage pinIcon;
@@ -50,13 +52,12 @@ public class FileExplorerScreen extends ReScreen {
             ".bash", ".fish", ".toml", ".mcfunction", ".nbt"
     );
 
-    public FileExplorerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
-        this(mc, parent, info, false);
+    public FileExplorerScreen(Screen parent, ServerInfo info) {
+        this(parent, info, false);
     }
 
-    public FileExplorerScreen(MinecraftClient mc, Screen parent, ServerInfo info, boolean importMode) {
+    public FileExplorerScreen(Screen parent, ServerInfo info, boolean importMode) {
         super(Text.literal("File Explorer"));
-        this.minecraftClient = mc;
         this.parent = parent;
         this.serverInfo = info;
         this.importMode = importMode;
@@ -94,13 +95,13 @@ public class FileExplorerScreen extends ReScreen {
                 .addLeft("/assets/remotely/icons/goforward.png", this::navigateBack, "Go Up")
                 .addLeft("/assets/remotely/icons/newFile.png", this::createNewFile, "Create New")
                 .addLeft("/assets/remotely/icons/external.png", this::openExternally, "Open Externally")
-                .addRight("/assets/remotely/icons/close.png", () -> minecraftClient.setScreen(parent), "Close")
+                .addRight("/assets/remotely/icons/close.png", () -> client.setScreen(parent), "Close")
                 .addRight("/assets/remotely/icons/paste.png", this::paste, "Paste")
                 .addRight("/assets/remotely/icons/copy.png", this::copy, "Copy")
                 .addRight("/assets/remotely/icons/favorite.png", this::toggleFavorites, "Toggle Favorites")
                 .setSearchMode(searchMode, true)
                 .build();
-        tabs().builder().allowReorder(true).allowAdd(true).position(5, 36).size(width - 5, 18).onTabClosed(this::onTabClosed).onPlusButtonClicked(this::onNewTab).build();
+        tabs().builder().allowReorder(true).allowAdd(true).position(5, 36).size(width - 5, 18).onTabClosed(this::onTabClosed).onPlusButtonClicked(this::onNewTab).onTabsReordered(this::onTabReordered).onTabSelected(this::onTabSelected).build();
 
         TabsManager.Tab initialTab = tabs().addTab(getTabName(currentPath), explorerContainer);
         tabs().setActiveTab(0);
@@ -149,7 +150,7 @@ public class FileExplorerScreen extends ReScreen {
                 }, "")
                 .addIconItem("Copy Path", "snippets.png", () -> {
                     FileEntryWidget firstWidget = (FileEntryWidget) currentSelectedWidgets.getFirst();
-                    minecraftClient.keyboard.setClipboard(firstWidget.getFileEntry().path.toString());
+                    client.keyboard.setClipboard(firstWidget.getFileEntry().path.toString());
                 }, "")
                 .addIconItem("Undo", "goback.png", this::undo, "")
                 .addIconItem("Refresh", "reload.png", () -> {
@@ -157,6 +158,7 @@ public class FileExplorerScreen extends ReScreen {
                     loadDirectory(currentPath);
                 }, "").build();
         addDrawableChild(itemsContextMenu);
+        loadExplorerTabs();
     }
 
     private void loadIcons() {
@@ -188,23 +190,19 @@ public class FileExplorerScreen extends ReScreen {
     private void loadDirectory(Path path) {
         loading = true;
         currentPath = path;
+        containerPaths.put(activeContainer, currentPath);
         activeContainer.clearWidgets();
         allWidgets.clear();
         currentSelectedWidgets.clear();
-
-        fileAPI.listDirectory(path).thenAccept(entries -> {
-            minecraftClient.execute(() -> {
-                for (RemotelyCoreAPI.FileEntry entry : entries) {
-                    FileEntryWidget widget = new FileEntryWidget.Builder(entry, fileAPI, serverInfo.isRemote, favoritePaths, favoritePathsLock).size(0, 20)
-                            .onClick(this::onFileDoubleClick).onRightClick(this::onFileRightClick).build();
-
-                    activeContainer.addWidget(widget);
-                    allWidgets.add(widget);
-                }
-                loading = false;
-            });
-        }).exceptionally(e -> {
-            minecraftClient.execute(() -> {
+        fileAPI.listDirectory(path).thenAccept(entries -> client.execute(() -> {
+            for (RemotelyCoreAPI.FileEntry entry : entries) {
+                FileEntryWidget widget = new FileEntryWidget.Builder(entry, fileAPI, serverInfo.isRemote, favoritePaths, favoritePathsLock).size(0, 20).onClick(this::onFileDoubleClick).onRightClick(this::onFileRightClick).build();
+                activeContainer.addWidget(widget);
+                allWidgets.add(widget);
+            }
+            loading = false;
+        })).exceptionally(e -> {
+            client.execute(() -> {
                 loading = false;
                 new Notification("Failed to load directory: ", e.getMessage(), Notification.Type.ERROR);
             });
@@ -219,15 +217,14 @@ public class FileExplorerScreen extends ReScreen {
             navigateTo(entry.path);
         } else {
             if (importMode && entry.path.getFileName().toString().equalsIgnoreCase("server.jar")) {
-                minecraftClient.setScreen(parent);
+                client.setScreen(parent);
                 return;
             }
             if (isSupportedFile(entry.path)) {
-                minecraftClient.setScreen(new FileEditorScreen(minecraftClient, this, entry.path, serverInfo));
+                client.setScreen(new FileEditorScreen(client, this, entry.path, serverInfo));
             } else {
                 openExternally(entry.path);
             }
-
         }
     }
 
@@ -238,16 +235,37 @@ public class FileExplorerScreen extends ReScreen {
 
     private void onTabClosed(TabsManager.Tab tab) {
         if (tabs().getTabs().isEmpty()) {
-            minecraftClient.setScreen(parent);
+            client.setScreen(parent);
+        }
+        saveExplorerTabs();
+    }
+
+    private void onTabReordered(List<TabsManager.Tab> tabs) {
+        saveExplorerTabs();
+    }
+
+    private void onTabSelected(TabsManager.Tab tab) {
+        if (tab.getContainer().getWidgets().isEmpty()) {
+            Path path = containerPaths.get(tab.getContainer());
+            if (path != null) {
+                loadDirectory(path);
+            }
         }
     }
 
     public void onNewTab() {
         Path homePath = serverInfo.isRemote ? Paths.get("/") : Paths.get(System.getProperty("user.home")).toAbsolutePath().normalize();
-        createTab(homePath);
+        createTab(homePath, false);
     }
 
-    public void createTab(Path newPath) {
+    public void createTab(Path newPath, boolean allowDuplicate) {
+        for (TabsManager.Tab tab : tabs().getTabs()) {
+            if (containerPaths.get(tab.getContainer()).equals(newPath) && !allowDuplicate) {
+                tabs().setActiveTab(tabs().getTabs().indexOf(tab));
+                return;
+            }
+        }
+        playSound(Sound.CREATE);
         Container newContainer = createContainer(5, 60, width - 10, height - 5);
         newContainer.columns(1).padding(2).enableSelecting(true).layoutStyle(Container.LayoutStyle.RESTRICTED);
         TabsManager.Tab newTab = tabs().addTab(getTabName(newPath), newContainer);
@@ -288,6 +306,7 @@ public class FileExplorerScreen extends ReScreen {
         if (activeTab != null) {
             activeTab.setName(getTabName(path));
         }
+        saveExplorerTabs();
     }
 
     private void navigateUp() {
@@ -295,8 +314,9 @@ public class FileExplorerScreen extends ReScreen {
         if (parentPath != null) {
             navigateTo(parentPath);
         } else {
-            minecraftClient.setScreen(parent);
+            client.setScreen(parent);
         }
+        saveExplorerTabs();
     }
 
     private void navigateBack() {
@@ -356,13 +376,64 @@ public class FileExplorerScreen extends ReScreen {
         }
     }
 
-    private void updateButtonStates() {
-        boolean hasSelection = !currentSelectedWidgets.isEmpty();
-        // Update button visibility based on selection
-    }
-
     private String getTabName(Path path) {
         return path.getFileName() != null ? path.getFileName().toString() : path.toString();
+    }
+
+    public void saveExplorerTabs() {
+        try {
+            Path tabsFile = Paths.get(String.valueOf(remotelyDir), "data", "file_explorer_tabs.json");
+            if (!Files.exists(tabsFile.getParent())) {
+                Files.createDirectories(tabsFile.getParent());
+            }
+            Map<String, Object> data = new HashMap<>();
+            List<Map<String, Object>> tabList = new ArrayList<>();
+            List<TabsManager.Tab> tabs = tabs().getTabs();
+            for (TabsManager.Tab tab : tabs) {
+                Map<String, Object> tabMap = new HashMap<>();
+                Path tabPath = containerPaths.get(tab.getContainer());
+                tabMap.put("path", tabPath.toString());
+                tabMap.put("isRemote", serverInfo.isRemote);
+                tabMap.put("scrollOffset", 0);
+                if (serverInfo.isRemote && serverInfo.remoteHost != null) {
+                    Map<String, Object> hostMap = new HashMap<>();
+                    hostMap.put("user", serverInfo.remoteHost.getUser());
+                    hostMap.put("ip", serverInfo.remoteHost.getIp());
+                    hostMap.put("port", serverInfo.remoteHost.getPort());
+                    hostMap.put("password", serverInfo.remoteHost.getPassword());
+                    tabMap.put("remoteHostInfo", hostMap);
+                }
+                tabList.add(tabMap);
+            }
+            data.put("tabs", tabList);
+            data.put("currentTabIndex", tabs().getActiveTabIndex());
+            String json = new Gson().toJson(data);
+            Files.write(tabsFile, json.getBytes());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void loadExplorerTabs() {
+        try {
+            Path tabsFile = Paths.get(String.valueOf(remotelyDir), "data", "file_explorer_tabs.json");
+            if (Files.exists(tabsFile)) {
+                String json = new String(Files.readAllBytes(tabsFile));
+                Map<String, Object> data = new Gson().fromJson(json, new TypeToken<Map<String, Object>>() {}.getType());
+                List<Map<String, Object>> tabList = (List<Map<String, Object>>) data.get("tabs");
+                int activeTabIndex = ((Number) data.getOrDefault("currentTabIndex", 0)).intValue();
+                for (Map<String, Object> tabMap : tabList) {
+                    String pathStr = (String) tabMap.get("path");
+                    Path path = Paths.get(pathStr);
+                    createTab(path, false);
+                    loadDirectory(path);
+                    System.out.println("Loaded tab for path: " + path);
+                }
+                tabs().setActiveTab(activeTabIndex);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public static BufferedImage getIconForFile(Path file) {
@@ -401,6 +472,13 @@ public class FileExplorerScreen extends ReScreen {
         }
         if (button == 1) {
             itemsContextMenu.show((int) mouseX, (int) mouseY);
+            if (currentSelectedWidgets.isEmpty()) {
+                for (AnimatedWidget widget : activeContainer.getWidgets()) {
+                    if (widget.isMouseOver(mouseX, mouseY)) {
+                        activeContainer.addSelectedWidget(widget);
+                    }
+                }
+            }
             return true;
         }
         return super.mouseClicked(mouseX, mouseY, button);
@@ -434,7 +512,10 @@ public class FileExplorerScreen extends ReScreen {
             }
         }
         if (keyCode == GLFW.GLFW_KEY_ENTER) {
-
+            for (FileEntryWidget widget : allWidgets) {
+                if (widget.isFocused()) onFileDoubleClick(widget);
+            }
+            return true;
         }
         if (keyCode == GLFW.GLFW_KEY_DELETE) {
             deleteSelected();
@@ -475,6 +556,16 @@ public class FileExplorerScreen extends ReScreen {
                 new Notification("Undo Failed.", e.getMessage(), Notification.Type.ERROR);
                 return null;
             });
+        }
+    }
+
+    @Override
+    public void setActiveContainer(Container container) {
+        super.setActiveContainer(container);
+        if (containerPaths.containsKey(container)) {
+            currentPath = containerPaths.get(container);
+        } else {
+            containerPaths.put(container, currentPath);
         }
     }
 

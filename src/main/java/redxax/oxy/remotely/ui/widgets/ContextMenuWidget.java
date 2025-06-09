@@ -50,7 +50,7 @@ public class ContextMenuWidget extends AnimatedWidget {
             this.nice = nice;
             this.calm = calm;
             this.icon = null;
-            this.button = new AnimatedButton.ButtonBuilder().label(Text.literal(label)).onClick(action).hint(hint).centered(false).entranceAnimationStrength(0.6f).build();
+            this.button = new AnimatedButton.Builder().label(Text.literal(label)).onClick(action).hint(hint).centered(false).entranceAnimationStrength(0.6f).build();
         }
 
         MenuItem(String label, BufferedImage icon, Runnable action, String hint, boolean danger, boolean nice, boolean calm) {
