@@ -165,9 +165,7 @@ public class FileEntryWidget extends AnimatedWidget {
                     setMessage(Text.literal(newName));
                 });
             }).exceptionally(e -> {
-                MinecraftClient.getInstance().execute(() -> {
-                    new Notification("Rename failed: " + e.getMessage(), Notification.Type.ERROR);
-                });
+                MinecraftClient.getInstance().execute(() -> new Notification("Rename failed: " + e.getMessage(), Notification.Type.ERROR));
                 return null;
             });
         }

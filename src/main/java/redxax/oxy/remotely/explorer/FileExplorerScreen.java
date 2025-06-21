@@ -39,7 +39,7 @@ public class FileExplorerScreen extends ReScreen {
     private final List<FileEntryWidget> allWidgets = new CopyOnWriteArrayList<>();
     private final boolean importMode;
     private ContextMenuWidget itemsContextMenu;
-    private Map<Container, Path> containerPaths = new HashMap<>();
+    private final Map<Container, Path> containerPaths = new HashMap<>();
     public static BufferedImage fileIcon;
     public static BufferedImage folderIcon;
     public static BufferedImage pinIcon;
@@ -65,12 +65,8 @@ public class FileExplorerScreen extends ReScreen {
         if (serverInfo.isRemote) {
             this.fileAPI = new RemoteAPI(serverInfo.remoteHost);
             String normalized = serverInfo.path == null ? "" : serverInfo.path.replace("\\", "/").trim();
-            if (normalized.isEmpty()) {
-                normalized = "/";
-            }
-            if (!normalized.startsWith("/")) {
-                normalized = "/" + normalized;
-            }
+            if (normalized.isEmpty()) normalized = "/";
+            if (!normalized.startsWith("/")) normalized = "/" + normalized;
             this.currentPath = Paths.get(normalized);
         } else {
             this.fileAPI = new LocalAPI();
@@ -83,6 +79,7 @@ public class FileExplorerScreen extends ReScreen {
     @Override
     protected void init() {
         super.init();
+
         Container explorerContainer = createContainer("explorer", 5, 60, width - 10, height - 5);
         explorerContainer.columns(1).padding(2).layoutStyle(Container.LayoutStyle.RESTRICTED).enableSelecting(true);
         setActiveContainer(explorerContainer);
@@ -103,62 +100,39 @@ public class FileExplorerScreen extends ReScreen {
                 .build();
         tabs().builder().allowReorder(true).allowAdd(true).position(5, 36).size(width - 5, 18).onTabClosed(this::onTabClosed).onPlusButtonClicked(this::onNewTab).onTabsReordered(this::onTabReordered).onTabSelected(this::onTabSelected).build();
 
-        TabsManager.Tab initialTab = tabs().addTab(getTabName(currentPath), explorerContainer);
-        tabs().setActiveTab(0);
+        loadExplorerTabs();
 
-        loadDirectory(currentPath);
+        if (tabs().getTabs().isEmpty()) {
+            tabs().addTab(getTabName(currentPath), explorerContainer);
+            containerPaths.put(explorerContainer, currentPath);
+            tabs().setActiveTab(0);
+        }
 
         itemsContextMenu = new ContextMenuWidget.Builder(this)
-                .addHeaderButton("copy.png", () -> {
-                    playSound(Sound.COPY);
-                    copy();
-                }, "Copy Items")
-                .addHeaderButton("cut.png", () -> {
-                    playSound(Sound.COPY);
-                    cut();
-                }, "Cut Items")
-                .addHeaderButton("paste.png", () -> {
-                    playSound(Sound.PASTE);
-                    paste();
-                }, "Paste Items")
-                .addHeaderButton("favorite.png", () -> {
-                    playSound(Sound.CLICK);
-                    toggleFavorites();
-                }, "Favorite Items")
-                .addHeaderButton("edit.png", () -> {
-                    playSound(Sound.CLICK);
-                    renameSelected();
-                }, "Rename Items")
-                .addHeaderButton("delete.png", () -> {
-                    playSound(Sound.DELETE);
-                    deleteSelected();
-                }, "Delete Items")
+                .addHeaderButton("copy.png", () -> { playSound(Sound.COPY); copy(); }, "Copy Items")
+                .addHeaderButton("cut.png", () -> { playSound(Sound.COPY); cut(); }, "Cut Items")
+                .addHeaderButton("paste.png", () -> { playSound(Sound.PASTE); paste(); }, "Paste Items")
+                .addHeaderButton("favorite.png", () -> { playSound(Sound.CLICK); toggleFavorites(); }, "Favorite Items")
+                .addHeaderButton("edit.png", () -> { playSound(Sound.CLICK); renameSelected(); }, "Rename Items")
+                .addHeaderButton("delete.png", () -> { playSound(Sound.DELETE); deleteSelected(); }, "Delete Items")
                 .addIconItem("Open In New Tab", "newTab.png", () -> {
-                    for (AnimatedWidget widget : currentSelectedWidgets) {
-                        widget.onClick(0, 0, 2);
-                    }
+                    for (AnimatedWidget widget : currentSelectedWidgets) widget.onClick(0, 0, 2);
                 }, "")
                 .addIconItem("Open Externally", "external.png", () -> {
                     playSound(Sound.CLICK);
                     for (AnimatedWidget widget : currentSelectedWidgets) {
-                         openExternally(((FileEntryWidget) widget).getFileEntry().path);
+                        openExternally(((FileEntryWidget) widget).getFileEntry().path);
                     }
                 }, "")
-                .addIconItem("Create File", "newFile.png", () -> {
-                    playSound(Sound.CREATE);
-                    createNewFile();
-                }, "")
+                .addIconItem("Create File", "newFile.png", () -> { playSound(Sound.CREATE); createNewFile(); }, "")
                 .addIconItem("Copy Path", "snippets.png", () -> {
                     FileEntryWidget firstWidget = (FileEntryWidget) currentSelectedWidgets.getFirst();
                     client.keyboard.setClipboard(firstWidget.getFileEntry().path.toString());
                 }, "")
                 .addIconItem("Undo", "goback.png", this::undo, "")
-                .addIconItem("Refresh", "reload.png", () -> {
-                    playSound(Sound.CLICK);
-                    loadDirectory(currentPath);
-                }, "").build();
+                .addIconItem("Refresh", "reload.png", () -> { playSound(Sound.CLICK); loadDirectory(currentPath); }, "")
+                .build();
         addDrawableChild(itemsContextMenu);
-        loadExplorerTabs();
     }
 
     private void loadIcons() {
@@ -184,26 +158,35 @@ public class FileExplorerScreen extends ReScreen {
             pdfIcon = loadResourceIcon("/assets/remotely/icons/pdf.png");
             pptxIcon = loadResourceIcon("/assets/remotely/icons/pptx.png");
             xlsxIcon = loadResourceIcon("/assets/remotely/icons/xlsx.png");
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     private void loadDirectory(Path path) {
         loading = true;
+        final Container targetContainer = activeContainer;
         currentPath = path;
-        containerPaths.put(activeContainer, currentPath);
-        activeContainer.clearWidgets();
-        allWidgets.clear();
-        currentSelectedWidgets.clear();
+        containerPaths.put(targetContainer, currentPath);
+        targetContainer.clearWidgets();
+        if (targetContainer == activeContainer) {
+            allWidgets.clear();
+            currentSelectedWidgets.clear();
+        }
+
         fileAPI.listDirectory(path).thenAccept(entries -> client.execute(() -> {
             for (RemotelyCoreAPI.FileEntry entry : entries) {
-                FileEntryWidget widget = new FileEntryWidget.Builder(entry, fileAPI, serverInfo.isRemote, favoritePaths, favoritePathsLock).size(0, 20).onClick(this::onFileDoubleClick).onRightClick(this::onFileRightClick).build();
-                activeContainer.addWidget(widget);
-                allWidgets.add(widget);
+                FileEntryWidget widget = new FileEntryWidget.Builder(entry, fileAPI, serverInfo.isRemote, favoritePaths, favoritePathsLock)
+                        .size(0, 20)
+                        .onClick(this::onFileDoubleClick)
+                        .onRightClick(this::onFileRightClick)
+                        .build();
+                targetContainer.addWidget(widget);
+                if (targetContainer == activeContainer) allWidgets.add(widget);
             }
-            loading = false;
+            if (targetContainer == activeContainer) loading = false;
         })).exceptionally(e -> {
             client.execute(() -> {
-                loading = false;
+                if (targetContainer == activeContainer) loading = false;
                 new Notification("Failed to load directory: ", e.getMessage(), Notification.Type.ERROR);
             });
             return null;
@@ -229,14 +212,10 @@ public class FileExplorerScreen extends ReScreen {
     }
 
     private void onFileRightClick(FileEntryWidget widget) {
-
     }
 
-
     private void onTabClosed(TabsManager.Tab tab) {
-        if (tabs().getTabs().isEmpty()) {
-            client.setScreen(parent);
-        }
+        if (tabs().getTabs().isEmpty()) client.setScreen(parent);
         saveExplorerTabs();
     }
 
@@ -247,9 +226,7 @@ public class FileExplorerScreen extends ReScreen {
     private void onTabSelected(TabsManager.Tab tab) {
         if (tab.getContainer().getWidgets().isEmpty()) {
             Path path = containerPaths.get(tab.getContainer());
-            if (path != null) {
-                loadDirectory(path);
-            }
+            if (path != null) loadDirectory(path);
         }
     }
 
@@ -259,18 +236,22 @@ public class FileExplorerScreen extends ReScreen {
     }
 
     public void createTab(Path newPath, boolean allowDuplicate) {
+        createTab(newPath, allowDuplicate, false);
+    }
+
+    public void createTab(Path newPath, boolean allowDuplicate, boolean silent) {
         for (TabsManager.Tab tab : tabs().getTabs()) {
             if (containerPaths.get(tab.getContainer()).equals(newPath) && !allowDuplicate) {
                 tabs().setActiveTab(tabs().getTabs().indexOf(tab));
                 return;
             }
         }
-        playSound(Sound.CREATE);
+        if (!silent) playSound(Sound.CREATE);
         Container newContainer = createContainer(5, 60, width - 10, height - 5);
         newContainer.columns(1).padding(2).enableSelecting(true).layoutStyle(Container.LayoutStyle.RESTRICTED);
         TabsManager.Tab newTab = tabs().addTab(getTabName(newPath), newContainer);
+        containerPaths.put(newContainer, newPath);
         tabs().setActiveTab(tabs().getTabs().indexOf(newTab));
-        loadDirectory(newPath);
     }
 
     private void onSearch(String query) {
@@ -278,9 +259,7 @@ public class FileExplorerScreen extends ReScreen {
     }
 
     private void onSearchTextChange(String query) {
-        if (header().liveUpdate) {
-            filterEntries(query);
-        }
+        if (header().liveUpdate) filterEntries(query);
     }
 
     private void filterEntries(String query) {
@@ -303,28 +282,21 @@ public class FileExplorerScreen extends ReScreen {
     private void navigateTo(Path path) {
         loadDirectory(path);
         TabsManager.Tab activeTab = tabs().getActiveTab();
-        if (activeTab != null) {
-            activeTab.setName(getTabName(path));
-        }
+        if (activeTab != null) activeTab.setName(getTabName(path));
         saveExplorerTabs();
     }
 
     private void navigateUp() {
         Path parentPath = currentPath.getParent();
-        if (parentPath != null) {
-            navigateTo(parentPath);
-        } else {
-            client.setScreen(parent);
-        }
+        if (parentPath != null) navigateTo(parentPath);
+        else client.setScreen(parent);
         saveExplorerTabs();
     }
 
     private void navigateBack() {
-        // Implement history navigation
     }
 
     private void createNewFile() {
-        // add a new entry and set it to be focused and renaming
     }
 
     private void openExternally() {
@@ -337,8 +309,7 @@ public class FileExplorerScreen extends ReScreen {
             return;
         }
         try {
-            ProcessBuilder processBuilder = new ProcessBuilder("explorer.exe", path.toString());
-            processBuilder.start();
+            new ProcessBuilder("explorer.exe", path.toString()).start();
         } catch (Exception e) {
             new Notification("Failed To Open Externally.", e.getMessage(), Notification.Type.ERROR);
         }
@@ -371,9 +342,7 @@ public class FileExplorerScreen extends ReScreen {
     }
 
     private void toggleFavorites() {
-        for (AnimatedWidget widget : currentSelectedWidgets) {
-            ((FileEntryWidget) widget).toggleFavorite();
-        }
+        for (AnimatedWidget widget : currentSelectedWidgets) ((FileEntryWidget) widget).toggleFavorite();
     }
 
     private String getTabName(Path path) {
@@ -383,13 +352,10 @@ public class FileExplorerScreen extends ReScreen {
     public void saveExplorerTabs() {
         try {
             Path tabsFile = Paths.get(String.valueOf(remotelyDir), "data", "file_explorer_tabs.json");
-            if (!Files.exists(tabsFile.getParent())) {
-                Files.createDirectories(tabsFile.getParent());
-            }
+            if (!Files.exists(tabsFile.getParent())) Files.createDirectories(tabsFile.getParent());
             Map<String, Object> data = new HashMap<>();
             List<Map<String, Object>> tabList = new ArrayList<>();
-            List<TabsManager.Tab> tabs = tabs().getTabs();
-            for (TabsManager.Tab tab : tabs) {
+            for (TabsManager.Tab tab : tabs().getTabs()) {
                 Map<String, Object> tabMap = new HashMap<>();
                 Path tabPath = containerPaths.get(tab.getContainer());
                 tabMap.put("path", tabPath.toString());
@@ -407,8 +373,7 @@ public class FileExplorerScreen extends ReScreen {
             }
             data.put("tabs", tabList);
             data.put("currentTabIndex", tabs().getActiveTabIndex());
-            String json = new Gson().toJson(data);
-            Files.write(tabsFile, json.getBytes());
+            Files.write(tabsFile, new Gson().toJson(data).getBytes());
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -425,11 +390,9 @@ public class FileExplorerScreen extends ReScreen {
                 for (Map<String, Object> tabMap : tabList) {
                     String pathStr = (String) tabMap.get("path");
                     Path path = Paths.get(pathStr);
-                    createTab(path, false);
-                    loadDirectory(path);
-                    System.out.println("Loaded tab for path: " + path);
+                    createTab(path, false, true);
                 }
-                tabs().setActiveTab(activeTabIndex);
+                if (!tabs().getTabs().isEmpty()) tabs().setActiveTab(Math.min(activeTabIndex, tabs().getTabs().size() - 1));
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -467,16 +430,12 @@ public class FileExplorerScreen extends ReScreen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (itemsContextMenu.isOpen() && itemsContextMenu.mouseClicked(mouseX, mouseY, button)) {
-            return true;
-        }
+        if (itemsContextMenu.isOpen() && itemsContextMenu.mouseClicked(mouseX, mouseY, button)) return true;
         if (button == 1) {
             itemsContextMenu.show((int) mouseX, (int) mouseY);
             if (currentSelectedWidgets.isEmpty()) {
                 for (AnimatedWidget widget : activeContainer.getWidgets()) {
-                    if (widget.isMouseOver(mouseX, mouseY)) {
-                        activeContainer.addSelectedWidget(widget);
-                    }
+                    if (widget.isMouseOver(mouseX, mouseY)) activeContainer.addSelectedWidget(widget);
                 }
             }
             return true;
@@ -499,32 +458,16 @@ public class FileExplorerScreen extends ReScreen {
 
         if (hasAltDown()) {
             switch (keyCode) {
-                case GLFW.GLFW_KEY_UP -> {
-                    activeContainer.columnsGlobally(activeContainer.getColumns() + 1);
-                    return true;
-                }
-                case GLFW.GLFW_KEY_DOWN -> {
-                    if (activeContainer.getColumns() > 1) {
-                        activeContainer.columnsGlobally(activeContainer.getColumns() - 1);
-                    }
-                    return true;
-                }
+                case GLFW.GLFW_KEY_UP -> { activeContainer.columnsGlobally(activeContainer.getColumns() + 1); return true; }
+                case GLFW.GLFW_KEY_DOWN -> { if (activeContainer.getColumns() > 1) activeContainer.columnsGlobally(activeContainer.getColumns() - 1); return true; }
             }
         }
         if (keyCode == GLFW.GLFW_KEY_ENTER) {
-            for (FileEntryWidget widget : allWidgets) {
-                if (widget.isFocused()) onFileDoubleClick(widget);
-            }
+            for (FileEntryWidget widget : allWidgets) if (widget.isFocused()) onFileDoubleClick(widget);
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_DELETE) {
-            deleteSelected();
-            return true;
-        }
-        if (keyCode == GLFW.GLFW_KEY_F2) {
-            renameSelected();
-            return true;
-        }
+        if (keyCode == GLFW.GLFW_KEY_DELETE) { deleteSelected(); return true; }
+        if (keyCode == GLFW.GLFW_KEY_F2) { renameSelected(); return true; }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
@@ -562,11 +505,8 @@ public class FileExplorerScreen extends ReScreen {
     @Override
     public void setActiveContainer(Container container) {
         super.setActiveContainer(container);
-        if (containerPaths.containsKey(container)) {
-            currentPath = containerPaths.get(container);
-        } else {
-            containerPaths.put(container, currentPath);
-        }
+        if (containerPaths.containsKey(container)) currentPath = containerPaths.get(container);
+        else containerPaths.put(container, currentPath);
     }
 
     @Override
