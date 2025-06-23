@@ -316,6 +316,10 @@ public class FileExplorerScreen extends ReScreen {
     }
 
     private void paste() {
+        if (fileAPI.getClipboard().isEmpty()) {
+            new Notification("Clipboard Is Empty.", Notification.Type.WARN);
+            return;
+        }
         fileAPI.paste(currentPath).thenRun(() -> {
             new Notification("Files Pasted! ", "(" + currentSelectedWidgets.size() + ") Items Pasted.", Notification.Type.SUCCESS);
             loadDirectory(currentPath);

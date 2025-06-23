@@ -32,6 +32,7 @@ public class ReScreen extends Screen {
     protected List<SidePanel> sidePanelList;
     protected TabsManager tabsManager;
     public boolean hitBottom;
+    private boolean isInitialized = false;
     protected List<AnimatedWidget> currentSelectedWidgets = new ArrayList<>();
 
     protected ReScreen(Text title) {
@@ -165,6 +166,30 @@ public class ReScreen extends Screen {
                     tab.widget = null;
                 }
             }
+        }
+
+        public void rebuildAllTabWidgets() {
+            clearWidgets();
+            for (Tab tab : tabs) {
+                if (tab.visible) {
+                    createTabWidget(tab);
+                }
+            }
+            if (allowAdd && plusButton == null) {
+                plusButton = new SquareButtonWidget.Builder()
+                        .imagePath("/assets/remotely/icons/newTab.png")
+                        .size(18, 18)
+                        .animateLayout(true)
+                        .onClick(() -> {
+                            if (onPlusButtonClicked != null) onPlusButtonClicked.run();
+                        })
+                        .entranceCorner(TOP_LEFT)
+                        .build();
+                addDrawableChild(plusButton);
+            } else if (allowAdd && plusButton != null) {
+                addDrawableChild(plusButton);
+            }
+            updateLayout();
         }
 
         public static class Tab {
@@ -637,6 +662,12 @@ public class ReScreen extends Screen {
         public SidePanel addWidget(AnimatedWidget widget) {
             innerContainer.addWidget(widget);
             return this;
+        }
+
+        public void rebuildWidgets() {
+            if (animatedWidth > 1) {
+                innerContainer.restoreStateToScreen();
+            }
         }
 
         private void updateAnimation() {
@@ -1361,6 +1392,8 @@ public class ReScreen extends Screen {
                 ReScreen.this.remove(searchBox);
                 ReScreen.this.addDrawableChild(searchBox);
             }
+            leftButtons.clear();
+            rightButtons.clear();
         }
         private void clearHeaderWidgets() {
             for (SquareButtonWidget btn : leftButtons) {
@@ -1585,10 +1618,24 @@ public class ReScreen extends Screen {
         if (headerBuilder != null) {
             headerBuilder.build();
         }
+        rebuildAllWidgets();
         if (activeContainer != null) {
             activeContainer.size(this.width, this.height);
         }
         AnimatedWidget.setCornerSpeedMultiplier(CENTER, .3f);
+        isInitialized = true;
+    }
+
+    private void rebuildAllWidgets() {
+        if (tabsManager != null) {
+            tabsManager.rebuildAllTabWidgets();
+        }
+        for (SidePanel sidePanel : sidePanelList) {
+            sidePanel.rebuildWidgets();
+        }
+        if (activeContainer != null) {
+            activeContainer.restoreStateToScreen();
+        }
     }
 
     @Override
@@ -1724,6 +1771,9 @@ public class ReScreen extends Screen {
         super.resize(client, width, height);
         if (headerBuilder != null) {
             headerBuilder.updateButtonPositions();
+        }
+        if (tabsManager != null) {
+            tabsManager.updateLayout();
         }
     }
 }
