@@ -1,11 +1,13 @@
 package redxax.oxy.remotely.api;
 
+import redxax.oxy.remotely.explorer.FileManager;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 public interface RemotelyCoreAPI {
     CompletableFuture<List<FileEntry>> listDirectory(Path path);
+    List<FileManager.ClipboardEntry> getClipboard();
     CompletableFuture<Void> copy(List<Path> sources, Path destination);
     CompletableFuture<Void> cut(List<Path> sources, Path destination);
     CompletableFuture<Void> paste(Path destination);
