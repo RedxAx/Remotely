@@ -1,0 +1,74 @@
+name: Dark Glass
+colors:
+  globalTextColor: "#FFFFFFFF"
+  globalDarkTextColor: "#FF999999"
+  globalHoverTextColor: "#FF9B59B6"
+  globalOuterBorder: "#80000000"
+  globalSelectionColor: "#809B59B6"
+  globalCursorColor: "#FF9B59B6"
+
+  elementBackgroundColor: "#A01E1E1E"
+  elementBorderColor: "#802C2C2C"
+  elementHoverBackgroundColor: "#C02C2C2C"
+  elementHoverBorderColor: "#A09B59B6"
+
+  inClickableBackgroundColor: "#80121212"
+  inClickableBorderColor: "#601E1E1E"
+
+  accentColor: "#FF9B59B6"
+  accentHoverColor: "#FFB57EDC"
+  accentDarkColor: "#80A1A3A"
+  accentDarkHoverColor: "#A03A2A4A"
+
+  niceAccentColor: "#FF90EE90"
+  niceAccentHoverColor: "#FFA0FEA0"
+  niceDarkAccentColor: "#80204A20"
+  niceDarkHoverAccentColor: "#A0306A30"
+
+  dangerAccentColor: "#FFFF4500"
+  dangerHoverAccentColor: "#FFFF6347"
+  dangerLightAccentColor: "#FFFF6347"
+  dangerDarkAccentColor: "#FFFFFFFF"
+  dangerDarkHoverAccentColor: "#FFFFFFFF"
+
+  calmDarkAccentColor: "#8010103A"
+  calmAccentColor: "#FF4169E1"
+
+  backgroundColor: "#99121212"
+
+  innerBackgroundColor: "#95181818"
+  innerBorderColor: "#95282828"
+  innerBackgroundSelectedColor: "#95383838"
+
+  terminalStatusBarColor: "#70383838"
+  terminalTextColor: "#F0FFFFFF"
+  terminalTextInputColor: "#FF9B59B6"
+  terminalTextWarnColor: "#FFFF8C00"
+  terminalTextErrorColor: "#FFFF4500"
+  terminalTextInfoColor: "#FF90EE90"
+
+  ModrinthBorderColor: "#A090EE90"
+  ModrinthBackgroundColor: "#70204A20"
+
+  SpigotBorderColor: "#A0FF8C00"
+  SpigotBackgroundColor: "#804D2A00"
+
+  HangarBorderColor: "#FF4169E1"
+  HangarBackgroundColor: "#FF10103A"
+
+  syntaxCommentColor: "#FF6A9955"
+  syntaxGlobalVarColor: "#FF4EC9B0"
+  syntaxLocalVarColor: "#FF9CDCFE"
+  syntaxKeywordColor: "#FFC586C0"
+  syntaxStringColor: "#FFCE9178"
+  syntaxNumberColor: "#FFB5CEA8"
+  syntaxBooleanColor: "#FF9B59B6"
+  syntaxKeyColor: "#FF9CDCFE"
+
+#Theme:
+#  By: ShinKuyomi
+#  Name: Dark Glass
+#  Version: 0.2
+#
+#Remotely:
+#  Version: 2.0 DevBuild5
