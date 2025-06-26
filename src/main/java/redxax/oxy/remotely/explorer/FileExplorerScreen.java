@@ -394,7 +394,7 @@ public class FileExplorerScreen extends ReScreen {
                 for (Map<String, Object> tabMap : tabList) {
                     String pathStr = (String) tabMap.get("path");
                     Path path = Paths.get(pathStr);
-                    createTab(path, false, true);
+                    createTab(path, true, true);
                 }
                 if (!tabs().getTabs().isEmpty()) tabs().setActiveTab(Math.min(activeTabIndex, tabs().getTabs().size() - 1));
             }

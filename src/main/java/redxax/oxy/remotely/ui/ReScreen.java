@@ -34,6 +34,11 @@ public class ReScreen extends Screen {
     public boolean hitBottom;
     private boolean isInitialized = false;
     protected List<AnimatedWidget> currentSelectedWidgets = new ArrayList<>();
+    private int lastWidth = 0;
+    private int lastHeight = 0;
+    private boolean needsLayoutUpdate = false;
+    private int initialWidth = 0;
+    private int initialHeight = 0;
 
     protected ReScreen(Text title) {
         super(title);
@@ -106,6 +111,39 @@ public class ReScreen extends Screen {
     private void updateAllContainerWidths() {
         if (activeContainer != null) activeContainer.updateWidgetWidths();
         for (Container c : containers.values()) c.updateWidgetWidths();
+        if (tabsManager != null) {
+            for (TabsManager.Tab tab : tabsManager.getTabs()) {
+                if (tab.getContainer() != null) {
+                    tab.getContainer().updateWidgetWidths();
+                }
+            }
+        }
+    }
+
+    private void updateAllLayouts() {
+        if (headerBuilder != null) {
+            headerBuilder.updateButtonPositions();
+        }
+        if (tabsManager != null) {
+            tabsManager.updateLayout();
+        }
+        updateAllContainerWidths();
+        for (SidePanel sp : sidePanelList) {
+            sp.updateContainerBounds();
+        }
+        if (activeContainer != null) {
+            activeContainer.updateContainerBounds();
+        }
+        for (Container c : containers.values()) {
+            c.updateContainerBounds();
+        }
+        if (tabsManager != null) {
+            for (TabsManager.Tab tab : tabsManager.getTabs()) {
+                if (tab.getContainer() != null) {
+                    tab.getContainer().updateContainerBounds();
+                }
+            }
+        }
     }
 
     public record ContainerState(List<AnimatedWidget> widgets, List<Integer> originalYPositions, float smoothOffset, float targetOffset, List<AnimatedWidget> selectedWidgets) {
@@ -372,6 +410,7 @@ public class ReScreen extends Screen {
 
         private void updateLayout() {
             if (!visible) return;
+            width = ReScreen.this.width;
             List<Integer> widths = new ArrayList<>();
             for (Tab tab : tabs) {
                 String label = tab.name + (tab.unsaved ? "*" : "");
@@ -619,7 +658,7 @@ public class ReScreen extends Screen {
         }
 
         public SidePanel width(int width) {
-            this.desiredWidth = Math.max(minWidth, Math.min(width, width * maxWidthRatio / 100));
+            this.desiredWidth = Math.max(minWidth, Math.min(width, ReScreen.this.width * maxWidthRatio / 100));
             return this;
         }
 
@@ -679,7 +718,7 @@ public class ReScreen extends Screen {
         }
 
         private void updateContainerBounds() {
-            int panelX = width - (int) animatedWidth;
+            int panelX = ReScreen.this.width - (int) animatedWidth;
             innerContainer.pos(panelX, yPos);
             innerContainer.size((int) animatedWidth, panelHeight);
         }
@@ -694,7 +733,7 @@ public class ReScreen extends Screen {
 
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
             if (animatedWidth > 1) {
-                int panelX = width - (int) animatedWidth;
+                int panelX = ReScreen.this.width - (int) animatedWidth;
                 int panelY = yPos;
                 int panelWidth = (int) animatedWidth;
                 int panelHeight = this.panelHeight;
@@ -722,8 +761,8 @@ public class ReScreen extends Screen {
 
         public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
             if (isResizing && button == 0) {
-                int newWidth = width - (int) mouseX;
-                desiredWidth = Math.max(minWidth, Math.min(newWidth, width * maxWidthRatio / 100));
+                int newWidth = ReScreen.this.width - (int) mouseX;
+                desiredWidth = Math.max(minWidth, Math.min(newWidth, ReScreen.this.width * maxWidthRatio / 100));
                 return true;
             }
             if (animatedWidth > 1) {
@@ -734,7 +773,7 @@ public class ReScreen extends Screen {
 
         public boolean mouseScrolled(double mouseX, double mouseY, double verticalAmount) {
             if (animatedWidth > 1) {
-                int panelX = width - (int) animatedWidth;
+                int panelX = ReScreen.this.width - (int) animatedWidth;
                 int panelY = yPos;
                 int panelWidth = (int) animatedWidth;
                 int panelHeight = this.panelHeight;
@@ -760,6 +799,9 @@ public class ReScreen extends Screen {
         private int y;
         private int cWidth;
         private int cHeight;
+        private int widthOffset = 0;
+        private int heightOffset = 0;
+        private boolean relativeToScreen = false;
         private int columns = 1;
         private int padding = 5;
         private float smoothOffset = 0;
@@ -784,6 +826,12 @@ public class ReScreen extends Screen {
             this.cWidth = width;
             this.cHeight = height;
             this.sidePanelContainer = sidePanelContainer;
+
+            if (!sidePanelContainer && ReScreen.this.initialWidth > 0 && ReScreen.this.initialHeight > 0) {
+                this.widthOffset = width - ReScreen.this.initialWidth;
+                this.heightOffset = height - ReScreen.this.initialHeight;
+                this.relativeToScreen = true;
+            }
         }
 
         public void pos(int x, int y) {
@@ -795,6 +843,11 @@ public class ReScreen extends Screen {
         public Container size(int width, int height) {
             this.cWidth = width;
             this.cHeight = height;
+            if (!sidePanelContainer && ReScreen.this.initialWidth > 0 && ReScreen.this.initialHeight > 0) {
+                this.widthOffset = width - ReScreen.this.initialWidth;
+                this.heightOffset = height - ReScreen.this.initialHeight;
+                this.relativeToScreen = true;
+            }
             updateWidgetPositions();
             return this;
         }
@@ -927,6 +980,14 @@ public class ReScreen extends Screen {
 
         public int getEffectiveWidth() {
             return sidePanelContainer ? cWidth : cWidth - getTotalSidePanelWidth();
+        }
+
+        public void updateContainerBounds() {
+            if (!sidePanelContainer && relativeToScreen) {
+                this.cWidth = ReScreen.this.width + widthOffset;
+                this.cHeight = ReScreen.this.height + heightOffset;
+            }
+            updateWidgetPositions();
         }
 
         public void updateWidgetPositions() {
@@ -1108,6 +1169,9 @@ public class ReScreen extends Screen {
 
         public void render(DrawContext context, int mouseX, int mouseY, float delta) {
             if (!sidePanelContainer && this != activeContainer) return;
+
+            updateWidgetPositions();
+
             smoothOffset += (targetOffset - smoothOffset) * globalScrollSpeed * deltaTime;
             int effectiveWidth = getEffectiveWidth();
             drawBackground(context, effectiveWidth);
@@ -1418,10 +1482,10 @@ public class ReScreen extends Screen {
             }
             if (searchBox != null) {
                 switch (position) {
-                    case TOP -> searchBox.setPosition((width - 200) / 2, (headerSize - searchBox.getHeight()) / 2);
-                    case BOTTOM -> searchBox.setPosition((width - 200) / 2, height - headerSize + (headerSize - searchBox.getHeight()) / 2);
-                    case LEFT -> searchBox.setPosition((headerSize - 200) / 2, (height - searchBox.getHeight()) / 2);
-                    case RIGHT -> searchBox.setPosition(width - headerSize + (headerSize - 200) / 2, (height - searchBox.getHeight()) / 2);
+                    case TOP -> searchBox.setPosition((ReScreen.this.width - 200) / 2, (headerSize - searchBox.getHeight()) / 2);
+                    case BOTTOM -> searchBox.setPosition((ReScreen.this.width - 200) / 2, ReScreen.this.height - headerSize + (headerSize - searchBox.getHeight()) / 2);
+                    case LEFT -> searchBox.setPosition((headerSize - 200) / 2, (ReScreen.this.height - searchBox.getHeight()) / 2);
+                    case RIGHT -> searchBox.setPosition(ReScreen.this.width - headerSize + (headerSize - 200) / 2, (ReScreen.this.height - searchBox.getHeight()) / 2);
                 }
             }
         }
@@ -1431,7 +1495,7 @@ public class ReScreen extends Screen {
                 button.setPosition(leftX, 5);
                 leftX += 23;
             }
-            int rightX = width - 23;
+            int rightX = ReScreen.this.width - 28;
             for (SquareButtonWidget button : rightButtons) {
                 button.setPosition(rightX, 5);
                 rightX -= 23;
@@ -1439,12 +1503,12 @@ public class ReScreen extends Screen {
         }
         private void updateBottomPositions() {
             int leftX = 5;
-            int y = height - headerSize + 5;
+            int y = ReScreen.this.height - headerSize + 5;
             for (SquareButtonWidget button : leftButtons) {
                 button.setPosition(leftX, y);
                 leftX += 23;
             }
-            int rightX = width - 23;
+            int rightX = ReScreen.this.width - 28;
             for (SquareButtonWidget button : rightButtons) {
                 button.setPosition(rightX, y);
                 rightX -= 23;
@@ -1456,20 +1520,20 @@ public class ReScreen extends Screen {
                 button.setPosition(5, topY);
                 topY += 23;
             }
-            int bottomY = height - 23;
+            int bottomY = ReScreen.this.height - 28;
             for (SquareButtonWidget button : rightButtons) {
                 button.setPosition(5, bottomY);
                 bottomY -= 23;
             }
         }
         private void updateRightPositions() {
-            int x = width - headerSize + 5;
+            int x = ReScreen.this.width - headerSize + 5;
             int topY = 5;
             for (SquareButtonWidget button : leftButtons) {
                 button.setPosition(x, topY);
                 topY += 23;
             }
-            int bottomY = height - 23;
+            int bottomY = ReScreen.this.height - 28;
             for (SquareButtonWidget button : rightButtons) {
                 button.setPosition(x, bottomY);
                 bottomY -= 23;
@@ -1485,35 +1549,35 @@ public class ReScreen extends Screen {
             }
         }
         private void renderTopHeader(DrawContext context) {
-            context.fill(0, 0, width, headerSize, innerBackgroundColor);
-            drawInnerBorder(context, 0, 0, width, headerSize, innerBorderColor);
-            drawOuterBorder(context, 0, 0, width, headerSize, innerBackgroundColor);
+            context.fill(0, 0, ReScreen.this.width, headerSize, innerBackgroundColor);
+            drawInnerBorder(context, 0, 0, ReScreen.this.width, headerSize, innerBorderColor);
+            drawOuterBorder(context, 0, 0, ReScreen.this.width, headerSize, innerBackgroundColor);
         }
         private void renderBottomHeader(DrawContext context) {
-            int y = height - headerSize;
-            context.fill(0, y, width, height, innerBackgroundColor);
-            drawInnerBorder(context, 0, y, width, headerSize, innerBorderColor);
-            drawOuterBorder(context, 0, y, width, headerSize, innerBackgroundColor);
+            int y = ReScreen.this.height - headerSize;
+            context.fill(0, y, ReScreen.this.width, ReScreen.this.height, innerBackgroundColor);
+            drawInnerBorder(context, 0, y, ReScreen.this.width, headerSize, innerBorderColor);
+            drawOuterBorder(context, 0, y, ReScreen.this.width, headerSize, innerBackgroundColor);
         }
         private void renderLeftHeader(DrawContext context) {
-            context.fill(0, 0, headerSize, height, innerBackgroundColor);
-            drawInnerBorder(context, 0, 0, headerSize, height, innerBorderColor);
-            drawOuterBorder(context, 0, 0, headerSize, height, innerBackgroundColor);
+            context.fill(0, 0, headerSize, ReScreen.this.height, innerBackgroundColor);
+            drawInnerBorder(context, 0, 0, headerSize, ReScreen.this.height, innerBorderColor);
+            drawOuterBorder(context, 0, 0, headerSize, ReScreen.this.height, innerBackgroundColor);
         }
         private void renderRightHeader(DrawContext context) {
-            int x = width - headerSize;
-            context.fill(x, 0, width, height, innerBackgroundColor);
-            drawInnerBorder(context, x, 0, headerSize, height, innerBorderColor);
-            drawOuterBorder(context, x, 0, headerSize, height, innerBackgroundColor);
+            int x = ReScreen.this.width - headerSize;
+            context.fill(x, 0, ReScreen.this.width, ReScreen.this.height, innerBackgroundColor);
+            drawInnerBorder(context, x, 0, headerSize, ReScreen.this.height, innerBorderColor);
+            drawOuterBorder(context, x, 0, headerSize, ReScreen.this.height, innerBackgroundColor);
         }
 
         public boolean isInHeaderArea(double mouseX, double mouseY) {
             if (!visible) return false;
             return switch (position) {
                 case TOP -> mouseY >= 0 && mouseY <= headerSize;
-                case BOTTOM -> mouseY >= height - headerSize && mouseY <= height;
+                case BOTTOM -> mouseY >= ReScreen.this.height - headerSize && mouseY <= ReScreen.this.height;
                 case LEFT -> mouseX >= 0 && mouseX <= headerSize;
-                case RIGHT -> mouseX >= width - headerSize && mouseX <= width;
+                case RIGHT -> mouseX >= ReScreen.this.width - headerSize && mouseX <= ReScreen.this.width;
             };
         }
     }
@@ -1615,6 +1679,8 @@ public class ReScreen extends Screen {
     @Override
     protected void init() {
         super.init();
+        this.initialWidth = this.width;
+        this.initialHeight = this.height;
         if (headerBuilder != null) {
             headerBuilder.build();
         }
@@ -1640,6 +1706,17 @@ public class ReScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        if (this.width != lastWidth || this.height != lastHeight) {
+            lastWidth = this.width;
+            lastHeight = this.height;
+            needsLayoutUpdate = true;
+        }
+
+        if (needsLayoutUpdate) {
+            updateAllLayouts();
+            needsLayoutUpdate = false;
+        }
+
         try {super.render(context, mouseX, mouseY, delta);} catch (ConcurrentModificationException ignored) {}
         animatedScaling(this);
         for (SidePanel sp : sidePanelList) {
@@ -1769,11 +1846,6 @@ public class ReScreen extends Screen {
     @Override
     public void resize(MinecraftClient client, int width, int height) {
         super.resize(client, width, height);
-        if (headerBuilder != null) {
-            headerBuilder.updateButtonPositions();
-        }
-        if (tabsManager != null) {
-            tabsManager.updateLayout();
-        }
+        needsLayoutUpdate = true;
     }
 }
