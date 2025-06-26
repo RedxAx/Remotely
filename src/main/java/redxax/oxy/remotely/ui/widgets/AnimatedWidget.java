@@ -177,6 +177,18 @@ public abstract class AnimatedWidget extends ClickableWidget {
         }
     }
 
+    public void setSize(int width, int height) {
+        if (animateLayout) {
+            targetWidth = width;
+            targetHeight = height;
+        } else {
+            super.setWidth(width);
+            this.height = height;
+            targetWidth = animatedWidth = width;
+            targetHeight = animatedHeight = height;
+        }
+    }
+
     public void setSelected(boolean selected) {
         this.selected = selected;
     }
