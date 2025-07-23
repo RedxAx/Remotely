@@ -47,13 +47,13 @@ public class PopupWidget extends AnimatedWidget {
 
     private static class PopupRow {
         final String label;
-        final List<AnimatedWidget> widgets;
+        List<AnimatedWidget> widgets;
         final int baseHeight;
         final boolean stretchWidgets;
 
         PopupRow(String label, List<AnimatedWidget> widgets, int baseHeight, boolean stretchWidgets) {
             this.label = label;
-            this.widgets = widgets;
+            this.widgets = new ArrayList<>(widgets);
             this.baseHeight = baseHeight;
             this.stretchWidgets = stretchWidgets;
         }
@@ -202,6 +202,20 @@ public class PopupWidget extends AnimatedWidget {
         }
         this.rows.add(new PopupRow(label, widgets, height + LABEL_HEIGHT + FIELD_SPACING, stretch));
         updateLayout();
+    }
+
+    public void replaceWidget(AnimatedWidget oldWidget, AnimatedWidget newWidget) {
+        for (PopupRow row : rows) {
+            int index = row.widgets.indexOf(oldWidget);
+            if (index != -1) {
+                row.widgets.set(index, newWidget);
+                if (newWidget instanceof AnimatedWidget) {
+                    newWidget.animateElevation = false;
+                }
+                updateLayout();
+                return;
+            }
+        }
     }
 
     private void updateLayout() {
