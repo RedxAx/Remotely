@@ -2,6 +2,7 @@ package redxax.oxy.remotely.ui.widgets;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
+import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.Text;
 import redxax.oxy.remotely.Render;
 
@@ -286,24 +287,12 @@ public class PopupWidget extends AnimatedWidget {
             }
             int widgetY = currentY + (row.label != null && !row.label.isEmpty() ? LABEL_HEIGHT : 0);
 
-            int availableWidth = getWidth() - PADDING * 2;
-            int currentX;
-
-            if (row.stretchWidgets) {
-                currentX = getX() + PADDING;
-            } else {
-                int widgetsTotalWidth = 0;
-                for (AnimatedWidget w : row.widgets) {
-                    widgetsTotalWidth += w.getWidth();
-                }
-                widgetsTotalWidth += Math.max(0, row.widgets.size() - 1) * PADDING;
-                currentX = getX() + PADDING + (availableWidth - widgetsTotalWidth) / 2;
-            }
+            int currentX = getX() + PADDING;
 
             for (AnimatedWidget widget : row.widgets) {
                 widget.setPosition(currentX, widgetY);
                 if (widget instanceof AnimatedWidget) {
-                    ((AnimatedWidget) widget).setScissorRegion(getX(), contentY, getX() + contentW, contentY + contentH);
+                    widget.setScissorRegion(getX(), contentY, getX() + contentW, contentY + contentH);
                 }
                 widget.render(ctx, mouseX, mouseY, 0f);
                 currentX += widget.getWidth() + PADDING;
