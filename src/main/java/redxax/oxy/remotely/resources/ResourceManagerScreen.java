@@ -106,8 +106,10 @@ public class ResourceManagerScreen extends ReScreen {
     }
 
     private void updateSortHint(String tabName) {
-        headerBuilder.leftButtons.get(sortButtonIndex).hint = "Sort: " + sortLabelsMap.get(tabName)[currentSortIndex];
-        headerBuilder.build();
+        if (sortLabelsMap.get(tabName) != null && sortLabelsMap.get(tabName).length > 0 && headerBuilder != null && sortButtonIndex < headerBuilder.leftButtons.size()) {
+            headerBuilder.leftButtons.get(sortButtonIndex).hint = "Sort: " + sortLabelsMap.get(tabName)[currentSortIndex];
+            headerBuilder.build();
+        }
     }
 
     private void loadResources(String query, boolean reset) {
