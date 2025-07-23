@@ -45,7 +45,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
     }
 
     protected float elevation = 0f;
-    protected boolean animateColor = true, animateElevation = true, flat = false;
+    protected boolean animateColor = true, animateElevation = true, enableHoverColors = true, flat = false;
     protected AccentType accentType = AccentType.DEFAULT;
     public boolean selected;
     public boolean selectable = false;
@@ -58,7 +58,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
     protected boolean entranceAnimationEnabled = true;
     protected EntranceAnimationType entranceAnimationType = EntranceAnimationType.ELEVATION;
     protected EntranceCorner entranceCorner = EntranceCorner.TOP_LEFT;
-    protected float entranceAnimationStrength = 0.4f;
+    public float entranceAnimationStrength = 0.4f;
     protected float entranceAnimationSpeed = 1.0f;
 
     protected boolean entranceAnimationStarted = false;
@@ -70,7 +70,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
     protected int borderColor = elementBorderColor;
     protected int textColor = globalTextColor;
     public String hint = "";
-    protected float hintDelay = 1.5f;
+    protected float hintDelay = .5f;
     protected boolean hintVisible = false;
     protected float hintHoverTime = 0f;
     protected float hintWidth = 0f;
@@ -88,6 +88,8 @@ public abstract class AnimatedWidget extends ClickableWidget {
     protected TextRenderer tr = mc.textRenderer;
     public static final Map<Integer, Float> elevationOffsets = new HashMap<>();
 
+    protected boolean roundedCorners = false;
+    protected float roundness = 10f;
     public static abstract class Builder<T extends AnimatedWidget, B extends Builder<T, B>> {
         protected final T widget;
 
@@ -98,6 +100,8 @@ public abstract class AnimatedWidget extends ClickableWidget {
         public B focused(boolean f) { widget.setFocused(f); return self(); }
         public B active(boolean a) { widget.active = a; return self(); }
         public B visible(boolean v) { widget.visible = v; return self(); }
+        public B roundedCorners(boolean r) { widget.roundedCorners = r; return self(); }
+        public B roundness(float r) { widget.roundness = r; return self(); }
         public B animateColor(boolean b) { widget.animateColor = b; return self(); }
         public B accentType(AccentType type) { widget.accentType = type; return self(); }
         public B animateElevation(boolean b) { widget.animateElevation = b; return self(); }
@@ -173,18 +177,6 @@ public abstract class AnimatedWidget extends ClickableWidget {
             targetHeight = height;
         } else {
             this.height = height;
-            targetHeight = animatedHeight = height;
-        }
-    }
-
-    public void setSize(int width, int height) {
-        if (animateLayout) {
-            targetWidth = width;
-            targetHeight = height;
-        } else {
-            super.setWidth(width);
-            this.height = height;
-            targetWidth = animatedWidth = width;
             targetHeight = animatedHeight = height;
         }
     }
@@ -357,7 +349,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
         context.enableScissor(hintX, hintY, hintX + (int)hintWidth, hintY + hintHeight);
         int textX = hintX + hintPadding;
         int textY = (hintY + (hintHeight - tr.fontHeight) / 2) + 1;
-        context.drawText(tr, hint, textX, textY, globalTextColor, false);
+        context.drawText(tr, hint, textX, textY, globalTextColor, shadow);
         context.disableScissor();
         context.getMatrices().pop();
     }
@@ -365,13 +357,13 @@ public abstract class AnimatedWidget extends ClickableWidget {
     public void tick() {
         if (animateLayout) {
             if (!layoutInitialized) {
-                animatedX = targetX;
-                animatedY = targetY;
-                animatedWidth = targetWidth;
-                animatedHeight = targetHeight;
-                super.setX(Math.round(animatedX));
-                super.setY(Math.round(animatedY));
-                super.setWidth(Math.round(animatedWidth));
+                animatedX = targetX = getX();
+                animatedY = targetY = getY();
+                animatedWidth = targetWidth = width;
+                animatedHeight = targetHeight = height;
+                this.setX(Math.round(animatedX));
+                this.setY(Math.round(animatedY));
+                this.width = Math.round(animatedWidth);
                 this.height = Math.round(animatedHeight);
                 layoutInitialized = true;
             } else {
@@ -379,9 +371,9 @@ public abstract class AnimatedWidget extends ClickableWidget {
                 animatedY += (targetY - animatedY) * globalMovementSpeed * deltaTime;
                 animatedWidth += (targetWidth - animatedWidth) * globalExpandSpeed * deltaTime;
                 animatedHeight += (targetHeight - animatedHeight) * globalExpandSpeed * deltaTime;
-                super.setX(Math.round(animatedX));
-                super.setY(Math.round(animatedY));
-                super.setWidth(Math.round(animatedWidth));
+                this.setX(Math.round(animatedX));
+                this.setY(Math.round(animatedY));
+                this.width = Math.round(animatedWidth);
                 this.height = Math.round(animatedHeight);
             }
         }
@@ -393,26 +385,28 @@ public abstract class AnimatedWidget extends ClickableWidget {
             elevation += (elevationTarget - elevation) * globalMovementSpeed * deltaTime;
             elevationOffsets.put(this.hashCode(), elevation);
         }
-        if (animateColor) {
-            boolean selectedColor = selectable ? selected : isFocused();
-            bgColor = getElementBackgroundColor(this.hashCode(), isHovered() || isFocused(), selectedColor, active, accentType);
-            borderColor = getElementBorderColor(this.hashCode(), isHovered() || isFocused(), selectedColor, active, accentType);
-        } else {
-            if (isHovered() && isFocused()) {
-                bgColor = accentDarkHoverColor;
-                borderColor = accentHoverColor;
-            } else if (isFocused()) {
-                bgColor = accentDarkColor;
-                borderColor = accentColor;
-            } else if (isHovered()) {
-                bgColor = elementHoverBackgroundColor;
-                borderColor = elementHoverBorderColor;
-            } else if (!active) {
-                bgColor = innerBackgroundColor;
-                borderColor = inClickableBorderColor;
+        if (enableHoverColors) {
+            if (animateColor) {
+                boolean selectedColor = selectable ? selected : isFocused();
+                bgColor = getElementBackgroundColor(this.hashCode(), isHovered() || isFocused(), selectedColor, active, accentType);
+                borderColor = getElementBorderColor(this.hashCode(), isHovered() || isFocused(), selectedColor, active, accentType);
             } else {
-                bgColor = elementBackgroundColor;
-                borderColor = elementBorderColor;
+                if (isHovered() && isFocused()) {
+                    bgColor = accentDarkHoverColor;
+                    borderColor = accentHoverColor;
+                } else if (isFocused()) {
+                    bgColor = accentDarkColor;
+                    borderColor = accentColor;
+                } else if (isHovered()) {
+                    bgColor = elementHoverBackgroundColor;
+                    borderColor = elementHoverBorderColor;
+                } else if (!active) {
+                    bgColor = innerBackgroundColor;
+                    borderColor = inClickableBorderColor;
+                } else {
+                    bgColor = elementBackgroundColor;
+                    borderColor = elementBorderColor;
+                }
             }
         }
     }

@@ -6,11 +6,13 @@ import net.minecraft.text.Text;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
+import redxax.oxy.remotely.terminal.TerminalInstance;
 import redxax.oxy.remotely.ui.ReScreen;
 import redxax.oxy.remotely.ui.widgets.*;
 import redxax.oxy.remotely.util.Notification;
 
 import java.util.List;
+import java.util.UUID;
 
 
 public class WidgetsTestingScreen extends ReScreen {
@@ -22,7 +24,7 @@ public class WidgetsTestingScreen extends ReScreen {
 
     public void init() {
         super.init();
-        addDrawableChild(new AnimatedButton.Builder().pos(70, 42).size(100, 20).label(Text.literal("Click Me")).onClick(() -> headerBuilder.nextPosition()).build());
+        addDrawableChild(new AnimatedButton.Builder().pos(70, 42).size(100, 20).label(Text.literal("Click Me")).onClick(() -> MinecraftClient.getInstance().setScreen(new WidgetTestScreen())).build());
         addDrawableChild(new SquareButtonWidget.Builder().pos(70, 72).size(18, 18).image(null).build());
         addDrawableChild(new SquareButtonWidget.Builder().pos(90, 72).size(18, 18).imagePath("/assets/remotely/icons/remotely.png").hint("Best Mod Ever!").build());
         addDrawableChild(new SquareButtonWidget.Builder().pos(110, 72).size(18, 18).imagePath("/assets/remotely/icons/external.png").build());
@@ -39,6 +41,7 @@ public class WidgetsTestingScreen extends ReScreen {
         addDrawableChild(new AnimatedButton.Builder().pos(360, 72).size(120, 20).label(Text.literal("No Elevation Animation")).animateElevation(false).hint("No Annoying Movements").build());
         addDrawableChild(new AnimatedButton.Builder().pos(360, 102).size(120, 20).label(Text.literal("Flat Button")).flat(true).hint("Pretty Flat").build());
         addDrawableChild(new AnimatedButton.Builder().pos(360, 132).size(120, 20).label(Text.literal("No Open Animation")).entranceAnimation(false).hint("Animation Won't Play On Open").build());
+        addDrawableChild(new TerminalWidget.Builder(new TerminalInstance(client, this, UUID.randomUUID())).pos(200, 162).size(400, 150).build());
         contextMenu = new ContextMenuWidget.Builder(this)
                 .addItem("Menu Context", null, "Hell Yea")
                 .addIconItem("Berger", "/assets/remotely/icons/download.png", () -> new Notification("SAY BURGER OR DIE", "I'M NOT JOKING", Notification.Type.ERROR), "")

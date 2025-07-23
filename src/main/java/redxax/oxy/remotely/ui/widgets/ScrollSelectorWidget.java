@@ -7,6 +7,7 @@ import net.minecraft.text.Text;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import static redxax.oxy.remotely.config.Config.*;
 
@@ -28,6 +29,7 @@ public class ScrollSelectorWidget extends AnimatedWidget {
         public Builder options(List<String> opts) { widget.options = opts; return this; }
         public Builder selectedIndex(int idx) { widget.selectedIndex = idx; return this; }
         public Builder onChange(Runnable r) { widget.onChange = r; return this; }
+        public ScrollSelectorWidget.Builder onChange(Consumer<Integer> consumer) { widget.onChange = () -> consumer.accept(widget.selectedIndex); return this;}
         @Override protected Builder self() { return this; }
     }
 
@@ -123,8 +125,7 @@ public class ScrollSelectorWidget extends AnimatedWidget {
             int current = Math.round(scrollIndex) % options.size();
             if (current < 0) current += options.size();
 
-            int textColor = getTextColor(id + i, isHovered(), i == current && isHovered(),
-                    i == current, false, false, false);
+            int textColor = getTextColor(id + i, isHovered(), i == current && isHovered(), i == current, false, false, false);
             ctx.drawText(mc.textRenderer, Text.literal(s), (int) textX, (int) textY, textColor, shadow);
         }
 

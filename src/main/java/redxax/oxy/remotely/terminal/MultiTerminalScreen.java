@@ -60,8 +60,8 @@ public class MultiTerminalScreen extends Screen {
     private String warningMessage = "";
 
     private static final Path TERMINAL_LOG_DIR = Paths.get(System.getProperty("user.dir"), "remotely_terminal_logs");
-    final List<String> commandHistory = new ArrayList<>();
-    int historyIndex = -1;
+    static final List<String> commandHistory = new ArrayList<>();
+    static int historyIndex = -1;
 
     int snippetPanelWidth = 150;
     boolean creatingSnippet = false;
