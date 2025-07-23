@@ -134,7 +134,7 @@ public class DropDownWidget<T> extends AnimatedWidget {
     @Override
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY) {
         String displayText = selectedItem != null ? displayFunction.apply(selectedItem) : "Select...";
-        ctx.drawText(tr, displayText, getX() + 8, getY() + (getHeight() - tr.fontHeight) / 2, globalDarkTextColor, shadow);
+        ctx.drawText(tr, displayText, getX() + 5, getY() + (getHeight() - tr.fontHeight) / 2 + 1, globalDarkTextColor, shadow);
 
         if (dropdownAnimationProgress > 0.01f) {
             int dropdownHeight = getVisibleDropdownHeight();
@@ -171,7 +171,7 @@ public class DropDownWidget<T> extends AnimatedWidget {
                 boolean isHovered = i == hoverIndex;
                 int highlightColor = getElementBackgroundColor(("item" + i).hashCode(), isHovered, isSelected, true, AccentType.DEFAULT);
                 ctx.fill(getX(), itemY, getX() + contentWidth, itemY + itemHeight, highlightColor);
-                ctx.drawText(tr, displayFunction.apply(item), getX() + 8, itemY + (itemHeight - tr.fontHeight) / 2, getTextColor(("text" + i).hashCode(), false, isSelected, isHovered, AccentType.DEFAULT), shadow);
+                ctx.drawText(tr, displayFunction.apply(item), getX() + 5, itemY + (itemHeight - tr.fontHeight) / 2 + 1, getTextColor(("text" + i).hashCode(), false, isSelected, isHovered, AccentType.DEFAULT), shadow);
             }
 
             Render.ScrollBar.render(ctx, null, mouseX, mouseY, totalHeight, scrollOffset, getX() + getWidth() - scrollbarWidth, dropdownY, scrollbarWidth, actualHeight);
