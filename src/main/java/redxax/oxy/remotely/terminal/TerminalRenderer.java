@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.terminal;
 
+import net.minecraft.client.gui.screen.Screen;
 import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStyle;
 import org.lwjgl.glfw.GLFW;
@@ -28,7 +29,7 @@ public class TerminalRenderer {
     public static TerminalRenderer instance;
     private final MinecraftClient minecraftClient;
     private final TerminalInstance terminalInstance;
-    private final MultiTerminalScreen parent;
+    private final Screen parent;
     private final StringBuilder terminalOutput = new StringBuilder();
     private final List<LineText> wrappedLinesCache = new ArrayList<>();
     private int terminalWidth;
@@ -60,7 +61,7 @@ public class TerminalRenderer {
 
     private int lastTerminalWidth = terminalWidth;
 
-    public TerminalRenderer(MinecraftClient client, TerminalInstance terminalInstance, MultiTerminalScreen parent) {
+    public TerminalRenderer(MinecraftClient client, TerminalInstance terminalInstance, Screen parent) {
         this.minecraftClient = client;
         this.terminalInstance = terminalInstance;
         this.parent = parent;
@@ -452,9 +453,6 @@ public class TerminalRenderer {
         rewrap();
         stickToBottom(3);
         minecraftClient.execute(() -> {
-            if (terminalInstance.parentScreen != null) {
-                terminalInstance.parentScreen.init();
-            }
         });
     }
 
@@ -616,9 +614,6 @@ public class TerminalRenderer {
             wrappedLinesCache.clear();
         }
         minecraftClient.execute(() -> {
-            if (terminalInstance.parentScreen != null) {
-                terminalInstance.parentScreen.init();
-            }
         });
     }
 

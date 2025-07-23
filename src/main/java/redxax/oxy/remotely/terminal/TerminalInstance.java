@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.terminal;
 
+import net.minecraft.client.gui.screen.Screen;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.input.InputHandler;
 import redxax.oxy.remotely.input.InputProcessor;
@@ -11,11 +12,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
 
 public class TerminalInstance {
 
-    final MultiTerminalScreen parentScreen;
+    final Screen parentScreen;
     public final UUID terminalId;
     public final TerminalRenderer renderer;
     public final InputHandler inputHandler;
@@ -25,7 +25,7 @@ public class TerminalInstance {
     private List<String> commandHistory;
     private int historyIndex;
 
-    public TerminalInstance(MinecraftClient client, MultiTerminalScreen parent, UUID id) {
+    public TerminalInstance(MinecraftClient client, Screen parent, UUID id) {
         this.parentScreen = parent;
         this.terminalId = id;
         this.sshManager = new SSHManager(this);
@@ -84,21 +84,21 @@ public class TerminalInstance {
 
     public List<String> getCommandHistory() {
         if (parentScreen != null) {
-            return parentScreen.commandHistory;
+            return MultiTerminalScreen.commandHistory;
         }
         return this.commandHistory;
     }
 
     public int getHistoryIndex() {
         if (parentScreen != null) {
-            return parentScreen.historyIndex;
+            return MultiTerminalScreen.historyIndex;
         }
         return this.historyIndex;
     }
 
     public void setHistoryIndex(int index) {
         if (parentScreen != null) {
-            parentScreen.historyIndex = index;
+            MultiTerminalScreen.historyIndex = index;
         } else {
             this.historyIndex = index;
         }
