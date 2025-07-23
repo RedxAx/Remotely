@@ -2,12 +2,12 @@ package redxax.oxy.remotely.ui.widgets;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
-import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.Text;
 import redxax.oxy.remotely.Render;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -62,7 +62,7 @@ public class PopupWidget extends AnimatedWidget {
             int extraHeight = 0;
             for (AnimatedWidget w : widgets) {
                 if (w instanceof DropDownWidget) {
-                    extraHeight = Math.max(extraHeight, ((DropDownWidget) w).getAnimatedHeight());
+                    extraHeight = Math.max(extraHeight, ((DropDownWidget<?>) w).getAnimatedHeight());
                 }
             }
             return baseHeight + extraHeight;
@@ -96,7 +96,7 @@ public class PopupWidget extends AnimatedWidget {
         }
 
         public Builder addWidget(String label, AnimatedWidget w, int fieldHeight) {
-            widget.addRow(label, Arrays.asList(w), fieldHeight, true);
+            widget.addRow(label, Collections.singletonList(w), fieldHeight, true);
             return this;
         }
 
