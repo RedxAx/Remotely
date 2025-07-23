@@ -7,6 +7,7 @@ import net.minecraft.text.Text;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import static redxax.oxy.remotely.Render.drawInnerBorder;
 import static redxax.oxy.remotely.Render.drawOuterBorder;
@@ -25,6 +26,7 @@ public class TabSwitchWidget extends AnimatedWidget {
         public Builder options(List<String> opts) { widget.options = opts; return this; }
         public Builder currentIndex(int idx) { widget.currentIndex = idx; return this; }
         public Builder onChange(Runnable r) { widget.onChange = r; return this; }
+        public TabSwitchWidget.Builder onChange(Consumer<Integer> consumer) { widget.onChange = () -> consumer.accept(widget.currentIndex); return this;}
         @Override protected Builder self() { return this; }
     }
 
