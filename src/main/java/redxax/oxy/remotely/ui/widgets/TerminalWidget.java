@@ -1,259 +1,290 @@
 package redxax.oxy.remotely.ui.widgets;
 
+import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.OrderedText;
-import net.minecraft.text.Style;
-import net.minecraft.text.Text;
-import net.minecraft.text.TextColor;
+import net.minecraft.text.*;
+import net.minecraft.util.math.MathHelper;
 import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStyle;
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.remotely.SSHManager;
+import redxax.oxy.remotely.config.Themes;
 import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.terminal.ServerTerminalInstance;
-import redxax.oxy.remotely.terminal.TerminalInstance;
-import net.minecraft.client.gui.DrawContext;
+import redxax.oxy.remotely.servers.ServerState;
+import redxax.oxy.remotely.terminal.MultiTerminalScreen;
+import redxax.oxy.remotely.terminal.TerminalProcessManager;
 
+import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Field;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Date;
-import java.util.List;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
-import static redxax.oxy.remotely.RemotelyClient.os;
+import static redxax.oxy.remotely.RemotelyClient.themes;
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
 public class TerminalWidget extends AnimatedWidget {
 
-    private TerminalInstance terminalInstance;
-    private final StringBuilder terminalOutput = new StringBuilder();
-    private final List<LineText> wrappedLinesCache = new ArrayList<>();
-    private int scrollOffset = 0;
-    private static final Pattern TMUX_STATUS_PATTERN = Pattern.compile(".*\\d{1,2}:\\d{2}\\s\\d{2}-[A-Za-z]{3}-\\d{2}.*");
-    private final Pattern BRACKET_KEYWORD_PATTERN = Pattern.compile("\\[(.*?)\\b(WARNING|WARN|ERROR|INFO)\\b(.*?)]");
-    private static final Pattern IP_PATTERN = Pattern.compile("(?<![\\w:])((?:\\d{1,3}\\.){3}\\d{1,3})(?![\\w:])");
+    private final List<LineText> outputBuffer = new CopyOnWriteArrayList<>();
+    private final StringBuilder inputBuffer = new StringBuilder();
+    private int cursorPosition = 0;
+
+    private float scrollY = 0;
+    private float targetScrollY = 0;
+    private final List<String> commandHistory = new ArrayList<>();
+    private int historyIndex = 0;
+
+    private final ServerInfo serverInfo;
+    private final SSHManager sshManager;
+    private final TerminalProcessManager processManager;
+
     private boolean isSelecting = false;
-    private int selectionStartLine = -1;
-    private int selectionStartChar = -1;
-    private int selectionEndLine = -1;
-    private int selectionEndChar = -1;
-    private String tmuxStatusLine = "";
-    private float currentScrollOffset = 0;
-    public float targetScrollOffset = 0;
-    private int lastTerminalWidth = 0;
+    private int selectionStartLine, selectionStartChar, selectionEndLine, selectionEndChar;
 
-    private boolean showStatusBar = true;
-    private boolean showInputField = true;
-    private boolean enableSelection = true;
-    private String customLeftStatus = null;
-    private String customRightStatus = null;
-    public boolean isInputActive = true;
-    private boolean isServerTerminal = false;
+    private static final Pattern ALL_ANSI = Pattern.compile("\u001B\\[[0-9;?]*(?:m|[A-Za-z])|\u001B=>|=\\u001B.*?\\\\|\\u001B]10;\\?\\\\|\\u001B]11;\\?\\\\|\u001B\\[\\?2004[hl]|\u001B=|\u001Bc|\u001B\\[\\?1h=\\u001B\\[\\?2004h|\u001B][0-9];.*?\u0007|\u001B][0-9];.*?\\\\|\u001BN|\u001BO|\u001BP[^\\\\]*\\\\|\u001B\\^|\u001B_|\u001B\\\\|\u001B]|\u001B[()][AB012]");
+    private static final Pattern BRACKET_KEYWORD_PATTERN = Pattern.compile("\\[(.*?)\\b(WARNING|WARN|ERROR|INFO)\\b(.*?)]");
 
-    static {
-        System.setProperty("jline.ansi", "true");
-        System.setProperty("jline.terminal", "jline.UnsupportedTerminal");
-        System.setProperty("jansi.passthrough", "true");
-        System.setProperty("jansi.force", "true");
-        System.setProperty("jansi.strip", "false");
-        System.setProperty("jansi.disable", "false");
-        System.setProperty("net.kyori.ansi.colorLevel", "indexed256");
+    private List<String> completions = new ArrayList<>();
+    private int completionIndex = 0;
+    private String lastPrefix = "";
+    private String originalPrefix = "";
+    private boolean originalPrefixSet = false;
+    private String suggestion = "";
+    private String currentBase = "";
+    private volatile List<String> allCommands = new ArrayList<>();
+    private volatile long commandsLastFetched = 0;
+    private static final long COMMANDS_CACHE_DURATION = 60 * 1000;
+    private volatile boolean isRefreshingCommands = false;
+    private final ExecutorService commandRefreshExecutor = Executors.newSingleThreadExecutor();
+    private final Map<String, CachedDirectory> localDirectoryCache = new HashMap<>();
+    private static final long LOCAL_DIR_CACHE_DURATION = 5000;
+    private final Map<String, CachedDirectory> remoteDirectoryCache = new HashMap<>();
+    private static final long REMOTE_DIR_CACHE_DURATION = 5000;
+
+    private static class CachedDirectory {
+        List<String> directories;
+        long fetchedAt;
+
+        CachedDirectory(List<String> directories, long fetchedAt) {
+            this.directories = directories;
+            this.fetchedAt = fetchedAt;
+        }
     }
 
     public static class Builder extends AnimatedWidget.Builder<TerminalWidget, Builder> {
-        public Builder(TerminalInstance terminalInstance) {
-            super(new TerminalWidget(0, 0, 100, 100, terminalInstance));
+        private ServerInfo serverInfo;
+
+        public Builder() {
+            super(new TerminalWidget(0, 0, 200, 150, null));
         }
 
-        public Builder terminalInstance(TerminalInstance instance) {
-            widget.setTerminalInstance(instance);
-            return self();
-        }
-
-        public Builder showStatusBar(boolean show) {
-            widget.setShowStatusBar(show);
-            return self();
-        }
-
-        public Builder showInputField(boolean show) {
-            widget.setShowInputField(show);
-            return self();
-        }
-
-        public Builder enableSelection(boolean enable) {
-            widget.setEnableSelection(enable);
-            return self();
-        }
-
-        public Builder isInputActive(boolean active) {
-            widget.isInputActive = active;
-            return self();
+        public Builder server(ServerInfo info) {
+            this.serverInfo = info;
+            return this;
         }
 
         @Override
         protected Builder self() {
             return this;
         }
-    }
 
-    public TerminalWidget(int x, int y, int width, int height, TerminalInstance terminalInstance) {
-        super(x, y, width, height, Text.literal(""));
-        setTerminalInstance(terminalInstance);
-        this.lastTerminalWidth = width;
-    }
-
-    public void setTerminalInstance(TerminalInstance terminalInstance) {
-        this.terminalInstance = terminalInstance;
-        if (this.terminalInstance instanceof ServerTerminalInstance) {
-            this.isServerTerminal = true;
-            this.accentType = AccentType.CALM;
-        } else {
-            this.isServerTerminal = false;
-            this.accentType = AccentType.DEFAULT;
+        @Override
+        public TerminalWidget build() {
+            return new TerminalWidget(widget.getX(), widget.getY(), widget.getWidth(), widget.getHeight(), serverInfo);
         }
-        rewrap();
     }
 
-    public void setShowStatusBar(boolean showStatusBar) { this.showStatusBar = showStatusBar; }
-    public void setShowInputField(boolean showInputField) { this.showInputField = showInputField; }
-    public void setEnableSelection(boolean enableSelection) { this.enableSelection = enableSelection; }
+    public TerminalWidget(int x, int y, int width, int height, ServerInfo serverInfo) {
+        super(x, y, width, height, Text.empty());
+        this.serverInfo = serverInfo;
+        this.animateLayout = false;
 
-    public void setCustomStatus(String left, String right) {
-        this.customLeftStatus = left;
-        this.customRightStatus = right;
+        if (this.serverInfo != null && this.serverInfo.isRemote) {
+            this.sshManager = this.serverInfo.remoteSSHManager;
+            if (this.sshManager != null) {
+                this.sshManager.setTerminalWidget(this);
+            }
+            this.processManager = null;
+        } else {
+            this.sshManager = new SSHManager(this);
+            this.processManager = new TerminalProcessManager(this, this.sshManager);
+            this.processManager.launchTerminal();
+        }
     }
 
-    public void clearCustomStatus() {
-        this.customLeftStatus = null;
-        this.customRightStatus = null;
+    public void shutdown() {
+        if (processManager != null) {
+            processManager.shutdown();
+        }
+        if (sshManager != null) {
+            sshManager.shutdown();
+        }
+        commandRefreshExecutor.shutdownNow();
+    }
+
+    public void appendOutput(String text) {
+        text = text.replace("\r", "");
+        String[] lines = text.split("\n", -1);
+
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (line.isEmpty() && i < lines.length -1) {
+                outputBuffer.add(new LineText(Text.empty().asOrderedText(), ""));
+                continue;
+            }
+
+            if (serverInfo != null) {
+                detectServerState(line);
+            }
+
+            List<StyleTextPair> segments = parseLine(line);
+            List<LineText> wrapped = wrapStyledText(segments, getWidth() - 10);
+            outputBuffer.addAll(wrapped);
+        }
+        scrollToBottom();
+    }
+
+    private void detectServerState(String line) {
+        if (line.contains("Done (")) {
+            serverInfo.state = ServerState.RUNNING;
+        } else if (line.matches(".*\\b[Ff]atal\\b.*") || line.matches(".*\\b[Uu]nhandled exception\\b.*") || line.contains("You need to agree to the EULA") || line.contains("Error: Unable to access jarfile") || line.contains("Failed to bind to port") || line.contains("java.lang.OutOfMemoryError") || line.contains("locked by another process")) {
+            serverInfo.state = ServerState.CRASHED;
+        } else if (line.toLowerCase().contains("stopping server") || line.toLowerCase().contains("server stopped")) {
+            serverInfo.state = ServerState.STOPPED;
+        } else if (line.toLowerCase().contains("starting minecraft server")) {
+            serverInfo.state = ServerState.STARTING;
+        }
     }
 
     @Override
     public void tick() {
         super.tick();
-
-        float deltaScroll = targetScrollOffset - currentScrollOffset;
-        currentScrollOffset += deltaScroll * globalScrollSpeed * deltaTime;
-
-        int maxScroll = Math.max(0, getTotalScrollHeight() - getTextAreaHeight());
-        if (currentScrollOffset < 0) {
-            currentScrollOffset += (-currentScrollOffset) * 0.3f;
-        } else if (currentScrollOffset > maxScroll) {
-            currentScrollOffset -= (currentScrollOffset - maxScroll) * 0.3f;
-        }
-        scrollOffset = (int) currentScrollOffset;
-
-        if (getWidth() != lastTerminalWidth && getWidth() > 0) {
-            stickToBottom(8);
-            rewrap();
-            lastTerminalWidth = getWidth();
-        }
+        scrollY += (targetScrollY - scrollY) * globalScrollSpeed * deltaTime;
     }
 
     @Override
-    protected void drawContent(DrawContext context, int mouseX, int mouseY) {
+    protected void drawContent(DrawContext ctx, int mouseX, int mouseY) {
         int padding = 2;
-        int textAreaX = getX() + padding;
-        int textAreaY = getY() + padding;
-        int textAreaWidth = getWidth() - (2 * padding);
-        int textAreaHeight = getTextAreaHeight();
+        int inputHeight = tr.fontHeight + 4;
+        int statusHeight = tr.fontHeight + 4;
+        int contentHeight = getHeight() - inputHeight - statusHeight - (padding * 2);
+        int contentY = getY() + padding;
 
-        context.enableScissor(textAreaX, textAreaY, textAreaX + textAreaWidth, textAreaY + textAreaHeight);
+        ctx.enableScissor(getX() + padding, getY(), getX() + getWidth() - padding, contentY + contentHeight);
 
-        int lineHeight = getLineHeight();
-        int firstLine = (int) Math.floor(currentScrollOffset / lineHeight);
-        int visibleLines = textAreaHeight / lineHeight + 3;
+        int lineHeight = tr.fontHeight + 2;
+        int firstLine = (int) Math.floor(scrollY / lineHeight);
+        int visibleLineCount = (int)Math.ceil((float)contentHeight / lineHeight) + 1;
 
-        for (int i = 0; i < visibleLines; i++) {
+        for (int i = 0; i < visibleLineCount; i++) {
             int lineIndex = firstLine + i;
-            if (lineIndex < 0 || lineIndex >= getTotalLines()) continue;
+            if (lineIndex < 0 || lineIndex >= outputBuffer.size()) continue;
 
-            int renderY = textAreaY + i * lineHeight - ((int) currentScrollOffset % lineHeight);
-            LineText lineText;
-            synchronized (wrappedLinesCache) {
-                if (lineIndex >= wrappedLinesCache.size()) continue;
-                lineText = wrappedLinesCache.get(lineIndex);
+            int lineY = contentY + (i * lineHeight) - (int)(scrollY % lineHeight);
+            LineText lineText = outputBuffer.get(lineIndex);
+
+            if (isSelecting) {
+                drawSelection(ctx, lineIndex, getX() + padding, lineY);
             }
 
-            if (isLineSelected(lineIndex)) {
-                LineInfo tempLineInfo = new LineInfo(lineIndex, renderY, mc.textRenderer.fontHeight, lineText.orderedText, lineText.plainText);
-                drawSelection(context, tempLineInfo, textAreaX);
-            }
-            context.drawText(mc.textRenderer, lineText.orderedText, textAreaX, renderY, terminalTextColor, shadow);
+            ctx.drawText(tr, lineText.orderedText, getX() + padding, lineY, terminalTextColor, shadow);
         }
-        context.disableScissor();
 
-        if (showInputField) {
-            drawInputField(context);
+        ctx.disableScissor();
+
+        int inputY = getY() + getHeight() - statusHeight - inputHeight;
+        drawInput(ctx, getX() + padding, inputY);
+
+        int statusY = getY() + getHeight() - statusHeight;
+        drawStatusBar(ctx, getX(), statusY, getWidth(), statusHeight);
+    }
+
+    private void drawInput(DrawContext ctx, int x, int y) {
+        String prompt = sshManager != null && sshManager.isAwaitingPassword() ? "Password: " : "> ";
+        String textToDraw = prompt + (sshManager != null && sshManager.isAwaitingPassword() ? "*".repeat(inputBuffer.length()) : inputBuffer.toString());
+
+        ctx.drawText(tr, Text.literal(textToDraw), x, y, terminalTextInputColor, shadow);
+
+        if (!suggestion.isEmpty() && !inputBuffer.isEmpty()) {
+            int inputTextWidth = tr.getWidth(textToDraw);
+            ctx.drawText(tr, Text.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(globalDarkTextColor))), x + inputTextWidth, y, globalDarkTextColor, shadow);
         }
-        if (showStatusBar) {
-            drawStatusBar(context);
+
+        if (isFocused() && System.currentTimeMillis() % 1000 > 500) {
+            String beforeCursorText = prompt + (sshManager != null && sshManager.isAwaitingPassword() ? "*".repeat(cursorPosition) : inputBuffer.substring(0, cursorPosition));
+            int cursorX = x + tr.getWidth(beforeCursorText);
+            ctx.fill(cursorX, y - 1, cursorX + 1, y + tr.fontHeight, globalCursorAnimatedColor);
         }
     }
 
-    private void drawInputField(DrawContext context) {
-        if (terminalInstance == null || terminalInstance.inputHandler == null) return;
+    private void drawStatusBar(DrawContext ctx, int x, int y, int w, int h) {
+        ctx.fill(x, y, x + w, y + h, terminalStatusBarColor);
+        String leftText = "Remotely";
+        String rightText = new java.util.Date().toString();
 
-        int padding = 2;
-        int inputY = getY() + getHeight() - getStatusBarHeight() - getInputFieldHeight() - (showInputField ? 2:0);
-        int inputX = getX() + padding;
-
-        String inputPrompt = terminalInstance.getSSHManager().isAwaitingPassword() ? "Password: " : "> ";
-        String inputText = inputPrompt + terminalInstance.inputHandler.getInputBuffer().toString();
-
-        context.drawText(mc.textRenderer, Text.literal(inputText), inputX, inputY, terminalTextInputColor, shadow);
-
-        if (isInputActive && isFocused()) {
-            int cursorInputPosition = Math.min(terminalInstance.inputHandler.getCursorPosition(), terminalInstance.inputHandler.getInputBuffer().length());
-            String beforeCursor = inputPrompt + terminalInstance.inputHandler.getInputBuffer().substring(0, cursorInputPosition);
-            int cursorXPos = inputX + mc.textRenderer.getWidth(beforeCursor);
-            int cursorHeight = mc.textRenderer.fontHeight;
-
-            context.getMatrices().push();
-            context.getMatrices().translate(0, 0, 1000);
-            context.fill(cursorXPos, inputY, cursorXPos + 1, inputY + cursorHeight, globalCursorAnimatedColor);
-            context.getMatrices().pop();
-
-            String suggestion = terminalInstance.inputHandler.getTabCompletionSuggestion();
-            if (!suggestion.isEmpty() && !terminalInstance.inputHandler.getInputBuffer().isEmpty()) {
-                int inputTextWidth = mc.textRenderer.getWidth(inputText);
-                context.drawText(mc.textRenderer, Text.literal(suggestion).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(globalDarkTextColor))), inputX + inputTextWidth, inputY, globalDarkTextColor, shadow);
+        if (serverInfo != null) {
+            leftText = serverInfo.name + " - " + serverInfo.state.name();
+            if (serverInfo.isRemote) {
+                rightText = serverInfo.remoteHost.name + " (" + (sshManager.isSSH() ? "Connected" : "Disconnected") + ")";
+            } else {
+                rightText = "Local";
             }
         }
+
+        ctx.drawText(tr, leftText, x + 4, y + (h - tr.fontHeight) / 2, terminalTextColor, shadow);
+        ctx.drawText(tr, rightText, x + w - tr.getWidth(rightText) - 4, y + (h - tr.fontHeight) / 2, terminalTextColor, shadow);
     }
 
-    private void drawStatusBar(DrawContext context) {
-        int statusBarY = getY() + getHeight() - getStatusBarHeight();
-        context.fill(getX(), statusBarY, getX() + getWidth(), statusBarY + getStatusBarHeight(), terminalStatusBarColor);
+    private void drawSelection(DrawContext ctx, int lineIndex, int x, int y) {
+        SelectionPoint start = getOrderedSelectionStart();
+        SelectionPoint end = getOrderedSelectionEnd();
 
-        String[] statusTexts = getStatusBarStrings(getWidth() - 4);
-        int rightWidth = mc.textRenderer.getWidth(statusTexts[1]);
+        if (lineIndex < start.line || lineIndex > end.line) return;
 
-        context.drawText(mc.textRenderer, Text.literal(statusTexts[0]), getX() + 2, statusBarY + (getStatusBarHeight() - mc.textRenderer.fontHeight) / 2, terminalTextColor, shadow);
-        context.drawText(mc.textRenderer, Text.literal(statusTexts[1]), getX() + getWidth() - 2 - rightWidth, statusBarY + (getStatusBarHeight() - mc.textRenderer.fontHeight) / 2, terminalTextColor, shadow);
+        String lineText = outputBuffer.get(lineIndex).plainText;
+        int selStartCol = (lineIndex == start.line) ? start.col : 0;
+        int selEndCol = (lineIndex == end.line) ? end.col : lineText.length();
+
+        if (selStartCol >= selEndCol) return;
+
+        int selX = x + tr.getWidth(lineText.substring(0, selStartCol));
+        int selW = tr.getWidth(lineText.substring(selStartCol, selEndCol));
+
+        ctx.fill(selX, y, selX + selW, y + tr.fontHeight + 2, globalSelectionColor);
     }
 
     @Override
-    protected void drawBackground(DrawContext ctx) {
-        float alpha = getEntranceAlpha();
-        int terminalBgColor = applyAlpha(backgroundColor, alpha);
-        ctx.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), terminalBgColor);
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (isMouseOver(mouseX, mouseY)) {
+            targetScrollY -= (float) (verticalAmount * (tr.fontHeight + 2) * 3);
+            clampScroll();
+            return true;
+        }
+        return false;
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (active && visible && isMouseOver(mouseX, mouseY)) {
-            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && enableSelection && isMouseOverTerminal(mouseX, mouseY)) {
-                isSelecting = true;
-                updateSelectionStart(mouseX, mouseY);
-                updateSelectionEnd(mouseX, mouseY);
-            }
-            onClick(mouseX, mouseY, button);
+    public void onClick(double mouseX, double mouseY, int button) {
+        if (button == 0) {
+            isSelecting = true;
+            SelectionPoint p = getPosFromCoords(mouseX, mouseY);
+            selectionStartLine = selectionEndLine = p.line;
+            selectionStartChar = selectionEndChar = p.col;
+        }
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (isFocused() && button == 0 && isSelecting) {
+            SelectionPoint p = getPosFromCoords(mouseX, mouseY);
+            selectionEndLine = p.line;
+            selectionEndChar = p.col;
             return true;
         }
         return false;
@@ -261,182 +292,496 @@ public class TerminalWidget extends AnimatedWidget {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            if (isSelecting) {
-                isSelecting = false;
-                if (enableSelection) {
-                    updateSelectionEnd(mouseX, mouseY);
-                }
-                return true;
-            }
+        if (button == 0) {
+            isSelecting = false;
         }
         return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (isSelecting && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            if (enableSelection) {
-                updateSelectionEnd(mouseX, mouseY);
-                scrollToEdgesTerminal(mouseY);
-            }
-            return true;
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (!isFocused()) return false;
+        boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
+
+        if (sshManager != null && sshManager.isAwaitingPassword()) {
+            return handlePasswordInput(keyCode, ctrl);
         }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+
+        switch (keyCode) {
+            case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> {
+                executeCommand(inputBuffer.toString());
+                return true;
+            }
+            case GLFW.GLFW_KEY_TAB -> {
+                handleTabCompletion();
+                return true;
+            }
+            case GLFW.GLFW_KEY_BACKSPACE -> {
+                if (cursorPosition > 0) {
+                    inputBuffer.deleteCharAt(cursorPosition - 1);
+                    cursorPosition--;
+                    resetTabCompletion();
+                }
+                return true;
+            }
+            case GLFW.GLFW_KEY_DELETE -> {
+                if (cursorPosition < inputBuffer.length()) {
+                    inputBuffer.deleteCharAt(cursorPosition);
+                    resetTabCompletion();
+                }
+                return true;
+            }
+            case GLFW.GLFW_KEY_LEFT -> {
+                if (cursorPosition > 0) cursorPosition--;
+                return true;
+            }
+            case GLFW.GLFW_KEY_RIGHT -> {
+                if (cursorPosition < inputBuffer.length()) cursorPosition++;
+                return true;
+            }
+            case GLFW.GLFW_KEY_UP -> {
+                if (historyIndex > 0) {
+                    historyIndex--;
+                    inputBuffer.setLength(0);
+                    inputBuffer.append(commandHistory.get(historyIndex));
+                    cursorPosition = inputBuffer.length();
+                }
+                return true;
+            }
+            case GLFW.GLFW_KEY_DOWN -> {
+                if (historyIndex < commandHistory.size() - 1) {
+                    historyIndex++;
+                    inputBuffer.setLength(0);
+                    inputBuffer.append(commandHistory.get(historyIndex));
+                    cursorPosition = inputBuffer.length();
+                } else {
+                    historyIndex = commandHistory.size();
+                    inputBuffer.setLength(0);
+                    cursorPosition = 0;
+                }
+                return true;
+            }
+            case GLFW.GLFW_KEY_V -> {
+                if (ctrl) {
+                    String clipboard = mc.keyboard.getClipboard();
+                    inputBuffer.insert(cursorPosition, clipboard);
+                    cursorPosition += clipboard.length();
+                }
+                return true;
+            }
+            case GLFW.GLFW_KEY_C -> {
+                if (ctrl) {
+                    copySelectionToClipboard();
+                }
+                return true;
+            }
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
-    @Override
-    protected void appendClickableNarrations(NarrationMessageBuilder builder) {}
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (active && visible && isMouseOverTerminal(mouseX, mouseY)) {
-            scroll(verticalAmount > 0 ? -1 : 1);
+    private boolean handlePasswordInput(int keyCode, boolean ctrl) {
+        if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+            sshManager.connectSSHWithPassword(inputBuffer.toString());
+            inputBuffer.setLength(0);
+            cursorPosition = 0;
+            return true;
+        }
+        if (keyCode == GLFW.GLFW_KEY_BACKSPACE && cursorPosition > 0) {
+            inputBuffer.deleteCharAt(cursorPosition - 1);
+            cursorPosition--;
+            return true;
+        }
+        if (ctrl && keyCode == GLFW.GLFW_KEY_V) {
+            String clipboard = mc.keyboard.getClipboard();
+            inputBuffer.insert(cursorPosition, clipboard);
+            cursorPosition += clipboard.length();
             return true;
         }
         return false;
     }
 
-    public void appendOutput(String text) {
-        if (terminalInstance == null) return;
-        text = text.replace("\r", "").replace("\t", "    ");
-        synchronized (terminalOutput) {
-            terminalOutput.append(text);
-        }
-        rewrap();
-        stickToBottom(3);
+    @Override
+    public boolean charTyped(char chr, int modifiers) {
+        if (!isFocused() || Character.isISOControl(chr)) return false;
+        inputBuffer.insert(cursorPosition, chr);
+        cursorPosition++;
+        resetTabCompletion();
+        return true;
     }
 
-    public void clearOutput() {
-        synchronized (terminalOutput) {
-            terminalOutput.setLength(0);
-        }
-        synchronized (wrappedLinesCache) {
-            wrappedLinesCache.clear();
-        }
-        rewrap();
-    }
-
-    public void copySelectionToClipboard() {
-        if (!enableSelection) return;
-        String selectedText = getSelectedText();
-        if (!selectedText.isEmpty()) {
-            mc.keyboard.setClipboard(selectedText);
-        }
-        selectionStartLine = -1;
-        selectionStartChar = -1;
-        selectionEndLine = -1;
-        selectionEndChar = -1;
-    }
-
-    public String getTerminalContext() {
-        if (terminalInstance == null) return "";
-        StringBuilder lines = new StringBuilder();
-        if (terminalInstance.getSSHManager() != null && terminalInstance.getSSHManager().isSSH()) {
-            lines.append("The User Is Using a Remote SSH Server (Linux) \n");
-        } else {
-            lines.append("The User Operating System Is: ").append(os.contains("win") ? "Windows" : os.contains("mac") ? "MacOS" : os.contains("nix") || os.contains("nux") ? "Linux" : "Unknown OS").append("\n");
-        }
-        lines.append("This Is The Current Terminal Logs: \n");
-        synchronized (wrappedLinesCache) {
-            for (LineText lineText : wrappedLinesCache) {
-                lines.append(lineText.plainText).append("\n");
-            }
-        }
-        return lines.toString();
-    }
-
-    public void scroll(int direction) {
-        int scrollMultiplier = InputUtil.isKeyPressed(mc.getWindow().getHandle(), GLFW.GLFW_KEY_LEFT_SHIFT) || InputUtil.isKeyPressed(mc.getWindow().getHandle(), GLFW.GLFW_KEY_RIGHT_SHIFT) ? 5 : 1;
-        float scrollAmount = getLineHeight() * scrollMultiplier;
-        targetScrollOffset -= direction * scrollAmount;
-        int maxScroll = Math.max(0, getTotalScrollHeight() - getTextAreaHeight());
-        targetScrollOffset = Math.max(0, Math.min(targetScrollOffset, maxScroll));
-    }
-
-    public void scrollToTop() {
-        targetScrollOffset = 0;
-    }
-
-    public void scrollToBottom() {
-        targetScrollOffset = Math.max(0, getTotalScrollHeight() - getTextAreaHeight());
-    }
-
-    private void stickToBottom(int thresholdMultiplier) {
-        int maxScroll = Math.max(0, getTotalScrollHeight() - getTextAreaHeight());
-        int threshold = getLineHeight() * thresholdMultiplier;
-        if (targetScrollOffset >= maxScroll - threshold) {
-            scrollToBottom();
-        }
-    }
-
-    public void rewrap() {
-        if (terminalInstance == null) return;
-        List<LineText> newWrappedLines = new ArrayList<>();
-        String output;
-        synchronized (terminalOutput) {
-            output = terminalOutput.toString();
-        }
-        Pattern extraPattern = Pattern.compile("^(.*\\d{1,2}:\\d{2}\\s\\d{2}-[A-Za-z]{3}-)\\d{2}(.*)$");
-        String[] lines = output.split("\n", -1);
-        int wrapWidth = getWidth() - 10;
-        if (wrapWidth <= 0) return;
-
-        for (String rawLine : lines) {
-            if (rawLine.isEmpty()) {
-                newWrappedLines.add(new LineText(Text.literal("").asOrderedText(), ""));
-                continue;
-            }
-            String line = obfuscateIps(rawLine.replace("\0", ""));
-            String trimmed = line.trim();
-            if (trimmed.equals(">")) continue;
-            String plain = removeAllAnsiSequences(line);
-            Matcher extraMatcher = extraPattern.matcher(plain);
-            if (extraMatcher.matches()) {
-                tmuxStatusLine = extraMatcher.group(1) + new SimpleDateFormat("yy").format(new Date());
-                String extra = extraMatcher.group(2);
-                if (!extra.isEmpty()) {
-                    List<StyleTextPair> extraSegments = parseKeywordsAndHighlight(extra);
-                    newWrappedLines.addAll(wrapStyledText(extraSegments, wrapWidth));
+    public void executeCommand(String command) {
+        try {
+            String trimmedCommand = command.trim();
+            if (!trimmedCommand.isBlank()) {
+                if (commandHistory.isEmpty() || !trimmedCommand.equals(commandHistory.get(commandHistory.size() - 1))) {
+                    commandHistory.add(trimmedCommand);
                 }
-                continue;
-            } else if (TMUX_STATUS_PATTERN.matcher(plain).matches()) {
-                tmuxStatusLine = plain;
-                continue;
+                historyIndex = commandHistory.size();
             }
-            List<StyleTextPair> segments;
-            if (!line.contains("\u001B") && !line.contains("[")) {
-                segments = Collections.singletonList(new StyleTextPair(Style.EMPTY, null, line));
+
+            if (serverInfo != null && (serverInfo.state == ServerState.STOPPED || serverInfo.state == ServerState.CRASHED)) {
+                inputBuffer.setLength(0);
+                cursorPosition = 0;
+                return;
+            }
+
+            if (trimmedCommand.equalsIgnoreCase("exit")) {
+                if (sshManager != null && sshManager.isSSH()) {
+                    sshManager.getSshWriter().write("exit\n");
+                    sshManager.getSshWriter().flush();
+                } else {
+                    shutdown();
+                }
+            } else if (trimmedCommand.equalsIgnoreCase("clear")) {
+                outputBuffer.clear();
+            } else if (trimmedCommand.startsWith("ssh ") && sshManager != null) {
+                sshManager.startSSHConnection(trimmedCommand);
+            } else if (trimmedCommand.startsWith("theme ")) {
+                handleThemeCommand(trimmedCommand);
+            } else if (sshManager != null && sshManager.isSSH()) {
+                sshManager.getSshWriter().write(command + "\n");
+                sshManager.getSshWriter().flush();
+            } else if (processManager != null && processManager.getWriter() != null) {
+                processManager.getWriter().write(command + "\n");
+                processManager.getWriter().flush();
+                updateCurrentDirectoryFromCommand(trimmedCommand);
             } else {
-                segments = parseKeywordsAndHighlight(line);
+                appendOutput("No process to send command to.\n");
             }
-            newWrappedLines.addAll(wrapStyledText(segments, wrapWidth));
-        }
-        synchronized (wrappedLinesCache) {
-            wrappedLinesCache.clear();
-            wrappedLinesCache.addAll(newWrappedLines);
+        } catch (IOException e) {
+            appendOutput("ERROR: " + e.getMessage() + "\n");
+        } finally {
+            inputBuffer.setLength(0);
+            cursorPosition = 0;
+            resetTabCompletion();
         }
     }
 
-    private static final Pattern ALL_ANSI = Pattern.compile("\u001B\\[[0-9;?]*(?:m|[A-Za-z])|\u001B=>|=\\u001B.*?\\\\|\\u001B]10;\\?\\\\|\\u001B]11;\\?\\\\|\u001B\\[\\?2004[hl]|\u001B=|\u001Bc|\u001B\\[\\?1h=\\u001B\\[\\?2004h|\u001B][0-9];.*?\u0007|\u001B][0-9];.*?\\\\|\u001BN|\u001BO|\u001BP[^\\\\]*\\\\|\u001B\\^|\u001B_|\u001B\\\\|\u001B]|\u001B[()][AB012]");
-
-    private String removeAllAnsiSequences(String text) {
-        if (text.indexOf('\u001B') < 0) {
-            return text.replace("\t", "    ");
+    private void handleThemeCommand(String command) {
+        String themeName = command.substring(6).trim().replace('_', ' ');
+        for (MultiTerminalScreen.Theme theme : themes) {
+            if (theme.name.equalsIgnoreCase(themeName)) {
+                Themes.applyTheme(theme);
+                appendOutput("Theme changed to: " + theme.name + "\n");
+                return;
+            }
         }
-        return ALL_ANSI.matcher(text).replaceAll("").replace("\t", "    ");
+        String available = themes.stream().map(t -> t.name).collect(Collectors.joining(", "));
+        appendOutput("Theme not found: " + themeName + "\nAvailable: " + available + "\n");
     }
 
-    private List<StyleTextPair> parseKeywordsAndHighlight(String text) {
+    private void updateCurrentDirectoryFromCommand(String command) {
+        if (command.startsWith("cd ") && processManager != null) {
+            String path = command.substring(3).trim();
+            File dir = new File(processManager.getCurrentDirectory(), path);
+            if (dir.isDirectory()) {
+                processManager.setCurrentDirectory(dir.getAbsolutePath());
+            }
+        }
+    }
+
+    private void handleTabCompletion() {
+        String textBeforeCursor = inputBuffer.substring(0, cursorPosition);
+        if (textBeforeCursor.trim().isEmpty()) {
+            resetTabCompletion();
+            return;
+        }
+
+        String[] tokens = textBeforeCursor.split("\\s+");
+        if (tokens.length == 0) {
+            resetTabCompletion();
+            return;
+        }
+
+        List<String> options;
+        String prefix;
+        if (tokens[0].equals("cd")) {
+            String pathPart = textBeforeCursor.substring(textBeforeCursor.indexOf("cd") + 2).trim();
+            int lastSep = Math.max(pathPart.lastIndexOf('/'), pathPart.lastIndexOf('\\'));
+            currentBase = (lastSep != -1) ? pathPart.substring(0, lastSep + 1) : "";
+            prefix = (lastSep != -1) ? pathPart.substring(lastSep + 1) : pathPart;
+            options = sshManager.isSSH() ? getRemoteDirectoryCompletions(currentBase, prefix) : getLocalDirectoryCompletions(currentBase, prefix);
+        } else if (tokens[0].equals("theme")) {
+            prefix = textBeforeCursor.substring(5).trim();
+            currentBase = "";
+            options = getThemeCompletions(prefix).stream().map(name -> name.replace(" ", "_")).collect(Collectors.toList());
+        } else {
+            prefix = tokens[tokens.length - 1];
+            currentBase = "";
+            options = getAvailableCommands(prefix);
+        }
+
+        if (!prefix.equals(lastPrefix)) {
+            completions = options;
+            completionIndex = 0;
+        }
+        lastPrefix = prefix;
+
+        if (completions.isEmpty()) {
+            suggestion = "";
+            return;
+        }
+
+        String candidate = completions.get(completionIndex);
+        suggestion = candidate.substring(prefix.length());
+
+        inputBuffer.replace(cursorPosition - prefix.length(), cursorPosition, candidate);
+        cursorPosition = cursorPosition - prefix.length() + candidate.length();
+
+        completionIndex = (completionIndex + 1) % completions.size();
+        suggestion = "";
+    }
+
+    private void resetTabCompletion() {
+        completions.clear();
+        suggestion = "";
+        lastPrefix = "";
+        completionIndex = 0;
+        originalPrefix = "";
+        originalPrefixSet = false;
+        currentBase = "";
+    }
+
+    private List<String> getAvailableCommands(String prefix) {
+        if (sshManager.isSSH()) {
+            return sshManager.getSSHCommands(prefix).stream()
+                    .filter(cmd -> cmd.toLowerCase().startsWith(prefix.toLowerCase()))
+                    .sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList());
+        }
+
+        long now = System.currentTimeMillis();
+        if (now - commandsLastFetched > COMMANDS_CACHE_DURATION && !isRefreshingCommands) {
+            isRefreshingCommands = true;
+            commandRefreshExecutor.submit(this::refreshAvailableCommandsInternal);
+        }
+
+        List<String> result = new ArrayList<>();
+        if ("theme".toLowerCase().startsWith(prefix.toLowerCase())) {
+            result.add("theme");
+        }
+        for (String cmd : allCommands) {
+            if (cmd.toLowerCase().startsWith(prefix.toLowerCase())) {
+                result.add(cmd);
+            }
+        }
+        result.sort(String.CASE_INSENSITIVE_ORDER);
+        return result;
+    }
+
+    private synchronized void refreshAvailableCommandsInternal() {
+        if (sshManager.isSSH()) return;
+
+        Set<String> cmds = new HashSet<>();
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv != null) {
+            for (String dir : pathEnv.split(File.pathSeparator)) {
+                File d = new File(dir);
+                if (d.isDirectory()) {
+                    File[] files = d.listFiles();
+                    if (files != null) {
+                        for (File file : files) {
+                            if (file.isFile() && file.canExecute() && !file.isHidden()) {
+                                cmds.add(file.getName());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        allCommands = new ArrayList<>(cmds);
+        commandsLastFetched = System.currentTimeMillis();
+        isRefreshingCommands = false;
+    }
+
+    private List<String> getLocalDirectoryCompletions(String base, String partial) {
+        File dir = base.isEmpty() ? new File(getCurrentDir()) : new File(getCurrentDir(), base);
+        String cacheKey = dir.getAbsolutePath();
+        long now = System.currentTimeMillis();
+
+        CachedDirectory cached = localDirectoryCache.get(cacheKey);
+        if (cached != null && (now - cached.fetchedAt) < LOCAL_DIR_CACHE_DURATION) {
+            return cached.directories.stream().filter(name -> name.toLowerCase().startsWith(partial.toLowerCase())).collect(Collectors.toList());
+        }
+
+        List<String> allDirs = new ArrayList<>();
+        if (dir.isDirectory()) {
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    if (f.isDirectory() && !f.isHidden()) {
+                        allDirs.add(f.getName());
+                    }
+                }
+            }
+        }
+        allDirs.sort(String.CASE_INSENSITIVE_ORDER);
+        localDirectoryCache.put(cacheKey, new CachedDirectory(allDirs, now));
+        return allDirs.stream().filter(name -> name.toLowerCase().startsWith(partial.toLowerCase())).collect(Collectors.toList());
+    }
+
+    private List<String> getRemoteDirectoryCompletions(String base, String partial) {
+        String remotePath = base.isEmpty() ? getCurrentDir() : getCurrentDir() + "/" + base;
+        long now = System.currentTimeMillis();
+
+        CachedDirectory cached = remoteDirectoryCache.get(remotePath);
+        if (cached != null && (now - cached.fetchedAt) < REMOTE_DIR_CACHE_DURATION) {
+            return cached.directories.stream().filter(name -> name.toLowerCase().startsWith(partial.toLowerCase())).collect(Collectors.toList());
+        }
+
+        List<String> dirs = new ArrayList<>();
+        try {
+            List<String> entries = sshManager.listRemoteDirectory(remotePath);
+            for (String entry : entries) {
+                String fullPath = remotePath.endsWith("/") ? remotePath + entry : remotePath + "/" + entry;
+                if (sshManager.isRemoteDirectory(fullPath)) {
+                    dirs.add(entry);
+                }
+            }
+            dirs.sort(String.CASE_INSENSITIVE_ORDER);
+            remoteDirectoryCache.put(remotePath, new CachedDirectory(dirs, now));
+        } catch (Exception e) {
+            dirs.clear();
+        }
+        return dirs.stream().filter(name -> name.toLowerCase().startsWith(partial.toLowerCase())).collect(Collectors.toList());
+    }
+
+    private List<String> getThemeCompletions(String prefix) {
+        return themes.stream()
+                .map(t -> t.name)
+                .filter(name -> name.toLowerCase().startsWith(prefix.toLowerCase()))
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .collect(Collectors.toList());
+    }
+
+    private void scrollToBottom() {
+        int contentHeight = getHeight() - (tr.fontHeight + 4) * 2 - 4;
+        targetScrollY = Math.max(0, outputBuffer.size() * (tr.fontHeight + 2) - contentHeight);
+        clampScroll();
+    }
+
+    private void clampScroll() {
+        int contentHeight = getHeight() - (tr.fontHeight + 4) * 2 - 4;
+        int maxScroll = Math.max(0, outputBuffer.size() * (tr.fontHeight + 2) - contentHeight);
+        targetScrollY = MathHelper.clamp(targetScrollY, 0, maxScroll);
+    }
+
+    private void copySelectionToClipboard() {
+        if (!isSelecting) return;
+        SelectionPoint start = getOrderedSelectionStart();
+        SelectionPoint end = getOrderedSelectionEnd();
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = start.line; i <= end.line; i++) {
+            if (i >= outputBuffer.size()) break;
+            String lineText = outputBuffer.get(i).plainText;
+            int startCol = (i == start.line) ? start.col : 0;
+            int endCol = (i == end.line) ? end.col : lineText.length();
+
+            if(startCol < endCol) {
+                sb.append(lineText, startCol, endCol);
+            }
+            if (i < end.line) {
+                sb.append("\n");
+            }
+        }
+        mc.keyboard.setClipboard(sb.toString());
+    }
+
+    public ServerInfo getServerInfo() {
+        return serverInfo;
+    }
+
+    public void setServerState(ServerState state) {
+        if (this.serverInfo != null) {
+            this.serverInfo.state = state;
+        }
+    }
+
+    public List<String> getCommandHistory() {
+        return commandHistory;
+    }
+
+    public int getHistoryIndex() {
+        return historyIndex;
+    }
+
+    public void setHistoryIndex(int index) {
+        this.historyIndex = index;
+    }
+
+    public String getCurrentDir() {
+        if (processManager != null) {
+            return processManager.getCurrentDirectory();
+        }
+        return "/";
+    }
+
+    public void saveTerminalOutput(Path path) throws IOException {
+        StringBuilder fullOutput = new StringBuilder();
+        for(LineText line : outputBuffer) {
+            fullOutput.append(line.plainText).append("\n");
+        }
+        java.nio.file.Files.writeString(path, fullOutput.toString());
+    }
+
+    private SelectionPoint getPosFromCoords(double mouseX, double mouseY) {
+        int padding = 2;
+        int contentY = getY() + padding;
+        int lineHeight = tr.fontHeight + 2;
+
+        int line = (int)Math.floor((mouseY - contentY + scrollY) / lineHeight);
+        line = MathHelper.clamp(line, 0, outputBuffer.size() - 1);
+
+        if (outputBuffer.isEmpty()) return new SelectionPoint(0,0);
+
+        String lineText = outputBuffer.get(line).plainText;
+        int col = 0;
+        int minDx = Integer.MAX_VALUE;
+        for (int i = 0; i <= lineText.length(); i++) {
+            int dx = Math.abs((int)mouseX - (getX() + padding + tr.getWidth(lineText.substring(0, i))));
+            if (dx < minDx) {
+                minDx = dx;
+                col = i;
+            }
+        }
+        return new SelectionPoint(line, col);
+    }
+
+    private SelectionPoint getOrderedSelectionStart() {
+        return new SelectionPoint(selectionStartLine, selectionStartChar).isBefore(new SelectionPoint(selectionEndLine, selectionEndChar))
+                ? new SelectionPoint(selectionStartLine, selectionStartChar)
+                : new SelectionPoint(selectionEndLine, selectionEndChar);
+    }
+
+    private SelectionPoint getOrderedSelectionEnd() {
+        return new SelectionPoint(selectionStartLine, selectionStartChar).isBefore(new SelectionPoint(selectionEndLine, selectionEndChar))
+                ? new SelectionPoint(selectionEndLine, selectionEndChar)
+                : new SelectionPoint(selectionStartLine, selectionStartChar);
+    }
+
+    private record LineText(OrderedText orderedText, String plainText) {}
+    private record StyleTextPair(Style style, String text) {}
+    private record SelectionPoint(int line, int col) {
+        boolean isBefore(SelectionPoint other) {
+            return this.line < other.line || (this.line == other.line && this.col < other.col);
+        }
+    }
+
+    @Override protected void appendClickableNarrations(NarrationMessageBuilder builder) {}
+
+    private List<StyleTextPair> parseLine(String text) {
         text = text.replace("\u000f", "").replace("\t", "    ");
+        String cleanText = removeAllAnsiSequences(text);
+
+        Matcher bracketMatcher = BRACKET_KEYWORD_PATTERN.matcher(cleanText);
         List<StyleTextPair> result = new ArrayList<>();
-        Matcher bracketMatcher = BRACKET_KEYWORD_PATTERN.matcher(text);
         int lastEnd = 0;
+
         while (bracketMatcher.find()) {
             if (bracketMatcher.start() > lastEnd) {
-                String before = text.substring(lastEnd, bracketMatcher.start());
-                result.addAll(parseAnsiAndHighlight(before));
+                result.addAll(parseAnsi(text.substring(lastEnd, bracketMatcher.start())));
             }
+
             String keyword = bracketMatcher.group(2).toUpperCase();
             TextColor keywordColor = switch (keyword) {
                 case "WARNING", "WARN" -> TextColor.fromRgb(terminalTextWarnColor);
@@ -444,43 +789,43 @@ public class TerminalWidget extends AnimatedWidget {
                 case "INFO" -> TextColor.fromRgb(terminalTextInfoColor);
                 default -> TextColor.fromRgb(terminalTextColor);
             };
-            Style keywordStyle = Style.EMPTY.withColor(keywordColor);
-            String fullMatch = "[" + bracketMatcher.group(1) + bracketMatcher.group(2) + bracketMatcher.group(3) + "]";
-            result.add(new StyleTextPair(keywordStyle, null, fullMatch));
+            result.add(new StyleTextPair(Style.EMPTY.withColor(keywordColor), bracketMatcher.group()));
             lastEnd = bracketMatcher.end();
         }
+
         if (lastEnd < text.length()) {
-            String remaining = text.substring(lastEnd);
-            result.addAll(parseAnsiAndHighlight(remaining));
+            result.addAll(parseAnsi(text.substring(lastEnd)));
+        }
+
+        return result;
+    }
+
+    private List<StyleTextPair> parseAnsi(String text) {
+        List<StyleTextPair> result = new ArrayList<>();
+        AttributedString attributedString = AttributedString.fromAnsi(text);
+        String plain = attributedString.toString();
+        if (plain.isEmpty()) return result;
+
+        AttributedStyle currentAttr = attributedString.styleAt(0);
+        StringBuilder segmentBuilder = new StringBuilder();
+        for (int i = 0; i < plain.length(); i++) {
+            AttributedStyle attr = attributedString.styleAt(i);
+            if (!attr.equals(currentAttr) && !segmentBuilder.isEmpty()) {
+                result.add(new StyleTextPair(convertStyle(currentAttr), segmentBuilder.toString()));
+                segmentBuilder.setLength(0);
+                currentAttr = attr;
+            }
+            segmentBuilder.append(plain.charAt(i));
+        }
+        if (!segmentBuilder.isEmpty()) {
+            result.add(new StyleTextPair(convertStyle(currentAttr), segmentBuilder.toString()));
         }
         return result;
     }
 
-    private List<StyleTextPair> parseAnsiAndHighlight(String text) {
-        text = text.replace("\u000f", "").replace("\t", "    ");
-        text = text.replaceAll("\u001B\\[[0-9;]*(?!m)[A-Za-z]", "");
-        List<StyleTextPair> result = new ArrayList<>();
-        AttributedString astring = AttributedString.fromAnsi(text);
-        String plain = astring.toString();
-        if (plain.isEmpty()) {
-            return result;
-        }
-        AttributedStyle currentAttr = astring.styleAt(0);
-        StringBuilder segmentBuilder = new StringBuilder();
-        for (int i = 0; i < plain.length(); i++) {
-            char c = plain.charAt(i);
-            AttributedStyle attr = astring.styleAt(i);
-            if (!attr.equals(currentAttr) && !segmentBuilder.isEmpty()) {
-                result.add(new StyleTextPair(convertStyle(currentAttr), null, segmentBuilder.toString()));
-                segmentBuilder = new StringBuilder();
-                currentAttr = attr;
-            }
-            segmentBuilder.append(c);
-        }
-        if (!segmentBuilder.isEmpty()) {
-            result.add(new StyleTextPair(convertStyle(currentAttr), null, segmentBuilder.toString()));
-        }
-        return result;
+    private String removeAllAnsiSequences(String text) {
+        if (text.indexOf('\u001B') < 0) return text;
+        return ALL_ANSI.matcher(text).replaceAll("");
     }
 
     private Style convertStyle(AttributedStyle attr) {
@@ -488,101 +833,33 @@ public class TerminalWidget extends AnimatedWidget {
             Field styleField = attr.getClass().getDeclaredField("style");
             styleField.setAccessible(true);
             int styleValue = styleField.getInt(attr);
+
             Field fForegroundField = attr.getClass().getDeclaredField("F_FOREGROUND");
             fForegroundField.setAccessible(true);
             int F_FOREGROUND = fForegroundField.getInt(attr);
+
             Field fgColorExpField = attr.getClass().getDeclaredField("FG_COLOR_EXP");
             fgColorExpField.setAccessible(true);
             int FG_COLOR_EXP = fgColorExpField.getInt(attr);
+
             if ((styleValue & F_FOREGROUND) != 0) {
                 int index = (styleValue >> FG_COLOR_EXP) & 0xFF;
                 int rgb = get256ColorRGB(index);
                 return Style.EMPTY.withColor(TextColor.fromRgb(rgb));
             }
         } catch (Exception e) {
-            devPrint("Error converting style" + e.getMessage());
         }
         return Style.EMPTY.withColor(TextColor.fromRgb(terminalTextColor));
     }
 
-    private List<LineText> wrapStyledText(List<StyleTextPair> segments, int maxWidth) {
-        List<LineText> wrappedLines = new ArrayList<>();
-        if (maxWidth <= 0) return wrappedLines;
-        List<StyleTextPair> currentLineSegments = new ArrayList<>();
-        int currentLineWidth = 0;
-        for (StyleTextPair segment : segments) {
-            String text = segment.text;
-            Style style = segment.style;
-            int index = 0;
-            while (index < text.length()) {
-                int remainingWidth = maxWidth - currentLineWidth;
-                int charsToFit = measureTextToFit(text.substring(index), remainingWidth);
-                if (currentLineWidth > 0 && charsToFit == 0) {
-                    wrappedLines.add(buildLineText(currentLineSegments));
-                    currentLineSegments.clear();
-                    currentLineWidth = 0;
-                    continue;
-                }
-                if (charsToFit == 0 && currentLineWidth == 0) {
-                    charsToFit = 1;
-                }
-
-                String substring = text.substring(index, index + charsToFit);
-                currentLineSegments.add(new StyleTextPair(style, null, substring));
-                currentLineWidth += mc.textRenderer.getWidth(substring);
-                index += charsToFit;
-
-                if (currentLineWidth >= maxWidth && index < text.length()) {
-                    wrappedLines.add(buildLineText(currentLineSegments));
-                    currentLineSegments.clear();
-                    currentLineWidth = 0;
-                }
-            }
-        }
-        if (!currentLineSegments.isEmpty()) {
-            wrappedLines.add(buildLineText(currentLineSegments));
-        }
-        return wrappedLines;
-    }
-
-    private int measureTextToFit(String text, int maxWidth) {
-        int width = 0;
-        int index = 0;
-        while (index < text.length()) {
-            char c = text.charAt(index);
-            int charWidth = mc.textRenderer.getWidth(String.valueOf(c));
-            if (width + charWidth > maxWidth) {
-                break;
-            }
-            width += charWidth;
-            index++;
-        }
-        return index;
-    }
-
-    private LineText buildLineText(List<StyleTextPair> segments) {
-        MutableText lineText = Text.literal("");
-        StringBuilder plainTextBuilder = new StringBuilder();
-        for (StyleTextPair segment : segments) {
-            Text styledText = Text.literal(segment.text).setStyle(segment.style);
-            lineText.append(styledText);
-            plainTextBuilder.append(segment.text);
-        }
-        return new LineText(lineText.asOrderedText(), plainTextBuilder.toString());
-    }
-
     private int get256ColorRGB(int index) {
-        if (index < 0 || index > 255) return 0xFFFFFF;
-        if (index < 16) return getStandardColorRGB(index);
-
-        if (index <= 231) {
+        if (index < 16) {
+            return getStandardColorRGB(index);
+        } else if (index < 232) {
             index -= 16;
-            int r = (index / 36) % 6;
-            int g = (index / 6) % 6;
-            int b = index % 6;
-            r *= 51;
-            g *= 51;
-            b *= 51;
+            int r = (index / 36) % 6 * 51;
+            int g = (index / 6) % 6 * 51;
+            int b = index % 6 * 51;
             return (r << 16) | (g << 8) | b;
         } else {
             int gray = 8 + (index - 232) * 10;
@@ -600,220 +877,36 @@ public class TerminalWidget extends AnimatedWidget {
         };
     }
 
-    private int getTotalLines() { synchronized (wrappedLinesCache) { return wrappedLinesCache.size(); } }
-    private int getLineHeight() { return mc.textRenderer.fontHeight + 2; }
-    private int getInputFieldHeight() { return showInputField ? mc.textRenderer.fontHeight - 2 : 0; }
-    private int getStatusBarHeight() { return showStatusBar ? mc.textRenderer.fontHeight + 4 : 0; }
-    private int getTextAreaHeight() {
-        int padding = 2;
-        return getHeight() - (2 * padding) - getInputFieldHeight() - getStatusBarHeight() - (showInputField ? 2 : 0);
-    }
-    private int getTotalScrollHeight() { return getTotalLines() * getLineHeight(); }
+    private List<LineText> wrapStyledText(List<StyleTextPair> segments, int maxWidth) {
+        if (segments.isEmpty()) return Collections.emptyList();
 
-    private String[] getStatusBarStrings(int availableWidth) {
-        if (customLeftStatus != null && customRightStatus != null) {
-            return new String[]{customLeftStatus, customRightStatus};
-        }
-        if (terminalInstance == null) return new String[]{"", ""};
+        List<LineText> wrappedLines = new ArrayList<>();
+        MutableText currentLine = Text.literal("");
+        StringBuilder plainBuilder = new StringBuilder();
+        int currentWidth = 0;
 
-        String leftStatus, rightStatus;
-        if (tmuxStatusLine.isEmpty()) {
-            if (terminalInstance.getServerInfo() != null) {
-                ServerInfo sInfo = terminalInstance.getServerInfo();
-                String serverStatus;
-                switch (sInfo.state) {
-                    case STARTING -> serverStatus = "Starting";
-                    case RUNNING -> serverStatus = "Running";
-                    case STOPPED -> serverStatus = "Stopped";
-                    case CRASHED -> serverStatus = "Crashed";
-                    default -> serverStatus = "Unknown";
+        for (StyleTextPair segment : segments) {
+            String text = segment.text;
+            Style style = segment.style;
+            for (int i = 0; i < text.length(); i++) {
+                char c = text.charAt(i);
+                int charWidth = tr.getWidth(String.valueOf(c));
+                if (currentWidth + charWidth > maxWidth) {
+                    wrappedLines.add(new LineText(currentLine.asOrderedText(), plainBuilder.toString()));
+                    currentLine = Text.literal("");
+                    plainBuilder.setLength(0);
+                    currentWidth = 0;
                 }
-                leftStatus = obfuscateIps("Remotely | " + sInfo.name + " - " + serverStatus);
-                if (sInfo.remoteHost != null && sInfo.remoteSSHManager != null && sInfo.isRemote) {
-                    boolean connected = sInfo.remoteSSHManager.isSSH();
-                    rightStatus = obfuscateIps(connected ? sInfo.remoteHost.name + " - Connected" : sInfo.remoteHost.name + ": Disconnected");
-                } else {
-                    rightStatus = obfuscateIps("Local Host | " + new Date());
-                }
-            } else {
-                leftStatus = "Remotely";
-                rightStatus = new Date().toString();
-            }
-        } else {
-            int idx = tmuxStatusLine.indexOf("     ");
-            if (idx != -1) {
-                leftStatus = obfuscateIps(tmuxStatusLine.substring(0, idx).trim());
-                rightStatus = obfuscateIps(tmuxStatusLine.substring(idx).trim());
-            } else {
-                leftStatus = obfuscateIps(tmuxStatusLine);
-                rightStatus = "";
+                currentLine.append(Text.literal(String.valueOf(c)).setStyle(style));
+                plainBuilder.append(c);
+                currentWidth += charWidth;
             }
         }
 
-        return new String[]{
-                trimTextToWidthWithEllipsis(leftStatus, availableWidth / 2 - 4),
-                trimTextToWidthWithEllipsis(rightStatus, availableWidth / 2 - 4)
-        };
-    }
-
-    private String trimTextToWidthWithEllipsis(String text, int maxWidth) {
-        if (mc.textRenderer.getWidth(text) <= maxWidth) return text;
-        String ellipsis = "...";
-        int ellipsisWidth = mc.textRenderer.getWidth(ellipsis);
-        String tempText = text;
-        while (mc.textRenderer.getWidth(tempText) + ellipsisWidth > maxWidth && !tempText.isEmpty()) {
-            tempText = tempText.substring(0, tempText.length() - 1);
-        }
-        return tempText + ellipsis;
-    }
-
-    private boolean isMouseOverTerminal(double mouseX, double mouseY) {
-        int padding = 2;
-        int textAreaX = getX() + padding;
-        int textAreaY = getY() + padding;
-        int textAreaWidth = getWidth() - (2 * padding);
-        return mouseX >= textAreaX && mouseX <= textAreaX + textAreaWidth &&
-                mouseY >= textAreaY && mouseY <= textAreaY + getTextAreaHeight();
-    }
-
-    private void updateSelectionStart(double mouseX, double mouseY) {
-        if (wrappedLinesCache.isEmpty()) return;
-        PointInTerminal point = getTerminalCoordinates(mouseX, mouseY);
-        selectionStartLine = point.line;
-        selectionStartChar = getCharIndexInLine(point.line, point.x);
-        selectionEndLine = selectionStartLine;
-        selectionEndChar = selectionStartChar;
-    }
-
-    private void updateSelectionEnd(double mouseX, double mouseY) {
-        if (wrappedLinesCache.isEmpty()) return;
-        PointInTerminal point = getTerminalCoordinates(mouseX, mouseY);
-        selectionEndLine = point.line;
-        selectionEndChar = getCharIndexInLine(point.line, point.x);
-    }
-
-    private PointInTerminal getTerminalCoordinates(double mouseX, double mouseY) {
-        int padding = 2;
-        int textAreaX = getX() + padding;
-        int textAreaY = getY() + padding;
-        int firstLine = (int) Math.floor(currentScrollOffset / getLineHeight());
-        int offsetY = (int) ((mouseY - textAreaY) + (currentScrollOffset % getLineHeight()));
-        int line = firstLine + offsetY / getLineHeight();
-        line = Math.max(0, Math.min(line, getTotalLines() - 1));
-        int relativeX = (int) (mouseX - textAreaX);
-        return new PointInTerminal(line, relativeX);
-    }
-
-    private int getCharIndexInLine(int lineIndex, int relativeX) {
-        synchronized(wrappedLinesCache) {
-            if (lineIndex < 0 || lineIndex >= wrappedLinesCache.size()) return 0;
-            String lineText = wrappedLinesCache.get(lineIndex).plainText;
-            int charIndex = 0;
-            int widthSum = 0;
-            while (charIndex < lineText.length()) {
-                int charWidth = mc.textRenderer.getWidth(String.valueOf(lineText.charAt(charIndex)));
-                if (widthSum + charWidth / 2.0f >= relativeX) break;
-                widthSum += charWidth;
-                charIndex++;
-            }
-            return charIndex;
-        }
-    }
-
-    private void scrollToEdgesTerminal(double mouseY) {
-        int padding = 2;
-        int textAreaY = getY() + padding;
-        int textAreaHeight = getTextAreaHeight();
-        double speedFactor = 0.1;
-        double minDiff = 5.0;
-        if (mouseY < textAreaY) {
-            double diff = Math.max(textAreaY - mouseY, minDiff);
-            targetScrollOffset = Math.max(0, targetScrollOffset - (float)(diff * speedFactor));
-        } else if (mouseY > textAreaY + textAreaHeight) {
-            double diff = Math.max(mouseY - (textAreaY + textAreaHeight), minDiff);
-            int maxScroll = Math.max(0, getTotalScrollHeight() - textAreaHeight);
-            targetScrollOffset = Math.min(maxScroll, targetScrollOffset + (float)(diff * speedFactor));
-        }
-    }
-
-    private String getSelectedText() {
-        if (selectionStartLine == -1 || selectionEndLine == -1) return "";
-
-        int startL = selectionStartLine, endL = selectionEndLine;
-        int startC = selectionStartChar, endC = selectionEndChar;
-
-        if (startL > endL || (startL == endL && startC > endC)) {
-            startL = selectionEndLine; endL = selectionStartLine;
-            startC = selectionEndChar; endC = selectionStartChar;
+        if (currentWidth > 0) {
+            wrappedLines.add(new LineText(currentLine.asOrderedText(), plainBuilder.toString()));
         }
 
-        StringBuilder sb = new StringBuilder();
-        synchronized (wrappedLinesCache) {
-            for (int i = startL; i <= endL; i++) {
-                if (i < 0 || i >= wrappedLinesCache.size()) continue;
-                String lineText = wrappedLinesCache.get(i).plainText;
-
-                int lineStartChar = (i == startL) ? startC : 0;
-                int lineEndChar = (i == endL) ? endC : lineText.length();
-
-                if (lineStartChar >= lineText.length()) {
-                    if (i < endL) sb.append('\n');
-                    continue;
-                }
-                sb.append(lineText, lineStartChar, Math.min(lineEndChar, lineText.length()));
-                if (i < endL) {
-                    sb.append('\n');
-                }
-            }
-        }
-        return sb.toString();
-    }
-
-    private void drawSelection(DrawContext context, LineInfo lineInfo, int x) {
-        int startL = selectionStartLine, endL = selectionEndLine;
-        int startC = selectionStartChar, endC = selectionEndChar;
-
-        if (startL > endL || (startL == endL && startC > endC)) {
-            startL = selectionEndLine; endL = selectionStartLine;
-            startC = selectionEndChar; endC = selectionStartChar;
-        }
-
-        if (lineInfo.lineNumber < startL || lineInfo.lineNumber > endL) return;
-
-        String lineText = lineInfo.plainText;
-        int selectionStart = (lineInfo.lineNumber == startL) ? startC : 0;
-        int selectionEnd = (lineInfo.lineNumber == endL) ? endC : lineText.length();
-
-        if (selectionStart >= lineText.length()) return;
-
-        int selectionXStart = x + mc.textRenderer.getWidth(lineText.substring(0, selectionStart));
-        int selectionWidth = mc.textRenderer.getWidth(lineText.substring(selectionStart, Math.min(selectionEnd, lineText.length())));
-
-        context.fill(selectionXStart, lineInfo.y, selectionXStart + selectionWidth, lineInfo.y + getLineHeight(), globalSelectionColor);
-    }
-
-    private boolean isLineSelected(int lineNumber) {
-        if (selectionStartLine == -1 || selectionEndLine == -1) return false;
-        int start = Math.min(selectionStartLine, selectionEndLine);
-        int end = Math.max(selectionStartLine, selectionEndLine);
-        return lineNumber >= start && lineNumber <= end;
-    }
-
-    private static String obfuscateIps(String input) {
-        if (showIp) return input;
-        return IP_PATTERN.matcher(input).replaceAll("§k$1§r");
-    }
-
-    private record StyleTextPair(Style style, TextColor backgroundColor, String text) { }
-
-    private record LineText(OrderedText orderedText, String plainText) {}
-    private record PointInTerminal(int line, int x) {}
-
-    public static class LineInfo {
-        final int lineNumber, y, height; final OrderedText orderedText; final String plainText;
-        LineInfo(int lineNumber, int y, int height, OrderedText orderedText, String plainText) {
-            this.lineNumber = lineNumber; this.y = y; this.height = height;
-            this.orderedText = orderedText; this.plainText = plainText;
-        }
+        return wrappedLines;
     }
 }

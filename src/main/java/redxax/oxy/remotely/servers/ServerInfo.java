@@ -1,7 +1,6 @@
 package redxax.oxy.remotely.servers;
 
 import redxax.oxy.remotely.SSHManager;
-import redxax.oxy.remotely.terminal.TerminalInstance;
 
 import java.util.Objects;
 import java.util.Properties;
@@ -12,7 +11,6 @@ public class ServerInfo {
     public String type;
     public String version;
     public boolean isRunning;
-    public TerminalInstance terminal;
     public ServerState state = ServerState.STOPPED;
     public boolean isRemote = false;
     public RemoteHostInfo remoteHost;
@@ -40,7 +38,7 @@ public class ServerInfo {
     }
     public boolean isProxyServer() {
         return type.equalsIgnoreCase("bungee") ||
-               type.equalsIgnoreCase("waterfall") ||
+                type.equalsIgnoreCase("waterfall") ||
                 type.equalsIgnoreCase("velocity");
     }
 

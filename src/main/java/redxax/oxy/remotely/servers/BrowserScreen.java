@@ -21,7 +21,6 @@ import net.minecraft.text.Text;
 
 import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.terminal.MultiTerminalScreen.TAB_HEIGHT;
 import static redxax.oxy.remotely.util.ImageUtil.*;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
@@ -140,7 +139,7 @@ public class BrowserScreen extends Screen {
         tabsBar.setAllowRename(false);
         tabsBar.setAllowDrag(true);
         tabsBar.setAllowScroll(true);
-        tabsBar.setTabBarBounds(5, 35, this.width - 5, TAB_HEIGHT);
+        tabsBar.setTabBarBounds(5, 35, this.width - 5, 18);
         tabsBar.setOnTabOrderChanged(() -> {
             List<Tab> newTabs = tabsBar.getTabs().stream().map(tab -> tab.data).toList();
             tabs.clear();
@@ -214,7 +213,7 @@ public class BrowserScreen extends Screen {
 
     private void drawHeader(DrawContext context, int width, int height, int mouseX, int mouseY) {
         drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, fullscreenIcon, null, null, goBackIcon, goForwardIcon, null, null, reloadIcon);
-        tabsBar.setTabBarBounds(5, 35, width - 5, TAB_HEIGHT);
+        tabsBar.setTabBarBounds(5, 35, width - 5, 18);
         tabsBar.renderTabsBar(context, minecraftClient.textRenderer, tabsBar, mouseX, mouseY, shadow);
         tabsBar.setActiveTabName(tabs.get(Math.min(currentTabIndex, tabs.size()-1)).getAnimatedText());
         String displayUrl = urlFieldFocused ? urlFieldText.toString() : trimUrl(urlFieldText.toString());
