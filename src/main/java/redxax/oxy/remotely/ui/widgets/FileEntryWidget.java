@@ -2,10 +2,12 @@ package redxax.oxy.remotely.ui.widgets;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
 import net.minecraft.text.Text;
 import redxax.oxy.remotely.api.RemotelyCoreAPI;
 import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.explorer.FileEditorScreen;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.util.Notification;
 import redxax.oxy.remotely.util.Sound;
@@ -90,14 +92,16 @@ public class FileEntryWidget extends AnimatedWidget {
 
     @Override
     public void onClick(double mouseX, double mouseY, int button) {
-        FileExplorerScreen explorer = (FileExplorerScreen) MinecraftClient.getInstance().currentScreen;
         if (button == 0) {
             onDoubleClick.accept(this);
         } else if (button == 1 && onRightClick != null) {
             onRightClick.accept(this);
         } else if (button == 2) {
-            if (explorer != null && fileEntry.isDirectory) {
-                explorer.createTab(fileEntry.path, true);
+            Screen currentScreen = MinecraftClient.getInstance().currentScreen;
+            if (currentScreen instanceof FileExplorerScreen explorer) {
+                if (fileEntry.isDirectory) {
+                    explorer.createTab(fileEntry.path, true);
+                }
             }
         }
     }
