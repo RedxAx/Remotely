@@ -15,7 +15,7 @@ import static redxax.oxy.remotely.config.Config.*;
 
 public class TextAreaWidget extends AnimatedWidget {
 
-    private List<StringBuilder> lines = new ArrayList<>(List.of(new StringBuilder()));
+    private final List<StringBuilder> lines = new ArrayList<>(List.of(new StringBuilder()));
     private String placeholder = "Type...";
     private int cursorLine = 0;
     private int cursorCol = 0;
@@ -100,9 +100,6 @@ public class TextAreaWidget extends AnimatedWidget {
 
     @Override
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY) {
-        updateScrollOffset();
-
-        int contentWidth = getWidth() - PADDING * 2;
         int contentHeight = getHeight() - PADDING * 2;
         int lineH = tr.fontHeight + LINE_SPACING;
 
@@ -111,7 +108,6 @@ public class TextAreaWidget extends AnimatedWidget {
         if (getText().isEmpty() && !isFocused()) {
             ctx.drawText(tr, placeholder, getX() + PADDING, getY() + PADDING, globalDarkTextColor, shadow);
         } else {
-            int totalTextLength = getText().length() - (lines.size() - 1);
 
             int startLine = (int) (scrollOffsetY / lineH);
             int endLine = Math.min(lines.size(), startLine + (contentHeight / lineH) + 2);
@@ -175,6 +171,7 @@ public class TextAreaWidget extends AnimatedWidget {
         selectionStartCol = cursorCol;
         selectionEndLine = cursorLine;
         selectionEndCol = cursorCol;
+        ensureCursorVisible();
     }
 
     private void setCursorWithSelection(int line, int col) {
@@ -182,9 +179,10 @@ public class TextAreaWidget extends AnimatedWidget {
         cursorCol = Math.max(0, Math.min(lines.get(cursorLine).length(), col));
         selectionEndLine = cursorLine;
         selectionEndCol = cursorCol;
+        ensureCursorVisible();
     }
 
-    private void updateScrollOffset() {
+    private void ensureCursorVisible() {
         int lineH = tr.fontHeight + LINE_SPACING;
         int contentHeight = getHeight() - PADDING * 2;
         int contentWidth = getWidth() - PADDING * 2;
@@ -237,7 +235,7 @@ public class TextAreaWidget extends AnimatedWidget {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (isMouseOver(mouseX, mouseY)) {
-            targetScrollOffsetY -= verticalAmount * (tr.fontHeight + LINE_SPACING);
+            targetScrollOffsetY -= (float) (verticalAmount * (tr.fontHeight + LINE_SPACING));
             clampScroll();
             return true;
         }
@@ -247,7 +245,6 @@ public class TextAreaWidget extends AnimatedWidget {
     @Override
     public void onClick(double mouseX, double mouseY, int button) {
         if (button == 0) {
-            setFocused(true);
             SelectionPoint p = getPosFromCoords(mouseX, mouseY);
             setCursor(p.line, p.col);
         }
@@ -278,6 +275,45 @@ public class TextAreaWidget extends AnimatedWidget {
     }
 
     private boolean handleSelectionKeys(int keyCode, boolean ctrl, boolean shift) {
+        if (ctrl) {
+            if (keyCode == GLFW.GLFW_KEY_A) {
+                selectionStartLine = 0;
+                selectionStartCol = 0;
+                cursorLine = selectionEndLine = lines.size() - 1;
+                cursorCol = selectionEndCol = lines.get(cursorLine).length();
+            } else if (keyCode == GLFW.GLFW_KEY_LEFT) {
+                if (cursorCol > 0) {
+                    String lineText = lines.get(cursorLine).toString();
+                    int newCol = cursorCol;
+                    while (newCol > 0 && Character.isWhitespace(lineText.charAt(newCol - 1))) newCol--;
+                    while (newCol > 0 && !Character.isWhitespace(lineText.charAt(newCol - 1))) newCol--;
+                    if (shift) setCursorWithSelection(cursorLine, newCol); else setCursor(cursorLine, newCol);
+                } else if (cursorLine > 0) {
+                    if (shift) setCursorWithSelection(cursorLine - 1, lines.get(cursorLine - 1).length());
+                    else setCursor(cursorLine - 1, lines.get(cursorLine - 1).length());
+                }
+            } else if (keyCode == GLFW.GLFW_KEY_RIGHT) {
+                if (cursorCol < lines.get(cursorLine).length()) {
+                    String lineText = lines.get(cursorLine).toString();
+                    int newCol = cursorCol;
+                    while (newCol < lineText.length() && !Character.isWhitespace(lineText.charAt(newCol))) newCol++;
+                    while (newCol < lineText.length() && Character.isWhitespace(lineText.charAt(newCol))) newCol++;
+                    if (shift) setCursorWithSelection(cursorLine, newCol); else setCursor(cursorLine, newCol);
+                } else if (cursorLine < lines.size() - 1) {
+                    if (shift) setCursorWithSelection(cursorLine + 1, 0); else setCursor(cursorLine + 1, 0);
+                }
+            } else if (keyCode == GLFW.GLFW_KEY_HOME) {
+                if (shift) setCursorWithSelection(0, 0); else setCursor(0, 0);
+            } else if (keyCode == GLFW.GLFW_KEY_END) {
+                int lastLine = lines.size() - 1;
+                int lastCol = lines.get(lastLine).length();
+                if (shift) setCursorWithSelection(lastLine, lastCol); else setCursor(lastLine, lastCol);
+            } else {
+                return false;
+            }
+            return true;
+        }
+
         if (keyCode == GLFW.GLFW_KEY_LEFT) {
             if (cursorCol > 0) {
                 if (shift) setCursorWithSelection(cursorLine, cursorCol - 1);
@@ -310,11 +346,18 @@ public class TextAreaWidget extends AnimatedWidget {
         } else if (keyCode == GLFW.GLFW_KEY_END) {
             if (shift) setCursorWithSelection(cursorLine, lines.get(cursorLine).length());
             else setCursor(cursorLine, lines.get(cursorLine).length());
-        } else if (ctrl && keyCode == GLFW.GLFW_KEY_A) {
-            selectionStartLine = 0;
-            selectionStartCol = 0;
-            cursorLine = selectionEndLine = lines.size() - 1;
-            cursorCol = selectionEndCol = lines.get(cursorLine).length();
+        } else if (keyCode == GLFW.GLFW_KEY_PAGE_UP) {
+            int lineH = tr.fontHeight + LINE_SPACING;
+            int contentHeight = getHeight() - PADDING * 2;
+            int pageAmount = Math.max(1, contentHeight / lineH);
+            int newLine = Math.max(0, cursorLine - pageAmount);
+            if (shift) setCursorWithSelection(newLine, cursorCol); else setCursor(newLine, cursorCol);
+        } else if (keyCode == GLFW.GLFW_KEY_PAGE_DOWN) {
+            int lineH = tr.fontHeight + LINE_SPACING;
+            int contentHeight = getHeight() - PADDING * 2;
+            int pageAmount = Math.max(1, contentHeight / lineH);
+            int newLine = Math.min(lines.size() - 1, cursorLine + pageAmount);
+            if (shift) setCursorWithSelection(newLine, cursorCol); else setCursor(newLine, cursorCol);
         } else {
             return false;
         }
@@ -431,8 +474,8 @@ public class TextAreaWidget extends AnimatedWidget {
         } else {
             lines.get(start.line).delete(start.col, lines.get(start.line).length());
             lines.get(start.line).append(lines.get(end.line).substring(end.col));
-            for (int i = start.line + 1; i <= end.line; i++) {
-                lines.remove(start.line + 1);
+            if (end.line >= start.line + 1) {
+                lines.subList(start.line + 1, end.line + 1).clear();
             }
         }
         setCursor(start.line, start.col);
@@ -490,5 +533,9 @@ public class TextAreaWidget extends AnimatedWidget {
             if (line != o.line) return Integer.compare(line, o.line);
             return Integer.compare(col, o.col);
         }
+    }
+
+    public void setPlaceholder(String s) {
+        this.placeholder = s;
     }
 }

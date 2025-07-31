@@ -77,7 +77,7 @@ public class FileExplorerScreen extends ReScreen {
     }
 
     @Override
-    protected void init() {
+    public void init() {
         super.init();
 
         Container explorerContainer = createContainer("explorer", 5, 60, width - 10, height - 5);

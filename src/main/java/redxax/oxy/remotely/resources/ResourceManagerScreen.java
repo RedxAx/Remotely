@@ -50,7 +50,7 @@ public class ResourceManagerScreen extends ReScreen {
     }
 
     @Override
-    protected void init() {
+    public void init() {
         super.init();
         sortLabelsMap.put("Modrinth", new String[]{"Relevance", "Downloads", "Most Followers", "Last Updated", "Newest"});
         sortValuesMap.put("Modrinth", new String[]{"relevance", "downloads", "follows", "updated", "newest"});
