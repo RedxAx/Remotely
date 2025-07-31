@@ -91,6 +91,7 @@ public class MultiTerminalScreen extends ReScreen {
         targetScaleFactor = 2;
         globalScaleFactor = 2;
         animScaleFactor = 2;
+        setupHeader();
     }
 
     private void setupHeader() {
@@ -167,7 +168,6 @@ public class MultiTerminalScreen extends ReScreen {
         }
 
         remotelyClient.activeTerminalIndex = tabsManager.getActiveTabIndex();
-        setupHeader();
         playSound(Sound.SWITCHTAB);
     }
 

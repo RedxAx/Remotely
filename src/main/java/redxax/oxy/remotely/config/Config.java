@@ -127,7 +127,7 @@ public class Config {
         return new float[]{a, r, g, b};
     }
 
-    private static int floatArrayToInt(float[] c) {
+    public static int floatArrayToInt(float[] c) {
         int a = Math.round(c[0] * 255);
         int r = Math.round(c[1] * 255);
         int g = Math.round(c[2] * 255);

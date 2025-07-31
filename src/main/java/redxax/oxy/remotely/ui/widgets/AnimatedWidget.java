@@ -6,6 +6,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.Text;
 import redxax.oxy.remotely.Render;
+import redxax.oxy.remotely.config.Config;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -46,6 +47,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     protected float elevation = 0f;
     protected boolean animateColor = true, animateElevation = true, enableHoverColors = true, flat = false;
+    protected boolean enableGradient;
     protected AccentType accentType = AccentType.DEFAULT;
     public boolean selected;
     public boolean selectable = false;
@@ -81,6 +83,9 @@ public abstract class AnimatedWidget extends ClickableWidget {
     protected int zLayer = 0;
     protected boolean absolutePivot = false;
 
+    private float[] animatedBgColorRgba = null;
+    private float[] animatedBorderColorRgba = null;
+
     protected boolean hasScissorRegion = false;
     protected int scissorX1, scissorY1, scissorX2, scissorY2;
 
@@ -105,6 +110,7 @@ public abstract class AnimatedWidget extends ClickableWidget {
         public B animateColor(boolean b) { widget.animateColor = b; return self(); }
         public B accentType(AccentType type) { widget.accentType = type; return self(); }
         public B animateElevation(boolean b) { widget.animateElevation = b; return self(); }
+        public B enableGradient(boolean b) { widget.enableGradient = b; return self(); }
         public B animateLayout(boolean b) { widget.animateLayout = b; return self(); }
         public B flat(boolean f) { widget.flat = f; return self(); }
         public B animationSpeed(float s) { widget.animationSpeed = s; return self(); }
@@ -387,30 +393,95 @@ public abstract class AnimatedWidget extends ClickableWidget {
         }
         if (enableHoverColors) {
             if (animateColor) {
-                boolean selectedColor = selectable ? selected : isFocused();
-                bgColor = getElementBackgroundColor(this.hashCode(), isHovered() || isFocused(), selectedColor, active, accentType);
-                borderColor = getElementBorderColor(this.hashCode(), isHovered() || isFocused(), selectedColor, active, accentType);
-            } else {
-                if (isHovered() && isFocused()) {
-                    bgColor = accentDarkHoverColor;
-                    borderColor = accentHoverColor;
-                } else if (isFocused()) {
-                    bgColor = accentDarkColor;
-                    borderColor = accentColor;
-                } else if (isHovered()) {
-                    bgColor = elementHoverBackgroundColor;
-                    borderColor = elementHoverBorderColor;
-                } else if (!active) {
-                    bgColor = innerBackgroundColor;
-                    borderColor = inClickableBorderColor;
+                if (accentType != AccentType.DEFAULT) {
+                    boolean hovered = isHovered() || isFocused();
+                    int targetBgColor;
+                    int targetBorderColor = switch (accentType) {
+                        case DANGER -> {
+                            targetBgColor = hovered ? dangerDarkHoverAccentColor : dangerDarkAccentColor;
+                            yield hovered ? dangerHoverAccentColor : dangerAccentColor;
+                        }
+                        case NICE -> {
+                            targetBgColor = hovered ? niceDarkHoverAccentColor : niceDarkAccentColor;
+                            yield hovered ? niceAccentHoverColor : niceAccentColor;
+                        }
+                        case CALM -> {
+                            targetBgColor = hovered ? calmDarkHoverAccentColor : calmDarkAccentColor;
+                            yield hovered ? calmHoverAccentColor : calmAccentColor;
+                        }
+                        default -> {
+                            targetBgColor = elementBackgroundColor;
+                            yield elementBorderColor;
+                        }
+                    };
+
+                    if (animatedBgColorRgba == null) animatedBgColorRgba = intToFloatArray(targetBgColor);
+                    if (animatedBorderColorRgba == null) animatedBorderColorRgba = intToFloatArray(targetBorderColor);
+
+                    float tBg = Math.min(colorTransitionSpeed * deltaTime, 1f);
+                    float[] targetBgFloats = intToFloatArray(targetBgColor);
+                    for (int i = 0; i < 4; i++) {
+                        animatedBgColorRgba[i] += (targetBgFloats[i] - animatedBgColorRgba[i]) * tBg;
+                        if (Math.abs(targetBgFloats[i] - animatedBgColorRgba[i]) < 0.01f) animatedBgColorRgba[i] = targetBgFloats[i];
+                    }
+                    bgColor = floatArrayToInt(animatedBgColorRgba);
+
+                    float tBorder = Math.min(colorTransitionSpeed * 0.8f * deltaTime, 1f);
+                    float[] targetBorderFloats = intToFloatArray(targetBorderColor);
+                    for (int i = 0; i < 4; i++) {
+                        animatedBorderColorRgba[i] += (targetBorderFloats[i] - animatedBorderColorRgba[i]) * tBorder;
+                        if (Math.abs(targetBorderFloats[i] - animatedBorderColorRgba[i]) < 0.01f) animatedBorderColorRgba[i] = targetBorderFloats[i];
+                    }
+                    borderColor = floatArrayToInt(animatedBorderColorRgba);
                 } else {
-                    bgColor = elementBackgroundColor;
-                    borderColor = elementBorderColor;
+                    boolean selectedColor = selectable ? selected : isFocused();
+                    bgColor = getElementBackgroundColor(this.hashCode(), isHovered() || isFocused(), selectedColor, active, accentType);
+                    borderColor = getElementBorderColor(this.hashCode(), isHovered() || isFocused(), selectedColor, active, accentType);
+                }
+            } else {
+                if (accentType != AccentType.DEFAULT) {
+                    boolean hovered = isHovered() || isFocused();
+                    switch (accentType) {
+                        case DANGER:
+                            bgColor = hovered ? dangerDarkHoverAccentColor : dangerDarkAccentColor;
+                            borderColor = hovered ? dangerHoverAccentColor : dangerAccentColor;
+                            break;
+                        case NICE:
+                            bgColor = hovered ? niceDarkHoverAccentColor : niceDarkAccentColor;
+                            borderColor = hovered ? niceAccentHoverColor : niceAccentColor;
+                            break;
+                        case CALM:
+                            bgColor = hovered ? calmDarkHoverAccentColor : calmDarkAccentColor;
+                            borderColor = hovered ? calmHoverAccentColor : calmAccentColor;
+                            break;
+                        default:
+                            bgColor = elementBackgroundColor;
+                            borderColor = elementBorderColor;
+                            break;
+                    }
+                } else {
+                    if (isHovered() && isFocused()) {
+                        bgColor = accentDarkHoverColor;
+                        borderColor = accentHoverColor;
+                    } else if (isFocused()) {
+                        bgColor = accentDarkColor;
+                        borderColor = accentColor;
+                    } else if (isHovered()) {
+                        bgColor = elementHoverBackgroundColor;
+                        borderColor = elementHoverBorderColor;
+                    } else if (!active) {
+                        bgColor = innerBackgroundColor;
+                        borderColor = inClickableBorderColor;
+                    } else {
+                        bgColor = elementBackgroundColor;
+                        borderColor = elementBorderColor;
+                    }
                 }
             }
         }
     }
 
+    @Override
     public void renderWidget(DrawContext ctx, int mouseX, int mouseY, float delta) {
         tick();
         float alpha = getEntranceAlpha();
@@ -502,5 +573,25 @@ public abstract class AnimatedWidget extends ClickableWidget {
 
     public void setLayer(int i) {
         this.zLayer = i;
+    }
+
+    public void setHint(String hint) {
+        this.hint = hint;
+        this.hintVisible = false;
+        this.hintHoverTime = 0f;
+        this.hintWidth = 0f;
+        this.hintTargetWidth = 0f;
+    }
+
+    private static float[] intToFloatArray(int color) {
+        float a = ((color >> 24) & 0xFF) / 255f;
+        float r = ((color >> 16) & 0xFF) / 255f;
+        float g = ((color >> 8) & 0xFF) / 255f;
+        float b = (color & 0xFF) / 255f;
+        return new float[]{a, r, g, b};
+    }
+
+    private static int floatArrayToInt(float[] c) {
+        return Config.floatArrayToInt(c);
     }
 }
