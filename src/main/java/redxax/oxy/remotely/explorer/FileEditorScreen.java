@@ -12,6 +12,7 @@ import redxax.oxy.remotely.api.RemoteAPI;
 import redxax.oxy.remotely.api.RemotelyCoreAPI;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.ui.ReScreen;
+import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
 import redxax.oxy.remotely.ui.widgets.FileEntryWidget;
 import redxax.oxy.remotely.ui.widgets.TextAreaWidget;
 import redxax.oxy.remotely.util.Sound;
@@ -248,7 +249,7 @@ public class FileEditorScreen extends ReScreen {
             tabs().setTabUnsaved(tabs().getTabs().size() - 1, tab.unsaved);
         }
 
-        explorerPanel = createSidePanel("explorer").y(60).height(this.height - 65).width(200);
+        explorerPanel = createSidePanel("explorer").y(60).height(this.height - 5).width(200).setPadding(2);
 
         if (!tabs.isEmpty()) {
             tabs().setActiveTab(0);
@@ -337,7 +338,7 @@ public class FileEditorScreen extends ReScreen {
 
         if (path.getParent() != null) {
             RemotelyCoreAPI.FileEntry upEntry = new RemotelyCoreAPI.FileEntry(path.getParent(), true, "", "", "..");
-            FileEntryWidget upWidget = new FileEntryWidget.Builder(upEntry, fileAPI, serverInfo.isRemote, Collections.emptyList(), new Object()).onClick(w -> loadExplorerDirectory(w.getFileEntry().path)).build();
+            FileEntryWidget upWidget = new FileEntryWidget.Builder(upEntry, fileAPI, serverInfo.isRemote, Collections.emptyList(), new Object()).onClick(w -> loadExplorerDirectory(w.getFileEntry().path)).entranceCorner(AnimatedWidget.EntranceCorner.TOP_LEFT).build();
             explorerPanel.container().addWidget(upWidget);
         }
 
@@ -347,7 +348,7 @@ public class FileEditorScreen extends ReScreen {
             client.execute(() -> {
                 for (RemotelyCoreAPI.FileEntry child : children) {
                     FileEntryWidget widget = new FileEntryWidget.Builder(child, fileAPI, serverInfo.isRemote, Collections.emptyList(), new Object())
-                            .onClick(this::onExplorerEntryClicked)
+                            .onClick(this::onExplorerEntryClicked).entranceCorner(AnimatedWidget.EntranceCorner.TOP_LEFT)
                             .build();
                     explorerPanel.container().addWidget(widget);
                 }

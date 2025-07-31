@@ -217,14 +217,14 @@ public class ReScreen extends Screen {
                 plusButton = new SquareButtonWidget.Builder()
                         .imagePath("/assets/remotely/icons/newTab.png")
                         .size(18, 18)
-                        .animateLayout(true)
+                        .animateLayout(false)
                         .onClick(() -> {
                             if (onPlusButtonClicked != null) onPlusButtonClicked.run();
                         })
                         .entranceCorner(TOP_LEFT)
                         .build();
                 addDrawableChild(plusButton);
-            } else if (allowAdd && plusButton != null) {
+            } else if (allowAdd) {
                 addDrawableChild(plusButton);
             }
             updateLayout();
@@ -402,7 +402,7 @@ public class ReScreen extends Screen {
                         if (idx >= 0) setActiveTab(idx);
                     })
                     .entranceCorner(TOP_LEFT)
-                    .animateLayout(true)
+                    .animateLayout(false)
                     .setSelectable(true)
                     .build();
             addDrawableChild(tab.widget);
@@ -707,6 +707,11 @@ public class ReScreen extends Screen {
             if (animatedWidth > 1) {
                 innerContainer.restoreStateToScreen();
             }
+        }
+
+        public SidePanel setPadding(int padding) {
+            innerContainer.padding = padding;
+            return this;
         }
 
         private void updateAnimation() {
