@@ -2,7 +2,6 @@ import java.util.*
 
 plugins {
     id("dev.architectury.loom")
-    id("architectury-plugin")
     id("me.modmuss50.mod-publish-plugin")
     id("com.github.johnrengelman.shadow")
 }
@@ -16,10 +15,6 @@ base {
     archivesName.set("${mod.id}-$loader")
 }
 
-architectury.common(stonecutter.tree.branches.mapNotNull {
-    if (stonecutter.current.project !in it) null
-    else it.prop("loom.platform")
-})
 repositories {
     maven("https://maven.neoforged.net/releases/")
     maven("https://maven.terraformersmc.com/")

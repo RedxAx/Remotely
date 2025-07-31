@@ -3,6 +3,7 @@ package redxax.oxy.remotely.servers;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.text.Text;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.config.Config;
@@ -12,6 +13,10 @@ import redxax.oxy.remotely.resources.ResourceManagerScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import redxax.oxy.remotely.terminal.ServerTerminalInstance;
 import redxax.oxy.remotely.terminal.TerminalInstance;
+import redxax.oxy.remotely.ui.widgets.AnimatedButton;
+import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
+import redxax.oxy.remotely.ui.widgets.PopupWidget;
+import redxax.oxy.remotely.ui.widgets.TextInputWidget;
 import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
 
 import static redxax.oxy.remotely.Render.*;
@@ -20,7 +25,6 @@ import static redxax.oxy.remotely.servers.BrowserScreen.checkIfMcefExist;
 import javax.imageio.ImageIO;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.text.Text;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.InputStream;
@@ -53,33 +57,18 @@ public class ServerManagerScreen extends Screen {
     private static List<ServerInfo> localServers;
     private static final List<RemoteHostInfo> remoteHosts = new ArrayList<>();
     private static int activeTabIndex = 0;
-    private boolean editingServer;
-    private final int serverPopupWidth = 350;
-    private final int serverPopupHeight = 160;
-    private final StringBuilder serverNameBuffer = new StringBuilder();
-    private final StringBuilder serverVersionBuffer = new StringBuilder();
-    private int serverNameCursorPos = 0;
-    private int serverVersionCursorPos = 0;
-    private final int verticalPadding = 2;
-    private boolean nameFieldFocused = true;
-    private boolean versionFieldFocused = false;
-    private float targetOffset = 0;
-    private boolean serverTypePopupActive;
-    private final int serverTypePopupWidth = 260;
-    private final int serverTypePopupHeight = 140;
-    private int serverTypePopupX = (this.width - serverTypePopupWidth) / 2;
-    private int serverTypePopupY = (this.height - serverTypePopupHeight) / 2;
-    private boolean remoteHostPopupActive;
-    private final int remoteHostPopupW = 360;
-    private final int remoteHostPopupH = 210;
-    private final StringBuilder remoteHostNameBuffer = new StringBuilder();
-    private final StringBuilder remoteHostUserBuffer = new StringBuilder("root");
-    private final StringBuilder remoteHostIPBuffer = new StringBuilder();
-    private final StringBuilder remoteHostPortBuffer = new StringBuilder("22");
-    private final StringBuilder remoteHostPasswordBuffer = new StringBuilder();
-    private boolean remoteHostCreationWarning;
-    private RemoteHostField remoteHostActiveField = RemoteHostField.NONE;
-    private boolean isEditingHost = false;
+    private boolean isEditingHost;
+    private int serverIndexForDeletion = -1;
+    private PopupWidget addServerPopup;
+    private PopupWidget deleteServerPopup;
+    private PopupWidget remoteHostPopup;
+    private TextInputWidget remoteHostNameInput;
+    private TextInputWidget remoteHostUserInput;
+    private TextInputWidget remoteHostIpInput;
+    private TextInputWidget remoteHostPortInput;
+    private TextInputWidget remoteHostPasswordInput;
+    private AnimatedButton remoteHostConfirmButton;
+    private AnimatedButton remoteHostDeleteButton;
     private final List<BufferedImage> loadingFrames = new ArrayList<>();
     private final int entryHeight = 25;
     private final int topBarHeight = 30;
@@ -96,8 +85,6 @@ public class ServerManagerScreen extends Screen {
     private int dragOffsetX = 0;
     private int dragOffsetY = 0;
     private boolean isDragging = false;
-    private boolean deletionPopupActive = false;
-    private int deletionPopupServerIndex = -1;
     private final List<Float> iconPosX = new ArrayList<>();
     private final List<Float> iconPosY = new ArrayList<>();
     private boolean canDrag = false;
@@ -147,6 +134,7 @@ public class ServerManagerScreen extends Screen {
         activeTabIndex = remotelyClient.getSavedTabIndex();
         iconPosX.clear();
         iconPosY.clear();
+        createPopups();
         try {
             terminalIcon = new IconWithTooltip("/assets/remotely/icons/terminal.png", "Terminal");
             explorerIcon = new IconWithTooltip("/assets/remotely/icons/explorer.png", "File Explorer");
@@ -169,10 +157,124 @@ public class ServerManagerScreen extends Screen {
             new Notification("Failed to load icons: " + e.getMessage(), Notification.Type.ERROR);
         }
     }
+
+    private void createPopups() {
+        createAddServerPopup();
+        createDeleteServerPopup();
+        createRemoteHostPopup();
+    }
+
+    private void createAddServerPopup() {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Add a Server")
+                .size(260, 140)
+                .onClose(() -> addServerPopup.hide());
+
+        AnimatedButton createBtn = new AnimatedButton.Builder()
+                .label(Text.literal("Server Creation"))
+                .onClick(() -> {
+                    minecraftClient.setScreen(new SettingsScreen("createServer", this, Path.of(String.valueOf(remotelyDir), "servers").toString(), settings));
+                    addServerPopup.hide();
+                })
+                .build();
+
+        AnimatedButton importBtn = new AnimatedButton.Builder()
+                .label(Text.literal("Server Import"))
+                .onClick(() -> {
+                    addServerPopup.hide();
+                    openImportFileExplorer();
+                })
+                .build();
+
+        AnimatedButton modpackBtn = new AnimatedButton.Builder()
+                .label(Text.literal("Modpack Installation"))
+                .onClick(() -> {
+                    addServerPopup.hide();
+                    openModpackInstallation();
+                })
+                .build();
+
+        builder.addRow("", true, 27, createBtn);
+        builder.addRow("", true, 27, importBtn);
+        builder.addRow("", true, 27, modpackBtn);
+
+        addServerPopup = builder.build();
+        addServerPopup.hide();
+    }
+
+    private void createDeleteServerPopup() {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Are You Sure?")
+                .size(260, 140)
+                .onClose(() -> deleteServerPopup.hide());
+
+        AnimatedButton deleteTrashBtn = new AnimatedButton.Builder()
+                .label(Text.literal("Delete The Server"))
+                .onClick(() -> {
+                    playSound(Sound.DELETE);
+                    deleteServerTrash(serverIndexForDeletion);
+                    deleteServerPopup.hide();
+                })
+                .build();
+
+        AnimatedButton deleteRemoveBtn = new AnimatedButton.Builder()
+                .label(Text.literal("Remove From List"))
+                .onClick(() -> {
+                    playSound(Sound.DELETE);
+                    deleteServerRemove(serverIndexForDeletion);
+                    deleteServerPopup.hide();
+                })
+                .build();
+
+        AnimatedButton cancelBtn = new AnimatedButton.Builder()
+                .label(Text.literal("Cancel"))
+                .onClick(() -> {
+                    playSound(Sound.CLICK);
+                    deleteServerPopup.hide();
+                })
+                .build();
+
+        builder.addRow("", true, 27, deleteTrashBtn);
+        builder.addRow("", true, 27, deleteRemoveBtn);
+        builder.addRow("", true, 27, cancelBtn);
+
+        deleteServerPopup = builder.build();
+        deleteServerPopup.hide();
+    }
+
+    private void createRemoteHostPopup() {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Remote Host")
+                .onClose(this::closeRemoteHostPopup)
+                .size(360, 250)
+                .setResizable(true)
+                .setMinSize(360, 250);
+
+        remoteHostNameInput = new TextInputWidget.Builder().build();
+        builder.addRow("Host Name:", true, 20, remoteHostNameInput);
+
+        remoteHostUserInput = new TextInputWidget.Builder().text("root").build();
+        builder.addRow("User Name:", true, 20, remoteHostUserInput);
+
+        remoteHostIpInput = new TextInputWidget.Builder().build();
+        builder.addRow("IP | Domain:", true, 20, remoteHostIpInput);
+
+        remoteHostPortInput = new TextInputWidget.Builder().text("22").build();
+        builder.addRow("Port:", true, 20, remoteHostPortInput);
+
+        remoteHostPasswordInput = new TextInputWidget.Builder().build();
+        builder.addRow("Password:", true, 20, remoteHostPasswordInput);
+
+        remoteHostConfirmButton = new AnimatedButton.Builder().label(Text.literal("Test & Add")).onClick(this::onConfirmRemoteHost).build();
+        AnimatedButton cancelButton = new AnimatedButton.Builder().label(Text.literal("Cancel")).onClick(this::closeRemoteHostPopup).build();
+        remoteHostDeleteButton = new AnimatedButton.Builder().label(Text.literal("Delete")).onClick(this::onDeleteRemoteHost).accentType(Config.AccentType.DANGER).build();
+        builder.addRow("", false, 20, remoteHostConfirmButton, cancelButton, remoteHostDeleteButton);
+
+        remoteHostPopup = builder.build();
+        remoteHostPopup.hide();
+    }
+
     public void background(DrawContext context) {
         //? if =1.20.1 {
         /*context.fill(0, 0, this.width, this.height, Config.backgroundColor);
-        *///?} else {
+         *///?} else {
         if (wallpaper && windowsBackground != null) {
             drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
         } else if (!background) {
@@ -187,114 +289,11 @@ public class ServerManagerScreen extends Screen {
         background(context);
         renderDesktopIcons(context, mouseX, mouseY);
         renderTaskbar(context, mouseX, mouseY);
-        serverTypePopupX = (this.width - serverTypePopupWidth) / 2;
-        serverTypePopupY = (this.height - serverTypePopupHeight) / 2;
-        if (serverTypePopupActive) {
-            context.fill(serverTypePopupX, serverTypePopupY, serverTypePopupX + serverTypePopupWidth, serverTypePopupY + serverTypePopupHeight, innerBackgroundColor);
-            drawInnerBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, Config.elementBorderColor);
-            drawOuterBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, innerBackgroundColor);
-            String stTitle = "Add a Server";
-            int stTitleW = minecraftClient.textRenderer.getWidth(stTitle);
-            int stTitleX = serverTypePopupX + (serverTypePopupWidth - stTitleW) / 2;
-            int stTitleY = serverTypePopupY + 5;
-            context.drawText(minecraftClient.textRenderer, Text.literal(stTitle), stTitleX, stTitleY, globalTextColor, Config.shadow);
-            int option1Y = stTitleY + 20;
-            int option2Y = option1Y + 30;
-            int option3Y = option2Y + 30;
-            String option1 = "Server Creation";
-            String option2 = "Server Import";
-            String option3 = "Modpack Installation";
-            drawOptionBox(context, option1, serverTypePopupX, option1Y, mouseX, mouseY, "Create a New Server With Remotely.");
-            drawOptionBox(context, option2, serverTypePopupX, option2Y, mouseX, mouseY, "Import An Existing Server Via File Explorer.");
-            drawOptionBox(context, option3, serverTypePopupX, option3Y, mouseX, mouseY, "Create a Server Using a Modpack On Modrinth.");
-        }
-        if (deletionPopupActive) {
-            context.fill(serverTypePopupX, serverTypePopupY, serverTypePopupX + serverTypePopupWidth, serverTypePopupY + serverTypePopupHeight, innerBackgroundColor);
-            drawInnerBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, Config.elementBorderColor);
-            drawOuterBorder(context, serverTypePopupX, serverTypePopupY, serverTypePopupWidth, serverTypePopupHeight, innerBackgroundColor);
-            String stTitle = "Are You Sure?";
-            int stTitleW = minecraftClient.textRenderer.getWidth(stTitle);
-            int stTitleX = serverTypePopupX + (serverTypePopupWidth - stTitleW) / 2;
-            int stTitleY = serverTypePopupY + 5;
-            context.drawText(minecraftClient.textRenderer, Text.literal(stTitle), stTitleX, stTitleY, globalTextColor, Config.shadow);
-            int option1Y = stTitleY + 20;
-            int option2Y = option1Y + 30;
-            int option3Y = option2Y + 30;
-            String option1 = "Delete The Server";
-            String option2 = "Remove From List";
-            String option3 = "Cancel";
-            drawOptionBox(context, option1, serverTypePopupX, option1Y, mouseX, mouseY, "Move The Server And The Files To The Trash.");
-            drawOptionBox(context, option2, serverTypePopupX, option2Y, mouseX, mouseY, "Remove The Server From The List \nWithout Trashing Files.");
-            drawOptionBox(context, option3, serverTypePopupX, option3Y, mouseX, mouseY, "");
-        }
-        if (remoteHostPopupActive) {
-            int px = (this.width - remoteHostPopupW) / 2;
-            int py = (this.height - remoteHostPopupH) / 2;
-            context.getMatrices().push();
-            context.getMatrices().translate(0, 0, 499);
-            context.fill(px, py, px + remoteHostPopupW, py + remoteHostPopupH, innerBackgroundColor);
-            drawInnerBorder(context, px, py, remoteHostPopupW, remoteHostPopupH, Config.innerBorderColor);
-            drawOuterBorder(context, px, py, remoteHostPopupW, remoteHostPopupH, innerBackgroundColor);
-            int labelY = py + 5;
-            context.drawText(minecraftClient.textRenderer, Text.literal("Host Name:"), px + 5, labelY, globalTextColor, false);
-            int nameBoxY = labelY + 10;
-            context.fill(px + 5, nameBoxY, px + remoteHostPopupW - 5, nameBoxY + 12, remoteHostActiveField == RemoteHostField.NAME ? innerBackgroundSelectedColor : Config.innerBackgroundColor);
-            String nh = remoteHostNameBuffer.toString();
-            nh = trimTextToWidthWithEllipsis(nh, remoteHostPopupW - 12);
-            context.drawText(minecraftClient.textRenderer, Text.literal(nh), px + 8, nameBoxY + 2, globalTextColor, false);
-            int userLabelY = nameBoxY + 25;
-            context.drawText(minecraftClient.textRenderer, Text.literal("User Name:"), px + 5, userLabelY, globalTextColor, false);
-            int userBoxY = userLabelY + 10;
-            context.fill(px + 5, userBoxY, px + remoteHostPopupW - 5, userBoxY + 12, remoteHostActiveField == RemoteHostField.USER ? innerBackgroundSelectedColor : Config.innerBackgroundColor);
-            String ub = remoteHostUserBuffer.toString();
-            ub = trimTextToWidthWithEllipsis(ub, remoteHostPopupW - 12);
-            context.drawText(minecraftClient.textRenderer, Text.literal(ub), px + 8, userBoxY + 2, globalTextColor, false);
-            int ipLabelY = userBoxY + 25;
-            context.drawText(minecraftClient.textRenderer, Text.literal("IP | Domain:"), px + 5, ipLabelY, globalTextColor, false);
-            int ipBoxY = ipLabelY + 10;
-            context.fill(px + 5, ipBoxY, px + remoteHostPopupW - 5, ipBoxY + 12, remoteHostActiveField == RemoteHostField.IP ? innerBackgroundSelectedColor : Config.innerBackgroundColor);
-            String ih = remoteHostIPBuffer.toString();
-            ih = trimTextToWidthWithEllipsis(ih, remoteHostPopupW - 12);
-            context.drawText(minecraftClient.textRenderer, Text.literal(ih), px + 8, ipBoxY + 2, globalTextColor, false);
-            int portLabelY = ipBoxY + 25;
-            context.drawText(minecraftClient.textRenderer, Text.literal("Port:"), px + 5, portLabelY, globalTextColor, false);
-            int portBoxY = portLabelY + 10;
-            context.fill(px + 5, portBoxY, px + remoteHostPopupW - 5, portBoxY + 12, remoteHostActiveField == RemoteHostField.PORT ? innerBackgroundSelectedColor : Config.innerBackgroundColor);
-            String ph = remoteHostPortBuffer.toString();
-            ph = trimTextToWidthWithEllipsis(ph, remoteHostPopupW - 12);
-            context.drawText(minecraftClient.textRenderer, Text.literal(ph), px + 8, portBoxY + 2, globalTextColor, false);
-            int passLabelY = portBoxY + 25;
-            context.drawText(minecraftClient.textRenderer, Text.literal("Password:"), px + 5, passLabelY, globalTextColor, false);
-            int passBoxY = passLabelY + 10;
-            context.fill(px + 5, passBoxY, px + remoteHostPopupW - 5, passBoxY + 12, remoteHostActiveField == RemoteHostField.PASSWORD ? innerBackgroundSelectedColor : Config.innerBackgroundColor);
-            StringBuilder mask = new StringBuilder();
-            mask.append("*".repeat(Math.max(0, remoteHostPasswordBuffer.length())));
-            mask = new StringBuilder(trimTextToWidthWithEllipsis(mask.toString(), remoteHostPopupW - 12));
-            context.drawText(minecraftClient.textRenderer, Text.literal(mask.toString()), px + 8, passBoxY + 2, globalTextColor, false);
-            int confirmButtonY = passBoxY + 33;
-            String createText = isEditingHost ? "Save" : "Test & Add";
-            int cw = minecraftClient.textRenderer.getWidth(createText) + 10;
-            int confirmX = px + 5;
-            boolean hoverConfirm = mouseX >= confirmX && mouseX <= confirmX + cw && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawCustomButton(context, confirmX, confirmButtonY, createText, minecraftClient, hoverConfirm, true, true, false, true, 60, 20, globalTextColor, globalHoverTextColor, mouseX, mouseY, "Test The Connection And Add The Host To The List.");
-            String cancelText = "Cancel";
-            int cancW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
-            int cancX = px + remoteHostPopupW - (cancW + 5);
-            boolean hoverCancel = mouseX >= cancX && mouseX <= cancX + cancW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            drawCustomButton(context, cancX, confirmButtonY, cancelText, minecraftClient, hoverCancel, true, true, false, true, 60, 20, globalTextColor, dangerLightAccentColor, mouseX,mouseY, "");
-            if (isEditingHost) {
-                String deleteText = "Delete";
-                int delW = minecraftClient.textRenderer.getWidth(deleteText) + 10;
-                int delX = px + (remoteHostPopupW - delW) / 2;
-                boolean hoverDelete = mouseX >= delX && mouseX <= delX + delW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-                drawCustomButton(context, delX, confirmButtonY, deleteText, minecraftClient, hoverDelete, true, true, false, true, 60, 20, dangerLightAccentColor, Config.dangerDarkAccentColor, mouseX,mouseY,"Remove This Host.");
-            }
-            if (remoteHostCreationWarning) {
-                String warning = isEditingHost ? "Failed to save changes" : "Invalid or Connection Failed";
-                int ww = minecraftClient.textRenderer.getWidth(warning);
-                context.drawText(minecraftClient.textRenderer, Text.literal(warning), px + (remoteHostPopupW - ww) / 2, passBoxY + 20, 0xFFFF4444, Config.shadow);
-            }
-        }
+
+        addServerPopup.render(context, mouseX, mouseY, delta);
+        deleteServerPopup.render(context, mouseX, mouseY, delta);
+        remoteHostPopup.render(context, mouseX, mouseY, delta);
+
         ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
         animatedScaling(this);
     }
@@ -487,58 +486,21 @@ public class ServerManagerScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (remoteHostPopupActive) {
-            int rhpx = (this.width - remoteHostPopupW) / 2;
-            int rhpy = (this.height - remoteHostPopupH) / 2;
-            if (mouseX < rhpx || mouseX > rhpx + remoteHostPopupW || mouseY < rhpy || mouseY > rhpy + remoteHostPopupH) {
-                closeRemoteHostPopup();
-                return true;
-            }
-        }
-        if (deletionPopupActive) {
-            int option1Y = serverTypePopupY + 25;
-            int option2Y = option1Y + 30;
-            int option3Y = option2Y + 30;
-            int popupW = serverPopupWidth;
-            int popupH = serverPopupHeight;
-            int popupX = (this.width - popupW) / 2;
-            int popupY = (this.height - popupH) / 2;
-            if (isInsideOptionBox(mouseX, mouseY, serverTypePopupX, option1Y)) {
-                playSound(Sound.DELETE);
-                deleteServerTrash(deletionPopupServerIndex);
-                deletionPopupActive = false;
-                return true;
-            }
-            if (isInsideOptionBox(mouseX, mouseY, serverTypePopupX, option2Y)) {
-                playSound(Sound.DELETE);
-                deleteServerRemove(deletionPopupServerIndex);
-                deletionPopupActive = false;
-                return true;
-            }
-            if (isInsideOptionBox(mouseX, mouseY, serverTypePopupX, option3Y) || (mouseX < popupX || mouseX > popupX + popupW || mouseY < popupY || mouseY > popupY + popupH)) {
-                playSound(Sound.CLICK);
-                deletionPopupActive = false;
-                return true;
-            }
-            return true;
-        }
-        if (serverTypePopupActive) {
-            if (handleServerTypePopupClick(mouseX, mouseY, button)) {
-                return true;
-            }
-        }
+        if (remoteHostPopup.mouseClicked(mouseX, mouseY, button)) return true;
+        if (addServerPopup.mouseClicked(mouseX, mouseY, button)) return true;
+        if (deleteServerPopup.mouseClicked(mouseX, mouseY, button)) return true;
         if (ContextMenu.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
-        if (remoteHostPopupActive) {
-            return handleRemoteHostPopupClick(mouseX, mouseY, button);
-        }
+
         for (IconRect rect : serverIconRects) {
             if (mouseX >= rect.x && mouseX <= rect.x + rect.width && mouseY >= rect.y && mouseY <= rect.y + rect.height) {
                 if (button == 0) {
                     if (rect.isCreate) {
                         playSound(Sound.CREATE);
-                        serverTypePopupActive = true;
+                        addServerPopup.setX((this.width - addServerPopup.getWidth())/2);
+                        addServerPopup.setY((this.height - addServerPopup.getHeight())/2);
+                        addServerPopup.show();
                     } else {
                         long currentTime = System.currentTimeMillis();
                         if (lastClickedIndex == rect.serverIndex && (currentTime - lastClickTime) < 500) {
@@ -564,8 +526,10 @@ public class ServerManagerScreen extends Screen {
                     }, false, false, false, "Open The Server's Settings");
                     ContextMenu.addItem("Open Folder", () -> minecraftClient.setScreen(new FileExplorerScreen(this, getCurrentServers().get(rect.serverIndex), false)), false, false, false, "Open The Server's Folder");
                     ContextMenu.addItem("Delete", () -> {
-                        deletionPopupActive = true;
-                        deletionPopupServerIndex = rect.serverIndex;
+                        serverIndexForDeletion = rect.serverIndex;
+                        deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
+                        deleteServerPopup.setY((this.height - deleteServerPopup.getHeight())/2);
+                        deleteServerPopup.show();
                     }, false, false, false, "Show Deletion Options");
                     ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
                     return true;
@@ -623,7 +587,7 @@ public class ServerManagerScreen extends Screen {
         boolean isPlusHovered = mouseX >= plusX && mouseX <= plusX + plusWidth && mouseY >= this.height - taskbarHeight + 2 && mouseY <= this.height - taskbarHeight + 2 + (taskbarHeight - 4);
         if (isPlusHovered && button == 0) {
             playSound(Sound.CREATE);
-            remoteHostPopupActive = true;
+            openRemoteHostPopup(false);
             return true;
         }
         int hostTabAreaY = this.height - taskbarHeight + 2;
@@ -642,21 +606,7 @@ public class ServerManagerScreen extends Screen {
                         }
                     } else if (button == 1 && i > 0) {
                         playSound(Sound.CLICK);
-                        RemoteHostInfo host = remoteHosts.get(i - 1);
-                        remoteHostPopupActive = true;
-                        isEditingHost = true;
-                        remoteHostCreationWarning = false;
-                        remoteHostActiveField = RemoteHostField.NONE;
-                        remoteHostNameBuffer.setLength(0);
-                        remoteHostNameBuffer.append(host.name);
-                        remoteHostUserBuffer.setLength(0);
-                        remoteHostUserBuffer.append(host.user);
-                        remoteHostIPBuffer.setLength(0);
-                        remoteHostIPBuffer.append(host.ip);
-                        remoteHostPortBuffer.setLength(0);
-                        remoteHostPortBuffer.append(host.port);
-                        remoteHostPasswordBuffer.setLength(0);
-                        remoteHostPasswordBuffer.append(host.password);
+                        openRemoteHostPopup(true);
                     }
                     return true;
                 }
@@ -664,16 +614,7 @@ public class ServerManagerScreen extends Screen {
             }
             if (mouseX >= plusX && mouseX <= plusX + 30 && mouseY >= hostTabAreaY && mouseY <= hostTabAreaY + (taskbarHeight - 4)) {
                 playSound(Sound.CREATE);
-                remoteHostPopupActive = true;
-                isEditingHost = false;
-                remoteHostCreationWarning = false;
-                remoteHostActiveField = RemoteHostField.NONE;
-                remoteHostNameBuffer.setLength(0);
-                remoteHostUserBuffer.setLength(0);
-                remoteHostUserBuffer.append("root");
-                remoteHostIPBuffer.setLength(0);
-                remoteHostPortBuffer.setLength(0);
-                remoteHostPasswordBuffer.setLength(0);
+                openRemoteHostPopup(false);
                 return true;
             }
         }
@@ -682,6 +623,10 @@ public class ServerManagerScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (remoteHostPopup.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) return true;
+        if (addServerPopup.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) return true;
+        if (deleteServerPopup.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) return true;
+
         if (button == 0 && canDrag && draggingServerIndex != -1) {
             if (!isDragging) {
                 isDragging = true;
@@ -695,6 +640,10 @@ public class ServerManagerScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (remoteHostPopup.mouseReleased(mouseX, mouseY, button)) return true;
+        if (addServerPopup.mouseReleased(mouseX, mouseY, button)) return true;
+        if (deleteServerPopup.mouseReleased(mouseX, mouseY, button)) return true;
+
         if (isDragging && draggingServerIndex != -1) {
             List<ServerInfo> currentServers = getCurrentServers();
             int iconSize = 32;
@@ -734,83 +683,38 @@ public class ServerManagerScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
+        if (remoteHostPopup.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) return true;
+        if (addServerPopup.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) return true;
+        if (deleteServerPopup.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) return true;
+
         scaleScroll(verticalAmount);
-        int tabHeight = 25;
-        int contentYStart = topBarHeight + tabHeight + 5 + verticalPadding;
-        int panelHeight = this.height - contentYStart - 5;
-        List<ServerInfo> currentServers = getCurrentServers();
-        int maxScroll = Math.max(0, currentServers.size() * (entryHeight + 1) - panelHeight);
-        targetOffset -= (float) (verticalAmount * entryHeight * 2);
-        if (targetOffset < 0) targetOffset = 0;
-        if (targetOffset > maxScroll) targetOffset = maxScroll;
         return true;
     }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (remoteHostPopup.keyPressed(keyCode, scanCode, modifiers)) return true;
+        if (addServerPopup.keyPressed(keyCode, scanCode, modifiers)) return true;
+        if (deleteServerPopup.keyPressed(keyCode, scanCode, modifiers)) return true;
+
         if (keyCode == GLFW.GLFW_KEY_S && modifiers == GLFW.GLFW_MOD_CONTROL) {
             minecraftClient.setScreen(new SettingsScreen("config", this, "", null));
             return true;
         }
         if ((modifiers & GLFW.GLFW_MOD_CONTROL) != 0 && keyCode == GLFW.GLFW_KEY_V) {
             String clipboard = minecraftClient.keyboard.getClipboard();
-            if (remoteHostPopupActive) {
-                switch (remoteHostActiveField) {
-                    case NAME -> remoteHostNameBuffer.append(clipboard);
-                    case USER -> remoteHostUserBuffer.append(clipboard);
-                    case IP -> remoteHostIPBuffer.append(clipboard);
-                    case PORT -> remoteHostPortBuffer.append(clipboard);
-                    case PASSWORD -> remoteHostPasswordBuffer.append(clipboard);
-                }
-                return true;
-            }
+            // This now needs to be handled by the focused widget, which keyPressed delegation above should do.
         }
-        if (remoteHostPopupActive) {
-            handleRemoteHostTypingKey(keyCode);
-            return true;
-        }
-        if (nameFieldFocused) {
-            if (handleTypingKey(keyCode, serverNameBuffer, true)) return true;
-        } else if (versionFieldFocused) {
-            if (handleTypingKey(keyCode, serverVersionBuffer, false)) return true;
-        }
+
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
-        if (remoteHostPopupActive) {
-            if (chr == 27) {
-                closeRemoteHostPopup();
-                return true;
-            }
-            if (Character.isISOControl(chr)) return true;
-            if (remoteHostActiveField == RemoteHostField.NAME) {
-                if (chr >= 32 && remoteHostNameBuffer.length() < 100) remoteHostNameBuffer.append(chr);
-            } else if (remoteHostActiveField == RemoteHostField.USER) {
-                if (chr >= 32 && remoteHostUserBuffer.length() < 100) remoteHostUserBuffer.append(chr);
-            } else if (remoteHostActiveField == RemoteHostField.IP) {
-                if ((Character.isLetterOrDigit(chr) || chr == '.' || chr == '-') && remoteHostIPBuffer.length() < 100) {
-                    remoteHostIPBuffer.append(chr);
-                }
-            } else if (remoteHostActiveField == RemoteHostField.PORT) {
-                if (Character.isDigit(chr) && remoteHostPortBuffer.length() < 6) {
-                    remoteHostPortBuffer.append(chr);
-                }
-            } else if (remoteHostActiveField == RemoteHostField.PASSWORD) {
-                if (chr >= 32 && chr < 127 && remoteHostPasswordBuffer.length() < 100) {
-                    remoteHostPasswordBuffer.append(chr);
-                }
-            }
-            return true;
-        }
-        if (nameFieldFocused) {
-            insertChar(serverNameBuffer, chr, true);
-            return true;
-        } else if (versionFieldFocused) {
-            insertChar(serverVersionBuffer, chr, false);
-            return true;
-        }
+        if (remoteHostPopup.charTyped(chr, modifiers)) return true;
+        if (addServerPopup.charTyped(chr, modifiers)) return true;
+        if (deleteServerPopup.charTyped(chr, modifiers)) return true;
+
         return super.charTyped(chr, modifiers);
     }
 
@@ -852,196 +756,89 @@ public class ServerManagerScreen extends Screen {
         return activeTabIndex == 0 ? localServers : remoteHosts.get(activeTabIndex - 1).servers;
     }
 
-    private boolean handleRemoteHostPopupClick(double mouseX, double mouseY, int button) {
-        int px = (this.width - remoteHostPopupW) / 2;
-        int py = (this.height - remoteHostPopupH) / 2;
-        int nameBoxY = py + 15;
-        int userLabelY = nameBoxY + 25;
-        int userBoxY = userLabelY + 10;
-        int ipLabelY = userBoxY + 25;
-        int ipBoxY = ipLabelY + 10;
-        int portLabelY = ipBoxY + 25;
-        int portBoxY = portLabelY + 10;
-        int passLabelY = portBoxY + 25;
-        int passBoxY = passLabelY + 10;
-        int confirmButtonY = passBoxY + 35;
-        String createText = isEditingHost ? "Save" : "Test & Add";
-        int cw = minecraftClient.textRenderer.getWidth(createText) + 10;
-        int confirmX = px + 5;
-        boolean hoverConfirm = mouseX >= confirmX && mouseX <= confirmX + cw && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-        if (hoverConfirm && button == 0) {
-            if (remoteHostNameBuffer.toString().trim().isEmpty() || remoteHostIPBuffer.toString().trim().isEmpty() || remoteHostPortBuffer.toString().trim().isEmpty()) {
-                remoteHostCreationWarning = true;
-                return true;
-            }
-            if (!isEditingHost && !testSSHConnection(remoteHostUserBuffer.toString().trim(), remoteHostIPBuffer.toString().trim(), remoteHostPortBuffer.toString().trim(), remoteHostPasswordBuffer.toString())) {
-                remoteHostCreationWarning = true;
-                return true;
-            }
-            RemoteHostInfo rh;
-            if (isEditingHost) {
-                rh = remoteHosts.get(activeTabIndex - 1);
-                rh.name = remoteHostNameBuffer.toString().trim();
-                rh.user = remoteHostUserBuffer.toString().trim();
-                rh.ip = remoteHostIPBuffer.toString().trim();
-                try {
-                    rh.port = Integer.parseInt(remoteHostPortBuffer.toString().trim());
-                } catch (NumberFormatException e) {
-                    rh.port = 22;
-                }
-                rh.password = remoteHostPasswordBuffer.toString();
-                saveRemoteHosts();
-                remoteHostPopupActive = false;
-            } else {
-                rh = new RemoteHostInfo();
-                rh.name = remoteHostNameBuffer.toString().trim();
-                rh.user = remoteHostUserBuffer.toString().trim();
-                rh.ip = remoteHostIPBuffer.toString().trim();
-                try {
-                    rh.port = Integer.parseInt(remoteHostPortBuffer.toString().trim());
-                } catch (NumberFormatException e) {
-                    rh.port = 22;
-                }
-                rh.password = remoteHostPasswordBuffer.toString();
-                rh.servers = new ArrayList<>();
-                remoteHosts.add(rh);
-                saveRemoteHosts();
-                activeTabIndex = remoteHosts.size();
-                closeRemoteHostPopup();
-            }
-            return true;
-        }
-        String cancelText = "Cancel";
-        int cancW = minecraftClient.textRenderer.getWidth(cancelText) + 10;
-        int cancX = px + remoteHostPopupW - (cancW + 5);
-        boolean hoverCancel = mouseX >= cancX && mouseX <= cancX + cancW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-        if (hoverCancel && button == 0) {
-            closeRemoteHostPopup();
-            return true;
-        }
-        if (isEditingHost) {
-            String deleteText = "Delete";
-            int delW = minecraftClient.textRenderer.getWidth(deleteText) + 10;
-            int delX = px + (remoteHostPopupW - delW) / 2;
-            boolean hoverDelete = mouseX >= delX && mouseX <= delX + delW && mouseY >= confirmButtonY && mouseY <= confirmButtonY + 10 + minecraftClient.textRenderer.fontHeight;
-            if (hoverDelete && button == 0) {
-                if (activeTabIndex > 0 && activeTabIndex <= remoteHosts.size()) {
-                    remoteHosts.remove(activeTabIndex - 1);
-                    saveRemoteHosts();
-                    activeTabIndex = 0;
-                    closeRemoteHostPopup();
-                    return true;
-                }
-            }
-        }
-        int nBoxH = 12;
-        if (mouseX >= px + 5 && mouseX <= px + remoteHostPopupW - 5 && mouseY >= nameBoxY && mouseY <= nameBoxY + nBoxH && button == 0) {
-            remoteHostActiveField = RemoteHostField.NAME;
-            return true;
-        }
-        int uBoxH = 12;
-        if (mouseX >= px + 5 && mouseX <= px + remoteHostPopupW - 5 && mouseY >= userBoxY && mouseY <= userBoxY + uBoxH && button == 0) {
-            remoteHostActiveField = RemoteHostField.USER;
-            return true;
-        }
-        int iBoxH = 12;
-        if (mouseX >= px + 5 && mouseX <= px + remoteHostPopupW - 5 && mouseY >= ipBoxY && mouseY <= ipBoxY + iBoxH && button == 0) {
-            remoteHostActiveField = RemoteHostField.IP;
-            return true;
-        }
-        int pBoxH = 12;
-        if (mouseX >= px + 5 && mouseX <= px + remoteHostPopupW - 5 && mouseY >= portBoxY && mouseY <= portBoxY + pBoxH && button == 0) {
-            remoteHostActiveField = RemoteHostField.PORT;
-            return true;
-        }
-        int pwdBoxH = 12;
-        if (mouseX >= px + 5 && mouseX <= px + remoteHostPopupW - 5 && mouseY >= passBoxY && mouseY <= passBoxY + pwdBoxH && button == 0) {
-            remoteHostActiveField = RemoteHostField.PASSWORD;
-            return true;
-        }
-        return false;
-    }
+    private void openRemoteHostPopup(boolean isEditing) {
+        this.isEditingHost = isEditing;
+        if (isEditing) {
+            RemoteHostInfo host = remoteHosts.get(activeTabIndex - 1);
+            remoteHostConfirmButton.setMessage(Text.literal("Save"));
+            remoteHostDeleteButton.visible = true;
 
-    private boolean handleServerTypePopupClick(double mouseX, double mouseY, int button) {
-        int option1Y = serverTypePopupY + 25;
-        int option2Y = option1Y + 30;
-        int option3Y = option2Y + 30;
-        if (button == 0) {
-            if (isInsideOptionBox(mouseX, mouseY, serverTypePopupX, option1Y)) {
-                minecraftClient.setScreen(new SettingsScreen("createServer", this, Path.of(String.valueOf(remotelyDir), "servers").toString(), settings));
-                serverTypePopupActive = false;
-                editingServer = false;
-                serverNameBuffer.setLength(0);
-                serverVersionBuffer.setLength(0);
-                serverNameBuffer.append("MyServer");
-                nameFieldFocused = true;
-                versionFieldFocused = false;
-                serverNameCursorPos = serverNameBuffer.length();
-                serverVersionCursorPos = 0;
-                return true;
-            }
-            if (isInsideOptionBox(mouseX, mouseY, serverTypePopupX, option2Y)) {
-                serverTypePopupActive = false;
-                openImportFileExplorer();
-                return true;
-            }
-            if (isInsideOptionBox(mouseX, mouseY, serverTypePopupX, option3Y)) {
-                serverTypePopupActive = false;
-                openModpackInstallation();
-                return true;
-            }
-            if (mouseX < serverTypePopupX || mouseX > serverTypePopupX + serverPopupWidth || mouseY < serverTypePopupY || mouseY > serverTypePopupY + serverPopupHeight) {
-                serverTypePopupActive = false;
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean handleTypingKey(int keyCode, StringBuilder buffer, boolean isNameField) {
-        if (keyCode == 259 || keyCode == 261) {
-            if (isNameField) {
-                if (keyCode == 259 && serverNameCursorPos > 0) {
-                    buffer.deleteCharAt(serverNameCursorPos - 1);
-                    serverNameCursorPos--;
-                } else if (keyCode == 261 && serverNameCursorPos < buffer.length()) {
-                    buffer.deleteCharAt(serverNameCursorPos);
-                }
-            } else {
-                if (keyCode == 259 && serverVersionCursorPos > 0) {
-                    buffer.deleteCharAt(serverVersionCursorPos - 1);
-                    serverVersionCursorPos--;
-                } else if (keyCode == 261 && serverVersionCursorPos < buffer.length()) {
-                    buffer.deleteCharAt(serverVersionCursorPos);
-                }
-            }
-            return true;
-        } else if (keyCode == 263) {
-            if (isNameField) {
-                if (serverNameCursorPos > 0) serverNameCursorPos--;
-            } else {
-                if (serverVersionCursorPos > 0) serverVersionCursorPos--;
-            }
-            return true;
-        } else if (keyCode == 262) {
-            if (isNameField) {
-                if (serverNameCursorPos < buffer.length()) serverNameCursorPos++;
-            } else {
-                if (serverVersionCursorPos < buffer.length()) serverVersionCursorPos++;
-            }
-            return true;
-        }
-        return false;
-    }
-
-    private void insertChar(StringBuilder buffer, char chr, boolean isNameField) {
-        if (chr == 13 || chr == 27) return;
-        if (isNameField) {
-            buffer.insert(serverNameCursorPos, chr);
-            serverNameCursorPos++;
+            remoteHostNameInput.setText(host.name);
+            remoteHostUserInput.setText(host.user);
+            remoteHostIpInput.setText(host.ip);
+            remoteHostPortInput.setText(String.valueOf(host.port));
+            remoteHostPasswordInput.setText(host.password);
         } else {
-            buffer.insert(serverVersionCursorPos, chr);
-            serverVersionCursorPos++;
+            remoteHostConfirmButton.setMessage(Text.literal("Test & Add"));
+            remoteHostDeleteButton.visible = false;
+            remoteHostNameInput.setText("");
+            remoteHostUserInput.setText("root");
+            remoteHostIpInput.setText("");
+            remoteHostPortInput.setText("22");
+            remoteHostPasswordInput.setText("");
+        }
+
+        remoteHostPopup.setX((this.width - remoteHostPopup.getWidth()) / 2);
+        remoteHostPopup.setY((this.height - remoteHostPopup.getHeight()) / 2);
+        remoteHostPopup.show();
+    }
+
+    private void onConfirmRemoteHost() {
+        String name = remoteHostNameInput.getText().trim();
+        String user = remoteHostUserInput.getText().trim();
+        String ip = remoteHostIpInput.getText().trim();
+        String portStr = remoteHostPortInput.getText().trim();
+        String password = remoteHostPasswordInput.getText();
+
+        if (name.isEmpty() || ip.isEmpty() || portStr.isEmpty()) {
+            new Notification("All fields must be filled!", Notification.Type.ERROR);
+            return;
+        }
+
+        if (!isEditingHost && !testSSHConnection(user, ip, portStr, password)) {
+            new Notification("Invalid details or Connection Failed", Notification.Type.ERROR);
+            return;
+        }
+
+        RemoteHostInfo rh;
+        if (isEditingHost) {
+            rh = remoteHosts.get(activeTabIndex - 1);
+            rh.name = name;
+            rh.user = user;
+            rh.ip = ip;
+            try {
+                rh.port = Integer.parseInt(portStr);
+            } catch (NumberFormatException e) {
+                rh.port = 22;
+            }
+            rh.password = password;
+            saveRemoteHosts();
+            closeRemoteHostPopup();
+        } else {
+            rh = new RemoteHostInfo();
+            rh.name = name;
+            rh.user = user;
+            rh.ip = ip;
+            try {
+                rh.port = Integer.parseInt(portStr);
+            } catch (NumberFormatException e) {
+                rh.port = 22;
+            }
+            rh.password = password;
+            rh.servers = new ArrayList<>();
+            remoteHosts.add(rh);
+            saveRemoteHosts();
+            activeTabIndex = remoteHosts.size();
+            closeRemoteHostPopup();
+        }
+    }
+
+    private void onDeleteRemoteHost() {
+        if (isEditingHost && activeTabIndex > 0 && activeTabIndex <= remoteHosts.size()) {
+            remoteHosts.remove(activeTabIndex - 1);
+            saveRemoteHosts();
+            activeTabIndex = 0;
+            closeRemoteHostPopup();
         }
     }
 
@@ -1075,15 +872,9 @@ public class ServerManagerScreen extends Screen {
     }
 
     private void closeRemoteHostPopup() {
-        remoteHostPopupActive = false;
-        remoteHostCreationWarning = false;
-        remoteHostActiveField = RemoteHostField.NONE;
-        remoteHostNameBuffer.setLength(0);
-        remoteHostUserBuffer.setLength(0);
-        remoteHostUserBuffer.append("root");
-        remoteHostIPBuffer.setLength(0);
-        remoteHostPortBuffer.setLength(0);
-        remoteHostPasswordBuffer.setLength(0);
+        if(remoteHostPopup != null) {
+            remoteHostPopup.hide();
+        }
     }
 
     private void openImportFileExplorer() {
@@ -1206,32 +997,6 @@ public class ServerManagerScreen extends Screen {
             }
         } catch (Exception ignored) {}
         return connectionResult;
-    }
-
-    private void handleRemoteHostTypingKey(int keyCode) {
-        if (keyCode == 259 || keyCode == 261) {
-            if (remoteHostActiveField == RemoteHostField.NAME) {
-                if (!remoteHostNameBuffer.isEmpty() && keyCode == 259) {
-                    remoteHostNameBuffer.deleteCharAt(remoteHostNameBuffer.length() - 1);
-                }
-            } else if (remoteHostActiveField == RemoteHostField.USER) {
-                if (!remoteHostUserBuffer.isEmpty() && keyCode == 259) {
-                    remoteHostUserBuffer.deleteCharAt(remoteHostUserBuffer.length() - 1);
-                }
-            } else if (remoteHostActiveField == RemoteHostField.IP) {
-                if (!remoteHostIPBuffer.isEmpty() && keyCode == 259) {
-                    remoteHostIPBuffer.deleteCharAt(remoteHostIPBuffer.length() - 1);
-                }
-            } else if (remoteHostActiveField == RemoteHostField.PORT) {
-                if (!remoteHostPortBuffer.isEmpty() && keyCode == 259) {
-                    remoteHostPortBuffer.deleteCharAt(remoteHostPortBuffer.length() - 1);
-                }
-            } else if (remoteHostActiveField == RemoteHostField.PASSWORD) {
-                if (!remoteHostPasswordBuffer.isEmpty() && keyCode == 259) {
-                    remoteHostPasswordBuffer.deleteCharAt(remoteHostPasswordBuffer.length() - 1);
-                }
-            }
-        }
     }
 
     public static void saveRemoteHosts() {
@@ -1624,22 +1389,6 @@ public class ServerManagerScreen extends Screen {
         return "[]";
     }
 
-    private boolean isInsideOptionBox(double mouseX, double mouseY, int popupX, int boxY) {
-        int boxW = 220;
-        int boxH = 27;
-        int boxX = (popupX + (serverTypePopupWidth - boxW) / 2);
-        return (mouseX >= boxX && mouseX <= boxX + boxW && mouseY >= boxY && mouseY <= boxY + boxH);
-    }
-
-    private void drawOptionBox(DrawContext context, String text, int popupX, int boxY, double mouseX, double mouseY, String tooltip) {
-        int boxW = 220;
-        int boxH = 27;
-        int boxX = (popupX + (serverTypePopupWidth - boxW) / 2);
-        boolean hovered = mouseX >= boxX && mouseX <= boxX + boxW && mouseY >= boxY && mouseY <= boxY + boxH;
-        drawCustomButton(context, boxX, boxY, text, minecraftClient, hovered, false, true, false, true, boxW, boxH, globalTextColor, globalHoverTextColor, (int) mouseX, (int) mouseY, tooltip);
-    }
-
-
     private BufferedImage getServerIcon(ServerInfo server) {
         try {
             File iconFile = new File(server.path, "icon.png");
@@ -1705,10 +1454,6 @@ public class ServerManagerScreen extends Screen {
             saveServers();
             saveRemoteHosts();
         }
-    }
-
-    private enum RemoteHostField {
-        NONE, NAME, USER, IP, PORT, PASSWORD
     }
 
     @Override
