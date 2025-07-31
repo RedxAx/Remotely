@@ -15,6 +15,7 @@ import redxax.oxy.remotely.terminal.ServerTerminalInstance;
 import redxax.oxy.remotely.terminal.TerminalInstance;
 import redxax.oxy.remotely.ui.widgets.AnimatedButton;
 import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
+import redxax.oxy.remotely.ui.widgets.ContextMenuWidget;
 import redxax.oxy.remotely.ui.widgets.PopupWidget;
 import redxax.oxy.remotely.ui.widgets.TextInputWidget;
 import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
@@ -62,6 +63,7 @@ public class ServerManagerScreen extends Screen {
     private PopupWidget addServerPopup;
     private PopupWidget deleteServerPopup;
     private PopupWidget remoteHostPopup;
+    private ContextMenuWidget contextMenu;
     private TextInputWidget remoteHostNameInput;
     private TextInputWidget remoteHostUserInput;
     private TextInputWidget remoteHostIpInput;
@@ -135,6 +137,7 @@ public class ServerManagerScreen extends Screen {
         iconPosX.clear();
         iconPosY.clear();
         createPopups();
+        contextMenu = new ContextMenuWidget.Builder(this).build();
         try {
             terminalIcon = new IconWithTooltip("/assets/remotely/icons/terminal.png", "Terminal");
             explorerIcon = new IconWithTooltip("/assets/remotely/icons/explorer.png", "File Explorer");
@@ -294,7 +297,7 @@ public class ServerManagerScreen extends Screen {
         deleteServerPopup.render(context, mouseX, mouseY, delta);
         remoteHostPopup.render(context, mouseX, mouseY, delta);
 
-        ContextMenu.renderMenu(context, minecraftClient, mouseX, mouseY);
+        contextMenu.render(context, mouseX, mouseY, delta);
         animatedScaling(this);
     }
 
@@ -489,7 +492,7 @@ public class ServerManagerScreen extends Screen {
         if (remoteHostPopup.mouseClicked(mouseX, mouseY, button)) return true;
         if (addServerPopup.mouseClicked(mouseX, mouseY, button)) return true;
         if (deleteServerPopup.mouseClicked(mouseX, mouseY, button)) return true;
-        if (ContextMenu.mouseClicked(mouseX, mouseY, button)) {
+        if (contextMenu.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
 
@@ -518,20 +521,20 @@ public class ServerManagerScreen extends Screen {
                     }
                     return true;
                 } else if (button == 1 && !rect.isCreate) {
-                    playSound(Sound.RIGHTCLICK);
-                    ContextMenu.hide();
-                    ContextMenu.addItem("Edit", () -> {
-                        ServerInfo info = getCurrentServers().get(rect.serverIndex);
-                        minecraftClient.setScreen(new SettingsScreen("editServer", this, info.path, settings, info));
-                    }, false, false, false, "Open The Server's Settings");
-                    ContextMenu.addItem("Open Folder", () -> minecraftClient.setScreen(new FileExplorerScreen(this, getCurrentServers().get(rect.serverIndex), false)), false, false, false, "Open The Server's Folder");
-                    ContextMenu.addItem("Delete", () -> {
-                        serverIndexForDeletion = rect.serverIndex;
-                        deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
-                        deleteServerPopup.setY((this.height - deleteServerPopup.getHeight())/2);
-                        deleteServerPopup.show();
-                    }, false, false, false, "Show Deletion Options");
-                    ContextMenu.show((int) mouseX, (int) mouseY, 80, this.width, this.height);
+                    contextMenu = new ContextMenuWidget.Builder(this)
+                            .addItem("Edit", () -> {
+                                ServerInfo info = getCurrentServers().get(rect.serverIndex);
+                                minecraftClient.setScreen(new SettingsScreen("editServer", this, info.path, settings, info));
+                            }, "Open The Server's Settings")
+                            .addItem("Open Folder", () -> minecraftClient.setScreen(new FileExplorerScreen(this, getCurrentServers().get(rect.serverIndex), false)), "Open The Server's Folder")
+                            .addItem("Delete", () -> {
+                                serverIndexForDeletion = rect.serverIndex;
+                                deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
+                                deleteServerPopup.setY((this.height - deleteServerPopup.getHeight())/2);
+                                deleteServerPopup.show();
+                            }, "Show Deletion Options", true, false, false)
+                            .build();
+                    contextMenu.show((int) mouseX, (int) mouseY);
                     return true;
                 }
             }
@@ -606,6 +609,7 @@ public class ServerManagerScreen extends Screen {
                         }
                     } else if (button == 1 && i > 0) {
                         playSound(Sound.CLICK);
+                        activeTabIndex = i;
                         openRemoteHostPopup(true);
                     }
                     return true;
@@ -643,6 +647,7 @@ public class ServerManagerScreen extends Screen {
         if (remoteHostPopup.mouseReleased(mouseX, mouseY, button)) return true;
         if (addServerPopup.mouseReleased(mouseX, mouseY, button)) return true;
         if (deleteServerPopup.mouseReleased(mouseX, mouseY, button)) return true;
+        if (contextMenu.mouseReleased(mouseX, mouseY, button)) return true;
 
         if (isDragging && draggingServerIndex != -1) {
             List<ServerInfo> currentServers = getCurrentServers();
@@ -686,6 +691,7 @@ public class ServerManagerScreen extends Screen {
         if (remoteHostPopup.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) return true;
         if (addServerPopup.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) return true;
         if (deleteServerPopup.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) return true;
+        if (contextMenu.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) return true;
 
         scaleScroll(verticalAmount);
         return true;
@@ -696,6 +702,7 @@ public class ServerManagerScreen extends Screen {
         if (remoteHostPopup.keyPressed(keyCode, scanCode, modifiers)) return true;
         if (addServerPopup.keyPressed(keyCode, scanCode, modifiers)) return true;
         if (deleteServerPopup.keyPressed(keyCode, scanCode, modifiers)) return true;
+        if (contextMenu.keyPressed(keyCode, scanCode, modifiers)) return true;
 
         if (keyCode == GLFW.GLFW_KEY_S && modifiers == GLFW.GLFW_MOD_CONTROL) {
             minecraftClient.setScreen(new SettingsScreen("config", this, "", null));
@@ -703,7 +710,6 @@ public class ServerManagerScreen extends Screen {
         }
         if ((modifiers & GLFW.GLFW_MOD_CONTROL) != 0 && keyCode == GLFW.GLFW_KEY_V) {
             String clipboard = minecraftClient.keyboard.getClipboard();
-            // This now needs to be handled by the focused widget, which keyPressed delegation above should do.
         }
 
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -714,6 +720,7 @@ public class ServerManagerScreen extends Screen {
         if (remoteHostPopup.charTyped(chr, modifiers)) return true;
         if (addServerPopup.charTyped(chr, modifiers)) return true;
         if (deleteServerPopup.charTyped(chr, modifiers)) return true;
+        if (contextMenu.charTyped(chr, modifiers)) return true;
 
         return super.charTyped(chr, modifiers);
     }
