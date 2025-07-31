@@ -1,14 +1,13 @@
 package redxax.oxy.remotely.ui.widgets;
 
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
+import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.Text;
 import redxax.oxy.remotely.Render;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -24,20 +23,28 @@ import static redxax.oxy.remotely.config.Config.shadow;
 public class PopupWidget extends AnimatedWidget {
 
     private final String title;
-    private final List<PopupRow> rows = new ArrayList<>();
+    public final List<PopupRow> rows = new ArrayList<>();
     private float scrollOffset = 0f;
     private float targetScrollOffset = 0f;
     private int contentHeight = 0;
     private boolean isDragging = false;
     private int dragStartY;
     private int dragStartX;
-    private final AnimatedButton closeButton;
+    private AnimatedButton closeButton;
     private Runnable onClose;
 
     private boolean resizable = false;
     private boolean isResizing = false;
     private int resizeEdge = 0;
-    private int minWidth = 150, minHeight = 100;
+    private int minWidth = 0, minHeight = 0;
+
+    private ClickableWidget focusedWidget;
+
+    private boolean expandWithDropdowns = true;
+    private float currentAnimatedHeight;
+
+    private boolean collapseOnClose = false;
+    private boolean isCollapsed = false;
 
     private static final int TITLE_HEIGHT = 16;
     private static final int PADDING = 6;
@@ -45,33 +52,50 @@ public class PopupWidget extends AnimatedWidget {
     private static final int FIELD_SPACING = 8;
     private static final int RESIZE_HANDLE_SIZE = 5;
 
-    private static class PopupRow {
+    public static class PopupRow {
         final String label;
-        List<AnimatedWidget> widgets;
+        public List<ClickableWidget> widgets;
         final int baseHeight;
         final boolean stretchWidgets;
+        final boolean anchorRight;
 
-        PopupRow(String label, List<AnimatedWidget> widgets, int baseHeight, boolean stretchWidgets) {
+        PopupRow(String label, List<ClickableWidget> widgets, int baseHeight, boolean stretchWidgets, boolean anchorRight) {
             this.label = label;
             this.widgets = new ArrayList<>(widgets);
             this.baseHeight = baseHeight;
             this.stretchWidgets = stretchWidgets;
+            this.anchorRight = anchorRight;
         }
 
         int getCurrentHeight() {
             int extraHeight = 0;
-            for (AnimatedWidget w : widgets) {
+            for (ClickableWidget w : widgets) {
                 if (w instanceof DropDownWidget) {
                     extraHeight = Math.max(extraHeight, ((DropDownWidget<?>) w).getAnimatedHeight());
                 }
             }
+
+            int markdownHeight = -1;
+
+            if (markdownHeight != -1) {
+                int initialWidgetHeight = baseHeight - (label.isEmpty() ? 0 : LABEL_HEIGHT) - FIELD_SPACING;
+                return (baseHeight - initialWidgetHeight + markdownHeight) + extraHeight;
+            }
+
             return baseHeight + extraHeight;
         }
     }
 
     public static class Builder extends AnimatedWidget.Builder<PopupWidget, Builder> {
         public Builder(String title) {
-            super(new PopupWidget(0, 0, 300, 400, title));
+            super(new PopupWidget((MinecraftClient.getInstance().currentScreen.width / 2) - 200, (MinecraftClient.getInstance().currentScreen.height / 2 - 150), 400, 300, title));
+        }
+
+        @Override
+        public Builder size(int width, int height) {
+            super.size(width, height);
+            super.pos(MinecraftClient.getInstance().currentScreen.width / 2 - width / 2, MinecraftClient.getInstance().currentScreen.height / 2 - height / 2);
+            return this;
         }
 
         public Builder onClose(Runnable action) {
@@ -84,19 +108,33 @@ public class PopupWidget extends AnimatedWidget {
             return this;
         }
 
+        public Builder enableCollapseOnClose(boolean collapseOnClose) {
+            widget.collapseOnClose = collapseOnClose;
+            return this;
+        }
+
+        public Builder setExpandWithDropdowns(boolean expandWithDropdowns) {
+            widget.expandWithDropdowns = expandWithDropdowns;
+            return this;
+        }
+
         public Builder setMinSize(int minWidth, int minHeight) {
             widget.minWidth = minWidth;
             widget.minHeight = minHeight;
             return this;
         }
 
-        public Builder addRow(String label, boolean stretch, int height, AnimatedWidget... widgets) {
-            widget.addRow(label, Arrays.asList(widgets), height, stretch);
+        public Builder addRow(String label, boolean stretch, int height, ClickableWidget... widgets) {
+            return addRow(label, stretch, false, height, widgets);
+        }
+
+        public Builder addRow(String label, boolean stretch, boolean anchorRight, int height, ClickableWidget... widgets) {
+            widget.addRow(label, Arrays.asList(widgets), height, stretch, anchorRight);
             return this;
         }
 
-        public Builder addWidget(String label, AnimatedWidget w, int fieldHeight) {
-            widget.addRow(label, Collections.singletonList(w), fieldHeight, true);
+        public Builder addWidget(String label, ClickableWidget w, int fieldHeight) {
+            widget.addRow(label, Collections.singletonList(w), fieldHeight, true, false);
             return this;
         }
 
@@ -178,39 +216,72 @@ public class PopupWidget extends AnimatedWidget {
     public PopupWidget(int x, int y, int width, int height, String title) {
         super(x, y, width, height, Text.empty());
         this.title = title;
-        this.animateLayout = enableHoverColors = animateElevation = false;
-        this.entranceAnimationEnabled = true;
+        this.currentAnimatedHeight = height;
+        this.animateLayout = enableHoverColors = animateElevation = entranceAnimationEnabled = false;
         this.entranceAnimationStrength = 10f;
         this.entranceAnimationSpeed = 2f;
+        this.setLayer(490);
         this.closeButton = new AnimatedButton.Builder()
                 .onClick(() -> {
-                    if (onClose != null) onClose.run();
-                    this.visible = false;
-                    resetEntranceAnimation();
+                    if (collapseOnClose) {
+                        isCollapsed = !isCollapsed;
+                        if (isCollapsed) {
+                            closeButton.accentType = (AccentType.NICE);
+                        } else {
+                            closeButton.accentType = (AccentType.DANGER);
+                        }
+                    } else {
+                        if (onClose != null) onClose.run();
+                        this.visible = false;
+                        resetEntranceAnimation();
+                    }
                 })
-                .accentType(AccentType.DANGER)
+                .accentType(AccentType.DANGER).animateElevation(false)
                 .size(12, 8)
                 .build();
         updateLayout();
     }
 
-    public void addRow(String label, List<AnimatedWidget> widgets, int height, boolean stretch) {
-        for (AnimatedWidget widget : widgets) {
+    private void setFocusedWidget(ClickableWidget widget) {
+        if (this.focusedWidget != null) {
+            this.focusedWidget.setFocused(false);
+        }
+        this.focusedWidget = widget;
+        if (this.focusedWidget != null) {
+            this.focusedWidget.setFocused(true);
+        }
+    }
+
+
+    public void addRow(String label, List<ClickableWidget> widgets, int height, boolean stretch) {
+        addRow(label, widgets, height, stretch, false);
+    }
+
+    public void addRow(String label, List<ClickableWidget> widgets, int height, boolean stretch, boolean anchorRight) {
+        for (ClickableWidget widget : widgets) {
             if (widget instanceof AnimatedWidget) {
-                ((AnimatedWidget) widget).animateElevation = false;
+                ((AnimatedWidget) widget).animateElevation = entranceAnimationEnabled = false;
             }
         }
-        this.rows.add(new PopupRow(label, widgets, height + LABEL_HEIGHT + FIELD_SPACING, stretch));
+        this.rows.add(new PopupRow(label, widgets, height + (label.isEmpty() ? 0 :  LABEL_HEIGHT) + FIELD_SPACING, stretch, !stretch && anchorRight));
         updateLayout();
     }
 
-    public void replaceWidget(AnimatedWidget oldWidget, AnimatedWidget newWidget) {
+    public void clearRows() {
+        this.rows.clear();
+        setFocusedWidget(null);
+        scrollOffset = 0f;
+        targetScrollOffset = 0f;
+        updateLayout();
+    }
+
+    public void replaceWidget(ClickableWidget oldWidget, ClickableWidget newWidget) {
         for (PopupRow row : rows) {
             int index = row.widgets.indexOf(oldWidget);
             if (index != -1) {
                 row.widgets.set(index, newWidget);
                 if (newWidget instanceof AnimatedWidget) {
-                    newWidget.animateElevation = false;
+                    ((AnimatedWidget) newWidget).animateElevation = entranceAnimationEnabled = false;
                 }
                 updateLayout();
                 return;
@@ -229,7 +300,7 @@ public class PopupWidget extends AnimatedWidget {
         for (PopupRow row : rows) {
             if (row.stretchWidgets && !row.widgets.isEmpty()) {
                 int widgetWidth = (availableWidth - (row.widgets.size() - 1) * PADDING) / row.widgets.size();
-                for (AnimatedWidget w : row.widgets) {
+                for (ClickableWidget w : row.widgets) {
                     w.setWidth(widgetWidth);
                 }
             }
@@ -254,16 +325,51 @@ public class PopupWidget extends AnimatedWidget {
     public void tick() {
         super.tick();
         updateLayout();
+
+        if (!isResizing) {
+            boolean shouldAnimate = false;
+            int targetHeight = getHeight();
+
+            if (isCollapsed) {
+                shouldAnimate = true;
+                targetHeight = TITLE_HEIGHT;
+            } else {
+                int expandedHeight = TITLE_HEIGHT + contentHeight + PADDING;
+                expandedHeight = Math.max(minHeight, expandedHeight);
+                if (MinecraftClient.getInstance().currentScreen != null) {
+                    expandedHeight = Math.min(expandedHeight, MinecraftClient.getInstance().currentScreen.height - getY() - 20);
+                }
+
+                if (expandWithDropdowns) {
+                    shouldAnimate = true;
+                    targetHeight = expandedHeight;
+                } else if (collapseOnClose && getHeight() <= TITLE_HEIGHT) {
+                    shouldAnimate = true;
+                    targetHeight = expandedHeight;
+                }
+            }
+
+            if (shouldAnimate) {
+                currentAnimatedHeight += (targetHeight - currentAnimatedHeight) * globalExpandSpeed * deltaTime;
+                if (Math.abs(currentAnimatedHeight - targetHeight) < 1f) {
+                    currentAnimatedHeight = targetHeight;
+                }
+                setHeight((int) currentAnimatedHeight);
+            }
+        }
+
         scrollOffset += (targetScrollOffset - scrollOffset) * globalScrollSpeed * deltaTime;
         if (Math.abs(targetScrollOffset - scrollOffset) < 0.5f) {
             scrollOffset = targetScrollOffset;
         }
         clampScroll();
 
-        for (PopupRow row : rows) {
-            for (AnimatedWidget widget : row.widgets) {
-                if (widget instanceof AnimatedWidget) {
-                    ((AnimatedWidget) widget).tick();
+        if (!isCollapsed) {
+            for (PopupRow row : rows) {
+                for (ClickableWidget widget : row.widgets) {
+                    if (widget instanceof AnimatedWidget) {
+                        ((AnimatedWidget) widget).tick();
+                    }
                 }
             }
         }
@@ -272,7 +378,10 @@ public class PopupWidget extends AnimatedWidget {
 
     @Override
     public void renderWidget(DrawContext ctx, int mouseX, int mouseY, float delta) {
+        ctx.getMatrices().push();
+        ctx.getMatrices().translate(0, 0, 9);
         super.renderWidget(ctx, mouseX, mouseY, delta);
+        ctx.getMatrices().pop();
     }
 
     @Override
@@ -289,6 +398,8 @@ public class PopupWidget extends AnimatedWidget {
         closeButton.setPosition(getX() + getWidth() - PADDING - 10, getY() + 3);
         closeButton.render(ctx, mouseX, mouseY, 0);
 
+        if (isCollapsed) return;
+
         int contentY = getY() + TITLE_HEIGHT;
         int contentW = getWidth();
         int contentH = getHeight() - TITLE_HEIGHT;
@@ -301,14 +412,23 @@ public class PopupWidget extends AnimatedWidget {
             }
             int widgetY = currentY + (row.label != null && !row.label.isEmpty() ? LABEL_HEIGHT : 0);
 
-            int currentX = getX() + PADDING;
-
-            for (AnimatedWidget widget : row.widgets) {
-                widget.setPosition(currentX, widgetY);
-                if (widget instanceof AnimatedWidget) {
-                    widget.setScissorRegion(getX(), contentY, getX() + contentW, contentY + contentH);
+            int currentX;
+            if (row.anchorRight) {
+                int totalWidgetsWidth = 0;
+                for (ClickableWidget widget : row.widgets) {
+                    totalWidgetsWidth += widget.getWidth();
                 }
+                totalWidgetsWidth += Math.max(0, row.widgets.size() - 1) * PADDING;
+                currentX = getX() + getWidth() - PADDING - totalWidgetsWidth;
+            } else {
+                currentX = getX() + PADDING;
+            }
+
+            for (ClickableWidget widget : row.widgets) {
+                widget.setPosition(currentX, widgetY);
+                ctx.enableScissor(getX(), contentY, getX() + contentW, contentY + contentH);
                 widget.render(ctx, mouseX, mouseY, 0f);
+                ctx.disableScissor();
                 currentX += widget.getWidth() + PADDING;
             }
 
@@ -366,14 +486,18 @@ public class PopupWidget extends AnimatedWidget {
                 return true;
             }
 
+            if (isCollapsed) return true;
+
             for (int i = rows.size() - 1; i >= 0; i--) {
                 PopupRow row = rows.get(i);
-                for (AnimatedWidget widget : row.widgets) {
+                for (ClickableWidget widget : row.widgets) {
                     if (widget.mouseClicked(mouseX, mouseY, button)) {
                         return true;
                     }
                 }
             }
+
+            this.setFocusedWidget(null);
             return true;
         }
         return false;
@@ -386,9 +510,10 @@ public class PopupWidget extends AnimatedWidget {
         resizeEdge = 0;
 
         if (!visible) return false;
-        if (isMouseOver(mouseX, mouseY)) {
+
+        if (isMouseOver(mouseX, mouseY) && !isCollapsed) {
             for (PopupRow row : rows) {
-                for (AnimatedWidget widget : row.widgets) {
+                for (ClickableWidget widget : row.widgets) {
                     if (widget.mouseReleased(mouseX, mouseY, button)) {
                         return true;
                     }
@@ -410,22 +535,22 @@ public class PopupWidget extends AnimatedWidget {
             int dx = (int) (mouseX - dragStartX);
             int dy = (int) (mouseY - dragStartY);
 
-            if (resizeEdge == 1 || resizeEdge == 6 || resizeEdge == 8) { // Left
+            if (resizeEdge == 1 || resizeEdge == 6 || resizeEdge == 8) {
                 if (getWidth() - dx >= minWidth) {
                     newX += dx;
                     newW -= dx;
                 }
             }
-            if (resizeEdge == 2 || resizeEdge == 5 || resizeEdge == 7) { // Right
+            if (resizeEdge == 2 || resizeEdge == 5 || resizeEdge == 7) {
                 newW += dx;
             }
-            if (resizeEdge == 3 || resizeEdge == 7 || resizeEdge == 8) { // Top
+            if (resizeEdge == 3 || resizeEdge == 7 || resizeEdge == 8) {
                 if (getHeight() - dy >= minHeight) {
                     newY += dy;
                     newH -= dy;
                 }
             }
-            if (resizeEdge == 4 || resizeEdge == 5 || resizeEdge == 6) { // Bottom
+            if (resizeEdge == 4 || resizeEdge == 5 || resizeEdge == 6) {
                 newH += dy;
             }
 
@@ -437,13 +562,17 @@ public class PopupWidget extends AnimatedWidget {
             setWidth(newW);
             setHeight(newH);
 
+            if (expandWithDropdowns) {
+                currentAnimatedHeight = newH;
+            }
+
             dragStartX = (int) mouseX;
             dragStartY = (int) mouseY;
             return true;
         }
-        if (isMouseOver(mouseX, mouseY)) {
+        if (isMouseOver(mouseX, mouseY) && !isCollapsed) {
             for (PopupRow row : rows) {
-                for (AnimatedWidget widget : row.widgets) {
+                for (ClickableWidget widget : row.widgets) {
                     if (widget.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
                         return true;
                     }
@@ -458,7 +587,7 @@ public class PopupWidget extends AnimatedWidget {
         if (!visible) return false;
         if (mouseX >= getX() && mouseX <= getX() + getWidth() && mouseY >= getY() + TITLE_HEIGHT && mouseY <= getY() + getHeight()) {
             for (PopupRow row : rows) {
-                for (AnimatedWidget widget : row.widgets) {
+                for (ClickableWidget widget : row.widgets) {
                     if (widget.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
                         return true;
                     }
@@ -482,28 +611,24 @@ public class PopupWidget extends AnimatedWidget {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (!visible) return false;
-        for (PopupRow row : rows) {
-            for (AnimatedWidget widget : row.widgets) {
-                if (widget.keyPressed(keyCode, scanCode, modifiers)) {
-                    return true;
-                }
-            }
+        if (!visible || isCollapsed) return false;
+
+        if (this.focusedWidget != null && this.focusedWidget.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
         }
-        return false;
+
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
-        if (!visible) return false;
-        for (PopupRow row : rows) {
-            for (AnimatedWidget widget : row.widgets) {
-                if (widget.charTyped(chr, modifiers)) {
-                    return true;
-                }
-            }
+        if (!visible || isCollapsed) return false;
+
+        if (this.focusedWidget != null && this.focusedWidget.charTyped(chr, modifiers)) {
+            return true;
         }
-        return false;
+
+        return super.charTyped(chr, modifiers);
     }
 
     public void show() {
