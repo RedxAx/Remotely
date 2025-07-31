@@ -164,7 +164,7 @@ public class TextAreaWidget extends AnimatedWidget {
         ctx.fill(x1, lineY - 1, x2, lineY + tr.fontHeight, globalSelectionColor);
     }
 
-    private void setCursor(int line, int col) {
+    public void setCursor(int line, int col) {
         cursorLine = Math.max(0, Math.min(lines.size() - 1, line));
         cursorCol = Math.max(0, Math.min(lines.get(cursorLine).length(), col));
         selectionStartLine = cursorLine;

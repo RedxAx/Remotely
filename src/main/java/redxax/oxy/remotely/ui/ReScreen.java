@@ -1357,7 +1357,7 @@ public class ReScreen extends Screen {
         private Position position = Position.TOP;
         private int headerSize = 30;
         private boolean visible = true;
-        private TextInputWidget searchBox;
+        public TextInputWidget searchBox;
         private SearchMode currentSearchMode;
         public boolean liveUpdate = false;
         public enum Position {
