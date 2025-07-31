@@ -325,8 +325,6 @@ public class Render {
             String name;
             if (tab instanceof FileEditorScreen.Tab t) {
                 name = t.unsaved ? t.name + "*" : t.name;
-            } else if (tab instanceof MultiTerminalScreen.TabInfo) {
-                name = ((MultiTerminalScreen.TabInfo) tab).name;
             } else if (tab instanceof MultiTerminalScreen.Theme) {
                 name = ((MultiTerminalScreen.Theme) tab).name;
             } else {

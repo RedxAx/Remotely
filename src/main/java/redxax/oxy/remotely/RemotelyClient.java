@@ -9,7 +9,6 @@ import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.config.SettingsScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
-import redxax.oxy.remotely.terminal.TerminalInstance;
 
 import javax.imageio.ImageIO;
 import net.minecraft.client.MinecraftClient;
@@ -29,8 +28,8 @@ import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
 public class RemotelyClient {
 
-    public ArrayList<TerminalInstance> multiTerminals;
-    public ArrayList<String> multiTabNames;
+    public List<ServerInfo> multiTerminals;
+    public List<String> multiTabNames;
     public MultiTerminalScreen multiTerminalScreen;
     private static final Path TERMINAL_LOG_DIR = Paths.get(String.valueOf(remotelyDir), "logs");
     private static final Path SNIPPETS_FILE = Paths.get(String.valueOf(remotelyDir), "data", "snippets.json");
@@ -40,16 +39,11 @@ public class RemotelyClient {
 
 
     private static final Gson GSON = new Gson();
-    public List<TerminalInstance> terminals = new ArrayList<>();
-    public List<String> tabNames = new ArrayList<>();
     public int activeTerminalIndex = 0;
-    public float scale = 1.0f;
-    public int snippetPanelWidth = 150;
     public boolean showSnippetsPanel = false;
     public static List<CommandSnippet> globalSnippets = new ArrayList<>();
     public static RemotelyClient INSTANCE;
     public final List<ServerInfo> servers = new ArrayList<>();
-    public Map<UUID,? extends MultiTerminalScreen.MergeGroup> multiMergeGroups;
     private int activeHostIndex = 0;
     private final Map<String, SSHManager> hostSSHManagers = new HashMap<>();
     public static String os;
@@ -119,51 +113,13 @@ public class RemotelyClient {
     }
 
     public void openMultiTerminalGUI(MinecraftClient client, Screen parent) {
-        if (multiTerminals.isEmpty() && terminals.isEmpty()) {
-            loadSavedTerminals();
-        }
-        if (!multiTerminals.isEmpty()) {
-            terminals.clear();
-            terminals.addAll(multiTerminals);
-            tabNames.clear();
-            tabNames.addAll(multiTabNames);
-        }
-        multiTerminalScreen = new MultiTerminalScreen(client, parent, this, terminals, tabNames);
+        multiTerminalScreen = new MultiTerminalScreen(client, parent, this);
         client.setScreen(multiTerminalScreen);
     }
 
-    private void loadSavedTerminals() {
-        if (Files.exists(TERMINAL_LOG_DIR) && Files.isDirectory(TERMINAL_LOG_DIR) && terminals.isEmpty()) {
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(TERMINAL_LOG_DIR, "*.log")) {
-                for (Path entry : stream) {
-                    String fileName = entry.getFileName().toString();
-                    String tabName = fileName.substring(0, fileName.length() - 4);
-                    TerminalInstance terminal = new TerminalInstance(mc, multiTerminalScreen, UUID.randomUUID());
-                    terminal.loadTerminalOutput(entry);
-                    terminals.add(terminal);
-                    tabNames.add(tabName);
-                }
-                if (!terminals.isEmpty() && multiTerminalScreen != null) {
-                    multiTerminalScreen.activeTerminalIndex = activeTerminalIndex;
-                }
-            } catch (IOException e) {
-                if (mc.player != null) {
-                    mc.player.sendMessage(Text.literal("Failed to load saved terminals."), false);
-                }
-            }
-        }
-    }
-
     public void shutdownAllTerminals() {
-        for (TerminalInstance terminal : terminals) {
-            terminal.shutdown();
-        }
-        terminals.clear();
-        tabNames.clear();
-        if (multiTerminalScreen != null) {
-            multiTerminalScreen.shutdownAllTerminals();
-            multiTerminalScreen = null;
-        }
+        // This logic should now be handled inside MultiTerminalScreen's close/removed methods
+        // by iterating through the widgets and calling shutdown().
         saveSnippets();
         try {
             if (Files.exists(TERMINAL_LOG_DIR) && Files.isDirectory(TERMINAL_LOG_DIR)) {
@@ -190,8 +146,6 @@ public class RemotelyClient {
     public int getSavedTabIndex() {
         return activeHostIndex;
     }
-
-
 
     public void saveFileEditorTabs(List<Path> tabs) {
         try {
@@ -285,10 +239,10 @@ public class RemotelyClient {
 
         try {
             manager.connectToRemoteHost(
-                host.getUser(),
-                host.getIp(),
-                host.getPort(),
-                host.getPassword()
+                    host.getUser(),
+                    host.getIp(),
+                    host.getPort(),
+                    host.getPassword()
             );
         } catch (Exception e) {
             devPrint("Failed to connect to host " + host.getIp() + ": " + e.getMessage());
@@ -336,7 +290,6 @@ public class RemotelyClient {
     }
 
     public static boolean isModLoaded(String modId) {
-    return false;
+        return false;
     }
-
 }

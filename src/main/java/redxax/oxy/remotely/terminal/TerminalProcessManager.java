@@ -1,8 +1,12 @@
 package redxax.oxy.remotely.terminal;
 
 import redxax.oxy.remotely.SSHManager;
+import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
+import redxax.oxy.remotely.ui.widgets.TerminalWidget;
+
 import java.io.*;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.concurrent.ExecutorService;
@@ -19,18 +23,39 @@ public class TerminalProcessManager {
     public Writer writer;
     private final ExecutorService executorService = Executors.newFixedThreadPool(4);
     private volatile boolean isRunning = true;
-    public final TerminalInstance terminalInstance;
+    protected final TerminalWidget widget;
     private final SSHManager sshManager;
     private String currentDirectory = System.getProperty("user.home");
     private static final Logger logger = Logger.getLogger(TerminalProcessManager.class.getName());
     protected boolean isDetachedServer = false;
 
-    public TerminalProcessManager(TerminalInstance terminalInstance, SSHManager sshManager) {
-        this.terminalInstance = terminalInstance;
+    public TerminalProcessManager(TerminalWidget widget, SSHManager sshManager) {
+        this.widget = widget;
         this.sshManager = sshManager;
+        this.isDetachedServer = widget.getServerInfo() != null && !widget.getServerInfo().isRemote;
+    }
+
+    public static StringBuilder getCommandStr() {
+        StringBuilder commandStr = new StringBuilder();
+        commandStr.append("java ");
+        commandStr.append("-Djline.terminal=jline.UnsupportedTerminal ");
+        commandStr.append("-Dnet.kyori.ansi.colorLevel=indexed256 ");
+        commandStr.append("-Xms4G ");
+        commandStr.append("-Xmx4G ");
+        commandStr.append("-jar server.jar ");
+        commandStr.append("--nogui");
+        return commandStr;
     }
 
     public void launchTerminal() {
+        if (isDetachedServer) {
+            launchServerProcess();
+        } else {
+            launchGenericProcess();
+        }
+    }
+
+    private void launchGenericProcess() {
         new Thread(() -> {
             try {
                 if (terminalProcess != null && terminalProcess.isAlive()) {
@@ -39,134 +64,102 @@ public class TerminalProcessManager {
                 String os = System.getProperty("os.name").toLowerCase();
                 ProcessBuilder processBuilder;
                 if (os.contains("win")) {
-                    processBuilder = new ProcessBuilder("cmd.exe", "/k", "powershell");
+                    processBuilder = new ProcessBuilder("cmd.exe");
                 } else if (os.contains("mac") || os.contains("darwin")) {
                     processBuilder = new ProcessBuilder("/bin/zsh", "-l");
                 } else {
                     processBuilder = new ProcessBuilder("/bin/bash", "-l");
                 }
                 processBuilder.redirectErrorStream(true);
+                processBuilder.directory(new File(currentDirectory));
                 terminalProcess = processBuilder.start();
-                terminalInputStream = terminalProcess.getInputStream();
-                terminalErrorStream = terminalProcess.getErrorStream();
-                writer = new OutputStreamWriter(terminalProcess.getOutputStream(), StandardCharsets.UTF_8);
-                if (terminalInstance instanceof ServerTerminalInstance sti2) {
-                    isDetachedServer = true;
-                }
-                startReaders();
+                setupStreamsAndReaders();
             } catch (Exception e) {
-                terminalInstance.appendOutput("Failed to launch terminal process: " + e.getMessage() + "\n");
+                widget.appendOutput("Failed to launch terminal process: " + e.getMessage() + "\n");
                 logger.log(Level.SEVERE, "Failed to launch terminal process", e);
             }
-        }, "Terminal-Launcher-" + System.currentTimeMillis()).start();
+        }, "Terminal-Launcher-Generic").start();
+    }
+
+    private void launchServerProcess() {
+        new Thread(() -> {
+            try {
+                if (terminalProcess != null && terminalProcess.isAlive()) {
+                    shutdown();
+                }
+
+                ServerInfo serverInfo = widget.getServerInfo();
+                File workingDir = new File(serverInfo.path).getParentFile();
+                if (workingDir == null || !workingDir.exists()) {
+                    widget.appendOutput("Server directory not found: " + serverInfo.path);
+                    return;
+                }
+
+                File scriptFile = new File(workingDir, "start.bat");
+                if (!System.getProperty("os.name").toLowerCase().contains("win")) {
+                    scriptFile = new File(workingDir, "start.sh");
+                }
+
+                if (!scriptFile.exists()) {
+                    widget.appendOutput("No start script found, creating one...\n");
+                    try (FileWriter fw = new FileWriter(scriptFile)) {
+                        fw.write(getCommandStr().toString());
+                    }
+                    scriptFile.setExecutable(true);
+                }
+
+                String os = System.getProperty("os.name").toLowerCase();
+                ProcessBuilder mainProcess;
+                if (os.contains("win")) {
+                    mainProcess = new ProcessBuilder("cmd.exe", "/c", scriptFile.getName());
+                } else {
+                    mainProcess = new ProcessBuilder("/bin/bash", "-l", "-c", "./" + scriptFile.getName());
+                }
+
+                mainProcess.directory(workingDir);
+                mainProcess.redirectErrorStream(true);
+                terminalProcess = mainProcess.start();
+                setupStreamsAndReaders();
+            } catch (Exception e) {
+                widget.setServerState(ServerState.CRASHED);
+                widget.appendOutput("Failed to launch server process: " + e.getMessage() + "\n");
+                e.printStackTrace();
+            }
+        }, "Terminal-Launcher-Server").start();
+    }
+
+    private void setupStreamsAndReaders() {
+        terminalInputStream = terminalProcess.getInputStream();
+        terminalErrorStream = terminalProcess.getErrorStream();
+        writer = new OutputStreamWriter(terminalProcess.getOutputStream(), StandardCharsets.UTF_8);
+        startReaders();
     }
 
     protected void startReaders() {
         executorService.submit(this::readTerminalOutput);
-        executorService.submit(this::readErrorOutput);
     }
 
     private void readTerminalOutput() {
-        try {
-            if (isDetachedServer) return;
-            byte[] buffer = new byte[1024];
-            int numRead;
-            StringBuilder outputBuffer = new StringBuilder();
-            while (isRunning && terminalProcess != null && (numRead = terminalInputStream.read(buffer)) != -1) {
-                String text = new String(buffer, 0, numRead, StandardCharsets.UTF_8).replace("\u0000", "");
-                outputBuffer.append(text);
-                int index;
-                while ((index = outputBuffer.indexOf("\n")) != -1) {
-                    String line = outputBuffer.substring(0, index);
-                    outputBuffer.delete(0, index + 1);
-                    terminalInstance.appendOutput(line + "\n");
-                    if (sshManager != null && sshManager.isSSH() && line.trim().equalsIgnoreCase("logout")) {
-                        sshManager.shutdown();
-                        terminalInstance.appendOutput("SSH session closed. Returned to local terminal.\n");
-                    }
-                    if (terminalInstance instanceof ServerTerminalInstance) {
-                        detectServerState((ServerTerminalInstance)terminalInstance, line);
-                    }
-                    updateCurrentDirectory(line);
-                }
-            }
-            if (!outputBuffer.isEmpty()) {
-                String leftover = outputBuffer.toString();
-                terminalInstance.appendOutput(leftover);
-                if (sshManager != null && sshManager.isSSH() && leftover.trim().equalsIgnoreCase("logout")) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(terminalInputStream, StandardCharsets.UTF_8))) {
+            String line;
+            while (isRunning && (line = reader.readLine()) != null) {
+                widget.appendOutput(line + "\n");
+                if (sshManager != null && sshManager.isSSH() && line.trim().equalsIgnoreCase("logout")) {
                     sshManager.shutdown();
-                    terminalInstance.appendOutput("SSH session closed. Returned to local terminal.\n");
-                }
-                if (terminalInstance instanceof ServerTerminalInstance) {
-                    detectServerState((ServerTerminalInstance)terminalInstance, leftover);
-                }
-                updateCurrentDirectory(leftover);
-            }
-            if (terminalInstance instanceof ServerTerminalInstance sti) {
-                if (sti.processManager.terminalProcess != null && !sti.processManager.terminalProcess.isAlive()) {
-                    if (sti.serverInfo.state != ServerState.STOPPED && sti.serverInfo.state != ServerState.CRASHED) {
-                        sti.serverInfo.state = ServerState.STOPPED;
-                    }
+                    widget.appendOutput("SSH session closed. Returned to local terminal.\n");
                 }
             }
         } catch (IOException e) {
-            terminalInstance.appendOutput("Error reading terminal output: " + e.getMessage() + "\n");
-            logger.log(Level.SEVERE, "Error reading terminal output", e);
-        }
-    }
-
-    private void detectServerState(ServerTerminalInstance sti, String line) {
-        if (line.contains("Done (")) {
-            sti.serverInfo.state = ServerState.RUNNING;
-        } else if (line.matches(".*\\b[Ff]atal\\b.*") || line.matches(".*\\b[Uu]nhandled exception\\b.*")  || line.contains("You need to agree to the EULA") || line.contains("Error: Unable to access jarfile") || line.contains("Failed to bind to port") || line.contains("java.lang.OutOfMemoryError") || line.contains("locked by another process")) {
-            sti.serverInfo.state = ServerState.CRASHED;
-        } else if (line.toLowerCase().contains("stopping server") || line.toLowerCase().contains("server stopped")) {
-            sti.serverInfo.state = ServerState.STOPPED;
-        } else if (line.toLowerCase().contains("starting minecraft server")) {
-            sti.serverInfo.state = ServerState.STARTING;
-        }
-    }
-
-    private void updateCurrentDirectory(String outputLine) {
-        if (outputLine.startsWith("Directory: ")) {
-            currentDirectory = outputLine.substring("Directory: ".length()).trim();
-        }
-    }
-
-    private void readErrorOutput() {
-        try {
-            if (isDetachedServer) return;
-            byte[] buffer = new byte[1024];
-            int numRead;
-            StringBuilder outputBuffer = new StringBuilder();
-            while (isRunning && terminalProcess != null && (numRead = terminalErrorStream.read(buffer)) != -1) {
-                String text = new String(buffer, 0, numRead, StandardCharsets.UTF_8).replace("\u0000", "");
-                outputBuffer.append(text);
-                int index;
-                while ((index = outputBuffer.indexOf("\n")) != -1) {
-                    String line = outputBuffer.substring(0, index);
-                    outputBuffer.delete(0, index + 1);
-                    terminalInstance.appendOutput("ERROR: " + line + "\n");
-                    if (terminalInstance instanceof ServerTerminalInstance) {
-                        detectServerCrash((ServerTerminalInstance)terminalInstance, line);
-                    }
+            if (isRunning) { // Avoid error message on normal shutdown
+                widget.appendOutput("Error reading terminal output: " + e.getMessage() + "\n");
+                logger.log(Level.SEVERE, "Error reading terminal output", e);
+            }
+        } finally {
+            if (widget.getServerInfo() != null && isRunning) {
+                if (widget.getServerInfo().state != ServerState.STOPPED) {
+                    widget.setServerState(ServerState.CRASHED);
                 }
             }
-            if (!outputBuffer.isEmpty()) {
-                terminalInstance.appendOutput("ERROR: " + outputBuffer);
-                if (terminalInstance instanceof ServerTerminalInstance) {
-                    detectServerCrash((ServerTerminalInstance)terminalInstance, outputBuffer.toString());
-                }
-            }
-        }  catch (IOException e) {
-            terminalInstance.appendOutput("Error reading terminal error output: " + e.getMessage() + "\n");
-            logger.log(Level.SEVERE, "Error reading terminal error output", e);
-        }
-    }
-
-    private void detectServerCrash(ServerTerminalInstance sti, String line) {
-        if (line.matches(".*\\b[Uu]nexpected error\\b.*") || line.matches(".*\\b[Oo]ut of memory\\b.*")) {
-            sti.serverInfo.state = ServerState.CRASHED;
         }
     }
 
@@ -176,43 +169,39 @@ public class TerminalProcessManager {
 
     public void shutdown() {
         isRunning = false;
-        if (!(terminalInstance instanceof ServerTerminalInstance) && terminalProcess != null && terminalProcess.isAlive()) {
-            try {
-                long pid = terminalProcess.pid();
-                ProcessBuilder pb = new ProcessBuilder("taskkill", "/PID", Long.toString(pid), "/T", "/F");
-                Process killProcess = pb.start();
-                killProcess.waitFor();
-                devPrint("Terminal process killed.");
-            } catch (IOException | InterruptedException e) {
-                devPrint("Failed to kill terminal process: " + e.getMessage());
-            }
-            terminalProcess = null;
-        } else if (terminalInstance instanceof ServerTerminalInstance sti) {
+        if (isDetachedServer && terminalProcess != null && terminalProcess.isAlive()) {
             devPrint("Shutting down server process...");
-            if (sti.processManager != null) {
-                sti.processManager.shutdown();
+            try {
+                if (writer != null) {
+                    writer.write("stop\n");
+                    writer.flush();
+                    // Give server time to shut down gracefully
+                    terminalProcess.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+                }
+            } catch (IOException | InterruptedException e) {
+                devPrint("Error during graceful shutdown: " + e.getMessage());
             }
         }
+
+        if (terminalProcess != null && terminalProcess.isAlive()) {
+            devPrint("Forcibly destroying process.");
+            terminalProcess.destroyForcibly();
+        }
+
         if (sshManager != null) {
             sshManager.shutdown();
         }
         executorService.shutdownNow();
-        if (terminalInstance instanceof ServerTerminalInstance) {
-            terminalInstance.appendOutput("Server is detached. It will keep running if alive.\n");
+
+        if (isDetachedServer) {
+            widget.appendOutput("Server process terminated.\n");
         } else {
-            terminalInstance.appendOutput("Terminal closed.\n");
+            widget.appendOutput("Terminal closed.\n");
         }
     }
 
     public void saveTerminalOutput(Path path) throws IOException {
-        Files.writeString(path, terminalInstance.renderer.getTerminalOutput().toString(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-    }
-
-    public void loadTerminalOutput(Path path) throws IOException {
-        String content = Files.readString(path);
-        synchronized (terminalInstance.renderer.getTerminalOutput()) {
-            terminalInstance.renderer.getTerminalOutput().append(content);
-        }
+        widget.saveTerminalOutput(path);
     }
 
     public String getCurrentDirectory() {

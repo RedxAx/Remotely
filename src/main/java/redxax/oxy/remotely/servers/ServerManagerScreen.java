@@ -2,6 +2,9 @@ package redxax.oxy.remotely.servers;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.jcraft.jsch.JSch;
+import com.jcraft.jsch.JSchException;
+import com.jcraft.jsch.Session;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import redxax.oxy.remotely.RemotelyClient;
@@ -11,10 +14,7 @@ import redxax.oxy.remotely.config.SettingsScreen;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.resources.ResourceManagerScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
-import redxax.oxy.remotely.terminal.ServerTerminalInstance;
-import redxax.oxy.remotely.terminal.TerminalInstance;
 import redxax.oxy.remotely.ui.widgets.AnimatedButton;
-import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
 import redxax.oxy.remotely.ui.widgets.ContextMenuWidget;
 import redxax.oxy.remotely.ui.widgets.PopupWidget;
 import redxax.oxy.remotely.ui.widgets.TextInputWidget;
@@ -71,11 +71,8 @@ public class ServerManagerScreen extends Screen {
     private TextInputWidget remoteHostPasswordInput;
     private AnimatedButton remoteHostConfirmButton;
     private AnimatedButton remoteHostDeleteButton;
-    private final List<BufferedImage> loadingFrames = new ArrayList<>();
-    private final int entryHeight = 25;
-    private final int topBarHeight = 30;
     private BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt;
-    private IconWithTooltip terminalIcon, explorerIcon, editorIcon, browserIcon, settingsIcon;
+    private IconWithTooltip terminalIcon, explorerIcon, browserIcon, settingsIcon;
     private final int taskbarHeight = 28;
     private final List<IconRect> serverIconRects = new ArrayList<>();
     private int selectedDesktopIndex = -1;
@@ -117,7 +114,7 @@ public class ServerManagerScreen extends Screen {
         super(Text.literal("Server Setup"));
         this.minecraftClient = minecraftClient;
         this.remotelyClient = remotelyClient;
-        this.localServers = servers;
+        ServerManagerScreen.localServers = servers;
         this.parent = parent;
         originalMCScale = minecraftClient.getWindow().getScaleFactor();
         targetScaleFactor = globalScaleFactor;
@@ -143,9 +140,7 @@ public class ServerManagerScreen extends Screen {
             explorerIcon = new IconWithTooltip("/assets/remotely/icons/explorer.png", "File Explorer");
             browserIcon = new IconWithTooltip("/assets/remotely/icons/minibrowser.png", "Web Browser");
             settingsIcon = new IconWithTooltip("/assets/remotely/icons/remotely.png", "Settings");
-            editorIcon = new IconWithTooltip("/assets/remotely/icons/text.png", "Text Editor");
             serverIcon = loadResourceIcon("/assets/remotely/icons/server.png");
-
             unknown = loadResourceIcon("/assets/remotely/icons/unknown.png");
             paper = loadResourceIcon("/assets/remotely/icons/paper.png");
             vanilla = loadResourceIcon("/assets/remotely/icons/vanilla.png");
@@ -275,15 +270,11 @@ public class ServerManagerScreen extends Screen {
     }
 
     public void background(DrawContext context) {
-        //? if =1.20.1 {
-        /*context.fill(0, 0, this.width, this.height, Config.backgroundColor);
-         *///?} else {
         if (wallpaper && windowsBackground != null) {
             drawBufferedImage(context, windowsBackground, 0, 0, this.width, this.height);
         } else if (!background) {
             context.fill(0, 0, width, height, backgroundColor);
         }
-        //?}
     }
 
     @Override
@@ -311,6 +302,7 @@ public class ServerManagerScreen extends Screen {
         int availableHeight = this.height - taskbarHeight - 2 * margin;
         int rows = availableHeight / (iconSize + spacing);
         if (rows < 1) rows = 1;
+
         if (iconPosX.size() < totalIcons) {
             iconPosX.clear();
             iconPosY.clear();
@@ -708,10 +700,6 @@ public class ServerManagerScreen extends Screen {
             minecraftClient.setScreen(new SettingsScreen("config", this, "", null));
             return true;
         }
-        if ((modifiers & GLFW.GLFW_MOD_CONTROL) != 0 && keyCode == GLFW.GLFW_KEY_V) {
-            String clipboard = minecraftClient.keyboard.getClipboard();
-        }
-
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
@@ -726,27 +714,22 @@ public class ServerManagerScreen extends Screen {
     }
 
     private void connectRemoteHostAsync(RemoteHostInfo hostInfo) {
-        hostInfo.getSSHManager();
         hostInfo.isConnecting = true;
         new Thread(() -> {
-            try {
-                hostInfo.getSSHManager().connectToRemoteHost(hostInfo.getUser(), hostInfo.getIp(), hostInfo.getPort(), hostInfo.getPassword());
-                hostInfo.getSSHManager().connectSFTP();
+            SSHManager sshManager = remotelyClient.getSSHManagerForHost(hostInfo);
+            if (sshManager != null && sshManager.isSSH()) {
                 hostInfo.isConnected = true;
-                hostInfo.isConnecting = false;
                 hostInfo.connectionError = null;
                 for (ServerInfo s : hostInfo.servers) {
-                    if (s.isRemote && s.remoteSSHManager == null) {
-                        s.remoteSSHManager = new SSHManager(s.remoteHost);
-                        s.remoteSSHManager.connectToRemoteHost(s.remoteHost.getUser(), s.remoteHost.getIp(), s.remoteHost.getPort(), s.remoteHost.getPassword());
-                        s.remoteSSHManager.connectSFTP();
+                    if (s.isRemote) {
+                        s.remoteSSHManager = sshManager;
                     }
                 }
-            } catch (Exception ex) {
+            } else {
                 hostInfo.isConnected = false;
-                hostInfo.isConnecting = false;
-                hostInfo.connectionError = "Failed to connect: " + ex.getMessage();
+                hostInfo.connectionError = "Failed to connect.";
             }
+            hostInfo.isConnecting = false;
         }).start();
     }
 
@@ -851,12 +834,7 @@ public class ServerManagerScreen extends Screen {
 
     private void openServerScreen(int index, List<ServerInfo> currentServers) {
         ServerInfo info = currentServers.get(index);
-        MultiTerminalScreen mts = new MultiTerminalScreen(minecraftClient, this, remotelyClient, info);
-        if (info.terminal == null) {
-            info.terminal = new ServerTerminalInstance(minecraftClient, mts, UUID.randomUUID(), info);
-            info.isRunning = false;
-        }
-        minecraftClient.setScreen(mts);
+        minecraftClient.setScreen(new MultiTerminalScreen(minecraftClient, this, remotelyClient, info));
     }
 
     public static void openServerScreen(String path) {
@@ -867,12 +845,7 @@ public class ServerManagerScreen extends Screen {
         for (ServerInfo info : allServers) {
             if (info.path.equals(path)) {
                 MinecraftClient mc = MinecraftClient.getInstance();
-                MultiTerminalScreen mts = new MultiTerminalScreen(mc, mc.currentScreen, RemotelyClient.INSTANCE, info);
-                if (info.terminal == null) {
-                    info.terminal = new ServerTerminalInstance(mc, mts, UUID.randomUUID(), info);
-                    info.isRunning = false;
-                }
-                mc.setScreen(mts);
+                mc.setScreen(new MultiTerminalScreen(mc, mc.currentScreen, RemotelyClient.INSTANCE, info));
                 return;
             }
         }
@@ -914,18 +887,10 @@ public class ServerManagerScreen extends Screen {
                 serverInfo.isRemote = true;
                 serverInfo.remoteHost = remoteHost;
                 serverInfo.path = remoteHost.getHomeDirectory() + "/assets/remotely/servers/" + serverInfo.name;
-                remoteHost.getSSHManager();
-                serverInfo.remoteSSHManager = remoteHost.getSSHManager();
-                if (!remoteHost.getSSHManager().isSSH()) {
-                    long startTime = System.currentTimeMillis();
-                    long timeout = 10000;
-                    while (!remoteHost.getSSHManager().isSSH() && System.currentTimeMillis() - startTime < timeout) {
-                        try {
-                            Thread.sleep(100);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
-                    }
+                serverInfo.remoteSSHManager = remotelyClient.getSSHManagerForHost(remoteHost);
+                if (serverInfo.remoteSSHManager == null || !serverInfo.remoteSSHManager.isSSH()) {
+                    new Notification("Could not connect to remote host for modpack installation.", Notification.Type.ERROR);
+                    return;
                 }
             } else {
                 serverInfo.isRemote = false;
@@ -968,42 +933,27 @@ public class ServerManagerScreen extends Screen {
         super.close();
     }
 
-    private Boolean testSSHConnection(String user, String ip, String portStr, String password) {
+    private boolean testSSHConnection(String user, String ip, String portStr, String password) {
         int port = 22;
         try {
             port = Integer.parseInt(portStr);
-        } catch (Exception ignored) {}
-        TerminalInstance dummyTerminal = new TerminalInstance(minecraftClient, null, UUID.randomUUID()) {
-            @Override
-            public void appendOutput(String output) {
-                System.out.print(output);
-            }
-        };
-        SSHManager sshCheck = new SSHManager(dummyTerminal);
-        boolean connectionResult = false;
+        } catch (NumberFormatException ignored) {}
+
+        Session session = null;
         try {
-            sshCheck.startSSHConnection("ssh " + user + "@" + ip + ":" + port);
-            boolean initialized = sshCheck.waitForSessionInitialization(5000);
-            if (!initialized) {
-                return false;
+            JSch jsch = new JSch();
+            session = jsch.getSession(user, ip, port);
+            session.setPassword(password);
+            session.setConfig("StrictHostKeyChecking", "no");
+            session.connect(10000); // 10 second timeout
+            return session.isConnected();
+        } catch (JSchException e) {
+            return false;
+        } finally {
+            if (session != null && session.isConnected()) {
+                session.disconnect();
             }
-            sshCheck.setSshPassword(password);
-            sshCheck.connectSSHWithPassword(password);
-            long startTime = System.currentTimeMillis();
-            while (System.currentTimeMillis() - startTime < 10000) {
-                if (sshCheck.isSSH()) {
-                    connectionResult = true;
-                    break;
-                }
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-        } catch (Exception ignored) {}
-        return connectionResult;
+        }
     }
 
     public static void saveRemoteHosts() {

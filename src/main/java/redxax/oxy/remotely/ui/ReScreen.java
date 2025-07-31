@@ -1464,7 +1464,7 @@ public class ReScreen extends Screen {
             leftButtons.clear();
             rightButtons.clear();
         }
-        private void clearHeaderWidgets() {
+        public void clearHeaderWidgets() {
             for (SquareButtonWidget btn : leftButtons) {
                 remove(btn);
             }

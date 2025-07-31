@@ -111,22 +111,14 @@ public class FileEditorScreen extends ReScreen {
                         lines[i] = lines[i].replace("\\t", "\t");
                     }
                     Collections.addAll(fileContent, lines);
-                } catch (Exception e) {
-                    if (serverInfo.terminal != null) {
-                        serverInfo.terminal.appendOutput("File load error (remote): " + e.getMessage() + "\n");
-                    }
-                }
+                } catch (Exception ignored) {}
             } else {
                 try (BufferedReader reader = Files.newBufferedReader(path)) {
                     reader.lines().forEach(line -> {
                         line = line.replace("\\t", "\t");
                         fileContent.add(line);
                     });
-                } catch (IOException e) {
-                    if (serverInfo.terminal != null) {
-                        serverInfo.terminal.appendOutput("File load error: " + e.getMessage() + "\n");
-                    }
-                }
+                } catch (IOException ignored) {}
             }
             String contentString = String.join("\n", fileContent);
             this.textAreaWidget.setText(contentString);
@@ -149,24 +141,13 @@ public class FileEditorScreen extends ReScreen {
                     serverInfo.remoteSSHManager.writeRemoteFile(remotePath, newContent);
                     this.unsaved = false;
                     this.originalContent = newContent;
-                } catch (Exception e) {
-                    if (serverInfo.terminal != null) {
-                        serverInfo.terminal.appendOutput("File save error (remote): " + e.getMessage() + "\n");
-                    }
-                }
+                } catch (Exception ignored) {}
             } else {
                 try {
                     Files.write(path, newContentLines);
-                    if (serverInfo.terminal != null) {
-                        serverInfo.terminal.appendOutput("File saved: " + path + "\n");
-                    }
                     this.unsaved = false;
                     this.originalContent = newContent;
-                } catch (IOException e) {
-                    if (serverInfo.terminal != null) {
-                        serverInfo.terminal.appendOutput("File save error: " + e.getMessage() + "\n");
-                    }
-                }
+                } catch (Exception ignored) {}
             }
             onTextChange(newContent);
         }

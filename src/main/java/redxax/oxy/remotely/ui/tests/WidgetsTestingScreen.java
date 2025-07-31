@@ -6,7 +6,6 @@ import net.minecraft.text.Text;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
-import redxax.oxy.remotely.terminal.TerminalInstance;
 import redxax.oxy.remotely.ui.ReScreen;
 import redxax.oxy.remotely.ui.widgets.*;
 import redxax.oxy.remotely.util.Notification;
@@ -44,7 +43,6 @@ public class WidgetsTestingScreen extends ReScreen {
         addDrawableChild(new AnimatedButton.Builder().pos(360, 72).size(120, 20).label(Text.literal("No Elevation Animation")).animateElevation(false).hint("No Annoying Movements").build());
         addDrawableChild(new AnimatedButton.Builder().pos(360, 102).size(120, 20).label(Text.literal("Flat Button")).flat(true).hint("Pretty Flat").build());
         addDrawableChild(new AnimatedButton.Builder().pos(360, 132).size(120, 20).label(Text.literal("No Open Animation")).entranceAnimation(false).hint("Animation Won't Play On Open").build());
-        addDrawableChild(new TerminalWidget.Builder(new TerminalInstance(client, this, UUID.randomUUID())).pos(200, 162).size(400, 150).build());
         contextMenu = new ContextMenuWidget.Builder(this)
                 .addItem("Menu Context", null, "Hell Yea")
                 .addIconItem("Berger", "/assets/remotely/icons/download.png", () -> new Notification("SAY BURGER OR DIE", "I'M NOT JOKING", Notification.Type.ERROR), "")
