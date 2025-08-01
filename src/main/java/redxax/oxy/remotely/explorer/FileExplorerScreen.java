@@ -4,9 +4,10 @@ import com.google.common.reflect.TypeToken;
 import com.google.gson.Gson;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
+import org.jetbrains.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.remotely.api.RemotelyCoreAPI;
 import redxax.oxy.remotely.api.LocalAPI;
+import redxax.oxy.remotely.api.RemotelyCoreAPI;
 import redxax.oxy.remotely.api.RemoteAPI;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
@@ -32,8 +33,8 @@ import static redxax.oxy.remotely.util.searchUtils.isFuzzyMatch;
 
 public class FileExplorerScreen extends ReScreen {
     private final Screen parent;
-    private final ServerInfo serverInfo; // Can be null
-    private final RemoteHostInfo remoteHost; // Can be null
+    private final ServerInfo serverInfo;
+    private final RemoteHostInfo remoteHost;
     private final boolean isRemote;
     private final RemotelyCoreAPI fileAPI;
     private Path currentPath;
@@ -55,43 +56,46 @@ public class FileExplorerScreen extends ReScreen {
             ".bash", ".fish", ".toml", ".mcfunction", ".nbt"
     );
 
+    public FileExplorerScreen(Screen parent, Path path) {
+        this(parent, path, null, false);
+    }
+
     public FileExplorerScreen(Screen parent, ServerInfo info) {
         this(parent, info, false);
     }
 
     public FileExplorerScreen(Screen parent, RemoteHostInfo host) {
+        this(parent, null, host, false);
+    }
+
+    public FileExplorerScreen(Screen parent, ServerInfo info, boolean importMode) {
+        this(parent, info.path != null ? Paths.get(info.path) : null, info.isRemote ? info.remoteHost : null, importMode);
+    }
+
+    private FileExplorerScreen(Screen parent, @Nullable Path path, @Nullable RemoteHostInfo remoteHost, boolean importMode) {
         super(Text.literal("File Explorer"));
         this.parent = parent;
         this.serverInfo = null;
-        this.remoteHost = host;
-        this.importMode = false;
-        this.isRemote = true;
-        this.fileAPI = new RemoteAPI(host);
-        this.currentPath = Paths.get(host.getHomeDirectory());
-        loadIcons();
-    }
-
-
-    public FileExplorerScreen(Screen parent, ServerInfo info, boolean importMode) {
-        super(Text.literal("File Explorer"));
-        this.parent = parent;
-        this.serverInfo = info;
         this.importMode = importMode;
-        this.isRemote = info.isRemote;
-        this.remoteHost = info.remoteHost;
+        this.isRemote = remoteHost != null;
+        this.remoteHost = remoteHost;
 
-        if (info.isRemote) {
-            this.fileAPI = new RemoteAPI(info.remoteHost);
-            String normalized = info.path == null ? "" : info.path.replace("\\", "/").trim();
+        if (this.isRemote) {
+            this.fileAPI = new RemoteAPI(remoteHost);
+            String homeDir = remoteHost.getHomeDirectory();
+            String normalized = path == null ? "" : path.toString().replace("\\", "/").trim();
             if (normalized.isEmpty() || normalized.equals("/")) {
-                this.currentPath = Paths.get(info.remoteHost.getHomeDirectory());
+                this.currentPath = Paths.get(homeDir);
             } else {
                 if (!normalized.startsWith("/")) normalized = "/" + normalized;
                 this.currentPath = Paths.get(normalized);
             }
         } else {
+            if (path == null) {
+                throw new IllegalArgumentException("Path cannot be null for local file explorer.");
+            }
             this.fileAPI = new LocalAPI();
-            this.currentPath = Paths.get(info.path).toAbsolutePath().normalize();
+            this.currentPath = path.toAbsolutePath().normalize();
         }
 
         loadIcons();
@@ -225,7 +229,6 @@ public class FileExplorerScreen extends ReScreen {
                 return;
             }
             if (isSupportedFile(entry.path)) {
-                // We must pass a serverInfo object, even if it's a temporary one for context.
                 ServerInfo contextInfo = this.serverInfo;
                 if(contextInfo == null && this.remoteHost != null) {
                     contextInfo = new ServerInfo(true, this.remoteHost, entry.path.toString());
