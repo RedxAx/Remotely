@@ -9,6 +9,8 @@ import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.config.SettingsScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
+import redxax.oxy.remotely.ui.ReScreen.TabsManager;
+import redxax.oxy.remotely.ui.widgets.TerminalWidget;
 
 import javax.imageio.ImageIO;
 import net.minecraft.client.MinecraftClient;
@@ -27,8 +29,7 @@ import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
 public class RemotelyClient {
 
-    public List<ServerInfo> multiTerminals;
-    public List<String> multiTabNames;
+    public List<TabsManager.Tab> multiTerminalTabs = new ArrayList<>();
     public MultiTerminalScreen multiTerminalScreen;
     private static final Path TERMINAL_LOG_DIR = Paths.get(String.valueOf(remotelyDir), "logs");
     private static final Path SNIPPETS_FILE = Paths.get(String.valueOf(remotelyDir), "data", "snippets.json");
@@ -53,8 +54,6 @@ public class RemotelyClient {
         INSTANCE = this;
         System.out.println("Remotely mod initialized on the client.");
         loadSnippets();
-        multiTerminals = new ArrayList<>();
-        multiTabNames = new ArrayList<>();
         try {
             String bgPath = System.getProperty("user.home") + "/AppData/Roaming/Microsoft/Windows/Themes/TranscodedWallpaper";
             Config.windowsBackground = ImageIO.read(new File(bgPath));
@@ -123,8 +122,13 @@ public class RemotelyClient {
     }
 
     public void shutdownAllTerminals() {
-        // This logic should now be handled inside MultiTerminalScreen's close/removed methods
-        // by iterating through the widgets and calling shutdown().
+        for (TabsManager.Tab tab : multiTerminalTabs) {
+            if (tab.getData() instanceof TerminalWidget widget) {
+                widget.shutdown();
+            }
+        }
+        multiTerminalTabs.clear();
+
         saveSnippets();
         try {
             if (Files.exists(TERMINAL_LOG_DIR) && Files.isDirectory(TERMINAL_LOG_DIR)) {

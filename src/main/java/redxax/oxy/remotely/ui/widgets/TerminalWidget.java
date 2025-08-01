@@ -104,18 +104,14 @@ public class TerminalWidget extends AnimatedWidget {
         this.serverInfo = serverInfo;
 
         if (this.serverInfo != null && this.serverInfo.isRemote) {
-            // This terminal IS a remote shell for a server
             this.sshManager = RemotelyClient.INSTANCE.getSSHManagerForHost(this.serverInfo.remoteHost);
             if (this.sshManager != null) {
                 this.sshManager.setTerminalWidget(this);
-                this.sshManager.launchRemoteServer(this.serverInfo.path);
             } else {
                 appendOutput("Could not establish SSH connection for remote server.\n");
             }
             this.processManager = null;
         } else {
-            // This terminal is a LOCAL shell (either for a local server or generic)
-            // It can initiate outgoing SSH connections.
             this.sshManager = new SSHManager(this);
             this.processManager = new TerminalProcessManager(this, this.sshManager);
             this.processManager.launchTerminal();
