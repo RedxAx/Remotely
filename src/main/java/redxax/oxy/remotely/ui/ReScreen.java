@@ -367,6 +367,11 @@ public class ReScreen extends Screen {
             }
         }
 
+        public void clearTabs() {
+            tabsManager.clearWidgets();
+            tabs.clear();
+        }
+
         public void setActiveTab(int index) {
             if (index >= 0 && index < tabs.size()) {
                 activeTabIndex = index;
@@ -1612,8 +1617,6 @@ public class ReScreen extends Screen {
                 ReScreen.this.remove(searchBox);
                 ReScreen.this.addDrawableChild(searchBox);
             }
-            leftButtons.clear();
-            rightButtons.clear();
         }
         public void clearHeaderWidgets() {
             for (SquareButtonWidget btn : leftButtons) {
@@ -1997,6 +2000,13 @@ public class ReScreen extends Screen {
             return true;
         }
         return super.charTyped(chr, modifiers);
+    }
+
+    @Override
+    public void onDisplayed() {
+        header().leftButtons.clear();
+        header().rightButtons.clear();
+        if (tabsManager != null) tabsManager.clearTabs();
     }
 
     @Override
