@@ -2044,7 +2044,7 @@ public class ReScreen extends Screen {
                 return true;
             }
         }
-        if (keyCode == GLFW.GLFW_KEY_A && ctrl) {
+        if (keyCode == GLFW.GLFW_KEY_A && ctrl && activeContainer != null) {
             activeContainer.selectAllWidgets();
             return true;
         }
