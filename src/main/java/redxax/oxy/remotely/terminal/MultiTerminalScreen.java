@@ -128,12 +128,8 @@ public class MultiTerminalScreen extends ReScreen {
             }
         }
 
-        header().addRight("snippets.png", () -> {
-            snippetsPanel.toggle();
-        }, "Snippets");
-        header().addRight("remotelyai.png", () -> {
-            aiPanel.toggle();
-        }, "RemotelyAI");
+        header().addRight("snippets.png", () -> snippetsPanel.toggle(), "Snippets");
+        header().addRight("RemotelyAI.png", () -> aiPanel.toggle(), "RemotelyAI");
 
         header().build();
     }
@@ -270,6 +266,7 @@ public class MultiTerminalScreen extends ReScreen {
 
     @Override
     public void close() {
+        assert this.client != null;
         this.client.setScreen(parent);
     }
 

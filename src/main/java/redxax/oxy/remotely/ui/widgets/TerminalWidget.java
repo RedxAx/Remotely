@@ -53,8 +53,6 @@ public class TerminalWidget extends AnimatedWidget {
     private List<String> completions = new ArrayList<>();
     private int completionIndex = 0;
     private String lastPrefix = "";
-    private String originalPrefix = "";
-    private boolean originalPrefixSet = false;
     private String suggestion = "";
     private String currentBase = "";
     private volatile List<String> allCommands = new ArrayList<>();
@@ -103,7 +101,6 @@ public class TerminalWidget extends AnimatedWidget {
     public TerminalWidget(int x, int y, int width, int height, ServerInfo serverInfo) {
         super(x, y, width, height, Text.empty());
         this.serverInfo = serverInfo;
-        this.animateLayout = false;
 
         if (this.serverInfo != null && this.serverInfo.isRemote) {
             this.sshManager = this.serverInfo.remoteSSHManager;
@@ -537,8 +534,6 @@ public class TerminalWidget extends AnimatedWidget {
         suggestion = "";
         lastPrefix = "";
         completionIndex = 0;
-        originalPrefix = "";
-        originalPrefixSet = false;
         currentBase = "";
     }
 
@@ -847,8 +842,7 @@ public class TerminalWidget extends AnimatedWidget {
                 int rgb = get256ColorRGB(index);
                 return Style.EMPTY.withColor(TextColor.fromRgb(rgb));
             }
-        } catch (Exception e) {
-        }
+        } catch (Exception ignored) {}
         return Style.EMPTY.withColor(TextColor.fromRgb(terminalTextColor));
     }
 
