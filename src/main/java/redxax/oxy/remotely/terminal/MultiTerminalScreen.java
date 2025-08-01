@@ -219,6 +219,9 @@ public class MultiTerminalScreen extends ReScreen {
                 activeTerminal = null;
             }
         }
+        if (tabsManager.getTabs().isEmpty()) {
+            this.close();
+        }
         playSound(Sound.CLOSETAB);
     }
 
