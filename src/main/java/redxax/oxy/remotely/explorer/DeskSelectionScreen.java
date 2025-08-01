@@ -104,7 +104,6 @@ public class DeskSelectionScreen extends ReScreen {
             if (Files.exists(serversJson)) {
                 try {
                     String content = new String(Files.readAllBytes(serversJson));
-                    content = content.replaceAll("(?<!\\\\)\\\\(?![\"\\\\/bfnrt])", "\\\\\\\\");
                     JsonReader reader = new JsonReader(new StringReader(content));
                     Gson gson = new GsonBuilder().setLenient().create();
                     List<Map<String, Object>> data = gson.fromJson(reader, new TypeToken<List<Map<String, Object>>>(){}.getType());
@@ -134,7 +133,6 @@ public class DeskSelectionScreen extends ReScreen {
                     reader.close();
                 } catch (Exception e) {
                     e.printStackTrace();
-                    System.err.println("Error parsing remotehosts.json. Check for invalid escape sequences in file paths.");
                 }
             }
             for (String fav : favoriteLines) {
@@ -246,9 +244,8 @@ public class DeskSelectionScreen extends ReScreen {
         public void onClick(double mouseX, double mouseY, int button) {
             if (button == 0) {
                 playSound(Sound.CREATE);
-                ServerInfo newServerInfo;
                 if (!item.isRemote) {
-                    newServerInfo = new ServerInfo(false, null, item.localPath.toAbsolutePath().normalize().toString());
+                    ServerInfo newServerInfo = new ServerInfo(false, null, item.localPath.toAbsolutePath().normalize().toString());
                     if (item.isDirectory || item.isDisk) {
                         mc.setScreen(new FileExplorerScreen(parentScreen, newServerInfo));
                     } else {
@@ -256,9 +253,7 @@ public class DeskSelectionScreen extends ReScreen {
                     }
                 } else {
                     if (item.remoteHostInfo != null) {
-                        Path path = item.remoteServerPath != null ? item.remoteServerPath : Paths.get("/");
-                        newServerInfo = new ServerInfo(true, item.remoteHostInfo, path.toString());
-                        mc.setScreen(new FileExplorerScreen(parentScreen, newServerInfo));
+                        mc.setScreen(new FileExplorerScreen(parentScreen, item.remoteHostInfo));
                     } else {
                         new Notification("Cannot open remote favorite", "Host information is missing.", Notification.Type.ERROR);
                     }

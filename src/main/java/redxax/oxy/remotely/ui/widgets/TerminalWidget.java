@@ -7,6 +7,7 @@ import net.minecraft.util.math.MathHelper;
 import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStyle;
 import org.lwjgl.glfw.GLFW;
+import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.config.Themes;
 import redxax.oxy.remotely.servers.ServerInfo;
@@ -103,12 +104,18 @@ public class TerminalWidget extends AnimatedWidget {
         this.serverInfo = serverInfo;
 
         if (this.serverInfo != null && this.serverInfo.isRemote) {
-            this.sshManager = this.serverInfo.remoteSSHManager;
+            // This terminal IS a remote shell for a server
+            this.sshManager = RemotelyClient.INSTANCE.getSSHManagerForHost(this.serverInfo.remoteHost);
             if (this.sshManager != null) {
                 this.sshManager.setTerminalWidget(this);
+                this.sshManager.launchRemoteServer(this.serverInfo.path);
+            } else {
+                appendOutput("Could not establish SSH connection for remote server.\n");
             }
             this.processManager = null;
         } else {
+            // This terminal is a LOCAL shell (either for a local server or generic)
+            // It can initiate outgoing SSH connections.
             this.sshManager = new SSHManager(this);
             this.processManager = new TerminalProcessManager(this, this.sshManager);
             this.processManager.launchTerminal();
@@ -227,7 +234,7 @@ public class TerminalWidget extends AnimatedWidget {
 
         if (serverInfo != null) {
             leftText = serverInfo.name + " - " + serverInfo.state.name();
-            if (serverInfo.isRemote) {
+            if (serverInfo.isRemote && sshManager != null) {
                 rightText = serverInfo.remoteHost.name + " (" + (sshManager.isSSH() ? "Connected" : "Disconnected") + ")";
             } else {
                 rightText = "Local";
@@ -417,9 +424,13 @@ public class TerminalWidget extends AnimatedWidget {
             }
 
             if (serverInfo != null && (serverInfo.state == ServerState.STOPPED || serverInfo.state == ServerState.CRASHED)) {
-                inputBuffer.setLength(0);
-                cursorPosition = 0;
-                return;
+                if (serverInfo.isRemote) {
+                    // Allow commands even if remote server is stopped (e.g., to start it)
+                } else {
+                    inputBuffer.setLength(0);
+                    cursorPosition = 0;
+                    return;
+                }
             }
 
             if (trimmedCommand.equalsIgnoreCase("exit")) {
@@ -497,7 +508,7 @@ public class TerminalWidget extends AnimatedWidget {
             int lastSep = Math.max(pathPart.lastIndexOf('/'), pathPart.lastIndexOf('\\'));
             currentBase = (lastSep != -1) ? pathPart.substring(0, lastSep + 1) : "";
             prefix = (lastSep != -1) ? pathPart.substring(lastSep + 1) : pathPart;
-            options = sshManager.isSSH() ? getRemoteDirectoryCompletions(currentBase, prefix) : getLocalDirectoryCompletions(currentBase, prefix);
+            options = (sshManager != null && sshManager.isSSH()) ? getRemoteDirectoryCompletions(currentBase, prefix) : getLocalDirectoryCompletions(currentBase, prefix);
         } else if (tokens[0].equals("theme")) {
             prefix = textBeforeCursor.substring(5).trim();
             currentBase = "";
@@ -538,7 +549,7 @@ public class TerminalWidget extends AnimatedWidget {
     }
 
     private List<String> getAvailableCommands(String prefix) {
-        if (sshManager.isSSH()) {
+        if (sshManager != null && sshManager.isSSH()) {
             return sshManager.getSSHCommands(prefix).stream()
                     .filter(cmd -> cmd.toLowerCase().startsWith(prefix.toLowerCase()))
                     .sorted(String.CASE_INSENSITIVE_ORDER).collect(Collectors.toList());
@@ -564,7 +575,7 @@ public class TerminalWidget extends AnimatedWidget {
     }
 
     private synchronized void refreshAvailableCommandsInternal() {
-        if (sshManager.isSSH()) return;
+        if (sshManager != null && sshManager.isSSH()) return;
 
         Set<String> cmds = new HashSet<>();
         String pathEnv = System.getenv("PATH");
@@ -625,6 +636,7 @@ public class TerminalWidget extends AnimatedWidget {
 
         List<String> dirs = new ArrayList<>();
         try {
+            if (sshManager == null || !sshManager.isSSH()) return dirs;
             List<String> entries = sshManager.listRemoteDirectory(remotePath);
             for (String entry : entries) {
                 String fullPath = remotePath.endsWith("/") ? remotePath + entry : remotePath + "/" + entry;
@@ -707,6 +719,8 @@ public class TerminalWidget extends AnimatedWidget {
     public String getCurrentDir() {
         if (processManager != null) {
             return processManager.getCurrentDirectory();
+        } else if (sshManager != null && serverInfo != null && serverInfo.isRemote) {
+            return serverInfo.path;
         }
         return "/";
     }

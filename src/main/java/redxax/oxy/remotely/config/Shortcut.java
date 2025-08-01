@@ -6,7 +6,7 @@ import org.lwjgl.glfw.GLFW;
 
 public class Shortcut {
 
-    private static final MinecraftClient minecraftClient = MinecraftClient.getInstance();
+    public static final MinecraftClient minecraftClient = MinecraftClient.getInstance();
 
     public static String humanReadableKey(String keyName) {
         if (keyName == null) return "";
