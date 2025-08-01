@@ -4,10 +4,17 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
+import net.minecraft.text.Text;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
+import redxax.oxy.remotely.ui.ReScreen;
+import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
+import redxax.oxy.remotely.util.Notification;
+import redxax.oxy.remotely.util.Sound;
+
 import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.File;
@@ -17,29 +24,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.text.Text;
-import redxax.oxy.remotely.util.Sound;
 
-import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.util.ImageUtil.*;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
-public class DeskSelectionScreen extends Screen {
-    private final MinecraftClient minecraftClient;
+public class DeskSelectionScreen extends ReScreen {
     private final FileExplorerScreen parent;
-    private final List<ObjectItem> objectItems = new ArrayList<>();
-    private int itemWidth = 200;
-    private final int itemHeight = 30;
-    private final int columns = 3;
-    private final int spacing = 2;
-    private IconWithTooltip folderIcon, fileIcon, pinIcon, closeIcon;
-    private BufferedImage diskIcon;
-    private int scrollOffset = 0;
-    private int maxScroll = 0;
+
+    private static BufferedImage diskIcon, folderIcon, fileIcon, pinIcon;
 
     static class ObjectItem {
         public boolean isDisk;
@@ -52,13 +45,9 @@ public class DeskSelectionScreen extends Screen {
         boolean isFavorite;
     }
 
-    public DeskSelectionScreen(MinecraftClient minecraftClient, FileExplorerScreen parent) {
+    public DeskSelectionScreen(FileExplorerScreen parent) {
         super(Text.literal("Desks/Servers"));
-        this.minecraftClient = minecraftClient;
         this.parent = parent;
-        originalMCScale = minecraftClient.getWindow().getScaleFactor();
-        targetScaleFactor = globalScaleFactor;
-        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
     }
 
     @Override
@@ -66,25 +55,37 @@ public class DeskSelectionScreen extends Screen {
         super.init();
         try {
             diskIcon = loadResourceIcon("/assets/remotely/icons/disk.png");
-            folderIcon = new IconWithTooltip("/assets/remotely/icons/folder.png", "");
-            fileIcon = new IconWithTooltip("/assets/remotely/icons/file.png", "");
-            pinIcon = new IconWithTooltip("/assets/remotely/icons/pin.png", "");
-            closeIcon = new IconWithTooltip("/assets/remotely/icons/close.png", "");
+            folderIcon = loadResourceIcon("/assets/remotely/icons/folder.png");
+            fileIcon = loadResourceIcon("/assets/remotely/icons/file.png");
+            pinIcon = loadResourceIcon("/assets/remotely/icons/pin.png");
         } catch (Exception ignored) {}
+
+        header().addRight("/assets/remotely/icons/close.png", () -> client.setScreen(parent), "Close").build();
+
+        Container mainContainer = createContainer("main", 5, 36, width - 10, height - 5);
+        mainContainer.columns(3).padding(2).layoutStyle(Container.LayoutStyle.RESTRICTED);
+        setActiveContainer(mainContainer);
+
         loadObjects();
     }
 
     private void loadObjects() {
-        objectItems.clear();
+        Container mainContainer = container();
+        if (mainContainer == null) return;
+        mainContainer.clearWidgets();
+
+        List<ObjectItem> objectItems = new ArrayList<>();
+
         try {
             Path favoritesFilePath = Paths.get(String.valueOf(remotelyDir), "data", "favorites.json");
             Set<String> favoriteLines = new HashSet<>();
             if (Files.exists(favoritesFilePath)) {
-                BufferedReader br = new BufferedReader(new FileReader(favoritesFilePath.toFile()));
-                Gson gson = new Gson();
-                List<String> favorites = gson.fromJson(br, new TypeToken<List<String>>(){}.getType());
-                if (favorites != null) {
-                    favoriteLines.addAll(favorites);
+                try (BufferedReader br = new BufferedReader(new FileReader(favoritesFilePath.toFile()))) {
+                    Gson gson = new Gson();
+                    List<String> favorites = gson.fromJson(br, new TypeToken<List<String>>(){}.getType());
+                    if (favorites != null) {
+                        favoriteLines.addAll(favorites);
+                    }
                 }
             }
 
@@ -92,6 +93,7 @@ public class DeskSelectionScreen extends Screen {
                 ObjectItem item = new ObjectItem();
                 item.displayName = root.toString();
                 item.isDisk = true;
+                item.isDirectory = true;
                 item.localPath = root.toPath();
                 item.isRemote = false;
                 item.isFavorite = favoriteLines.contains(root.toString());
@@ -185,137 +187,83 @@ public class DeskSelectionScreen extends Screen {
         } catch (Exception e) {
             e.printStackTrace();
         }
-        int rows = (int) Math.ceil((double) objectItems.size() / columns);
-        maxScroll = Math.max(0, rows * (itemHeight + spacing) + spacing - (this.height - 60));
+
+        for (ObjectItem item : objectItems) {
+            mainContainer.addWidget(new DeskItemWidget.Builder(item, parent).build());
+        }
+        mainContainer.updateWidgetPositions();
     }
 
-    @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        super.render(context, mouseX, mouseY, delta);
-        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, null, null, null, null, null, null, null, null);
-        context.drawText(this.textRenderer, Text.literal("Remotely - New Tab"), 10, 10, globalTextColor, Config.shadow);
-        int gridX = 5;
-        int gridY = 60;
-        int gridWidth = this.width - 5;
-        int gridHeight = this.height - 5;
-        itemWidth = (gridWidth - (columns + 1) * spacing) / columns;
-        int startY = gridY + spacing;
-        int idx = 0;
-        for (ObjectItem item : objectItems) {
-            int row = idx / columns;
-            int col = idx % columns;
-            int drawX = gridX + spacing + col * (itemWidth + spacing);
-            int drawY = startY + row * (itemHeight + spacing) - scrollOffset;
-            if (drawY + itemHeight < startY || drawY > gridY + gridHeight - spacing) {
-                idx++;
-                continue;
+    public static class DeskItemWidget extends AnimatedWidget {
+        private final ObjectItem item;
+        private final FileExplorerScreen parentScreen;
+
+        @Override protected void appendClickableNarrations(NarrationMessageBuilder builder) {}
+
+        public static class Builder extends AnimatedWidget.Builder<DeskItemWidget, Builder> {
+            public Builder(ObjectItem item, FileExplorerScreen parent) {
+                super(new DeskItemWidget(item, parent));
+                this.size(0, 30);
             }
-            boolean hovered = mouseX >= drawX && mouseX <= drawX + itemWidth && mouseY >= drawY && mouseY <= drawY + itemHeight;
-            int bgColor = getElementBackgroundColor(item.hashCode(), hovered, item.isFavorite, true, false, false, false);
-            int id = ("explorer" + item.hashCode()).hashCode();
-            float targetOffset = hovered ? -2f : 0f;
-            float currentOffset = elevationOffsets.getOrDefault(id, 0f);
-            currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
-            elevationOffsets.put(id, currentOffset);
-            context.getMatrices().push();
-            context.getMatrices().translate(0, currentOffset, 0);
-            context.fill(drawX, drawY, drawX + itemWidth, drawY + itemHeight, bgColor);
-            drawInnerBorder(context, drawX, drawY, itemWidth, itemHeight, getElementBorderColor(item.hashCode(), hovered, item.isFavorite, true, false, false, false));
-            drawOuterBorder(context, drawX, drawY, itemWidth, itemHeight, bgColor);
-            BufferedImage icon = (item.isDisk ? diskIcon : item.isDirectory ? folderIcon.getImage() : fileIcon.getImage());
-            drawPixelArt(context, drawX + 7, drawY + (itemHeight / 2) - 8, 16, 16, icon);
-            if (item.isFavorite) {
-                drawPixelArt(context, item.isDirectory ? drawX + 2 : drawX + 4, drawY + (itemHeight / 2) - 8, 16, 16, pinIcon.getImage());
+
+            @Override
+            protected Builder self() {
+                return this;
             }
+        }
+
+        protected DeskItemWidget(ObjectItem item, FileExplorerScreen parent) {
+            super(0, 0, 0, 30, Text.literal(item.displayName));
+            this.item = item;
+            this.parentScreen = parent;
+        }
+
+        @Override
+        protected void drawContent(DrawContext context, int mouseX, int mouseY) {
+            BufferedImage iconToShow = item.isDisk ? diskIcon : (item.isDirectory ? folderIcon : fileIcon);
+            if (iconToShow != null) {
+                drawPixelArt(context, getX() + 7, getY() + (getHeight() / 2) - 8, 16, 16, iconToShow);
+            }
+            if (item.isFavorite && pinIcon != null) {
+                drawPixelArt(context, getX() + 2, getY() + (getHeight() / 2) - 8, 16, 16, pinIcon);
+            }
+
             String firstLine = item.displayName;
-            String secondLine = item.isRemote ? (item.remoteServerPath != null ? item.remoteServerPath.toString() : "") : item.localPath.toAbsolutePath().normalize().toString();
-            int maxTextWidth = itemWidth - 32;
-            if (textRenderer.getWidth(secondLine) > maxTextWidth) {
-                while (textRenderer.getWidth(secondLine + "...") > maxTextWidth && !secondLine.isEmpty()) {
+            String secondLine = item.isRemote ? (item.remoteServerPath != null ? item.remoteServerPath.toString() : (item.remoteHostInfo != null ? item.remoteHostInfo.getIp() : "")) : (item.localPath != null ? item.localPath.toAbsolutePath().normalize().toString() : "");
+
+            int maxTextWidth = getWidth() - 32;
+            if (tr.getWidth(secondLine) > maxTextWidth) {
+                while (tr.getWidth(secondLine + "...") > maxTextWidth && !secondLine.isEmpty()) {
                     secondLine = secondLine.substring(0, secondLine.length() - 1);
                 }
                 secondLine = secondLine + "...";
             }
-            context.drawText(this.textRenderer, Text.literal(firstLine), drawX + 25, drawY + 7, Config.globalTextColor, Config.shadow);
-            context.drawText(this.textRenderer, Text.literal(secondLine), drawX + 25, drawY + 18, globalDarkTextColor, Config.shadow);
-            idx++;
-            context.getMatrices().pop();
+            context.drawText(tr, Text.literal(firstLine), getX() + 25, getY() + 7, Config.globalTextColor, Config.shadow);
+            context.drawText(tr, Text.literal(secondLine), getX() + 25, getY() + 18, Config.globalDarkTextColor, Config.shadow);
         }
-        animatedScaling(this);
-    }
 
-//    @Override
-//    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-//        if (button == 0) {
-//            if (mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24) {
-//                playSound(Sound.CLICK);
-//                minecraftClient.setScreen(parent);
-//                return true;
-//            }
-//            itemWidth = (this.width - (columns + 1) * spacing - 2 * spacing) / columns;
-//            int headerY = 35;
-//            int gridY = headerY + 10;
-//            int startY = gridY + spacing;
-//            for (int i = 0; i < objectItems.size(); i++) {
-//                ObjectItem item = objectItems.get(i);
-//                int row = i / columns;
-//                int col = i % columns;
-//                int drawX = spacing + col * (itemWidth + spacing) + spacing;
-//                int drawY = startY + row * (itemHeight + spacing) - scrollOffset;
-//                if (mouseX >= drawX && mouseX <= drawX + itemWidth && mouseY >= drawY && mouseY <= drawY + itemHeight) {
-//                    playSound(Sound.CREATE);
-//                    if (!item.isRemote) {
-//                        if (item.isDirectory) {
-//                            FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(item.localPath.toAbsolutePath().normalize(), false, null);
-//                            parent.tabs.add(new FileExplorerScreen.Tab(td));
-//                            parent.currentTabIndex = parent.tabs.size() - 1;
-//                            parent.loadDirectory(td.path, false, false, false);
-//                            minecraftClient.setScreen(parent);
-//                        } else {
-//                            minecraftClient.setScreen(new FileEditorScreen(minecraftClient, parent, item.localPath.toAbsolutePath().normalize(), new ServerInfo(false, null, item.localPath.toAbsolutePath().normalize().toString())));
-//                        }
-//                    } else {
-//                        if (item.remoteServerPath == null || item.remoteHostInfo == null) {
-//                            if (item.isDirectory) {
-//                                FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(Paths.get("/"), true, item.remoteHostInfo);
-//                                parent.tabs.add(new FileExplorerScreen.Tab(td));
-//                                parent.currentTabIndex = parent.tabs.size() - 1;
-//                                parent.loadDirectory(td.path, false, false, false);
-//                                minecraftClient.setScreen(parent);
-//                            } else {
-//                                minecraftClient.setScreen(new FileEditorScreen(minecraftClient, parent, Paths.get("/"), new ServerInfo(true, item.remoteHostInfo, "/")));
-//                            }
-//                        } else {
-//                            if (item.isDirectory) {
-//                                FileExplorerScreen.TabData td = new FileExplorerScreen.TabData(item.remoteServerPath, true, item.remoteHostInfo);
-//                                parent.tabs.add(new FileExplorerScreen.Tab(td));
-//                                parent.currentTabIndex = parent.tabs.size() - 1;
-//                                parent.loadDirectory(td.path, false, false, false);
-//                                minecraftClient.setScreen(parent);
-//                            } else {
-//                                minecraftClient.setScreen(new FileEditorScreen(minecraftClient, parent, item.remoteServerPath, new ServerInfo(true, item.remoteHostInfo, item.remoteServerPath.toString())));
-//                            }
-//                        }
-//                    }
-//                    return true;
-//                }
-//            }
-//        }
-//        return super.mouseClicked(mouseX, mouseY, button);
-//    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
-        scaleScroll(verticalAmount);
-        scrollOffset -= (int) (verticalAmount * 10);
-        if (scrollOffset < 0) scrollOffset = 0;
-        if (scrollOffset > maxScroll) scrollOffset = maxScroll;
-        return true;
-    }
-
-    @Override
-    public void removed() {
-        minecraftClient.getWindow().setScaleFactor(originalMCScale);
-        targetScaleFactor = globalScaleFactor = animScaleFactor;
+        @Override
+        public void onClick(double mouseX, double mouseY, int button) {
+            if (button == 0) {
+                playSound(Sound.CREATE);
+                ServerInfo newServerInfo;
+                if (!item.isRemote) {
+                    newServerInfo = new ServerInfo(false, null, item.localPath.toAbsolutePath().normalize().toString());
+                    if (item.isDirectory || item.isDisk) {
+                        mc.setScreen(new FileExplorerScreen(parentScreen, newServerInfo));
+                    } else {
+                        mc.setScreen(new FileEditorScreen(mc, parentScreen, item.localPath.toAbsolutePath().normalize(), newServerInfo));
+                    }
+                } else {
+                    if (item.remoteHostInfo != null) {
+                        Path path = item.remoteServerPath != null ? item.remoteServerPath : Paths.get("/");
+                        newServerInfo = new ServerInfo(true, item.remoteHostInfo, path.toString());
+                        mc.setScreen(new FileExplorerScreen(parentScreen, newServerInfo));
+                    } else {
+                        new Notification("Cannot open remote favorite", "Host information is missing.", Notification.Type.ERROR);
+                    }
+                }
+            }
+        }
     }
 }

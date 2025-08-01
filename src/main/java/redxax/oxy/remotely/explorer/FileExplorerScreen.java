@@ -31,7 +31,7 @@ import static redxax.oxy.remotely.util.searchUtils.isFuzzyMatch;
 
 public class FileExplorerScreen extends ReScreen {
     private final Screen parent;
-    private final ServerInfo serverInfo;
+    public final ServerInfo serverInfo;
     private final RemotelyCoreAPI fileAPI;
     private Path currentPath;
     private final List<Path> favoritePaths = new ArrayList<>();
@@ -98,7 +98,7 @@ public class FileExplorerScreen extends ReScreen {
                 .addRight("/assets/remotely/icons/favorite.png", this::toggleFavorites, "Toggle Favorites")
                 .setSearchMode(searchMode, true)
                 .build();
-        tabs().builder().allowReorder(true).allowAdd(true).position(5, 36).size(width - 5, 18).onTabClosed(this::onTabClosed).onPlusButtonClicked(this::onNewTab).onTabsReordered(this::onTabReordered).onTabSelected(this::onTabSelected).build();
+        tabs().builder().allowReorder(true).allowAdd(true).position(5, 36).size(width - 5, 18).onTabClosed(this::onTabClosed).onPlusButtonClicked(() -> this.client.setScreen(new DeskSelectionScreen(this))).onTabsReordered(this::onTabReordered).onTabSelected(this::onTabSelected).build();
 
         loadExplorerTabs();
 
@@ -162,7 +162,7 @@ public class FileExplorerScreen extends ReScreen {
         }
     }
 
-    private void loadDirectory(Path path) {
+    public void loadDirectory(Path path) {
         loading = true;
         final Container targetContainer = activeContainer;
         currentPath = path;
@@ -228,11 +228,6 @@ public class FileExplorerScreen extends ReScreen {
             Path path = containerPaths.get(tab.getContainer());
             if (path != null) loadDirectory(path);
         }
-    }
-
-    public void onNewTab() {
-        Path homePath = serverInfo.isRemote ? Paths.get("/") : Paths.get(System.getProperty("user.home")).toAbsolutePath().normalize();
-        createTab(homePath, false);
     }
 
     public void createTab(Path newPath, boolean allowDuplicate) {
