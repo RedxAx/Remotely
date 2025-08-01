@@ -1521,6 +1521,8 @@ public class ReScreen extends Screen {
     public class HeaderBuilder {
         public final List<SquareButtonWidget> leftButtons = new ArrayList<>();
         private final List<SquareButtonWidget> rightButtons = new ArrayList<>();
+        private final Map<String, SquareButtonWidget> buttonMapByPath = new HashMap<>();
+        private final Map<BufferedImage, SquareButtonWidget> buttonMapByImage = new HashMap<>();
         private Position position = Position.TOP;
         private int headerSize = 30;
         private boolean visible = true;
@@ -1537,7 +1539,7 @@ public class ReScreen extends Screen {
                 case BOTTOM -> position = Position.LEFT;
                 case LEFT -> position = Position.TOP;
             }
-            updateButtonPositions();
+            requestLayoutUpdate();
         }
         public HeaderBuilder position(Position pos) {
             this.position = pos;
@@ -1552,25 +1554,75 @@ public class ReScreen extends Screen {
             return this;
         }
         public HeaderBuilder addLeft(BufferedImage image, Runnable action, String hint) {
-            SquareButtonWidget button = new SquareButtonWidget.Builder().image(image).hint(hint).onClick(action).entranceCorner(CENTER).entranceAnimationStrength(.6f).hintDelay(.4f).hintDelay(.4f).build();
+            SquareButtonWidget button = new SquareButtonWidget.Builder().image(image).hint(hint).onClick(action)
+                    .entranceCorner(CENTER).entranceAnimationStrength(.6f).hintDelay(.4f).animateLayout(true).build();
             leftButtons.add(button);
+            buttonMapByImage.put(image, button);
+            addDrawableChild(button);
             return this;
         }
         public HeaderBuilder addLeft(String imagePath, Runnable action, String hint) {
-            SquareButtonWidget button = new SquareButtonWidget.Builder().imagePath(imagePath).hint(hint).onClick(action).entranceCorner(CENTER).entranceAnimationStrength(.6f).hintDelay(.4f).build();
+            SquareButtonWidget button = new SquareButtonWidget.Builder().imagePath(imagePath).hint(hint).onClick(action)
+                    .entranceCorner(CENTER).entranceAnimationStrength(.6f).hintDelay(.4f).animateLayout(true).build();
             leftButtons.add(button);
+            buttonMapByPath.put(imagePath, button);
+            addDrawableChild(button);
             return this;
         }
         public HeaderBuilder addRight(BufferedImage image, Runnable action, String hint) {
-            SquareButtonWidget button = new SquareButtonWidget.Builder().image(image).hint(hint).onClick(action).entranceCorner(CENTER).entranceAnimationStrength(.6f).hintDelay(.4f).build();
+            SquareButtonWidget button = new SquareButtonWidget.Builder().image(image).hint(hint).onClick(action)
+                    .entranceCorner(CENTER).entranceAnimationStrength(.6f).hintDelay(.4f).animateLayout(true).build();
             rightButtons.add(button);
+            buttonMapByImage.put(image, button);
+            addDrawableChild(button);
             return this;
         }
         public HeaderBuilder addRight(String imagePath, Runnable action, String hint) {
-            SquareButtonWidget button = new SquareButtonWidget.Builder().imagePath(imagePath).hint(hint).onClick(action).entranceCorner(CENTER).entranceAnimationStrength(.6f).hintDelay(.4f).build();
+            SquareButtonWidget button = new SquareButtonWidget.Builder().imagePath(imagePath).hint(hint).onClick(action)
+                    .entranceCorner(CENTER).entranceAnimationStrength(.6f).hintDelay(.4f).animateLayout(true).build();
             rightButtons.add(button);
+            buttonMapByPath.put(imagePath, button);
+            addDrawableChild(button);
             return this;
         }
+
+        public SquareButtonWidget getButtonByImage(BufferedImage image) {
+            return buttonMapByImage.get(image);
+        }
+
+        public SquareButtonWidget getButtonByImagePath(String imagePath) {
+            return buttonMapByPath.get(imagePath);
+        }
+
+        public void setButtonVisible(String imagePath, boolean visible) {
+            SquareButtonWidget button = getButtonByImagePath(imagePath);
+            if (button != null && button.visible != visible) {
+                button.visible = visible;
+                button.resetEntranceAnimation();
+                requestLayoutUpdate();
+            }
+        }
+
+        public void setButtonVisible(BufferedImage image, boolean visible) {
+            SquareButtonWidget button = getButtonByImage(image);
+            if (button != null && button.visible != visible) {
+                button.visible = visible;
+                requestLayoutUpdate();
+            }
+        }
+
+        public void requestLayoutUpdate() {
+            ReScreen.this.needsLayoutUpdate = true;
+        }
+
+        public void reset() {
+            clearHeaderWidgets();
+            leftButtons.clear();
+            rightButtons.clear();
+            buttonMapByPath.clear();
+            buttonMapByImage.clear();
+        }
+
         public HeaderBuilder setSearchMode(SearchMode mode, boolean liveUpdate) {
             currentSearchMode = mode;
             this.liveUpdate = liveUpdate;
@@ -1606,23 +1658,12 @@ public class ReScreen extends Screen {
                     searchBox = null;
                 }
             }
-            updateButtonPositions();
+            requestLayoutUpdate();
             return headerBuilder;
         }
         public void build() {
-            clearHeaderWidgets();
             if (!visible) return;
             updateButtonPositions();
-            for (SquareButtonWidget button : leftButtons) {
-                addDrawableChild(button);
-            }
-            for (SquareButtonWidget button : rightButtons) {
-                addDrawableChild(button);
-            }
-            if (searchBox != null) {
-                ReScreen.this.remove(searchBox);
-                ReScreen.this.addDrawableChild(searchBox);
-            }
         }
         public void clearHeaderWidgets() {
             for (SquareButtonWidget btn : leftButtons) {
@@ -1639,12 +1680,6 @@ public class ReScreen extends Screen {
                 case LEFT -> updateLeftPositions();
                 case RIGHT -> updateRightPositions();
             }
-            for (SquareButtonWidget button : leftButtons) {
-                button.resetEntranceAnimation();
-            }
-            for (SquareButtonWidget button : rightButtons) {
-                button.resetEntranceAnimation();
-            }
             if (searchBox != null) {
                 switch (position) {
                     case TOP -> searchBox.setPosition((ReScreen.this.width - 200) / 2, (headerSize - searchBox.getHeight()) / 2);
@@ -1657,51 +1692,67 @@ public class ReScreen extends Screen {
         private void updateTopPositions() {
             int leftX = 5;
             for (SquareButtonWidget button : leftButtons) {
-                button.setPosition(leftX, 5);
-                leftX += 23;
+                if (button.visible) {
+                    button.setPosition(leftX, 5);
+                    leftX += 23;
+                }
             }
             int rightX = ReScreen.this.width - 28;
             for (SquareButtonWidget button : rightButtons) {
-                button.setPosition(rightX, 5);
-                rightX -= 23;
+                if (button.visible) {
+                    button.setPosition(rightX, 5);
+                    rightX -= 23;
+                }
             }
         }
         private void updateBottomPositions() {
             int leftX = 5;
             int y = ReScreen.this.height - headerSize + 5;
             for (SquareButtonWidget button : leftButtons) {
-                button.setPosition(leftX, y);
-                leftX += 23;
+                if (button.visible) {
+                    button.setPosition(leftX, y);
+                    leftX += 23;
+                }
             }
             int rightX = ReScreen.this.width - 28;
             for (SquareButtonWidget button : rightButtons) {
-                button.setPosition(rightX, y);
-                rightX -= 23;
+                if (button.visible) {
+                    button.setPosition(rightX, y);
+                    rightX -= 23;
+                }
             }
         }
         private void updateLeftPositions() {
             int topY = 5;
             for (SquareButtonWidget button : leftButtons) {
-                button.setPosition(5, topY);
-                topY += 23;
+                if (button.visible) {
+                    button.setPosition(5, topY);
+                    topY += 23;
+                }
             }
             int bottomY = ReScreen.this.height - 28;
             for (SquareButtonWidget button : rightButtons) {
-                button.setPosition(5, bottomY);
-                bottomY -= 23;
+                if (button.visible) {
+                    button.setPosition(5, bottomY);
+                    bottomY -= 23;
+                }
             }
         }
         private void updateRightPositions() {
             int x = ReScreen.this.width - headerSize + 5;
             int topY = 5;
             for (SquareButtonWidget button : leftButtons) {
-                button.setPosition(x, topY);
-                topY += 23;
+                if (button.visible) {
+                    button.setPosition(x, topY);
+                    topY += 23;
+                }
             }
             int bottomY = ReScreen.this.height - 28;
             for (SquareButtonWidget button : rightButtons) {
-                button.setPosition(x, bottomY);
-                bottomY -= 23;
+                if (button.visible) {
+                    button.setPosition(x, bottomY);
+                    bottomY -= 23;
+                }
             }
         }
         private void renderHeaders(DrawContext context) {
