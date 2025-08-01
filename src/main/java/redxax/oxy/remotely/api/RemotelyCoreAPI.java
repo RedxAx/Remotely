@@ -17,6 +17,8 @@ public interface RemotelyCoreAPI {
     CompletableFuture<Void> createDirectory(Path path);
     CompletableFuture<Void> upload(List<Path> localPaths, Path remotePath);
     CompletableFuture<Void> download(List<Path> remotePaths, Path localPath);
+    CompletableFuture<String> readFile(Path path);
+    CompletableFuture<Void> writeFile(Path path, String content);
     boolean canUndo();
     CompletableFuture<Void> undo();
 

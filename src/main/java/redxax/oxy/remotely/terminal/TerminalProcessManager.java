@@ -6,9 +6,8 @@ import redxax.oxy.remotely.servers.ServerState;
 import redxax.oxy.remotely.ui.widgets.TerminalWidget;
 
 import java.io.*;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
+import java.nio.file.Path;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.logging.Level;
@@ -89,9 +88,9 @@ public class TerminalProcessManager {
                 }
 
                 ServerInfo serverInfo = widget.getServerInfo();
-                File workingDir = new File(serverInfo.path).getParentFile();
-                if (workingDir == null || !workingDir.exists()) {
-                    widget.appendOutput("Server directory not found: " + serverInfo.path);
+                File workingDir = new File(serverInfo.path);
+                if (!workingDir.exists() || !workingDir.isDirectory()) {
+                    widget.appendOutput("Server directory not found or is not a directory: " + serverInfo.path);
                     return;
                 }
 
@@ -105,7 +104,9 @@ public class TerminalProcessManager {
                     try (FileWriter fw = new FileWriter(scriptFile)) {
                         fw.write(getCommandStr().toString());
                     }
-                    scriptFile.setExecutable(true);
+                    if (!System.getProperty("os.name").toLowerCase().contains("win")) {
+                        scriptFile.setExecutable(true, true);
+                    }
                 }
 
                 String os = System.getProperty("os.name").toLowerCase();

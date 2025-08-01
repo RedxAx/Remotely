@@ -1,15 +1,13 @@
 package redxax.oxy.remotely.servers;
 
-import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.RemotelyClient;
-import java.util.List;
+import redxax.oxy.remotely.SSHManager;
 
 public class RemoteHostInfo {
     public String name;
     public String ip;
     public int port;
     public String password;
-    public List<ServerInfo> servers;
     public String user;
     public boolean isConnecting = false;
     public boolean isConnected = false;

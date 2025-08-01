@@ -5,8 +5,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.remotely.Render;
-import redxax.oxy.remotely.Render.*;
+import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
@@ -40,10 +40,10 @@ public class ResourcePageScreen extends Screen {
     private float descTargetScrollOffset = 0;
     private float versionsScrollOffset = 0;
     private float versionsTargetScrollOffset = 0;
-    private List<Tab> tabs = new ArrayList<>();
+    private final List<Tab> tabs = new ArrayList<>();
     private int currentTabIndex = 0;
     private List<Version> versions = new ArrayList<>();
-    private List<VersionButtonRegion> versionButtonRegions = new ArrayList<>();
+    private final List<VersionButtonRegion> versionButtonRegions = new ArrayList<>();
     private static ServerInfo serverInfo;
     private boolean isDownloadingMrpack = false;
     private IconWithTooltip closeIcon, siteIcon, downloadIcon;
@@ -268,7 +268,7 @@ public class ResourcePageScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         scaleScroll(verticalAmount);
         int headerHeight = 30;
         int tabAreaHeight = 20;
@@ -319,8 +319,8 @@ public class ResourcePageScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         int totalVersionHeight = versions.size() * (35 + 2);
         if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY,
-            getCurrentTabType() == TabType.DESCRIPTION ? (int) (markdownRenderer != null ? markdownRenderer.getHeight() + 20 : 0) : totalVersionHeight,
-            getCurrentTabType() == TabType.DESCRIPTION ? descScrollOffset : versionsScrollOffset)) {
+                getCurrentTabType() == TabType.DESCRIPTION ? (int) (markdownRenderer != null ? markdownRenderer.getHeight() + 20 : 0) : totalVersionHeight,
+                getCurrentTabType() == TabType.DESCRIPTION ? descScrollOffset : versionsScrollOffset)) {
             return true;
         }
         int tabBarY = 35;
@@ -432,12 +432,12 @@ public class ResourcePageScreen extends Screen {
                 String loadingText = "Loading content...";
                 int textWidth = minecraftClient.textRenderer.getWidth(loadingText);
                 context.drawText(
-                    minecraftClient.textRenderer,
-                    Text.literal(loadingText),
-                    contentX + (contentWidth - textWidth) / 2,
-                    contentY + 50,
-                    0xDDDDDD,
-                    Config.shadow
+                        minecraftClient.textRenderer,
+                        Text.literal(loadingText),
+                        contentX + (contentWidth - textWidth) / 2,
+                        contentY + 50,
+                        0xDDDDDD,
+                        Config.shadow
                 );
                 return;
             }
@@ -467,8 +467,8 @@ public class ResourcePageScreen extends Screen {
                 String subDesc = getRelativeTime(ver.dateUploaded) + " | " + formatDownloads(ver.downloads) + " Downloads";
                 context.drawText(minecraftClient.textRenderer, Text.literal(subDesc), contentX + 4, y + 26, 0xFF777777, Config.shadow);
                 if (ver.isDownloading) {
-                    int barWidth = Render.buttonW;
-                    int barHeight = Render.buttonH;
+                    int barWidth = 100;
+                    int barHeight = 18;
                     int barX = contentX + contentWidth - barWidth - 10;
                     int barY = y + (itemHeight - barHeight) / 2;
                     int bgColor = getElementBackgroundColor(ver.hashCode(), hovered, true, true, false, false, false);
@@ -579,7 +579,13 @@ public class ResourcePageScreen extends Screen {
                     ver.isInstalled = "Failed";
                     return;
                 }
-                if (serverInfo.isRemote && serverInfo.remoteSSHManager != null) {
+                if (serverInfo.isRemote && serverInfo.remoteHost != null) {
+                    SSHManager sshManager = RemotelyClient.INSTANCE.getSSHManagerForHost(serverInfo.remoteHost);
+                    if (sshManager == null || !sshManager.isSSH()) {
+                        ver.isInstalled = "Failed";
+                        return;
+                    }
+
                     URL url = new URL(ver.fileUrl);
                     HttpURLConnection headConn = (HttpURLConnection) url.openConnection();
                     headConn.setRequestProperty("User-Agent", "Remotely");
@@ -588,16 +594,16 @@ public class ResourcePageScreen extends Screen {
                     headConn.setReadTimeout(5000);
                     int total = headConn.getContentLength();
                     ver.totalBytes = total;
-                    String remoteDir = serverInfo.path + File.separator + (serverInfo.isModServer() ? "mods" : serverInfo.isPluginServer() ? "plugins" : "");
-                    String remotePath = remoteDir + File.separator + resource.getFileName();
+                    String remoteDir = serverInfo.path + "/" + (serverInfo.isModServer() ? "mods" : serverInfo.isPluginServer() ? "plugins" : "");
+                    String remotePath = remoteDir + "/" + resource.getFileName();
                     String command = "wget -O \"" + remotePath.replace("\\", "/") + "\" \"" + ver.fileUrl + "\"";
                     devPrint("Remote Download: " + command);
-                    serverInfo.remoteSSHManager.runRemoteCommand(command);
+                    sshManager.runRemoteCommand(command);
                     ver.isDownloading = true;
                     long startTime = System.currentTimeMillis();
                     while (true) {
-                        String sizeCommand = "stat -c%s " + remotePath.replace("\\", "/");
-                        String sizeOutput = serverInfo.remoteSSHManager.runRemoteCommandWithOutput(sizeCommand);
+                        String sizeCommand = "stat -c%s \"" + remotePath.replace("\\", "/") + "\"";
+                        String sizeOutput = sshManager.runRemoteCommandWithOutput(sizeCommand);
                         long remoteSize = 0;
                         try {
                             remoteSize = Long.parseLong(sizeOutput.trim());
@@ -666,11 +672,12 @@ public class ResourcePageScreen extends Screen {
     private void downloadMrpackResource() {
         new Thread(() -> {
             try {
-                if (serverInfo.isRemote && serverInfo.remoteSSHManager != null) {
-                    serverInfo.remoteSSHManager.installMrPackOnRemote(serverInfo, resource);
-                    minecraftClient.execute(() -> {
-                        isDownloadingMrpack = false;
-                    });
+                if (serverInfo.isRemote && serverInfo.remoteHost != null) {
+                    SSHManager sshManager = RemotelyClient.INSTANCE.getSSHManagerForHost(serverInfo.remoteHost);
+                    if (sshManager != null && sshManager.isSSH()) {
+                        sshManager.installMrPackOnRemote(serverInfo, resource);
+                    }
+                    minecraftClient.execute(() -> isDownloadingMrpack = false);
                     return;
                 }
                 String exePath;
@@ -690,24 +697,15 @@ public class ResourcePageScreen extends Screen {
                     serverDir = Path.of(String.valueOf(remotelyDir), "servers", resource.getName()).toString();
                     url = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-darwin");
                 } else {
-                    minecraftClient.execute(() -> {
-                        isDownloadingMrpack = false;
-                    });
+                    minecraftClient.execute(() -> isDownloadingMrpack = false);
                     return;
                 }
                 Path exe = Path.of(exePath);
                 Path serverPath = Path.of(serverDir);
                 if (!Files.exists(serverPath)) Files.createDirectories(serverPath);
                 if (!Files.exists(exe)) {
-                    try {
-                        try (InputStream input = url.openStream()) {
-                            Files.copy(input, exe, StandardCopyOption.REPLACE_EXISTING);
-                        }
-                    } catch (Exception e) {
-                        minecraftClient.execute(() -> {
-                            isDownloadingMrpack = false;
-                        });
-                        return;
+                    try (InputStream input = url.openStream()) {
+                        Files.copy(input, exe, StandardCopyOption.REPLACE_EXISTING);
                     }
                 }
                 isDownloadingMrpack = true;
@@ -715,13 +713,9 @@ public class ResourcePageScreen extends Screen {
                 pb.directory(serverPath.toFile());
                 Process proc = pb.start();
                 proc.waitFor();
-                minecraftClient.execute(() -> {
-                    isDownloadingMrpack = false;
-                });
+                minecraftClient.execute(() -> isDownloadingMrpack = false);
             } catch (Exception e) {
-                minecraftClient.execute(() -> {
-                    isDownloadingMrpack = false;
-                });
+                minecraftClient.execute(() -> isDownloadingMrpack = false);
             }
         }).start();
     }

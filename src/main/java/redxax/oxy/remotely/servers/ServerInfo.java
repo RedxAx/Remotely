@@ -1,7 +1,5 @@
 package redxax.oxy.remotely.servers;
 
-import redxax.oxy.remotely.SSHManager;
-
 import java.util.Objects;
 import java.util.Properties;
 
@@ -14,7 +12,6 @@ public class ServerInfo {
     public ServerState state = ServerState.STOPPED;
     public boolean isRemote = false;
     public RemoteHostInfo remoteHost;
-    public SSHManager remoteSSHManager;
 
     public ServerInfo(String path) {
         this.path = path;
@@ -48,6 +45,9 @@ public class ServerInfo {
 
     public int getPort() {
         if (isRemote) {
+            // This logic is likely incorrect for fetching a remote server's port,
+            // but is preserved from the original to limit scope. It should ideally
+            // parse server.properties on the remote host.
             return remoteHost.getPort();
         } else {
             Properties properties = new Properties();

@@ -109,7 +109,9 @@ public class MultiTerminalScreen extends ReScreen {
                 boolean isRunning = st == ServerState.RUNNING || st == ServerState.STARTING;
 
                 header().addLeft(isRunning ? "stop.png" : "start.png", () -> {
-                    // Start/Stop Logic Here
+                    if(terminal.getServerInfo() != null) {
+                        terminal.executeCommand("stop");
+                    }
                 }, isRunning ? "Stop Server" : "Start Server");
 
                 header().addLeft("explorer.png", () -> {
@@ -179,10 +181,6 @@ public class MultiTerminalScreen extends ReScreen {
     }
 
     private void addTerminalTab(String name, ServerInfo info) {
-        if (info != null && info.isRemote && info.remoteHost != null) {
-            info.remoteSSHManager = remotelyClient.getSSHManagerForHost(info.remoteHost);
-        }
-
         TerminalWidget terminal = new TerminalWidget.Builder()
                 .server(info).animateLayout(false)
                 .size(width - 10, height - 5)

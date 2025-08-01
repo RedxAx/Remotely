@@ -6,7 +6,6 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.api.LocalAPI;
 import redxax.oxy.remotely.api.RemoteAPI;
 import redxax.oxy.remotely.api.RemotelyCoreAPI;
@@ -17,9 +16,6 @@ import redxax.oxy.remotely.ui.widgets.FileEntryWidget;
 import redxax.oxy.remotely.ui.widgets.TextAreaWidget;
 import redxax.oxy.remotely.util.Sound;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -37,7 +33,7 @@ public class FileEditorScreen extends ReScreen {
     private SidePanel explorerPanel;
     private boolean showExplorerPanel = false;
     private Path explorerPath;
-    private RemotelyCoreAPI fileAPI;
+    private final RemotelyCoreAPI fileAPI;
     private double originalMCScale;
 
     private static class SavedTabState {
@@ -94,67 +90,33 @@ public class FileEditorScreen extends ReScreen {
         }
 
         private void loadFileContent() {
-            ArrayList<String> fileContent = new ArrayList<>();
-            if (serverInfo.isRemote) {
-                try {
-                    if (serverInfo.remoteSSHManager == null) {
-                        serverInfo.remoteSSHManager = new SSHManager(serverInfo);
-                        serverInfo.remoteSSHManager.connectToRemoteHost(serverInfo.remoteHost.getUser(), serverInfo.remoteHost.ip, serverInfo.remoteHost.port, serverInfo.remoteHost.password);
-                        serverInfo.remoteSSHManager.connectSFTP();
-                    } else if (!serverInfo.remoteSSHManager.isSFTPConnected()) {
-                        serverInfo.remoteSSHManager.connectSFTP();
-                    }
-                    String remotePath = path.toString().replace("\\", "/");
-                    String content = serverInfo.remoteSSHManager.readRemoteFile(remotePath);
-                    String[] lines = content.split("\\r?\\n");
-                    for (int i = 0; i < lines.length; i++) {
-                        lines[i] = lines[i].replace("\\t", "\t");
-                    }
-                    Collections.addAll(fileContent, lines);
-                } catch (Exception ignored) {}
-            } else {
-                try (BufferedReader reader = Files.newBufferedReader(path)) {
-                    reader.lines().forEach(line -> {
-                        line = line.replace("\\t", "\t");
-                        fileContent.add(line);
-                    });
-                } catch (IOException ignored) {}
-            }
-            String contentString = String.join("\n", fileContent);
-            this.textAreaWidget.setText(contentString);
-            this.originalContent = contentString;
-            this.unsaved = false;
+            fileAPI.readFile(path).thenAccept(content -> client.execute(() -> {
+                String sanitizedContent = content.replace("\\t", "\t");
+                this.textAreaWidget.setText(sanitizedContent);
+                this.originalContent = sanitizedContent;
+                this.unsaved = false;
+            })).exceptionally(e -> {
+                // Handle error
+                return null;
+            });
         }
 
         public void saveFile() {
             String newContent = textAreaWidget.getText();
-            ArrayList<String> newContentLines = new ArrayList<>(Arrays.asList(newContent.split("\n")));
-
-            if (serverInfo.isRemote) {
-                try {
-                    if (serverInfo.remoteSSHManager == null || !serverInfo.remoteSSHManager.isSFTPConnected()) {
-                        serverInfo.remoteSSHManager = new SSHManager(serverInfo);
-                        serverInfo.remoteSSHManager.connectToRemoteHost(serverInfo.remoteHost.getUser(), serverInfo.remoteHost.ip, serverInfo.remoteHost.port, serverInfo.remoteHost.password);
-                        serverInfo.remoteSSHManager.connectSFTP();
-                    }
-                    String remotePath = path.toString().replace("\\", "/");
-                    serverInfo.remoteSSHManager.writeRemoteFile(remotePath, newContent);
-                    this.unsaved = false;
-                    this.originalContent = newContent;
-                } catch (Exception ignored) {}
-            } else {
-                try {
-                    Files.write(path, newContentLines);
-                    this.unsaved = false;
-                    this.originalContent = newContent;
-                } catch (Exception ignored) {}
-            }
-            onTextChange(newContent);
+            fileAPI.writeFile(path, newContent).thenRun(() -> client.execute(() -> {
+                this.unsaved = false;
+                this.originalContent = newContent;
+                onTextChange(newContent);
+            })).exceptionally(e -> {
+                // Handle error
+                return null;
+            });
         }
     }
 
     public FileEditorScreen(MinecraftClient mc, Screen parent, Path filePath, ServerInfo info) {
         super(Text.literal("File Editor"));
+        this.client = mc;
         this.parent = parent;
         this.serverInfo = info;
 

@@ -129,10 +129,10 @@ public class RemoteAPI implements RemotelyCoreAPI {
                 for (Path path : paths) {
                     String remotePath = path.toString().replace("\\", "/");
                     String fileName = Paths.get(remotePath).getFileName().toString();
-                    String trashPath = homeDir + "/assets/remotely/data/trash/" + fileName;
+                    String trashPath = homeDir + ".remotely/trash/" + fileName;
 
-                    if (!sshManager.remoteFileExists(homeDir + "/assets/remotely/data/trash")) {
-                        sshManager.runRemoteCommand("mkdir -p " + homeDir + "/assets/remotely/data/trash && mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
+                    if (!sshManager.remoteFileExists(homeDir + ".remotely/trash")) {
+                        sshManager.runRemoteCommand("mkdir -p " + homeDir + ".remotely/trash && mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
                     } else {
                         sshManager.runRemoteCommand("mv -f \"" + remotePath + "\" \"" + trashPath + "\"");
                     }
@@ -215,6 +215,30 @@ public class RemoteAPI implements RemotelyCoreAPI {
             } catch (Exception e) {
                 devPrint("Error downloading files: " + e.getMessage());
                 throw new RuntimeException(e);
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<String> readFile(Path path) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                ensureConnected();
+                return sshManager.readRemoteFile(path.toString().replace("\\", "/"));
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to read remote file: " + e.getMessage(), e);
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<Void> writeFile(Path path, String content) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                ensureConnected();
+                sshManager.writeRemoteFile(path.toString().replace("\\", "/"), content);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to write to remote file: " + e.getMessage(), e);
             }
         });
     }

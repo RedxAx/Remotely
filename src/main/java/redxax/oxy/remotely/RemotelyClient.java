@@ -12,7 +12,6 @@ import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 
 import javax.imageio.ImageIO;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.text.Text;
 import java.io.BufferedReader;
 import java.io.File;
 import java.nio.file.*;
@@ -66,8 +65,14 @@ public class RemotelyClient {
         loadThemesFromDir();
         SettingsScreen.loadClientConfigFromJson();
         migrateRemotelyData();
-        Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownAllTerminals));
+        Runtime.getRuntime().addShutdownHook(new Thread(this::onClientShutdown));
         os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
+    }
+
+    private void onClientShutdown() {
+        shutdownAllTerminals();
+        hostSSHManagers.values().forEach(SSHManager::shutdown);
+        hostSSHManagers.clear();
     }
 
     public static void loadThemesFromDir() {
@@ -222,34 +227,22 @@ public class RemotelyClient {
 
         String key = host.getIp() + ":" + host.getPort() + ":" + host.getUser();
 
-        if (hostSSHManagers.containsKey(key)) {
-            SSHManager existingManager = hostSSHManagers.get(key);
-
-            if (existingManager != null && existingManager.isSSH()) {
-                return existingManager;
-            } else {
-                if (existingManager != null) {
+        synchronized (hostSSHManagers) {
+            if (hostSSHManagers.containsKey(key)) {
+                SSHManager existingManager = hostSSHManagers.get(key);
+                if (existingManager.isSSH()) {
+                    return existingManager;
+                } else {
                     existingManager.shutdown();
+                    hostSSHManagers.remove(key);
                 }
-                hostSSHManagers.remove(key);
             }
+
+            SSHManager manager = new SSHManager(host);
+            manager.connectToRemoteHost(host.getUser(), host.getIp(), host.getPort(), host.getPassword());
+            hostSSHManagers.put(key, manager);
+            return manager;
         }
-
-        SSHManager manager = new SSHManager(host);
-
-        try {
-            manager.connectToRemoteHost(
-                    host.getUser(),
-                    host.getIp(),
-                    host.getPort(),
-                    host.getPassword()
-            );
-        } catch (Exception e) {
-            devPrint("Failed to connect to host " + host.getIp() + ": " + e.getMessage());
-        }
-
-        hostSSHManagers.put(key, manager);
-        return manager;
     }
 
     public static void migrateRemotelyData() {

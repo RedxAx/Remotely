@@ -8,6 +8,7 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.api.RemotelyCoreAPI;
 import redxax.oxy.remotely.api.LocalAPI;
 import redxax.oxy.remotely.api.RemoteAPI;
+import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.ui.ReScreen;
 import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
@@ -31,7 +32,9 @@ import static redxax.oxy.remotely.util.searchUtils.isFuzzyMatch;
 
 public class FileExplorerScreen extends ReScreen {
     private final Screen parent;
-    public final ServerInfo serverInfo;
+    private final ServerInfo serverInfo; // Can be null
+    private final RemoteHostInfo remoteHost; // Can be null
+    private final boolean isRemote;
     private final RemotelyCoreAPI fileAPI;
     private Path currentPath;
     private final List<Path> favoritePaths = new ArrayList<>();
@@ -56,21 +59,39 @@ public class FileExplorerScreen extends ReScreen {
         this(parent, info, false);
     }
 
+    public FileExplorerScreen(Screen parent, RemoteHostInfo host) {
+        super(Text.literal("File Explorer"));
+        this.parent = parent;
+        this.serverInfo = null;
+        this.remoteHost = host;
+        this.importMode = false;
+        this.isRemote = true;
+        this.fileAPI = new RemoteAPI(host);
+        this.currentPath = Paths.get(host.getHomeDirectory());
+        loadIcons();
+    }
+
+
     public FileExplorerScreen(Screen parent, ServerInfo info, boolean importMode) {
         super(Text.literal("File Explorer"));
         this.parent = parent;
         this.serverInfo = info;
         this.importMode = importMode;
+        this.isRemote = info.isRemote;
+        this.remoteHost = info.remoteHost;
 
-        if (serverInfo.isRemote) {
-            this.fileAPI = new RemoteAPI(serverInfo.remoteHost);
-            String normalized = serverInfo.path == null ? "" : serverInfo.path.replace("\\", "/").trim();
-            if (normalized.isEmpty()) normalized = "/";
-            if (!normalized.startsWith("/")) normalized = "/" + normalized;
-            this.currentPath = Paths.get(normalized);
+        if (info.isRemote) {
+            this.fileAPI = new RemoteAPI(info.remoteHost);
+            String normalized = info.path == null ? "" : info.path.replace("\\", "/").trim();
+            if (normalized.isEmpty() || normalized.equals("/")) {
+                this.currentPath = Paths.get(info.remoteHost.getHomeDirectory());
+            } else {
+                if (!normalized.startsWith("/")) normalized = "/" + normalized;
+                this.currentPath = Paths.get(normalized);
+            }
         } else {
             this.fileAPI = new LocalAPI();
-            this.currentPath = Paths.get(serverInfo.path).toAbsolutePath().normalize();
+            this.currentPath = Paths.get(info.path).toAbsolutePath().normalize();
         }
 
         loadIcons();
@@ -175,7 +196,7 @@ public class FileExplorerScreen extends ReScreen {
 
         fileAPI.listDirectory(path).thenAccept(entries -> client.execute(() -> {
             for (RemotelyCoreAPI.FileEntry entry : entries) {
-                FileEntryWidget widget = new FileEntryWidget.Builder(entry, fileAPI, serverInfo.isRemote, favoritePaths, favoritePathsLock)
+                FileEntryWidget widget = new FileEntryWidget.Builder(entry, fileAPI, isRemote, favoritePaths, favoritePathsLock)
                         .size(0, 20)
                         .onClick(this::onFileDoubleClick)
                         .onRightClick(this::onFileRightClick)
@@ -204,7 +225,14 @@ public class FileExplorerScreen extends ReScreen {
                 return;
             }
             if (isSupportedFile(entry.path)) {
-                client.setScreen(new FileEditorScreen(client, this, entry.path, serverInfo));
+                // We must pass a serverInfo object, even if it's a temporary one for context.
+                ServerInfo contextInfo = this.serverInfo;
+                if(contextInfo == null && this.remoteHost != null) {
+                    contextInfo = new ServerInfo(true, this.remoteHost, entry.path.toString());
+                } else if (contextInfo == null) {
+                    contextInfo = new ServerInfo(entry.path.toString());
+                }
+                client.setScreen(new FileEditorScreen(client, this, entry.path, contextInfo));
             } else {
                 openExternally(entry.path);
             }
@@ -299,7 +327,7 @@ public class FileExplorerScreen extends ReScreen {
     }
 
     public void openExternally(Path path) {
-        if (serverInfo.isRemote) {
+        if (isRemote) {
             new Notification("Not Allowed On Remote Explorer.", Notification.Type.WARN);
             return;
         }
@@ -358,14 +386,14 @@ public class FileExplorerScreen extends ReScreen {
                 Map<String, Object> tabMap = new HashMap<>();
                 Path tabPath = containerPaths.get(tab.getContainer());
                 tabMap.put("path", tabPath.toString());
-                tabMap.put("isRemote", serverInfo.isRemote);
+                tabMap.put("isRemote", isRemote);
                 tabMap.put("scrollOffset", 0);
-                if (serverInfo.isRemote && serverInfo.remoteHost != null) {
+                if (isRemote && remoteHost != null) {
                     Map<String, Object> hostMap = new HashMap<>();
-                    hostMap.put("user", serverInfo.remoteHost.getUser());
-                    hostMap.put("ip", serverInfo.remoteHost.getIp());
-                    hostMap.put("port", serverInfo.remoteHost.getPort());
-                    hostMap.put("password", serverInfo.remoteHost.getPassword());
+                    hostMap.put("user", remoteHost.getUser());
+                    hostMap.put("ip", remoteHost.getIp());
+                    hostMap.put("port", remoteHost.getPort());
+                    hostMap.put("password", remoteHost.getPassword());
                     tabMap.put("remoteHostInfo", hostMap);
                 }
                 tabList.add(tabMap);

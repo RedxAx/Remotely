@@ -194,6 +194,28 @@ public class LocalAPI implements RemotelyCoreAPI {
     }
 
     @Override
+    public CompletableFuture<String> readFile(Path path) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return Files.readString(path);
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to read file: " + e.getMessage(), e);
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<Void> writeFile(Path path, String content) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                Files.writeString(path, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to write to file: " + e.getMessage(), e);
+            }
+        });
+    }
+
+    @Override
     public boolean canUndo() {
         return !undoStack.isEmpty();
     }
