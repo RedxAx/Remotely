@@ -118,6 +118,7 @@ public class TerminalWidget extends AnimatedWidget {
                 this.processManager.launchTerminal();
             }
         }
+        animateElevation = enableHoverColors = false;
     }
 
     public void shutdown() {
@@ -415,7 +416,7 @@ public class TerminalWidget extends AnimatedWidget {
         try {
             String trimmedCommand = command.trim();
             if (!trimmedCommand.isBlank()) {
-                if (commandHistory.isEmpty() || !trimmedCommand.equals(commandHistory.get(commandHistory.size() - 1))) {
+                if (commandHistory.isEmpty() || !trimmedCommand.equals(commandHistory.getLast())) {
                     commandHistory.add(trimmedCommand);
                 }
                 historyIndex = commandHistory.size();
