@@ -181,7 +181,7 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void addServerWidget(ServerInfo info, boolean isCreate) {
-        DesktopIconWidget widget = new DesktopIconWidget.Builder(info, isCreate, isCreate ? serverIcon : getServerIcon(info)).onClick(this::onDesktopIconClick).onDoubleClick(this::onDesktopIconDoubleClick).build();
+        DesktopIconWidget widget = new DesktopIconWidget.Builder(info, isCreate, isCreate ? serverIcon : getServerIcon(info)).onClick(this::onDesktopIconClick).build();
         activeContainer.addWidget(widget);
     }
 
@@ -206,8 +206,7 @@ public class ServerManagerScreen extends ReScreen {
                 addServerPopup.setY((this.height - addServerPopup.getHeight())/2);
                 addServerPopup.show();
             } else {
-                activeContainer.clearSelection();
-                activeContainer.addSelectedWidget(widget);
+                openServerScreen(widget.getServerInfo());
             }
         } else if (button == 1) {
             if (!widget.isCreateButton()) {
@@ -225,12 +224,6 @@ public class ServerManagerScreen extends ReScreen {
                         .build();
                 contextMenu.show(widget.getX() + widget.getWidth() + 4, widget.getY() + 24);
             }
-        }
-    }
-
-    private void onDesktopIconDoubleClick(DesktopIconWidget widget) {
-        if (!widget.isCreateButton()) {
-            openServerScreen(widget.getServerInfo());
         }
     }
 
