@@ -217,7 +217,7 @@ public class ReScreen extends Screen {
                 plusButton = new SquareButtonWidget.Builder()
                         .imagePath("/assets/remotely/icons/newTab.png")
                         .size(18, 18)
-                        .animateLayout(false)
+                        .animateLayout(true)
                         .onClick(() -> {
                             if (onPlusButtonClicked != null) onPlusButtonClicked.run();
                         })
@@ -402,7 +402,7 @@ public class ReScreen extends Screen {
                         if (idx >= 0) setActiveTab(idx);
                     })
                     .entranceCorner(TOP_LEFT)
-                    .animateLayout(false)
+                    .animateLayout(true)
                     .setSelectable(true)
                     .build();
             addDrawableChild(tab.widget);
