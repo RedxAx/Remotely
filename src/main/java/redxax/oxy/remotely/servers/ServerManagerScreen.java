@@ -1060,6 +1060,7 @@ public class ServerManagerScreen extends ReScreen {
 
     @Override
     public void onDisplayed() {
+        super.onDisplayed();
         playSound(Sound.SERVERMANAGER);
     }
 

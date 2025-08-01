@@ -32,7 +32,6 @@ public class WidgetsTestingScreen extends ReScreen {
         addDrawableChild(new SquareButtonWidget.Builder().pos(110, 72).size(18, 18).imagePath("/assets/remotely/icons/external.png").build());
         addDrawableChild(new SquareButtonWidget.Builder().pos(130, 72).size(18, 18).imagePath("/assets/remotely/icons/terminal.png").build());
         addDrawableChild(new SquareButtonWidget.Builder().pos(150, 72).size(18, 18).imagePath("/assets/remotely/icons/audio.png").build());
-        addDrawableChild(new ToggleWidget.Builder().pos(70, 102).size(40, 20).toggleOff(() -> hideButton(1, 2, 3, -1)).toggleOn(() -> showButton(1, 2, 3, -1)).build());
         addDrawableChild(new ToggleWidget.Builder().pos(120, 102).size(50, 20).toggled(true).onChange( () -> Config.background = !Config.background).build());
         addDrawableChild(new ScrollSelectorWidget.Builder().pos(70, 132).size(100, 20).options(List.of("Hello", "World!", "I'm,", "RemotelyOS!")).build());
         addDrawableChild(new TabSwitchWidget.Builder().pos(70, 162).size(100, 20).label("Tabs").options(List.of("ReOS", "1.0.0", "Alpha")).build());

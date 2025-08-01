@@ -31,6 +31,7 @@ public class MultiTerminalScreen extends ReScreen {
     private SidePanel aiPanel;
     private final ServerInfo serverToOpen;
     private TerminalWidget activeTerminal;
+    private ServerState lastKnownState;
 
     public static final Path THEMES_DIR = remotelyDir.resolve("themes");
 
@@ -57,6 +58,7 @@ public class MultiTerminalScreen extends ReScreen {
         this.activeTerminal = null;
 
         setupPanels();
+        setupHeader();
         setupTabs();
 
         if (tabsManager.getTabs().isEmpty()) {
@@ -92,44 +94,80 @@ public class MultiTerminalScreen extends ReScreen {
         targetScaleFactor = 2;
         globalScaleFactor = 2;
         animScaleFactor = 2;
-        setupHeader();
+    }
+
+    private void launchActiveTerminal() {
+        if (activeTerminal != null && activeTerminal.processManager != null) {
+            activeTerminal.processManager.launchTerminal();
+        }
+    }
+
+    private void exploreActiveTerminalFiles() {
+        if (activeTerminal == null) return;
+        ServerInfo sInfo = activeTerminal.getServerInfo();
+        if (sInfo != null) {
+            client.setScreen(new FileExplorerScreen(this, sInfo));
+        } else {
+            client.setScreen(new FileExplorerScreen(this, Path.of(activeTerminal.getCurrentDir())));
+        }
+    }
+
+    private void openActiveTerminalResources() {
+        if (activeTerminal == null) return;
+        ServerInfo sInfo = activeTerminal.getServerInfo();
+        if (sInfo != null) {
+            client.setScreen(new ResourceManagerScreen(client, this, sInfo));
+        }
     }
 
     private void setupHeader() {
-        header().clearHeaderWidgets();
-
+        header().reset();
         header().addLeft("close.png", this::close, "Close");
 
-        TabsManager.Tab activeTab = tabsManager.getActiveTab();
-        if (activeTab != null && activeTab.getData() instanceof TerminalWidget terminal) {
-            ServerInfo sInfo = terminal.getServerInfo();
-
-            if (sInfo != null) {
-                boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
-                ServerState st = sInfo.state;
-                boolean isRunning = st == ServerState.RUNNING || st == ServerState.STARTING;
-
-                header().addLeft(isRunning ? "stop.png" : "start.png", () -> {
-                    if(terminal.getServerInfo() != null) {
-                        terminal.executeCommand(isRunning ? "stop" : "start");
-                    }
-                }, isRunning ? "Stop Server" : "Start Server");
-
-                header().addLeft("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, terminal.getServerInfo())), "File Explorer");
-
-                if (!isProxy) {
-                    header().addLeft("resources.png", () -> client.setScreen(new ResourceManagerScreen(client, this, terminal.getServerInfo())), "Resources");
-                }
-            } else {
-                header().addLeft("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, Path.of(terminal.getCurrentDir()))), "File Explorer");
-            }
-        }
+        header().addLeft("start.png", this::launchActiveTerminal, "Start Server");
+        header().addLeft("stop.png", this::launchActiveTerminal, "Stop Server");
+        header().addLeft("explorer.png", this::exploreActiveTerminalFiles, "File Explorer");
+        header().addLeft("resources.png", this::openActiveTerminalResources, "Resources");
 
         header().addRight("snippets.png", () -> snippetsPanel.toggle(), "Snippets");
         header().addRight("RemotelyAI.png", () -> aiPanel.toggle(), "RemotelyAI");
 
         header().build();
+        updateHeaderButtons();
     }
+
+    private void updateHeaderButtons() {
+        if (activeTerminal == null) {
+            header().setButtonVisible("start.png", false);
+            header().setButtonVisible("stop.png", false);
+            header().setButtonVisible("explorer.png", false);
+            header().setButtonVisible("resources.png", false);
+            return;
+        }
+
+        ServerInfo sInfo = activeTerminal.getServerInfo();
+        if (sInfo != null) {
+            header().setButtonVisible("explorer.png", true);
+            boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
+            header().setButtonVisible("resources.png", !isProxy);
+            updateStartStopButtonState(sInfo);
+        } else {
+            header().setButtonVisible("start.png", false);
+            header().setButtonVisible("stop.png", false);
+            header().setButtonVisible("resources.png", false);
+            header().setButtonVisible("explorer.png", true);
+        }
+    }
+
+    private void updateStartStopButtonState(ServerInfo sInfo) {
+        if (sInfo == null) return;
+
+        ServerState st = sInfo.state;
+        boolean isRunning = st == ServerState.RUNNING || st == ServerState.STARTING;
+        header().setButtonVisible("start.png", !isRunning);
+        header().setButtonVisible("stop.png", isRunning);
+    }
+
 
     private void setupTabs() {
         tabs().builder()
@@ -157,9 +195,17 @@ public class MultiTerminalScreen extends ReScreen {
             this.activeTerminal = terminal;
             addDrawableChild(this.activeTerminal);
             this.setFocused(this.activeTerminal);
+            if (terminal.getServerInfo() != null) {
+                this.lastKnownState = terminal.getServerInfo().state;
+            } else {
+                this.lastKnownState = null;
+            }
         } else {
             this.activeTerminal = null;
+            this.lastKnownState = null;
         }
+
+        updateHeaderButtons();
 
         remotelyClient.activeTerminalIndex = tabsManager.getActiveTabIndex();
         playSound(Sound.SWITCHTAB);
@@ -208,6 +254,18 @@ public class MultiTerminalScreen extends ReScreen {
         }
 
         populateSnippetsPanel();
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (activeTerminal != null && activeTerminal.getServerInfo() != null) {
+            ServerInfo sInfo = activeTerminal.getServerInfo();
+            if (sInfo.state != lastKnownState) {
+                updateStartStopButtonState(sInfo);
+                lastKnownState = sInfo.state;
+            }
+        }
     }
 
     @Override

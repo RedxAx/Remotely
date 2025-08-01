@@ -43,7 +43,7 @@ public class TerminalWidget extends AnimatedWidget {
 
     private final ServerInfo serverInfo;
     private final SSHManager sshManager;
-    private final TerminalProcessManager processManager;
+    public final TerminalProcessManager processManager;
 
     private boolean isSelecting = false;
     private int selectionStartLine, selectionStartChar, selectionEndLine, selectionEndChar;
@@ -114,7 +114,9 @@ public class TerminalWidget extends AnimatedWidget {
         } else {
             this.sshManager = new SSHManager(this);
             this.processManager = new TerminalProcessManager(this, this.sshManager);
-            this.processManager.launchTerminal();
+            if (serverInfo == null) {
+                this.processManager.launchTerminal();
+            }
         }
     }
 
@@ -419,15 +421,6 @@ public class TerminalWidget extends AnimatedWidget {
                 historyIndex = commandHistory.size();
             }
 
-            if (serverInfo != null && (serverInfo.state == ServerState.STOPPED || serverInfo.state == ServerState.CRASHED)) {
-                if (serverInfo.isRemote) {
-                    // Allow commands even if remote server is stopped (e.g., to start it)
-                } else {
-                    inputBuffer.setLength(0);
-                    cursorPosition = 0;
-                    return;
-                }
-            }
 
             if (trimmedCommand.equalsIgnoreCase("exit")) {
                 if (sshManager != null && sshManager.isSSH()) {
