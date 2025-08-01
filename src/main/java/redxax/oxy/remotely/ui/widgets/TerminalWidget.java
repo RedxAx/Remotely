@@ -455,6 +455,14 @@ public class TerminalWidget extends AnimatedWidget {
         }
     }
 
+    public void startRemoteServer() {
+        if (serverInfo == null || !serverInfo.isRemote || sshManager == null || !sshManager.isSSH()) {
+            appendOutput("Cannot start remote server: not a remote server or SSH not connected.\n");
+            return;
+        }
+        sshManager.launchRemoteServer(serverInfo.path);
+    }
+
     private void handleThemeCommand(String command) {
         String themeName = command.substring(6).trim().replace('_', ' ');
         for (MultiTerminalScreen.Theme theme : themes) {
