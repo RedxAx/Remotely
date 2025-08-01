@@ -168,6 +168,7 @@ public class ReScreen extends Screen {
         private boolean allowRename = true;
         private boolean allowReorder = true;
         private boolean allowAdd = true;
+        private boolean rightToLeft = false;
         private float scrollOffset = 0f;
         private float targetScrollOffset = 0f;
         private int tabPadding = 5;
@@ -291,6 +292,10 @@ public class ReScreen extends Screen {
                 TabsManager.this.allowAdd = allow;
                 return this;
             }
+            public Builder rightToLeft(boolean rtl) {
+                TabsManager.this.rightToLeft = rtl;
+                return this;
+            }
             public Builder onTabSelected(Consumer<Tab> callback) {
                 TabsManager.this.onTabSelected = callback;
                 return this;
@@ -352,7 +357,7 @@ public class ReScreen extends Screen {
                 if (activeTabIndex >= tabs.size()) {
                     activeTabIndex = Math.max(0, tabs.size() - 1);
                 }
-                if (tabs.size() > 0) {
+                if (!tabs.isEmpty()) {
                     setActiveTab(activeTabIndex);
                 } else {
                     setActiveContainer(null);
@@ -410,21 +415,30 @@ public class ReScreen extends Screen {
 
         private void updateLayout() {
             if (!visible) return;
-            width = ReScreen.this.width;
+            if (!rightToLeft) width = ReScreen.this.width;
+
             List<Integer> widths = new ArrayList<>();
             for (Tab tab : tabs) {
                 String label = tab.name + (tab.unsaved ? "*" : "");
                 widths.add(textRenderer.getWidth(label) + 2 * tabPadding);
             }
+
             float totalWidth = 0;
             for (int w : widths) totalWidth += w + tabGap;
             if (allowAdd) totalWidth += height + tabGap;
+
             float maxScroll = Math.max(0, totalWidth - width);
             targetScrollOffset = Math.max(0, Math.min(targetScrollOffset, maxScroll));
             scrollOffset += (targetScrollOffset - scrollOffset) * globalScrollSpeed * deltaTime;
 
             List<Float> basePositions = new ArrayList<>();
-            float cursor = x;
+            float startX = rightToLeft ? (x + this.width) - totalWidth : x;
+            float cursor = startX;
+
+            if (rightToLeft && allowAdd) {
+                cursor += height + tabGap;
+            }
+
             for (int w : widths) {
                 basePositions.add(cursor);
                 cursor += w + tabGap;
@@ -454,7 +468,13 @@ public class ReScreen extends Screen {
             }
 
             if (allowAdd && plusButton != null) {
-                plusButton.setPosition((int)(plusPos - scrollOffset), y);
+                int plusButtonX;
+                if (rightToLeft) {
+                    plusButtonX = (int) (startX - scrollOffset);
+                } else {
+                    plusButtonX = (int) (plusPos - scrollOffset);
+                }
+                plusButton.setPosition(plusButtonX, y);
             }
             updateTabStates();
         }
@@ -469,6 +489,17 @@ public class ReScreen extends Screen {
         private int calculateDragOverIndex(float mouseX) {
             float localX = mouseX + scrollOffset;
             float cursor = x;
+            if (rightToLeft) {
+                float totalWidth = 0;
+                List<Integer> widths = new ArrayList<>();
+                for (Tab tab : tabs) {
+                    String label = tab.name + (tab.unsaved ? "*" : "");
+                    widths.add(textRenderer.getWidth(label) + 2 * tabPadding);
+                }
+                for (int w : widths) totalWidth += w + tabGap;
+                cursor = x + this.width - totalWidth;
+            }
+
             for (int i = 0; i < tabs.size(); i++) {
                 Tab tab = tabs.get(i);
                 String label = tab.name + (tab.unsaved ? "*" : "");
@@ -794,7 +825,8 @@ public class ReScreen extends Screen {
         public enum LayoutStyle {
             RESTRICTED,
             MANAGED,
-            FREE
+            FREE,
+            DESKTOP
         }
 
         private final List<AnimatedWidget> widgets = new ArrayList<>();
@@ -820,6 +852,12 @@ public class ReScreen extends Screen {
         private long lastClickTime = 0;
         private int DOUBLE_CLICK_DELAY = 500;
         private AnimatedWidget lastClickedWidget = null;
+        private boolean drawBackground = true;
+        private boolean isDraggingWidget = false;
+        private AnimatedWidget draggingWidget = null;
+        private int draggingWidgetIndex = -1;
+        private int dragOverWidgetIndex = -1;
+        private float dragOffsetX, dragOffsetY;
 
         public Container(int x, int y, int width, int height) {
             this(x, y, width, height, false);
@@ -885,6 +923,11 @@ public class ReScreen extends Screen {
 
         public Container setDoubleClickDelay(int delay) {
             this.DOUBLE_CLICK_DELAY = delay;
+            return this;
+        }
+
+        public Container drawBackground(boolean draw) {
+            this.drawBackground = draw;
             return this;
         }
 
@@ -1002,14 +1045,87 @@ public class ReScreen extends Screen {
                 case RESTRICTED -> layoutRestricted();
                 case MANAGED -> layoutManaged();
                 case FREE -> layoutFree();
+                case DESKTOP -> layoutDesktop();
             }
             updateScrollState();
+        }
+
+        private void layoutDesktop() {
+            if (widgets.isEmpty()) return;
+
+            int maxWidgetWidth = 0;
+            int maxWidgetHeight = 0;
+            for (AnimatedWidget w : widgets) {
+                if (w.getWidth() > maxWidgetWidth) maxWidgetWidth = w.getWidth();
+                if (w.getHeight() > maxWidgetHeight) maxWidgetHeight = w.getHeight();
+            }
+            if (maxWidgetWidth == 0) maxWidgetWidth = 34;
+            if (maxWidgetHeight == 0) maxWidgetHeight = 34;
+
+            int margin = 20;
+            int spacingX = 10;
+            int spacingY = 20;
+            int effectiveHeight = cHeight - y;
+            int rows = Math.max(1, (effectiveHeight - 2 * margin) / (maxWidgetHeight + spacingY));
+
+            for (int i = 0; i < widgets.size(); i++) {
+                AnimatedWidget w = widgets.get(i);
+                if (isDraggingWidget && w == draggingWidget) {
+                    continue;
+                }
+
+                int displayIndex = i;
+                if(isDraggingWidget && draggingWidgetIndex != -1 && dragOverWidgetIndex != -1) {
+                    if (draggingWidgetIndex < dragOverWidgetIndex) { // Dragging down/right
+                        if (i > draggingWidgetIndex && i <= dragOverWidgetIndex) {
+                            displayIndex--;
+                        }
+                    } else if (draggingWidgetIndex > dragOverWidgetIndex) { // Dragging up/left
+                        if (i >= dragOverWidgetIndex && i < draggingWidgetIndex) {
+                            displayIndex++;
+                        }
+                    }
+                }
+
+                int col = displayIndex / rows;
+                int row = displayIndex % rows;
+                int wx = x + margin + col * (maxWidgetWidth + spacingX);
+                int wy = y + margin + row * (maxWidgetHeight + spacingY);
+
+                w.setPosition(wx, wy);
+            }
+        }
+
+        private int getDesktopIndexAt(double mouseX, double mouseY) {
+            if (widgets.isEmpty()) return 0;
+
+            int maxWidgetWidth = 0;
+            int maxWidgetHeight = 0;
+            for (AnimatedWidget w : widgets) {
+                if (w.getWidth() > maxWidgetWidth) maxWidgetWidth = w.getWidth();
+                if (w.getHeight() > maxWidgetHeight) maxWidgetHeight = w.getHeight();
+            }
+            if (maxWidgetWidth == 0) maxWidgetWidth = 34;
+            if (maxWidgetHeight == 0) maxWidgetHeight = 34;
+
+            int margin = 20;
+            int spacingX = 10;
+            int spacingY = 20;
+            int effectiveHeight = cHeight - y;
+            int rows = Math.max(1, (effectiveHeight - 2 * margin) / (maxWidgetHeight + spacingY));
+
+            int col = Math.max(0, (int) ((mouseX - x - margin + spacingX / 2) / (maxWidgetWidth + spacingX)));
+            int row = Math.max(0, Math.max(0, (int) ((mouseY - y - margin + spacingY / 2) / (maxWidgetHeight + spacingY))));
+            row = Math.min(row, rows - 1);
+
+            int newIndex = col * rows + row;
+            return Math.max(0, Math.min(widgets.size(), newIndex));
         }
 
         private void layoutRestricted() {
             int effectiveWidth = getEffectiveWidth();
             int columnWidth = (effectiveWidth - padding * (columns + 1)) / columns;
-            int rowHeight = widgets.isEmpty() ? 20 : widgets.get(0).getHeight();
+            int rowHeight = widgets.isEmpty() ? 20 : widgets.getFirst().getHeight();
             int currentRow = 0;
             int currentCol = 0;
             for (int i = 0; i < widgets.size(); i++) {
@@ -1058,7 +1174,7 @@ public class ReScreen extends Screen {
         private void layoutFree() {
             int effectiveWidth = getEffectiveWidth();
             class PlacedRect {
-                int x, y, w, h;
+                final int x, y, w, h;
                 PlacedRect(int x, int y, int w, int h) {
                     this.x = x;
                     this.y = y;
@@ -1146,7 +1262,7 @@ public class ReScreen extends Screen {
             }
         }
 
-        private void clearSelection() {
+        public void clearSelection() {
             for (AnimatedWidget widget : selectedWidgets) {
                 widget.setSelected(false);
             }
@@ -1174,45 +1290,49 @@ public class ReScreen extends Screen {
 
         public void render(DrawContext context, int mouseX, int mouseY, float delta) {
             if (!sidePanelContainer && this != activeContainer) return;
-
-            updateWidgetPositions();
+            if (layoutStyle == LayoutStyle.DESKTOP) updateWidgetPositions();
 
             smoothOffset += (targetOffset - smoothOffset) * globalScrollSpeed * deltaTime;
             int effectiveWidth = getEffectiveWidth();
-            drawBackground(context, effectiveWidth);
-            int totalHeight = calculateTotalHeight();
-            int visibleHeight = cHeight - y - 2 * padding;
-            canScroll = totalHeight > visibleHeight;
-            hitBottom = smoothOffset > Math.max(0, totalHeight - visibleHeight) - 2;
-            for (int i = 0; i < widgets.size(); i++) {
-                AnimatedWidget w = widgets.get(i);
-                int newY = originalYPositions.get(i) - (int) smoothOffset;
-                w.setPosition(w.getX(), newY);
+            if (drawBackground) {
+                drawBackground(context, effectiveWidth);
             }
-            if (smoothOffset > 2) {
-                context.fillGradient(x, y, x + effectiveWidth, y + 10, innerBackgroundColor, 0x00000000);
+            if (layoutStyle != LayoutStyle.DESKTOP) {
+                int totalHeight = calculateTotalHeight();
+                int visibleHeight = cHeight - y - 2 * padding;
+                canScroll = totalHeight > visibleHeight;
+                hitBottom = smoothOffset > Math.max(0, totalHeight - visibleHeight) - 2;
+                for (int i = 0; i < widgets.size(); i++) {
+                    AnimatedWidget w = widgets.get(i);
+                    int newY = originalYPositions.get(i) - (int) smoothOffset;
+                    w.setPosition(w.getX(), newY);
+                }
+                if (smoothOffset > 2) {
+                    context.fillGradient(x, y, x + effectiveWidth, y + 10, innerBackgroundColor, 0x00000000);
+                }
+                if (smoothOffset < Math.max(0, totalHeight - visibleHeight)) {
+                    context.fillGradient(x, cHeight - 10, x + effectiveWidth, cHeight, 0x00000000, innerBackgroundColor);
+                }
+                if (canScroll && (sidePanelContainer || getTotalSidePanelWidth() < 10)) {
+                    int scrollbarX = x + effectiveWidth + 2;
+                    int scrollbarY = y;
+                    int scrollbarHeight = cHeight - y;
+                    ScrollBar.render(context, ReScreen.this, mouseX, mouseY, totalHeight, smoothOffset, scrollbarX, scrollbarY, scrollbarWidth, scrollbarHeight);
+                }
+                targetOffset = ScrollBar.getPendingOffset();
+                targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, totalHeight - visibleHeight)));
             }
-            if (smoothOffset < Math.max(0, totalHeight - visibleHeight)) {
-                context.fillGradient(x, cHeight - 10, x + effectiveWidth, cHeight, 0x00000000, innerBackgroundColor);
-            }
-            if (canScroll && (sidePanelContainer || getTotalSidePanelWidth() < 10)) {
-                int scrollbarX = x + effectiveWidth + 2;
-                int scrollbarY = y;
-                int scrollbarHeight = cHeight - y;
-                ScrollBar.render(context, ReScreen.this, mouseX, mouseY, totalHeight, smoothOffset, scrollbarX, scrollbarY, scrollbarWidth, scrollbarHeight);
-            }
-            targetOffset = ScrollBar.getPendingOffset();
-            targetOffset = Math.max(0, Math.min(targetOffset, Math.max(0, totalHeight - visibleHeight)));
         }
 
         public boolean mouseScrolled(double mouseX, double mouseY, double verticalAmount) {
+            if (layoutStyle == LayoutStyle.DESKTOP) return false;
             if (!sidePanelContainer && this != activeContainer) return false;
             int effectiveWidth = getEffectiveWidth();
             if (mouseX >= x && mouseX <= x + effectiveWidth &&
                     mouseY >= y && mouseY <= cHeight) {
                 if (canScroll) {
                     int step = 30;
-                    targetOffset -= verticalAmount * step;
+                    targetOffset -= (float) (verticalAmount * step);
                     int totalHeight = calculateTotalHeight();
                     int visibleHeight = cHeight - y - 2 * padding;
                     targetOffset = Math.max(0,
@@ -1232,6 +1352,14 @@ public class ReScreen extends Screen {
 
         public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
             if (!sidePanelContainer && this != activeContainer) return false;
+
+            if (layoutStyle == LayoutStyle.DESKTOP && isDraggingWidget) {
+                draggingWidget.setX((int) (mouseX - dragOffsetX));
+                draggingWidget.setY((int) (mouseY - dragOffsetY));
+                dragOverWidgetIndex = getDesktopIndexAt(mouseX, mouseY);
+                return true;
+            }
+
             if (canScroll) {
                 int totalHeight = calculateTotalHeight();
                 int visibleHeight = cHeight - y - 2 * padding;
@@ -1246,23 +1374,27 @@ public class ReScreen extends Screen {
 
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
             if (!sidePanelContainer && this != activeContainer) return false;
-            int effectiveWidth = getEffectiveWidth();
-            int scrollbarX = x + effectiveWidth + 2;
+
+            AnimatedWidget clickedWidget = null;
+            for (AnimatedWidget widget : widgets) {
+                if (widget.isMouseOver(mouseX, mouseY)) {
+                    clickedWidget = widget;
+                    break;
+                }
+            }
+
+            if (layoutStyle == LayoutStyle.DESKTOP && clickedWidget != null && button == 0) {
+                isDraggingWidget = true;
+                draggingWidget = clickedWidget;
+                draggingWidgetIndex = widgets.indexOf(clickedWidget);
+                dragOverWidgetIndex = draggingWidgetIndex;
+                dragOffsetX = (float) (mouseX - clickedWidget.getX());
+                dragOffsetY = (float) (mouseY - clickedWidget.getY());
+            }
 
             if (enableSelecting && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 long currentTime = System.currentTimeMillis();
-                boolean isDoubleClick = false;
-                AnimatedWidget clickedWidget = null;
-                for (AnimatedWidget widget : widgets) {
-                    if (mouseX >= widget.getX() && mouseX <= widget.getX() + widget.getWidth() && mouseY >= widget.getY() && mouseY <= widget.getY() + widget.getHeight()) {
-                        clickedWidget = widget;
-                        break;
-                    }
-                }
-
-                if (clickedWidget != null && clickedWidget == lastClickedWidget && currentTime - lastClickTime <= DOUBLE_CLICK_DELAY) {
-                    isDoubleClick = true;
-                }
+                boolean isDoubleClick = clickedWidget != null && clickedWidget == lastClickedWidget && currentTime - lastClickTime <= DOUBLE_CLICK_DELAY;
 
                 if (isDoubleClick) {
                     lastClickTime = 0;
@@ -1291,7 +1423,8 @@ public class ReScreen extends Screen {
                     return true;
                 }
             }
-
+            int effectiveWidth = getEffectiveWidth();
+            int scrollbarX = x + effectiveWidth + 2;
             if (mouseX >= x && mouseX <= scrollbarX + scrollbarWidth &&
                     mouseY >= y && mouseY <= cHeight) {
                 if (canScroll && (sidePanelContainer || getTotalSidePanelWidth() < 10)) {
@@ -1311,6 +1444,24 @@ public class ReScreen extends Screen {
 
         public boolean mouseReleased(double mouseX, double mouseY, int button) {
             if (!sidePanelContainer && this != activeContainer) return false;
+
+            if (layoutStyle == LayoutStyle.DESKTOP && isDraggingWidget && button == 0) {
+                isDraggingWidget = false;
+
+                if (dragOverWidgetIndex != draggingWidgetIndex && dragOverWidgetIndex >= 0) {
+                    AnimatedWidget movedWidget = widgets.remove(draggingWidgetIndex);
+                    widgets.add(Math.min(dragOverWidgetIndex, widgets.size()), movedWidget);
+                    clearSelection();
+                    selectWidget(movedWidget, false);
+                }
+
+                draggingWidget = null;
+                draggingWidgetIndex = -1;
+                dragOverWidgetIndex = -1;
+                updateWidgetPositions();
+                return true;
+            }
+
             return canScroll && ScrollBar.handleMouseReleased();
         }
 
