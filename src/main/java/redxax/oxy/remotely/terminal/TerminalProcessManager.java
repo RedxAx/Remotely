@@ -63,7 +63,7 @@ public class TerminalProcessManager {
                 String os = System.getProperty("os.name").toLowerCase();
                 ProcessBuilder processBuilder;
                 if (os.contains("win")) {
-                    processBuilder = new ProcessBuilder("cmd.exe");
+                    processBuilder = new ProcessBuilder("powershell.exe", "-NoLogo");
                 } else if (os.contains("mac") || os.contains("darwin")) {
                     processBuilder = new ProcessBuilder("/bin/zsh", "-l");
                 } else {
