@@ -15,7 +15,6 @@ import redxax.oxy.remotely.ui.widgets.TerminalWidget;
 import redxax.oxy.remotely.util.Sound;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -112,7 +111,7 @@ public class MultiTerminalScreen extends ReScreen {
 
                 header().addLeft(isRunning ? "stop.png" : "start.png", () -> {
                     if(terminal.getServerInfo() != null) {
-                        terminal.executeCommand("stop");
+                        terminal.executeCommand(isRunning ? "stop" : "start");
                     }
                 }, isRunning ? "Stop Server" : "Start Server");
 
@@ -141,10 +140,11 @@ public class MultiTerminalScreen extends ReScreen {
                 .onPlusButtonClicked(() -> addNewTerminalTab("Terminal " + (tabsManager.getTabs().size() + 1)))
                 .build();
 
-        for (int i = 0; i < remotelyClient.multiTabNames.size(); i++) {
-            String tabName = remotelyClient.multiTabNames.get(i);
-            ServerInfo info = i < remotelyClient.multiTerminals.size() ? remotelyClient.multiTerminals.get(i): null;
-            addTerminalTab(tabName, info);
+        if (!remotelyClient.multiTerminalTabs.isEmpty()) {
+            for (TabsManager.Tab tab : remotelyClient.multiTerminalTabs) {
+                tabsManager.addTabRaw(tab);
+            }
+            remotelyClient.multiTerminalTabs.clear();
         }
     }
 
@@ -189,16 +189,12 @@ public class MultiTerminalScreen extends ReScreen {
 
     private void addNewTerminalTab(String name) {
         addTerminalTab(name, null);
-        remotelyClient.multiTabNames.add(name);
-        remotelyClient.multiTerminals.add(null);
         tabsManager.setActiveTab(tabsManager.getTabs().size() - 1);
         playSound(Sound.CREATE);
     }
 
     private void addNewTerminalTab(String name, ServerInfo info) {
         addTerminalTab(name, info);
-        remotelyClient.multiTabNames.add(name);
-        remotelyClient.multiTerminals.add(info);
         tabsManager.setActiveTab(tabsManager.getTabs().size() - 1);
         playSound(Sound.CREATE);
     }
@@ -273,20 +269,8 @@ public class MultiTerminalScreen extends ReScreen {
         remotelyClient.showSnippetsPanel = snippetsPanel.isVisible();
         remotelyClient.activeTerminalIndex = tabsManager.getActiveTabIndex();
 
-        List<String> names = new ArrayList<>();
-        List<ServerInfo> infos = new ArrayList<>();
-
-        for (TabsManager.Tab tab : tabsManager.getTabs()) {
-            names.add(tab.getName());
-            if (tab.getData() instanceof TerminalWidget terminal) {
-                infos.add(terminal.getServerInfo());
-                terminal.shutdown();
-            } else {
-                infos.add(null);
-            }
-        }
-        remotelyClient.multiTabNames = new ArrayList<>(names);
-        remotelyClient.multiTerminals = new ArrayList<>(infos);
+        remotelyClient.multiTerminalTabs.clear();
+        remotelyClient.multiTerminalTabs.addAll(tabsManager.getTabs());
 
         super.removed();
     }

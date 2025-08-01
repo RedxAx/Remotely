@@ -39,6 +39,7 @@ public class ReScreen extends Screen {
     private boolean needsLayoutUpdate = false;
     private int initialWidth = 0;
     private int initialHeight = 0;
+    protected MinecraftClient client = MinecraftClient.getInstance();
 
     protected ReScreen(Text title) {
         super(title);
@@ -348,6 +349,11 @@ public class ReScreen extends Screen {
             }
             updateLayout();
             return tab;
+        }
+
+        public void addTabRaw(Tab tab) {
+            tabs.add(tab);
+            createTabWidget(tab);
         }
 
         public void removeTab(int index) {
