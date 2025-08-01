@@ -97,8 +97,30 @@ public class MultiTerminalScreen extends ReScreen {
     }
 
     private void launchActiveTerminal() {
-        if (activeTerminal != null && activeTerminal.processManager != null) {
-            activeTerminal.processManager.launchTerminal();
+        if (activeTerminal == null) {
+            return;
+        }
+
+        ServerInfo sInfo = activeTerminal.getServerInfo();
+        if (sInfo == null) {
+            if (activeTerminal.processManager != null) {
+                activeTerminal.processManager.launchTerminal();
+            }
+            return;
+        }
+
+        boolean isRunning = sInfo.state == ServerState.RUNNING || sInfo.state == ServerState.STARTING;
+
+        if (isRunning) {
+            activeTerminal.executeCommand("stop");
+        } else {
+            if (sInfo.isRemote) {
+                activeTerminal.startRemoteServer();
+            } else {
+                if (activeTerminal.processManager != null) {
+                    activeTerminal.processManager.launchTerminal();
+                }
+            }
         }
     }
 
