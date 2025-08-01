@@ -5,6 +5,8 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.explorer.FileExplorerScreen;
+import redxax.oxy.remotely.resources.ResourceManagerScreen;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
 import redxax.oxy.remotely.ui.ReScreen;
@@ -114,19 +116,13 @@ public class MultiTerminalScreen extends ReScreen {
                     }
                 }, isRunning ? "Stop Server" : "Start Server");
 
-                header().addLeft("explorer.png", () -> {
-                    // File Explorer Logic
-                }, "File Explorer");
+                header().addLeft("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, terminal.getServerInfo())), "File Explorer");
 
                 if (!isProxy) {
-                    header().addLeft("resources.png", () -> {
-                        // Resources Logic
-                    }, "Resources");
+                    header().addLeft("resources.png", () -> client.setScreen(new ResourceManagerScreen(client, this, terminal.getServerInfo())), "Resources");
                 }
             } else {
-                header().addLeft("explorer.png", () -> {
-                    // File Explorer Logic
-                }, "File Explorer");
+                header().addLeft("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, Path.of(terminal.getCurrentDir()))), "File Explorer");
             }
         }
 
