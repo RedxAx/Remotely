@@ -66,7 +66,7 @@ public class DesktopIconWidget extends AnimatedWidget {
         drawPixelArt(ctx, iconX, iconY, iconSize, iconSize, icon);
 
         String name = getMessage().getString();
-        String trimmed = trimTextToWidthWithEllipsis(name, getWidth() - 4);
+        String trimmed = trimTextToWidthWithEllipsis(name, getWidth() + 4);
         int textWidth = tr.getWidth(trimmed);
         int textX = getX() + (getWidth() - textWidth) / 2;
         int textY = iconY + iconSize + 4;
