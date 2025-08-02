@@ -10,6 +10,7 @@ import com.jediterm.terminal.emulator.mouse.MouseFormat;
 import com.jediterm.terminal.emulator.mouse.MouseMode;
 import com.jediterm.terminal.model.*;
 import com.jediterm.terminal.ui.settings.SettingsProvider;
+import kotlin.UByteArray;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
 import net.minecraft.text.MutableText;
@@ -57,6 +58,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     private int myCursorX = 1;
     private int myCursorY = 1;
     private boolean myCursorVisible = true;
+    private boolean myCursorIsShown = true;
     private CursorShape myCursorShape = CursorShape.BLINK_BLOCK;
     private long myLastCursorChange = System.currentTimeMillis();
 
@@ -66,6 +68,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     private TerminalSelection mySelection;
     private Point mySelectionStartPoint;
     private final AtomicBoolean myNeedsRepaint = new AtomicBoolean(true);
+    private TermSize myLastTermSize;
     Identifier font = Identifier.of("remotely", "mono");
 
 
@@ -101,8 +104,9 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         StyleState styleState = new StyleState();
         styleState.setDefaultStyle(mySettingsProvider.getDefaultStyle());
 
-        int termWidth = width / getCharWidth();
-        int termHeight = height / (tr.fontHeight + 2);
+        int termWidth = Math.max(1, width / getCharWidth());
+        int termHeight = Math.max(1, height / (tr.fontHeight + 2));
+        myLastTermSize = new TermSize(termWidth, termHeight);
         myTextBuffer = new TerminalTextBuffer(termWidth, termHeight, styleState);
         myTerminal = new MyJediTerminal(this, myTextBuffer, styleState);
 
@@ -189,6 +193,28 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     @Override
     public void tick() {
         super.tick();
+
+        int newTermWidth = Math.max(1, getWidth() / getCharWidth());
+        int newTermHeight = Math.max(1, getHeight() / (tr.fontHeight + 2));
+
+        TermSize newTermSize = new TermSize(newTermWidth, newTermHeight);
+        if (!newTermSize.equals(myLastTermSize)) {
+            myLastTermSize = newTermSize;
+            if (myTerminalStarter != null) {
+                myTerminalStarter.postResize(newTermSize, RequestOrigin.User);
+            } else {
+                myTerminal.resize(newTermSize, RequestOrigin.User);
+            }
+        }
+
+        if (isFocused()) {
+            long time = System.currentTimeMillis();
+            if ((time - myLastCursorChange) > mySettingsProvider.caretBlinkingMs()) {
+                myLastCursorChange = time;
+                myCursorIsShown = !myCursorIsShown;
+                scheduleRepaint();
+            }
+        }
     }
 
     private int getCharWidth() {
@@ -201,8 +227,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         scrollY += (targetScrollY - scrollY) * globalScrollSpeed * deltaTime;
         myNeedsRepaint.getAndSet(false);
         int padding = 2;
-        int statusHeight = tr.fontHeight + 4;
-        int contentHeight = getHeight() - statusHeight - padding;
+        int contentHeight = getHeight() - padding;
         int contentY = getY() + padding;
         int lineHeight = tr.fontHeight + 2;
 
@@ -231,13 +256,9 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
                         }
                     });
 
-            if (myCursorVisible && isFocused()) {
-                long time = System.currentTimeMillis();
-                if ((time - myLastCursorChange) > mySettingsProvider.caretBlinkingMs()) {
-                    myLastCursorChange = time;
-                }
-                if ((time - myLastCursorChange) < mySettingsProvider.caretBlinkingMs() / 2) {
-                    int cursorScreenY = (myCursorY - 1 + linesScrolled) * lineHeight + contentY - (int)(scrollY % lineHeight);
+            if (myCursorVisible && isFocused() && myCursorIsShown) {
+                int cursorScreenY = contentY + (myCursorY - 1) * lineHeight - (int)(scrollY);
+                if (cursorScreenY >= contentY && cursorScreenY < contentY + contentHeight) {
                     ctx.fill(getX() + padding + (myCursorX - 1) * getCharWidth(), cursorScreenY, getX() + padding + myCursorX * getCharWidth(), cursorScreenY + lineHeight, Config.globalCursorAnimatedColor);
                 }
             }
@@ -247,30 +268,10 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
         ctx.disableScissor();
 
-        int statusY = getY() + getHeight() - statusHeight;
-        drawStatusBar(ctx, getX(), statusY, getWidth(), statusHeight);
     }
 
     private Color fromAwtColor(java.awt.Color color) {
         return new Color(color.getRed(), color.getGreen(), color.getBlue(), color.getAlpha());
-    }
-
-    private void drawStatusBar(DrawContext ctx, int x, int y, int w, int h) {
-        ctx.fill(x, y, x + w, y + h, Config.terminalStatusBarColor);
-        String leftText = "Remotely";
-        String rightText = new java.util.Date().toString();
-
-        if (serverInfo != null) {
-            leftText = serverInfo.name + " - " + serverInfo.state.name();
-            if (serverInfo.isRemote && sshManager != null) {
-                rightText = serverInfo.remoteHost.name + " (" + (sshManager.isSSH() ? "Connected" : "Disconnected") + ")";
-            } else {
-                rightText = "Local";
-            }
-        }
-
-        ctx.drawText(tr, leftText, x + 4, y + (h - tr.fontHeight) / 2, Config.terminalTextColor, shadow);
-        ctx.drawText(tr, rightText, x + w - tr.getWidth(rightText) - 4, y + (h - tr.fontHeight) / 2, Config.terminalTextColor, shadow);
     }
 
     @Override
@@ -306,12 +307,10 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         }
 
         byte[] code = myTerminal.getCodeForKey(awtKeyCode, awtModifiers);
-        if (code != null) {
-            if (myTerminalStarter != null) {
-                myTerminalStarter.sendBytes(code, true);
-                if (mySettingsProvider.scrollToBottomOnTyping()) {
-                    scrollToBottom();
-                }
+        if (code != null && myTerminalStarter != null) {
+            myTerminalStarter.sendBytes(code, true);
+            if (mySettingsProvider.scrollToBottomOnTyping()) {
+                scrollToBottom();
             }
             return true;
         }
@@ -442,6 +441,10 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
             return serverInfo.path;
         }
         return "/";
+    }
+
+    public JediTerminal getTerminal() {
+        return myTerminal;
     }
 
     public void saveTerminalOutput(Path path) throws IOException {

@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.terminal;
 
+import com.jediterm.core.util.TermSize;
 import com.jediterm.pty.PtyProcessTtyConnector;
 import com.jediterm.terminal.TtyConnector;
 import com.pty4j.PtyProcess;
@@ -79,6 +80,12 @@ public class TerminalProcessManager {
                 builder.setConsole(false).setUseWinConPty(true);
             }
 
+            TermSize initialSize = widget.getTerminal().getSize();
+            if (initialSize.getColumns() > 0 && initialSize.getRows() > 0) {
+                builder.setInitialColumns(initialSize.getColumns());
+                builder.setInitialRows(initialSize.getRows());
+            }
+
             return builder.start();
         } catch (Exception e) {
             widget.appendOutput("Failed to launch terminal process: " + e.getMessage() + "\n");
@@ -132,6 +139,12 @@ public class TerminalProcessManager {
 
             if (os.contains("win")) {
                 builder.setConsole(false).setUseWinConPty(true);
+            }
+
+            TermSize initialSize = widget.getTerminal().getSize();
+            if (initialSize.getColumns() > 0 && initialSize.getRows() > 0) {
+                builder.setInitialColumns(initialSize.getColumns());
+                builder.setInitialRows(initialSize.getRows());
             }
 
             return builder.start();
