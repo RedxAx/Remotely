@@ -6,7 +6,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.terminal.ReverseProxyManager;
+import redxax.oxy.remotely.servers.ReverseProxyManager;
 
 // Example using Mixin
 @Mixin(MinecraftClient.class)

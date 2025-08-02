@@ -2,7 +2,6 @@ package redxax.oxy.remotely.terminal;
 
 import com.jcraft.jsch.Channel;
 import com.jediterm.core.util.TermSize;
-import com.jediterm.terminal.TtyConnector;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -11,13 +10,13 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 
-public class JSchTtyConnector implements TtyConnector {
+public class TtyConnector implements com.jediterm.terminal.TtyConnector {
     private final Channel myChannel;
     private final InputStream myInputStream;
     private final OutputStream myOutputStream;
     private final InputStreamReader myReader;
 
-    public JSchTtyConnector(@NotNull Channel channel) throws IOException {
+    public TtyConnector(@NotNull Channel channel) throws IOException {
         myChannel = channel;
         myInputStream = channel.getInputStream();
         myOutputStream = channel.getOutputStream();

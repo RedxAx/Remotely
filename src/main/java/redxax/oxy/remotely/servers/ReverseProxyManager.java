@@ -1,4 +1,4 @@
-package redxax.oxy.remotely.terminal;
+package redxax.oxy.remotely.servers;
 
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;

@@ -9,12 +9,12 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public final class JediTermExecutorServiceManager implements TerminalExecutorServiceManager {
+public final class ExecutorServiceManager implements TerminalExecutorServiceManager {
 
     private final ScheduledExecutorService mySingleThreadScheduledExecutor;
     private final ExecutorService myUnboundedExecutor;
 
-    public JediTermExecutorServiceManager() {
+    public ExecutorServiceManager() {
         mySingleThreadScheduledExecutor = Executors.newSingleThreadScheduledExecutor(new JediTermThreadFactory("JediTerm-fast-job-"));
         myUnboundedExecutor = Executors.newCachedThreadPool(new JediTermThreadFactory("JediTerm-"));
     }

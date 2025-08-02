@@ -5,8 +5,7 @@ import redxax.oxy.remotely.resources.IRemotelyResource;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
-import redxax.oxy.remotely.terminal.JSchTtyConnector;
-import com.jediterm.terminal.TtyConnector;
+import redxax.oxy.remotely.terminal.TtyConnector;
 import redxax.oxy.remotely.terminal.TerminalWidget;
 
 import java.io.*;
@@ -139,14 +138,14 @@ public class SSHManager {
         }
     }
 
-    public TtyConnector createTtyConnector() throws JSchException, IOException {
+    public com.jediterm.terminal.TtyConnector createTtyConnector() throws JSchException, IOException {
         if (!isSSH() || sshSession == null) {
             throw new IOException("SSH not connected");
         }
         ChannelShell channel = (ChannelShell) sshSession.openChannel("shell");
         channel.setPty(true);
         channel.connect();
-        return new JSchTtyConnector(channel);
+        return new TtyConnector(channel);
     }
 
     public void connectSFTP() {
