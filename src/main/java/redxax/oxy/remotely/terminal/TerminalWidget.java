@@ -6,6 +6,7 @@ import com.jediterm.core.typeahead.TerminalTypeAheadManager;
 import com.jediterm.core.util.Ascii;
 import com.jediterm.core.util.TermSize;
 import com.jediterm.terminal.*;
+import com.jediterm.terminal.emulator.mouse.MouseButtonCodes;
 import com.jediterm.terminal.emulator.mouse.MouseFormat;
 import com.jediterm.terminal.emulator.mouse.MouseMode;
 import com.jediterm.terminal.model.*;
@@ -72,6 +73,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     Identifier font = Identifier.of("remotely", "mono");
 
     private boolean drawBackground = true;
+    private MouseMode myMouseMode = MouseMode.MOUSE_REPORTING_NONE;
 
     public static class Builder extends AnimatedWidget.Builder<TerminalWidget, Builder> {
         private ServerInfo serverInfo;
@@ -338,13 +340,160 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     }
 
     @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (!isFocused() || myTerminalStarter == null) return super.mouseClicked(mouseX, mouseY, button);
+
+        int awtModifiers = getAwtModifiersFromPoll();
+        if (isRemoteMouseAction(button, awtModifiers)) {
+            Point p = panelToScreenCoords(mouseX, mouseY);
+            com.jediterm.core.input.MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
+            if (event.getButtonCode() != MouseButtonCodes.NONE) {
+                myTerminal.mousePressed(p.x + 1, p.y + 1, event);
+            }
+        } else if (isLocalMouseAction(button, awtModifiers)) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                mySelectionStartPoint = panelToBufferCoords(mouseX, mouseY);
+                mySelection = null;
+                scheduleRepaint();
+            }
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (!isFocused() || myTerminalStarter == null) return super.mouseReleased(mouseX, mouseY, button);
+
+        int awtModifiers = getAwtModifiersFromPoll();
+        if (isRemoteMouseAction(button, awtModifiers)) {
+            Point p = panelToScreenCoords(mouseX, mouseY);
+            com.jediterm.core.input.MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
+            if (event.getButtonCode() != MouseButtonCodes.NONE) {
+                myTerminal.mouseReleased(p.x + 1, p.y + 1, event);
+            }
+        } else if (isLocalMouseAction(button, awtModifiers)) {
+            if (mySettingsProvider.copyOnSelect() && mySelection != null) {
+                handleCopy();
+            }
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (!isFocused() || myTerminalStarter == null) return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+
+        int awtModifiers = getAwtModifiersFromPoll();
+
+        if (isRemoteMouseAction(button, awtModifiers)) {
+            Point screenCoords = panelToScreenCoords(mouseX, mouseY);
+            com.jediterm.core.input.MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
+            if (event.getButtonCode() != MouseButtonCodes.NONE) {
+                myTerminal.mouseDragged(screenCoords.x + 1, screenCoords.y + 1, event);
+            }
+            return true;
+        }
+
+        if (isLocalMouseAction(button, awtModifiers)) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                if (mySelectionStartPoint != null) {
+                    if (mySelection == null) {
+                        mySelection = new TerminalSelection(mySelectionStartPoint);
+                    }
+                    Point bufferCoords = panelToBufferCoords(mouseX, mouseY);
+                    mySelection.updateEnd(bufferCoords);
+                    scheduleRepaint();
+                }
+            }
+        }
+        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+
+    @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (isMouseOver(mouseX, mouseY)) {
+            int awtModifiers = getAwtModifiersFromPoll();
+            if (isRemoteMouseAction(-1, awtModifiers) && myTerminalStarter != null) {
+                Point p = panelToScreenCoords(mouseX, mouseY);
+                com.jediterm.core.input.MouseEvent event = createJediTermMouseWheelEvent(verticalAmount, awtModifiers);
+                myTerminal.mousePressed(p.x + 1, p.y + 1, event);
+                return true;
+            }
             targetScrollY += (float) (verticalAmount * (tr.fontHeight + 2) * 3);
             clampScroll();
             return true;
         }
         return false;
+    }
+
+    private Point panelToBufferCoords(double mouseX, double mouseY) {
+        int padding = 2;
+        int lineHeight = tr.fontHeight + 2;
+        int charWidth = getCharWidth();
+
+        int charX = (int) ((mouseX - (getX() + padding)) / charWidth);
+        charX = Math.max(0, Math.min(charX, myLastTermSize.getColumns() - 1));
+
+        int lineOnScreen = (int) Math.floor((mouseY - (getY() + padding)) / lineHeight);
+
+        int scrolledLines = (int) Math.floor(scrollY / lineHeight);
+        int historyLines = myTextBuffer.getHistoryLinesCount();
+
+        int bufferLine = lineOnScreen + scrolledLines - historyLines;
+
+        return new Point(charX, bufferLine);
+    }
+
+    private Point panelToScreenCoords(double mouseX, double mouseY) {
+        int padding = 2;
+        int lineHeight = tr.fontHeight + 2;
+        int charWidth = getCharWidth();
+        int charX = (int) ((mouseX - (getX() + padding)) / charWidth);
+        charX = Math.max(0, Math.min(charX, myLastTermSize.getColumns() - 1));
+        int charY = (int) Math.floor((mouseY - (getY() + padding)) / lineHeight);
+        charY = Math.max(0, Math.min(charY, myLastTermSize.getRows() - 1));
+        return new Point(charX, charY);
+    }
+
+    private int getAwtModifiersFromPoll() {
+        long windowHandle = mc.getWindow().getHandle();
+        int glfwModifiers = 0;
+        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS) {
+            glfwModifiers |= GLFW.GLFW_MOD_SHIFT;
+        }
+        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS) {
+            glfwModifiers |= GLFW.GLFW_MOD_CONTROL;
+        }
+        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_ALT) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_ALT) == GLFW.GLFW_PRESS) {
+            glfwModifiers |= GLFW.GLFW_MOD_ALT;
+        }
+        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SUPER) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SUPER) == GLFW.GLFW_PRESS) {
+            glfwModifiers |= GLFW.GLFW_MOD_SUPER;
+        }
+        return KeyCodeConverter.toAwtModifiers(glfwModifiers);
+    }
+
+    private boolean isRemoteMouseAction(int button, int awtModifiers) {
+        return myMouseMode != MouseMode.MOUSE_REPORTING_NONE && (awtModifiers & InputEvent.SHIFT_MASK) == 0;
+    }
+
+    private boolean isLocalMouseAction(int button, int awtModifiers) {
+        return mySettingsProvider.forceActionOnMouseReporting() || (myMouseMode == MouseMode.MOUSE_REPORTING_NONE || (awtModifiers & InputEvent.SHIFT_MASK) != 0);
+    }
+
+    private com.jediterm.core.input.MouseEvent createJediTermMouseEvent(int button, int awtModifiers) {
+        int jediButton = switch (button) {
+            case GLFW.GLFW_MOUSE_BUTTON_LEFT -> MouseButtonCodes.LEFT;
+            case GLFW.GLFW_MOUSE_BUTTON_MIDDLE -> MouseButtonCodes.MIDDLE;
+            case GLFW.GLFW_MOUSE_BUTTON_RIGHT -> MouseButtonCodes.RIGHT;
+            default -> MouseButtonCodes.NONE;
+        };
+        return new com.jediterm.core.input.MouseEvent(jediButton, awtModifiers);
+    }
+
+    private com.jediterm.core.input.MouseWheelEvent createJediTermMouseWheelEvent(double verticalAmount, int awtModifiers) {
+        int jediButton = verticalAmount > 0 ? MouseButtonCodes.SCROLLUP : MouseButtonCodes.SCROLLDOWN;
+        return new com.jediterm.core.input.MouseWheelEvent(jediButton, awtModifiers);
     }
 
     private boolean isAltPressedOnly(int awtModifiers) {
@@ -576,6 +725,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
     @Override
     public void terminalMouseModeSet(@NotNull MouseMode mouseMode) {
+        this.myMouseMode = mouseMode;
     }
 
     @Override
