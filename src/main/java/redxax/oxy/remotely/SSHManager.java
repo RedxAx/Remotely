@@ -5,6 +5,8 @@ import redxax.oxy.remotely.resources.IRemotelyResource;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
+import redxax.oxy.remotely.terminal.JSchTtyConnector;
+import com.jediterm.terminal.TtyConnector;
 import redxax.oxy.remotely.ui.widgets.TerminalWidget;
 
 import java.io.*;
@@ -21,20 +23,14 @@ import static redxax.oxy.remotely.util.DevUtil.devPrint;
 public class SSHManager {
     private RemoteHostInfo remoteHost;
     private Session sshSession;
-    private ChannelShell sshChannel;
-    private BufferedReader sshReader;
-    private Writer sshWriter;
     private boolean isSSH = false;
-    private boolean awaitingPassword = false;
     private TerminalWidget terminalWidget;
-    private final ExecutorService executorService = Executors.newFixedThreadPool(2);
     public final ExecutorService sftpExecutor = Executors.newSingleThreadExecutor();
     public ChannelSftp sftpChannel;
     private boolean sftpConnected = false;
     private List<String> remoteCommandsCache = new ArrayList<>();
     private long remoteCommandsLastFetched = 0;
     private static final long REMOTE_COMMANDS_CACHE_DURATION = 60000;
-    private volatile boolean readingSSHOutput = false;
     private static final int CONNECTION_TIMEOUT = 10000;
     private static final int OPERATION_TIMEOUT = 30000;
     private final ScheduledExecutorService connectionMonitor = Executors.newSingleThreadScheduledExecutor();
@@ -143,6 +139,16 @@ public class SSHManager {
         }
     }
 
+    public TtyConnector createTtyConnector() throws JSchException, IOException {
+        if (!isSSH() || sshSession == null) {
+            throw new IOException("SSH not connected");
+        }
+        ChannelShell channel = (ChannelShell) sshSession.openChannel("shell");
+        channel.setPty(true);
+        channel.connect();
+        return new JSchTtyConnector(channel);
+    }
+
     public void connectSFTP() {
         if (sshSession == null || !sshSession.isConnected()) return;
         sftpExecutor.submit(() -> {
@@ -164,42 +170,26 @@ public class SSHManager {
         return sftpChannel != null && sftpChannel.isConnected();
     }
 
-    public void launchRemoteServer(String serverPath) {
+    public String launchRemoteServer(String serverPath) throws Exception {
         if (!isSSH() || sshSession == null || !sshSession.isConnected()) {
-            if (terminalWidget != null) {
-                terminalWidget.appendOutput("SSH not connected. Cannot launch remote server.\n");
-            }
-            return;
+            throw new IOException("SSH not connected. Cannot launch remote server.");
         }
-        executorService.submit(() -> {
-            try {
-                ensureTmuxInstalled();
-                String sessionName = "remotely_server_" + remoteHost.getIp().replace('.', '_') + "_" + serverPath.hashCode();
+        ensureTmuxInstalled();
+        String sessionName = "remotely_server_" + remoteHost.getIp().replace('.', '_') + "_" + serverPath.hashCode();
 
-                if (!isTmuxSessionRunning(sessionName)) {
-                    devPrint("Tmux session " + sessionName + " not found. Creating...");
-                    String startScriptPath = serverPath + "/start.sh";
-                    String command = "cd " + serverPath + " && ./start.sh";
-                    createTmuxSession(sessionName, command);
-                    if (terminalWidget.getServerInfo() != null) {
-                        terminalWidget.getServerInfo().state = ServerState.STARTING;
-                    }
-                } else {
-                    devPrint("Attaching to existing tmux session: " + sessionName);
-                }
-
-                attachToTmuxSession(sessionName);
-
-            } catch (Exception e) {
-                if (terminalWidget != null) {
-                    terminalWidget.appendOutput("Failed to start or attach to remote server session: " + e.getMessage() + "\n");
-                }
-                if (terminalWidget.getServerInfo() != null) {
-                    terminalWidget.getServerInfo().state = ServerState.CRASHED;
-                }
+        if (!isTmuxSessionRunning(sessionName)) {
+            devPrint("Tmux session " + sessionName + " not found. Creating...");
+            String command = "cd " + serverPath + " && ./start.sh";
+            createTmuxSession(sessionName, command);
+            if (terminalWidget.getServerInfo() != null) {
+                terminalWidget.getServerInfo().state = ServerState.STARTING;
             }
-        });
+        } else {
+            devPrint("Attaching to existing tmux session: " + sessionName);
+        }
+        return "tmux attach-session -t " + sessionName + "\n";
     }
+
 
     private boolean isTmuxSessionRunning(String sessionName) throws JSchException, InterruptedException {
         ChannelExec channel = (ChannelExec) sshSession.openChannel("exec");
@@ -222,24 +212,6 @@ public class SSHManager {
         }
         channel.disconnect();
     }
-
-    private void attachToTmuxSession(String sessionName) throws JSchException, IOException {
-        if (sshChannel != null && sshChannel.isConnected()) {
-            sshChannel.disconnect();
-        }
-        sshChannel = (ChannelShell) sshSession.openChannel("shell");
-        sshChannel.setPty(true);
-        sshChannel.connect();
-
-        sshWriter = new OutputStreamWriter(sshChannel.getOutputStream(), StandardCharsets.UTF_8);
-        sshReader = new BufferedReader(new InputStreamReader(sshChannel.getInputStream(), StandardCharsets.UTF_8));
-
-        sshWriter.write("tmux attach-session -t " + sessionName + "\n");
-        sshWriter.flush();
-
-        readSSHOutput();
-    }
-
 
     private void ensureTmuxInstalled() throws Exception {
         ChannelExec exec = (ChannelExec) sshSession.openChannel("exec");
@@ -270,110 +242,6 @@ public class SSHManager {
         }
     }
 
-    private void readSSHOutput() {
-        if (readingSSHOutput) return;
-        readingSSHOutput = true;
-        executorService.submit(() -> {
-            try {
-                isSSH = true;
-                String line;
-                while (isSSH && sshReader != null && (line = sshReader.readLine()) != null) {
-                    if (terminalWidget != null) {
-                        terminalWidget.appendOutput(line + "\n");
-                    }
-                }
-            } catch (IOException e) {
-                if (isSSH && terminalWidget != null) { // only log if we expect to be connected
-                    terminalWidget.appendOutput("Error reading SSH output: " + e.getMessage() + "\n");
-                }
-            } finally {
-                readingSSHOutput = false;
-            }
-        });
-    }
-
-    public void startSSHConnection(String command) {
-        executorService.submit(() -> {
-            try {
-                if (terminalWidget != null) {
-                    terminalWidget.appendOutput("Connecting...\n");
-                }
-                String[] parts = command.split(" ");
-                if (parts.length < 2) {
-                    if (terminalWidget != null) {
-                        terminalWidget.appendOutput("Usage: ssh user@host[:port]\n");
-                    }
-                    return;
-                }
-                String userHost = parts[1];
-                String[] userHostParts = userHost.split("@");
-                if (userHostParts.length != 2) {
-                    if (terminalWidget != null) {
-                        terminalWidget.appendOutput("Invalid SSH command.\n");
-                    }
-                    return;
-                }
-                String user = userHostParts[0];
-                String hostPort = userHostParts[1];
-                String host;
-                int port = 22;
-                if (hostPort.contains(":")) {
-                    String[] hostPortParts = hostPort.split(":");
-                    host = hostPortParts[0];
-                    try {
-                        port = Integer.parseInt(hostPortParts[1]);
-                    } catch (NumberFormatException e) {
-                        if (terminalWidget != null) {
-                            terminalWidget.appendOutput("Invalid port. Using 22.\n");
-                        }
-                    }
-                } else {
-                    host = hostPort;
-                }
-                JSch jsch = new JSch();
-                sshSession = jsch.getSession(user, host, port);
-                sshSession.setConfig("StrictHostKeyChecking", "no");
-                awaitingPassword = true;
-                if (terminalWidget != null) {
-                    terminalWidget.appendOutput("Password: ");
-                }
-            } catch (Exception e) {
-                if (terminalWidget != null) {
-                    terminalWidget.appendOutput("SSH connection failed: " + e.getMessage() + "\n");
-                }
-            }
-        });
-    }
-
-    public void connectSSHWithPassword(String password) {
-        executorService.submit(() -> {
-            try {
-                sshSession.setPassword(password);
-                sshSession.connect(10000);
-                sshChannel = (ChannelShell) sshSession.openChannel("shell");
-                sshChannel.setPty(true);
-                sshChannel.connect();
-                sshReader = new BufferedReader(new InputStreamReader(sshChannel.getInputStream(), StandardCharsets.UTF_8));
-                sshWriter = new OutputStreamWriter(sshChannel.getOutputStream(), StandardCharsets.UTF_8);
-                isSSH = true;
-                awaitingPassword = false;
-                connectSFTP();
-                readSSHOutput();
-                if (terminalWidget != null) {
-                    terminalWidget.appendOutput("Connected.\n");
-                }
-            } catch (Exception e) {
-                if (terminalWidget != null) {
-                    terminalWidget.appendOutput("SSH connection failed: " + e.getMessage() + "\n");
-                }
-                isSSH = false;
-                if (sshSession != null && sshSession.isConnected()) {
-                    sshSession.disconnect();
-                }
-            }
-        });
-    }
-
     public void shutdown() {
         try {
             if (monitorTask != null && !monitorTask.isDone()) {
@@ -388,18 +256,12 @@ public class SSHManager {
             }
             sftpConnected = false;
 
-            if (sshChannel != null && sshChannel.isConnected()) {
-                sshChannel.disconnect();
-            }
-
             if (sshSession != null && sshSession.isConnected()) {
                 sshSession.disconnect();
             }
 
             isSSH = false;
-            awaitingPassword = false;
 
-            executorService.shutdownNow();
             sftpExecutor.shutdownNow();
 
             devPrint("SSH connection shutdown completed");
@@ -410,14 +272,6 @@ public class SSHManager {
 
     public boolean isSSH() {
         return sshSession != null && sshSession.isConnected();
-    }
-
-    public boolean isAwaitingPassword() {
-        return awaitingPassword;
-    }
-
-    public Writer getSshWriter() {
-        return sshWriter;
     }
 
     public boolean isRemoteDirectory(String path) {
@@ -656,7 +510,7 @@ public class SSHManager {
             }
             return;
         }
-        executorService.submit(() -> {
+        sftpExecutor.submit(() -> {
             try {
                 ChannelExec channelExec = (ChannelExec) sshSession.openChannel("exec");
                 channelExec.setCommand(s);
@@ -768,7 +622,7 @@ public class SSHManager {
             if (terminalWidget != null) terminalWidget.appendOutput("SSH not connected.\n");
             return;
         }
-        executorService.submit(() -> {
+        sftpExecutor.submit(() -> {
             try {
                 String homePath = user.equals("root") ? "/root/remotely/" : "/home/" + user + "/remotely/";
                 prepareRemoteDirectorySync(homePath);

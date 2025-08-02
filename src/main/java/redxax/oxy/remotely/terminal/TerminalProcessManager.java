@@ -1,31 +1,29 @@
 package redxax.oxy.remotely.terminal;
 
+import com.jediterm.pty.PtyProcessTtyConnector;
+import com.jediterm.terminal.TtyConnector;
+import com.pty4j.PtyProcess;
+import com.pty4j.PtyProcessBuilder;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
 import redxax.oxy.remotely.ui.widgets.TerminalWidget;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import static redxax.oxy.remotely.util.DevUtil.devPrint;
-
 public class TerminalProcessManager {
-    public Process terminalProcess;
-    public InputStream terminalInputStream;
-    public InputStream terminalErrorStream;
-    public Writer writer;
-    private final ExecutorService executorService = Executors.newFixedThreadPool(4);
-    private volatile boolean isRunning = true;
+    private static final Logger logger = Logger.getLogger(TerminalProcessManager.class.getName());
+
     protected final TerminalWidget widget;
     private final SSHManager sshManager;
     private String currentDirectory = System.getProperty("user.home");
-    private static final Logger logger = Logger.getLogger(TerminalProcessManager.class.getName());
     protected boolean isDetachedServer = false;
 
     public TerminalProcessManager(TerminalWidget widget, SSHManager sshManager) {
@@ -46,163 +44,96 @@ public class TerminalProcessManager {
         return commandStr;
     }
 
-    public void launchTerminal() {
+    public TtyConnector createTtyConnector() throws IOException {
+        PtyProcess process;
         if (isDetachedServer) {
-            launchServerProcess();
+            process = launchServerProcess();
         } else {
-            launchGenericProcess();
+            process = launchGenericProcess();
         }
+        return new PtyProcessTtyConnector(process, StandardCharsets.UTF_8);
     }
 
-    private void launchGenericProcess() {
-        new Thread(() -> {
-            try {
-                if (terminalProcess != null && terminalProcess.isAlive()) {
-                    shutdown();
-                }
-                String os = System.getProperty("os.name").toLowerCase();
-                ProcessBuilder processBuilder;
-                if (os.contains("win")) {
-                    processBuilder = new ProcessBuilder("powershell.exe", "-NoLogo");
-                } else if (os.contains("mac") || os.contains("darwin")) {
-                    processBuilder = new ProcessBuilder("/bin/zsh", "-l");
+    public PtyProcess launchGenericProcess() {
+        try {
+            String os = System.getProperty("os.name").toLowerCase();
+            String[] command;
+            Map<String, String> env = new HashMap<>(System.getenv());
+            if (os.contains("win")) {
+                command = new String[]{"powershell.exe", "-NoLogo"};
+            } else {
+                String shell = env.getOrDefault("SHELL", "/bin/bash");
+                if (os.contains("mac") || os.contains("darwin")) {
+                    command = new String[]{shell, "-l"};
                 } else {
-                    processBuilder = new ProcessBuilder("/bin/bash", "-l");
+                    command = new String[]{shell, "-l"};
                 }
-                processBuilder.redirectErrorStream(true);
-                processBuilder.directory(new File(currentDirectory));
-                terminalProcess = processBuilder.start();
-                setupStreamsAndReaders();
-            } catch (Exception e) {
-                widget.appendOutput("Failed to launch terminal process: " + e.getMessage() + "\n");
-                logger.log(Level.SEVERE, "Failed to launch terminal process", e);
+                env.put("TERM", "xterm-256color");
             }
-        }, "Terminal-Launcher-Generic").start();
+
+            return new PtyProcessBuilder(command)
+                    .setEnvironment(env)
+                    .setDirectory(currentDirectory)
+                    .setRedirectErrorStream(true)
+                    .start();
+        } catch (Exception e) {
+            widget.appendOutput("Failed to launch terminal process: " + e.getMessage() + "\n");
+            logger.log(Level.SEVERE, "Failed to launch terminal process", e);
+        }
+        return null;
     }
 
-    private void launchServerProcess() {
-        new Thread(() -> {
-            try {
-                if (terminalProcess != null && terminalProcess.isAlive()) {
-                    shutdown();
-                }
+    public PtyProcess launchServerProcess() {
+        try {
+            ServerInfo serverInfo = widget.getServerInfo();
+            if (serverInfo == null) {
+                throw new IOException("ServerInfo is null for a detached server process");
+            }
+            File workingDir = new File(serverInfo.path);
+            if (!workingDir.exists() || !workingDir.isDirectory()) {
+                widget.appendOutput("Server directory not found or is not a directory: " + serverInfo.path);
+                throw new IOException("Server directory not found: " + serverInfo.path);
+            }
 
-                ServerInfo serverInfo = widget.getServerInfo();
-                File workingDir = new File(serverInfo.path);
-                if (!workingDir.exists() || !workingDir.isDirectory()) {
-                    widget.appendOutput("Server directory not found or is not a directory: " + serverInfo.path);
-                    return;
-                }
+            File scriptFile = new File(workingDir, "start.bat");
+            if (!System.getProperty("os.name").toLowerCase().contains("win")) {
+                scriptFile = new File(workingDir, "start.sh");
+            }
 
-                File scriptFile = new File(workingDir, "start.bat");
+            if (!scriptFile.exists()) {
+                widget.appendOutput("No start script found, creating one...\n");
+                try (FileWriter fw = new FileWriter(scriptFile)) {
+                    fw.write(getCommandStr().toString());
+                }
                 if (!System.getProperty("os.name").toLowerCase().contains("win")) {
-                    scriptFile = new File(workingDir, "start.sh");
+                    //noinspection ResultOfMethodCallIgnored
+                    scriptFile.setExecutable(true, true);
                 }
+            }
 
-                if (!scriptFile.exists()) {
-                    widget.appendOutput("No start script found, creating one...\n");
-                    try (FileWriter fw = new FileWriter(scriptFile)) {
-                        fw.write(getCommandStr().toString());
-                    }
-                    if (!System.getProperty("os.name").toLowerCase().contains("win")) {
-                        scriptFile.setExecutable(true, true);
-                    }
-                }
+            String os = System.getProperty("os.name").toLowerCase();
+            String[] command;
+            if (os.contains("win")) {
+                command = new String[]{"cmd.exe", "/c", scriptFile.getName()};
+            } else {
+                command = new String[]{"/bin/bash", "-l", "-c", "./" + scriptFile.getName()};
+            }
+            Map<String, String> env = new HashMap<>(System.getenv());
+            env.put("TERM", "xterm-256color");
 
-                String os = System.getProperty("os.name").toLowerCase();
-                ProcessBuilder mainProcess;
-                if (os.contains("win")) {
-                    mainProcess = new ProcessBuilder("cmd.exe", "/c", scriptFile.getName());
-                } else {
-                    mainProcess = new ProcessBuilder("/bin/bash", "-l", "-c", "./" + scriptFile.getName());
-                }
-
-                mainProcess.directory(workingDir);
-                mainProcess.redirectErrorStream(true);
-                terminalProcess = mainProcess.start();
-                setupStreamsAndReaders();
-            } catch (Exception e) {
+            return new PtyProcessBuilder(command)
+                    .setEnvironment(env)
+                    .setDirectory(workingDir.getAbsolutePath())
+                    .setRedirectErrorStream(true)
+                    .start();
+        } catch (Exception e) {
+            if (widget.getServerInfo() != null) {
                 widget.setServerState(ServerState.CRASHED);
-                widget.appendOutput("Failed to launch server process: " + e.getMessage() + "\n");
-                e.printStackTrace();
             }
-        }, "Terminal-Launcher-Server").start();
-    }
-
-    private void setupStreamsAndReaders() {
-        terminalInputStream = terminalProcess.getInputStream();
-        terminalErrorStream = terminalProcess.getErrorStream();
-        writer = new OutputStreamWriter(terminalProcess.getOutputStream(), StandardCharsets.UTF_8);
-        startReaders();
-    }
-
-    protected void startReaders() {
-        executorService.submit(this::readTerminalOutput);
-    }
-
-    private void readTerminalOutput() {
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(terminalInputStream, StandardCharsets.UTF_8))) {
-            String line;
-            while (isRunning && (line = reader.readLine()) != null) {
-                widget.appendOutput(line + "\n");
-                if (sshManager != null && sshManager.isSSH() && line.trim().equalsIgnoreCase("logout")) {
-                    sshManager.shutdown();
-                    widget.appendOutput("SSH session closed. Returned to local terminal.\n");
-                }
-            }
-        } catch (IOException e) {
-            if (isRunning) { // Avoid error message on normal shutdown
-                widget.appendOutput("Error reading terminal output: " + e.getMessage() + "\n");
-                logger.log(Level.SEVERE, "Error reading terminal output", e);
-            }
-        } finally {
-            if (widget.getServerInfo() != null && isRunning) {
-                if (widget.getServerInfo().state != ServerState.STOPPED) {
-                    widget.setServerState(ServerState.CRASHED);
-                }
-            }
+            widget.appendOutput("Failed to launch server process: " + e.getMessage() + "\n");
+            e.printStackTrace();
         }
-    }
-
-    public Writer getWriter() {
-        return writer;
-    }
-
-    public void shutdown() {
-        isRunning = false;
-        if (isDetachedServer && terminalProcess != null && terminalProcess.isAlive()) {
-            devPrint("Shutting down server process...");
-            try {
-                if (writer != null) {
-                    writer.write("stop\n");
-                    writer.flush();
-                    // Give server time to shut down gracefully
-                    terminalProcess.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
-                }
-            } catch (IOException | InterruptedException e) {
-                devPrint("Error during graceful shutdown: " + e.getMessage());
-            }
-        }
-
-        if (terminalProcess != null && terminalProcess.isAlive()) {
-            devPrint("Forcibly destroying process.");
-            terminalProcess.destroyForcibly();
-        }
-
-        if (sshManager != null) {
-            sshManager.shutdown();
-        }
-        executorService.shutdownNow();
-
-        if (isDetachedServer) {
-            widget.appendOutput("Server process terminated.\n");
-        } else {
-            widget.appendOutput("Terminal closed.\n");
-        }
-    }
-
-    public void saveTerminalOutput(Path path) throws IOException {
-        widget.saveTerminalOutput(path);
+        return null;
     }
 
     public String getCurrentDirectory() {
