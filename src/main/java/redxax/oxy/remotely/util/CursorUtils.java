@@ -27,7 +27,7 @@ public class CursorUtils {
         if (currentTime - lastCursorBlinkTime >= CURSOR_BLINK_INTERVAL) {
             lastCursorBlinkTime = currentTime;
 
-            float blinkSpeed = 10.0f;
+            float blinkSpeed = 80.0f;
             float deltaChange = blinkSpeed * deltaTime;
 
             if (cursorFadingOut) {
