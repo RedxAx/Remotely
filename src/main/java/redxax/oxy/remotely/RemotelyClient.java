@@ -10,7 +10,7 @@ import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.config.SettingsScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import redxax.oxy.remotely.ui.ReScreen.TabsManager;
-import redxax.oxy.remotely.ui.widgets.TerminalWidget;
+import redxax.oxy.remotely.terminal.TerminalWidget;
 
 import javax.imageio.ImageIO;
 import net.minecraft.client.MinecraftClient;

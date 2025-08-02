@@ -7,7 +7,7 @@ import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
 import redxax.oxy.remotely.terminal.JSchTtyConnector;
 import com.jediterm.terminal.TtyConnector;
-import redxax.oxy.remotely.ui.widgets.TerminalWidget;
+import redxax.oxy.remotely.terminal.TerminalWidget;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
