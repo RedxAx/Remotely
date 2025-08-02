@@ -1,4 +1,4 @@
-package redxax.oxy.remotely.ui.widgets;
+package redxax.oxy.remotely.terminal;
 
 import com.jediterm.core.Color;
 import com.jediterm.core.compatibility.Point;
@@ -24,9 +24,7 @@ import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
-import redxax.oxy.remotely.terminal.*;
-import redxax.oxy.remotely.terminal.JediTermDebouncerImpl;
-import redxax.oxy.remotely.terminal.JediTermTypeAheadModel;
+import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
 import redxax.oxy.remotely.util.Notification;
 import redxax.oxy.remotely.util.Sound;
 

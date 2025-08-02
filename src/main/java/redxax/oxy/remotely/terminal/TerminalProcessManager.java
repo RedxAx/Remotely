@@ -7,7 +7,6 @@ import com.pty4j.PtyProcessBuilder;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
-import redxax.oxy.remotely.ui.widgets.TerminalWidget;
 
 import java.io.File;
 import java.io.FileWriter;
