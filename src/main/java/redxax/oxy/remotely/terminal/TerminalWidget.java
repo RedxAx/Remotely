@@ -59,8 +59,6 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     private int myCursorX = 1;
     private int myCursorY = 1;
     private boolean myCursorVisible = true;
-    private boolean myCursorIsShown = true;
-    private CursorShape myCursorShape = CursorShape.BLINK_BLOCK;
     private long myLastCursorChange = System.currentTimeMillis();
 
     private float scrollY = 0;
@@ -209,15 +207,6 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
                 myTerminal.resize(newTermSize, RequestOrigin.User);
             }
         }
-
-        if (isFocused()) {
-            long time = System.currentTimeMillis();
-            if ((time - myLastCursorChange) > mySettingsProvider.caretBlinkingMs()) {
-                myLastCursorChange = time;
-                myCursorIsShown = !myCursorIsShown;
-                scheduleRepaint();
-            }
-        }
     }
 
     private int getCharWidth() {
@@ -321,10 +310,10 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
             myTextBuffer.processHistoryAndScreenLines(scrollOrigin, (contentHeight / lineHeight) + 2, renderer);
             renderer.flushBackgroundRun();
 
-            if (myCursorVisible && isFocused() && myCursorIsShown) {
+            if (myCursorVisible && isFocused()) {
                 int cursorScreenY = contentY + (myCursorY - 1) * lineHeight - (int)(scrollY);
                 if (cursorScreenY >= contentY && cursorScreenY < contentY + contentHeight) {
-                    ctx.fill(getX() + padding + (myCursorX - 1) * getCharWidth(), cursorScreenY - 1, getX() + padding + myCursorX * getCharWidth(), cursorScreenY + lineHeight - 1, Config.globalCursorAnimatedColor);
+                    ctx.fill(getX() + padding + myCursorX * getCharWidth(), cursorScreenY - 1, getX() + padding + myCursorX * getCharWidth() + 1, cursorScreenY + lineHeight - 1, Config.globalCursorAnimatedColor);
                 }
             }
         } finally {
@@ -348,7 +337,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
             Point p = panelToScreenCoords(mouseX, mouseY);
             com.jediterm.core.input.MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
             if (event.getButtonCode() != MouseButtonCodes.NONE) {
-                myTerminal.mousePressed(p.x + 1, p.y + 1, event);
+                myTerminal.mousePressed(p.x, p.y, event);
             }
         } else if (isLocalMouseAction(button, awtModifiers)) {
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
@@ -369,7 +358,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
             Point p = panelToScreenCoords(mouseX, mouseY);
             com.jediterm.core.input.MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
             if (event.getButtonCode() != MouseButtonCodes.NONE) {
-                myTerminal.mouseReleased(p.x + 1, p.y + 1, event);
+                myTerminal.mouseReleased(p.x, p.y, event);
             }
         } else if (isLocalMouseAction(button, awtModifiers)) {
             if (mySettingsProvider.copyOnSelect() && mySelection != null) {
@@ -389,7 +378,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
             Point screenCoords = panelToScreenCoords(mouseX, mouseY);
             com.jediterm.core.input.MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
             if (event.getButtonCode() != MouseButtonCodes.NONE) {
-                myTerminal.mouseDragged(screenCoords.x + 1, screenCoords.y + 1, event);
+                myTerminal.mouseDragged(screenCoords.x, screenCoords.y, event);
             }
             return true;
         }
@@ -413,12 +402,35 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (isMouseOver(mouseX, mouseY)) {
             int awtModifiers = getAwtModifiersFromPoll();
-            if (isRemoteMouseAction(-1, awtModifiers) && myTerminalStarter != null) {
-                Point p = panelToScreenCoords(mouseX, mouseY);
-                com.jediterm.core.input.MouseEvent event = createJediTermMouseWheelEvent(verticalAmount, awtModifiers);
-                myTerminal.mousePressed(p.x + 1, p.y + 1, event);
+
+            if (myTextBuffer.isUsingAlternateBuffer() && myTerminalStarter != null) {
+                final byte[] arrowKeys;
+                if (verticalAmount > 0) {
+                    arrowKeys = myTerminal.getCodeForKey(KeyEvent.VK_UP, 0);
+                } else {
+                    arrowKeys = myTerminal.getCodeForKey(KeyEvent.VK_DOWN, 0);
+                }
+
+                if (arrowKeys != null) {
+                    int linesToScrollPerTick = 3;
+                    int keyPressCount = (int) Math.round(Math.abs(verticalAmount) * linesToScrollPerTick);
+                    if (keyPressCount == 0 && verticalAmount != 0) {
+                        keyPressCount = 1;
+                    }
+                    for (int i = 0; i < keyPressCount; i++) {
+                        myTerminalStarter.sendBytes(arrowKeys, false);
+                    }
+                }
                 return true;
             }
+
+            if (isRemoteMouseAction(-1, awtModifiers) && myTerminalStarter != null) {
+                Point p = panelToScreenCoords(mouseX, mouseY);
+                com.jediterm.core.input.MouseWheelEvent event = createJediTermMouseWheelEvent(verticalAmount, awtModifiers);
+                myTerminal.mouseWheelMoved(p.x, p.y, event);
+                return true;
+            }
+
             targetScrollY += (float) (verticalAmount * (tr.fontHeight + 2) * 3);
             clampScroll();
             return true;
@@ -675,7 +687,6 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
     @Override
     public void setCursorShape(@Nullable CursorShape cursorShape) {
-        myCursorShape = cursorShape != null ? cursorShape : CursorShape.BLINK_BLOCK;
         scheduleRepaint();
     }
 
