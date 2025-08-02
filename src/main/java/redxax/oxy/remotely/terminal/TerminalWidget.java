@@ -3,6 +3,7 @@ package redxax.oxy.remotely.terminal;
 import com.jediterm.core.Color;
 import com.jediterm.core.compatibility.Point;
 import com.jediterm.core.typeahead.TerminalTypeAheadManager;
+import com.jediterm.core.util.Ascii;
 import com.jediterm.core.util.TermSize;
 import com.jediterm.terminal.*;
 import com.jediterm.terminal.emulator.mouse.MouseFormat;
@@ -19,6 +20,7 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.MathHelper;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.config.Config;
@@ -235,7 +237,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
                     myLastCursorChange = time;
                 }
                 if ((time - myLastCursorChange) < mySettingsProvider.caretBlinkingMs() / 2) {
-                    int cursorScreenY = (myCursorY - 1 + scrollOrigin) * lineHeight + contentY - (int)(scrollY % lineHeight);
+                    int cursorScreenY = (myCursorY - 1 + linesScrolled) * lineHeight + contentY - (int)(scrollY % lineHeight);
                     ctx.fill(getX() + padding + (myCursorX - 1) * getCharWidth(), cursorScreenY, getX() + padding + myCursorX * getCharWidth(), cursorScreenY + lineHeight, Config.globalCursorAnimatedColor);
                 }
             }
@@ -281,6 +283,17 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         return false;
     }
 
+    private boolean isAltPressedOnly(int awtModifiers) {
+        return (awtModifiers & InputEvent.ALT_MASK) != 0 && (awtModifiers & InputEvent.CTRL_MASK) == 0 && (awtModifiers & InputEvent.SHIFT_MASK) == 0 && (awtModifiers & InputEvent.META_MASK) == 0;
+    }
+
+    private static char simpleMapKeyCodeToChar(int awtKeyCode, int awtModifiers) {
+        if ((awtModifiers & InputEvent.SHIFT_MASK) != 0) {
+            return Character.toUpperCase((char) awtKeyCode);
+        }
+        return Character.toLowerCase((char) awtKeyCode);
+    }
+
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (!isFocused()) return false;
@@ -293,12 +306,24 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         }
 
         byte[] code = myTerminal.getCodeForKey(awtKeyCode, awtModifiers);
-        if (code != null && myTerminalStarter != null) {
-            myTerminalStarter.sendBytes(code, true);
-            if (mySettingsProvider.scrollToBottomOnTyping()) {
-                scrollToBottom();
+        if (code != null) {
+            if (myTerminalStarter != null) {
+                myTerminalStarter.sendBytes(code, true);
+                if (mySettingsProvider.scrollToBottomOnTyping()) {
+                    scrollToBottom();
+                }
             }
             return true;
+        }
+
+        if (isAltPressedOnly(awtModifiers) && mySettingsProvider.altSendsEscape()) {
+            char c = (char)awtKeyCode;
+            if (Character.isLetterOrDigit(c)) {
+                if (myTerminalStarter != null) {
+                    myTerminalStarter.sendString(new String(new char[]{Ascii.ESC, simpleMapKeyCodeToChar(awtKeyCode, awtModifiers)}), true);
+                }
+                return true;
+            }
         }
 
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -365,7 +390,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
-        if (!isFocused() || Character.isISOControl(chr)) return false;
+        if (!isFocused()) return false;
         if (myTerminalStarter != null) {
             myTerminalStarter.sendString(String.valueOf(chr), true);
         }

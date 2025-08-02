@@ -70,11 +70,16 @@ public class TerminalProcessManager {
                 env.put("TERM", "xterm-256color");
             }
 
-            return new PtyProcessBuilder(command)
+            PtyProcessBuilder builder = new PtyProcessBuilder(command)
                     .setEnvironment(env)
                     .setDirectory(currentDirectory)
-                    .setRedirectErrorStream(true)
-                    .start();
+                    .setRedirectErrorStream(true);
+
+            if (os.contains("win")) {
+                builder.setConsole(false).setUseWinConPty(true);
+            }
+
+            return builder.start();
         } catch (Exception e) {
             widget.appendOutput("Failed to launch terminal process: " + e.getMessage() + "\n");
             logger.log(Level.SEVERE, "Failed to launch terminal process", e);
@@ -120,11 +125,16 @@ public class TerminalProcessManager {
             Map<String, String> env = new HashMap<>(System.getenv());
             env.put("TERM", "xterm-256color");
 
-            return new PtyProcessBuilder(command)
+            PtyProcessBuilder builder = new PtyProcessBuilder(command)
                     .setEnvironment(env)
                     .setDirectory(workingDir.getAbsolutePath())
-                    .setRedirectErrorStream(true)
-                    .start();
+                    .setRedirectErrorStream(true);
+
+            if (os.contains("win")) {
+                builder.setConsole(false).setUseWinConPty(true);
+            }
+
+            return builder.start();
         } catch (Exception e) {
             if (widget.getServerInfo() != null) {
                 widget.setServerState(ServerState.CRASHED);

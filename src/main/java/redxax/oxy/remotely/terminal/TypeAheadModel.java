@@ -67,31 +67,9 @@ public class TypeAheadModel implements TypeAheadTerminalModel {
     @Override
     public void clearPredictions() {
         if (isPredictionsApplied) {
-            clearTypeAheadPredictionsWithReflection(myTerminalTextBuffer);
+            myTerminalTextBuffer.clearTypeAheadPredictions();
         }
         isPredictionsApplied = false;
-    }
-
-    private void clearTypeAheadPredictionsWithReflection(@NotNull TerminalTextBuffer textBuffer) {
-        textBuffer.lock();
-        try {
-            clearTypeAheadInLines(textBuffer.getScreenLinesStorage());
-            clearTypeAheadInLines(textBuffer.getHistoryLinesStorage());
-        } finally {
-            textBuffer.unlock();
-        }
-        fireTypeAheadModelChangeEvent();
-    }
-
-    private void clearTypeAheadInLines(@NotNull LinesStorage lines) {
-        if (typeAheadLineField == null) return;
-        try {
-            for (TerminalLine line : lines) {
-                typeAheadLineField.set(line, null);
-            }
-        } catch (IllegalAccessException e) {
-            // ignore
-        }
     }
 
     @Override
