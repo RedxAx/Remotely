@@ -11,7 +11,7 @@ import java.lang.reflect.Field;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-public class JediTermTypeAheadModel implements TypeAheadTerminalModel {
+public class TypeAheadModel implements TypeAheadTerminalModel {
     private final @NotNull Terminal myTerminal;
     private final @NotNull TerminalTextBuffer myTerminalTextBuffer;
     private final @NotNull SettingsProvider mySettingsProvider;
@@ -30,7 +30,7 @@ public class JediTermTypeAheadModel implements TypeAheadTerminalModel {
         }
     }
 
-    public JediTermTypeAheadModel(@NotNull Terminal terminal, @NotNull TerminalTextBuffer textBuffer, @NotNull SettingsProvider settingsProvider) {
+    public TypeAheadModel(@NotNull Terminal terminal, @NotNull TerminalTextBuffer textBuffer, @NotNull SettingsProvider settingsProvider) {
         myTerminal = terminal;
         myTerminalTextBuffer = textBuffer;
         mySettingsProvider = settingsProvider;

@@ -11,7 +11,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import redxax.oxy.remotely.ui.MouseCursor;
 import redxax.oxy.remotely.config.Config;
-import redxax.oxy.remotely.terminal.ReverseProxyManager;
+import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.ui.LoadingAnimation;
 import redxax.oxy.remotely.ui.tests.ContainerTestingScreen;
 import redxax.oxy.remotely.ui.tests.WidgetsTestingScreen;

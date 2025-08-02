@@ -49,7 +49,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     private TerminalStarter myTerminalStarter;
     private final SettingsProvider mySettingsProvider;
     private final TerminalExecutorServiceManager myExecutorServiceManager;
-    private final JediTermTypeAheadModel typeAheadModel;
+    private final TypeAheadModel typeAheadModel;
     private final TerminalTypeAheadManager typeAheadManager;
 
     private int myCursorX = 1;
@@ -95,7 +95,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         this.serverInfo = serverInfo;
 
         mySettingsProvider = new RemotelySettingsProvider();
-        myExecutorServiceManager = new JediTermExecutorServiceManager();
+        myExecutorServiceManager = new ExecutorServiceManager();
         StyleState styleState = new StyleState();
         styleState.setDefaultStyle(mySettingsProvider.getDefaultStyle());
 
@@ -104,9 +104,9 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         myTextBuffer = new TerminalTextBuffer(termWidth, termHeight, styleState);
         myTerminal = new MyJediTerminal(this, myTextBuffer, styleState);
 
-        typeAheadModel = new JediTermTypeAheadModel(myTerminal, myTextBuffer, mySettingsProvider);
+        typeAheadModel = new TypeAheadModel(myTerminal, myTextBuffer, mySettingsProvider);
         typeAheadManager = new TerminalTypeAheadManager(typeAheadModel);
-        JediTermDebouncerImpl debouncer = new JediTermDebouncerImpl(typeAheadManager::debounce, TerminalTypeAheadManager.MAX_TERMINAL_DELAY, myExecutorServiceManager);
+        DebouncerImpl debouncer = new DebouncerImpl(typeAheadManager::debounce, TerminalTypeAheadManager.MAX_TERMINAL_DELAY, myExecutorServiceManager);
         typeAheadManager.setClearPredictionsDebouncer(debouncer);
 
         if (this.serverInfo != null && this.serverInfo.isRemote) {

@@ -7,7 +7,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-public class JediTermDebouncerImpl implements Debouncer {
+public class DebouncerImpl implements Debouncer {
     private final Object myLock = new Object();
 
     private final Runnable myRunnable;
@@ -16,7 +16,7 @@ public class JediTermDebouncerImpl implements Debouncer {
 
     private TimerTask myTimerTask = null;
 
-    public JediTermDebouncerImpl(@NotNull Runnable runnable, long delay, @NotNull TerminalExecutorServiceManager executorServiceManager) {
+    public DebouncerImpl(@NotNull Runnable runnable, long delay, @NotNull TerminalExecutorServiceManager executorServiceManager) {
         myRunnable = runnable;
         myDelay = delay;
         myScheduler = executorServiceManager.getSingleThreadScheduledExecutor();
