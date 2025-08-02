@@ -4,6 +4,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
+import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.resources.ResourceManagerScreen;
@@ -104,7 +105,7 @@ public class MultiTerminalScreen extends ReScreen {
         ServerInfo sInfo = activeTerminal.getServerInfo();
         if (sInfo == null) {
             if (activeTerminal.processManager != null) {
-                activeTerminal.processManager.launchTerminal();
+                activeTerminal.processManager.launchGenericProcess();
             }
             return;
         }
@@ -118,7 +119,7 @@ public class MultiTerminalScreen extends ReScreen {
                 activeTerminal.startRemoteServer();
             } else {
                 if (activeTerminal.processManager != null) {
-                    activeTerminal.processManager.launchTerminal();
+                    activeTerminal.processManager.launchServerProcess();
                 }
             }
         }
@@ -253,6 +254,7 @@ public class MultiTerminalScreen extends ReScreen {
                 .size(width - 10, height - 5)
                 .build();
         terminal.setPosition(5, 60);
+        terminal.start();
 
         TabsManager.Tab tab = tabsManager.addTab(name, null);
         tab.setData(terminal);

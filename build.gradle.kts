@@ -16,9 +16,11 @@ base {
 }
 
 repositories {
+    mavenCentral()
     maven("https://maven.neoforged.net/releases/")
     maven("https://maven.terraformersmc.com/")
     maven("https://maven.nucleoid.xyz/")
+    maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
 
     maven {
         url = uri("https://mcef-download.cinemamod.com/repositories/releases")
@@ -28,6 +30,11 @@ repositories {
 
 val mcefVer = if (minecraft == "1.21.5") "1.21.4" else minecraft
 
+val shadowBundle: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
 dependencies {
     minecraft("com.mojang:minecraft:$minecraft")
 
@@ -36,21 +43,27 @@ dependencies {
     implementation("com.vladsch.flexmark:flexmark:0.62.2")
     implementation("org.jline:jline:3.1.3")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
+
+    implementation("org.jetbrains.pty4j:pty4j:0.12.25")
+    implementation("org.jetbrains.jediterm:jediterm-core:3.54")
+    implementation("org.jetbrains.jediterm:jediterm-pty:2.69")
+
     modCompileOnly("com.cinemamod:mcef:2.1.6-$mcefVer")
     modImplementation("com.cinemamod:mcef-fabric:2.1.6-$mcefVer")
 
-    shadow("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
-    shadow("com.jcraft:jsch:0.1.55")
-    shadow("org.jline:jline:3.1.3")
-    shadow("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
+    shadowBundle("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
+    shadowBundle("com.jcraft:jsch:0.2.16")
+    shadowBundle("org.jline:jline:3.1.3")
+    shadowBundle("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
+    shadowBundle("org.jetbrains.pty4j:pty4j:0.12.25")
+    shadowBundle("org.jetbrains.jediterm:jediterm-core:4.0.13")
+    shadowBundle("org.jetbrains.jediterm:jediterm-pty:4.0.13")
+    shadowBundle("org.jetbrains.jediterm:jediterm-ssh:4.0.13")
+
     if (loader == "fabric") {
         modImplementation("net.fabricmc:fabric-loader:${mod.dep("fabric_loader")}")
         mappings("net.fabricmc:yarn:$minecraft+build.${mod.dep("yarn_build")}:v2")
         modImplementation("com.terraformersmc:modmenu:${mod.dep("modmenu_version")}")
-
-        //some features (like automatic resource loading from non vanilla namespaces) work only with fabric API installed
-        //for example translations from assets/modid/lang/en_us.json won't be working, same stuff with textures
-        //but we keep runtime only to not accidentally depend on fabric's api, because it doesn't exist in neo/forge
         modRuntimeOnly("net.fabricmc.fabric-api:fabric-api:${mod.dep("fabric_version")}")
 
     }
@@ -137,11 +150,6 @@ java {
     val java = if (stonecutter.eval(minecraft, ">=1.20.5")) JavaVersion.VERSION_21 else JavaVersion.VERSION_17
     targetCompatibility = java
     sourceCompatibility = java
-}
-
-val shadowBundle: Configuration by configurations.creating {
-    isCanBeConsumed = false
-    isCanBeResolved = true
 }
 
 tasks.shadowJar {
