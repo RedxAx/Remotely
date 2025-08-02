@@ -71,6 +71,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     private TermSize myLastTermSize;
     Identifier font = Identifier.of("remotely", "mono");
 
+    private boolean drawBackground = true;
 
     public static class Builder extends AnimatedWidget.Builder<TerminalWidget, Builder> {
         private ServerInfo serverInfo;
@@ -221,6 +222,82 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         return tr.getWidth("R");
     }
 
+    private class OptimizedRenderer extends StyledTextConsumerAdapter {
+        private final DrawContext ctx;
+        private final int contentY;
+        private final int contentHeight;
+        private final int lineHeight;
+        private final int padding;
+        private final boolean drawBackground;
+        private com.jediterm.core.Color currentBgColor = null;
+        private int runStartColumn = -1;
+        private int runEndColumn = -1;
+        private int runLineY = -1;
+
+        OptimizedRenderer(DrawContext ctx, int contentY, int contentHeight, int lineHeight, int padding, boolean drawBackground) {
+            this.ctx = ctx;
+            this.contentY = contentY;
+            this.contentHeight = contentHeight;
+            this.lineHeight = lineHeight;
+            this.padding = padding;
+            this.drawBackground = drawBackground;
+        }
+
+        public void flushBackgroundRun() {
+            if (currentBgColor != null) {
+                int startX = getX() + padding + runStartColumn * getCharWidth();
+                int endX = getX() + padding + runEndColumn * getCharWidth();
+                ctx.fill(startX, runLineY - 1, endX, runLineY + lineHeight - 1, currentBgColor.getRGB());
+            }
+            currentBgColor = null;
+            runStartColumn = -1;
+            runEndColumn = -1;
+            runLineY = -1;
+        }
+
+        @Override
+        public void consume(int x, int y, @NotNull TextStyle style, @NotNull CharBuffer characters, int startRow) {
+            int lineY = contentY + ((y - startRow) * lineHeight) - (int) (scrollY % lineHeight);
+            if (lineY >= contentY - lineHeight && lineY < contentY + contentHeight) {
+                if (drawBackground) {
+                    com.jediterm.core.Color background = style.getBackground() != null
+                            ? mySettingsProvider.getTerminalColorPalette().getBackground(style.getBackground())
+                            : null;
+
+                    if (background == null || !background.equals(currentBgColor) || lineY != runLineY || x != runEndColumn) {
+                        flushBackgroundRun();
+                        if (background != null) {
+                            currentBgColor = background;
+                            runStartColumn = x;
+                            runLineY = lineY;
+                        }
+                    }
+                    if (currentBgColor != null) {
+                        runEndColumn = x + characters.length();
+                    }
+                } else {
+                    flushBackgroundRun();
+                }
+
+                MutableText lineText = Text.literal(characters.toString());
+
+                com.jediterm.core.Color foreground = style.getForeground() != null
+                        ? mySettingsProvider.getTerminalColorPalette().getForeground(style.getForeground())
+                        : fromAwtColor(new java.awt.Color(Config.terminalTextColor));
+                lineText.setStyle(net.minecraft.text.Style.EMPTY.withColor(TextColor.fromRgb(foreground.getRGB())).withFont(font));
+
+                ctx.drawText(tr, lineText, getX() + padding + (x * getCharWidth()), lineY, 0, shadow);
+            } else {
+                flushBackgroundRun();
+            }
+        }
+
+        @Override
+        public void consumeQueue(int x, int y, int nulIndex, int startRow) {
+            flushBackgroundRun();
+        }
+    }
+
     @Override
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY) {
         clampScroll();
@@ -238,28 +315,14 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
             int linesScrolled = (int) Math.floor(scrollY / lineHeight);
             int scrollOrigin = -linesScrolled;
 
-            myTextBuffer.processHistoryAndScreenLines(scrollOrigin, (contentHeight / lineHeight) + 2,
-                    new StyledTextConsumerAdapter() {
-                        @Override
-                        public void consume(int x, int y, @NotNull TextStyle style, @NotNull CharBuffer characters, int startRow) {
-                            int lineY = contentY + ((y - startRow) * lineHeight) - (int)(scrollY % lineHeight);
-                            if (lineY >= contentY - lineHeight && lineY < contentY + contentHeight) {
-                                MutableText lineText = Text.literal(characters.toString());
-
-                                com.jediterm.core.Color foreground = style.getForeground() != null
-                                        ? mySettingsProvider.getTerminalColorPalette().getForeground(style.getForeground())
-                                        : fromAwtColor(new java.awt.Color(Config.terminalTextColor));
-                                lineText.setStyle(Style.EMPTY.withColor(TextColor.fromRgb(foreground.getRGB())).withFont(font));
-
-                                ctx.drawText(tr, lineText, getX() + padding + (x * getCharWidth()), lineY, 0, shadow);
-                            }
-                        }
-                    });
+            OptimizedRenderer renderer = new OptimizedRenderer(ctx, contentY, contentHeight, lineHeight, padding, drawBackground);
+            myTextBuffer.processHistoryAndScreenLines(scrollOrigin, (contentHeight / lineHeight) + 2, renderer);
+            renderer.flushBackgroundRun();
 
             if (myCursorVisible && isFocused() && myCursorIsShown) {
                 int cursorScreenY = contentY + (myCursorY - 1) * lineHeight - (int)(scrollY);
                 if (cursorScreenY >= contentY && cursorScreenY < contentY + contentHeight) {
-                    ctx.fill(getX() + padding + (myCursorX - 1) * getCharWidth(), cursorScreenY, getX() + padding + myCursorX * getCharWidth(), cursorScreenY + lineHeight, Config.globalCursorAnimatedColor);
+                    ctx.fill(getX() + padding + (myCursorX - 1) * getCharWidth(), cursorScreenY - 1, getX() + padding + myCursorX * getCharWidth(), cursorScreenY + lineHeight - 1, Config.globalCursorAnimatedColor);
                 }
             }
         } finally {
