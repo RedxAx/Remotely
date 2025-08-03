@@ -36,9 +36,11 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static redxax.oxy.remotely.config.Config.*;
+import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
 
@@ -156,8 +158,19 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
                 myTerminalStarter = new TerminalStarter(myTerminal, ttyConnector, new TtyBasedArrayDataStream(ttyConnector, typeAheadManager::onTerminalStateChanged), typeAheadManager, myExecutorServiceManager);
                 myTerminal.setTerminalOutput(myTerminalStarter);
                 myTerminalStarter.start();
+
+                myExecutorServiceManager.getUnboundedExecutorService().submit(this::enableMouseReporting);
             }
         });
+    }
+
+    public void enableMouseReporting() {
+        if (myTerminalStarter != null) {
+            myTerminalStarter.sendString("\u001b[?1006h", false);
+            myTerminalStarter.sendString("\u001b[?1000h", false);
+            myTerminalStarter.sendString("\u001b[?1002h", false);
+            myTerminalStarter.sendString("\u001b[?1003h", false);
+        }
     }
 
     private void scheduleRepaint() {
@@ -327,19 +340,21 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         if (!isFocused() || myTerminalStarter == null) return super.mouseClicked(mouseX, mouseY, button);
 
         int awtModifiers = getCurrentModifiers();
-        if (isRemoteMouseAction(button, awtModifiers)) {
-            Point p = panelToScreenCoords(mouseX, mouseY);
-            MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
-            if (event.getButtonCode() != MouseButtonCodes.NONE) {
-                myTerminal.mousePressed(p.x, p.y, event);
-            }
-        } else if (isLocalMouseAction(button, awtModifiers)) {
+        Point p = panelToScreenCoords(mouseX, mouseY);
+
+        MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
+        if (event.getButtonCode() != MouseButtonCodes.NONE) {
+            myTerminal.mousePressed(p.x, p.y, event);
+        }
+
+        if ((awtModifiers & InputEvent.SHIFT_MASK) != 0) {
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 mySelectionStartPoint = panelToBufferCoords(mouseX, mouseY);
                 mySelection = null;
                 scheduleRepaint();
             }
         }
+
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
@@ -366,13 +381,14 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         if (!isFocused() || myTerminalStarter == null) return super.mouseReleased(mouseX, mouseY, button);
 
         int awtModifiers = getCurrentModifiers();
-        if (isRemoteMouseAction(button, awtModifiers)) {
-            Point p = panelToScreenCoords(mouseX, mouseY);
-            MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
-            if (event.getButtonCode() != MouseButtonCodes.NONE) {
-                myTerminal.mouseReleased(p.x, p.y, event);
-            }
-        } else if (isLocalMouseAction(button, awtModifiers)) {
+        Point p = panelToScreenCoords(mouseX, mouseY);
+
+        MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
+        if (event.getButtonCode() != MouseButtonCodes.NONE) {
+            myTerminal.mouseReleased(p.x, p.y, event);
+        }
+
+        if ((awtModifiers & InputEvent.SHIFT_MASK) != 0) {
             if (mySettingsProvider.copyOnSelect() && mySelection != null) {
                 handleCopy();
             }
@@ -385,17 +401,14 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         if (!isFocused() || myTerminalStarter == null) return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
 
         int awtModifiers = getCurrentModifiers();
+        Point screenCoords = panelToScreenCoords(mouseX, mouseY);
 
-        if (isRemoteMouseAction(button, awtModifiers)) {
-            Point screenCoords = panelToScreenCoords(mouseX, mouseY);
-            MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
-            if (event.getButtonCode() != MouseButtonCodes.NONE) {
-                myTerminal.mouseDragged(screenCoords.x, screenCoords.y, event);
-            }
-            return true;
+        MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
+        if (event.getButtonCode() != MouseButtonCodes.NONE) {
+            myTerminal.mouseDragged(screenCoords.x, screenCoords.y, event);
         }
 
-        if (isLocalMouseAction(button, awtModifiers)) {
+        if ((awtModifiers & InputEvent.SHIFT_MASK) != 0) {
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 if (mySelectionStartPoint != null) {
                     if (mySelection == null) {
@@ -480,11 +493,11 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     }
 
     private boolean isRemoteMouseAction(int button, int awtModifiers) {
-        return myMouseMode != MouseMode.MOUSE_REPORTING_NONE && (awtModifiers & InputEvent.SHIFT_MASK) == 0 && myTextBuffer.isUsingAlternateBuffer();
+        return myTerminalStarter != null && (myMouseMode != MouseMode.MOUSE_REPORTING_NONE || myTextBuffer.isUsingAlternateBuffer()) && (awtModifiers & InputEvent.SHIFT_MASK) == 0;
     }
 
     private boolean isLocalMouseAction(int button, int awtModifiers) {
-        return mySettingsProvider.forceActionOnMouseReporting() || !myTextBuffer.isUsingAlternateBuffer() || (myMouseMode == MouseMode.MOUSE_REPORTING_NONE || (awtModifiers & InputEvent.SHIFT_MASK) != 0);
+        return mySettingsProvider.forceActionOnMouseReporting() || (awtModifiers & InputEvent.SHIFT_MASK) != 0 || (myMouseMode == MouseMode.MOUSE_REPORTING_NONE && !myTextBuffer.isUsingAlternateBuffer());
     }
 
     private MouseEvent createJediTermMouseEvent(int button, int awtModifiers) {
@@ -790,6 +803,13 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     private class MyJediTerminal extends JediTerminal {
         public MyJediTerminal(@NotNull TerminalDisplay display, @NotNull TerminalTextBuffer buf, @NotNull StyleState initialStyleState) {
             super(display, buf, initialStyleState);
+        }
+
+        @Override
+        public void setMouseMode(@NotNull MouseMode mode) {
+            super.setMouseMode(mode);
+            myMouseMode = mode;
+            scheduleRepaint();
         }
 
         @Override

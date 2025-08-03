@@ -74,6 +74,8 @@ public class SSHManager {
             sshSession.setConfig("StrictHostKeyChecking", "no");
             sshSession.setConfig("ServerAliveInterval", "30");
             sshSession.setConfig("ServerAliveCountMax", "5");
+            sshSession.setConfig("compression.s2c", "none");
+            sshSession.setConfig("compression.c2s", "none");
             sshSession.setPassword(password);
             sshSession.connect(CONNECTION_TIMEOUT);
             isSSH = true;
@@ -128,6 +130,8 @@ public class SSHManager {
             sshSession.setConfig("StrictHostKeyChecking", "no");
             sshSession.setConfig("ServerAliveInterval", "30");
             sshSession.setConfig("ServerAliveCountMax", "5");
+            sshSession.setConfig("compression.s2c", "none");
+            sshSession.setConfig("compression.c2s", "none");
             sshSession.setPassword(remoteHost.getPassword());
             sshSession.connect(CONNECTION_TIMEOUT);
             isSSH = true;
@@ -145,6 +149,15 @@ public class SSHManager {
         }
         ChannelShell channel = (ChannelShell) sshSession.openChannel("shell");
         channel.setPty(true);
+        channel.setPtyType("xterm-256color");
+        channel.setPtySize(80, 24, 640, 480);
+
+        Hashtable<String, String> env = new Hashtable<>();
+        env.put("TERM", "xterm-256color");
+        env.put("COLORTERM", "truecolor");
+        env.put("TERMINFO", "/usr/share/terminfo");
+        channel.setEnv(env);
+
         channel.connect();
         return new JSchTtyConnector(channel);
     }
@@ -187,9 +200,8 @@ public class SSHManager {
         } else {
             devPrint("Attaching to existing tmux session: " + sessionName);
         }
-        return "tmux attach-session -t " + sessionName + "\n";
+        return "TERM=xterm-256color tmux attach-session -t " + sessionName + "\n";
     }
-
 
     private boolean isTmuxSessionRunning(String sessionName) throws JSchException, InterruptedException {
         ChannelExec channel = (ChannelExec) sshSession.openChannel("exec");
@@ -205,7 +217,8 @@ public class SSHManager {
 
     private void createTmuxSession(String sessionName, String command) throws JSchException, InterruptedException {
         ChannelExec channel = (ChannelExec) sshSession.openChannel("exec");
-        channel.setCommand("tmux new-session -d -s " + sessionName + " \"" + command + "\"");
+        String tmuxCommand = String.format("TERM=xterm-256color tmux new-session -d -s %s -x 80 -y 24 'export TERM=xterm-256color; export COLORTERM=truecolor; %s'", sessionName, command);
+        channel.setCommand(tmuxCommand);
         channel.connect();
         while (channel.isConnected()) {
             Thread.sleep(100);
@@ -226,7 +239,6 @@ public class SSHManager {
         if (status != 0) {
             terminalWidget.appendOutput("tmux not found. Attempting to install...\n");
             ChannelExec installChannel = (ChannelExec) sshSession.openChannel("exec");
-            // This is a common command, but might fail on non-debian systems.
             String installCommand = "sudo apt-get update && sudo apt-get install -y tmux";
             installChannel.setCommand(installCommand);
             installChannel.connect();
