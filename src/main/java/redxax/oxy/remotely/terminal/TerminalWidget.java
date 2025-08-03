@@ -11,11 +11,9 @@ import com.jediterm.terminal.emulator.mouse.MouseFormat;
 import com.jediterm.terminal.emulator.mouse.MouseMode;
 import com.jediterm.terminal.model.*;
 import com.jediterm.terminal.ui.settings.SettingsProvider;
-import kotlin.UByteArray;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
 import net.minecraft.text.MutableText;
-import net.minecraft.text.Style;
 import net.minecraft.text.Text;
 import net.minecraft.text.TextColor;
 import net.minecraft.util.Identifier;
@@ -332,7 +330,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (!isFocused() || myTerminalStarter == null) return super.mouseClicked(mouseX, mouseY, button);
 
-        int awtModifiers = getAwtModifiersFromPoll();
+        int awtModifiers = getCurrentModifiers();
         if (isRemoteMouseAction(button, awtModifiers)) {
             Point p = panelToScreenCoords(mouseX, mouseY);
             com.jediterm.core.input.MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
@@ -349,11 +347,29 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
+    private int getCurrentModifiers() {
+        long windowHandle = mc.getWindow().getHandle();
+        int glfwModifiers = 0;
+        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS) {
+            glfwModifiers |= GLFW.GLFW_MOD_SHIFT;
+        }
+        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS) {
+            glfwModifiers |= GLFW.GLFW_MOD_CONTROL;
+        }
+        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_ALT) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_ALT) == GLFW.GLFW_PRESS) {
+            glfwModifiers |= GLFW.GLFW_MOD_ALT;
+        }
+        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SUPER) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SUPER) == GLFW.GLFW_PRESS) {
+            glfwModifiers |= GLFW.GLFW_MOD_SUPER;
+        }
+        return KeyCodeConverter.toAwtModifiers(glfwModifiers);
+    }
+
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (!isFocused() || myTerminalStarter == null) return super.mouseReleased(mouseX, mouseY, button);
 
-        int awtModifiers = getAwtModifiersFromPoll();
+        int awtModifiers = getCurrentModifiers();
         if (isRemoteMouseAction(button, awtModifiers)) {
             Point p = panelToScreenCoords(mouseX, mouseY);
             com.jediterm.core.input.MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
@@ -372,7 +388,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         if (!isFocused() || myTerminalStarter == null) return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
 
-        int awtModifiers = getAwtModifiersFromPoll();
+        int awtModifiers = getCurrentModifiers();
 
         if (isRemoteMouseAction(button, awtModifiers)) {
             Point screenCoords = panelToScreenCoords(mouseX, mouseY);
@@ -401,7 +417,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (isMouseOver(mouseX, mouseY)) {
-            int awtModifiers = getAwtModifiersFromPoll();
+            int awtModifiers = getCurrentModifiers();
 
             if (myTextBuffer.isUsingAlternateBuffer() && myTerminalStarter != null) {
                 final byte[] arrowKeys;
@@ -467,24 +483,6 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         return new Point(charX, charY);
     }
 
-    private int getAwtModifiersFromPoll() {
-        long windowHandle = mc.getWindow().getHandle();
-        int glfwModifiers = 0;
-        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS) {
-            glfwModifiers |= GLFW.GLFW_MOD_SHIFT;
-        }
-        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS) {
-            glfwModifiers |= GLFW.GLFW_MOD_CONTROL;
-        }
-        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_ALT) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_ALT) == GLFW.GLFW_PRESS) {
-            glfwModifiers |= GLFW.GLFW_MOD_ALT;
-        }
-        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SUPER) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SUPER) == GLFW.GLFW_PRESS) {
-            glfwModifiers |= GLFW.GLFW_MOD_SUPER;
-        }
-        return KeyCodeConverter.toAwtModifiers(glfwModifiers);
-    }
-
     private boolean isRemoteMouseAction(int button, int awtModifiers) {
         return myMouseMode != MouseMode.MOUSE_REPORTING_NONE && (awtModifiers & InputEvent.SHIFT_MASK) == 0;
     }
@@ -526,7 +524,39 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         int awtKeyCode = KeyCodeConverter.toAwtKeyCode(keyCode);
         int awtModifiers = KeyCodeConverter.toAwtModifiers(modifiers);
 
-        if (handleAction(awtKeyCode, awtModifiers)) {
+        if (keyCode == GLFW.GLFW_KEY_TAB) {
+            byte[] code = myTerminal.getCodeForKey(KeyEvent.VK_TAB, awtModifiers);
+            if (code != null && myTerminalStarter != null) {
+                myTerminalStarter.sendBytes(code, true);
+                return true;
+            }
+            if (myTerminalStarter != null) {
+                myTerminalStarter.sendBytes(new byte[]{9}, true);
+                return true;
+            }
+        }
+
+        if (awtKeyCode == KeyEvent.VK_UNDEFINED) {
+            if (keyCode >= 32 && keyCode <= 126) {
+                awtKeyCode = keyCode;
+            } else {
+                return super.keyPressed(keyCode, scanCode, modifiers);
+            }
+        }
+
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            byte[] code = myTerminal.getCodeForKey(KeyEvent.VK_ESCAPE, awtModifiers);
+            if (code != null && myTerminalStarter != null) {
+                myTerminalStarter.sendBytes(code, true);
+                return true;
+            }
+            if (myTerminalStarter != null) {
+                myTerminalStarter.sendBytes(new byte[]{27}, true);
+                return true;
+            }
+        }
+
+        if (keyCode != GLFW.GLFW_KEY_ESCAPE && keyCode != GLFW.GLFW_KEY_TAB && handleAction(awtKeyCode, awtModifiers)) {
             return true;
         }
 
@@ -547,6 +577,14 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
                 }
                 return true;
             }
+        }
+
+        if ((awtModifiers & InputEvent.CTRL_MASK) != 0 && awtKeyCode >= KeyEvent.VK_A && awtKeyCode <= KeyEvent.VK_Z) {
+            char controlChar = (char)(awtKeyCode - KeyEvent.VK_A + 1);
+            if (myTerminalStarter != null) {
+                myTerminalStarter.sendBytes(new byte[]{(byte)controlChar}, true);
+            }
+            return true;
         }
 
         return super.keyPressed(keyCode, scanCode, modifiers);
