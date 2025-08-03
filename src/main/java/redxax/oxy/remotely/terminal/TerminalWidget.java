@@ -36,11 +36,9 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
 
@@ -239,6 +237,8 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         private int runStartColumn = -1;
         private int runEndColumn = -1;
         private int runLineY = -1;
+        private final StringBuilder textBuilder = new StringBuilder();
+        private int textStartX = -1;
 
         OptimizedRenderer(DrawContext ctx, int contentY, int contentHeight, int lineHeight, int padding, boolean drawBackground) {
             this.ctx = ctx;
@@ -281,18 +281,185 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
                 } else {
                     flushBackgroundRun();
                 }
-                MutableText lineText = Text.literal(characters.toString());
+
                 Color foreground = style.getForeground() != null ? mySettingsProvider.getTerminalColorPalette().getForeground(style.getForeground()) : fromAwtColor(new java.awt.Color(Config.terminalTextColor));
-                lineText.setStyle(net.minecraft.text.Style.EMPTY.withColor(TextColor.fromRgb(foreground.getRGB())).withFont(font));
-                ctx.drawText(tr, lineText, getX() + padding + (x * getCharWidth()), lineY, 0, shadow);
+
+                textBuilder.setLength(0);
+                textStartX = -1;
+
+                for (int i = 0; i < characters.length(); i++) {
+                    char c = characters.charAt(i);
+                    if (isBoxDrawingChar(c)) {
+                        flushText(lineY, foreground);
+                        drawBoxDrawingChar(c, x + i, lineY, foreground.getRGB());
+                    } else {
+                        if (textBuilder.isEmpty()) {
+                            textStartX = x + i;
+                        }
+                        textBuilder.append(c);
+                    }
+                }
+                flushText(lineY, foreground);
             } else {
                 flushBackgroundRun();
+            }
+        }
+
+        private void flushText(int lineY, Color foreground) {
+            if (!textBuilder.isEmpty()) {
+                MutableText lineText = Text.literal(textBuilder.toString());
+                lineText.setStyle(net.minecraft.text.Style.EMPTY.withColor(TextColor.fromRgb(foreground.getRGB())).withFont(font));
+                ctx.drawText(tr, lineText, getX() + padding + (textStartX * getCharWidth()), lineY, 0, shadow);
+                textBuilder.setLength(0);
+                textStartX = -1;
+            }
+        }
+
+        private boolean isBoxDrawingChar(char c) {
+            return c >= '─' && c <= '╿';
+        }
+
+        private void hLineLight(int x1, int x2, int y, int color) { ctx.fill(x1, y, x2, y + 1, color); }
+        private void vLineLight(int x, int y1, int y2, int color) { ctx.fill(x, y1, x + 1, y2, color); }
+        private void hLineHeavy(int x1, int x2, int y, int color) { ctx.fill(x1, y - 1, x2, y + 1, color); }
+        private void vLineHeavy(int x, int y1, int y2, int color) { ctx.fill(x - 1, y1, x + 1, y2, color); }
+        private void hLineDouble(int x1, int x2, int y, int color) {
+            ctx.fill(x1, y - 2, x2, y - 1, color);
+            ctx.fill(x1, y + 1, x2, y + 2, color);
+        }
+        private void vLineDouble(int x, int y1, int y2, int color) {
+            ctx.fill(x - 2, y1, x - 1, y2, color);
+            ctx.fill(x + 1, y1, x + 2, y2, color);
+        }
+
+        private void drawBoxDrawingChar(char c, int gridX, int lineY, int cr) {
+            int xP = getX() + padding + gridX * getCharWidth();
+            int cY = lineY - 1;
+            int cW = getCharWidth();
+            int lH = this.lineHeight;
+            int cnX = xP + cW / 2;
+            int cnY = cY + lH / 2;
+
+            int r = xP + cW, btm = cY + lH;
+
+            switch (c) {
+                case '─', '┄', '┆', '╌': hLineLight(xP, r, cnY, cr); break;
+                case '━', '┈', '┊', '╍': hLineHeavy(xP, r, cnY, cr); break;
+                case '│', '┅', '┇', '╎': vLineLight(cnX, cY, btm, cr); break;
+                case '┃', '┉', '┋', '╏': vLineHeavy(cnX, cY, btm, cr); break;
+
+                case '┌': case '╭': vLineLight(cnX, cnY, btm, cr); hLineLight(cnX, r, cnY, cr); break;
+                case '┍': vLineHeavy(cnX, cnY, btm, cr); hLineLight(cnX, r, cnY, cr); break;
+                case '┎': vLineLight(cnX, cnY, btm, cr); hLineHeavy(cnX, r, cnY, cr); break;
+                case '┏': vLineHeavy(cnX, cnY, btm, cr); hLineHeavy(cnX, r, cnY, cr); break;
+                case '┐': case '╮': vLineLight(cnX, cnY, btm, cr); hLineLight(xP, cnX, cnY, cr); break;
+                case '┑': vLineHeavy(cnX, cnY, btm, cr); hLineLight(xP, cnX, cnY, cr); break;
+                case '┒': vLineLight(cnX, cnY, btm, cr); hLineHeavy(xP, cnX, cnY, cr); break;
+                case '┓': vLineHeavy(cnX, cnY, btm, cr); hLineHeavy(xP, cnX, cnY, cr); break;
+                case '└': case '╰': vLineLight(cnX, cY, cnY, cr); hLineLight(cnX, r, cnY, cr); break;
+                case '┕': vLineHeavy(cnX, cY, cnY, cr); hLineLight(cnX, r, cnY, cr); break;
+                case '┖': vLineLight(cnX, cY, cnY, cr); hLineHeavy(cnX, r, cnY, cr); break;
+                case '┗': vLineHeavy(cnX, cY, cnY, cr); hLineHeavy(cnX, r, cnY, cr); break;
+                case '┘': case '╯': vLineLight(cnX, cY, cnY, cr); hLineLight(xP, cnX, cnY, cr); break;
+                case '┙': vLineHeavy(cnX, cY, cnY, cr); hLineLight(xP, cnX, cnY, cr); break;
+                case '┚': vLineLight(cnX, cY, cnY, cr); hLineHeavy(xP, cnX, cnY, cr); break;
+                case '┛': vLineHeavy(cnX, cY, cnY, cr); hLineHeavy(xP, cnX, cnY, cr); break;
+
+                case '├': vLineLight(cnX, cY, btm, cr); hLineLight(cnX, r, cnY, cr); break;
+                case '┝': vLineHeavy(cnX, cY, btm, cr); hLineLight(cnX, r, cnY, cr); break;
+                case '┞': vLineLight(cnX, cY, btm, cr); hLineHeavy(cnX, r, cnY, cr); break;
+                case '┟', '┣': vLineHeavy(cnX, cY, btm, cr); hLineHeavy(cnX, r, cnY, cr); break;
+                case '┠': vLineHeavy(cnX, cY, cnY, cr); vLineLight(cnX, cnY, btm, cr); hLineLight(cnX, r, cnY, cr); break;
+                case '┡': vLineLight(cnX, cY, cnY, cr); vLineHeavy(cnX, cnY, btm, cr); hLineLight(cnX, r, cnY, cr); break;
+                case '┢': vLineHeavy(cnX, cY, btm, cr); hLineLight(cnX, r, cnY, cr); hLineLight(xP, cnX, cnY, cr); break;
+
+                case '┤': vLineLight(cnX, cY, btm, cr); hLineLight(xP, cnX, cnY, cr); break;
+                case '┥': vLineHeavy(cnX, cY, btm, cr); hLineLight(xP, cnX, cnY, cr); break;
+                case '┦': vLineLight(cnX, cY, btm, cr); hLineHeavy(xP, cnX, cnY, cr); break;
+                case '┧': vLineHeavy(cnX, cY, cnY, cr); vLineLight(cnX, cnY, btm, cr); hLineLight(xP, cnX, cnY, cr); break;
+                case '┨': vLineLight(cnX, cY, cnY, cr); vLineHeavy(cnX, cnY, btm, cr); hLineLight(xP, cnX, cnY, cr); break;
+                case '┩', '┽', '┯': vLineHeavy(cnX, cY, btm, cr); hLineLight(xP, r, cnY, cr); break;
+                case '┪', '┾': vLineLight(cnX, cY, btm, cr); hLineHeavy(xP, r, cnY, cr); break;
+                case '┫': vLineHeavy(cnX, cY, btm, cr); hLineHeavy(xP, cnX, cnY, cr); break;
+
+                case '┬': vLineLight(cnX, cnY, btm, cr); hLineLight(xP, r, cnY, cr); break;
+                case '┭': vLineHeavy(cnX, cnY, btm, cr); hLineLight(xP, r, cnY, cr); break;
+                case '┮', '┰': vLineLight(cnX, cnY, btm, cr); hLineHeavy(xP, r, cnY, cr); break;
+                case '┱': vLineHeavy(cnX, cnY, btm, cr); hLineLight(xP, cnX, cnY, cr); hLineHeavy(cnX, r, cnY, cr); break;
+                case '┲': vLineHeavy(cnX, cnY, btm, cr); hLineHeavy(xP, cnX, cnY, cr); hLineLight(cnX, r, cnY, cr); break;
+                case '┳': vLineHeavy(cnX, cnY, btm, cr); hLineHeavy(xP, r, cnY, cr); break;
+
+                case '┴': vLineLight(cnX, cY, cnY, cr); hLineLight(xP, r, cnY, cr); break;
+                case '┵': vLineHeavy(cnX, cY, cnY, cr); hLineLight(xP, r, cnY, cr); break;
+                case '┶', '┹': vLineLight(cnX, cY, cnY, cr); hLineHeavy(xP, r, cnY, cr); break;
+                case '┷': vLineHeavy(cnX, cY, cnY, cr); hLineLight(xP, r, cnY, cr); hLineHeavy(cnX, r, cnY, cr); break;
+                case '┸': vLineHeavy(cnX, cY, cnY, cr); hLineHeavy(xP, r, cnY, cr); hLineLight(xP, cnX, cnY, cr); break;
+                case '┺', '┻': vLineHeavy(cnX, cY, cnY, cr); hLineHeavy(xP, r, cnY, cr); break;
+
+                case '┼': vLineLight(cnX, cY, btm, cr); hLineLight(xP, r, cnY, cr); break;
+                case '┿': vLineHeavy(cnX, cY, btm, cr); hLineLight(cnX, r, cnY, cr); hLineHeavy(xP, cnX, cnY, cr); break;
+                case '╀': vLineHeavy(cnX, cY, btm, cr); hLineHeavy(cnX, r, cnY, cr); hLineLight(xP, cnX, cnY, cr); break;
+                case '╁': vLineLight(cnX, cY, btm, cr); hLineHeavy(xP, r, cnY, cr); vLineHeavy(cnX, cnY, btm, cr); break;
+                case '╂': vLineLight(cnX, cY, btm, cr); hLineHeavy(xP, r, cnY, cr); vLineHeavy(cnX, cY, cnY, cr); break;
+                case '╃': vLineHeavy(cnX, cY, btm, cr); hLineLight(xP, r, cnY, cr); vLineLight(cnX, cnY, btm, cr); break;
+                case '╄': vLineHeavy(cnX, cY, btm, cr); hLineLight(xP, r, cnY, cr); vLineLight(cnX, cY, cnY, cr); break;
+                case '╅', '╆': vLineLight(cnX, cY, btm, cr); hLineHeavy(xP, r, cnY, cr); vLineHeavy(cnX, cY, btm, cr); break;
+                case '╇': vLineHeavy(cnX, cY, btm, cr); hLineLight(xP, r, cnY, cr); hLineHeavy(xP, cnX, cnY, cr); break;
+                case '╈': vLineHeavy(cnX, cY, btm, cr); hLineLight(xP, r, cnY, cr); hLineHeavy(cnX, r, cnY, cr); break;
+                case '╉', '╊': vLineHeavy(cnX, cY, btm, cr); hLineLight(xP, r, cnY, cr); hLineHeavy(xP, r, cnY, cr); break;
+                case '╋': vLineHeavy(cnX, cY, btm, cr); hLineHeavy(xP, r, cnY, cr); break;
+
+                case '═': hLineDouble(xP, r, cnY, cr); break;
+                case '║': vLineDouble(cnX, cY, btm, cr); break;
+                case '╒': vLineLight(cnX, cnY, btm, cr); hLineDouble(cnX, r, cnY, cr); break;
+                case '╓': vLineLight(cnX, cnY, btm, cr); hLineDouble(xP, cnX, cnY, cr); break;
+                case '╔': vLineDouble(cnX, cnY, btm, cr); hLineDouble(cnX, r, cnY, cr); break;
+                case '╕': vLineDouble(cnX, cnY, btm, cr); hLineLight(xP, cnX, cnY, cr); break;
+                case '╖': vLineDouble(cnX, cnY, btm, cr); hLineHeavy(xP, cnX, cnY, cr); break;
+                case '╗': vLineDouble(cnX, cnY, btm, cr); hLineDouble(xP, cnX, cnY, cr); break;
+                case '╘': vLineLight(cnX, cY, cnY, cr); hLineDouble(cnX, r, cnY, cr); break;
+                case '╙': vLineLight(cnX, cY, cnY, cr); hLineDouble(xP, cnX, cnY, cr); break;
+                case '╚': vLineDouble(cnX, cY, cnY, cr); hLineDouble(cnX, r, cnY, cr); break;
+                case '╛': vLineDouble(cnX, cY, cnY, cr); hLineLight(cnX, r, cnY, cr); break;
+                case '╜': vLineDouble(cnX, cY, cnY, cr); hLineHeavy(cnX, r, cnY, cr); break;
+                case '╝': vLineDouble(cnX, cY, cnY, cr); hLineDouble(xP, cnX, cnY, cr); break;
+                case '╞': vLineLight(cnX, cY, btm, cr); hLineDouble(cnX, r, cnY, cr); break;
+                case '╟': vLineLight(cnX, cY, btm, cr); hLineDouble(xP, cnX, cnY, cr); break;
+                case '╠': vLineDouble(cnX, cY, btm, cr); hLineDouble(cnX, r, cnY, cr); break;
+                case '╡': vLineDouble(cnX, cY, btm, cr); hLineLight(xP, cnX, cnY, cr); break;
+                case '╢': vLineDouble(cnX, cY, btm, cr); hLineHeavy(xP, cnX, cnY, cr); break;
+                case '╣': vLineDouble(cnX, cY, btm, cr); hLineDouble(xP, cnX, cnY, cr); break;
+                case '╤': vLineLight(cnX, cnY, btm, cr); hLineDouble(xP, r, cnY, cr); break;
+                case '╥': vLineLight(cnX, cY, cnY, cr); hLineDouble(xP, r, cnY, cr); break;
+                case '╦': vLineDouble(cnX, cnY, btm, cr); hLineDouble(xP, r, cnY, cr); break;
+                case '╧': vLineDouble(cnX, cY, cnY, cr); hLineLight(xP, r, cnY, cr); break;
+                case '╨': vLineDouble(cnX, cY, cnY, cr); hLineHeavy(xP, r, cnY, cr); break;
+                case '╩': vLineDouble(cnX, cY, cnY, cr); hLineDouble(xP, r, cnY, cr); break;
+                case '╪': vLineLight(cnX, cY, btm, cr); hLineDouble(xP, r, cnY, cr); break;
+                case '╫': vLineDouble(cnX, cY, btm, cr); hLineLight(xP, r, cnY, cr); break;
+                case '╬': vLineDouble(cnX, cY, btm, cr); hLineDouble(xP, r, cnY, cr); break;
+
+                case '╴': hLineLight(xP, cnX, cnY, cr); break;
+                case '╵': vLineLight(cnX, btm, cY, cr); break;
+                case '╶': hLineLight(cnX, r, cnY, cr); break;
+                case '╷': vLineLight(cnX, cY, cnY, cr); break;
+                case '╸': hLineHeavy(xP, cnX, cnY, cr); break;
+                case '╹': vLineHeavy(cnX, btm, cY, cr); break;
+                case '╺': hLineHeavy(cnX, r, cnY, cr); break;
+                case '╻': vLineHeavy(cnX, cY, cnY, cr); break;
+                case '╼': hLineLight(xP, cnX, cnY, cr); hLineHeavy(cnX, r, cnY, cr); break;
+                case '╽': vLineLight(cnX, cY, cnY, cr); vLineHeavy(cnX, cnY, btm, cr); break;
+                case '╾': hLineHeavy(xP, cnX, cnY, cr); hLineLight(cnX, r, cnY, cr); break;
+                case '╿': vLineHeavy(cnX, cY, cnY, cr); vLineLight(cnX, cnY, btm, cr); break;
             }
         }
 
         @Override
         public void consumeQueue(int x, int y, int nulIndex, int startRow) {
             flushBackgroundRun();
+            int lineY = contentY + ((y - startRow) * lineHeight) - (int) (scrollY % lineHeight);
+            Color foreground = fromAwtColor(new java.awt.Color(Config.terminalTextColor));
+            flushText(lineY, foreground);
         }
     }
 
@@ -790,6 +957,8 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     public void terminalMouseModeSet(@NotNull MouseMode mouseMode) {
         this.myMouseMode = mouseMode;
     }
+
+
 
     @Override
     public void setMouseFormat(@NotNull MouseFormat mouseFormat) {
