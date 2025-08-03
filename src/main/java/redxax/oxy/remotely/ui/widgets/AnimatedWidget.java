@@ -363,10 +363,14 @@ public abstract class AnimatedWidget extends ClickableWidget {
     public void tick() {
         if (animateLayout) {
             if (!layoutInitialized) {
-                animatedX = getX();
-                animatedY = getY();
-                animatedWidth = width;
-                animatedHeight = height;
+                animatedX = targetX;
+                animatedY = targetY;
+                animatedWidth = targetWidth;
+                animatedHeight = targetHeight;
+                super.setX(Math.round(animatedX));
+                super.setY(Math.round(animatedY));
+                super.setWidth(Math.round(animatedWidth));
+                this.height = Math.round(animatedHeight);
                 layoutInitialized = true;
             } else {
                 animatedX += (targetX - animatedX) * globalMovementSpeed * deltaTime;
