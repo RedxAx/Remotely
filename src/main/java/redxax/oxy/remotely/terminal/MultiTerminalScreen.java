@@ -4,6 +4,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
+import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.resources.ResourceManagerScreen;
@@ -313,6 +314,23 @@ public class MultiTerminalScreen extends ReScreen {
         activeTerminal.setPosition(termX, termY);
         activeTerminal.setWidth(termWidth);
         activeTerminal.setHeight(termHeight);
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE && activeTerminal != null) {
+            activeTerminal.keyPressed(keyCode, scanCode, modifiers);
+            return true;
+        }
+        if (keyCode == GLFW.GLFW_KEY_B && hasControlDown()) {
+            if (activeTerminal != null) activeTerminal.keyPressed(keyCode, scanCode, modifiers);
+            return true;
+        }
+
+        if (keyCode == GLFW.GLFW_KEY_TAB && activeTerminal != null) {
+            return activeTerminal.keyPressed(keyCode, scanCode, modifiers);
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     private void populateSnippetsPanel() {

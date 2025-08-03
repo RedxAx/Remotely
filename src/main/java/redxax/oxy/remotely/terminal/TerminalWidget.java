@@ -2,6 +2,8 @@ package redxax.oxy.remotely.terminal;
 
 import com.jediterm.core.Color;
 import com.jediterm.core.compatibility.Point;
+import com.jediterm.core.input.MouseEvent;
+import com.jediterm.core.input.MouseWheelEvent;
 import com.jediterm.core.typeahead.TerminalTypeAheadManager;
 import com.jediterm.core.util.Ascii;
 import com.jediterm.core.util.TermSize;
@@ -70,6 +72,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
     private boolean drawBackground = true;
     private MouseMode myMouseMode = MouseMode.MOUSE_REPORTING_NONE;
+    private int charWidth = -1;
 
     public static class Builder extends AnimatedWidget.Builder<TerminalWidget, Builder> {
         private ServerInfo serverInfo;
@@ -208,7 +211,8 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     }
 
     private int getCharWidth() {
-        return tr.getWidth("R");
+        if (charWidth == -1) charWidth = tr.getWidth("R");
+        return charWidth;
     }
 
     private class OptimizedRenderer extends StyledTextConsumerAdapter {
@@ -218,7 +222,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         private final int lineHeight;
         private final int padding;
         private final boolean drawBackground;
-        private com.jediterm.core.Color currentBgColor = null;
+        private Color currentBgColor = null;
         private int runStartColumn = -1;
         private int runEndColumn = -1;
         private int runLineY = -1;
@@ -249,10 +253,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
             int lineY = contentY + ((y - startRow) * lineHeight) - (int) (scrollY % lineHeight);
             if (lineY >= contentY - lineHeight && lineY < contentY + contentHeight) {
                 if (drawBackground) {
-                    com.jediterm.core.Color background = style.getBackground() != null
-                            ? mySettingsProvider.getTerminalColorPalette().getBackground(style.getBackground())
-                            : null;
-
+                    Color background = style.getBackground() != null ? mySettingsProvider.getTerminalColorPalette().getBackground(style.getBackground()) : null;
                     if (background == null || !background.equals(currentBgColor) || lineY != runLineY || x != runEndColumn) {
                         flushBackgroundRun();
                         if (background != null) {
@@ -267,14 +268,9 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
                 } else {
                     flushBackgroundRun();
                 }
-
                 MutableText lineText = Text.literal(characters.toString());
-
-                com.jediterm.core.Color foreground = style.getForeground() != null
-                        ? mySettingsProvider.getTerminalColorPalette().getForeground(style.getForeground())
-                        : fromAwtColor(new java.awt.Color(Config.terminalTextColor));
+                Color foreground = style.getForeground() != null ? mySettingsProvider.getTerminalColorPalette().getForeground(style.getForeground()) : fromAwtColor(new java.awt.Color(Config.terminalTextColor));
                 lineText.setStyle(net.minecraft.text.Style.EMPTY.withColor(TextColor.fromRgb(foreground.getRGB())).withFont(font));
-
                 ctx.drawText(tr, lineText, getX() + padding + (x * getCharWidth()), lineY, 0, shadow);
             } else {
                 flushBackgroundRun();
@@ -333,7 +329,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         int awtModifiers = getCurrentModifiers();
         if (isRemoteMouseAction(button, awtModifiers)) {
             Point p = panelToScreenCoords(mouseX, mouseY);
-            com.jediterm.core.input.MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
+            MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
             if (event.getButtonCode() != MouseButtonCodes.NONE) {
                 myTerminal.mousePressed(p.x, p.y, event);
             }
@@ -372,7 +368,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         int awtModifiers = getCurrentModifiers();
         if (isRemoteMouseAction(button, awtModifiers)) {
             Point p = panelToScreenCoords(mouseX, mouseY);
-            com.jediterm.core.input.MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
+            MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
             if (event.getButtonCode() != MouseButtonCodes.NONE) {
                 myTerminal.mouseReleased(p.x, p.y, event);
             }
@@ -392,7 +388,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
         if (isRemoteMouseAction(button, awtModifiers)) {
             Point screenCoords = panelToScreenCoords(mouseX, mouseY);
-            com.jediterm.core.input.MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
+            MouseEvent event = createJediTermMouseEvent(button, awtModifiers);
             if (event.getButtonCode() != MouseButtonCodes.NONE) {
                 myTerminal.mouseDragged(screenCoords.x, screenCoords.y, event);
             }
@@ -442,7 +438,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
             if (isRemoteMouseAction(-1, awtModifiers) && myTerminalStarter != null) {
                 Point p = panelToScreenCoords(mouseX, mouseY);
-                com.jediterm.core.input.MouseWheelEvent event = createJediTermMouseWheelEvent(verticalAmount, awtModifiers);
+                MouseWheelEvent event = createJediTermMouseWheelEvent(verticalAmount, awtModifiers);
                 myTerminal.mouseWheelMoved(p.x, p.y, event);
                 return true;
             }
@@ -484,26 +480,26 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     }
 
     private boolean isRemoteMouseAction(int button, int awtModifiers) {
-        return myMouseMode != MouseMode.MOUSE_REPORTING_NONE && (awtModifiers & InputEvent.SHIFT_MASK) == 0;
+        return myMouseMode != MouseMode.MOUSE_REPORTING_NONE && (awtModifiers & InputEvent.SHIFT_MASK) == 0 && myTextBuffer.isUsingAlternateBuffer();
     }
 
     private boolean isLocalMouseAction(int button, int awtModifiers) {
-        return mySettingsProvider.forceActionOnMouseReporting() || (myMouseMode == MouseMode.MOUSE_REPORTING_NONE || (awtModifiers & InputEvent.SHIFT_MASK) != 0);
+        return mySettingsProvider.forceActionOnMouseReporting() || !myTextBuffer.isUsingAlternateBuffer() || (myMouseMode == MouseMode.MOUSE_REPORTING_NONE || (awtModifiers & InputEvent.SHIFT_MASK) != 0);
     }
 
-    private com.jediterm.core.input.MouseEvent createJediTermMouseEvent(int button, int awtModifiers) {
+    private MouseEvent createJediTermMouseEvent(int button, int awtModifiers) {
         int jediButton = switch (button) {
             case GLFW.GLFW_MOUSE_BUTTON_LEFT -> MouseButtonCodes.LEFT;
             case GLFW.GLFW_MOUSE_BUTTON_MIDDLE -> MouseButtonCodes.MIDDLE;
             case GLFW.GLFW_MOUSE_BUTTON_RIGHT -> MouseButtonCodes.RIGHT;
             default -> MouseButtonCodes.NONE;
         };
-        return new com.jediterm.core.input.MouseEvent(jediButton, awtModifiers);
+        return new MouseEvent(jediButton, awtModifiers);
     }
 
-    private com.jediterm.core.input.MouseWheelEvent createJediTermMouseWheelEvent(double verticalAmount, int awtModifiers) {
+    private MouseWheelEvent createJediTermMouseWheelEvent(double verticalAmount, int awtModifiers) {
         int jediButton = verticalAmount > 0 ? MouseButtonCodes.SCROLLUP : MouseButtonCodes.SCROLLDOWN;
-        return new com.jediterm.core.input.MouseWheelEvent(jediButton, awtModifiers);
+        return new MouseWheelEvent(jediButton, awtModifiers);
     }
 
     private boolean isAltPressedOnly(int awtModifiers) {
@@ -624,7 +620,12 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
     private void handleCopy() {
         if (mySelection != null) {
-            mc.keyboard.setClipboard(SelectionUtil.getSelectionText(mySelection.getStart(), mySelection.getEnd(), myTextBuffer));
+            String selectedText = SelectionUtil.getSelectionText(mySelection.getStart(), mySelection.getEnd(), myTextBuffer);
+            if (selectedText != null && !selectedText.isEmpty()) {
+                mc.keyboard.setClipboard(selectedText);
+                mySelection = null;
+                scheduleRepaint();
+            }
         }
     }
 
