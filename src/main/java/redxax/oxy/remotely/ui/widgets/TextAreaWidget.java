@@ -6,11 +6,15 @@ import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.Render;
+import redxax.oxy.remotely.explorer.SyntaxHighlighter;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.function.Consumer;
 
+import static net.minecraft.client.gui.screen.Screen.hasControlDown;
 import static redxax.oxy.remotely.config.Config.*;
 
 public class TextAreaWidget extends AnimatedWidget {
@@ -28,9 +32,26 @@ public class TextAreaWidget extends AnimatedWidget {
     private float targetScrollOffsetX = 0f;
     private float targetScrollOffsetY = 0f;
     public Consumer<String> onChange;
-    private int maxLength = 10000;
+    private int maxLength = 100000;
     private static final int LINE_SPACING = 2;
-    private static final int PADDING = 5;
+    private static final int PADDING = 1;
+
+    private boolean syntaxHighlighting = false;
+    private String fileNameForSyntax;
+    private long lastClickTime = 0;
+    private int clickCount = 0;
+    private final Deque<HistoryState> undoStack = new ArrayDeque<>(50);
+    private final Deque<HistoryState> redoStack = new ArrayDeque<>(50);
+
+    private static class HistoryState {
+        final String text;
+        final int cursorLine, cursorCol, selStartLine, selStartCol, selEndLine, selEndCol;
+
+        HistoryState(String text, int cL, int cC, int sSL, int sSC, int sEL, int sEC) {
+            this.text = text; this.cursorLine = cL; this.cursorCol = cC;
+            this.selStartLine = sSL; this.selStartCol = sSC; this.selEndLine = sEL; this.selEndCol = sEC;
+        }
+    }
 
     public static class Builder extends AnimatedWidget.Builder<TextAreaWidget, Builder> {
         public Builder() {
@@ -57,6 +78,12 @@ public class TextAreaWidget extends AnimatedWidget {
             return this;
         }
 
+        public Builder syntaxHighlighting(String fileName) {
+            widget.syntaxHighlighting = true;
+            widget.fileNameForSyntax = fileName;
+            return this;
+        }
+
         @Override
         protected Builder self() {
             return this;
@@ -65,6 +92,7 @@ public class TextAreaWidget extends AnimatedWidget {
 
     public TextAreaWidget(int x, int y, int width, int height) {
         super(x, y, width, height, Text.empty());
+        animateElevation = enableHoverColors = false;
     }
 
     public String getText() {
@@ -81,10 +109,55 @@ public class TextAreaWidget extends AnimatedWidget {
             lines.add(new StringBuilder());
         }
         setCursor(0, 0);
+        undoStack.clear();
+        redoStack.clear();
+        pushUndoState();
         if (onChange != null) {
             onChange.accept(getText());
         }
     }
+
+    private void applyState(HistoryState state) {
+        lines.clear();
+        String[] textLines = state.text.split("\n", -1);
+        for (String line : textLines) {
+            lines.add(new StringBuilder(line));
+        }
+        if (lines.isEmpty()) lines.add(new StringBuilder());
+        cursorLine = state.cursorLine;
+        cursorCol = state.cursorCol;
+        selectionStartLine = state.selStartLine;
+        selectionStartCol = state.selStartCol;
+        selectionEndLine = state.selEndLine;
+        selectionEndCol = state.selEndCol;
+        ensureCursorVisible();
+        if (onChange != null) onChange.accept(getText());
+    }
+
+    private void pushUndoState() {
+        redoStack.clear();
+        HistoryState state = new HistoryState(getText(), cursorLine, cursorCol, selectionStartLine, selectionStartCol, selectionEndLine, selectionEndCol);
+        if (!undoStack.isEmpty() && undoStack.peek().text.equals(state.text)) return;
+        if (undoStack.size() >= 50) {
+            undoStack.removeLast();
+        }
+        undoStack.push(state);
+    }
+
+    private void undo() {
+        if (undoStack.isEmpty()) return;
+        HistoryState currentState = new HistoryState(getText(), cursorLine, cursorCol, selectionStartLine, selectionStartCol, selectionEndLine, selectionEndCol);
+        redoStack.push(currentState);
+        applyState(undoStack.pop());
+    }
+
+    private void redo() {
+        if (redoStack.isEmpty()) return;
+        HistoryState currentState = new HistoryState(getText(), cursorLine, cursorCol, selectionStartLine, selectionStartCol, selectionEndLine, selectionEndCol);
+        undoStack.push(currentState);
+        applyState(redoStack.pop());
+    }
+
 
     @Override
     public void tick() {
@@ -115,11 +188,18 @@ public class TextAreaWidget extends AnimatedWidget {
             for (int i = startLine; i < endLine; i++) {
                 int lineY = getY() + PADDING + i * lineH - (int) scrollOffsetY;
                 String lineText = lines.get(i).toString();
+                Text displayLine;
 
-                if (isFocused() && selectionStartLine != selectionEndLine || selectionStartCol != selectionEndCol) {
+                if (syntaxHighlighting && fileNameForSyntax != null) {
+                    displayLine = SyntaxHighlighter.highlight(lineText, fileNameForSyntax);
+                } else {
+                    displayLine = Text.literal(lineText).styled(s -> s.withColor(textColor));
+                }
+
+                if (isFocused() && hasSelection()) {
                     drawSelection(ctx, i, lineY);
                 }
-                ctx.drawText(tr, lineText, getX() + PADDING - (int) scrollOffsetX, lineY, textColor, shadow);
+                ctx.drawText(tr, displayLine, getX() + PADDING - (int) scrollOffsetX, lineY, globalTextColor, shadow);
             }
 
             if (isFocused() && System.currentTimeMillis() % 1000 > 500) {
@@ -196,7 +276,7 @@ public class TextAreaWidget extends AnimatedWidget {
         }
 
         int maxScrollY = Math.max(0, lines.size() * lineH - contentHeight);
-        targetScrollOffsetY = (float) MathHelper.clamp(targetScrollOffsetY, 0, maxScrollY);
+        targetScrollOffsetY = MathHelper.clamp(targetScrollOffsetY, 0, maxScrollY);
 
         int cursorX = tr.getWidth(lines.get(cursorLine).substring(0, cursorCol));
         if (cursorX < targetScrollOffsetX) {
@@ -211,7 +291,7 @@ public class TextAreaWidget extends AnimatedWidget {
             maxScrollX = Math.max(maxScrollX, tr.getWidth(line.toString()));
         }
         maxScrollX = Math.max(0, maxScrollX - contentWidth);
-        targetScrollOffsetX = (float) MathHelper.clamp(targetScrollOffsetX, 0, maxScrollX);
+        targetScrollOffsetX = MathHelper.clamp(targetScrollOffsetX, 0, maxScrollX);
     }
 
     private void clampScroll() {
@@ -220,16 +300,16 @@ public class TextAreaWidget extends AnimatedWidget {
         int contentWidth = getWidth() - PADDING * 2;
 
         int maxScrollY = Math.max(0, lines.size() * lineH - contentHeight);
-        targetScrollOffsetY = (float) MathHelper.clamp(targetScrollOffsetY, 0, maxScrollY);
-        scrollOffsetY = (float) MathHelper.clamp(scrollOffsetY, 0, maxScrollY);
+        targetScrollOffsetY = MathHelper.clamp(targetScrollOffsetY, 0, maxScrollY);
+        scrollOffsetY = MathHelper.clamp(scrollOffsetY, 0, maxScrollY);
 
         int maxScrollX = 0;
         for (StringBuilder line : lines) {
             maxScrollX = Math.max(maxScrollX, tr.getWidth(line.toString()));
         }
         maxScrollX = Math.max(0, maxScrollX - contentWidth);
-        targetScrollOffsetX = (float) MathHelper.clamp(targetScrollOffsetX, 0, maxScrollX);
-        scrollOffsetX = (float) MathHelper.clamp(scrollOffsetX, 0, maxScrollX);
+        targetScrollOffsetX = MathHelper.clamp(targetScrollOffsetX, 0, maxScrollX);
+        scrollOffsetX = MathHelper.clamp(scrollOffsetX, 0, maxScrollX);
     }
 
     @Override
@@ -245,9 +325,55 @@ public class TextAreaWidget extends AnimatedWidget {
     @Override
     public void onClick(double mouseX, double mouseY, int button) {
         if (button == 0) {
+            long time = System.currentTimeMillis();
+            if (time - lastClickTime < 500) {
+                clickCount++;
+            } else {
+                clickCount = 1;
+            }
+            lastClickTime = time;
+
             SelectionPoint p = getPosFromCoords(mouseX, mouseY);
-            setCursor(p.line, p.col);
+            if (clickCount == 2) {
+                selectWordAt(p.line, p.col);
+            } else if (clickCount == 3) {
+                selectLineAt(p.line);
+                clickCount = 0;
+            } else {
+                setCursor(p.line, p.col);
+            }
         }
+    }
+
+    private void selectWordAt(int line, int col) {
+        String lineText = lines.get(line).toString();
+        if (lineText.isEmpty()) return;
+
+        col = Math.min(col, lineText.length());
+
+        int start = col;
+        while(start > 0 && !Character.isWhitespace(lineText.charAt(start-1))) start--;
+
+        int end = col;
+        while(end < lineText.length() && !Character.isWhitespace(lineText.charAt(end))) end++;
+
+        selectionStartLine = line;
+        selectionStartCol = start;
+        selectionEndLine = line;
+        selectionEndCol = end;
+        cursorLine = line;
+        cursorCol = end;
+        ensureCursorVisible();
+    }
+
+    private void selectLineAt(int line) {
+        selectionStartLine = line;
+        selectionStartCol = 0;
+        selectionEndLine = line;
+        selectionEndCol = lines.get(line).length();
+        cursorLine = line;
+        cursorCol = selectionEndCol;
+        ensureCursorVisible();
     }
 
     @Override
@@ -265,11 +391,11 @@ public class TextAreaWidget extends AnimatedWidget {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (!isFocused()) return false;
-        boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
+        boolean ctrl = hasControlDown();
         boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
 
         if (handleSelectionKeys(keyCode, ctrl, shift)) return true;
-        if (handleEditingKeys(keyCode, ctrl)) return true;
+        if (handleEditingKeys(keyCode, ctrl, shift)) return true;
 
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
@@ -281,6 +407,7 @@ public class TextAreaWidget extends AnimatedWidget {
                 selectionStartCol = 0;
                 cursorLine = selectionEndLine = lines.size() - 1;
                 cursorCol = selectionEndCol = lines.get(cursorLine).length();
+                ensureCursorVisible();
             } else if (keyCode == GLFW.GLFW_KEY_LEFT) {
                 if (cursorCol > 0) {
                     String lineText = lines.get(cursorLine).toString();
@@ -315,21 +442,9 @@ public class TextAreaWidget extends AnimatedWidget {
         }
 
         if (keyCode == GLFW.GLFW_KEY_LEFT) {
-            if (cursorCol > 0) {
-                if (shift) setCursorWithSelection(cursorLine, cursorCol - 1);
-                else setCursor(cursorLine, cursorCol - 1);
-            } else if (cursorLine > 0) {
-                if (shift) setCursorWithSelection(cursorLine - 1, lines.get(cursorLine - 1).length());
-                else setCursor(cursorLine - 1, lines.get(cursorLine - 1).length());
-            }
+            if(shift) setCursorWithSelection(cursorLine, cursorCol-1); else if (hasSelection()) setCursor(getOrderedSelectionStart().line, getOrderedSelectionStart().col); else setCursor(cursorLine, cursorCol-1);
         } else if (keyCode == GLFW.GLFW_KEY_RIGHT) {
-            if (cursorCol < lines.get(cursorLine).length()) {
-                if (shift) setCursorWithSelection(cursorLine, cursorCol + 1);
-                else setCursor(cursorLine, cursorCol + 1);
-            } else if (cursorLine < lines.size() - 1) {
-                if (shift) setCursorWithSelection(cursorLine + 1, 0);
-                else setCursor(cursorLine + 1, 0);
-            }
+            if(shift) setCursorWithSelection(cursorLine, cursorCol+1); else if (hasSelection()) setCursor(getOrderedSelectionEnd().line, getOrderedSelectionEnd().col); else setCursor(cursorLine, cursorCol+1);
         } else if (keyCode == GLFW.GLFW_KEY_UP) {
             if (cursorLine > 0) {
                 if (shift) setCursorWithSelection(cursorLine - 1, cursorCol);
@@ -364,26 +479,28 @@ public class TextAreaWidget extends AnimatedWidget {
         return true;
     }
 
-    private boolean handleEditingKeys(int keyCode, boolean ctrl) {
+    private boolean handleEditingKeys(int keyCode, boolean ctrl, boolean shift) {
+        if(ctrl) {
+            if(keyCode == GLFW.GLFW_KEY_Z) { undo(); return true; }
+            if(keyCode == GLFW.GLFW_KEY_Y) { redo(); return true; }
+        }
+
         if (hasSelection()) {
             if (keyCode == GLFW.GLFW_KEY_BACKSPACE || keyCode == GLFW.GLFW_KEY_DELETE) {
-                deleteSelection();
+                pushUndoState(); deleteSelection();
                 return true;
             }
-            if (ctrl && keyCode == GLFW.GLFW_KEY_C) {
-                copySelection();
-                return true;
-            }
+            if (ctrl && keyCode == GLFW.GLFW_KEY_C) { copySelection(); return true; }
             if (ctrl && keyCode == GLFW.GLFW_KEY_X) {
-                copySelection();
-                deleteSelection();
+                pushUndoState(); copySelection(); deleteSelection();
                 return true;
             }
         }
 
         if (keyCode == GLFW.GLFW_KEY_ENTER) {
-            insertText("\n");
+            pushUndoState(); insertText("\n");
         } else if (keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+            pushUndoState();
             if (cursorCol > 0) {
                 lines.get(cursorLine).deleteCharAt(cursorCol - 1);
                 setCursor(cursorLine, cursorCol - 1);
@@ -393,7 +510,9 @@ public class TextAreaWidget extends AnimatedWidget {
                 lines.remove(cursorLine);
                 setCursor(cursorLine - 1, prevLineLen);
             }
+            if(onChange != null) onChange.accept(getText());
         } else if (keyCode == GLFW.GLFW_KEY_DELETE) {
+            pushUndoState();
             if (cursorCol < lines.get(cursorLine).length()) {
                 lines.get(cursorLine).deleteCharAt(cursorCol);
                 setCursor(cursorLine, cursorCol);
@@ -402,17 +521,66 @@ public class TextAreaWidget extends AnimatedWidget {
                 lines.remove(cursorLine + 1);
                 setCursor(cursorLine, cursorCol);
             }
-        } else if (ctrl && keyCode == GLFW.GLFW_KEY_V) {
-            paste();
+            if(onChange != null) onChange.accept(getText());
+        } else if (keyCode == GLFW.GLFW_KEY_TAB) {
+            handleTab(shift);
+        }
+        else if (ctrl && keyCode == GLFW.GLFW_KEY_V) {
+            pushUndoState(); paste();
         } else {
             return false;
         }
         return true;
     }
 
+    private void handleTab(boolean shift) {
+        pushUndoState();
+        if (shift) {
+            if (hasSelection()) {
+                SelectionPoint start = getOrderedSelectionStart();
+                SelectionPoint end = getOrderedSelectionEnd();
+                for (int i = start.line; i <= end.line; i++) {
+                    unindentLine(i);
+                }
+            } else {
+                unindentLine(cursorLine);
+            }
+        } else {
+            if (hasSelection()) {
+                SelectionPoint start = getOrderedSelectionStart();
+                SelectionPoint end = getOrderedSelectionEnd();
+                for (int i = start.line; i <= end.line; i++) {
+                    indentLine(i);
+                }
+            } else {
+                insertText("\t");
+            }
+        }
+        if (onChange != null) onChange.accept(getText());
+    }
+
+    private void indentLine(int lineIndex) {
+        lines.get(lineIndex).insert(0, "\t");
+    }
+
+    private void unindentLine(int lineIndex) {
+        StringBuilder line = lines.get(lineIndex);
+        if (!line.isEmpty() && line.charAt(0) == '\t') {
+            line.deleteCharAt(0);
+        } else if (!line.isEmpty() && line.charAt(0) == ' ') {
+            int spaces = 0;
+            for (int i = 0; i < Math.min(4, line.length()); i++) {
+                if (line.charAt(i) == ' ') spaces++; else break;
+            }
+            line.delete(0, spaces);
+        }
+    }
+
+
     @Override
     public boolean charTyped(char chr, int modifiers) {
         if (!isFocused() || Character.isISOControl(chr)) return false;
+        pushUndoState();
         deleteSelection();
         insertText(String.valueOf(chr));
         return true;
@@ -421,6 +589,7 @@ public class TextAreaWidget extends AnimatedWidget {
     private void insertText(String text) {
         if (getText().length() + text.length() > maxLength) return;
 
+        text = text.replace("\r\n", "\n").replace("\r", "\n");
         String[] newLines = text.split("\n", -1);
         StringBuilder currentLine = lines.get(cursorLine);
         String restOfLine = currentLine.substring(cursorCol);
@@ -497,12 +666,12 @@ public class TextAreaWidget extends AnimatedWidget {
                 sb.append("\n");
             }
         }
-        GLFW.glfwSetClipboardString(GLFW.glfwGetCurrentContext(), sb.toString());
+        mc.keyboard.setClipboard(sb.toString());
     }
 
     private void paste() {
         deleteSelection();
-        String clipboard = GLFW.glfwGetClipboardString(GLFW.glfwGetCurrentContext());
+        String clipboard = mc.keyboard.getClipboard();
         if (clipboard != null) {
             insertText(clipboard);
         }

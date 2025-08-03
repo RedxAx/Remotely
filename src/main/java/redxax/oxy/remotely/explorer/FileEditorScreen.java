@@ -14,6 +14,7 @@ import redxax.oxy.remotely.ui.ReScreen;
 import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
 import redxax.oxy.remotely.ui.widgets.FileEntryWidget;
 import redxax.oxy.remotely.ui.widgets.TextAreaWidget;
+import redxax.oxy.remotely.util.Notification;
 import redxax.oxy.remotely.util.Sound;
 
 import java.nio.file.Path;
@@ -35,6 +36,7 @@ public class FileEditorScreen extends ReScreen {
     private Path explorerPath;
     private final RemotelyCoreAPI fileAPI;
     private double originalMCScale;
+    private TextAreaWidget activeTextArea;
 
     private static class SavedTabState {
         String content;
@@ -57,7 +59,8 @@ public class FileEditorScreen extends ReScreen {
             this.path = path.normalize();
             this.name = path.getFileName() != null ? path.getFileName().toString() : path.toString();
 
-            this.textAreaWidget = new TextAreaWidget.Builder().build();
+            TextAreaWidget.Builder builder = new TextAreaWidget.Builder().syntaxHighlighting(this.name);
+            this.textAreaWidget = builder.build();
             this.textAreaWidget.onChange = this::onTextChange;
 
             if (SAVED_TABS.containsKey(this.path)) {
@@ -91,12 +94,12 @@ public class FileEditorScreen extends ReScreen {
 
         private void loadFileContent() {
             fileAPI.readFile(path).thenAccept(content -> client.execute(() -> {
-                String sanitizedContent = content.replace("\\t", "\t");
+                String sanitizedContent = content.replace("\r\n", "\n").replace("\r", "\n").replace("\\t", "\t");
                 this.textAreaWidget.setText(sanitizedContent);
                 this.originalContent = sanitizedContent;
                 this.unsaved = false;
             })).exceptionally(e -> {
-                // Handle error
+                new Notification("Failed To Load File", e.getMessage(), Notification.Type.ERROR);
                 return null;
             });
         }
@@ -108,7 +111,7 @@ public class FileEditorScreen extends ReScreen {
                 this.originalContent = newContent;
                 onTextChange(newContent);
             })).exceptionally(e -> {
-                // Handle error
+                new Notification("Failed To Save", e.getMessage(), Notification.Type.ERROR);
                 return null;
             });
         }
@@ -152,31 +155,21 @@ public class FileEditorScreen extends ReScreen {
     protected void init() {
         super.init();
 
-        header().addRight("/assets/remotely/icons/close.png", this::close, "Close")
-                .addRight("/assets/remotely/icons/save.png", () -> {
-                    int idx = tabs().getActiveTabIndex();
-                    if (idx != -1) {
-                        Tab tab = (Tab) tabs().getTabs().get(idx).getData();
-                        tab.saveFile();
-                    }
-                }, "Save File")
-                .addRight("/assets/remotely/icons/explorer.png", this::toggleExplorerPanel, "Toggle Explorer")
-                .setSearchMode(new SearchMode(false), false)
-                .build();
+        header().addRight("/assets/remotely/icons/close.png", this::close, "Close").addRight("/assets/remotely/icons/save.png", () -> {
+            if (activeTextArea != null) {
+                int idx = tabs().getActiveTabIndex();
+                if (idx != -1) {
+                    Tab tab = (Tab) tabs().getTabs().get(idx).getData();
+                    tab.saveFile();
+                }
+            }
+        }, "Save File").addRight("/assets/remotely/icons/explorer.png", this::toggleExplorerPanel, "Toggle Explorer").setSearchMode(new SearchMode(false), true).build();
 
         if (header().searchBox != null) {
             ((SearchTextInputWidget) header().searchBox).onEnter = this::performSearch;
         }
 
-        tabs().builder()
-                .position(5, 35)
-                .size(width - 10, 18)
-                .allowClose(tabCloseButtons)
-                .allowReorder(true)
-                .onTabSelected(this::onTabSelected)
-                .onTabClosed(this::onTabClosed)
-                .onTabsReordered(this::onTabsReordered)
-                .build();
+        tabs().builder().position(5, 35).size(width - 10, 18).allowClose(true).allowReorder(true).allowAdd(true).onTabSelected(this::onTabSelected).onTabClosed(this::onTabClosed).onTabsReordered(this::onTabsReordered).build();
 
         List<Path> loadedPaths = RemotelyClient.INSTANCE.loadFileEditorTabs();
         for (Path path : loadedPaths) {
@@ -186,8 +179,7 @@ public class FileEditorScreen extends ReScreen {
         }
 
         for (Tab tab : tabs) {
-            Container c = createContainer("container_for_" + tab.name, 5, 60, width - 10, height - 5);
-            TabsManager.Tab uiTab = tabs().addTab(tab.name, c);
+            TabsManager.Tab uiTab = tabs().addTab(tab.name, null);
             uiTab.setData(tab);
             tabs().setTabUnsaved(tabs().getTabs().size() - 1, tab.unsaved);
         }
@@ -218,23 +210,29 @@ public class FileEditorScreen extends ReScreen {
     }
 
     private void onTabSelected(TabsManager.Tab uiTab) {
+        if (this.activeTextArea != null) {
+            this.remove(this.activeTextArea);
+        }
+
         if (uiTab == null) {
-            if (activeContainer != null) activeContainer.clearWidgets();
+            this.activeTextArea = null;
             return;
         }
-        setActiveContainer(uiTab.getContainer());
-        if (activeContainer != null) {
-            activeContainer.clearWidgets();
-            Tab dataTab = (Tab) uiTab.getData();
-            if (dataTab != null) {
-                activeContainer.addWidget(dataTab.textAreaWidget);
-                dataTab.textAreaWidget.setFocused(true);
-                explorerPath = dataTab.path.getParent();
-                if (showExplorerPanel) {
-                    loadExplorerDirectory(explorerPath);
-                }
+
+        Tab dataTab = (Tab) uiTab.getData();
+        if (dataTab != null) {
+            this.activeTextArea = dataTab.textAreaWidget;
+            this.addDrawableChild(this.activeTextArea);
+            this.setFocused(this.activeTextArea);
+
+            explorerPath = dataTab.path.getParent();
+            if (showExplorerPanel) {
+                loadExplorerDirectory(explorerPath);
             }
+        } else {
+            this.activeTextArea = null;
         }
+
         if (header().searchBox != null) {
             updateSearchResults(header().searchBox.getText());
         }
@@ -244,6 +242,10 @@ public class FileEditorScreen extends ReScreen {
         Tab dataTab = (Tab) uiTab.getData();
         SAVED_TABS.remove(dataTab.path);
         tabs.remove(dataTab);
+        if (dataTab.textAreaWidget == activeTextArea) {
+            this.remove(activeTextArea);
+            activeTextArea = null;
+        }
         if (tabs.isEmpty()) {
             close();
         } else {
@@ -318,8 +320,7 @@ public class FileEditorScreen extends ReScreen {
                 }
                 Tab newTab = new Tab(entry.path);
                 tabs.add(newTab);
-                Container c = createContainer("container_for_" + newTab.name, 5, 60, width - 10, height - 5);
-                TabsManager.Tab uiTab = tabs().addTab(newTab.name, c);
+                TabsManager.Tab uiTab = tabs().addTab(newTab.name, null);
                 uiTab.setData(newTab);
                 tabs().setActiveTab(tabs().getTabs().size() - 1);
             }
@@ -336,24 +337,18 @@ public class FileEditorScreen extends ReScreen {
         }
 
         Position pos = searchResults.get(currentSearchIndex);
-        int activeTabIndex = tabs().getActiveTabIndex();
-        if (activeTabIndex != -1) {
-            Tab tab = (Tab) tabs().getTabs().get(activeTabIndex).getData();
-            tab.textAreaWidget.setCursor(pos.line, pos.start);
+        if (activeTextArea != null) {
+            activeTextArea.setCursor(pos.line, pos.start);
         }
     }
 
     private void updateSearchResults(String query) {
         searchResults.clear();
-        if (query.isEmpty()) {
+        if (query.isEmpty() || activeTextArea == null) {
             return;
         }
 
-        int activeTabIndex = tabs().getActiveTabIndex();
-        if (activeTabIndex == -1) return;
-
-        Tab tab = (Tab) tabs().getTabs().get(activeTabIndex).getData();
-        String text = tab.textAreaWidget.getText();
+        String text = activeTextArea.getText();
         String[] lines = text.split("\n", -1);
         query = query.toLowerCase();
 
@@ -373,9 +368,11 @@ public class FileEditorScreen extends ReScreen {
         boolean ctrlHeld = hasControlDown();
 
         if (ctrlHeld && keyCode == GLFW.GLFW_KEY_S) {
-            int idx = tabs().getActiveTabIndex();
-            if (idx != -1) {
-                ((Tab) tabs().getTabs().get(idx).getData()).saveFile();
+            if (activeTextArea != null) {
+                int idx = tabs().getActiveTabIndex();
+                if (idx != -1) {
+                    ((Tab) tabs().getTabs().get(idx).getData()).saveFile();
+                }
             }
             return true;
         }
@@ -385,6 +382,10 @@ public class FileEditorScreen extends ReScreen {
                 header().searchBox.setFocused(true);
             }
             return true;
+        }
+
+        if (activeTextArea != null && activeTextArea.isFocused()) {
+            return activeTextArea.keyPressed(keyCode, scanCode, modifiers);
         }
 
         if (keyCode == this.client.options.backKey.getDefaultKey().getCode() && (header().searchBox == null || !header().searchBox.isFocused())) {
@@ -397,13 +398,20 @@ public class FileEditorScreen extends ReScreen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        if (activeContainer != null) {
-            TabsManager.Tab activeTab = tabs().getActiveTab();
-            if (activeTab != null && activeTab.getData() instanceof Tab tab && tab.textAreaWidget != null) {
-                tab.textAreaWidget.setHeight(height - 85);
-            }
-        }
         super.render(context, mouseX, mouseY, delta);
+        if (activeTextArea != null) {
+            int x = 5;
+            int y = 60;
+            int w = width - 10;
+            int h = height - y - 5;
+
+            if (showExplorerPanel && explorerPanel.isVisible()) {
+                int panelWidth = (int) explorerPanel.getAnimatedWidth();
+                w -= panelWidth ;
+            }
+            activeTextArea.setPosition(x, y);
+            activeTextArea.setDimensions(w, h);
+        }
     }
 
     @Override

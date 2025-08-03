@@ -9,14 +9,14 @@ import net.minecraft.text.Text;
 import redxax.oxy.remotely.config.Config;
 
 public class SyntaxHighlighter {
-    private static final Pattern CODE_COMMENT_PATTERN = Pattern.compile("//.*|/\\*(.|\\R)*?\\*/|#.*");
+    private static final Pattern CODE_COMMENT_PATTERN = Pattern.compile("//.*|/\\*.*\\*/|#.*");
     private static final Pattern GLOBAL_VAR_PATTERN = Pattern.compile("^\\s*(?:public|private|protected|static|final)\\s+\\S+\\s+([a-zA-Z_]\\w*)(?=\\s|=|;|\\()?");
     private static final Pattern LOCAL_VAR_PATTERN = Pattern.compile("\\b(?:int|String|boolean|var|let|const)\\s+([a-zA-Z_]\\w*)(?=\\s|=|;|\\()?");
     private static final Pattern CODE_KEYWORD_PATTERN = Pattern.compile("\\b(abstract|assert|boolean|break|byte|case|catch|char|class|const|continue|default|do|double|else|enum|extends|final|finally|float|for|if|implements|import|instanceof|int|interface|long|native|new|package|private|protected|public|return|short|static|strictfp|super|switch|synchronized|this|throw|throws|transient|try|void|volatile|while)\\b");
     private static final Pattern STRING_PATTERN = Pattern.compile("\"([^\"\\\\]|\\\\.)*\"");
     private static final Pattern NUMBER_PATTERN = Pattern.compile("\\b\\d+(\\.\\d+)?\\b");
     private static final Pattern BOOL_PATTERN = Pattern.compile("\\b(true|false)\\b");
-    private static final Pattern HEX_COLOR_DYNAMIC_PATTERN = Pattern.compile("(?<![\\w])#[0-9A-Fa-f]{3,8}(?![\\w])");
+    private static final Pattern HEX_COLOR_DYNAMIC_PATTERN = Pattern.compile("(?<!\\w)#[0-9A-Fa-f]{3,8}(?!\\w)");
 
     private static final Pattern YAML_COMMENT = Pattern.compile("^(\\s)*#.*");
     private static final Pattern JSON_KEY = Pattern.compile("\"([^\"]+)\":");
@@ -54,7 +54,7 @@ public class SyntaxHighlighter {
         yamlPatterns.add(new DynamicColorPatternHighlighter(HEX_COLOR_DYNAMIC_PATTERN, 11, HexColorResolver.INSTANCE));
 
         List<PatternHighlighter> jsonPatterns = new ArrayList<>();
-        jsonPatterns.add(new SimplePatternHighlighter(JSON_KEY, Config.syntaxKeyColor, 5));
+        jsonPatterns.add(new SubgroupPatternHighlighter(JSON_KEY, 1, Config.syntaxKeyColor));
         jsonPatterns.add(new SimplePatternHighlighter(STRING_PATTERN, Config.syntaxStringColor, 4));
         jsonPatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, Config.syntaxNumberColor, 3));
         jsonPatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, Config.syntaxBooleanColor, 2));
@@ -80,13 +80,24 @@ public class SyntaxHighlighter {
         textPatterns.add(new SimplePatternHighlighter(BOOL_PATTERN, Config.syntaxBooleanColor, 2));
         textPatterns.add(new DynamicColorPatternHighlighter(HEX_COLOR_DYNAMIC_PATTERN, 11, HexColorResolver.INSTANCE));
 
+        List<PatternHighlighter> pyPatterns = new ArrayList<>();
+        pyPatterns.add(new SimplePatternHighlighter(Pattern.compile("#.*"), Config.syntaxCommentColor, 10));
+        pyPatterns.add(new SimplePatternHighlighter(Pattern.compile("f?\"([^\"\\\\]|\\\\.)*\"|f?'([^'\\\\]|\\\\.)*'"), Config.syntaxStringColor, 5));
+        pyPatterns.add(new SimplePatternHighlighter(Pattern.compile("\\b(def|class|from|import|return|if|elif|else|for|while|try|except|finally|with|as|pass|break|continue|lambda|yield|global|nonlocal|del|async|await|in|is|not|and|or)\\b"), Config.syntaxKeywordColor, 6));
+        pyPatterns.add(new SimplePatternHighlighter(Pattern.compile("\\b(self|cls)\\b"), Config.syntaxKeywordColor, 8));
+        pyPatterns.add(new SimplePatternHighlighter(Pattern.compile("@[a-zA-Z_]\\w*"), Config.syntaxLocalVarColor, 9));
+        pyPatterns.add(new SimplePatternHighlighter(Pattern.compile("\\b(True|False|None)\\b"), Config.syntaxBooleanColor, 3));
+        pyPatterns.add(new SimplePatternHighlighter(NUMBER_PATTERN, Config.syntaxNumberColor, 4));
+        pyPatterns.add(new DynamicColorPatternHighlighter(HEX_COLOR_DYNAMIC_PATTERN, 11, HexColorResolver.INSTANCE));
+
         extensionPatterns.put("java", codePatterns);
         extensionPatterns.put("js", codePatterns);
         extensionPatterns.put("ts", codePatterns);
         extensionPatterns.put("cpp", codePatterns);
         extensionPatterns.put("c", codePatterns);
         extensionPatterns.put("cs", codePatterns);
-        extensionPatterns.put("py", codePatterns);
+
+        extensionPatterns.put("py", pyPatterns);
 
         extensionPatterns.put("yaml", yamlPatterns);
         extensionPatterns.put("yml", yamlPatterns);
@@ -154,6 +165,7 @@ public class SyntaxHighlighter {
             if (BRACKET_PAIRS.containsKey(c)) {
                 int color = BRACKET_COLORS.get(colorIndex % BRACKET_COLORS.size());
                 stack.push(new BracketStackEntry(c, i, color));
+                results.add(new MatchResult(i, i+1, color, 9));
                 colorIndex++;
             } else if (BRACKET_PAIRS.containsValue(c)) {
                 Optional<Character> matchingOpen = BRACKET_PAIRS.entrySet().stream()
@@ -162,7 +174,6 @@ public class SyntaxHighlighter {
                         .findFirst();
                 if (matchingOpen.isPresent() && !stack.isEmpty() && stack.peek().ch == matchingOpen.get()) {
                     BracketStackEntry open = stack.pop();
-                    results.add(new MatchResult(open.index, open.index + 1, open.color, 9));
                     results.add(new MatchResult(i, i + 1, open.color, 9));
                 }
             }
@@ -182,37 +193,34 @@ public class SyntaxHighlighter {
         List<MatchResult> findMatches(String line);
     }
 
-    private static class SimplePatternHighlighter implements PatternHighlighter {
-        private final Pattern pattern;
-        private final int color;
-        private final int priority;
-
-        SimplePatternHighlighter(Pattern pattern, int color, int priority) {
-            this.pattern = pattern;
-            this.color = color;
-            this.priority = priority;
-        }
+    private record SimplePatternHighlighter(Pattern pattern, int color, int priority) implements PatternHighlighter {
 
         @Override
-        public List<MatchResult> findMatches(String line) {
-            List<MatchResult> list = new ArrayList<>();
-            Matcher matcher = pattern.matcher(line);
-            while (matcher.find()) {
-                list.add(new MatchResult(matcher.start(), matcher.end(), color, priority));
+            public List<MatchResult> findMatches(String line) {
+                List<MatchResult> list = new ArrayList<>();
+                Matcher matcher = pattern.matcher(line);
+                while (matcher.find()) {
+                    list.add(new MatchResult(matcher.start(), matcher.end(), color, priority));
+                }
+                return list;
             }
-            return list;
         }
-    }
 
     private static class SubgroupPatternHighlighter implements PatternHighlighter {
         private final Pattern pattern;
         private final int priority;
         private final int subgroupColor;
+        private final int group;
 
-        SubgroupPatternHighlighter(Pattern pattern, int priority, int subgroupColor) {
+        SubgroupPatternHighlighter(int group, Pattern pattern, int priority, int subgroupColor) {
             this.pattern = pattern;
             this.priority = priority;
             this.subgroupColor = subgroupColor;
+            this.group = group;
+        }
+
+        SubgroupPatternHighlighter(Pattern pattern, int priority, int subgroupColor) {
+            this(1, pattern, priority, subgroupColor);
         }
 
         @Override
@@ -220,9 +228,9 @@ public class SyntaxHighlighter {
             List<MatchResult> list = new ArrayList<>();
             Matcher matcher = pattern.matcher(line);
             while (matcher.find()) {
-                if (matcher.groupCount() >= 1 && matcher.group(1) != null) {
-                    int start = matcher.start(1);
-                    int end = matcher.end(1);
+                if (matcher.groupCount() >= group && matcher.group(group) != null) {
+                    int start = matcher.start(group);
+                    int end = matcher.end(group);
                     list.add(new MatchResult(start, end, subgroupColor, priority));
                 }
             }
@@ -230,31 +238,22 @@ public class SyntaxHighlighter {
         }
     }
 
-    private static class DynamicColorPatternHighlighter implements PatternHighlighter {
-        private final Pattern pattern;
-        private final int priority;
-        private final Function<String, Integer> colorResolver;
-
-        DynamicColorPatternHighlighter(Pattern pattern, int priority, Function<String, Integer> colorResolver) {
-            this.pattern = pattern;
-            this.priority = priority;
-            this.colorResolver = colorResolver;
-        }
+    private record DynamicColorPatternHighlighter(Pattern pattern, int priority, Function<String, Integer> colorResolver) implements PatternHighlighter {
 
         @Override
-        public List<MatchResult> findMatches(String line) {
-            List<MatchResult> list = new ArrayList<>();
-            Matcher matcher = pattern.matcher(line);
-            while (matcher.find()) {
-                String match = line.substring(matcher.start(), matcher.end());
-                if (match.startsWith("#")) {
-                    int color = colorResolver.apply(match);
-                    list.add(new MatchResult(matcher.start(), matcher.end(), color, priority));
+            public List<MatchResult> findMatches(String line) {
+                List<MatchResult> list = new ArrayList<>();
+                Matcher matcher = pattern.matcher(line);
+                while (matcher.find()) {
+                    String match = line.substring(matcher.start(), matcher.end());
+                    if (match.startsWith("#")) {
+                        int color = colorResolver.apply(match);
+                        list.add(new MatchResult(matcher.start(), matcher.end(), color, priority));
+                    }
                 }
+                return list;
             }
-            return list;
         }
-    }
     private static class HexColorResolver implements Function<String, Integer> {
         static final HexColorResolver INSTANCE = new HexColorResolver();
 
@@ -262,53 +261,43 @@ public class SyntaxHighlighter {
         public Integer apply(String match) {
             String hex = match.replace("#", "").trim();
             int a = 255;
-            int r = 0;
-            int g = 0;
-            int b = 0;
-            if (hex.length() == 3) {
-                r = Integer.parseInt(String.valueOf(hex.charAt(0) + hex.charAt(0)), 16);
-                g = Integer.parseInt(String.valueOf(hex.charAt(1) + hex.charAt(1)), 16);
-                b = Integer.parseInt(String.valueOf(hex.charAt(2) + hex.charAt(2)), 16);
-            } else if (hex.length() == 4) {
-                a = Integer.parseInt(String.valueOf(hex.charAt(0) + hex.charAt(0)), 16);
-                r = Integer.parseInt(String.valueOf(hex.charAt(1) + hex.charAt(1)), 16);
-                g = Integer.parseInt(String.valueOf(hex.charAt(2) + hex.charAt(2)), 16);
-                b = Integer.parseInt(String.valueOf(hex.charAt(3) + hex.charAt(3)), 16);
-            } else if (hex.length() == 6) {
-                r = Integer.parseInt(hex.substring(0, 2), 16);
-                g = Integer.parseInt(hex.substring(2, 4), 16);
-                b = Integer.parseInt(hex.substring(4, 6), 16);
-            } else if (hex.length() == 8) {
-                a = Integer.parseInt(hex.substring(0, 2), 16);
-                r = Integer.parseInt(hex.substring(2, 4), 16);
-                g = Integer.parseInt(hex.substring(4, 6), 16);
-                b = Integer.parseInt(hex.substring(6, 8), 16);
-            }
+            int r, g, b;
+            try {
+                int r1 = Integer.parseInt(String.valueOf(hex.charAt(0)) + hex.charAt(0), 16);
+                int g1 = Integer.parseInt(String.valueOf(hex.charAt(1)) + hex.charAt(1), 16);
+                int b1 = Integer.parseInt(String.valueOf(hex.charAt(2)) + hex.charAt(2), 16);
+                switch (hex.length()) {
+                    case 3:
+                        r = r1;
+                        g = g1;
+                        b = b1;
+                        break;
+                    case 4:
+                        a = r1;
+                        r = g1;
+                        g = b1;
+                        b = Integer.parseInt(String.valueOf(hex.charAt(3)) + hex.charAt(3), 16);
+                        break;
+                    case 6:
+                        r = Integer.parseInt(hex.substring(0, 2), 16);
+                        g = Integer.parseInt(hex.substring(2, 4), 16);
+                        b = Integer.parseInt(hex.substring(4, 6), 16);
+                        break;
+                    case 8:
+                        a = Integer.parseInt(hex.substring(0, 2), 16);
+                        r = Integer.parseInt(hex.substring(2, 4), 16);
+                        g = Integer.parseInt(hex.substring(4, 6), 16);
+                        b = Integer.parseInt(hex.substring(6, 8), 16);
+                        break;
+                    default: return 0xFFFFFF;
+                }
+            } catch (NumberFormatException e) {return 0xFFFFFF;}
+
             return (a << 24) | (r << 16) | (g << 8) | b;
         }
     }
 
-    private static class MatchResult {
-        int start;
-        int end;
-        int color;
-        int priority;
-
-        MatchResult(int start, int end, int color, int priority) {
-            this.start = start;
-            this.end = end;
-            this.color = color;
-            this.priority = priority;
-        }
-
-        public int start() {
-            return start;
-        }
-
-        public int priority() {
-            return priority;
-        }
-    }
+    private record MatchResult(int start, int end, int color, int priority) {}
 
     private static class BracketStackEntry {
         char ch;
