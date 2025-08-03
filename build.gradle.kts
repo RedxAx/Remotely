@@ -56,9 +56,8 @@ dependencies {
     shadowBundle("org.jline:jline:3.1.3")
     shadowBundle("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     shadowBundle("org.jetbrains.pty4j:pty4j:0.12.25")
-    shadowBundle("org.jetbrains.jediterm:jediterm-core:4.0.13")
-    shadowBundle("org.jetbrains.jediterm:jediterm-pty:4.0.13")
-    shadowBundle("org.jetbrains.jediterm:jediterm-ssh:4.0.13")
+    shadowBundle("org.jetbrains.jediterm:jediterm-core:3.54")
+    shadowBundle("org.jetbrains.jediterm:jediterm-pty:2.69")
 
     if (loader == "fabric") {
         modImplementation("net.fabricmc:fabric-loader:${mod.dep("fabric_loader")}")
