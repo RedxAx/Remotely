@@ -8,6 +8,7 @@
   "client": [
     "ClickableWidgetMixin",
     "GameMenuScreenMixin",
+    "KeyboardMixin",
     "MinecraftClientMixin",
     "ParentElementMixin",
     "ScreenMixin",
