@@ -41,7 +41,6 @@ dependencies {
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     implementation("com.jcraft:jsch:0.1.55")
     implementation("com.vladsch.flexmark:flexmark:0.62.2")
-    implementation("org.jline:jline:3.1.3")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
 
     implementation("org.jetbrains.pty4j:pty4j:0.12.25")
@@ -52,8 +51,7 @@ dependencies {
     modImplementation("com.cinemamod:mcef-fabric:2.1.6-$mcefVer")
 
     shadowBundle("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
-    shadowBundle("com.jcraft:jsch:0.2.16")
-    shadowBundle("org.jline:jline:3.1.3")
+    shadowBundle("com.jcraft:jsch:0.1.55")
     shadowBundle("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     shadowBundle("org.jetbrains.pty4j:pty4j:0.12.25")
     shadowBundle("org.jetbrains.jediterm:jediterm-core:3.54")
