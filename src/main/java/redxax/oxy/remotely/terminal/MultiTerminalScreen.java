@@ -8,12 +8,14 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.resources.ResourceManagerScreen;
+import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
 import redxax.oxy.remotely.ui.ReScreen;
 import redxax.oxy.remotely.ui.widgets.AnimatedButton;
 import redxax.oxy.remotely.util.Sound;
 
+import java.io.File;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
@@ -61,7 +63,7 @@ public class MultiTerminalScreen extends ReScreen {
         setupHeader();
         setupTabs();
 
-        if (tabsManager.getTabs().isEmpty()) {
+        if (tabsManager.getTabs().isEmpty() && serverToOpen == null) {
             addNewTerminalTab("Terminal");
         }
 
@@ -96,7 +98,7 @@ public class MultiTerminalScreen extends ReScreen {
         animScaleFactor = 2;
     }
 
-    private void launchActiveTerminal() {
+    private void launchActiveTerminal(boolean start) {
         if (activeTerminal == null) {
             return;
         }
@@ -109,17 +111,19 @@ public class MultiTerminalScreen extends ReScreen {
             return;
         }
 
-        boolean isRunning = sInfo.state == ServerState.RUNNING || sInfo.state == ServerState.STARTING;
-
-        if (isRunning) {
+        if (!start) {
             activeTerminal.executeCommand("stop");
+            header().setButtonVisible("start.png", true);
+            header().setButtonVisible("stop.png", false);
         } else {
-            if (sInfo.isRemote) {
-                activeTerminal.startRemoteServer();
+            File workingDir = new File(sInfo.path);
+            File scriptFile = new File(workingDir, "start.bat");
+            if (scriptFile.exists() && scriptFile.isFile()) {
+                activeTerminal.executeCommand((sInfo.isRemote ? "./" : "") + scriptFile.getAbsolutePath());
+                header().setButtonVisible("stop.png", true);
+                header().setButtonVisible("start.png", false);
             } else {
-                if (activeTerminal.processManager != null) {
-                    activeTerminal.processManager.launchServerProcess();
-                }
+                activeTerminal.processManager.launchGenericProcess();
             }
         }
     }
@@ -144,12 +148,14 @@ public class MultiTerminalScreen extends ReScreen {
 
     private void setupHeader() {
         header().reset();
-        header().addLeft("close.png", this::close, "Close");
+        header().addRight("close.png", this::close, "Close");
 
-        header().addLeft("start.png", this::launchActiveTerminal, "Start Server");
-        header().addLeft("stop.png", this::launchActiveTerminal, "Stop Server");
+        header().addLeft("start.png", () -> launchActiveTerminal(true), "Start Server");
+        header().addLeft("stop.png", () -> launchActiveTerminal(false), "Stop Server");
         header().addLeft("explorer.png", this::exploreActiveTerminalFiles, "File Explorer");
         header().addLeft("resources.png", this::openActiveTerminalResources, "Resources");
+        header().addLeft("reverse.png", () -> ReverseProxyManager.reverse(activeTerminal.getServerInfo()), "Open Server To The Public");
+        header().addLeft("closeReverse.png", () -> ReverseProxyManager.reverse(activeTerminal.getServerInfo()), "Close Reverse Proxy");
 
         header().addRight("snippets.png", () -> snippetsPanel.toggle(), "Snippets");
         header().addRight("RemotelyAI.png", () -> aiPanel.toggle(), "RemotelyAI");
@@ -171,12 +177,17 @@ public class MultiTerminalScreen extends ReScreen {
         if (sInfo != null) {
             header().setButtonVisible("explorer.png", true);
             boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
+            boolean isReversed = ReverseProxyManager.isPortForwarded(activeTerminal.getServerInfo().getPort());
             header().setButtonVisible("resources.png", !isProxy);
+            header().setButtonVisible("reverse.png", !isReversed);
+            header().setButtonVisible("closeReverse.png", isReversed);
             updateStartStopButtonState(sInfo);
         } else {
             header().setButtonVisible("start.png", false);
             header().setButtonVisible("stop.png", false);
             header().setButtonVisible("resources.png", false);
+            header().setButtonVisible("reverse.png", false);
+            header().setButtonVisible("closeReverse.png", false);
             header().setButtonVisible("explorer.png", true);
         }
     }
@@ -373,6 +384,5 @@ public class MultiTerminalScreen extends ReScreen {
         remotelyClient.multiTerminalTabs.clear();
         remotelyClient.multiTerminalTabs.addAll(tabsManager.getTabs());
 
-        super.removed();
     }
 }

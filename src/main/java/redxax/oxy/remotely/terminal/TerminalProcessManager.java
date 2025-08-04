@@ -125,9 +125,9 @@ public class TerminalProcessManager {
             String os = System.getProperty("os.name").toLowerCase();
             String[] command;
             if (os.contains("win")) {
-                command = new String[]{"cmd.exe", "/c", scriptFile.getName()};
+                command = new String[]{"powershell.exe", "-NoLogo"};
             } else {
-                command = new String[]{"/bin/bash", "-l", "-c", "./" + scriptFile.getName()};
+                command = new String[]{"/bin/bash", "-l"};
             }
             Map<String, String> env = new HashMap<>(System.getenv());
             env.put("TERM", "xterm-256color");
