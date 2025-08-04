@@ -158,4 +158,16 @@ public class ReverseProxyManager {
     public static boolean isPortForwarded(int localPort) {
         return activeSessions.containsKey(localPort) && activeSessions.get(localPort).isConnected();
     }
+
+    public static void reverse(ServerInfo sInfo) {
+        if (sInfo == null || sInfo.getPort() <= 0) {
+            new Notification("Invalid Server Port", "Make Sure To Configure The Port Correctly", Notification.Type.ERROR);
+        } else {
+            if (isPortForwarded(sInfo.getPort())) {
+                shutdown(sInfo.getPort());
+            } else {
+                reverse(sInfo.getPort());
+            }
+        }
+    }
 }
