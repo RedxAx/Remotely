@@ -29,6 +29,7 @@ public class TabSwitchWidget extends AnimatedWidget {
             return this; }
         public Builder options(List<String> opts) {
             widget.options = opts;
+            widget.recreateButtons();
             return this;
         }
         public Builder currentIndex(int idx) { widget.setCurrentIndex(idx); return this; }
@@ -46,9 +47,10 @@ public class TabSwitchWidget extends AnimatedWidget {
         this.currentIndex = 0;
         this.flat = false;
         this.animateElevation = false;
+        recreateButtons();
     }
 
-    private void recreateButtons() {
+    protected void recreateButtons() {
         tabButtons.clear();
         if (options == null) {
             return;
@@ -124,6 +126,9 @@ public class TabSwitchWidget extends AnimatedWidget {
 
     @Override
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY) {
+        if (options == null || options.isEmpty() || tabButtons.isEmpty()) {
+            return;
+        }
         int segmentCount = tabButtons.size();
         int padding = 1;
         int totalPaddingWidth = (segmentCount - 1) * padding;
