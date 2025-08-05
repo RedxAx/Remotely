@@ -4,6 +4,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
 import net.minecraft.text.Text;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,96 +15,157 @@ import static redxax.oxy.remotely.Render.drawOuterBorder;
 import static redxax.oxy.remotely.config.Config.*;
 
 public class TabSwitchWidget extends AnimatedWidget {
-    private String label;
     private List<String> options;
     private int currentIndex;
-    private Runnable onChange;
-    private static final Map<Integer, Float> tabElevations = new HashMap<>();
+    private boolean multiSelect = false;
+    private final List<Integer> selectedIndices = new ArrayList<>();
+    public Runnable onChange;
+
+    private final List<AnimatedButton> tabButtons = new ArrayList<>();
 
     public static class Builder extends AnimatedWidget.Builder<TabSwitchWidget, Builder> {
         public Builder() { super(new TabSwitchWidget(0, 0, 200, 20, "", List.of())); }
-        public Builder label(String l) { widget.label = l; return this; }
-        public Builder options(List<String> opts) { widget.options = opts; return this; }
-        public Builder currentIndex(int idx) { widget.currentIndex = idx; return this; }
+        public Builder label(String l) {
+            return this; }
+        public Builder options(List<String> opts) {
+            widget.options = opts;
+            return this;
+        }
+        public Builder currentIndex(int idx) { widget.setCurrentIndex(idx); return this; }
+        public Builder selectedIndices(List<Integer> indices) { if(widget.multiSelect) { widget.selectedIndices.clear(); widget.selectedIndices.addAll(indices); } return this; }
+        public Builder multiSelect(boolean ms) { widget.multiSelect = ms; return this; }
         public Builder onChange(Runnable r) { widget.onChange = r; return this; }
-        public TabSwitchWidget.Builder onChange(Consumer<Integer> consumer) { widget.onChange = () -> consumer.accept(widget.currentIndex); return this;}
+        public Builder onChange(Consumer<Integer> consumer) { widget.onChange = () -> consumer.accept(widget.getCurrentIndex()); return this;}
+        public Builder onMultiChange(Consumer<List<Integer>> consumer) { widget.onChange = () -> consumer.accept(widget.getSelectedIndices()); return this; }
         @Override protected Builder self() { return this; }
     }
 
     public TabSwitchWidget(int x, int y, int width, int height, String label, List<String> options) {
         super(x, y, width, height, Text.empty());
-        this.label = label;
         this.options = options;
         this.currentIndex = 0;
         this.flat = false;
         this.animateElevation = false;
     }
 
+    private void recreateButtons() {
+        tabButtons.clear();
+        if (options == null) {
+            return;
+        }
+
+        for (int i = 0; i < options.size(); i++) {
+            final int index = i;
+            AnimatedButton button = new AnimatedButton(0, 0, 0, 0, Text.of(options.get(i)));
+            button.action = () -> handleTabClick(index);
+            tabButtons.add(button);
+        }
+    }
+
+    private void handleTabClick(int index) {
+        boolean changed = false;
+        if (multiSelect) {
+            if (selectedIndices.contains(index)) {
+                selectedIndices.remove(Integer.valueOf(index));
+            } else {
+                selectedIndices.add(index);
+            }
+            changed = true;
+        } else {
+            if (index != currentIndex) {
+                currentIndex = index;
+                changed = true;
+            }
+        }
+        if (changed && onChange != null) {
+            onChange.run();
+        }
+    }
+
     public int getCurrentIndex() { return currentIndex; }
     public String getCurrentOption() {
-        return options.isEmpty() ? "" : options.get(currentIndex);
+        return options.isEmpty() || multiSelect ? "" : options.get(currentIndex);
+    }
+
+    public List<Integer> getSelectedIndices() {
+        return new ArrayList<>(selectedIndices);
+    }
+
+    public boolean isIndexSelected(int index) {
+        if (index < 0 || index >= options.size()) return false;
+        if (multiSelect) {
+            return selectedIndices.contains(index);
+        }
+        return currentIndex == index;
     }
 
     public void setCurrentIndex(int index) {
-        if (index >= 0 && index < options.size()) {
+        if (!multiSelect && index >= 0 && index < options.size()) {
             this.currentIndex = index;
         }
     }
 
-    @Override
-    protected void appendClickableNarrations(NarrationMessageBuilder builder) {}
+    public void selectAll() {
+        if (multiSelect) {
+            selectedIndices.clear();
+            for (int i = 0; i < options.size(); i++) {
+                selectedIndices.add(i);
+            }
+        }
+    }
+
+    public void deselectAll() {
+        if (multiSelect) {
+            selectedIndices.clear();
+        }
+    }
+
+
 
     @Override
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY) {
-        if (options.isEmpty()) return;
+        int segmentCount = tabButtons.size();
+        int padding = 1;
+        int totalPaddingWidth = (segmentCount - 1) * padding;
+        int availableWidth = getWidth() - totalPaddingWidth;
+        int segmentWidth = availableWidth / segmentCount;
+        int remainder = availableWidth % segmentCount;
 
-        int segmentCount = options.size();
-        int segmentWidth = getWidth() / segmentCount;
-
+        int currentX = getX();
         for (int i = 0; i < segmentCount; i++) {
-            int segX = getX() + i * segmentWidth;
-            int segW = (i == segmentCount - 1) ? (getX() + getWidth() - segX) : segmentWidth;
-            boolean segmentHovered = mouseX >= segX && mouseX < segX + segW && mouseY >= getY() && mouseY < getY() + getHeight();
-            boolean selected = i == currentIndex;
-            int segId = (label + options.get(i)).hashCode();
-            float targetOffset = segmentHovered ? -2f : 0f;
-            float currentOffset = tabElevations.getOrDefault(segId, 0f);
-            currentOffset += (targetOffset - currentOffset) * globalMovementSpeed * deltaTime;
-            tabElevations.put(segId, currentOffset);
-            ctx.getMatrices().push();
-            ctx.getMatrices().translate(0, currentOffset, 0);
-            int color = getElementBackgroundColor(segId, segmentHovered, selected, active, AccentType.DEFAULT);
-            ctx.fill(segX, getY(), segX + segW, getY() + getHeight(), color);
-            drawInnerBorder(ctx, segX, getY(), segW, getHeight(), getElementBorderColor(segId, segmentHovered, selected, active, AccentType.DEFAULT));
-            int textWidth = tr.getWidth(options.get(i));
-            int textX = segX + (segW - textWidth) / 2;
-            int textY = getY() + ((getHeight() - tr.fontHeight) / 2) + 1;
-            ctx.drawText(tr, Text.literal(options.get(i)), textX, textY, textColor, shadow);
-            ctx.getMatrices().pop();
+            AnimatedButton button = tabButtons.get(i);
+            button.selectable = true;
+            int currentSegmentWidth = segmentWidth + (i < remainder ? 1 : 0);
+
+            button.setPosition(currentX, getY());
+            button.setDimensions(currentSegmentWidth, getHeight());
+            button.selected = isIndexSelected(i);
+            button.render(ctx, mouseX, mouseY, deltaTime);
+
+            currentX += currentSegmentWidth + padding;
         }
     }
 
-    @Override
-    protected void drawBorder(DrawContext ctx) {
-        drawInnerBorder(ctx, getX(), getY(), getWidth(), getHeight(), elementBorderColor);
-        if (!flat) {
-            drawOuterBorder(ctx, getX(), getY(), getWidth(), getHeight(), elementBorderColor);
-        }
-    }
+    @Override protected void drawBorder(DrawContext ctx) {}
+    @Override protected void drawBackground(DrawContext ctx) {}
+    @Override protected void appendClickableNarrations(NarrationMessageBuilder builder) {}
 
     @Override
-    public void onClick(double mouseX, double mouseY, int button) {
-        if (button == 0 && !options.isEmpty()) {
-            int segmentCount = options.size();
-            int segmentWidth = getWidth() / segmentCount;
-            int clickedSegment = (int) ((mouseX - getX()) / segmentWidth);
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (!visible || !active) return false;
 
-            if (clickedSegment >= 0 && clickedSegment < segmentCount && clickedSegment != currentIndex) {
-                currentIndex = clickedSegment;
-                if (onChange != null) {
-                    onChange.run();
-                }
+        for (AnimatedButton b : tabButtons) {
+            if (b.mouseClicked(mouseX, mouseY, button)) {
+                return true;
             }
         }
+
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+
+
+    public void setOnChange(Runnable action) {
+        this.onChange = action;
     }
 }
