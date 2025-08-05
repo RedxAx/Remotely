@@ -869,6 +869,7 @@ public class ReScreen extends Screen {
         private int draggingWidgetIndex = -1;
         private int dragOverWidgetIndex = -1;
         private float dragOffsetX, dragOffsetY;
+        private boolean isInteractingWithScrollbar = false;
 
         public Container(int x, int y, int width, int height) {
             this(x, y, width, height, false);
@@ -1312,6 +1313,20 @@ public class ReScreen extends Screen {
                 int totalHeight = calculateTotalHeight();
                 int visibleHeight = cHeight - y - 2 * padding;
                 canScroll = totalHeight > visibleHeight;
+                float maxOffset = Math.max(0, totalHeight - visibleHeight);
+
+                if (canScroll && !isInteractingWithScrollbar) {
+                    float bounceBackSpeed = globalScrollSpeed;
+                    if (targetOffset < 0) {
+                        targetOffset += -targetOffset * bounceBackSpeed * delta;
+                        if (Math.abs(targetOffset) < 0.5f) targetOffset = 0;
+                    } else if (targetOffset > maxOffset) {
+                        targetOffset += (maxOffset - targetOffset) * bounceBackSpeed * delta;
+                        if (Math.abs(targetOffset - maxOffset) < 0.5f) targetOffset = maxOffset;
+                    }
+                    ScrollBar.setPendingOffset(targetOffset);
+                }
+
                 hitBottom = smoothOffset > Math.max(0, totalHeight - visibleHeight) - 2;
                 for (int i = 0; i < widgets.size(); i++) {
                     AnimatedWidget w = widgets.get(i);
@@ -1343,11 +1358,28 @@ public class ReScreen extends Screen {
                     mouseY >= y && mouseY <= cHeight) {
                 if (canScroll) {
                     int step = 30;
-                    targetOffset -= (float) (verticalAmount * step);
+                    float scrollDelta = (float) (verticalAmount * step);
+
                     int totalHeight = calculateTotalHeight();
                     int visibleHeight = cHeight - y - 2 * padding;
-                    targetOffset = Math.max(0,
-                            Math.min(targetOffset, Math.max(0, totalHeight - visibleHeight)));
+                    float maxOffset = Math.max(0, totalHeight - visibleHeight);
+
+                    float potentialTarget = targetOffset - scrollDelta;
+                    float overScroll = 0;
+
+                    if (potentialTarget < 0) {
+                        overScroll = -potentialTarget;
+                    } else if (potentialTarget > maxOffset) {
+                        overScroll = potentialTarget - maxOffset;
+                    }
+
+                    if (overScroll > 0) {
+                        float resistance = (float) Math.exp(-0.005 * overScroll);
+                        scrollDelta *= resistance;
+                    }
+
+                    targetOffset -= scrollDelta;
+
                     ScrollBar.setPendingOffset(targetOffset);
                     return true;
                 }
@@ -1374,9 +1406,9 @@ public class ReScreen extends Screen {
             if (canScroll) {
                 int totalHeight = calculateTotalHeight();
                 int visibleHeight = cHeight - y - 2 * padding;
-                if (ScrollBar.handleMouseDragged(ReScreen.this, (int) mouseY, totalHeight,
-                        visibleHeight)) {
+                if (ScrollBar.handleMouseDragged(ReScreen.this, (int) mouseY, totalHeight, visibleHeight)) {
                     targetOffset = ScrollBar.getPendingOffset();
+                    isInteractingWithScrollbar = true;
                     return true;
                 }
             }
@@ -1446,6 +1478,7 @@ public class ReScreen extends Screen {
                             totalHeight, smoothOffset, scrollbarX, scrollbarY, scrollbarWidth,
                             scrollbarHeight)) {
                         targetOffset = ScrollBar.getPendingOffset();
+                        isInteractingWithScrollbar = true;
                         return true;
                     }
                 }
@@ -1473,6 +1506,7 @@ public class ReScreen extends Screen {
                 return true;
             }
 
+            isInteractingWithScrollbar = false;
             return canScroll && ScrollBar.handleMouseReleased();
         }
 
