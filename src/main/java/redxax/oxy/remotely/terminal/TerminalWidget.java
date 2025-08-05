@@ -623,7 +623,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
                 return true;
             }
 
-            targetScrollY += (float) (verticalAmount * (tr.fontHeight + 2) * 3);
+            targetScrollY -= (float) (verticalAmount * (tr.fontHeight + 2));
             clampScroll();
             return true;
         }

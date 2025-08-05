@@ -30,7 +30,7 @@ public class Config {
     public static float globalExpandSpeed = 10f;
     public static float scaleAnimationSpeed = 10f;
     public static float animScaleFactor = 1f;
-    public static float globalScrollSpeed = 16f;
+    public static float globalScrollSpeed = 7f;
     public static float globalMovementSpeed = 7f;
 
     public static String mainMenuStyle = "Minimal";
