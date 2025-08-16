@@ -1,13 +1,13 @@
 package redxax.oxy.remotely;
 
 import com.jcraft.jsch.*;
+import com.jediterm.core.util.TermSize;
 import redxax.oxy.remotely.resources.IRemotelyResource;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
 import redxax.oxy.remotely.terminal.JSchTtyConnector;
 import com.jediterm.terminal.TtyConnector;
-import redxax.oxy.remotely.terminal.TerminalWidget;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
@@ -24,7 +25,7 @@ public class SSHManager {
     private RemoteHostInfo remoteHost;
     private Session sshSession;
     private boolean isSSH = false;
-    private TerminalWidget terminalWidget;
+    private Consumer<String> outputConsumer = (s) -> {};
     public final ExecutorService sftpExecutor = Executors.newSingleThreadExecutor();
     public ChannelSftp sftpChannel;
     private boolean sftpConnected = false;
@@ -52,17 +53,12 @@ public class SSHManager {
         }
     }
 
-    public SSHManager(TerminalWidget terminalWidget) {
-        this.terminalWidget = terminalWidget;
-        this.remoteHost = null;
-    }
-
     public SSHManager(RemoteHostInfo remoteHost) {
         this.remoteHost = remoteHost;
     }
 
-    public void setTerminalWidget(TerminalWidget terminalWidget) {
-        this.terminalWidget = terminalWidget;
+    public void setOutputConsumer(Consumer<String> consumer) {
+        this.outputConsumer = consumer;
     }
 
     public void connectToRemoteHost(String user, String host, int port, String password) {
@@ -83,9 +79,7 @@ public class SSHManager {
 
             startConnectionMonitor();
         } catch (Exception e) {
-            if (terminalWidget != null) {
-                terminalWidget.appendOutput("SSH connection failed: " + e.getMessage() + "\n");
-            }
+            outputConsumer.accept("SSH connection failed: " + e.getMessage() + "\n");
             isSSH = false;
         }
     }
@@ -143,14 +137,18 @@ public class SSHManager {
         }
     }
 
-    public TtyConnector createTtyConnector() throws JSchException, IOException {
+    public TtyConnector createTtyConnector(TermSize termSize) throws JSchException, IOException {
         if (!isSSH() || sshSession == null) {
             throw new IOException("SSH not connected");
         }
         ChannelShell channel = (ChannelShell) sshSession.openChannel("shell");
         channel.setPty(true);
         channel.setPtyType("xterm-256color");
-        channel.setPtySize(80, 24, 640, 480);
+        if (termSize != null) {
+            channel.setPtySize(termSize.getColumns(), termSize.getRows(), termSize.getColumns() * 8, termSize.getRows() * 8);
+        } else {
+            channel.setPtySize(80, 24, 640, 480);
+        }
 
         Hashtable<String, String> env = new Hashtable<>();
         env.put("TERM", "xterm-256color");
@@ -171,9 +169,7 @@ public class SSHManager {
                 sftpChannel = (ChannelSftp) channel;
                 sftpConnected = true;
             } catch (Exception e) {
-                if (terminalWidget != null) {
-                    terminalWidget.appendOutput("SFTP connection failed: " + e.getMessage() + "\n");
-                }
+                outputConsumer.accept("SFTP connection failed: " + e.getMessage() + "\n");
                 sftpConnected = false;
             }
         });
@@ -183,7 +179,7 @@ public class SSHManager {
         return sftpChannel != null && sftpChannel.isConnected();
     }
 
-    public String launchRemoteServer(String serverPath) throws Exception {
+    public String launchRemoteServer(String serverPath, Consumer<ServerState> stateConsumer) throws Exception {
         if (!isSSH() || sshSession == null || !sshSession.isConnected()) {
             throw new IOException("SSH not connected. Cannot launch remote server.");
         }
@@ -194,8 +190,8 @@ public class SSHManager {
             devPrint("Tmux session " + sessionName + " not found. Creating...");
             String command = "cd " + serverPath + " && ./start.sh";
             createTmuxSession(sessionName, command);
-            if (terminalWidget.getServerInfo() != null) {
-                terminalWidget.getServerInfo().state = ServerState.STARTING;
+            if (stateConsumer != null) {
+                stateConsumer.accept(ServerState.STARTING);
             }
         } else {
             devPrint("Attaching to existing tmux session: " + sessionName);
@@ -237,7 +233,7 @@ public class SSHManager {
         exec.disconnect();
 
         if (status != 0) {
-            terminalWidget.appendOutput("tmux not found. Attempting to install...\n");
+            outputConsumer.accept("tmux not found. Attempting to install...\n");
             ChannelExec installChannel = (ChannelExec) sshSession.openChannel("exec");
             String installCommand = "sudo apt-get update && sudo apt-get install -y tmux";
             installChannel.setCommand(installCommand);
@@ -246,9 +242,9 @@ public class SSHManager {
                 Thread.sleep(100);
             }
             if(installChannel.getExitStatus() != 0) {
-                terminalWidget.appendOutput("Failed to install tmux automatically. Please install it on the remote host.\n");
+                outputConsumer.accept("Failed to install tmux automatically. Please install it on the remote host.\n");
             } else {
-                terminalWidget.appendOutput("tmux installed successfully.\n");
+                outputConsumer.accept("tmux installed successfully.\n");
             }
             installChannel.disconnect();
         }
@@ -441,9 +437,7 @@ public class SSHManager {
             try (InputStream in = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8))) {
                 sftpChannel.put(in, remotePath, ChannelSftp.OVERWRITE);
             } catch (Exception e) {
-                if (terminalWidget != null) {
-                    terminalWidget.appendOutput("Failed to write file: " + e.getMessage() + "\n");
-                }
+                outputConsumer.accept("Failed to write file: " + e.getMessage() + "\n");
             }
         });
     }
@@ -461,9 +455,7 @@ public class SSHManager {
                 }
             }).get(OPERATION_TIMEOUT, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
-            if (terminalWidget != null) {
-                terminalWidget.appendOutput("Failed to read file: " + e.getMessage() + "\n");
-            }
+            outputConsumer.accept("Failed to read file: " + e.getMessage() + "\n");
             throw e;
         }
     }
@@ -483,9 +475,7 @@ public class SSHManager {
         try {
             return fetchRemoteCommands(prefix);
         } catch (Exception e) {
-            if (terminalWidget != null) {
-                terminalWidget.appendOutput("Error fetching remote commands: " + e.getMessage() + "\n");
-            }
+            outputConsumer.accept("Error fetching remote commands: " + e.getMessage() + "\n");
             return new ArrayList<>();
         }
     }
@@ -517,9 +507,7 @@ public class SSHManager {
 
     public void runRemoteCommand(String s) {
         if (!isSSH() || sshSession == null || !sshSession.isConnected()) {
-            if (terminalWidget != null) {
-                terminalWidget.appendOutput("SSH not connected.\n");
-            }
+            outputConsumer.accept("SSH not connected.\n");
             return;
         }
         sftpExecutor.submit(() -> {
@@ -631,7 +619,7 @@ public class SSHManager {
 
     public void downloadMrPackBinary(String user) {
         if (!isSSH() || sshSession == null || !sshSession.isConnected()) {
-            if (terminalWidget != null) terminalWidget.appendOutput("SSH not connected.\n");
+            outputConsumer.accept("SSH not connected.\n");
             return;
         }
         sftpExecutor.submit(() -> {
@@ -648,7 +636,7 @@ public class SSHManager {
 
     public boolean installMrPackOnRemote(ServerInfo serverInfo, IRemotelyResource resource) {
         if (!isSSH() || sshSession == null || !sshSession.isConnected()) {
-            if (terminalWidget != null) terminalWidget.appendOutput("SSH not connected.\n");
+            outputConsumer.accept("SSH not connected.\n");
             return false;
         }
         try {

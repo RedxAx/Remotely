@@ -24,7 +24,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.SSHManager;
+import redxax.oxy.remotely.api.RemotelyAPI;
+import redxax.oxy.remotely.api.RemotelyApiFactory;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
@@ -45,8 +46,7 @@ import static redxax.oxy.remotely.util.SoundUtils.playSound;
 public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
     private final ServerInfo serverInfo;
-    private final SSHManager sshManager;
-    public final TerminalProcessManager processManager;
+    private final RemotelyAPI remotelyAPI;
 
     private final JediTerminal myTerminal;
     private final TerminalTextBuffer myTextBuffer;
@@ -100,6 +100,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     public TerminalWidget(int x, int y, int width, int height, ServerInfo serverInfo) {
         super(x, y, width, height, Text.empty());
         this.serverInfo = serverInfo;
+        this.remotelyAPI = RemotelyApiFactory.get(this.serverInfo);
 
         mySettingsProvider = new RemotelySettingsProvider();
         myExecutorServiceManager = new ExecutorServiceManager();
@@ -117,19 +118,6 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         DebouncerImpl debouncer = new DebouncerImpl(typeAheadManager::debounce, TerminalTypeAheadManager.MAX_TERMINAL_DELAY, myExecutorServiceManager);
         typeAheadManager.setClearPredictionsDebouncer(debouncer);
 
-        if (this.serverInfo != null && this.serverInfo.isRemote) {
-            this.sshManager = RemotelyClient.INSTANCE.getSSHManagerForHost(this.serverInfo.remoteHost);
-            if (this.sshManager != null) {
-                this.sshManager.setTerminalWidget(this);
-            } else {
-                appendOutput("Could not establish SSH connection for remote server.\n");
-            }
-            this.processManager = null;
-        } else {
-            this.sshManager = null;
-            this.processManager = new TerminalProcessManager(this, null);
-        }
-
         myTerminalStarter = null;
 
         animateElevation = enableHoverColors = false;
@@ -141,13 +129,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         myExecutorServiceManager.getUnboundedExecutorService().submit(() -> {
             TtyConnector ttyConnector = null;
             try {
-                if (serverInfo != null && serverInfo.isRemote) {
-                    if (sshManager != null) {
-                        ttyConnector = sshManager.createTtyConnector();
-                    }
-                } else if (processManager != null) {
-                    ttyConnector = processManager.createTtyConnector();
-                }
+                ttyConnector = remotelyAPI.createTtyConnector(serverInfo, myLastTermSize, this::appendOutput, this::setServerState);
             } catch (Exception e) {
                 appendOutput("Failed to create TtyConnector: " + e.getMessage() + "\n");
             }
@@ -179,8 +161,9 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         if (myTerminalStarter != null) {
             myTerminalStarter.close();
         }
-        if (sshManager != null) {
-            sshManager.shutdown();
+        if (serverInfo != null && serverInfo.isRemote && serverInfo.remoteHost.getSSHManager() != null) {
+            // SSHManager is shared, don't shut it down here unless it's the last terminal for that host.
+            // For simplicity, we now shut it down on client exit.
         }
         myExecutorServiceManager.shutdownWhenAllExecuted();
     }
@@ -466,7 +449,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     @Override
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY) {
         clampScroll();
-        scrollY += (targetScrollY - scrollY) * globalScrollSpeed * deltaTime;
+        scrollY += (targetScrollY - scrollY) * 5f * deltaTime;
         myNeedsRepaint.getAndSet(false);
         int padding = 2;
         int contentHeight = getHeight() - padding;
@@ -623,7 +606,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
                 return true;
             }
 
-            targetScrollY -= (float) (verticalAmount * (tr.fontHeight + 2));
+            targetScrollY += (float) (verticalAmount * (tr.fontHeight + 2));
             clampScroll();
             return true;
         }
@@ -845,19 +828,6 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         }
     }
 
-    public void startRemoteServer() {
-        if (serverInfo == null || !serverInfo.isRemote || sshManager == null || !sshManager.isSSH()) {
-            appendOutput("Cannot start remote server: not a remote server or SSH not connected.\n");
-            return;
-        }
-        try {
-            String command = sshManager.launchRemoteServer(serverInfo.path);
-            executeCommand(command);
-        } catch (Exception e) {
-            appendOutput("Failed to start remote server: " + e.getMessage() + "\n");
-        }
-    }
-
     private void scrollToBottom() {
         targetScrollY = 0;
     }
@@ -865,6 +835,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     private void clampScroll() {
         int maxScroll = Math.max(0, myTextBuffer.getHistoryLinesCount() * (tr.fontHeight + 2));
         targetScrollY = MathHelper.clamp(targetScrollY, 0, maxScroll);
+        scrollY = MathHelper.clamp(scrollY, 0, maxScroll);
     }
 
     public ServerInfo getServerInfo() {
@@ -875,15 +846,6 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         if (this.serverInfo != null) {
             this.serverInfo.state = state;
         }
-    }
-
-    public String getCurrentDir() {
-        if (processManager != null) {
-            return processManager.getCurrentDirectory();
-        } else if (sshManager != null && serverInfo != null && serverInfo.isRemote) {
-            return serverInfo.path;
-        }
-        return "/";
     }
 
     public JediTerminal getTerminal() {
@@ -922,7 +884,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     @Override
     public void scrollArea(int scrollRegionTop, int scrollRegionSize, int dy) {
         if (targetScrollY > 0) {
-            targetScrollY -= dy * (tr.fontHeight + 2);
+            targetScrollY += dy * (tr.fontHeight + 2);
         }
         scheduleRepaint();
     }
@@ -947,6 +909,8 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     public void setWindowTitle(@NotNull String windowTitle) {
         mc.getWindow().setTitle(windowTitle);
     }
+
+
 
     @Override
     public @Nullable TerminalSelection getSelection() {

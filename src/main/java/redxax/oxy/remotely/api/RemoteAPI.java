@@ -1,17 +1,23 @@
 package redxax.oxy.remotely.api;
 
+import com.jediterm.core.util.TermSize;
+import com.jediterm.terminal.TtyConnector;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.explorer.FileManager;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
+import redxax.oxy.remotely.servers.ServerInfo;
+import redxax.oxy.remotely.servers.ServerState;
+
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
-public class RemoteAPI implements RemotelyCoreAPI {
+public class RemoteAPI implements RemotelyAPI {
     private final RemoteHostInfo remoteHost;
     private final SSHManager sshManager;
     private static List<FileManager.ClipboardEntry> clipboard = new ArrayList<>();
@@ -251,6 +257,33 @@ public class RemoteAPI implements RemotelyCoreAPI {
     @Override
     public CompletableFuture<Void> undo() {
         return CompletableFuture.failedFuture(new UnsupportedOperationException("Undo not supported for remote operations"));
+    }
+
+    @Override
+    public TtyConnector createTtyConnector(ServerInfo serverInfo, TermSize initialSize, Consumer<String> outputConsumer, Consumer<ServerState> stateConsumer) throws Exception {
+        ensureConnected();
+        sshManager.setOutputConsumer(outputConsumer);
+        return sshManager.createTtyConnector(initialSize);
+    }
+
+    @Override
+    public void launchServer(ServerInfo serverInfo, Consumer<String> commandConsumer) throws Exception {
+        ensureConnected();
+        sshManager.setOutputConsumer(s -> {});
+        Consumer<ServerState> stateConsumer = state -> {
+            if (state == ServerState.STARTING || state == ServerState.RUNNING) {
+                devPrint("Server started successfully.");
+            } else if (state == ServerState.STOPPED || state == ServerState.CRASHED) {
+                devPrint("Failed to start server.");
+            }
+        };
+        String command = sshManager.launchRemoteServer(serverInfo.path, stateConsumer);
+        commandConsumer.accept(command);
+    }
+
+    @Override
+    public String getInitialDirectory(ServerInfo serverInfo) {
+        return remoteHost.getHomeDirectory();
     }
 
     public List<FileManager.ClipboardEntry> getClipboard() {
