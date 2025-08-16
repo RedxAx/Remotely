@@ -5,7 +5,6 @@ import com.jediterm.pty.PtyProcessTtyConnector;
 import com.jediterm.terminal.TtyConnector;
 import com.pty4j.PtyProcess;
 import com.pty4j.PtyProcessBuilder;
-import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
 
@@ -21,15 +20,7 @@ import java.util.logging.Logger;
 public class TerminalProcessManager {
     private static final Logger logger = Logger.getLogger(TerminalProcessManager.class.getName());
 
-    protected final TerminalWidget widget;
-    private final SSHManager sshManager;
-    private String currentDirectory = System.getProperty("user.home");
-    protected boolean isDetachedServer = false;
-
-    public TerminalProcessManager(TerminalWidget widget, SSHManager sshManager) {
-        this.widget = widget;
-        this.sshManager = sshManager;
-        this.isDetachedServer = widget.getServerInfo() != null && !widget.getServerInfo().isRemote;
+    private TerminalProcessManager() {
     }
 
     public static StringBuilder getCommandStr() {
@@ -44,17 +35,20 @@ public class TerminalProcessManager {
         return commandStr;
     }
 
-    public TtyConnector createTtyConnector() throws IOException {
+    public static TtyConnector createTtyConnector(ServerInfo serverInfo, String workingDir, TermSize initialSize) throws IOException {
         PtyProcess process;
-        if (isDetachedServer) {
-            process = launchServerProcess();
+        if (serverInfo != null) {
+            process = launchServerProcess(serverInfo, initialSize);
         } else {
-            process = launchGenericProcess();
+            process = launchGenericProcess(initialSize, workingDir);
+        }
+        if (process == null) {
+            throw new IOException("Failed to create PtyProcess");
         }
         return new PtyProcessTtyConnector(process, StandardCharsets.UTF_8);
     }
 
-    public PtyProcess launchGenericProcess() {
+    public static PtyProcess launchGenericProcess(TermSize initialSize, String workingDir) throws IOException {
         try {
             String os = System.getProperty("os.name").toLowerCase();
             String[] command;
@@ -63,24 +57,19 @@ public class TerminalProcessManager {
                 command = new String[]{"powershell.exe", "-NoLogo"};
             } else {
                 String shell = env.getOrDefault("SHELL", "/bin/bash");
-                if (os.contains("mac") || os.contains("darwin")) {
-                    command = new String[]{shell, "-l"};
-                } else {
-                    command = new String[]{shell, "-l"};
-                }
+                command = new String[]{shell, "-l"};
                 env.put("TERM", "xterm-256color");
             }
 
             PtyProcessBuilder builder = new PtyProcessBuilder(command)
                     .setEnvironment(env)
-                    .setDirectory(currentDirectory)
+                    .setDirectory(workingDir)
                     .setRedirectErrorStream(true);
 
             if (os.contains("win")) {
                 builder.setConsole(false).setUseWinConPty(true);
             }
 
-            TermSize initialSize = widget.getTerminal().getSize();
             if (initialSize.getColumns() > 0 && initialSize.getRows() > 0) {
                 builder.setInitialColumns(initialSize.getColumns());
                 builder.setInitialRows(initialSize.getRows());
@@ -88,22 +77,19 @@ public class TerminalProcessManager {
 
             return builder.start();
         } catch (Exception e) {
-            widget.appendOutput("Failed to launch terminal process: " + e.getMessage() + "\n");
             logger.log(Level.SEVERE, "Failed to launch terminal process", e);
+            throw new IOException("Failed to launch terminal process: " + e.getMessage(), e);
         }
-        return null;
     }
 
-    public PtyProcess launchServerProcess() {
+    public static PtyProcess launchServerProcess(ServerInfo serverInfo, TermSize initialSize) throws IOException {
         try {
-            ServerInfo serverInfo = widget.getServerInfo();
             if (serverInfo == null) {
                 throw new IOException("ServerInfo is null for a detached server process");
             }
             File workingDir = new File(serverInfo.path);
             if (!workingDir.exists() || !workingDir.isDirectory()) {
-                widget.appendOutput("Server directory not found or is not a directory: " + serverInfo.path);
-                throw new IOException("Server directory not found: " + serverInfo.path);
+                throw new IOException("Server directory not found or is not a directory: " + serverInfo.path);
             }
 
             File scriptFile = new File(workingDir, "start.bat");
@@ -112,12 +98,10 @@ public class TerminalProcessManager {
             }
 
             if (!scriptFile.exists()) {
-                widget.appendOutput("No start script found, creating one...\n");
                 try (FileWriter fw = new FileWriter(scriptFile)) {
                     fw.write(getCommandStr().toString());
                 }
                 if (!System.getProperty("os.name").toLowerCase().contains("win")) {
-                    //noinspection ResultOfMethodCallIgnored
                     scriptFile.setExecutable(true, true);
                 }
             }
@@ -125,9 +109,9 @@ public class TerminalProcessManager {
             String os = System.getProperty("os.name").toLowerCase();
             String[] command;
             if (os.contains("win")) {
-                command = new String[]{"powershell.exe", "-NoLogo"};
+                command = new String[]{"cmd.exe", "/c", "start.bat"};
             } else {
-                command = new String[]{"/bin/bash", "-l"};
+                command = new String[]{"/bin/bash", "-l", "./start.sh"};
             }
             Map<String, String> env = new HashMap<>(System.getenv());
             env.put("TERM", "xterm-256color");
@@ -141,7 +125,6 @@ public class TerminalProcessManager {
                 builder.setConsole(false).setUseWinConPty(true);
             }
 
-            TermSize initialSize = widget.getTerminal().getSize();
             if (initialSize.getColumns() > 0 && initialSize.getRows() > 0) {
                 builder.setInitialColumns(initialSize.getColumns());
                 builder.setInitialRows(initialSize.getRows());
@@ -149,20 +132,8 @@ public class TerminalProcessManager {
 
             return builder.start();
         } catch (Exception e) {
-            if (widget.getServerInfo() != null) {
-                widget.setServerState(ServerState.CRASHED);
-            }
-            widget.appendOutput("Failed to launch server process: " + e.getMessage() + "\n");
-            e.printStackTrace();
+            logger.log(Level.SEVERE, "Failed to launch server process", e);
+            throw new IOException("Failed to launch server process: " + e.getMessage(), e);
         }
-        return null;
-    }
-
-    public String getCurrentDirectory() {
-        return currentDirectory;
-    }
-
-    public void setCurrentDirectory(String currentDirectory) {
-        this.currentDirectory = currentDirectory;
     }
 }

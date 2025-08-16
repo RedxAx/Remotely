@@ -1,18 +1,25 @@
 package redxax.oxy.remotely.api;
 
+import com.jediterm.core.util.TermSize;
+import com.jediterm.terminal.TtyConnector;
 import redxax.oxy.remotely.explorer.FileManager;
+import redxax.oxy.remotely.servers.ServerInfo;
+import redxax.oxy.remotely.servers.ServerState;
+import redxax.oxy.remotely.terminal.TerminalProcessManager;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
-public class LocalAPI implements RemotelyCoreAPI {
+public class LocalAPI implements RemotelyAPI {
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm");
     private static List<FileManager.ClipboardEntry> clipboard = new ArrayList<>();
     private static boolean isCutOperation = false;
@@ -227,6 +234,27 @@ public class LocalAPI implements RemotelyCoreAPI {
                 undoStack.pop().undo();
             }
         });
+    }
+
+    @Override
+    public TtyConnector createTtyConnector(ServerInfo serverInfo, TermSize initialSize, Consumer<String> outputConsumer, Consumer<ServerState> stateConsumer) throws Exception {
+        String workDir = getInitialDirectory(serverInfo);
+        return TerminalProcessManager.createTtyConnector(serverInfo, workDir, initialSize);
+    }
+
+    @Override
+    public void launchServer(ServerInfo serverInfo, Consumer<String> commandConsumer) throws Exception {
+        File workingDir = new File(serverInfo.path);
+        if (workingDir.exists() && workingDir.isDirectory()) {
+            System.setProperty("user.dir", workingDir.getAbsolutePath());
+        } else {
+            throw new IOException("Working directory does not exist: " + workingDir.getAbsolutePath());
+        }
+    }
+
+    @Override
+    public String getInitialDirectory(ServerInfo serverInfo) {
+        return serverInfo != null ? serverInfo.path : System.getProperty("user.home");
     }
 
     public List<FileManager.ClipboardEntry> getClipboard() {

@@ -1,11 +1,17 @@
 package redxax.oxy.remotely.api;
 
+import com.jediterm.core.util.TermSize;
+import com.jediterm.terminal.TtyConnector;
 import redxax.oxy.remotely.explorer.FileManager;
+import redxax.oxy.remotely.servers.ServerInfo;
+import redxax.oxy.remotely.servers.ServerState;
+
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
-public interface RemotelyCoreAPI {
+public interface RemotelyAPI {
     CompletableFuture<List<FileEntry>> listDirectory(Path path);
     List<FileManager.ClipboardEntry> getClipboard();
     CompletableFuture<Void> copy(List<Path> sources, Path destination);
@@ -21,6 +27,10 @@ public interface RemotelyCoreAPI {
     CompletableFuture<Void> writeFile(Path path, String content);
     boolean canUndo();
     CompletableFuture<Void> undo();
+
+    TtyConnector createTtyConnector(ServerInfo serverInfo, TermSize initialSize, Consumer<String> outputConsumer, Consumer<ServerState> stateConsumer) throws Exception;
+    void launchServer(ServerInfo serverInfo, Consumer<String> commandConsumer) throws Exception;
+    String getInitialDirectory(ServerInfo serverInfo);
 
     class FileEntry {
         public Path path;

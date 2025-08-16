@@ -6,9 +6,8 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.api.LocalAPI;
-import redxax.oxy.remotely.api.RemoteAPI;
-import redxax.oxy.remotely.api.RemotelyCoreAPI;
+import redxax.oxy.remotely.api.RemotelyAPI;
+import redxax.oxy.remotely.api.RemotelyApiFactory;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.ui.ReScreen;
 import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
@@ -34,7 +33,7 @@ public class FileEditorScreen extends ReScreen {
     private SidePanel explorerPanel;
     private boolean showExplorerPanel = false;
     private Path explorerPath;
-    private final RemotelyCoreAPI fileAPI;
+    private final RemotelyAPI fileAPI;
     private double originalMCScale;
     private TextAreaWidget activeTextArea;
 
@@ -94,7 +93,7 @@ public class FileEditorScreen extends ReScreen {
 
         private void loadFileContent() {
             fileAPI.readFile(path).thenAccept(content -> client.execute(() -> {
-                String sanitizedContent = content.replace("\r\n", "\n").replace("\r", "\n").replace("\\t", "\t");
+                String sanitizedContent = content.replace("\r\n", "\n").replace("\r", "\n").replace("\t", "\t");
                 this.textAreaWidget.setText(sanitizedContent);
                 this.originalContent = sanitizedContent;
                 this.unsaved = false;
@@ -122,12 +121,7 @@ public class FileEditorScreen extends ReScreen {
         this.client = mc;
         this.parent = parent;
         this.serverInfo = info;
-
-        if (serverInfo.isRemote) {
-            this.fileAPI = new RemoteAPI(serverInfo.remoteHost);
-        } else {
-            this.fileAPI = new LocalAPI();
-        }
+        this.fileAPI = RemotelyApiFactory.get(info);
 
         boolean found = false;
         int foundIndex = -1;
@@ -282,7 +276,7 @@ public class FileEditorScreen extends ReScreen {
         explorerPanel.container().clearWidgets();
 
         if (path.getParent() != null) {
-            RemotelyCoreAPI.FileEntry upEntry = new RemotelyCoreAPI.FileEntry(path.getParent(), true, "", "", "..");
+            RemotelyAPI.FileEntry upEntry = new RemotelyAPI.FileEntry(path.getParent(), true, "", "", "..");
             FileEntryWidget upWidget = new FileEntryWidget.Builder(upEntry, fileAPI, serverInfo.isRemote, Collections.emptyList(), new Object()).onClick(w -> loadExplorerDirectory(w.getFileEntry().path)).entranceCorner(AnimatedWidget.EntranceCorner.TOP_LEFT).build();
             explorerPanel.container().addWidget(upWidget);
         }
@@ -291,7 +285,7 @@ public class FileEditorScreen extends ReScreen {
             children.sort(Comparator.comparing(e -> e.displayName));
             children.sort(Comparator.comparing(e -> !e.isDirectory));
             client.execute(() -> {
-                for (RemotelyCoreAPI.FileEntry child : children) {
+                for (RemotelyAPI.FileEntry child : children) {
                     FileEntryWidget widget = new FileEntryWidget.Builder(child, fileAPI, serverInfo.isRemote, Collections.emptyList(), new Object())
                             .onClick(this::onExplorerEntryClicked).entranceCorner(AnimatedWidget.EntranceCorner.TOP_LEFT)
                             .build();
@@ -307,7 +301,7 @@ public class FileEditorScreen extends ReScreen {
     }
 
     private void onExplorerEntryClicked(FileEntryWidget widget) {
-        RemotelyCoreAPI.FileEntry entry = widget.getFileEntry();
+        RemotelyAPI.FileEntry entry = widget.getFileEntry();
         if (entry.isDirectory) {
             loadExplorerDirectory(entry.path);
         } else {

@@ -5,7 +5,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
 import net.minecraft.text.Text;
-import redxax.oxy.remotely.api.RemotelyCoreAPI;
+import redxax.oxy.remotely.api.RemotelyAPI;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.explorer.FileEditorScreen;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
@@ -23,8 +23,8 @@ import static redxax.oxy.remotely.util.ImageUtil.drawPixelArt;
 import static redxax.oxy.remotely.util.SoundUtils.playSound;
 
 public class FileEntryWidget extends AnimatedWidget {
-    private final RemotelyCoreAPI.FileEntry fileEntry;
-    private final RemotelyCoreAPI fileAPI;
+    private final RemotelyAPI.FileEntry fileEntry;
+    private final RemotelyAPI fileAPI;
     private final boolean isRemote;
     private final List<Path> favoritePaths;
     private final Object favoritePathsLock;
@@ -40,7 +40,7 @@ public class FileEntryWidget extends AnimatedWidget {
     private static final int DOUBLE_CLICK_INTERVAL = 500;
 
     public static class Builder extends AnimatedWidget.Builder<FileEntryWidget, Builder> {
-        public Builder(RemotelyCoreAPI.FileEntry entry, RemotelyCoreAPI api, boolean remote, List<Path> favorites, Object lock) {
+        public Builder(RemotelyAPI.FileEntry entry, RemotelyAPI api, boolean remote, List<Path> favorites, Object lock) {
             super(new FileEntryWidget(0, 0, 100, 20, entry, api, remote, favorites, lock));
         }
         public Builder onClick(Consumer<FileEntryWidget> callback) { widget.onDoubleClick = callback; return this; }
@@ -50,7 +50,7 @@ public class FileEntryWidget extends AnimatedWidget {
         @Override protected Builder self() { return this; }
     }
 
-    public FileEntryWidget(int x, int y, int width, int height, RemotelyCoreAPI.FileEntry entry, RemotelyCoreAPI api, boolean remote, List<Path> favorites, Object lock) {
+    public FileEntryWidget(int x, int y, int width, int height, RemotelyAPI.FileEntry entry, RemotelyAPI api, boolean remote, List<Path> favorites, Object lock) {
         super(x, y, width, height, Text.literal(entry.displayName));
         this.fileEntry = entry;
         this.fileAPI = api;
@@ -193,7 +193,7 @@ public class FileEntryWidget extends AnimatedWidget {
         }
     }
 
-    public RemotelyCoreAPI.FileEntry getFileEntry() {
+    public RemotelyAPI.FileEntry getFileEntry() {
         return fileEntry;
     }
 

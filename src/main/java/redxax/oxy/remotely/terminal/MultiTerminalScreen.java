@@ -6,6 +6,8 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.api.RemotelyAPI;
+import redxax.oxy.remotely.api.RemotelyApiFactory;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.resources.ResourceManagerScreen;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
@@ -13,9 +15,9 @@ import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
 import redxax.oxy.remotely.ui.ReScreen;
 import redxax.oxy.remotely.ui.widgets.AnimatedButton;
+import redxax.oxy.remotely.util.Notification;
 import redxax.oxy.remotely.util.Sound;
 
-import java.io.File;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
@@ -105,9 +107,6 @@ public class MultiTerminalScreen extends ReScreen {
 
         ServerInfo sInfo = activeTerminal.getServerInfo();
         if (sInfo == null) {
-            if (activeTerminal.processManager != null) {
-                activeTerminal.processManager.launchGenericProcess();
-            }
             return;
         }
 
@@ -116,14 +115,17 @@ public class MultiTerminalScreen extends ReScreen {
             header().setButtonVisible("start.png", true);
             header().setButtonVisible("stop.png", false);
         } else {
-            File workingDir = new File(sInfo.path);
-            File scriptFile = new File(workingDir, "start.bat");
-            if (scriptFile.exists() && scriptFile.isFile()) {
-                activeTerminal.executeCommand((sInfo.isRemote ? "./" : "") + scriptFile.getAbsolutePath());
+            try {
+                RemotelyAPI api = RemotelyApiFactory.get(sInfo);
+                api.launchServer(sInfo, command -> {
+                    if (command != null && !command.isEmpty()) {
+                        activeTerminal.executeCommand(command);
+                    }
+                });
                 header().setButtonVisible("stop.png", true);
                 header().setButtonVisible("start.png", false);
-            } else {
-                activeTerminal.processManager.launchGenericProcess();
+            } catch (Exception e) {
+                new Notification("Failed To Start Server", e.getMessage(), Notification.Type.ERROR);
             }
         }
     }
@@ -134,7 +136,9 @@ public class MultiTerminalScreen extends ReScreen {
         if (sInfo != null) {
             client.setScreen(new FileExplorerScreen(this, sInfo));
         } else {
-            client.setScreen(new FileExplorerScreen(this, Path.of(activeTerminal.getCurrentDir())));
+            RemotelyAPI api = RemotelyApiFactory.get(null);
+            String path = api.getInitialDirectory(null);
+            client.setScreen(new FileExplorerScreen(this, Path.of(path)));
         }
     }
 
