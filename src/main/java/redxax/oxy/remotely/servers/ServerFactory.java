@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.servers;
 
-import redxax.oxy.remotely.util.Notification;
+
+import restudio.rescreen.util.Notification;
 
 import java.io.BufferedReader;
 import java.io.IOException;

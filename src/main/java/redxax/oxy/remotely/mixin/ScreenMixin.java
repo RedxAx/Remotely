@@ -9,19 +9,21 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-import redxax.oxy.remotely.ui.MouseCursor;
+import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
-import redxax.oxy.remotely.ui.LoadingAnimation;
 import redxax.oxy.remotely.ui.tests.ContainerTestingScreen;
 import redxax.oxy.remotely.ui.tests.WidgetsTestingScreen;
 import redxax.oxy.remotely.util.CursorUtils;
-import redxax.oxy.remotely.util.Notification;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.config.SettingsScreen.loopOfThemes;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import restudio.rescreen.Main;
+import restudio.rescreen.ui.MouseCursor;
+import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.util.Notification;
 
 @Mixin(value = Screen.class)
 public class ScreenMixin {
@@ -34,18 +36,18 @@ public class ScreenMixin {
     private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
         if (!((Object)this instanceof TitleScreen)) {
             Config.tickTime();
-            MouseCursor.updateAndRender(context, mouseX, mouseY);
+            restudio.rescreen.config.Config.tickTime();
         }
         Config.globalCursorAnimatedColor = CursorUtils.blendColor();
         context.getMatrices().push();
         context.getMatrices().translate(0, 0, 500);
-        LoadingAnimation.render(context, width, height, mouseX, mouseY);
+//        LoadingAnimation.render(context, width, height, mouseX, mouseY);
         context.getMatrices().pop();
         for (Notification notification : Notification.getActiveNotifications()) {
             notification.update();
             context.getMatrices().push();
             context.getMatrices().translate(0, 0, 499);
-            notification.render(context, mouseX, mouseY);
+//            notification.render(context, mouseX, mouseY);
             context.getMatrices().pop();
         }
     }
@@ -70,18 +72,20 @@ public class ScreenMixin {
         }
         if (!enableDebugTools) return;
         if (keyCode == GLFW.GLFW_KEY_T && ctrl) {
-            MinecraftClient.getInstance().setScreen(new WidgetsTestingScreen());
+            ScreenManager.getInstance().setScreen(new WidgetsTestingScreen());
         }
         if (keyCode == GLFW.GLFW_KEY_C && ctrl) {
-            MinecraftClient.getInstance().setScreen(new ContainerTestingScreen());
+            ScreenManager.getInstance().setScreen(new ContainerTestingScreen());
         }
         if (keyCode == GLFW.GLFW_KEY_P && all) {
             ReverseProxyManager.listActivePorts();
         }
     }
 
-    @Inject(method = "onDisplayed", at = @At("HEAD"))
-    private void onDisplayed(CallbackInfo ci) {
+    @Inject(method = "init*", at = @At("HEAD"))
+    private void onInit(CallbackInfo ci) {
         MouseCursor.reset(false);
+        RemotelyClient.INSTANCE.ensureTextRenderer();
+        Main.setWindow(MinecraftClient.getInstance().getWindow().getHandle());
     }
 }

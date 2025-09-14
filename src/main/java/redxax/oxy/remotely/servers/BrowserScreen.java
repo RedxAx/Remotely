@@ -1,705 +1,388 @@
 package redxax.oxy.remotely.servers;
 
-import com.cinemamod.mcef.MCEFBrowser;
 import com.cinemamod.mcef.MCEF;
+import com.cinemamod.mcef.MCEFBrowser;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
-import redxax.oxy.remotely.util.Notification;
-import redxax.oxy.remotely.util.Sound;
-import redxax.oxy.remotely.util.TextAnimator;
+import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.widgets.TextInputWidget;
+import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.Sound;
 
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.text.Text;
 
-import static redxax.oxy.remotely.Render.*;
-import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.util.ImageUtil.*;
-import static redxax.oxy.remotely.util.SoundUtils.playSound;
+import static redxax.oxy.remotely.config.Config.enableDebugTools;
+import static redxax.oxy.remotely.util.ImageUtil.drawBrowser;
+import static restudio.rescreen.config.Config.shadow;
+import static restudio.rescreen.render.Render.animatedScaling;
+import static restudio.rescreen.util.SoundUtils.playSound;
 
-public class BrowserScreen extends Screen {
-    private final MinecraftClient minecraftClient;
-    private final String startUrl;
-    private static final int BROWSER_DRAW_OFFSET = 5;
-    private final int TOP_OFFSET = 60;
+public class BrowserScreen extends ReScreen {
     private static final List<Tab> tabs = new ArrayList<>();
-    private static int currentTabIndex = 0;
-    private final StringBuilder urlFieldText = new StringBuilder();
-    private boolean urlFieldFocused = false;
-    private int urlCursorPosition = 0;
-    private int urlSelectionStart = -1;
-    private int urlSelectionEnd = -1;
-    private final float urlScrollOffset = 0;
-    private final float urlTargetScrollOffset = 0;
-    private boolean urlShowCursor = true;
-    private long urlLastBlinkTime = 0;
-    private static final int SEARCH_BAR_WIDTH = 200;
-    private static final int SEARCH_BAR_HEIGHT = 20;
+    private final Screen parent;
+    private final String startUrl;
+    private Tab activeTab;
+    private TextInputWidget urlBar;
     private boolean fullScreenMode = false;
     private int previousBrowserWidth = -1;
     private int previousBrowserHeight = -1;
-    private final Screen parent;
-    private IconWithTooltip fullscreenIcon;
-    private IconWithTooltip closeIcon;
-    private IconWithTooltip reloadIcon;
-    private IconWithTooltip goBackIcon;
-    private IconWithTooltip goForwardIcon;
-    private TabsBar<Tab> tabsBar;
 
-    public BrowserScreen(MinecraftClient client, Screen parent, String url) {
-        super(Text.literal("Browser"));
-        this.minecraftClient = client;
+    public BrowserScreen(Screen parent, String url) {
+        super();
         this.parent = parent;
-        checkIfMcefExist();
         this.startUrl = url;
-        originalMCScale = minecraftClient.getWindow().getScaleFactor();
-        targetScaleFactor = globalScaleFactor;
-        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
+        checkIfMcefExist();
     }
 
-    public class Tab {
+    public static class Tab {
         public String url;
+        public String title;
         public MCEFBrowser browser;
-        public TextAnimator textAnimator;
+
         public Tab(String url, MCEFBrowser browser) {
             this.url = url;
-            String title = trimUrl(url);
             this.browser = browser;
-            this.textAnimator = new TextAnimator(title, 0, 30);
-            this.textAnimator.start();
+            this.title = trimUrl(url);
         }
-        public String getAnimatedText() {
-            return textAnimator.getCurrentText();
-        }
-        @Override
-        public String toString() {
-            return getAnimatedText();
-        }
-    }
 
-    private String trimUrl(String url) {
-        try {
-            String withoutProtocol = url.replaceFirst("^(http://|https://)", "");
-            withoutProtocol = withoutProtocol.replaceFirst("^www\\.", "");
-            int queryIndex = withoutProtocol.indexOf("?");
-            if(queryIndex != -1) {
-                withoutProtocol = withoutProtocol.substring(0, queryIndex);
-            }
-            if (withoutProtocol.charAt(withoutProtocol.length() - 1) == '/') withoutProtocol = withoutProtocol.substring(0, withoutProtocol.length() - 1);
-            return withoutProtocol;
-        } catch(Exception e) {
-            return url;
-        }
-    }
-
-    private boolean hasSelection() {
-        return urlSelectionStart != -1 && urlSelectionEnd != -1 && urlSelectionStart != urlSelectionEnd;
-    }
-
-    private void clearSelection() {
-        urlSelectionStart = -1;
-        urlSelectionEnd = -1;
-    }
-
-    @Override
-    protected void init() {
-        super.init();
-        if (tabs.isEmpty()) {
-            MCEFBrowser newBrowser = MCEF.createBrowser(startUrl, true);
-            tabs.add(new Tab(startUrl, newBrowser));
-            urlFieldText.setLength(0);
-            urlFieldText.append(startUrl);
-            urlCursorPosition = urlFieldText.length();
-            resizeBrowser(newBrowser);
-        }
-        try {
-            fullscreenIcon = new IconWithTooltip("/assets/remotely/icons/fullscreen.png", "Toggle Fullscreen Mode");
-            closeIcon = new IconWithTooltip("/assets/remotely/icons/close.png", "");
-            reloadIcon = new IconWithTooltip("/assets/remotely/icons/reload.png", "Reload Current Page");
-            goBackIcon = new IconWithTooltip("/assets/remotely/icons/goback.png", "");
-            goForwardIcon = new IconWithTooltip("/assets/remotely/icons/goforward.png", "");
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        List<TabsBar.Tab<Tab>> tabList = new ArrayList<>();
-        for (Tab t : tabs) {
-            tabList.add(new TabsBar.Tab<>(t.getAnimatedText(), false, t));
-        }
-        tabsBar = new TabsBar<>(tabList);
-        tabsBar.setActiveTab(currentTabIndex);
-        tabsBar.setHasPlus(true);
-        tabsBar.setAllowClose(tabCloseButtons);
-        tabsBar.setAllowRename(false);
-        tabsBar.setAllowDrag(true);
-        tabsBar.setAllowScroll(true);
-        tabsBar.setTabBarBounds(5, 35, this.width - 5, 18);
-        tabsBar.setOnTabOrderChanged(() -> {
-            List<Tab> newTabs = tabsBar.getTabs().stream().map(tab -> tab.data).toList();
-            tabs.clear();
-            tabs.addAll(newTabs);
-            currentTabIndex = tabsBar.getActiveTab();
-        });
-        tabsBar.setOnTabClosed(() -> {
-            int idx = tabsBar.getActiveTab();
-            if (idx >= 0 && idx < tabs.size()) {
-                Tab removed = tabs.get(idx);
-                removed.browser.close();
-                tabs.remove(idx);
-                tabsBar.getTabs().remove(idx);
-                if (tabs.isEmpty()) {
-                    minecraftClient.setScreen(parent);
-                } else {
-                    if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
-                    tabsBar.setActiveTab(currentTabIndex);
+        private static String trimUrl(String url) {
+            try {
+                String withoutProtocol = url.replaceFirst("^(http://|https://)", "");
+                withoutProtocol = withoutProtocol.replaceFirst("^www\\.", "");
+                int queryIndex = withoutProtocol.indexOf('?');
+                if (queryIndex != -1) {
+                    withoutProtocol = withoutProtocol.substring(0, queryIndex);
                 }
+                if (withoutProtocol.endsWith("/")) {
+                    withoutProtocol = withoutProtocol.substring(0, withoutProtocol.length() - 1);
+                }
+                return withoutProtocol;
+            } catch (Exception e) {
+                return url;
             }
-        });
-        tabsBar.setOnTabSelected(() -> {
-            currentTabIndex = tabsBar.getActiveTab();
-            if (currentTabIndex >= 0 && currentTabIndex < tabs.size()) {
-                urlFieldText.setLength(0);
-                urlFieldText.append(tabs.get(currentTabIndex).url);
-                urlCursorPosition = urlFieldText.length();
-            }
-        });
-        tabsBar.setOnTabPlus(() -> {
-            MCEFBrowser newBrowser = MCEF.createBrowser("https://www.google.com", true);
-            Tab newTab = new Tab("https://www.google.com", newBrowser);
-            tabs.add(newTab);
-            tabsBar.getTabs().add(new TabsBar.Tab<>(newTab.getAnimatedText(), false, newTab));
-            currentTabIndex = tabs.size() - 1;
-            tabsBar.setActiveTab(currentTabIndex);
-            urlFieldText.setLength(0);
-            urlFieldText.append("https://www.google.com");
-            urlCursorPosition = urlFieldText.length();
-            resizeBrowser(newBrowser);
-        });
-    }
-
-    public static boolean checkIfMcefExist() {
-        if (enableDebugTools) return true;
-        try {
-            if (RemotelyClient.isModLoaded("mcef")) {
-                new Notification("MCEF Isn't Installed. Click Here To Download (Coming Soon)", Notification.Type.ERROR);
-                return false;
-            }
-        } catch (Exception e) {
-            new Notification("Error checking for MCEF mod: " + e.getMessage(), Notification.Type.ERROR);
-            return false;
         }
-        return true;
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        super.render(context, mouseX, mouseY, delta);
-        MCEFBrowser currentBrowser = tabs.get(currentTabIndex).browser;
-        if (fullScreenMode) {
-            drawBrowser(currentBrowser, true, width, height, 0, 0);
+    public void init() {
+        super.init();
+
+        urlBar = new TextInputWidget.Builder()
+                .size(400, 18)
+                .onChange(this::loadUrl)
+                .build();
+        addDrawableChild(urlBar);
+
+        header().addLeft("/assets/remotely/icons/goback.png", () -> activeTab.browser.goBack(), "Go Back")
+                .addLeft("/assets/remotely/icons/goforward.png", () -> activeTab.browser.goForward(), "Go Forward")
+                .addLeft("/assets/remotely/icons/reload.png", () -> activeTab.browser.reload(), "Reload")
+                .addRight("/assets/remotely/icons/close.png", this::close, "Close")
+                .addRight("/assets/remotely/icons/fullscreen.png", this::toggleFullscreen, "Toggle Fullscreen")
+                .build();
+
+        tabs().builder()
+                .position(5, 35)
+                .size(width - 10, 18)
+                .allowAdd(true)
+                .allowClose(true)
+                .allowReorder(true)
+                .onTabSelected(this::onTabSelected)
+                .onTabClosed(this::onTabClosed)
+                .onPlusButtonClicked(this::addNewTab)
+                .onTabsReordered(this::onTabsReordered)
+                .build();
+
+        if (tabs.isEmpty()) {
+            addNewTab(startUrl);
+        } else {
+            for (Tab tab : tabs) {
+                TabsManager.Tab uiTab = tabs().addTab(tab.title, null);
+                uiTab.setData(tab);
+            }
+            tabs().setActiveTab(0);
+            onTabSelected(tabs().getActiveTab());
+        }
+    }
+
+    private void onTabSelected(TabsManager.Tab uiTab) {
+        if (uiTab == null) {
+            activeTab = null;
             return;
         }
-        drawHeader(context, width, height, mouseX, mouseY);
-        drawBrowser(currentBrowser, fullScreenMode, width, height, TOP_OFFSET, BROWSER_DRAW_OFFSET);
-        drawInnerBorder(context, 5, 60, width - 5 * 2, height - 60 - 5, innerBorderColor);
-        animatedScaling(this);
+        activeTab = (Tab) uiTab.getData();
+        if (activeTab != null) {
+            urlBar.setText(activeTab.url);
+        }
     }
 
-    private void drawHeader(DrawContext context, int width, int height, int mouseX, int mouseY) {
-        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, fullscreenIcon, null, null, goBackIcon, goForwardIcon, null, null, reloadIcon);
-        tabsBar.setTabBarBounds(5, 35, width - 5, 18);
-        tabsBar.renderTabsBar(context, minecraftClient.textRenderer, tabsBar, mouseX, mouseY, shadow);
-        tabsBar.setActiveTabName(tabs.get(Math.min(currentTabIndex, tabs.size()-1)).getAnimatedText());
-        String displayUrl = urlFieldFocused ? urlFieldText.toString() : trimUrl(urlFieldText.toString());
-        drawSearchBar(context, minecraftClient.textRenderer, new StringBuilder(displayUrl), urlFieldFocused, urlCursorPosition, urlSelectionStart, urlSelectionEnd, urlTargetScrollOffset, false, "BrowserScreen", mouseX, mouseY, "Search In Google or Enter a URL");
+    private void onTabClosed(TabsManager.Tab uiTab) {
+        Tab tab = (Tab) uiTab.getData();
+        if (tab != null) {
+            tab.browser.close();
+            tabs.remove(tab);
+        }
+        if (tabs.isEmpty()) {
+            close();
+        }
     }
 
-    private int convertMouseX(double x) {
-        if(fullScreenMode) return (int)(x * minecraftClient.getWindow().getScaleFactor());
-        return (int)((x - BROWSER_DRAW_OFFSET) * minecraftClient.getWindow().getScaleFactor());
+    private void onTabsReordered(List<TabsManager.Tab> uiTabs) {
+        List<Tab> newOrder = new ArrayList<>();
+        for (TabsManager.Tab uiTab : uiTabs) {
+            newOrder.add((Tab) uiTab.getData());
+        }
+        tabs.clear();
+        tabs.addAll(newOrder);
     }
 
-    private int convertMouseY(double y) {
-        if(fullScreenMode) return (int)(y * minecraftClient.getWindow().getScaleFactor());
-        return (int)((y - TOP_OFFSET) * minecraftClient.getWindow().getScaleFactor());
+    private void addNewTab() {
+        addNewTab("https://www.google.com");
+    }
+
+    private void addNewTab(String url) {
+        MCEFBrowser newBrowser = MCEF.createBrowser(url, true);
+        Tab newTab = new Tab(url, newBrowser);
+        tabs.add(newTab);
+
+        TabsManager.Tab uiTab = tabs().addTab(newTab.title, null);
+        uiTab.setData(newTab);
+        tabs().setActiveTab(tabs().getTabs().size() - 1);
+        resizeBrowser(newBrowser);
+    }
+
+    private void loadUrl(String url) {
+        String finalUrl = url;
+        try {
+            new URL(finalUrl).toURI();
+        } catch (Exception e) {
+            try {
+                finalUrl = "https://www.google.com/search?q=" + URLEncoder.encode(url, StandardCharsets.UTF_8);
+            } catch (Exception ignored) {
+            }
+        }
+        activeTab.url = finalUrl;
+        activeTab.browser.loadURL(finalUrl);
+        activeTab.title = Tab.trimUrl(finalUrl);
+        tabs().getActiveTab().setName(activeTab.title);
+    }
+
+    private void toggleFullscreen() {
+        fullScreenMode = !fullScreenMode;
+        header().visible(!fullScreenMode);
+        tabs().builder().visible(!fullScreenMode);
     }
 
     private void resizeBrowser(MCEFBrowser browser) {
-        if (width > 100 && height > 100) {
-            int browserWidth;
-            int browserHeight;
-            if(fullScreenMode) {
-                browserWidth = width;
-                browserHeight = height;
+        if (width <= 0 || height <= 0 || browser == null) return;
+
+        int browserWidth, browserHeight;
+        if (fullScreenMode) {
+            browserWidth = width;
+            browserHeight = height;
+        } else {
+            browserWidth = width - 10;
+            browserHeight = height - 65;
+        }
+
+        if (browserWidth <= 0 || browserHeight <= 0) return;
+
+        int scaledWidth = browserWidth * client.getScaledWidth();
+        int scaledHeight = browserHeight * client.getScaledHeight();
+
+        if (scaledWidth != previousBrowserWidth || scaledHeight != previousBrowserHeight) {
+            browser.resize(scaledWidth, scaledHeight);
+            previousBrowserWidth = scaledWidth;
+            previousBrowserHeight = scaledHeight;
+        }
+    }
+
+    @Override
+    public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
+        if (!fullScreenMode) {
+            super.render(context, mouseX, mouseY, delta);
+            urlBar.setPosition((width - urlBar.getWidth()) / 2, (header().headerSize - urlBar.getHeight()) / 2);
+        } else {
+            renderBackground(context, mouseX, mouseY, delta);
+        }
+
+        if (activeTab != null && activeTab.browser != null) {
+            if (fullScreenMode) {
+                drawBrowser(activeTab.browser, true, width, height, 0, 0);
             } else {
-                browserWidth = width - (BROWSER_DRAW_OFFSET * 2);
-                browserHeight = height - TOP_OFFSET - BROWSER_DRAW_OFFSET;
-            }
-
-            int scaledWidth = (int)(browserWidth * minecraftClient.getWindow().getScaleFactor());
-            int scaledHeight = (int)(browserHeight * minecraftClient.getWindow().getScaleFactor());
-
-            if (scaledWidth != previousBrowserWidth || scaledHeight != previousBrowserHeight) {
-                browser.resize(scaledWidth, scaledHeight);
-                previousBrowserWidth = scaledWidth;
-                previousBrowserHeight = scaledHeight;
+                drawBrowser(activeTab.browser, false, width - 10, height - 65, 60, 5);
             }
         }
+        animatedScaling();
+    }
+
+    private int convertMouseX(double x, boolean isFullscreen) {
+        double scale = client.getGuiScale();
+        if (isFullscreen) return (int) (x * scale);
+        return (int) ((x - 5) * scale);
+    }
+
+    private int convertMouseY(double y, boolean isFullscreen) {
+        double scale = client.getGuiScale();
+        if (isFullscreen) return (int) (y * scale);
+        return (int) ((y - 60) * scale);
+    }
+
+    private boolean isMouseInBrowserArea(double mouseX, double mouseY) {
+        if (fullScreenMode) {
+            return true;
+        }
+        return mouseY > 60;
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (tabsBar.handleTabsBarMouse((int)mouseX, (int)mouseY, button)) return true;
-        int searchBarX = (width - SEARCH_BAR_WIDTH) / 2;
-        int searchBarY = 5;
-        if(mouseX >= searchBarX && mouseX <= searchBarX + SEARCH_BAR_WIDTH && mouseY >= searchBarY && mouseY <= searchBarY + SEARCH_BAR_HEIGHT) {
-            if(button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                playSound(Sound.SEARCH);
-                urlFieldFocused = true;
-                int clickX = (int) mouseX - searchBarX - 5;
-                int pos = 0;
-                int cumulativeWidth = 0;
-                for (int i = 0; i < urlFieldText.length(); i++) {
-                    int charWidth = minecraftClient.textRenderer.getWidth(urlFieldText.substring(i, i+1));
-                    if(cumulativeWidth + charWidth/2 > clickX) {
-                        pos = i;
-                        break;
-                    }
-                    cumulativeWidth += charWidth;
-                    pos = i + 1;
-                }
-                urlCursorPosition = pos;
-                urlSelectionStart = pos;
-                urlSelectionEnd = pos;
-                return true;
-            }
-        } else {
-            urlFieldFocused = false;
-        }
-
-        if(button == 3 || button == 4) {
-            playSound(Sound.CLICK);
-            if(button == 3) {
-                tabs.get(currentTabIndex).browser.goBack();
-            } else {
-                tabs.get(currentTabIndex).browser.goForward();
-            }
+        if (super.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
-
-        if(fullScreenMode) {
-            tabs.get(currentTabIndex).browser.sendMousePress(convertMouseX(mouseX), convertMouseY(mouseY), button);
-            tabs.get(currentTabIndex).browser.setFocus(true);
+        if (isMouseInBrowserArea(mouseX, mouseY) && activeTab != null) {
+            activeTab.browser.sendMousePress(convertMouseX(mouseX, fullScreenMode), convertMouseY(mouseY, fullScreenMode), button);
+            activeTab.browser.setFocus(true);
             return true;
         }
-
-        boolean yArea = mouseY >= 6 && mouseY <= 24;
-        if(yArea) {
-            if(mouseX >= 5 && mouseX <= 22) {
-                playSound(Sound.CLICK);
-                tabs.get(currentTabIndex).browser.goBack();
-                return true;
-            }
-            if(mouseX >= 28 && mouseX <= 45) {
-                playSound(Sound.CLICK);
-                tabs.get(currentTabIndex).browser.goForward();
-                return true;
-            }
-            int specialIconX = (width - SEARCH_BAR_WIDTH) / 2 - 23;
-            if(mouseX >= specialIconX && mouseX <= specialIconX + 17) {
-                playSound(Sound.CLICK);
-                tabs.get(currentTabIndex).browser.reload();
-                resizeBrowser(tabs.get(currentTabIndex).browser);
-                return true;
-            }
-            if(mouseX >= width - 46 && mouseX <= width - 29) {
-                playSound(Sound.CLICK);
-                fullScreenMode = true;
-                resizeBrowser(tabs.get(currentTabIndex).browser);
-                return true;
-            }
-            if(mouseX >= width - 23 && mouseX <= width - 6) {
-                if (parent == null) playSound(Sound.SCREEN);
-                minecraftClient.setScreen(parent);
-                return true;
-            }
-        }
-
-        int titleBarHeight = 30;
-        int tabBarHeight = 18;
-        if(mouseY <= titleBarHeight + tabBarHeight + 10) {
-            int tabBarX = 5;
-            int tabBarY = 35;
-            int tabBarEndY = tabBarY + tabBarHeight;
-            boolean tabClicked = false;
-            int x = tabBarX;
-            int tabGap = 5;
-            int tabPadding = 5;
-            for (int i = 0; i < tabs.size(); i++) {
-                Tab tab = tabs.get(i);
-                int tabWidth = minecraftClient.textRenderer.getWidth(tab.getAnimatedText()) + 2 * tabPadding;
-                if(mouseX >= x && mouseX <= x + tabWidth && mouseY >= tabBarY && mouseY <= tabBarEndY) {
-                    if(button == 2) {
-                        playSound(Sound.CLOSETAB);
-                        if(tabs.size() > 1) {
-                            tabs.get(i).browser.close();
-                            tabs.remove(i);
-                            if (i < tabsBar.getTabs().size()) {
-                                tabsBar.getTabs().remove(i);
-                            }
-                            if(currentTabIndex >= tabs.size()) {
-                                currentTabIndex = tabs.size() - 1;
-                            }
-                            tabsBar.setActiveTab(currentTabIndex);
-                        } else {
-                            tabs.get(i).browser.close();
-                            tabs.clear();
-                            tabsBar.getTabs().clear();
-                            minecraftClient.setScreen(parent);
-                        }
-                        return true;
-                    } else {
-                        playSound(Sound.SWITCHTAB);
-                        currentTabIndex = i;
-                        urlFieldText.setLength(0);
-                        urlFieldText.append(tabs.get(currentTabIndex).url);
-                        urlCursorPosition = urlFieldText.length();
-                        tabClicked = true;
-                        break;
-                    }
-                }
-                x += tabWidth + tabGap;
-            }
-            if(!tabClicked && mouseX >= x && mouseX <= x + 18 && mouseY >= tabBarY && mouseY <= tabBarEndY) {
-                playSound(Sound.CREATE);
-                MCEFBrowser newBrowser = MCEF.createBrowser("www.google.com", true);
-                Tab newTab = new Tab("www.google.com", newBrowser);
-                tabs.add(newTab);
-                tabsBar.getTabs().add(new TabsBar.Tab<>(newTab.getAnimatedText(), false, newTab));
-                currentTabIndex = tabs.size() - 1;
-                tabsBar.setActiveTab(currentTabIndex);
-                urlFieldText.setLength(0);
-                urlFieldText.append("www.google.com");
-                urlCursorPosition = urlFieldText.length();
-                resizeBrowser(newBrowser);
-                return true;
-            }
-        } else {
-            Tab currentTab = tabs.get(currentTabIndex);
-            currentTab.browser.sendMousePress(convertMouseX(mouseX), convertMouseY(mouseY), button);
-            currentTab.browser.setFocus(true);
-        }
-
-        if(ContextMenu.isOpen()){
-            if(ContextMenu.mouseClicked(mouseX, mouseY, button)){
-                return true;
-            }
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return false;
     }
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (tabsBar.handleTabsBarRelease(button)) return true;
-        Tab currentTab = tabs.get(currentTabIndex);
-        currentTab.browser.sendMouseRelease(convertMouseX(mouseX), convertMouseY(mouseY), button);
-        currentTab.browser.setFocus(true);
-        return super.mouseReleased(mouseX, mouseY, button);
+        if (super.mouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (isMouseInBrowserArea(mouseX, mouseY) && activeTab != null) {
+            activeTab.browser.sendMouseRelease(convertMouseX(mouseX, fullScreenMode), convertMouseY(mouseY, fullScreenMode), button);
+            return true;
+        }
+        return false;
     }
 
     @Override
     public void mouseMoved(double mouseX, double mouseY) {
-        Tab currentTab = tabs.get(currentTabIndex);
-        currentTab.browser.sendMouseMove(convertMouseX(mouseX), convertMouseY(mouseY));
         super.mouseMoved(mouseX, mouseY);
+        if (isMouseInBrowserArea(mouseX, mouseY) && activeTab != null) {
+            activeTab.browser.sendMouseMove(convertMouseX(mouseX, fullScreenMode), convertMouseY(mouseY, fullScreenMode));
+        }
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, /*? !=1.20.1 {*/ double horizontalAmount, /*?}*/ double verticalAmount) {
-        if (tabsBar.handleTabsBarScroll(verticalAmount, mouseX, mouseY)) return true;
-        scaleScroll(verticalAmount);
-        Tab currentTab = tabs.get(currentTabIndex);
-        currentTab.browser.sendMouseWheel(convertMouseX(mouseX), convertMouseY(mouseY), verticalAmount, 0);
-        return true;
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
+            return true;
+        }
+        if (isMouseInBrowserArea(mouseX, mouseY) && activeTab != null) {
+            activeTab.browser.sendMouseWheel(convertMouseX(mouseX, fullScreenMode), convertMouseY(mouseY, fullScreenMode), verticalAmount, 0);
+            return true;
+        }
+        return false;
     }
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (tabsBar.handleTabsBarDrag(button, deltaX)) return true;
-        int searchBarX = (width - SEARCH_BAR_WIDTH) / 2;
-        int searchBarY = 5;
-        if(urlFieldFocused && mouseX >= searchBarX && mouseX <= searchBarX + SEARCH_BAR_WIDTH && mouseY >= searchBarY && mouseY <= searchBarY + SEARCH_BAR_HEIGHT) {
-            int clickX = (int) mouseX - searchBarX - 5;
-            int pos = 0;
-            int cumulativeWidth = 0;
-            for (int i = 0; i < urlFieldText.length(); i++) {
-                int charWidth = minecraftClient.textRenderer.getWidth(urlFieldText.substring(i, i+1));
-                if(cumulativeWidth + charWidth/2 > clickX) {
-                    pos = i;
-                    break;
-                }
-                cumulativeWidth += charWidth;
-                pos = i + 1;
-            }
-            urlSelectionEnd = pos;
-            urlCursorPosition = pos;
+        if (super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
             return true;
         }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        if (isMouseInBrowserArea(mouseX, mouseY) && activeTab != null) {
+            activeTab.browser.sendMouseMove(convertMouseX(mouseX, fullScreenMode), convertMouseY(mouseY, fullScreenMode));
+            return true;
+        }
+        return false;
     }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (tabsBar.handleTabsBarKey(keyCode, scanCode, modifiers)) return true;
-        if(keyCode == GLFW.GLFW_KEY_ESCAPE) {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             if (fullScreenMode) {
-                fullScreenMode = false;
-                resizeBrowser(tabs.get(currentTabIndex).browser);
+                toggleFullscreen();
                 return true;
-            } else if (urlFieldFocused) {
-                urlFieldFocused = false;
-                return true;
-            } else {
-                minecraftClient.setScreen(parent);
+            } else if (urlBar.isFocused()) {
+                setFocusedWidget(null);
                 return true;
             }
         }
-        if((modifiers & GLFW.GLFW_MOD_CONTROL) != 0) {
-            if(urlFieldFocused) {
-                if(keyCode == GLFW.GLFW_KEY_A) {
-                    urlSelectionStart = 0;
-                    urlSelectionEnd = urlFieldText.length();
-                    urlCursorPosition = urlFieldText.length();
-                    return true;
-                }
-                if(keyCode == GLFW.GLFW_KEY_C) {
-                    if(hasSelection()){
-                        int start = Math.min(urlSelectionStart, urlSelectionEnd);
-                        int end = Math.max(urlSelectionStart, urlSelectionEnd);
-                        String copyText = urlFieldText.substring(start, end);
-                        try {
-                            java.awt.datatransfer.StringSelection selection = new java.awt.datatransfer.StringSelection(copyText);
-                            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
-                        } catch(Exception ignored) {}
-                    }
-                    return true;
-                }
-                if(keyCode == GLFW.GLFW_KEY_V) {
-                    String data = "";
-                    try {
-                        java.awt.datatransfer.Clipboard clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
-                        data = (String) clipboard.getData(java.awt.datatransfer.DataFlavor.stringFlavor);
-                    } catch(Exception ignored) {}
-                    if(data != null) {
-                        if(hasSelection()){
-                            int start = Math.min(urlSelectionStart, urlSelectionEnd);
-                            int end = Math.max(urlSelectionStart, urlSelectionEnd);
-                            urlFieldText.delete(start, end);
-                            urlCursorPosition = start;
-                            clearSelection();
-                        }
-                        urlFieldText.insert(urlCursorPosition, data);
-                        urlCursorPosition += data.length();
-                    }
-                    return true;
-                }
-                if(keyCode == GLFW.GLFW_KEY_LEFT) {
-                    if(hasSelection()){
-                        urlCursorPosition = Math.min(urlSelectionStart, urlSelectionEnd);
-                        clearSelection();
-                        return true;
-                    } else if(urlCursorPosition > 0) {
-                        int newPos = urlFieldText.lastIndexOf(" ", urlCursorPosition - 1);
-                        if(newPos == -1) newPos = 0;
-                        urlCursorPosition = newPos;
-                        return true;
-                    }
-                }
-                if(keyCode == GLFW.GLFW_KEY_RIGHT) {
-                    if(hasSelection()){
-                        urlCursorPosition = Math.max(urlSelectionStart, urlSelectionEnd);
-                        clearSelection();
-                        return true;
-                    } else if(urlCursorPosition < urlFieldText.length()){
-                        int newPos = urlFieldText.indexOf(" ", urlCursorPosition);
-                        if(newPos == -1) newPos = urlFieldText.length();
-                        urlCursorPosition = newPos;
-                        return true;
-                    }
-                }
-                if(keyCode == GLFW.GLFW_KEY_BACKSPACE) {
-                    if(hasSelection()){
-                        int start = Math.min(urlSelectionStart, urlSelectionEnd);
-                        int end = Math.max(urlSelectionStart, urlSelectionEnd);
-                        urlFieldText.delete(start, end);
-                        urlCursorPosition = start;
-                        clearSelection();
-                        return true;
-                    }
-                }
-            }
-            if(keyCode == GLFW.GLFW_KEY_T) {
-                MCEFBrowser newBrowser = MCEF.createBrowser("google.com", true);
-                tabs.add(new Tab("google.com", newBrowser));
-                currentTabIndex = tabs.size() - 1;
-                urlFieldText.setLength(0);
-                urlFieldText.append("google.com");
-                urlCursorPosition = urlFieldText.length();
-                resizeBrowser(newBrowser);
+
+        if (hasControlDown()) {
+            if (keyCode == GLFW.GLFW_KEY_T) {
+                addNewTab();
                 return true;
             }
-            if(keyCode == GLFW.GLFW_KEY_W) {
-                if(tabs.size() > 1) {
-                    tabs.remove(currentTabIndex);
-                    if(currentTabIndex >= tabs.size()) {
-                        currentTabIndex = tabs.size() - 1;
-                    }
-                } else {
-                    minecraftClient.setScreen(null);
-                }
-                return true;
-            }
-            if(keyCode == GLFW.GLFW_KEY_TAB) {
-                if((modifiers & GLFW.GLFW_MOD_SHIFT) != 0) {
-                    currentTabIndex = (currentTabIndex - 1 + tabs.size()) % tabs.size();
-                } else {
-                    currentTabIndex = (currentTabIndex + 1) % tabs.size();
-                }
-                urlFieldText.setLength(0);
-                urlFieldText.append(tabs.get(currentTabIndex).url);
-                urlCursorPosition = urlFieldText.length();
-                return true;
-            }
-            if (keyCode == GLFW.GLFW_KEY_F) {
-                urlFieldFocused = !urlFieldFocused;
+            if (keyCode == GLFW.GLFW_KEY_W && tabs.size() > 0) {
+                tabs().removeTab(tabs().getActiveTabIndex());
                 return true;
             }
         }
-        if(keyCode == GLFW.GLFW_KEY_F5) {
-            tabs.get(currentTabIndex).browser.reload();
+
+        if (keyCode == GLFW.GLFW_KEY_F5 && !urlBar.isFocused()) {
+            if (activeTab != null) activeTab.browser.reload();
             return true;
         }
-        if(urlFieldFocused) {
-            if(keyCode == GLFW.GLFW_KEY_ENTER) {
-                String url = urlFieldText.toString();
-                try {
-                    new URL(url);
-                } catch(Exception e) {
-                    try {
-                        url = "https://www.google.com/search?q=" + URLEncoder.encode(url, StandardCharsets.UTF_8);
-                    } catch(Exception ignored) {}
-                }
-                tabs.get(currentTabIndex).url = url;
-                tabs.get(currentTabIndex).textAnimator.updateText(trimUrl(url));
-                tabs.get(currentTabIndex).browser.loadURL(url);
-                urlFieldFocused = false;
-                return true;
-            }
-            if(keyCode == GLFW.GLFW_KEY_BACKSPACE) {
-                if(hasSelection()){
-                    int start = Math.min(urlSelectionStart, urlSelectionEnd);
-                    int end = Math.max(urlSelectionStart, urlSelectionEnd);
-                    urlFieldText.delete(start, end);
-                    urlCursorPosition = start;
-                    clearSelection();
-                } else if(urlCursorPosition > 0) {
-                    urlFieldText.deleteCharAt(urlCursorPosition - 1);
-                    urlCursorPosition--;
-                }
-                return true;
-            }
-            if(keyCode == GLFW.GLFW_KEY_DELETE) {
-                if(hasSelection()){
-                    int start = Math.min(urlSelectionStart, urlSelectionEnd);
-                    int end = Math.max(urlSelectionStart, urlSelectionEnd);
-                    urlFieldText.delete(start, end);
-                    urlCursorPosition = start;
-                    clearSelection();
-                } else if(urlCursorPosition < urlFieldText.length()){
-                    urlFieldText.deleteCharAt(urlCursorPosition);
-                }
-                return true;
-            }
-            if(keyCode == GLFW.GLFW_KEY_LEFT) {
-                if(urlCursorPosition > 0) {
-                    urlCursorPosition--;
-                }
-                clearSelection();
-                return true;
-            }
-            if(keyCode == GLFW.GLFW_KEY_RIGHT) {
-                if(urlCursorPosition < urlFieldText.length()){
-                    urlCursorPosition++;
-                }
-                clearSelection();
-                return true;
-            }
+
+        if (super.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
         }
-        tabs.get(currentTabIndex).browser.sendKeyPress(keyCode, scanCode, modifiers);
-        tabs.get(currentTabIndex).browser.setFocus(true);
-        return super.keyPressed(keyCode, scanCode, modifiers);
+
+        if (!urlBar.isFocused() && activeTab != null) {
+            activeTab.browser.sendKeyPress(keyCode, scanCode, modifiers);
+            return true;
+        }
+
+        return false;
     }
 
     @Override
     public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
-        tabs.get(currentTabIndex).browser.sendKeyRelease(keyCode, scanCode, modifiers);
-        tabs.get(currentTabIndex).browser.setFocus(true);
-        return super.keyReleased(keyCode, scanCode, modifiers);
+        if (super.keyReleased(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        if (!urlBar.isFocused() && activeTab != null) {
+            activeTab.browser.sendKeyRelease(keyCode, scanCode, modifiers);
+            return true;
+        }
+        return false;
     }
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
-        if (tabsBar.handleTabsBarChar(chr)) return true;
-        if(urlFieldFocused) {
-            if(hasSelection()){
-                int start = Math.min(urlSelectionStart, urlSelectionEnd);
-                int end = Math.max(urlSelectionStart, urlSelectionEnd);
-                urlFieldText.delete(start, end);
-                urlCursorPosition = start;
-                clearSelection();
-            }
-            if(chr != '\n' && chr != '\r' && chr != '\b'){
-                urlFieldText.insert(urlCursorPosition, chr);
-                urlCursorPosition++;
-                return true;
-            }
+        if (super.charTyped(chr, modifiers)) {
+            return true;
         }
-        if(chr == (char)0) return false;
-        tabs.get(currentTabIndex).browser.sendKeyTyped(chr, modifiers);
-        tabs.get(currentTabIndex).browser.setFocus(true);
-        return super.charTyped(chr, modifiers);
+        if (!urlBar.isFocused() && activeTab != null) {
+            activeTab.browser.sendKeyTyped(chr, modifiers);
+            return true;
+        }
+        return false;
     }
 
     @Override
     public void tick() {
         super.tick();
-        if (urlFieldFocused) {
-            long currentTime = System.currentTimeMillis();
-            if (currentTime - urlLastBlinkTime >= 500) {
-                urlShowCursor = !urlShowCursor;
-                urlLastBlinkTime = currentTime;
-            }
-        }
-        Tab currentTab = tabs.get(currentTabIndex);
-        String currentBrowserUrl = currentTab.browser.getURL();
-        if (currentBrowserUrl != null && !currentBrowserUrl.equals(currentTab.url)) {
-            currentTab.url = currentBrowserUrl;
-            currentTab.textAnimator.updateText(currentBrowserUrl.replaceFirst("^(http://|https://|www\\.)", "").replaceAll("/.*", ""));
-            if (!urlFieldFocused) {
-                urlFieldText.setLength(0);
-                urlFieldText.append(currentBrowserUrl);
-                urlCursorPosition = urlFieldText.length();
-            }
-        }
+        if (activeTab == null) return;
 
-        resizeBrowser(tabs.get(currentTabIndex).browser);
+        String currentBrowserUrl = activeTab.browser.getURL();
+        if (currentBrowserUrl != null && !currentBrowserUrl.equals(activeTab.url)) {
+            activeTab.url = currentBrowserUrl;
+            activeTab.title = Tab.trimUrl(currentBrowserUrl);
+            tabs().getActiveTab().setName(activeTab.title);
+            if (!urlBar.isFocused()) {
+                urlBar.setText(currentBrowserUrl);
+            }
+        }
+        resizeBrowser(activeTab.browser);
     }
+
+    @Override
+    public void close() {
+        client.setScreen(parent);
+    }
+
 
     public static void closeAll() {
         for (Tab tab : tabs) {
@@ -713,11 +396,14 @@ public class BrowserScreen extends Screen {
         playSound(Sound.SCREEN);
     }
 
-    @Override
-    public void removed() {
-        minecraftClient.getWindow().setScaleFactor(originalMCScale);
-        parent.width = minecraftClient.getWindow().getScaledWidth();
-        parent.height = minecraftClient.getWindow().getScaledHeight();
-        targetScaleFactor = globalScaleFactor = animScaleFactor;
+    public static boolean checkIfMcefExist() {
+        if (enableDebugTools) return true;
+        try {
+            Class.forName("com.cinemamod.mcef.MCEF");
+        } catch (ClassNotFoundException e) {
+            new Notification("MCEF is not installed.", "Browser functionality is disabled.", Notification.Type.ERROR);
+            return false;
+        }
+        return true;
     }
 }

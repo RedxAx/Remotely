@@ -1,14 +1,16 @@
 package redxax.oxy.remotely.resources;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.text.Text;
 import redxax.oxy.remotely.resources.providers.HangarAPI;
 import redxax.oxy.remotely.resources.providers.ModrinthAPI;
 import redxax.oxy.remotely.resources.providers.SpigetAPI;
 import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.ui.ReScreen;
 import redxax.oxy.remotely.ui.widgets.ResourceWidget;
+import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.rescreen.Container;
+import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
+
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -21,7 +23,6 @@ import java.util.concurrent.Executors;
 import static redxax.oxy.remotely.config.Config.loading;
 
 public class ResourceManagerScreen extends ReScreen {
-    private final MinecraftClient minecraftClient;
     private final Screen parent;
     private final ServerInfo serverInfo;
     private final ExecutorService executor = Executors.newFixedThreadPool(4);
@@ -34,19 +35,18 @@ public class ResourceManagerScreen extends ReScreen {
     private String currentSortParam = "downloads";
     private final Map<String, String[]> sortLabelsMap = new HashMap<>();
     private final Map<String, String[]> sortValuesMap = new HashMap<>();
-    private final String sortIconPath = "/assets/remotely/icons/sort.png";
+    private final String sortIconPath = "sort.png";
     private int sortButtonIndex = 0;
     private final List<IRemotelyResource> pendingResources = new CopyOnWriteArrayList<>();
 
-    public ResourceManagerScreen(MinecraftClient mc, Screen parent, ServerInfo info) {
-        super(Text.literal(info.isModServer() ? "Remotely - Mods Browser" : (info.isPluginServer() || info.isProxyServer() ? "Remotely - Plugins Browser" : "Remotely - Modpacks Browser")));
-        this.minecraftClient = mc;
+    public ResourceManagerScreen(Screen parent, ServerInfo info) {
+        super();
         this.parent = parent;
         this.serverInfo = info;
     }
 
     private Container platformContainer() {
-        return new Container(5, 60, width - 10, height - 5).columns(list ? 1 : 2).padding(2).layoutStyle(Container.LayoutStyle.MANAGED);
+        return createContainer(5, 60, width - 10, height - 5).columns(list ? 1 : 2).padding(2).layout(new ManagedLayout());
     }
 
     @Override
@@ -71,7 +71,7 @@ public class ResourceManagerScreen extends ReScreen {
                     spigotContainer.columns(list ? 1 : 2);
                     hangarContainer.columns(list ? 1 : 2);
                 }, "Switch Listing")
-                .addRight("/assets/remotely/icons/close.png", () -> minecraftClient.setScreen(parent), "Close Screen").setSearchMode(search, false).build();
+                .addRight("close.png", () -> client.setScreen(parent), "Close Screen").setSearchMode(search, false).build();
 
         tabs().builder().allowReorder(true).allowAdd(false).position(5, 36).size(width - 5, 18).onTabSelected(tab -> onTabChange(tab.getName())).build();
 
@@ -167,12 +167,12 @@ public class ResourceManagerScreen extends ReScreen {
     }
 
     @Override
-    public void render(net.minecraft.client.gui.DrawContext context, int mouseX, int mouseY, float delta) {
+    public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         if (!pendingResources.isEmpty()) {
             List<IRemotelyResource> toProcess = new ArrayList<>(pendingResources);
             pendingResources.clear();
             for (IRemotelyResource resource : toProcess) {
-                ResourceWidget widget = new ResourceWidget(resource, minecraftClient, serverInfo);
+                ResourceWidget widget = new ResourceWidget(resource, serverInfo);
                 container().addWidget(widget);
             }
         }

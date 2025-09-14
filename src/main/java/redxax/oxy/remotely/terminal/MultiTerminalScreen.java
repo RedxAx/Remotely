@@ -1,9 +1,7 @@
 package redxax.oxy.remotely.terminal;
 
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.text.Text;
+import restudio.rescreen.platform.IDrawContext;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.api.RemotelyAPI;
@@ -13,10 +11,14 @@ import redxax.oxy.remotely.resources.ResourceManagerScreen;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
-import redxax.oxy.remotely.ui.ReScreen;
-import redxax.oxy.remotely.ui.widgets.AnimatedButton;
-import redxax.oxy.remotely.util.Notification;
-import redxax.oxy.remotely.util.Sound;
+import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.rescreen.Container;
+import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.rescreen.SidePanel;
+import restudio.rescreen.ui.widgets.AnimatedButton;
+import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.Sound;
 
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -25,12 +27,13 @@ import java.util.Locale;
 import java.util.Map;
 
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.util.SoundUtils.playSound;
+import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class MultiTerminalScreen extends ReScreen {
 
     private final RemotelyClient remotelyClient;
-    private final Screen parent;
+    private Screen parent;
+    private net.minecraft.client.gui.screen.Screen mcParent;
     private SidePanel snippetsPanel;
     private SidePanel aiPanel;
     private final ServerInfo serverToOpen;
@@ -44,20 +47,27 @@ public class MultiTerminalScreen extends ReScreen {
         public Map<String, Integer> colors = new HashMap<>();
     }
 
-    public MultiTerminalScreen(MinecraftClient client, Screen parent, RemotelyClient remotelyClient) {
-        this(client, parent, remotelyClient, null);
+    public MultiTerminalScreen(Screen parent, RemotelyClient remotelyClient) {
+        this(parent, remotelyClient, null);
     }
 
-    public MultiTerminalScreen(MinecraftClient client, Screen parent, RemotelyClient remotelyClient, ServerInfo serverToOpen) {
-        super(Text.literal("Multi Terminal"));
-        this.client = client;
+    public MultiTerminalScreen(net.minecraft.client.gui.screen.Screen parent, RemotelyClient remotelyClient) {
+        super();
+        this.parent = null;
+        this.mcParent = parent;
+        this.remotelyClient = remotelyClient;
+        this.serverToOpen = null;
+    }
+
+    public MultiTerminalScreen(Screen parent, RemotelyClient remotelyClient, ServerInfo serverToOpen) {
+        super();
         this.parent = parent;
         this.remotelyClient = remotelyClient;
         this.serverToOpen = serverToOpen;
     }
 
     @Override
-    protected void init() {
+    public void init() {
         super.init();
         this.activeTerminal = null;
 
@@ -134,11 +144,11 @@ public class MultiTerminalScreen extends ReScreen {
         if (activeTerminal == null) return;
         ServerInfo sInfo = activeTerminal.getServerInfo();
         if (sInfo != null) {
-            client.setScreen(new FileExplorerScreen(this, sInfo));
+            ScreenManager.getInstance().setScreen(new FileExplorerScreen(this, sInfo));
         } else {
             RemotelyAPI api = RemotelyApiFactory.get(null);
             String path = api.getInitialDirectory(null);
-            client.setScreen(new FileExplorerScreen(this, Path.of(path)));
+            RemotelyClient.INSTANCE.openFileExplorer(this, Path.of(path));
         }
     }
 
@@ -146,7 +156,7 @@ public class MultiTerminalScreen extends ReScreen {
         if (activeTerminal == null) return;
         ServerInfo sInfo = activeTerminal.getServerInfo();
         if (sInfo != null) {
-            client.setScreen(new ResourceManagerScreen(client, this, sInfo));
+            ScreenManager.getInstance().setScreen(new ResourceManagerScreen(this, sInfo));
         }
     }
 
@@ -231,7 +241,6 @@ public class MultiTerminalScreen extends ReScreen {
         if (tab != null && tab.getData() instanceof TerminalWidget terminal) {
             this.activeTerminal = terminal;
             addDrawableChild(this.activeTerminal);
-            this.setFocused(this.activeTerminal);
             if (terminal.getServerInfo() != null) {
                 this.lastKnownState = terminal.getServerInfo().state;
             } else {
@@ -310,7 +319,7 @@ public class MultiTerminalScreen extends ReScreen {
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         if (activeTerminal == null) return;
 
@@ -354,7 +363,7 @@ public class MultiTerminalScreen extends ReScreen {
         snippetContainer.padding(5).columns(1);
 
         for (RemotelyClient.CommandSnippet snippet : RemotelyClient.globalSnippets) {
-            AnimatedButton button = new AnimatedButton.Builder().label(Text.literal(snippet.name)).onClick(() -> executeSnippet(snippet)).build();
+            AnimatedButton button = new AnimatedButton.Builder().label((snippet.name)).onClick(() -> executeSnippet(snippet)).build();
             snippetContainer.addWidget(button);
         }
     }
@@ -372,16 +381,16 @@ public class MultiTerminalScreen extends ReScreen {
 
     @Override
     public void close() {
-        assert this.client != null;
-        this.client.setScreen(parent);
+        if (parent != null) {
+            ScreenManager.getInstance().setScreen(parent);
+        } else if (mcParent != null) {
+            MinecraftClient.getInstance().setScreen(mcParent);
+        }
+        System.out.println("Closing MultiTerminalScreen");
     }
 
     @Override
     public void removed() {
-        if (this.activeTerminal != null) {
-            this.setFocused(null);
-        }
-
         remotelyClient.showSnippetsPanel = snippetsPanel.isVisible();
         remotelyClient.activeTerminalIndex = tabsManager.getActiveTabIndex();
 

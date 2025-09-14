@@ -15,7 +15,7 @@ public class KeyboardMixin {
 
     @Inject(method = "onKey", at = @At("HEAD"), cancellable = true)
     private void onKey(long window, int key, int scancode, int action, int modifiers, CallbackInfo ci) {
-        if (MinecraftClient.getInstance().currentScreen instanceof MultiTerminalScreen && Screen.hasControlDown() && key == GLFW.GLFW_KEY_B) {
+        if (Screen.hasControlDown() && key == GLFW.GLFW_KEY_B) {
             ci.cancel();
         }
     }

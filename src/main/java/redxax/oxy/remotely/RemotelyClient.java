@@ -3,17 +3,21 @@ package redxax.oxy.remotely;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import net.minecraft.client.gui.screen.Screen;
+import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
+import redxax.oxy.remotely.adapters.ReScreenWrapper;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.config.SettingsScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
-import redxax.oxy.remotely.ui.ReScreen.TabsManager;
 import redxax.oxy.remotely.terminal.TerminalWidget;
 
 import javax.imageio.ImageIO;
 import net.minecraft.client.MinecraftClient;
+import restudio.rescreen.platform.ITextRenderer;
+import restudio.rescreen.ui.rescreen.ReScreen;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.nio.file.*;
@@ -29,7 +33,7 @@ import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
 public class RemotelyClient {
 
-    public List<TabsManager.Tab> multiTerminalTabs = new ArrayList<>();
+    public List<ReScreen.TabsManager.Tab> multiTerminalTabs = new ArrayList<>();
     public MultiTerminalScreen multiTerminalScreen;
     private static final Path TERMINAL_LOG_DIR = Paths.get(String.valueOf(remotelyDir), "logs");
     private static final Path SNIPPETS_FILE = Paths.get(String.valueOf(remotelyDir), "data", "snippets.json");
@@ -49,6 +53,7 @@ public class RemotelyClient {
     public static String os;
     public static Screen mcScreen = null;
     public static MinecraftClient mc = MinecraftClient.getInstance();
+    public static ITextRenderer tr;
 
     public void initialize() {
         INSTANCE = this;
@@ -116,13 +121,21 @@ public class RemotelyClient {
         return null;
     }
 
-    public void openMultiTerminalGUI(MinecraftClient client, Screen parent) {
-        multiTerminalScreen = new MultiTerminalScreen(client, parent, this);
-        client.setScreen(multiTerminalScreen);
+    public void openMultiTerminalGUI(net.minecraft.client.gui.screen.Screen parent) {
+        restudio.rescreen.ui.core.Screen lib = new MultiTerminalScreen(parent, this);
+        MinecraftClient.getInstance().setScreen(new ReScreenWrapper(lib));
+    }
+
+    public void openFileExplorer(restudio.rescreen.ui.core.Screen parent, Path path) {
+        if (fileExplorer != null) {
+            fileExplorer.close();
+        }
+        fileExplorer = new FileExplorerScreen(parent, path);
+        MinecraftClient.getInstance().setScreen(new ReScreenWrapper(fileExplorer));
     }
 
     public void shutdownAllTerminals() {
-        for (TabsManager.Tab tab : multiTerminalTabs) {
+        for (ReScreen.TabsManager.Tab tab : multiTerminalTabs) {
             if (tab.getData() instanceof TerminalWidget widget) {
                 widget.shutdown();
             }
@@ -284,6 +297,11 @@ public class RemotelyClient {
                 devPrint("Failed to delete old Remotely data: " + e.getMessage());
             }
         }
+    }
+
+    public void ensureTextRenderer() {
+        restudio.rescreen.render.TextRenderer.setTextRendererAdapter(new MinecraftTextRendererAdapter());
+        tr = restudio.rescreen.render.TextRenderer.getTr();
     }
 
     public static boolean isModLoaded(String modId) {

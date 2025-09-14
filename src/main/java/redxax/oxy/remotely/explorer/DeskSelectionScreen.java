@@ -4,16 +4,17 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
-import net.minecraft.text.Text;
-import redxax.oxy.remotely.config.Config;
+import restudio.rescreen.config.Config;
+import restudio.rescreen.platform.IDrawContext;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.ui.ReScreen;
-import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
-import redxax.oxy.remotely.util.Notification;
-import redxax.oxy.remotely.util.Sound;
+import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.rescreen.Container;
+import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.rescreen.layout.RestrictedLayout;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.Sound;
 
 import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
@@ -25,9 +26,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 
-import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.util.ImageUtil.*;
-import static redxax.oxy.remotely.util.SoundUtils.playSound;
+import static restudio.rescreen.config.Config.*;
+import static redxax.oxy.remotely.RemotelyClient.tr;
+import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class DeskSelectionScreen extends ReScreen {
     private final FileExplorerScreen parent;
@@ -46,24 +48,24 @@ public class DeskSelectionScreen extends ReScreen {
     }
 
     public DeskSelectionScreen(FileExplorerScreen parent) {
-        super(Text.literal("Desks/Servers"));
+        super();
         this.parent = parent;
     }
 
     @Override
-    protected void init() {
+    public void init() {
         super.init();
         try {
-            diskIcon = loadResourceIcon("/assets/remotely/icons/disk.png");
-            folderIcon = loadResourceIcon("/assets/remotely/icons/folder.png");
-            fileIcon = loadResourceIcon("/assets/remotely/icons/file.png");
-            pinIcon = loadResourceIcon("/assets/remotely/icons/pin.png");
+            diskIcon = loadResourceIcon("disk.png");
+            folderIcon = loadResourceIcon("folder.png");
+            fileIcon = loadResourceIcon("file.png");
+            pinIcon = loadResourceIcon("pin.png");
         } catch (Exception ignored) {}
 
-        header().addRight("/assets/remotely/icons/close.png", () -> client.setScreen(parent), "Close").build();
+        header().addRight("close.png", () -> client.setScreen(parent), "Close").build();
 
         Container mainContainer = createContainer("main", 5, 36, width - 10, height - 5);
-        mainContainer.columns(3).padding(2).layoutStyle(Container.LayoutStyle.RESTRICTED);
+        mainContainer.columns(3).padding(2).layout(new RestrictedLayout());
         setActiveContainer(mainContainer);
 
         loadObjects();
@@ -195,9 +197,7 @@ public class DeskSelectionScreen extends ReScreen {
     public static class DeskItemWidget extends AnimatedWidget {
         private final ObjectItem item;
         private final FileExplorerScreen parentScreen;
-
-        @Override protected void appendClickableNarrations(NarrationMessageBuilder builder) {}
-
+        
         public static class Builder extends AnimatedWidget.Builder<DeskItemWidget, Builder> {
             public Builder(ObjectItem item, FileExplorerScreen parent) {
                 super(new DeskItemWidget(item, parent));
@@ -211,19 +211,19 @@ public class DeskSelectionScreen extends ReScreen {
         }
 
         protected DeskItemWidget(ObjectItem item, FileExplorerScreen parent) {
-            super(0, 0, 0, 30, Text.literal(item.displayName));
+            super(0, 0, 0, 30, (item.displayName));
             this.item = item;
             this.parentScreen = parent;
         }
 
         @Override
-        protected void drawContent(DrawContext context, int mouseX, int mouseY) {
+        protected void drawContent(IDrawContext context, int mouseX, int mouseY) {
             BufferedImage iconToShow = item.isDisk ? diskIcon : (item.isDirectory ? folderIcon : fileIcon);
             if (iconToShow != null) {
-                drawPixelArt(context, getX() + 7, getY() + (getHeight() / 2) - 8, 16, 16, iconToShow);
+                context.drawPixelArt(iconToShow, getX() + 7, getY() + (getHeight() / 2) - 8, 16, 16);
             }
             if (item.isFavorite && pinIcon != null) {
-                drawPixelArt(context, getX() + 2, getY() + (getHeight() / 2) - 8, 16, 16, pinIcon);
+                context.drawPixelArt(pinIcon, getX() + 2, getY() + (getHeight() / 2) - 8, 16, 16);
             }
 
             String firstLine = item.displayName;
@@ -236,8 +236,8 @@ public class DeskSelectionScreen extends ReScreen {
                 }
                 secondLine = secondLine + "...";
             }
-            context.drawText(tr, Text.literal(firstLine), getX() + 25, getY() + 7, Config.globalTextColor, Config.shadow);
-            context.drawText(tr, Text.literal(secondLine), getX() + 25, getY() + 18, Config.globalDarkTextColor, Config.shadow);
+            context.drawText((firstLine), getX() + 25, getY() + 7, Config.globalTextColor, Config.shadow);
+            context.drawText((secondLine), getX() + 25, getY() + 18, Config.globalDarkTextColor, Config.shadow);
         }
 
         @Override
@@ -247,13 +247,13 @@ public class DeskSelectionScreen extends ReScreen {
                 if (!item.isRemote) {
                     ServerInfo newServerInfo = new ServerInfo(false, null, item.localPath.toAbsolutePath().normalize().toString());
                     if (item.isDirectory || item.isDisk) {
-                        mc.setScreen(new FileExplorerScreen(parentScreen, newServerInfo));
+                        ScreenManager.getInstance().setScreen(new FileExplorerScreen(parentScreen, newServerInfo));
                     } else {
-                        mc.setScreen(new FileEditorScreen(mc, parentScreen, item.localPath.toAbsolutePath().normalize(), newServerInfo));
+                        ScreenManager.getInstance().setScreen(new FileEditorScreen(parentScreen, item.localPath.toAbsolutePath().normalize(), newServerInfo));
                     }
                 } else {
                     if (item.remoteHostInfo != null) {
-                        mc.setScreen(new FileExplorerScreen(parentScreen, item.remoteHostInfo));
+                        ScreenManager.getInstance().setScreen(new FileExplorerScreen(parentScreen, item.remoteHostInfo));
                     } else {
                         new Notification("Cannot open remote favorite", "Host information is missing.", Notification.Type.ERROR);
                     }

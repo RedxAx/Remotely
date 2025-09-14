@@ -9,9 +9,9 @@ import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public class ModMenuIntegration implements ModMenuApi {
 
-    public ConfigScreenFactory<?> getModConfigScreenFactory() {
-        SettingsScreen.loadClientConfiguration();
-        return parent -> new SettingsScreen("config", parent, remotelyDir.toString(), SettingsScreen.settings);
-    }
+//    public ConfigScreenFactory<?> getModConfigScreenFactory() {
+//        SettingsScreen.loadClientConfiguration();
+//        return parent -> new SettingsScreen("config", parent, remotelyDir.toString(), SettingsScreen.settings);
+//    }
 }
 //?}

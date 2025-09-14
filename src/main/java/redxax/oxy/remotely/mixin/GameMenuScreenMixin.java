@@ -17,12 +17,13 @@ import redxax.oxy.remotely.servers.ServerManagerScreen;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.client.MinecraftClient;
+
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.GameMenuScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.resource.language.I18n;
 import net.minecraft.text.Text;
+import restudio.rescreen.ui.core.ScreenManager;
 
 import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.*;
@@ -69,14 +70,13 @@ public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.scree
             style1Buttons.add(new Style1Button("Terminal", this::openMultiTerminalScreen));
             style1Buttons.add(new Style1Button("File Explorer", this::openFileExplorerScreen));
             style1Buttons.add(new Style1Button("Internet Browser", () ->  {
-                if (checkIfMcefExist())
-                    this.client.setScreen(new BrowserScreen(this.client, this, "google.com"));
+//                if (checkIfMcefExist()) this.client.setScreen(new BrowserScreen(this, "google.com"));
             }));
             try {
-                remotelyIcon = loadResourceIcon("/assets/remotely/icons/manager.png");
-                fileExplorerIcon = loadResourceIcon("/assets/remotely/icons/explorer.png");
-                terminalIcon = loadResourceIcon("/assets/remotely/icons/terminal.png");
-                browserIcon = loadResourceIcon("/assets/remotely/icons/minibrowser.png");
+                remotelyIcon = loadResourceIcon("manager.png");
+                fileExplorerIcon = loadResourceIcon("explorer.png");
+                terminalIcon = loadResourceIcon("terminal.png");
+                browserIcon = loadResourceIcon("minibrowser.png");
             } catch (Exception e) {
                 devPrint("Failed to load TitleScreen icons: " + e.getMessage());
             }
@@ -137,7 +137,7 @@ public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.scree
             }
             for (NormalButton btn : normalButtons) {
                 boolean hovered = mouseX >= btn.x && mouseX < btn.x + btn.width && mouseY >= btn.y && mouseY < btn.y + btn.height;
-                drawCustomButton(context, btn.x, btn.y, btn.label, this.client, hovered, false, true, false, true, btn.width, btn.height, globalTextColor, niceAccentHoverColor, mouseX, mouseY, "");
+//                drawCustomButton(context, btn.x, btn.y, btn.label, this.client, hovered, false, true, false, true, btn.width, btn.height, globalTextColor, niceAccentHoverColor, mouseX, mouseY, "");
             }
         }
         context.getMatrices().pop();
@@ -169,25 +169,25 @@ public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.scree
 
     @Unique
     private void openServerManagerScreen() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client != null) {
-            client.setScreen(new ServerManagerScreen(this, RemotelyClient.INSTANCE, RemotelyClient.INSTANCE.servers));
-        }
+//        MinecraftClient client = MinecraftClient.getInstance();
+//        if (client != null) {
+//            client.setScreen(new ServerManagerScreen(this, RemotelyClient.INSTANCE, RemotelyClient.INSTANCE.servers));
+//        }
     }
 
     @Unique
     private void openMultiTerminalScreen() {
-        MinecraftClient client = MinecraftClient.getInstance();
+        ScreenManager client = ScreenManager.getInstance();
         if (client != null) {
-            RemotelyClient.INSTANCE.openMultiTerminalGUI(client, this);
+            RemotelyClient.INSTANCE.openMultiTerminalGUI(this);
         }
     }
 
     @Unique
     private void openFileExplorerScreen() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client != null) {
-            client.setScreen(new FileExplorerScreen(this, new ServerInfo(remotelyDir.toString())));
-        }
+//        MinecraftClient client = MinecraftClient.getInstance();
+//        if (client != null) {
+//            client.setScreen(new FileExplorerScreen(this, new ServerInfo(remotelyDir.toString())));
+//        }
     }
 }
