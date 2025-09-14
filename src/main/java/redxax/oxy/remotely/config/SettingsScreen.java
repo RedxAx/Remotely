@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.config;
 
-import net.minecraft.client.gui.screen.Screen;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
@@ -9,9 +8,6 @@ import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerManagerScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import redxax.oxy.remotely.util.ImageUtil;
-import redxax.oxy.remotely.util.Notification;
-import redxax.oxy.remotely.util.Notification.*;
-import redxax.oxy.remotely.Render.*;
 
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
@@ -27,9 +23,10 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.text.Text;
-import redxax.oxy.remotely.util.Sound;
+import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.Sound;
 
 import static redxax.oxy.remotely.RemotelyClient.*;
 import static redxax.oxy.remotely.Render.*;
@@ -38,9 +35,10 @@ import static redxax.oxy.remotely.config.Themes.importThemesFromJar;
 import static redxax.oxy.remotely.servers.ServerFactory.notification;
 import static redxax.oxy.remotely.config.SettingsScreen.ServerSettingType.*;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
-import static redxax.oxy.remotely.util.Sound.enableSFX;
-import static redxax.oxy.remotely.util.Sound.soundVolume;
-import static redxax.oxy.remotely.util.SoundUtils.playSound;
+import static restudio.rescreen.util.Sound.enableSFX;
+import static restudio.rescreen.util.Sound.soundVolume;
+import static restudio.rescreen.util.SoundUtils.playSound;
+import static restudio.rescreen.util.Notification.*;
 
 public class SettingsScreen extends Screen {
     private static final MinecraftClient mc = MinecraftClient.getInstance();
@@ -71,7 +69,7 @@ public class SettingsScreen extends Screen {
     }
 
     public SettingsScreen(String mode, Screen parent, String settingsRoot, List<Settings> customSettings, ServerInfo serverInfo) {
-        super(Text.literal("Server Settings"));
+        super();
         this.parent = parent;
         this.mode = mode;
         this.settingsRoot = settingsRoot;
@@ -477,24 +475,24 @@ public class SettingsScreen extends Screen {
 
 
     @Override
-    protected void init() {
+    public void init() {
         super.init();
         try {
-            closeIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/close.png", "Cancel");
-            createIcon = new ImageUtil.IconWithTooltip("/assets/remotely/icons/create.png", editServerMode ? "Apply Changes" : "Create Server");
+            closeIcon = new ImageUtil.IconWithTooltip("close.png", "Cancel");
+            createIcon = new ImageUtil.IconWithTooltip("create.png", editServerMode ? "Apply Changes" : "Create Server");
         } catch (Exception e) {
             devPrint("Failed to load icons: " + e.getMessage());
         }
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
-        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, mc, closeIcon, configMode ? null : createIcon, null, null, null, null, null, null, null);
+//        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, mc, closeIcon, configMode ? null : createIcon, null, null, null, null, null, null, null);
         recalcTabs();
         int headerHeight = 30;
-        context.drawText(mc.textRenderer, Text.literal("Create New Server"), 10, 10, globalTextColor, shadow);
-        drawTabs(context, mc.textRenderer, tabs, currentTab, mouseX, mouseY, false, false);
+        context.drawText(("Create New Server"), 10, 10, globalTextColor, shadow);
+        drawTabs(context, tabs, currentTab, mouseX, mouseY, false, false);
         int tabAreaHeight = 18;
         int contentY = headerHeight + tabAreaHeight + 10;
         int contentX = 5;
@@ -519,8 +517,8 @@ public class SettingsScreen extends Screen {
             drawInnerBorder(context, contentX, rowY, contentWidth, rowHeight - 2, getElementBorderColor(currentSettings.get(i).name.hashCode(), false, false, true, false, false, false));
             drawOuterBorder(context, contentX, rowY, contentWidth, rowHeight - 2, bgColor);
             String name = currentSettings.get(i).name;
-            context.drawText(mc.textRenderer, Text.literal(name), contentX + 5, rowY + 5, globalTextColor, shadow);
-            context.drawText(mc.textRenderer, Text.literal(currentSettings.get(i).description), contentX + 5, rowY + 5 + mc.textRenderer.fontHeight + 2, globalDarkTextColor, shadow);
+            context.drawText((name), contentX + 5, rowY + 5, globalTextColor, shadow);
+            context.drawText((currentSettings.get(i).description), contentX + 5, rowY + 5 + mc.textRenderer.fontHeight + 2, globalDarkTextColor, shadow);
             Settings s = currentSettings.get(i);
             int widgetY = rowY + (rowHeight - 20) / 2;
             boolean widgetHovered = mouseX >= widgetAreaX && mouseX <= widgetAreaX + widgetWidth && mouseY >= rowY && mouseY <= rowY + 18;
@@ -1135,7 +1133,7 @@ public class SettingsScreen extends Screen {
             String finalServerName = serverName;
             ServerFactory.createServerAsync(serverName, serverType.toLowerCase(), serverVersion.toLowerCase(), settingsRoot, ramAmount, aikarsFlags, exitCode -> {
                 if (exitCode == 0) {
-                    notification.change(finalServerName + " Created Successfully!", "Click To Open", Type.SUCCESS, () -> ServerManagerScreen.openServerScreen(settingsRoot + File.separator + finalServerName));
+                    notification.change(finalServerName + " Created Successfully!", "Click To Open", Notification.Type.SUCCESS, () -> ServerManagerScreen.openServerScreen(settingsRoot + File.separator + finalServerName));
                     String serverDir = settingsRoot + File.separator + finalServerName;
                     writeSettings(null, serverDir);
                 } else errorNotification(exitCode, notification);
@@ -1152,7 +1150,7 @@ public class SettingsScreen extends Screen {
             String remoteServersPath = remoteHome + "remotely/servers";
             String remoteServerPath = remoteServersPath + "/" + serverName;
 
-            notification = new Notification("Creating Remote Server...", "This Might Take Some Time..", Type.INFO);
+            notification = new Notification("Creating Remote Server...", "This Might Take Some Time..", Notification.Type.INFO);
             notification.loading = true;
             notification.autoSlideOut = false;
 
@@ -1197,7 +1195,7 @@ public class SettingsScreen extends Screen {
 
         } catch (Exception e) {
             devPrint("Failed to create remote server: " + e.getMessage());
-            notification.change("Server Creation Failed", e.getMessage(), Type.ERROR, null);
+            notification.change("Server Creation Failed", e.getMessage(), Notification.Type.ERROR, null);
         } finally {
             close();
         }
@@ -1280,13 +1278,7 @@ public class SettingsScreen extends Screen {
         playSound(Sound.SCREEN);
     }
 
-    @Override
-    public void removed() {
-        mc.getWindow().setScaleFactor(originalMCScale);
-        targetScaleFactor = globalScaleFactor = animScaleFactor;
-    }
-
     public void close() {
-        mc.setScreen(parent);
+        client.setScreen(parent);
     }
 }

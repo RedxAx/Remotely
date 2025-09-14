@@ -7,10 +7,10 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-import redxax.oxy.remotely.ui.MouseCursor;
-import redxax.oxy.remotely.ui.LoadingAnimation;
-import redxax.oxy.remotely.ui.widgets.ScrollSelectorWidget;
-import redxax.oxy.remotely.util.Notification;
+import restudio.rescreen.ui.LoadingAnimation;
+import restudio.rescreen.ui.MouseCursor;
+import restudio.rescreen.ui.widgets.ScrollSelectorWidget;
+import restudio.rescreen.util.Notification;
 
 
 @Mixin(value = ParentElement.class)
@@ -24,19 +24,6 @@ public interface ParentElementMixin {
                 cir.setReturnValue(true);
             }
         }
-        if (LoadingAnimation.mousePressed((int) mouseX, (int) mouseY, button)) {
-            cir.setReturnValue(true);
-        }
-    }
-
-    @Inject(method = "mouseReleased", at = @At("HEAD"))
-    private void mouseReleased(double mouseX, double mouseY, int button, CallbackInfoReturnable<Boolean> cir) {
-        LoadingAnimation.mouseReleased((int) mouseX, (int) mouseY, button);
-    }
-
-    @Inject(method = "mouseDragged", at = @At("HEAD"))
-    private void mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY, CallbackInfoReturnable<Boolean> cir) {
-        LoadingAnimation.mouseDragged((int) mouseX, (int) mouseY, button);
     }
 
     @Inject(method = "mouseScrolled", at = @At("HEAD"), cancellable = true)

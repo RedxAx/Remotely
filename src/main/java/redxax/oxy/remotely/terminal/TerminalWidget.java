@@ -13,7 +13,10 @@ import com.jediterm.terminal.emulator.mouse.MouseFormat;
 import com.jediterm.terminal.emulator.mouse.MouseMode;
 import com.jediterm.terminal.model.*;
 import com.jediterm.terminal.ui.settings.SettingsProvider;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.util.InputUtil;
+import restudio.rescreen.platform.IDrawContext;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
@@ -29,9 +32,11 @@ import redxax.oxy.remotely.api.RemotelyApiFactory;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
-import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
-import redxax.oxy.remotely.util.Notification;
-import redxax.oxy.remotely.util.Sound;
+import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.util.FileUtils;
+import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.Sound;
 
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -40,7 +45,8 @@ import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.util.SoundUtils.playSound;
+import static redxax.oxy.remotely.RemotelyClient.tr;
+import static restudio.rescreen.util.SoundUtils.playSound;
 
 
 public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
@@ -98,7 +104,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     }
 
     public TerminalWidget(int x, int y, int width, int height, ServerInfo serverInfo) {
-        super(x, y, width, height, Text.empty());
+        super(x, y, width, height, "");
         this.serverInfo = serverInfo;
         this.remotelyAPI = RemotelyApiFactory.get(this.serverInfo);
 
@@ -170,6 +176,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
     public void appendOutput(String text) {
         myTerminal.writeUnwrappedString(text);
+        detectServerState(text);
     }
 
     private void detectServerState(String line) {
@@ -210,7 +217,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     }
 
     private class OptimizedRenderer extends StyledTextConsumerAdapter {
-        private final DrawContext ctx;
+        private final IDrawContext ctx;
         private final int contentY;
         private final int contentHeight;
         private final int lineHeight;
@@ -223,7 +230,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         private final StringBuilder textBuilder = new StringBuilder();
         private int textStartX = -1;
 
-        OptimizedRenderer(DrawContext ctx, int contentY, int contentHeight, int lineHeight, int padding, boolean drawBackground) {
+        OptimizedRenderer(IDrawContext ctx, int contentY, int contentHeight, int lineHeight, int padding, boolean drawBackground) {
             this.ctx = ctx;
             this.contentY = contentY;
             this.contentHeight = contentHeight;
@@ -292,7 +299,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
             if (!textBuilder.isEmpty()) {
                 MutableText lineText = Text.literal(textBuilder.toString());
                 lineText.setStyle(net.minecraft.text.Style.EMPTY.withColor(TextColor.fromRgb(foreground.getRGB())).withFont(font));
-                ctx.drawText(tr, lineText, getX() + padding + (textStartX * getCharWidth()), lineY, 0, shadow);
+                ctx.drawText(String.valueOf(lineText), getX() + padding + (textStartX * getCharWidth()), lineY, 0, shadow);
                 textBuilder.setLength(0);
                 textStartX = -1;
             }
@@ -447,7 +454,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     }
 
     @Override
-    protected void drawContent(DrawContext ctx, int mouseX, int mouseY) {
+    protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
         clampScroll();
         scrollY += (targetScrollY - scrollY) * 5f * deltaTime;
         myNeedsRepaint.getAndSet(false);
@@ -509,20 +516,19 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     }
 
     private int getCurrentModifiers() {
-        long windowHandle = mc.getWindow().getHandle();
         int glfwModifiers = 0;
-        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS) {
+        if (hasShiftDown()) {
             glfwModifiers |= GLFW.GLFW_MOD_SHIFT;
         }
-        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS) {
+        if (hasControlDown()) {
             glfwModifiers |= GLFW.GLFW_MOD_CONTROL;
         }
-        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_ALT) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_ALT) == GLFW.GLFW_PRESS) {
+        if (hasAltDown()) {
             glfwModifiers |= GLFW.GLFW_MOD_ALT;
         }
-        if (GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SUPER) == GLFW.GLFW_PRESS || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SUPER) == GLFW.GLFW_PRESS) {
-            glfwModifiers |= GLFW.GLFW_MOD_SUPER;
-        }
+//        if (hasMetaDown()) {
+//            glfwModifiers |= GLFW.GLFW_MOD_SUPER;
+//        }
         return KeyCodeConverter.toAwtModifiers(glfwModifiers);
     }
 
@@ -574,7 +580,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+    public boolean mouseScrolled(int mouseX, int mouseY, double verticalAmount) {
         if (isMouseOver(mouseX, mouseY)) {
             int awtModifiers = getCurrentModifiers();
 
@@ -785,7 +791,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         if (mySelection != null) {
             String selectedText = SelectionUtil.getSelectionText(mySelection.getStart(), mySelection.getEnd(), myTextBuffer);
             if (selectedText != null && !selectedText.isEmpty()) {
-                mc.keyboard.setClipboard(selectedText);
+                FileUtils.setClipboard(selectedText);
                 mySelection = null;
                 scheduleRepaint();
             }
@@ -793,7 +799,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     }
 
     private void handlePaste() {
-        String text = mc.keyboard.getClipboard();
+        String text = FileUtils.getClipboard();
         if (text != null) {
             try {
                 if (!System.getProperty("os.name").toLowerCase().contains("win")) {
@@ -857,8 +863,6 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         java.nio.file.Files.writeString(path, fullOutput);
     }
 
-    @Override protected void appendClickableNarrations(NarrationMessageBuilder builder) {}
-
     @Override
     public void setCursor(int x, int y) {
         myCursorX = x;
@@ -907,7 +911,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
     @Override
     public void setWindowTitle(@NotNull String windowTitle) {
-        mc.getWindow().setTitle(windowTitle);
+        MinecraftClient.getInstance().getWindow().setTitle(windowTitle);
     }
 
 

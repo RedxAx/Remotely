@@ -1,26 +1,22 @@
 package redxax.oxy.remotely.ui.widgets;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
-import net.minecraft.text.Text;
 import redxax.oxy.remotely.api.RemotelyAPI;
-import redxax.oxy.remotely.config.Config;
-import redxax.oxy.remotely.explorer.FileEditorScreen;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
-import redxax.oxy.remotely.util.Notification;
-import redxax.oxy.remotely.util.Sound;
+import restudio.rescreen.config.Config;
+import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.util.Notification;
 
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Consumer;
 
-import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.ui.widgets.AnimatedWidget.EntranceCorner.TOP_LEFT;
 import static redxax.oxy.remotely.util.ImageUtil.drawPixelArt;
-import static redxax.oxy.remotely.util.SoundUtils.playSound;
+import static restudio.rescreen.config.Config.globalTextColor;
+import static redxax.oxy.remotely.RemotelyClient.tr;
 
 public class FileEntryWidget extends AnimatedWidget {
     private final RemotelyAPI.FileEntry fileEntry;
@@ -51,7 +47,7 @@ public class FileEntryWidget extends AnimatedWidget {
     }
 
     public FileEntryWidget(int x, int y, int width, int height, RemotelyAPI.FileEntry entry, RemotelyAPI api, boolean remote, List<Path> favorites, Object lock) {
-        super(x, y, width, height, Text.literal(entry.displayName));
+        super(x, y, width, height, (entry.displayName));
         this.fileEntry = entry;
         this.fileAPI = api;
         this.isRemote = remote;
@@ -64,29 +60,25 @@ public class FileEntryWidget extends AnimatedWidget {
     }
 
     @Override
-    protected void appendClickableNarrations(NarrationMessageBuilder builder) {
-    }
-
-    @Override
-    protected void drawContent(DrawContext context, int mouseX, int mouseY) {
+    protected void drawContent(IDrawContext context, int mouseX, int mouseY) {
         boolean isFavorite;
         synchronized (favoritePathsLock) {
             isFavorite = favoritePaths.contains(fileEntry.path);
-            accentType = isFavorite ? AccentType.DANGER : AccentType.DEFAULT;
+            accentType = isFavorite ? Config.AccentType.DANGER : Config.AccentType.DEFAULT;
         }
         BufferedImage icon = fileEntry.isDirectory ? FileExplorerScreen.folderIcon : FileExplorerScreen.getIconForFile(fileEntry.path);
-        drawPixelArt(context, getX() + 8, getY() + 2, 16, 16, icon);
+        context.drawPixelArt(icon, getX() + 8, getY() + 2, 16, 16);
         if (isFavorite) {
-            drawPixelArt(context, fileEntry.isDirectory ? getX() + 3 : getX() + 5, getY() + 2, 16, 16, FileExplorerScreen.pinIcon);
+            context.drawPixelArt(FileExplorerScreen.pinIcon, fileEntry.isDirectory ? getX() + 3 : getX() + 5, getY() + 2, 16, 16);
         }
         if (!isRemote) {
             int createdX = getX() + getWidth() - tr.getWidth(fileEntry.created) - 2;
             int sizeX = createdX - tr.getWidth(fileEntry.size) - 8;
-            context.drawText(tr, Text.literal(fileEntry.displayName), getX() + 28, getY() + 6, globalTextColor, Config.shadow);
-            context.drawText(tr, Text.literal(fileEntry.created), createdX, getY() + 6, globalTextColor, Config.shadow);
-            context.drawText(tr, Text.literal(fileEntry.size), sizeX, getY() + 6, globalTextColor, Config.shadow);
+            context.drawText((fileEntry.displayName), getX() + 28, getY() + 6, globalTextColor, Config.shadow);
+            context.drawText((fileEntry.created), createdX, getY() + 6, globalTextColor, Config.shadow);
+            context.drawText((fileEntry.size), sizeX, getY() + 6, globalTextColor, Config.shadow);
         } else {
-            context.drawText(tr, Text.literal(fileEntry.displayName), getX() + 30, getY() + 5, globalTextColor, Config.shadow);
+            context.drawText((fileEntry.displayName), getX() + 30, getY() + 5, globalTextColor, Config.shadow);
         }
     }
 
@@ -97,7 +89,7 @@ public class FileEntryWidget extends AnimatedWidget {
         } else if (button == 1 && onRightClick != null) {
             onRightClick.accept(this);
         } else if (button == 2) {
-            Screen currentScreen = MinecraftClient.getInstance().currentScreen;
+            Screen currentScreen = ScreenManager.currentScreen;
             if (currentScreen instanceof FileExplorerScreen explorer) {
                 if (fileEntry.isDirectory) {
                     explorer.createTab(fileEntry.path, true);
@@ -163,13 +155,11 @@ public class FileEntryWidget extends AnimatedWidget {
         if (isRenaming && !renameBuffer.toString().trim().isEmpty()) {
             String newName = renameBuffer.toString().trim();
             Path newPath = fileEntry.path.getParent().resolve(newName);
-            fileAPI.rename(fileEntry.path, newPath).thenRun(() -> {
-                MinecraftClient.getInstance().execute(() -> {
-                    fileEntry.displayName = newName;
-                    setMessage(Text.literal(newName));
-                });
-            }).exceptionally(e -> {
-                MinecraftClient.getInstance().execute(() -> new Notification("Rename failed: " + e.getMessage(), Notification.Type.ERROR));
+            fileAPI.rename(fileEntry.path, newPath).thenRun(() -> ScreenManager.getInstance().execute(() -> {
+                fileEntry.displayName = newName;
+                setMessage((newName));
+            })).exceptionally(e -> {
+                ScreenManager.getInstance().execute(() -> new Notification("Rename failed: " + e.getMessage(), Notification.Type.ERROR));
                 return null;
             });
         }

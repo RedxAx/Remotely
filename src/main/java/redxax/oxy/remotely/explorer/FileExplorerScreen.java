@@ -2,20 +2,22 @@ package redxax.oxy.remotely.explorer;
 
 import com.google.common.reflect.TypeToken;
 import com.google.gson.Gson;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.text.Text;
-import org.jetbrains.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.api.RemotelyAPI;
 import redxax.oxy.remotely.api.RemotelyApiFactory;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.ui.ReScreen;
-import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
-import redxax.oxy.remotely.ui.widgets.ContextMenuWidget;
 import redxax.oxy.remotely.ui.widgets.FileEntryWidget;
-import redxax.oxy.remotely.util.Notification;
-import redxax.oxy.remotely.util.Sound;
+import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.rescreen.Container;
+import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.rescreen.layout.RestrictedLayout;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.ContextMenuWidget;
+import restudio.rescreen.util.FileUtils;
+import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.Sound;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -27,11 +29,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
-import static redxax.oxy.remotely.util.SoundUtils.playSound;
-import static redxax.oxy.remotely.util.searchUtils.isFuzzyMatch;
+import static restudio.rescreen.util.SearchUtils.isFuzzyMatch;
+import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class FileExplorerScreen extends ReScreen {
     private final Screen parent;
+    private final ScreenManager client = ScreenManager.getInstance();
     private final ServerInfo serverInfo;
     private final boolean isRemote;
     private final RemotelyAPI fileAPI;
@@ -67,7 +70,6 @@ public class FileExplorerScreen extends ReScreen {
     }
 
     public FileExplorerScreen(Screen parent, ServerInfo info, boolean importMode) {
-        super(Text.literal("File Explorer"));
         this.parent = parent;
         this.serverInfo = info;
         this.importMode = importMode;
@@ -98,21 +100,21 @@ public class FileExplorerScreen extends ReScreen {
         super.init();
 
         Container explorerContainer = createContainer("explorer", 5, 60, width - 10, height - 5);
-        explorerContainer.columns(1).padding(2).layoutStyle(Container.LayoutStyle.RESTRICTED).enableSelecting(true);
+        explorerContainer.columns(1).padding(2).layout(new RestrictedLayout()).enableSelecting(true);
         setActiveContainer(explorerContainer);
 
         SearchMode searchMode = new SearchMode(false);
         searchMode.setOnSearchEnter(this::onSearch);
         searchMode.setOnTextChange(this::onSearchTextChange);
 
-        header().addLeft("/assets/remotely/icons/goback.png", this::navigateUp, "Go Back")
-                .addLeft("/assets/remotely/icons/goforward.png", this::navigateBack, "Go Up")
-                .addLeft("/assets/remotely/icons/newFile.png", this::createNewFile, "Create New")
-                .addLeft("/assets/remotely/icons/external.png", this::openExternally, "Open Externally")
-                .addRight("/assets/remotely/icons/close.png", () -> client.setScreen(parent), "Close")
-                .addRight("/assets/remotely/icons/paste.png", this::paste, "Paste")
-                .addRight("/assets/remotely/icons/copy.png", this::copy, "Copy")
-                .addRight("/assets/remotely/icons/favorite.png", this::toggleFavorites, "Toggle Favorites")
+        header().addLeft("goback.png", this::navigateUp, "Go Back")
+                .addLeft("goforward.png", this::navigateBack, "Go Up")
+                .addLeft("newFile.png", this::createNewFile, "Create New")
+                .addLeft("external.png", this::openExternally, "Open Externally")
+                .addRight("close.png", () -> client.setScreen(parent), "Close")
+                .addRight("paste.png", this::paste, "Paste")
+                .addRight("copy.png", this::copy, "Copy")
+                .addRight("favorite.png", this::toggleFavorites, "Toggle Favorites")
                 .setSearchMode(searchMode, true)
                 .build();
         tabs().builder().allowReorder(true).allowAdd(true).position(5, 36).size(width - 5, 18).onTabClosed(this::onTabClosed).onPlusButtonClicked(() -> this.client.setScreen(new DeskSelectionScreen(this))).onTabsReordered(this::onTabReordered).onTabSelected(this::onTabSelected).build();
@@ -144,7 +146,7 @@ public class FileExplorerScreen extends ReScreen {
                 .addIconItem("Create File", "newFile.png", () -> { playSound(Sound.CREATE); createNewFile(); }, "")
                 .addIconItem("Copy Path", "snippets.png", () -> {
                     FileEntryWidget firstWidget = (FileEntryWidget) currentSelectedWidgets.getFirst();
-                    client.keyboard.setClipboard(firstWidget.getFileEntry().path.toString());
+                    FileUtils.setClipboard(firstWidget.getFileEntry().path.toString());
                 }, "")
                 .addIconItem("Undo", "goback.png", this::undo, "")
                 .addIconItem("Refresh", "reload.png", () -> { playSound(Sound.CLICK); loadDirectory(currentPath); }, "")
@@ -154,27 +156,27 @@ public class FileExplorerScreen extends ReScreen {
 
     private void loadIcons() {
         try {
-            fileIcon = loadResourceIcon("/assets/remotely/icons/file.png");
-            folderIcon = loadResourceIcon("/assets/remotely/icons/folder.png");
-            pinIcon = loadResourceIcon("/assets/remotely/icons/pin.png");
-            appsIcon = loadResourceIcon("/assets/remotely/icons/apps.png");
-            cssIcon = loadResourceIcon("/assets/remotely/icons/css.png");
-            jsIcon = loadResourceIcon("/assets/remotely/icons/js.png");
-            jsonIcon = loadResourceIcon("/assets/remotely/icons/json.png");
-            minecraftIcon = loadResourceIcon("/assets/remotely/icons/minecraft.png");
-            pyIcon = loadResourceIcon("/assets/remotely/icons/py.png");
-            javaIcon = loadResourceIcon("/assets/remotely/icons/java.png");
-            scriptIcon = loadResourceIcon("/assets/remotely/icons/script.png");
-            shadersIcon = loadResourceIcon("/assets/remotely/icons/shaders.png");
-            textIcon = loadResourceIcon("/assets/remotely/icons/text.png");
-            zipIcon = loadResourceIcon("/assets/remotely/icons/zip.png");
-            audioIcon = loadResourceIcon("/assets/remotely/icons/audio.png");
-            videoIcon = loadResourceIcon("/assets/remotely/icons/video.png");
-            imageIcon = loadResourceIcon("/assets/remotely/icons/image.png");
-            docxIcon = loadResourceIcon("/assets/remotely/icons/docx.png");
-            pdfIcon = loadResourceIcon("/assets/remotely/icons/pdf.png");
-            pptxIcon = loadResourceIcon("/assets/remotely/icons/pptx.png");
-            xlsxIcon = loadResourceIcon("/assets/remotely/icons/xlsx.png");
+            fileIcon = loadResourceIcon("file.png");
+            folderIcon = loadResourceIcon("folder.png");
+            pinIcon = loadResourceIcon("pin.png");
+            appsIcon = loadResourceIcon("apps.png");
+            cssIcon = loadResourceIcon("css.png");
+            jsIcon = loadResourceIcon("js.png");
+            jsonIcon = loadResourceIcon("json.png");
+            minecraftIcon = loadResourceIcon("minecraft.png");
+            pyIcon = loadResourceIcon("py.png");
+            javaIcon = loadResourceIcon("java.png");
+            scriptIcon = loadResourceIcon("script.png");
+            shadersIcon = loadResourceIcon("shaders.png");
+            textIcon = loadResourceIcon("text.png");
+            zipIcon = loadResourceIcon("zip.png");
+            audioIcon = loadResourceIcon("audio.png");
+            videoIcon = loadResourceIcon("video.png");
+            imageIcon = loadResourceIcon("image.png");
+            docxIcon = loadResourceIcon("docx.png");
+            pdfIcon = loadResourceIcon("pdf.png");
+            pptxIcon = loadResourceIcon("pptx.png");
+            xlsxIcon = loadResourceIcon("xlsx.png");
         } catch (Exception ignored) {}
     }
 
@@ -220,7 +222,7 @@ public class FileExplorerScreen extends ReScreen {
                 return;
             }
             if (isSupportedFile(entry.path)) {
-                client.setScreen(new FileEditorScreen(client, this, entry.path, this.serverInfo));
+                client.setScreen(new FileEditorScreen(this, entry.path, this.serverInfo));
             } else {
                 openExternally(entry.path);
             }
@@ -259,7 +261,7 @@ public class FileExplorerScreen extends ReScreen {
         }
         if (!silent) playSound(Sound.CREATE);
         Container newContainer = createContainer(5, 60, width - 10, height - 5);
-        newContainer.columns(1).padding(2).enableSelecting(true).layoutStyle(Container.LayoutStyle.RESTRICTED);
+        newContainer.columns(1).padding(2).enableSelecting(true).layout(new RestrictedLayout());
         TabsManager.Tab newTab = tabs().addTab(getTabName(newPath), newContainer);
         containerPaths.put(newContainer, newPath);
         tabs().setActiveTab(tabs().getTabs().indexOf(newTab));
@@ -471,8 +473,8 @@ public class FileExplorerScreen extends ReScreen {
 
         if (hasAltDown()) {
             switch (keyCode) {
-                case GLFW.GLFW_KEY_UP -> { activeContainer.columnsGlobally(activeContainer.getColumns() + 1); return true; }
-                case GLFW.GLFW_KEY_DOWN -> { if (activeContainer.getColumns() > 1) activeContainer.columnsGlobally(activeContainer.getColumns() - 1); return true; }
+                case GLFW.GLFW_KEY_UP -> { activeContainer.columns(activeContainer.getColumns() + 1); return true; }
+                case GLFW.GLFW_KEY_DOWN -> { if (activeContainer.getColumns() > 1) activeContainer.columns(activeContainer.getColumns() - 1); return true; }
             }
         }
         if (keyCode == GLFW.GLFW_KEY_ENTER) {

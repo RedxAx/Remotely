@@ -1,13 +1,13 @@
 package redxax.oxy.remotely.ui.widgets;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
-import net.minecraft.text.Text;
+import restudio.rescreen.platform.IDrawContext;
 import redxax.oxy.remotely.resources.IRemotelyResource;
 import redxax.oxy.remotely.resources.ResourceManagerScreen;
 import redxax.oxy.remotely.resources.ResourcePageScreen;
 import redxax.oxy.remotely.servers.ServerInfo;
+import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
+
 import java.awt.image.BufferedImage;
 import java.net.URL;
 import javax.imageio.ImageIO;
@@ -15,24 +15,22 @@ import java.util.concurrent.CompletableFuture;
 
 import static redxax.oxy.remotely.Render.drawSnakeLoading;
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.util.ImageUtil.drawBufferedImage;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
+import static redxax.oxy.remotely.RemotelyClient.tr;
 
 public class ResourceWidget extends AnimatedWidget {
     private final IRemotelyResource resource;
-    private final MinecraftClient mc;
     private final ServerInfo serverInfo;
     private BufferedImage icon;
     private BufferedImage banner;
     private final BufferedImage nullIcon;
     private static final int ICON_SIZE = 35;
 
-    public ResourceWidget(IRemotelyResource resource, MinecraftClient mc, ServerInfo serverInfo) {
-        super(0, 0, 400, 40, Text.literal(resource.getName()));
+    public ResourceWidget(IRemotelyResource resource, ServerInfo serverInfo) {
+        super(0, 0, 400, 40, (resource.getName()));
         this.resource = resource;
-        this.mc = mc;
         this.serverInfo = serverInfo;
-        nullIcon = loadResourceIcon("/assets/remotely/icons/unknown.png");
+        nullIcon = loadResourceIcon("unknown.png");
         icon = null;
         banner = null;
         CompletableFuture.runAsync(() -> {
@@ -64,7 +62,7 @@ public class ResourceWidget extends AnimatedWidget {
         });
     }
 
-    public void renderBanner(DrawContext ctx) {
+    public void renderBanner(IDrawContext ctx) {
         if (banner != null) {
             int imgW = banner.getWidth();
             int imgH = banner.getHeight();
@@ -93,50 +91,48 @@ public class ResourceWidget extends AnimatedWidget {
             }
             try {
                 BufferedImage subBanner = banner.getSubimage(srcX + 1, srcY + 1, srcWidth - 2, srcHeight - 2);
-                drawBufferedImage(ctx, subBanner, getX(), getY(), getWidth(), getHeight());
+                ctx.drawBufferedImage(subBanner, getX(), getY(), getWidth(), getHeight());
             } catch (Exception ignored) {}
             ctx.fillGradient(getX(), getY(), getX() + getWidth(), getY() + getHeight() * 2, bgColor, 0x00000000);
         }
     }
 
     @Override
-    protected void drawBackground(DrawContext ctx) {
+    protected void drawBackground(IDrawContext ctx) {
         renderBanner(ctx);
         if (banner == null) super.drawBackground(ctx);
     }
 
     @Override
-    protected void drawContent(DrawContext ctx, int mouseX, int mouseY) {
+    protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
         if (icon != null) {
-            drawBufferedImage(ctx, icon, getX() + 4, getY() + (getHeight() - ICON_SIZE) / 2, ICON_SIZE, ICON_SIZE);
+            ctx.drawBufferedImage(icon, getX() + 4, getY() + (getHeight() - ICON_SIZE) / 2, ICON_SIZE, ICON_SIZE);
         } else {
             drawSnakeLoading(ctx, getX() + 4, getY() + (getHeight() - ICON_SIZE) / 2, ICON_SIZE, ICON_SIZE);
         }
-        ctx.drawText(mc.textRenderer, Text.literal(resource.getName()), getX() + 42, getY() + 5, globalTextColor, shadow);
+        ctx.drawText((resource.getName()), getX() + 42, getY() + 5, globalTextColor, shadow);
         String desc = resource.getDescription();
-        if (mc.textRenderer.getWidth(desc) > getWidth() - 50) {
-            while (mc.textRenderer.getWidth(desc + "...") > getWidth() - 50 && !desc.isEmpty()) {
+        if (tr.getWidth(desc) > getWidth() - 50) {
+            while (tr.getWidth(desc + "...") > getWidth() - 50 && !desc.isEmpty()) {
                 desc = desc.substring(0, desc.length() - 1);
             }
             desc += "...";
         }
-        ctx.drawText(mc.textRenderer, Text.literal(desc), getX() + 42, getY() + 15, globalDarkTextColor, shadow);
+        ctx.drawText((desc), getX() + 42, getY() + 15, globalDarkTextColor, shadow);
         String info;
         if (resource.getAverageRating() > 0) {
             info = formatDownloads(resource.getDownloads()) + " | " + resource.getAverageRating() + " Star Rating";
         } else {
             info = formatDownloads(resource.getDownloads()) + " | " + resource.getVersion() + " | " + resource.getFollowers() + " Followers";
         }
-        ctx.drawText(mc.textRenderer, Text.literal(info), getX() + 42, getY() + 28, globalDarkTextColor, shadow);
+        ctx.drawText((info), getX() + 42, getY() + 28, globalDarkTextColor, shadow);
     }
 
     @Override
     public void onClick(double mouseX, double mouseY, int button) {
-        mc.setScreen(new ResourcePageScreen(mc, (ResourceManagerScreen) mc.currentScreen, resource, serverInfo));
+        ScreenManager.getInstance();
+        ScreenManager.getInstance().setScreen(new ResourcePageScreen((ResourceManagerScreen) ScreenManager.currentScreen, resource, serverInfo));
     }
-
-    @Override
-    protected void appendClickableNarrations(NarrationMessageBuilder builder) {}
 
     private String formatDownloads(int n) {
         if (n >= 1_000_000) {

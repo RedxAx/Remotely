@@ -38,6 +38,8 @@ val shadowBundle: Configuration by configurations.creating {
 dependencies {
     minecraft("com.mojang:minecraft:$minecraft")
 
+    implementation(files(rootProject.files("libs/ReScreen-1.0.jar")))
+
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     implementation("com.jcraft:jsch:0.1.55")
     implementation("com.vladsch.flexmark:flexmark:0.62.2")

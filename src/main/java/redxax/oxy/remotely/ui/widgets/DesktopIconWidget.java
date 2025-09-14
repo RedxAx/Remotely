@@ -1,17 +1,16 @@
 package redxax.oxy.remotely.ui.widgets;
 
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
-import net.minecraft.text.Text;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.ServerInfo;
+import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
 
 import java.awt.image.BufferedImage;
 import java.util.function.BiConsumer;
 
 import static redxax.oxy.remotely.Render.*;
 import static redxax.oxy.remotely.config.Config.globalTextColor;
-import static redxax.oxy.remotely.util.ImageUtil.drawPixelArt;
+import static redxax.oxy.remotely.RemotelyClient.tr;
 
 public class DesktopIconWidget extends AnimatedWidget {
     private final ServerInfo serverInfo;
@@ -37,7 +36,7 @@ public class DesktopIconWidget extends AnimatedWidget {
     }
 
     public DesktopIconWidget(int x, int y, int width, int height, ServerInfo serverInfo, boolean isCreateButton, BufferedImage icon) {
-        super(x, y, width, height, Text.literal(isCreateButton ? "New Server" : serverInfo.name));
+        super(x, y, width, height,(isCreateButton ? "New Server" : serverInfo.name));
         this.serverInfo = serverInfo;
         this.isCreateButton = isCreateButton;
         this.icon = icon;
@@ -45,25 +44,20 @@ public class DesktopIconWidget extends AnimatedWidget {
     }
 
     @Override
-    protected void appendClickableNarrations(NarrationMessageBuilder builder) {
-        this.appendDefaultNarrations(builder);
-    }
-
-    @Override
-    protected void drawContent(DrawContext ctx, int mouseX, int mouseY) {
+    protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
         int iconSize = 32;
         int iconX = getX() + (getWidth() - iconSize) / 2;
         int iconY = getY() + 1;
 
-        drawPixelArt(ctx, iconX, iconY, iconSize, iconSize, icon);
+        ctx.drawPixelArt(icon, iconX, iconY, iconSize, iconSize);
 
-        String name = getMessage().getString();
+        String name = getMessage();
         String trimmed = trimTextToWidthWithEllipsis(name, getWidth() + 4);
         int textWidth = tr.getWidth(trimmed);
         int textX = getX() + (getWidth() - textWidth) / 2;
         int textY = iconY + iconSize + 4;
 
-        ctx.drawText(tr, Text.literal(trimmed), textX, textY, globalTextColor, Config.shadow);
+        ctx.drawText((trimmed), textX, textY, globalTextColor, Config.shadow);
         if (hint.isEmpty()) {
             setHint(name);
         }

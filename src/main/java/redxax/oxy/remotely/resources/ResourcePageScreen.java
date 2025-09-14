@@ -9,16 +9,20 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.SSHManager;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.util.ImageUtil.IconWithTooltip;
-import redxax.oxy.remotely.render.MarkdownRenderer;
+import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.rescreen.Container;
+import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.MarkdownWidget;
+import restudio.rescreen.util.Sound;
 
-import static redxax.oxy.remotely.Render.*;
-import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.util.DevUtil.devPrint;
-import static redxax.oxy.remotely.util.SoundUtils.playSound;
-
-import java.io.*;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,58 +30,87 @@ import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.text.Text;
-import redxax.oxy.remotely.util.Sound;
+import java.util.List;
 
-public class ResourcePageScreen extends Screen {
-    private final MinecraftClient minecraftClient;
-    private final ResourceManagerScreen parentScreen;
+import static redxax.oxy.remotely.config.Config.*;
+import static redxax.oxy.remotely.util.DevUtil.devPrint;
+import static restudio.rescreen.util.SoundUtils.playSound;
+
+public class ResourcePageScreen extends ReScreen {
+    private final Screen parent;
     private final IRemotelyResource resource;
-    private float descScrollOffset = 0;
-    private float descTargetScrollOffset = 0;
-    private float versionsScrollOffset = 0;
-    private float versionsTargetScrollOffset = 0;
-    private final List<Tab> tabs = new ArrayList<>();
-    private int currentTabIndex = 0;
     private List<Version> versions = new ArrayList<>();
-    private final List<VersionButtonRegion> versionButtonRegions = new ArrayList<>();
     private static ServerInfo serverInfo;
     private boolean isDownloadingMrpack = false;
-    private IconWithTooltip closeIcon, siteIcon, downloadIcon;
-    private MarkdownRenderer markdownRenderer;
+    private MarkdownWidget markdownWidget;
+    private Container descriptionContainer;
+    private Container versionsContainer;
 
-    public ResourcePageScreen(MinecraftClient mc, ResourceManagerScreen parent, IRemotelyResource resource, ServerInfo serverInfo) {
-        super(Text.literal(resource.getName()));
-        this.minecraftClient = mc;
-        this.parentScreen = parent;
+    public ResourcePageScreen(ResourceManagerScreen parent, IRemotelyResource resource, ServerInfo serverInfo) {
+        super();
+        this.parent = parent;
         this.resource = resource;
         ResourcePageScreen.serverInfo = serverInfo;
-        loadMarkdown();
-        init();
         fetchVersions();
-        originalMCScale = minecraftClient.getWindow().getScaleFactor();
-        targetScaleFactor = globalScaleFactor;
-        minecraftClient.getWindow().setScaleFactor(globalScaleFactor);
     }
 
+    @Override
     public void init() {
-        tabs.clear();
-        tabs.add(new Tab(TabType.DESCRIPTION, "Description"));
-        tabs.add(new Tab(TabType.VERSIONS, "Versions"));
-        currentTabIndex = 0;
-        try {
-            closeIcon = new IconWithTooltip("/assets/remotely/icons/close.png", "");
-            siteIcon = new IconWithTooltip("/assets/remotely/icons/external.png", "Open The Resource's Page In Your Default Browser.");
-            downloadIcon = new IconWithTooltip("/assets/remotely/icons/download.png", "Download The Latest Compatible Version.");
-        } catch (Exception e) {
-            devPrint("Failed to load icons: " + e.getMessage());
+        super.init();
+
+        header().addRight("close.png", this::close, "Close")
+                .addRight("external.png", this::openSite, "Open resource page")
+                .addRight("download.png", this::downloadLatest, "Download latest compatible version")
+                .build();
+
+        descriptionContainer = createContainer("description", 5, 60, width - 10, height - 65).padding(5).columns(1);
+        versionsContainer = createContainer("versions", 5, 60, width - 10, height - 65).padding(2).columns(1);
+
+        tabs().builder()
+                .position(5, 35)
+                .size(width - 10, 18)
+                .onTabSelected(tab -> setActiveContainer(tab.getContainer()))
+                .build();
+
+        tabs().addTab("Description", descriptionContainer);
+        tabs().addTab("Versions", versionsContainer);
+
+        tabs().setActiveTab(0);
+        setActiveContainer(descriptionContainer);
+
+        loadMarkdown();
+    }
+
+    public void close() {
+        client.setScreen(parent);
+    }
+
+    private void openSite() {
+        playSound(Sound.CLICK);
+        String siteUrl = getSiteUrlForResource();
+        if (!siteUrl.isEmpty()) {
+            try {
+                java.awt.Desktop.getDesktop().browse(new URI(siteUrl));
+            } catch (Exception e) {
+                devPrint("Failed to open browser: " + e.getMessage());
+            }
+        }
+    }
+
+    private void downloadLatest() {
+        playSound(Sound.CLICK);
+        if (resource.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack")) {
+            downloadMrpackResource();
+        } else {
+            Version compVersion = getLatestCompatibleVersion();
+            if (compVersion != null) {
+                downloadVersionResource(compVersion);
+            }
         }
     }
 
     private void loadMarkdown() {
+        loading = true;
         new Thread(() -> {
             String markdownContent;
             try {
@@ -125,13 +158,12 @@ public class ResourcePageScreen extends Screen {
             } catch (Exception e) {
                 markdownContent = resource.getDescription();
             }
-            try {
-                markdownRenderer = new MarkdownRenderer(markdownContent);
-            } catch (Exception e) {
-                markdownRenderer = new MarkdownRenderer(resource.getDescription());
-            }
-            loading = false;
-            minecraftClient.execute(() -> {});
+            final String finalContent = markdownContent;
+            client.execute(() -> {
+                markdownWidget = new MarkdownWidget(finalContent, 0, 0, 0, 0);
+                descriptionContainer.addWidget(markdownWidget);
+                loading = false;
+            });
         }).start();
     }
 
@@ -243,8 +275,15 @@ public class ResourcePageScreen extends Screen {
                 devPrint("Failed to fetch versions: " + e.getMessage());
             }
             versions = fetched;
-            minecraftClient.execute(() -> {});
+            client.execute(this::populateVersionsContainer);
         }).start();
+    }
+
+    private void populateVersionsContainer() {
+        versionsContainer.clearWidgets();
+        for (Version version : versions) {
+            versionsContainer.addWidget(new VersionWidget(version));
+        }
     }
 
     private Version getLatestCompatibleVersion() {
@@ -259,148 +298,16 @@ public class ResourcePageScreen extends Screen {
                 return ver;
             }
         }
-        return versions.get(0);
-    }
-
-    @Override
-    public void tick() {
-        super.tick();
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        scaleScroll(verticalAmount);
-        int headerHeight = 30;
-        int tabAreaHeight = 20;
-        int contentY = headerHeight + tabAreaHeight + 10;
-        int contentHeight = this.height - contentY - 5;
-        if (mouseY >= contentY && mouseY <= contentY + contentHeight) {
-            if (getCurrentTabType() == TabType.DESCRIPTION && markdownRenderer != null) {
-                descTargetScrollOffset -= (float) (verticalAmount * 30);
-                int totalMarkdownHeight = (int) markdownRenderer.getHeight();
-                int max = Math.max(0, totalMarkdownHeight + 20 - contentHeight);
-                descTargetScrollOffset = Math.max(0, Math.min(descTargetScrollOffset, max));
-            } else if (getCurrentTabType() == TabType.VERSIONS) {
-                int itemHeight = 35;
-                int gap = 2;
-                int total = versions.size() * (itemHeight + gap);
-                versionsTargetScrollOffset -= (float) (verticalAmount * 30);
-                int max = Math.max(0, total - contentHeight);
-                versionsTargetScrollOffset = Math.max(0, Math.min(versionsTargetScrollOffset, max));
-            }
-        }
-        return true;
-    }
-
-    @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (getCurrentTabType() == TabType.DESCRIPTION) {
-            if (ScrollBar.handleMouseDragged(this, (int) mouseY, markdownRenderer != null ? (int) (markdownRenderer.getHeight() + 20f) : 0)) {
-                return true;
-            }
-        } else if (getCurrentTabType() == TabType.VERSIONS) {
-            int totalVersionHeight = versions.size() * (35 + 2);
-            if (ScrollBar.handleMouseDragged(this, (int) mouseY, totalVersionHeight)) {
-                return true;
-            }
-        }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
-    }
-
-    @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (ScrollBar.handleMouseReleased()){
-            return true;
-        }
-        return super.mouseReleased(mouseX, mouseY, button);
-    }
-
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        int totalVersionHeight = versions.size() * (35 + 2);
-        if (ScrollBar.handleMousePressed(this, (int) mouseX, (int) mouseY,
-                getCurrentTabType() == TabType.DESCRIPTION ? (int) (markdownRenderer != null ? markdownRenderer.getHeight() + 20 : 0) : totalVersionHeight,
-                getCurrentTabType() == TabType.DESCRIPTION ? descScrollOffset : versionsScrollOffset)) {
-            return true;
-        }
-        int tabBarY = 35;
-        int tabBarHeight = 18;
-        if (mouseY >= tabBarY && mouseY <= tabBarY + tabBarHeight) {
-            int tabBarX = 5;
-            for (int i = 0; i < tabs.size(); i++) {
-                Tab t = tabs.get(i);
-                int tabWidth = minecraftClient.textRenderer.getWidth(t.name) + 10;
-                if (mouseX >= tabBarX && mouseX <= tabBarX + tabWidth) {
-                    playSound(Sound.SWITCHTAB);
-                    currentTabIndex = i;
-                    return true;
-                }
-                tabBarX += tabWidth + 5;
-            }
-        }
-        if (mouseX >= width - 69 && mouseX <= width - 52 && mouseY >= 6 && mouseY <= 24) {
-            playSound(Sound.CLICK);
-            if (resource.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack")) {
-                downloadMrpackResource();
-            } else {
-                Version compVersion = getLatestCompatibleVersion();
-                if (compVersion != null) {
-                    downloadVersionResource(compVersion);
-                }
-            }
-            return true;
-        }
-        if (mouseX >= width - 46 && mouseX <= width - 29 && mouseY >= 6 && mouseY <= 24) {
-            playSound(Sound.CLICK);
-            String siteUrl = getCurrentTabType() == TabType.DESCRIPTION
-                    ? getSiteUrlForResource()
-                    : getSiteUrlForResource() + (resource.getSlug().startsWith("spigot_") ? "/history" : "/versions");
-            if (!siteUrl.isEmpty()) {
-                try {
-                    ProcessBuilder pb = new ProcessBuilder("cmd", "/c", "start", siteUrl);
-                    pb.start();
-                } catch (Exception e) {
-                    devPrint("Failed to open browser: " + e.getMessage());
-                }
-            }
-            return true;
-        }
-        if (mouseX >= width - 23 && mouseX <= width - 6 && mouseY >= 6 && mouseY <= 24) {
-            minecraftClient.setScreen(parentScreen);
-            return true;
-        }
-        if (getCurrentTabType() == TabType.DESCRIPTION && markdownRenderer != null) {
-            markdownRenderer.handleClick(15, (int) (70 - descScrollOffset), width - 20, (float) mouseX, (float) mouseY);
-            playSound(Sound.CLICK);
-            return true;
-        }
-        if (getCurrentTabType() == TabType.VERSIONS) {
-            for (VersionButtonRegion vr : versionButtonRegions) {
-                if (mouseX >= vr.x && mouseX <= vr.x + vr.width && mouseY >= vr.y && mouseY <= vr.y + vr.height) {
-                    playSound(Sound.CLICK);
-                    if (resource.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack")) {
-                        downloadMrpackResource();
-                    } else {
-                        downloadVersionResource(vr.version);
-                    }
-                    return true;
-                }
-            }
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return versions.getFirst();
     }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            minecraftClient.setScreen(parentScreen);
+            close();
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    private TabType getCurrentTabType() {
-        return tabs.get(currentTabIndex).type;
     }
 
     private String getSiteUrlForResource() {
@@ -415,90 +322,9 @@ public class ResourcePageScreen extends Screen {
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
-        int headerHeight = 30;
-        int tabAreaHeight = 20;
-        drawScreenHeader(context, width, height, width - 5, mouseX, mouseY, this, minecraftClient, closeIcon, siteIcon, downloadIcon, null, null, null, null, null, null);
-        context.drawText(minecraftClient.textRenderer, Text.literal(resource.getName()), 10, 10, globalTextColor, Config.shadow);
-        drawTabs(context, minecraftClient.textRenderer, tabs, currentTabIndex, mouseX, mouseY, false, false);
-        int contentY = headerHeight + tabAreaHeight + 10;
-        int contentHeight = this.height - contentY - 5;
-        int contentX = 5;
-        int contentWidth = this.width - 10;
-        loading = markdownRenderer == null;
-        if (getCurrentTabType() == TabType.DESCRIPTION) {
-            if (loading || markdownRenderer == null) {
-                String loadingText = "Loading content...";
-                int textWidth = minecraftClient.textRenderer.getWidth(loadingText);
-                context.drawText(
-                        minecraftClient.textRenderer,
-                        Text.literal(loadingText),
-                        contentX + (contentWidth - textWidth) / 2,
-                        contentY + 50,
-                        0xDDDDDD,
-                        Config.shadow
-                );
-                return;
-            }
-            descScrollOffset += (descTargetScrollOffset - descScrollOffset) * globalScrollSpeed * deltaTime;
-            context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
-            markdownRenderer.render(contentX + 10, contentY + 10 - (int) descScrollOffset, contentWidth - 20, context);
-            context.disableScissor();
-        } else if (getCurrentTabType() == TabType.VERSIONS) {
-            versionButtonRegions.clear();
-            versionsScrollOffset += (versionsTargetScrollOffset - versionsScrollOffset) * globalScrollSpeed * deltaTime;
-            int itemHeight = 35;
-            context.enableScissor(contentX, contentY, contentX + contentWidth, contentY + contentHeight);
-            for (int i = 0; i < versions.size(); i++) {
-                Version ver = versions.get(i);
-                int y = contentY + i * (itemHeight + 2) - (int) versionsScrollOffset;
-                if (y + itemHeight < contentY || y > contentY + contentHeight) continue;
-                boolean hovered = mouseX >= contentX && mouseX <= contentX + contentWidth && mouseY >= y && mouseY < y + itemHeight;
-                int bg = getElementBackgroundColor(ver.hashCode(), hovered, false, true, false, false, false);
-                int borderColor = getElementBorderColor(ver.hashCode(), hovered, false, true, false, false, false);
-                context.fill(contentX, y, contentX + contentWidth, y + itemHeight, bg);
-                drawInnerBorder(context, contentX, y, contentWidth, itemHeight, borderColor);
-                drawOuterBorder(context, contentX, y, contentWidth, itemHeight, bg);
-                String title = resource.getName() + ": " + ver.version;
-                context.drawText(minecraftClient.textRenderer, Text.literal(title), contentX + 4, y + 3, 0xFFFFFFFF, Config.shadow);
-                String desc = formatMCVersions(ver.mcVersions);
-                context.drawText(minecraftClient.textRenderer, Text.literal(desc), contentX + 4, y + 15, 0xFFAAAAAA, Config.shadow);
-                String subDesc = getRelativeTime(ver.dateUploaded) + " | " + formatDownloads(ver.downloads) + " Downloads";
-                context.drawText(minecraftClient.textRenderer, Text.literal(subDesc), contentX + 4, y + 26, 0xFF777777, Config.shadow);
-                if (ver.isDownloading) {
-                    int barWidth = 100;
-                    int barHeight = 18;
-                    int barX = contentX + contentWidth - barWidth - 10;
-                    int barY = y + (itemHeight - barHeight) / 2;
-                    int bgColor = getElementBackgroundColor(ver.hashCode(), hovered, true, true, false, false, false);
-                    context.fill(barX, barY, barX + barWidth, barY + barHeight, bgColor);
-                    int fillWidth = (int) (barWidth * ver.progress);
-                    context.fill(barX, barY, barX + fillWidth, barY + barHeight, globalHoverTextColor);
-                    drawOuterBorder(context, barX, barY, barWidth, barHeight, bgColor);
-                    drawInnerBorder(context, barX, barY, barWidth, barHeight, getElementBorderColor(ver.hashCode(), hovered, true, true, false, false, false));
-                    String percentText = (int) (ver.progress * 100) + "%";
-                    context.drawText(minecraftClient.textRenderer, Text.literal(percentText), barX + barWidth / 2 - minecraftClient.textRenderer.getWidth(Text.literal(percentText)) / 2, barY + (barHeight - minecraftClient.textRenderer.fontHeight) / 2, 0xFFFFFFFF, Config.shadow);
-                    String infoText = formatBytes(ver.downloadedBytes) + "/" + formatBytes(ver.totalBytes) + " | " + formatBytes((long) ver.speed) + "/s";
-                    context.drawText(minecraftClient.textRenderer, Text.literal(infoText), barX - 5 - minecraftClient.textRenderer.getWidth(Text.literal(infoText)), barY + (barHeight - minecraftClient.textRenderer.fontHeight) / 2, 0xFFCCCCCC, Config.shadow);
-                } else {
-                    int btnX = contentX + contentWidth - 70;
-                    int btnY = y + (itemHeight - 20) / 2;
-                    drawCustomButton(context, btnX, btnY, ver.isInstalled, minecraftClient, mouseX >= btnX && mouseX <= btnX + 60 && mouseY >= btnY && mouseY <= btnY + 20, false, true, false, true, 60, 20, Objects.equals(ver.isInstalled, "Failed") ? Config.dangerDarkAccentColor : Objects.equals(ver.isInstalled, "Installed") ? Config.niceAccentColor : globalTextColor, globalHoverTextColor, mouseX, mouseY, "");
-                    versionButtonRegions.add(new VersionButtonRegion(btnX, btnY, 60, 20, ver));
-                }
-            }
-            context.disableScissor();
-        }
-        ScrollBar.render(context, this, mouseX, mouseY, getCurrentTabType() == TabType.DESCRIPTION ? (int) (markdownRenderer != null ? markdownRenderer.getHeight() + 20 : 0) : versions.size() * (35 + 2), getCurrentTabType() == TabType.DESCRIPTION ? descTargetScrollOffset : versionsTargetScrollOffset);
-        if (ScrollBar.isDragging()) {
-            if (getCurrentTabType() == TabType.DESCRIPTION) {
-                descTargetScrollOffset = ScrollBar.getPendingOffset();
-            } else if (getCurrentTabType() == TabType.VERSIONS) {
-                versionsTargetScrollOffset = ScrollBar.getPendingOffset();
-            }
-        }
-        animatedScaling(this);
+        context.drawText(resource.getName(), 10, 10, globalTextColor, shadow);
     }
 
     private String formatDownloads(int downloads) {
@@ -558,14 +384,14 @@ public class ResourcePageScreen extends Screen {
         for (Map.Entry<String, List<Integer>> entry : groups.entrySet()) {
             List<Integer> patches = entry.getValue();
             Collections.sort(patches);
-            if (patches.size() >= 3 && patches.get(patches.size() - 1) - patches.get(0) == patches.size() - 1) {
+            if (patches.size() >= 3 && patches.getLast() - patches.getFirst() == patches.size() - 1) {
                 results.add(entry.getKey() + ".x");
             } else if (patches.size() >= 2) {
-                String first = entry.getKey() + "." + patches.get(0);
-                String last = entry.getKey() + "." + patches.get(patches.size() - 1);
+                String first = entry.getKey() + "." + patches.getFirst();
+                String last = entry.getKey() + "." + patches.getLast();
                 results.add(first + " - " + last);
             } else {
-                results.add(entry.getKey() + (patches.size() == 1 ? "." + patches.get(0) : ""));
+                results.add(entry.getKey() + (patches.size() == 1 ? "." + patches.getFirst() : ""));
             }
         }
         results.addAll(others);
@@ -621,7 +447,7 @@ public class ResourcePageScreen extends Screen {
                             break;
                         }
                     }
-                    minecraftClient.execute(() -> {
+                    client.execute(() -> {
                         ver.isDownloading = false;
                         ver.isInstalled = "Installed";
                     });
@@ -677,7 +503,7 @@ public class ResourcePageScreen extends Screen {
                     if (sshManager != null && sshManager.isSSH()) {
                         sshManager.installMrPackOnRemote(serverInfo, resource);
                     }
-                    minecraftClient.execute(() -> isDownloadingMrpack = false);
+                    client.execute(() -> isDownloadingMrpack = false);
                     return;
                 }
                 String exePath;
@@ -697,7 +523,7 @@ public class ResourcePageScreen extends Screen {
                     serverDir = Path.of(String.valueOf(remotelyDir), "servers", resource.getName()).toString();
                     url = new URL("https://github.com/nothub/mrpack-install/releases/download/v0.16.10/mrpack-install-darwin");
                 } else {
-                    minecraftClient.execute(() -> isDownloadingMrpack = false);
+                    client.execute(() -> isDownloadingMrpack = false);
                     return;
                 }
                 Path exe = Path.of(exePath);
@@ -713,9 +539,9 @@ public class ResourcePageScreen extends Screen {
                 pb.directory(serverPath.toFile());
                 Process proc = pb.start();
                 proc.waitFor();
-                minecraftClient.execute(() -> isDownloadingMrpack = false);
+                client.execute(() -> isDownloadingMrpack = false);
             } catch (Exception e) {
-                minecraftClient.execute(() -> isDownloadingMrpack = false);
+                client.execute(() -> isDownloadingMrpack = false);
             }
         }).start();
     }
@@ -732,25 +558,42 @@ public class ResourcePageScreen extends Screen {
         playSound(Sound.SCREEN);
     }
 
-    @Override
-    public void removed() {
-        minecraftClient.getWindow().setScaleFactor(originalMCScale);
-        targetScaleFactor = globalScaleFactor = animScaleFactor;
-    }
+    private class VersionWidget extends AnimatedWidget {
+        private final Version version;
 
-    private static class Tab {
-        TabType type;
-        String name;
-        Tab(TabType type, String name) {
-            this.type = type;
-            this.name = name;
+        public VersionWidget(Version version) {
+            super(0, 0, 0, 35, "");
+            this.version = version;
         }
-        public String toString() {
-            return name;
+
+        @Override
+        protected void drawContent(IDrawContext context, int mouseX, int mouseY) {
+            String title = resource.getName() + ": " + version.version;
+            context.drawText(title, 4, 3, globalTextColor, Config.shadow);
+
+            String desc = formatMCVersions(version.mcVersions);
+            context.drawText(desc, 4, 15, borderColor, Config.shadow);
+
+            String subDesc = getRelativeTime(version.dateUploaded) + " | " + formatDownloads(version.downloads) + " Downloads";
+            context.drawText(subDesc, 4, 26, globalDarkTextColor, Config.shadow);
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            int btnX = getWidth() - 70;
+            int btnY = (getHeight() - 20) / 2;
+            if (mouseX >= getX() + btnX && mouseX <= getX() + btnX + 60 && mouseY >= getY() + btnY && mouseY <= getY() + btnY + 20) {
+                playSound(Sound.CLICK);
+                if (resource.getFileName().toLowerCase(Locale.ROOT).endsWith(".mrpack")) {
+                    downloadMrpackResource();
+                } else {
+                    downloadVersionResource(version);
+                }
+                return true;
+            }
+            return super.mouseClicked(mouseX, mouseY, button);
         }
     }
-
-    private enum TabType { DESCRIPTION, VERSIONS }
 
     private static class Version {
         public String isInstalled;
@@ -776,18 +619,6 @@ public class ResourcePageScreen extends Screen {
             this.totalBytes = 0;
             this.speed = 0;
             this.isInstalled = "Download";
-        }
-    }
-
-    private static class VersionButtonRegion {
-        int x, y, width, height;
-        Version version;
-        VersionButtonRegion(int x, int y, int width, int height, Version version) {
-            this.x = x;
-            this.y = y;
-            this.width = width;
-            this.height = height;
-            this.version = version;
         }
     }
 }

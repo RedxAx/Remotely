@@ -1,27 +1,26 @@
 package redxax.oxy.remotely.explorer;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.text.Text;
+import redxax.oxy.remotely.ui.widgets.FileEntryWidget;
+import restudio.rescreen.platform.IDrawContext;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.api.RemotelyAPI;
 import redxax.oxy.remotely.api.RemotelyApiFactory;
 import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.ui.ReScreen;
-import redxax.oxy.remotely.ui.widgets.AnimatedWidget;
-import redxax.oxy.remotely.ui.widgets.FileEntryWidget;
-import redxax.oxy.remotely.ui.widgets.TextAreaWidget;
-import redxax.oxy.remotely.util.Notification;
-import redxax.oxy.remotely.util.Sound;
+import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.rescreen.SidePanel;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.TextAreaWidget;
+import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.Sound;
 
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.util.SoundUtils.playSound;
+import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class FileEditorScreen extends ReScreen {
     private static final Map<Path, SavedTabState> SAVED_TABS = new HashMap<>();
@@ -58,7 +57,7 @@ public class FileEditorScreen extends ReScreen {
             this.path = path.normalize();
             this.name = path.getFileName() != null ? path.getFileName().toString() : path.toString();
 
-            TextAreaWidget.Builder builder = new TextAreaWidget.Builder().syntaxHighlighting(this.name);
+            TextAreaWidget.Builder builder = new TextAreaWidget.Builder();
             this.textAreaWidget = builder.build();
             this.textAreaWidget.onChange = this::onTextChange;
 
@@ -83,7 +82,7 @@ public class FileEditorScreen extends ReScreen {
                     }
                 }
                 if (tabIndex != -1) {
-                    List<TabsManager.Tab> uiTabs = tabs().getTabs();
+                    List<restudio.rescreen.ui.rescreen.ReScreen.TabsManager.Tab> uiTabs = tabs().getTabs();
                     if (tabIndex < uiTabs.size() && uiTabs.get(tabIndex).getData() == this) {
                         tabs().setTabUnsaved(tabIndex, this.unsaved);
                     }
@@ -116,9 +115,8 @@ public class FileEditorScreen extends ReScreen {
         }
     }
 
-    public FileEditorScreen(MinecraftClient mc, Screen parent, Path filePath, ServerInfo info) {
-        super(Text.literal("File Editor"));
-        this.client = mc;
+    public FileEditorScreen(Screen parent, Path filePath, ServerInfo info) {
+        super();
         this.parent = parent;
         this.serverInfo = info;
         this.fileAPI = RemotelyApiFactory.get(info);
@@ -140,16 +138,13 @@ public class FileEditorScreen extends ReScreen {
             Tab tab = tabs.remove(foundIndex);
             tabs.addFirst(tab);
         }
-
-        this.originalMCScale = mc.getWindow().getScaleFactor();
-        mc.getWindow().setScaleFactor(globalScaleFactor);
     }
 
     @Override
-    protected void init() {
+    public void init() {
         super.init();
 
-        header().addRight("/assets/remotely/icons/close.png", this::close, "Close").addRight("/assets/remotely/icons/save.png", () -> {
+        header().addRight("close.png", this::close, "Close").addRight("save.png", () -> {
             if (activeTextArea != null) {
                 int idx = tabs().getActiveTabIndex();
                 if (idx != -1) {
@@ -157,7 +152,7 @@ public class FileEditorScreen extends ReScreen {
                     tab.saveFile();
                 }
             }
-        }, "Save File").addRight("/assets/remotely/icons/explorer.png", this::toggleExplorerPanel, "Toggle Explorer").setSearchMode(new SearchMode(false), true).build();
+        }, "Save File").addRight("explorer.png", this::toggleExplorerPanel, "Toggle Explorer").setSearchMode(new SearchMode(false), true).build();
 
         if (header().searchBox != null) {
             ((SearchTextInputWidget) header().searchBox).onEnter = this::performSearch;
@@ -178,7 +173,7 @@ public class FileEditorScreen extends ReScreen {
             tabs().setTabUnsaved(tabs().getTabs().size() - 1, tab.unsaved);
         }
 
-        explorerPanel = createSidePanel("explorer").y(60).height(this.height - 5).width(200).setPadding(2);
+        explorerPanel = createSidePanel("explorer").y(60).height(this.height - 5).width(200);
 
         if (!tabs.isEmpty()) {
             tabs().setActiveTab(0);
@@ -217,7 +212,6 @@ public class FileEditorScreen extends ReScreen {
         if (dataTab != null) {
             this.activeTextArea = dataTab.textAreaWidget;
             this.addDrawableChild(this.activeTextArea);
-            this.setFocused(this.activeTextArea);
 
             explorerPath = dataTab.path.getParent();
             if (showExplorerPanel) {
@@ -382,7 +376,7 @@ public class FileEditorScreen extends ReScreen {
             return activeTextArea.keyPressed(keyCode, scanCode, modifiers);
         }
 
-        if (keyCode == this.client.options.backKey.getDefaultKey().getCode() && (header().searchBox == null || !header().searchBox.isFocused())) {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE && (header().searchBox == null || !header().searchBox.isFocused())) {
             close();
             return true;
         }
@@ -391,7 +385,7 @@ public class FileEditorScreen extends ReScreen {
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
         if (activeTextArea != null) {
             int x = 5;
@@ -404,7 +398,7 @@ public class FileEditorScreen extends ReScreen {
                 w -= panelWidth ;
             }
             activeTextArea.setPosition(x, y);
-            activeTextArea.setDimensions(w, h);
+            activeTextArea.setSize(w, h);
         }
     }
 
@@ -415,8 +409,6 @@ public class FileEditorScreen extends ReScreen {
 
     @Override
     public void removed() {
-        client.getWindow().setScaleFactor(originalMCScale);
-        targetScaleFactor = globalScaleFactor = animScaleFactor;
         if (parent == null) playSound(Sound.SCREEN);
     }
 

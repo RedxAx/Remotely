@@ -5,7 +5,7 @@ import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
 import net.minecraft.client.MinecraftClient;
 import redxax.oxy.remotely.config.Config;
-import redxax.oxy.remotely.util.Notification;
+import restudio.rescreen.util.Notification;
 
 import java.util.HashMap;
 import java.util.Map;
