@@ -2,6 +2,7 @@ package redxax.oxy.remotely.explorer;
 
 import com.google.common.reflect.TypeToken;
 import com.google.gson.Gson;
+import net.minecraft.client.MinecraftClient;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.api.RemotelyAPI;
 import redxax.oxy.remotely.api.RemotelyApiFactory;
@@ -33,7 +34,8 @@ import static restudio.rescreen.util.SearchUtils.isFuzzyMatch;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class FileExplorerScreen extends ReScreen {
-    private final Screen parent;
+    private Screen parent;
+    private net.minecraft.client.gui.screen.Screen mcParent;
     private final ScreenManager client = ScreenManager.getInstance();
     private final ServerInfo serverInfo;
     private final boolean isRemote;
@@ -57,20 +59,7 @@ public class FileExplorerScreen extends ReScreen {
             ".bash", ".fish", ".toml", ".mcfunction", ".nbt"
     );
 
-    public FileExplorerScreen(Screen parent, Path path) {
-        this(parent, new ServerInfo(path.toString()), false);
-    }
-
-    public FileExplorerScreen(Screen parent, ServerInfo info) {
-        this(parent, info, false);
-    }
-
-    public FileExplorerScreen(Screen parent, RemoteHostInfo host) {
-        this(parent, new ServerInfo(true, host, host.getHomeDirectory()), false);
-    }
-
-    public FileExplorerScreen(Screen parent, ServerInfo info, boolean importMode) {
-        this.parent = parent;
+    private FileExplorerScreen(ServerInfo info, boolean importMode) {
         this.serverInfo = info;
         this.importMode = importMode;
         this.isRemote = info.isRemote;
@@ -95,6 +84,29 @@ public class FileExplorerScreen extends ReScreen {
         loadIcons();
     }
 
+    public FileExplorerScreen(Screen parent, Path path) {
+        this(parent, new ServerInfo(path.toString()), false);
+    }
+
+    public FileExplorerScreen(Screen parent, ServerInfo info) {
+        this(parent, info, false);
+    }
+
+    public FileExplorerScreen(Screen parent, RemoteHostInfo host) {
+        this(parent, new ServerInfo(true, host, host.getHomeDirectory()), false);
+    }
+
+    public FileExplorerScreen(Screen parent, ServerInfo info, boolean importMode) {
+        this(info, importMode);
+        this.parent = parent;
+    }
+
+    public FileExplorerScreen(net.minecraft.client.gui.screen.Screen parent, ServerInfo info) {
+        this(info, false);
+        this.mcParent = parent;
+    }
+
+
     @Override
     public void init() {
         super.init();
@@ -111,7 +123,7 @@ public class FileExplorerScreen extends ReScreen {
                 .addLeft("goforward.png", this::navigateBack, "Go Up")
                 .addLeft("newFile.png", this::createNewFile, "Create New")
                 .addLeft("external.png", this::openExternally, "Open Externally")
-                .addRight("close.png", () -> client.setScreen(parent), "Close")
+                .addRight("close.png", this::closeScreen, "Close")
                 .addRight("paste.png", this::paste, "Paste")
                 .addRight("copy.png", this::copy, "Copy")
                 .addRight("favorite.png", this::toggleFavorites, "Toggle Favorites")
@@ -152,6 +164,14 @@ public class FileExplorerScreen extends ReScreen {
                 .addIconItem("Refresh", "reload.png", () -> { playSound(Sound.CLICK); loadDirectory(currentPath); }, "")
                 .build();
         addDrawableChild(itemsContextMenu);
+    }
+
+    private void closeScreen() {
+        if (parent != null) {
+            client.setScreen(parent);
+        } else if (mcParent != null) {
+            MinecraftClient.getInstance().setScreen(mcParent);
+        }
     }
 
     private void loadIcons() {
@@ -233,7 +253,7 @@ public class FileExplorerScreen extends ReScreen {
     }
 
     private void onTabClosed(TabsManager.Tab tab) {
-        if (tabs().getTabs().isEmpty()) client.setScreen(parent);
+        if (tabs().getTabs().isEmpty()) closeScreen();
         saveExplorerTabs();
     }
 
@@ -260,7 +280,7 @@ public class FileExplorerScreen extends ReScreen {
             }
         }
         if (!silent) playSound(Sound.CREATE);
-        Container newContainer = createContainer(5, 60, width - 10, height - 5);
+        Container newContainer = createContainer(5, 60, width - 10, height - 5 - 60);
         newContainer.columns(1).padding(2).enableSelecting(true).layout(new RestrictedLayout());
         TabsManager.Tab newTab = tabs().addTab(getTabName(newPath), newContainer);
         containerPaths.put(newContainer, newPath);
@@ -302,7 +322,7 @@ public class FileExplorerScreen extends ReScreen {
     private void navigateUp() {
         Path parentPath = currentPath.getParent();
         if (parentPath != null) navigateTo(parentPath);
-        else client.setScreen(parent);
+        else closeScreen();
         saveExplorerTabs();
     }
 

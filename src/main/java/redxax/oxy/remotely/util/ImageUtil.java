@@ -46,25 +46,7 @@ public class ImageUtil {
     }
 
     public static BufferedImage loadResourceIcon(String path) {
-        if (!path.contains("/assets/remotely/icons/")) {
-            path = "/assets/remotely/icons/" + path;
-        }
-        InputStream tmp = ImageUtil.class.getResourceAsStream(path);
-        final InputStream is = tmp != null ? tmp : ImageUtil.class.getResourceAsStream("assets/remotely/icons/missing.png");
-        try (is) {
-            BufferedImage original = ImageIO.read(is);
-            BufferedImage scaled = new BufferedImage(40, 40, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g2d = scaled.createGraphics();
-            g2d.drawImage(original, 0, 0, 40, 40, null);
-            g2d.dispose();
-            return scaled;
-        } catch (Exception e) {
-            try {
-                throw new Exception("Failed to load icon: " + e.getMessage());
-            } catch (Exception ex) {
-                throw new RuntimeException(ex);
-            }
-        }
+        return restudio.rescreen.util.ImageUtils.loadResourceIcon(path);
     }
 
     public static BufferedImage loadSpriteSheet(String path) throws Exception {

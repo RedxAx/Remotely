@@ -34,22 +34,9 @@ public class ScreenMixin {
 
     @Inject(method = "render", at = @At("TAIL"))
     private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
-        if (!((Object)this instanceof TitleScreen)) {
-            Config.tickTime();
-            restudio.rescreen.config.Config.tickTime();
-        }
+        Config.tickTime();
+        restudio.rescreen.config.Config.tickTime();
         Config.globalCursorAnimatedColor = CursorUtils.blendColor();
-        context.getMatrices().push();
-        context.getMatrices().translate(0, 0, 500);
-//        LoadingAnimation.render(context, width, height, mouseX, mouseY);
-        context.getMatrices().pop();
-        for (Notification notification : Notification.getActiveNotifications()) {
-            notification.update();
-            context.getMatrices().push();
-            context.getMatrices().translate(0, 0, 499);
-//            notification.render(context, mouseX, mouseY);
-            context.getMatrices().pop();
-        }
     }
 
     @Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true)

@@ -2,8 +2,8 @@ package redxax.oxy.remotely.servers;
 
 import com.cinemamod.mcef.MCEF;
 import com.cinemamod.mcef.MCEFBrowser;
+import net.minecraft.client.MinecraftClient;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.remotely.RemotelyClient;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -19,13 +19,13 @@ import java.util.List;
 
 import static redxax.oxy.remotely.config.Config.enableDebugTools;
 import static redxax.oxy.remotely.util.ImageUtil.drawBrowser;
-import static restudio.rescreen.config.Config.shadow;
 import static restudio.rescreen.render.Render.animatedScaling;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class BrowserScreen extends ReScreen {
     private static final List<Tab> tabs = new ArrayList<>();
-    private final Screen parent;
+    private Screen parent;
+    private net.minecraft.client.gui.screen.Screen mcParent;
     private final String startUrl;
     private Tab activeTab;
     private TextInputWidget urlBar;
@@ -36,6 +36,13 @@ public class BrowserScreen extends ReScreen {
     public BrowserScreen(Screen parent, String url) {
         super();
         this.parent = parent;
+        this.startUrl = url;
+        checkIfMcefExist();
+    }
+
+    public BrowserScreen(net.minecraft.client.gui.screen.Screen parent, String url) {
+        super();
+        this.mcParent = parent;
         this.startUrl = url;
         checkIfMcefExist();
     }
@@ -79,11 +86,11 @@ public class BrowserScreen extends ReScreen {
                 .build();
         addDrawableChild(urlBar);
 
-        header().addLeft("/assets/remotely/icons/goback.png", () -> activeTab.browser.goBack(), "Go Back")
-                .addLeft("/assets/remotely/icons/goforward.png", () -> activeTab.browser.goForward(), "Go Forward")
-                .addLeft("/assets/remotely/icons/reload.png", () -> activeTab.browser.reload(), "Reload")
-                .addRight("/assets/remotely/icons/close.png", this::close, "Close")
-                .addRight("/assets/remotely/icons/fullscreen.png", this::toggleFullscreen, "Toggle Fullscreen")
+        header().addLeft("goback.png", () -> activeTab.browser.goBack(), "Go Back")
+                .addLeft("goforward.png", () -> activeTab.browser.goForward(), "Go Forward")
+                .addLeft("reload.png", () -> activeTab.browser.reload(), "Reload")
+                .addRight("close.png", this::close, "Close")
+                .addRight("fullscreen.png", this::toggleFullscreen, "Toggle Fullscreen")
                 .build();
 
         tabs().builder()
@@ -215,7 +222,7 @@ public class BrowserScreen extends ReScreen {
             if (fullScreenMode) {
                 drawBrowser(activeTab.browser, true, width, height, 0, 0);
             } else {
-                drawBrowser(activeTab.browser, false, width - 10, height - 65, 60, 5);
+                drawBrowser(activeTab.browser, false, width - 10, height - 5, 60, 5);
             }
         }
         animatedScaling();
@@ -346,6 +353,9 @@ public class BrowserScreen extends ReScreen {
             activeTab.browser.sendKeyRelease(keyCode, scanCode, modifiers);
             return true;
         }
+        if (keyCode == GLFW.GLFW_KEY_UP) {
+            resizeBrowser(activeTab.browser);
+        }
         return false;
     }
 
@@ -380,7 +390,11 @@ public class BrowserScreen extends ReScreen {
 
     @Override
     public void close() {
-        client.setScreen(parent);
+        if (parent != null) {
+            client.setScreen(parent);
+        } else if (mcParent != null) {
+            MinecraftClient.getInstance().setScreen(mcParent);
+        }
     }
 
 

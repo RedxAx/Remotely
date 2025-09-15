@@ -299,7 +299,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
             if (!textBuilder.isEmpty()) {
                 MutableText lineText = Text.literal(textBuilder.toString());
                 lineText.setStyle(net.minecraft.text.Style.EMPTY.withColor(TextColor.fromRgb(foreground.getRGB())).withFont(font));
-                ctx.drawText(String.valueOf(lineText), getX() + padding + (textStartX * getCharWidth()), lineY, 0, shadow);
+                ctx.drawStyledText(lineText, getX() + padding + (textStartX * getCharWidth()), lineY, 0, shadow);
                 textBuilder.setLength(0);
                 textStartX = -1;
             }
