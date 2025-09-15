@@ -7,9 +7,11 @@ import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
 import redxax.oxy.remotely.adapters.ReScreenWrapper;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
+import redxax.oxy.remotely.servers.BrowserScreen;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.config.SettingsScreen;
+import redxax.oxy.remotely.servers.ServerManagerScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import redxax.oxy.remotely.terminal.TerminalWidget;
 
@@ -51,7 +53,6 @@ public class RemotelyClient {
     private int activeHostIndex = 0;
     private final Map<String, SSHManager> hostSSHManagers = new HashMap<>();
     public static String os;
-    public static Screen mcScreen = null;
     public static MinecraftClient mc = MinecraftClient.getInstance();
     public static ITextRenderer tr;
 
@@ -121,9 +122,17 @@ public class RemotelyClient {
         return null;
     }
 
-    public void openMultiTerminalGUI(net.minecraft.client.gui.screen.Screen parent) {
+    public void openMultiTerminal(Screen parent) {
         restudio.rescreen.ui.core.Screen lib = new MultiTerminalScreen(parent, this);
-        MinecraftClient.getInstance().setScreen(new ReScreenWrapper(lib));
+        mc.setScreen(new ReScreenWrapper(lib));
+    }
+
+    public void openServerManager(Screen parent) {
+        mc.setScreen(new ReScreenWrapper(new ServerManagerScreen(parent, this, servers)));
+    }
+
+    public void openFileExplorer(Screen parent) {
+        mc.setScreen(new ReScreenWrapper(new FileExplorerScreen(parent, new ServerInfo(remotelyDir.toString()))));
     }
 
     public void openFileExplorer(restudio.rescreen.ui.core.Screen parent, Path path) {
@@ -131,7 +140,13 @@ public class RemotelyClient {
             fileExplorer.close();
         }
         fileExplorer = new FileExplorerScreen(parent, path);
-        MinecraftClient.getInstance().setScreen(new ReScreenWrapper(fileExplorer));
+        mc.setScreen(new ReScreenWrapper(fileExplorer));
+    }
+
+    public void openBrowser(Screen parent) {
+        if (BrowserScreen.checkIfMcefExist()) {
+            mc.setScreen(new ReScreenWrapper(new BrowserScreen(parent, "https://www.google.com")));
+        }
     }
 
     public void shutdownAllTerminals() {

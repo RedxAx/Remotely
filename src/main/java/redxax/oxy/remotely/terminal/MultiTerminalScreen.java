@@ -62,6 +62,7 @@ public class MultiTerminalScreen extends ReScreen {
     public MultiTerminalScreen(Screen parent, RemotelyClient remotelyClient, ServerInfo serverToOpen) {
         super();
         this.parent = parent;
+        this.mcParent = null;
         this.remotelyClient = remotelyClient;
         this.serverToOpen = serverToOpen;
     }
@@ -144,7 +145,7 @@ public class MultiTerminalScreen extends ReScreen {
         if (activeTerminal == null) return;
         ServerInfo sInfo = activeTerminal.getServerInfo();
         if (sInfo != null) {
-            ScreenManager.getInstance().setScreen(new FileExplorerScreen(this, sInfo));
+            ScreenManager.getInstance().setScreen(new FileExplorerScreen(this, Path.of(sInfo.path)));
         } else {
             RemotelyAPI api = RemotelyApiFactory.get(null);
             String path = api.getInitialDirectory(null);
@@ -386,7 +387,6 @@ public class MultiTerminalScreen extends ReScreen {
         } else if (mcParent != null) {
             MinecraftClient.getInstance().setScreen(mcParent);
         }
-        System.out.println("Closing MultiTerminalScreen");
     }
 
     @Override

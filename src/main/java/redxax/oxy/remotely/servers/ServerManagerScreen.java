@@ -9,6 +9,7 @@ import com.google.gson.JsonParser;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
+import net.minecraft.client.MinecraftClient;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
 import restudio.rescreen.platform.IDrawContext;
 import org.lwjgl.glfw.GLFW;
@@ -18,7 +19,6 @@ import redxax.oxy.remotely.config.SettingsScreen;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.resources.ResourceManagerScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
-import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -65,7 +65,8 @@ public class ServerManagerScreen extends ReScreen {
     private TextInputWidget remoteHostPasswordInput;
     private AnimatedButton remoteHostConfirmButton;
     private AnimatedButton remoteHostDeleteButton;
-    private final Screen parent;
+    private restudio.rescreen.ui.core.Screen parent;
+    private net.minecraft.client.gui.screen.Screen mcParent;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt;
@@ -78,9 +79,16 @@ public class ServerManagerScreen extends ReScreen {
         return RemotelyClient.INSTANCE.getSavedTabIndex();
     }
 
-    public ServerManagerScreen(Screen parent, RemotelyClient remotelyClient, List<ServerInfo> servers) {
+    public ServerManagerScreen(restudio.rescreen.ui.core.Screen parent, RemotelyClient remotelyClient, List<ServerInfo> servers) {
         super();
         this.parent = parent;
+        this.remotelyClient = remotelyClient;
+        ServerManagerScreen.localServers = servers;
+    }
+
+    public ServerManagerScreen(net.minecraft.client.gui.screen.Screen parent, RemotelyClient remotelyClient, List<ServerInfo> servers) {
+        super();
+        this.mcParent = parent;
         this.remotelyClient = remotelyClient;
         ServerManagerScreen.localServers = servers;
     }
@@ -127,8 +135,8 @@ public class ServerManagerScreen extends ReScreen {
         contextMenu = new ContextMenuWidget.Builder(this).build();
         addDrawableChild(contextMenu);
 
-        Container desktopContainer = createContainer("desktop", 0, 0, width, height - taskbarHeight);
-        desktopContainer.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true);
+        Container desktopContainer = createContainer("desktop", 0, 0, width, height - 35);
+        desktopContainer.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(false).enableDoubleClick(false);
 
         setActiveContainer(desktopContainer);
         populateHostTabs();
@@ -156,7 +164,7 @@ public class ServerManagerScreen extends ReScreen {
     private void populateHostTabs() {
         tabs().addTab("Local", activeContainer).setData(null);
         for (RemoteHostInfo host : remoteHosts) {
-            Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 28);
+            Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
             c.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true);
             tabs().addTab(host.name, c).setData(host);
         }
@@ -217,90 +225,14 @@ public class ServerManagerScreen extends ReScreen {
                             deleteServerPopup.show();
                         }, "Show Deletion Options")
                         .build();
+                contextMenu.setPriority(10);
                 contextMenu.show(widget.getX() + widget.getWidth() + 4, widget.getY() + 24);
             }
         }
     }
 
     @Override
-    public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
-        super.render(context, mouseX, mouseY, delta);
-        addServerPopup.render(context, mouseX, mouseY, delta);
-        deleteServerPopup.render(context, mouseX, mouseY, delta);
-        remoteHostPopup.render(context, mouseX, mouseY, delta);
-        contextMenu.render(context, mouseX, mouseY, delta);
-    }
-
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (remoteHostPopup.mouseClicked(mouseX, mouseY, button)) return true;
-        if (addServerPopup.mouseClicked(mouseX, mouseY, button)) return true;
-        if (deleteServerPopup.mouseClicked(mouseX, mouseY, button)) return true;
-        if (contextMenu.mouseClicked(mouseX, mouseY, button)) return true;
-
-        if (tabs().getActiveTab().getContainer() != activeContainer) {
-            tabs().setActiveTab(activeContainer);
-        }
-
-        int activeTabIndex = tabs().getActiveTabIndex();
-        if (button == 1 && activeTabIndex > 0) {
-            List<TabsManager.Tab> tabs = tabs().getTabs();
-            for (int i = 1; i < tabs.size(); i++) {
-                if (tabs.get(i).getWidget().isMouseOver(mouseX, mouseY)) {
-                    tabs().setActiveTab(i);
-                    openRemoteHostPopup(true);
-                    return true;
-                }
-            }
-        }
-
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
-    @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (remoteHostPopup.mouseReleased(mouseX, mouseY, button)) return true;
-        if (addServerPopup.mouseReleased(mouseX, mouseY, button)) return true;
-        if (deleteServerPopup.mouseReleased(mouseX, mouseY, button)) return true;
-        if (contextMenu.mouseReleased(mouseX, mouseY, button)) return true;
-
-        boolean wasDragging = activeContainer.mouseReleased(mouseX, mouseY, button);
-        if (wasDragging) {
-            List<ServerInfo> reorderedServers = new ArrayList<>();
-            for (AnimatedWidget w : activeContainer.getWidgets()) {
-                if (w instanceof DesktopIconWidget dtw && !dtw.isCreateButton()) {
-                    reorderedServers.add(dtw.getServerInfo());
-                }
-            }
-            if (tabs().getActiveTabIndex() == 0) {
-                localServers = reorderedServers;
-                saveServers();
-            } else {
-                RemoteHostInfo host = (RemoteHostInfo) tabs().getActiveTab().getData();
-                remoteServers.put(host, reorderedServers);
-                saveRemoteHosts();
-            }
-            return true;
-        }
-
-        return super.mouseReleased(mouseX, mouseY, button);
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (remoteHostPopup.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) return true;
-        if (addServerPopup.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) return true;
-        if (deleteServerPopup.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) return true;
-        if (contextMenu.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) return true;
-        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
-    }
-
-    @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (remoteHostPopup.keyPressed(keyCode, scanCode, modifiers)) return true;
-        if (addServerPopup.keyPressed(keyCode, scanCode, modifiers)) return true;
-        if (deleteServerPopup.keyPressed(keyCode, scanCode, modifiers)) return true;
-        if (contextMenu.keyPressed(keyCode, scanCode, modifiers)) return true;
-
         if (keyCode == GLFW.GLFW_KEY_S && modifiers == GLFW.GLFW_MOD_CONTROL) {
             client.setScreen(new SettingsScreen("config", this, "", null));
             return true;
@@ -308,15 +240,6 @@ public class ServerManagerScreen extends ReScreen {
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
-    @Override
-    public boolean charTyped(char chr, int modifiers) {
-        if (remoteHostPopup.charTyped(chr, modifiers)) return true;
-        if (addServerPopup.charTyped(chr, modifiers)) return true;
-        if (deleteServerPopup.charTyped(chr, modifiers)) return true;
-        if (contextMenu.charTyped(chr, modifiers)) return true;
-
-        return super.charTyped(chr, modifiers);
-    }
     private List<ServerInfo> getCurrentServers() {
         if (tabsManager == null || tabs().getActiveTabIndex() == 0) {
             return localServers;
@@ -383,6 +306,7 @@ public class ServerManagerScreen extends ReScreen {
 
         addServerPopup = builder.build();
         addServerPopup.hide();
+        addDrawableChild(addServerPopup);
     }
 
     private void createDeleteServerPopup() {
@@ -422,6 +346,7 @@ public class ServerManagerScreen extends ReScreen {
 
         deleteServerPopup = builder.build();
         deleteServerPopup.hide();
+        addDrawableChild(deleteServerPopup);
     }
 
     private void createRemoteHostPopup() {
@@ -453,6 +378,7 @@ public class ServerManagerScreen extends ReScreen {
 
         remoteHostPopup = builder.build();
         remoteHostPopup.hide();
+        addDrawableChild(remoteHostPopup);
     }
     private void connectRemoteHostAsync(RemoteHostInfo hostInfo) {
         hostInfo.isConnecting = true;
@@ -545,7 +471,7 @@ public class ServerManagerScreen extends ReScreen {
             remoteServers.put(rh, new ArrayList<>());
             saveRemoteHosts();
 
-            Container c = createContainer("desktop_remote_" + rh.name, 0, 0, width, height - 28);
+            Container c = createContainer("desktop_remote_" + rh.name, 0, 0, width, height - 35);
             c.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true);
             TabsManager.Tab newTab = tabs().addTab(rh.name, c);
             newTab.setData(rh);
@@ -652,9 +578,9 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     @Override
-    public void close() {
+    public void removed() {
         remotelyClient.saveTabIndex(tabs().getActiveTabIndex());
-        super.close();
+        super.removed();
     }
 
     private boolean testSSHConnection(String user, String ip, String portStr, String password) {

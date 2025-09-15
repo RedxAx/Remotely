@@ -7,6 +7,8 @@ import org.joml.Vector3f;
 import restudio.rescreen.platform.IMatrixStack;
 import restudio.rescreen.platform.IDrawContext;
 import net.minecraft.client.util.math.MatrixStack;
+import restudio.rescreen.render.TextRenderer;
+
 import java.awt.image.BufferedImage;
 import redxax.oxy.remotely.util.ImageUtil;
 
@@ -85,7 +87,12 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void drawText(String text, int x, int y, int color, boolean shadow) {
-        dc.drawText(MinecraftClient.getInstance().textRenderer, text, x, y, color, shadow);
+        TextRenderer.getTr().draw(this, text, x, y, color, shadow);
+    }
+
+    @Override
+    public void drawStyledText(Object text, int x, int y, int color, boolean shadow) {
+        TextRenderer.drawStyled(this, text, x, y, color, shadow);
     }
 
     @Override
