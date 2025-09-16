@@ -19,7 +19,6 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static redxax.oxy.remotely.config.Config.*;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class FileEditorScreen extends ReScreen {
@@ -97,7 +96,7 @@ public class FileEditorScreen extends ReScreen {
                 this.originalContent = sanitizedContent;
                 this.unsaved = false;
             })).exceptionally(e -> {
-                new Notification("Failed To Load File", e.getMessage(), Notification.Type.ERROR);
+                client.execute(() -> new Notification("Failed To Load File", e.getCause().getMessage(), Notification.Type.ERROR));
                 return null;
             });
         }
@@ -108,8 +107,9 @@ public class FileEditorScreen extends ReScreen {
                 this.unsaved = false;
                 this.originalContent = newContent;
                 onTextChange(newContent);
+                new Notification("File Saved!", path.getFileName().toString(), Notification.Type.SUCCESS);
             })).exceptionally(e -> {
-                new Notification("Failed To Save", e.getMessage(), Notification.Type.ERROR);
+                client.execute(() -> new Notification("Failed To Save", e.getCause().getMessage(), Notification.Type.ERROR));
                 return null;
             });
         }

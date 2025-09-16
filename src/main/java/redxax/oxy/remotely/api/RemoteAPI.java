@@ -7,6 +7,7 @@ import redxax.oxy.remotely.explorer.FileManager;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
+import redxax.oxy.remotely.util.Executors;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -45,13 +46,14 @@ public class RemoteAPI implements RemotelyAPI {
                 }
             } catch (Exception e) {
                 devPrint("Error listing remote directory: " + e.getMessage());
+                throw new RuntimeException(e);
             }
 
             entries.sort(Comparator.comparing((FileEntry x) -> !x.isDirectory)
                     .thenComparing(x -> x.path.getFileName().toString().toLowerCase()));
 
             return entries;
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -61,7 +63,7 @@ public class RemoteAPI implements RemotelyAPI {
                     .map(p -> new FileManager.ClipboardEntry(p.toString().replace("\\", "/"), true))
                     .collect(Collectors.toList());
             isCutOperation = false;
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -71,7 +73,7 @@ public class RemoteAPI implements RemotelyAPI {
                     .map(p -> new FileManager.ClipboardEntry(p.toString().replace("\\", "/"), true))
                     .collect(Collectors.toList());
             isCutOperation = true;
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -122,7 +124,7 @@ public class RemoteAPI implements RemotelyAPI {
                 }
                 isCutOperation = false;
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -147,7 +149,7 @@ public class RemoteAPI implements RemotelyAPI {
                 devPrint("Error deleting remote files: " + e.getMessage());
                 throw new RuntimeException(e);
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -162,7 +164,7 @@ public class RemoteAPI implements RemotelyAPI {
                 devPrint("Error renaming remote file: " + e.getMessage());
                 throw new RuntimeException(e);
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -176,7 +178,7 @@ public class RemoteAPI implements RemotelyAPI {
                 devPrint("Error creating remote file: " + e.getMessage());
                 throw new RuntimeException(e);
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -190,7 +192,7 @@ public class RemoteAPI implements RemotelyAPI {
                 devPrint("Error creating remote directory: " + e.getMessage());
                 throw new RuntimeException(e);
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -206,7 +208,7 @@ public class RemoteAPI implements RemotelyAPI {
                 devPrint("Error uploading files: " + e.getMessage());
                 throw new RuntimeException(e);
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -222,7 +224,7 @@ public class RemoteAPI implements RemotelyAPI {
                 devPrint("Error downloading files: " + e.getMessage());
                 throw new RuntimeException(e);
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -234,7 +236,7 @@ public class RemoteAPI implements RemotelyAPI {
             } catch (Exception e) {
                 throw new RuntimeException("Failed to read remote file: " + e.getMessage(), e);
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -246,7 +248,7 @@ public class RemoteAPI implements RemotelyAPI {
             } catch (Exception e) {
                 throw new RuntimeException("Failed to write to remote file: " + e.getMessage(), e);
             }
-        });
+        }, Executors.get());
     }
 
     @Override

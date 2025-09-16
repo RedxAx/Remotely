@@ -225,7 +225,7 @@ public class FileExplorerScreen extends ReScreen {
         })).exceptionally(e -> {
             client.execute(() -> {
                 if (targetContainer == activeContainer) loading = false;
-                new Notification("Failed to load directory: ", e.getMessage(), Notification.Type.ERROR);
+                new Notification("Failed to load directory: ", e.getCause().getMessage(), Notification.Type.ERROR);
             });
             return null;
         });
@@ -352,10 +352,12 @@ public class FileExplorerScreen extends ReScreen {
             return;
         }
         fileAPI.paste(currentPath).thenRun(() -> {
-            new Notification("Files Pasted! ", "(" + currentSelectedWidgets.size() + ") Items Pasted.", Notification.Type.SUCCESS);
-            loadDirectory(currentPath);
+            client.execute(() -> {
+                new Notification("Files Pasted!", "(" + currentSelectedWidgets.size() + ") Items Pasted.", Notification.Type.SUCCESS);
+                loadDirectory(currentPath);
+            });
         }).exceptionally(e -> {
-            new Notification("Failed To Paste.", e.getMessage(), Notification.Type.ERROR);
+            client.execute(() -> new Notification("Failed To Paste.", e.getCause().getMessage(), Notification.Type.ERROR));
             return null;
         });
     }
@@ -363,16 +365,14 @@ public class FileExplorerScreen extends ReScreen {
     private void cut() {
         if (!currentSelectedWidgets.isEmpty()) {
             List<Path> paths = currentSelectedWidgets.stream().map(w -> ((FileEntryWidget) w).getFileEntry().path).toList();
-            fileAPI.cut(paths, null);
-            new Notification("Files Cut!", "(" + currentSelectedWidgets.size() + ") Items Cut.", Notification.Type.SUCCESS);
+            fileAPI.cut(paths, null).thenRun(() -> client.execute(() -> new Notification("Files Cut!", "(" + currentSelectedWidgets.size() + ") Items Cut.", Notification.Type.SUCCESS)));
         }
     }
 
     private void copy() {
         if (!currentSelectedWidgets.isEmpty()) {
             List<Path> paths = currentSelectedWidgets.stream().map(w -> ((FileEntryWidget) w).getFileEntry().path).toList();
-            fileAPI.copy(paths, null);
-            new Notification("Files Copied!", "(" + currentSelectedWidgets.size() + ") Items Copied.", Notification.Type.SUCCESS);
+            fileAPI.copy(paths, null).thenRun(() -> client.execute(() -> new Notification("Files Copied!", "(" + currentSelectedWidgets.size() + ") Items Copied.", Notification.Type.SUCCESS)));
         }
     }
 
@@ -509,11 +509,11 @@ public class FileExplorerScreen extends ReScreen {
     private void deleteSelected() {
         if (!currentSelectedWidgets.isEmpty()) {
             List<Path> paths = currentSelectedWidgets.stream().map(w -> ((FileEntryWidget) w).getFileEntry().path).toList();
-            fileAPI.delete(paths).thenRun(() -> {
+            fileAPI.delete(paths).thenRun(() -> client.execute(() -> {
                 new Notification("Files Deleted!", "(" + currentSelectedWidgets.size() + ") Items Deleted.", Notification.Type.SUCCESS);
                 loadDirectory(currentPath);
-            }).exceptionally(e -> {
-                new Notification("Failed To Delete: ", e.getMessage(), Notification.Type.ERROR);
+            })).exceptionally(e -> {
+                client.execute(() -> new Notification("Failed To Delete: ", e.getCause().getMessage(), Notification.Type.ERROR));
                 return null;
             });
         }
@@ -527,11 +527,11 @@ public class FileExplorerScreen extends ReScreen {
 
     private void undo() {
         if (fileAPI.canUndo()) {
-            fileAPI.undo().thenRun(() -> {
+            fileAPI.undo().thenRun(() -> client.execute(() -> {
                 new Notification("Undo Successful!", Notification.Type.SUCCESS);
                 loadDirectory(currentPath);
-            }).exceptionally(e -> {
-                new Notification("Undo Failed.", e.getMessage(), Notification.Type.ERROR);
+            })).exceptionally(e -> {
+                client.execute(() -> new Notification("Undo Failed.", e.getCause().getMessage(), Notification.Type.ERROR));
                 return null;
             });
         }

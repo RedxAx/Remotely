@@ -6,6 +6,7 @@ import redxax.oxy.remotely.explorer.FileManager;
 import redxax.oxy.remotely.servers.ServerInfo;
 import redxax.oxy.remotely.servers.ServerState;
 import redxax.oxy.remotely.terminal.TerminalProcessManager;
+import redxax.oxy.remotely.util.Executors;
 
 import java.io.File;
 import java.io.IOException;
@@ -56,7 +57,7 @@ public class LocalAPI implements RemotelyAPI {
                     .thenComparing(x -> x.path.getFileName().toString().toLowerCase()));
 
             return entries;
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -66,7 +67,7 @@ public class LocalAPI implements RemotelyAPI {
                     .map(p -> new FileManager.ClipboardEntry(p.toString(), false))
                     .collect(Collectors.toList());
             isCutOperation = false;
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -76,7 +77,7 @@ public class LocalAPI implements RemotelyAPI {
                     .map(p -> new FileManager.ClipboardEntry(p.toString(), false))
                     .collect(Collectors.toList());
             isCutOperation = true;
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -124,7 +125,7 @@ public class LocalAPI implements RemotelyAPI {
                 }
                 isCutOperation = false;
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -148,7 +149,7 @@ public class LocalAPI implements RemotelyAPI {
             if (!deletedPaths.isEmpty()) {
                 undoStack.push(new DeleteAction(new ArrayList<>(deletedPaths), new ArrayList<>(backupPaths)));
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -161,7 +162,7 @@ public class LocalAPI implements RemotelyAPI {
                 devPrint("Error renaming file: " + e.getMessage());
                 throw new RuntimeException(e);
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -174,7 +175,7 @@ public class LocalAPI implements RemotelyAPI {
                 devPrint("Error creating file: " + e.getMessage());
                 throw new RuntimeException(e);
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -187,7 +188,7 @@ public class LocalAPI implements RemotelyAPI {
                 devPrint("Error creating directory: " + e.getMessage());
                 throw new RuntimeException(e);
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -208,7 +209,7 @@ public class LocalAPI implements RemotelyAPI {
             } catch (IOException e) {
                 throw new RuntimeException("Failed to read file: " + e.getMessage(), e);
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -219,7 +220,7 @@ public class LocalAPI implements RemotelyAPI {
             } catch (IOException e) {
                 throw new RuntimeException("Failed to write to file: " + e.getMessage(), e);
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -233,7 +234,7 @@ public class LocalAPI implements RemotelyAPI {
             if (!undoStack.isEmpty()) {
                 undoStack.pop().undo();
             }
-        });
+        }, Executors.get());
     }
 
     @Override
@@ -322,7 +323,7 @@ public class LocalAPI implements RemotelyAPI {
         }
     }
 
-    class DeleteAction implements FileManager.UndoableAction {
+    static class DeleteAction implements FileManager.UndoableAction {
         private final List<Path> deletedPaths;
         private final List<String> backupPaths;
 
@@ -370,7 +371,7 @@ public class LocalAPI implements RemotelyAPI {
         }
     }
 
-    class RenameAction implements FileManager.UndoableAction {
+    static class RenameAction implements FileManager.UndoableAction {
         private final Path oldPath;
         private final Path newPath;
 
