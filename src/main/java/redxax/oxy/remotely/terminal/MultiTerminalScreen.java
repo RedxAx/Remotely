@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import static redxax.oxy.remotely.config.Config.*;
+import static restudio.rescreen.config.Config.*;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class MultiTerminalScreen extends ReScreen {

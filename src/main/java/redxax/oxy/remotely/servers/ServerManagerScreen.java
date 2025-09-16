@@ -10,6 +10,7 @@ import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
 import net.minecraft.client.MinecraftClient;
+import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
 import restudio.rescreen.platform.IDrawContext;
 import org.lwjgl.glfw.GLFW;
@@ -42,8 +43,6 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.config.SettingsScreen.defineSettings;
-import static redxax.oxy.remotely.config.SettingsScreen.settings;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
 import static restudio.rescreen.util.SoundUtils.playSound;
@@ -57,7 +56,6 @@ public class ServerManagerScreen extends ReScreen {
     private PopupWidget addServerPopup;
     private PopupWidget deleteServerPopup;
     private PopupWidget remoteHostPopup;
-    private ContextMenuWidget contextMenu;
     private TextInputWidget remoteHostNameInput;
     private TextInputWidget remoteHostUserInput;
     private TextInputWidget remoteHostIpInput;
@@ -95,13 +93,13 @@ public class ServerManagerScreen extends ReScreen {
 
     @Override
     public void init() {
+        super.init();
         if (localServers.isEmpty()) {
             loadSavedServers();
         }
         loadSavedRemoteHosts();
         loadIcons();
         createPopups();
-        defineSettings();
         scanForUnknownServers();
 
         int taskbarHeight = 28;
@@ -109,7 +107,7 @@ public class ServerManagerScreen extends ReScreen {
                 .addLeft("terminal.png", () -> client.setScreen(new MultiTerminalScreen(this, remotelyClient)), "Terminal")
                 .addLeft("explorer.png", this::openFileExplorer, "File Explorer")
                 .addLeft("minibrowser.png", this::openBrowser, "Web Browser")
-                .addLeft("remotely.png", () -> client.setScreen(new SettingsScreen("config", this, remotelyDir.toString(), settings)), "Settings")
+                .addLeft("remotely.png", () -> client.setScreen(new SettingsScreen(this, (RemotelyConfigManager) restudio.rescreen.config.Config.configManager)), "Settings")
                 .build();
 
         tabs().builder()
@@ -132,15 +130,11 @@ public class ServerManagerScreen extends ReScreen {
                 })
                 .build();
 
-        contextMenu = new ContextMenuWidget.Builder(this).build();
-        addDrawableChild(contextMenu);
-
         Container desktopContainer = createContainer("desktop", 0, 0, width, height - 35);
         desktopContainer.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(false).enableDoubleClick(false);
 
         setActiveContainer(desktopContainer);
         populateHostTabs();
-        super.init();
     }
 
     private void loadIcons() {
@@ -215,18 +209,16 @@ public class ServerManagerScreen extends ReScreen {
             if (!widget.isCreateButton()) {
                 activeContainer.clearSelection();
                 activeContainer.addSelectedWidget(widget);
-                contextMenu = new ContextMenuWidget.Builder(this)
-                        .addHeaderButton("edit.png", () -> client.setScreen(new SettingsScreen("editServer", this, widget.getServerInfo().path, settings, widget.getServerInfo())), "Edit Server's Settings")
+                ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
+                        .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getServerInfo().path, widget.getServerInfo())), "Edit Server's Settings")
                         .addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getServerInfo(), false)), "Open Server's Folder")
                         .addHeaderButton("delete.png", () -> {
                             serverIndexForDeletion = getCurrentServers().indexOf(widget.getServerInfo());
                             deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
                             deleteServerPopup.setY((this.height - deleteServerPopup.getHeight())/2);
                             deleteServerPopup.show();
-                        }, "Show Deletion Options")
-                        .build();
-                contextMenu.setPriority(10);
-                contextMenu.show(widget.getX() + widget.getWidth() + 4, widget.getY() + 24);
+                        }, "Show Deletion Options");
+                showContextMenu(widget.getX() + widget.getWidth() + 4, widget.getY() + 24, builder);
             }
         }
     }
@@ -234,7 +226,7 @@ public class ServerManagerScreen extends ReScreen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_S && modifiers == GLFW.GLFW_MOD_CONTROL) {
-            client.setScreen(new SettingsScreen("config", this, "", null));
+            client.setScreen(new SettingsScreen(this, (RemotelyConfigManager) restudio.rescreen.config.Config.configManager));
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -279,7 +271,7 @@ public class ServerManagerScreen extends ReScreen {
         AnimatedButton createBtn = new AnimatedButton.Builder()
                 .label(("Server Creation"))
                 .onClick(() -> {
-                    client.setScreen(new SettingsScreen("createServer", this, Path.of(String.valueOf(remotelyDir), "servers").toString(), settings));
+                    client.setScreen(new ServerConfigurationScreen(this, Path.of(String.valueOf(remotelyDir), "servers").toString(), null));
                     addServerPopup.hide();
                 })
                 .build();

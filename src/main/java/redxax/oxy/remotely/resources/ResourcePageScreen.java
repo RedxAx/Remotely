@@ -7,7 +7,7 @@ import com.google.gson.JsonParser;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.SSHManager;
-import redxax.oxy.remotely.config.Config;
+import restudio.rescreen.config.Config;
 import redxax.oxy.remotely.servers.ServerInfo;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.core.Screen;
@@ -32,7 +32,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.List;
 
-import static redxax.oxy.remotely.config.Config.*;
+import static restudio.rescreen.config.Config.*;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static restudio.rescreen.util.SoundUtils.playSound;
 

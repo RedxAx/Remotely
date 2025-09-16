@@ -17,6 +17,7 @@ import static redxax.oxy.remotely.Render.drawSnakeLoading;
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
 import static redxax.oxy.remotely.RemotelyClient.tr;
+import static restudio.rescreen.config.Config.shadow;
 
 public class ResourceWidget extends AnimatedWidget {
     private final IRemotelyResource resource;

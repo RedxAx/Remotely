@@ -4,7 +4,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import static redxax.oxy.remotely.config.Config.deltaTime;
+import static restudio.rescreen.config.Config.deltaTime;
 import static redxax.oxy.remotely.config.Config.globalCursorColor;
 
 public class CursorUtils {

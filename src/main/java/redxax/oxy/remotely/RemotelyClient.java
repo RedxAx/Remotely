@@ -5,17 +5,14 @@ import com.google.gson.reflect.TypeToken;
 import net.minecraft.client.gui.screen.Screen;
 import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
 import redxax.oxy.remotely.adapters.ReScreenWrapper;
-import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.servers.BrowserScreen;
 import redxax.oxy.remotely.servers.RemoteHostInfo;
 import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.config.SettingsScreen;
 import redxax.oxy.remotely.servers.ServerManagerScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import redxax.oxy.remotely.terminal.TerminalWidget;
 
-import javax.imageio.ImageIO;
 import net.minecraft.client.MinecraftClient;
 import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -58,17 +55,18 @@ public class RemotelyClient {
 
     public void initialize() {
         INSTANCE = this;
+        RemotelyEntry remotelyEntry = new RemotelyEntry();
+        remotelyEntry.init();
         System.out.println("Remotely mod initialized on the client.");
         loadSnippets();
         try {
             String bgPath = System.getProperty("user.home") + "/AppData/Roaming/Microsoft/Windows/Themes/TranscodedWallpaper";
-            Config.windowsBackground = ImageIO.read(new File(bgPath));
+            restudio.rescreen.config.Config.windowsBackground = javax.imageio.ImageIO.read(new File(bgPath));
         } catch (Exception e) {
             devPrint("Failed to load Windows background: " + e.getMessage());
         }
         importThemesFromJar();
         loadThemesFromDir();
-        SettingsScreen.loadClientConfigFromJson();
         migrateRemotelyData();
         Runtime.getRuntime().addShutdownHook(new Thread(this::onClientShutdown));
         os = System.getProperty("os.name").toLowerCase(Locale.ROOT);

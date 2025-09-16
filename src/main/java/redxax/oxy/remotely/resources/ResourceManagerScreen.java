@@ -20,7 +20,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import static redxax.oxy.remotely.config.Config.loading;
+import static restudio.rescreen.config.Config.loading;
 
 public class ResourceManagerScreen extends ReScreen {
     private final Screen parent;
