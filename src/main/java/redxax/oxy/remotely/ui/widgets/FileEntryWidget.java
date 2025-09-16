@@ -14,7 +14,6 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Consumer;
 
-import static redxax.oxy.remotely.util.ImageUtil.drawPixelArt;
 import static restudio.rescreen.config.Config.globalTextColor;
 import static redxax.oxy.remotely.RemotelyClient.tr;
 
@@ -159,7 +158,7 @@ public class FileEntryWidget extends AnimatedWidget {
                 fileEntry.displayName = newName;
                 setMessage((newName));
             })).exceptionally(e -> {
-                ScreenManager.getInstance().execute(() -> new Notification("Rename failed: " + e.getMessage(), Notification.Type.ERROR));
+                ScreenManager.getInstance().execute(() -> new Notification("Rename failed: " + e.getCause().getMessage(), Notification.Type.ERROR));
                 return null;
             });
         }
