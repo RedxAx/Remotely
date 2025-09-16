@@ -1,30 +1,25 @@
-package redxax.oxy.remotely.config;
+package redxax.oxy.remotely.servers;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
-import redxax.oxy.remotely.config.SettingsScreen.ServerSettingType;
 
-public class Settings {
+public class ServerSetting {
     public String name;
     public String file;
     public String key;
-    public ServerSettingType type;
+    public Type type;
     public String value;
     public String tab;
     public String description;
-    public boolean focused;
-    public int cursorPos;
     public List<String> options;
     public int min;
     public int max;
-    public int index;
-    public String dependencyKey;
-    public String dependencyValue;
     public Map<String, List<String>> dependencies;
+    public enum Type {TOGGLE, SLIDER, SCROLL_SWITCH, TAB_SWITCH, TEXT}
 
-    private Settings(String name, String description, String tab, String file, String key, ServerSettingType type, String defaultValue) {
+    private ServerSetting(String name, String description, String tab, String file, String key, Type type, String defaultValue) {
         this.name = name;
         this.file = file;
         this.key = key;
@@ -32,9 +27,6 @@ public class Settings {
         this.value = defaultValue;
         this.tab = tab;
         this.description = description;
-        this.focused = false;
-        this.cursorPos = this.value.length();
-        this.index = 0;
         this.dependencies = new HashMap<>();
     }
 
@@ -70,16 +62,14 @@ public class Settings {
         private String tab;
         private String file = "none";
         private String key;
-        private ServerSettingType type;
+        private Type type;
         private String defaultValue;
         private List<String> options;
         private int min = 0;
         private int max = 100;
-        private String dependencyKey;
-        private String dependencyValue;
         private Map<String, List<String>> dependencies = new HashMap<>();
 
-        public Builder(String name, String description, String tab, String key, ServerSettingType type, String defaultValue) {
+        public Builder(String name, String description, String tab, String key, Type type, String defaultValue) {
             this.name = name;
             this.description = description;
             this.tab = tab;
@@ -114,13 +104,11 @@ public class Settings {
             return this;
         }
 
-        public Settings build() {
-            Settings s = new Settings(this.name, this.description, this.tab, this.file, this.key, this.type, this.defaultValue);
+        public ServerSetting build() {
+            ServerSetting s = new ServerSetting(this.name, this.description, this.tab, this.file, this.key, this.type, this.defaultValue);
             s.options = this.options;
             s.min = this.min;
             s.max = this.max;
-            s.dependencyKey = this.dependencyKey;
-            s.dependencyValue = this.dependencyValue;
             s.dependencies = this.dependencies;
             return s;
         }

@@ -1,50 +1,26 @@
 package redxax.oxy.remotely.config;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import static restudio.rescreen.config.Config.deltaTime;
 
 public class Config {
-    public static boolean shadow = true;
     public static boolean wallpaper = false;
-    public static boolean background = false;
     public static boolean customReverseProxy = false;
     public static String proxyHost = "RedxAx.net";
     public static String proxyUser = "tunnel";
     public static boolean isDev = false;
     public static boolean enableDebugTools = false;
-    public static BufferedImage windowsBackground;
     public static final Path remotelyDir = Paths.get(System.getProperty("user.home"), "remotely");
-    public static float globalScaleFactor = 2.0f;
-    public static float targetScaleFactor;
-    public static boolean lastRounding = false;
     public static double originalMCScale = 2.0;
-    public static long currentTime;
-    public static float deltaTime;
-    public static float snippetAnimationSpeed = 10f;
-    public static float globalExpandSpeed = 10f;
-    public static float scaleAnimationSpeed = 10f;
-    public static float animScaleFactor = 1f;
-    public static float globalScrollSpeed = 7f;
-    public static float globalMovementSpeed = 7f;
-
     public static String mainMenuStyle = "Minimal";
     public static boolean redesignMainMenu = false;
-    public static boolean customMouse = false;
-    public static float mouseSize = 12f;
-    public static float tailSize = 7f;
-    public static float tailFollowSpeed = 10f;
     public static boolean tabCloseButtons = false;
     public static boolean scanServers = true;
-    public static long lastFrameTime = System.nanoTime();
-
     public static boolean aiMode = false;
-    public static boolean loading = false;
     public static boolean showIp = true;
 
     public static int elementBackgroundColor = 0xFF2C2C2C;
@@ -112,12 +88,6 @@ public class Config {
     private static final Map<Integer, float[]> animatedBackgroundColorsMap = new HashMap<>();
     private static final Map<Integer, float[]> animatedBorderColorsMap = new HashMap<>();
     private static final Map<Integer, float[]> animatedTextColorsMap = new HashMap<>();
-
-    public static void tickTime() {
-        currentTime = System.nanoTime();
-        deltaTime = Math.min((currentTime - lastFrameTime) / 1_000_000_000.0f, 0.1f);
-        lastFrameTime = currentTime;
-    }
 
     private static float[] intToFloatArray(int color) {
         float a = ((color >> 24) & 0xFF) / 255f;

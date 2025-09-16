@@ -3,7 +3,7 @@ package redxax.oxy.remotely;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.util.Window;
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.remotely.config.Config;
+import restudio.rescreen.config.Config;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import redxax.oxy.remotely.explorer.FileEditorScreen;
 import redxax.oxy.remotely.util.TextAnimator;
@@ -18,7 +18,7 @@ import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Sound;
 
-import static redxax.oxy.remotely.config.Config.*;
+import static restudio.rescreen.config.Config.*;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.ImageUtil.*;
 import static redxax.oxy.remotely.RemotelyClient.tr;

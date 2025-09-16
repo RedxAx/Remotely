@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.ui.widgets;
 
-import redxax.oxy.remotely.config.Config;
+import restudio.rescreen.config.Config;
 import redxax.oxy.remotely.servers.ServerInfo;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
@@ -9,7 +9,7 @@ import java.awt.image.BufferedImage;
 import java.util.function.BiConsumer;
 
 import static redxax.oxy.remotely.Render.*;
-import static redxax.oxy.remotely.config.Config.globalTextColor;
+import static restudio.rescreen.config.Config.globalTextColor;
 import static redxax.oxy.remotely.RemotelyClient.tr;
 
 public class DesktopIconWidget extends AnimatedWidget {

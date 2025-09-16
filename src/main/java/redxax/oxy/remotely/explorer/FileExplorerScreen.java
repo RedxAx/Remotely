@@ -28,7 +28,7 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import static redxax.oxy.remotely.config.Config.*;
+import static restudio.rescreen.config.Config.*;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
 import static restudio.rescreen.util.SearchUtils.isFuzzyMatch;
 import static restudio.rescreen.util.SoundUtils.playSound;

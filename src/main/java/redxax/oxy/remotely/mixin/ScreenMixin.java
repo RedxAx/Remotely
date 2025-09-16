@@ -16,7 +16,6 @@ import redxax.oxy.remotely.ui.tests.ContainerTestingScreen;
 import redxax.oxy.remotely.ui.tests.WidgetsTestingScreen;
 import redxax.oxy.remotely.util.CursorUtils;
 import static redxax.oxy.remotely.config.Config.*;
-import static redxax.oxy.remotely.config.SettingsScreen.loopOfThemes;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -34,7 +33,6 @@ public class ScreenMixin {
 
     @Inject(method = "render", at = @At("TAIL"))
     private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
-        Config.tickTime();
         restudio.rescreen.config.Config.tickTime();
         Config.globalCursorAnimatedColor = CursorUtils.blendColor();
     }
@@ -48,14 +46,6 @@ public class ScreenMixin {
         if (keyCode == GLFW.GLFW_KEY_D && all) {
             enableDebugTools = !enableDebugTools;
             new Notification("Toggled Debug Tools To " + enableDebugTools, Notification.Type.INFO);
-        }
-        if (keyCode == GLFW.GLFW_KEY_RIGHT && alt) {
-            loopOfThemes(true);
-            cir.setReturnValue(true);
-        }
-        if (keyCode == GLFW.GLFW_KEY_LEFT && alt) {
-            loopOfThemes(false);
-            cir.setReturnValue(true);
         }
         if (!enableDebugTools) return;
         if (keyCode == GLFW.GLFW_KEY_T && ctrl) {

@@ -46,6 +46,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.RemotelyClient.tr;
+import static restudio.rescreen.config.Config.deltaTime;
+import static restudio.rescreen.config.Config.shadow;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 
