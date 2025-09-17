@@ -1,16 +1,16 @@
 package redxax.oxy.remotely.terminal;
 
 import net.minecraft.client.MinecraftClient;
+import restudio.rebase.api.RebaseAPI;
+import restudio.rebase.api.RebaseApiFactory;
+import restudio.rebase.instance.Instance;
+import restudio.rebase.instance.InstanceState;
 import restudio.rescreen.platform.IDrawContext;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.api.RemotelyAPI;
-import redxax.oxy.remotely.api.RemotelyApiFactory;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.resources.ResourceManagerScreen;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
-import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.servers.ServerState;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import static restudio.rescreen.config.Config.*;
+import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class MultiTerminalScreen extends ReScreen {
@@ -36,9 +36,9 @@ public class MultiTerminalScreen extends ReScreen {
     private net.minecraft.client.gui.screen.Screen mcParent;
     private SidePanel snippetsPanel;
     private SidePanel aiPanel;
-    private final ServerInfo serverToOpen;
+    private final Instance serverToOpen;
     private TerminalWidget activeTerminal;
-    private ServerState lastKnownState;
+    private InstanceState lastKnownState;
 
     public static final Path THEMES_DIR = remotelyDir.resolve("themes");
 
@@ -59,7 +59,7 @@ public class MultiTerminalScreen extends ReScreen {
         this.serverToOpen = null;
     }
 
-    public MultiTerminalScreen(Screen parent, RemotelyClient remotelyClient, ServerInfo serverToOpen) {
+    public MultiTerminalScreen(Screen parent, RemotelyClient remotelyClient, Instance serverToOpen) {
         super();
         this.parent = parent;
         this.mcParent = null;
@@ -85,8 +85,8 @@ public class MultiTerminalScreen extends ReScreen {
             for (int i = 0; i < tabsManager.getTabs().size(); i++) {
                 TabsManager.Tab tab = tabsManager.getTabs().get(i);
                 if (tab.getData() instanceof TerminalWidget widget) {
-                    ServerInfo info = widget.getServerInfo();
-                    if (info != null && info.path.equals(serverToOpen.path)) {
+                    Instance info = widget.getServerInfo();
+                    if (info != null && info.getPath().equals(serverToOpen.getPath())) {
                         existingTabIndex = i;
                         break;
                     }
@@ -96,7 +96,7 @@ public class MultiTerminalScreen extends ReScreen {
             if (existingTabIndex != -1) {
                 tabsManager.setActiveTab(existingTabIndex);
             } else {
-                addNewTerminalTab(serverToOpen.name, serverToOpen);
+                addNewTerminalTab(serverToOpen.getName(), serverToOpen);
             }
         } else {
             int index = remotelyClient.activeTerminalIndex;
@@ -106,9 +106,6 @@ public class MultiTerminalScreen extends ReScreen {
                 tabsManager.setActiveTab(0);
             }
         }
-        targetScaleFactor = 2;
-        globalScaleFactor = 2;
-        animScaleFactor = 2;
     }
 
     private void launchActiveTerminal(boolean start) {
@@ -116,7 +113,7 @@ public class MultiTerminalScreen extends ReScreen {
             return;
         }
 
-        ServerInfo sInfo = activeTerminal.getServerInfo();
+        Instance sInfo = activeTerminal.getServerInfo();
         if (sInfo == null) {
             return;
         }
@@ -127,7 +124,7 @@ public class MultiTerminalScreen extends ReScreen {
             header().setButtonVisible("stop.png", false);
         } else {
             try {
-                RemotelyAPI api = RemotelyApiFactory.get(sInfo);
+                RebaseAPI api = RebaseApiFactory.get(sInfo);
                 api.launchServer(sInfo, command -> {
                     if (command != null && !command.isEmpty()) {
                         activeTerminal.executeCommand(command);
@@ -143,11 +140,11 @@ public class MultiTerminalScreen extends ReScreen {
 
     private void exploreActiveTerminalFiles() {
         if (activeTerminal == null) return;
-        ServerInfo sInfo = activeTerminal.getServerInfo();
+        Instance sInfo = activeTerminal.getServerInfo();
         if (sInfo != null) {
-            ScreenManager.getInstance().setScreen(new FileExplorerScreen(this, Path.of(sInfo.path)));
+            ScreenManager.getInstance().setScreen(new FileExplorerScreen(this, sInfo, false));
         } else {
-            RemotelyAPI api = RemotelyApiFactory.get(null);
+            RebaseAPI api = RebaseApiFactory.get(null);
             String path = api.getInitialDirectory(null);
             RemotelyClient.INSTANCE.openFileExplorer(this, Path.of(path));
         }
@@ -155,7 +152,7 @@ public class MultiTerminalScreen extends ReScreen {
 
     private void openActiveTerminalResources() {
         if (activeTerminal == null) return;
-        ServerInfo sInfo = activeTerminal.getServerInfo();
+        Instance sInfo = activeTerminal.getServerInfo();
         if (sInfo != null) {
             ScreenManager.getInstance().setScreen(new ResourceManagerScreen(this, sInfo));
         }
@@ -188,11 +185,11 @@ public class MultiTerminalScreen extends ReScreen {
             return;
         }
 
-        ServerInfo sInfo = activeTerminal.getServerInfo();
+        Instance sInfo = activeTerminal.getServerInfo();
         if (sInfo != null) {
             header().setButtonVisible("explorer.png", true);
-            boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.type.toLowerCase(Locale.getDefault()));
-            boolean isReversed = ReverseProxyManager.isPortForwarded(activeTerminal.getServerInfo().getPort());
+            boolean isProxy = List.of("velocity", "waterfall", "bungeecord").contains(sInfo.getModLoader().name().toLowerCase(Locale.getDefault()));
+            boolean isReversed = ReverseProxyManager.isPortForwarded(sInfo);
             header().setButtonVisible("resources.png", !isProxy);
             header().setButtonVisible("reverse.png", !isReversed);
             header().setButtonVisible("closeReverse.png", isReversed);
@@ -207,11 +204,11 @@ public class MultiTerminalScreen extends ReScreen {
         }
     }
 
-    private void updateStartStopButtonState(ServerInfo sInfo) {
+    private void updateStartStopButtonState(Instance sInfo) {
         if (sInfo == null) return;
 
-        ServerState st = sInfo.state;
-        boolean isRunning = st == ServerState.RUNNING || st == ServerState.STARTING;
+        InstanceState st = sInfo.getState();
+        boolean isRunning = st == InstanceState.RUNNING || st == InstanceState.STARTING;
         header().setButtonVisible("start.png", !isRunning);
         header().setButtonVisible("stop.png", isRunning);
     }
@@ -243,7 +240,7 @@ public class MultiTerminalScreen extends ReScreen {
             this.activeTerminal = terminal;
             addDrawableChild(this.activeTerminal);
             if (terminal.getServerInfo() != null) {
-                this.lastKnownState = terminal.getServerInfo().state;
+                this.lastKnownState = terminal.getServerInfo().getState();
             } else {
                 this.lastKnownState = null;
             }
@@ -272,7 +269,7 @@ public class MultiTerminalScreen extends ReScreen {
         playSound(Sound.CLOSETAB);
     }
 
-    private void addTerminalTab(String name, ServerInfo info) {
+    private void addTerminalTab(String name, Instance info) {
         TerminalWidget terminal = new TerminalWidget.Builder()
                 .server(info).animateLayout(false)
                 .size(width - 10, height - 5)
@@ -290,7 +287,7 @@ public class MultiTerminalScreen extends ReScreen {
         playSound(Sound.CREATE);
     }
 
-    private void addNewTerminalTab(String name, ServerInfo info) {
+    private void addNewTerminalTab(String name, Instance info) {
         addTerminalTab(name, info);
         tabsManager.setActiveTab(tabsManager.getTabs().size() - 1);
         playSound(Sound.CREATE);
@@ -311,10 +308,10 @@ public class MultiTerminalScreen extends ReScreen {
     public void tick() {
         super.tick();
         if (activeTerminal != null && activeTerminal.getServerInfo() != null) {
-            ServerInfo sInfo = activeTerminal.getServerInfo();
-            if (sInfo.state != lastKnownState) {
+            Instance sInfo = activeTerminal.getServerInfo();
+            if (sInfo.getState() != lastKnownState) {
                 updateStartStopButtonState(sInfo);
-                lastKnownState = sInfo.state;
+                lastKnownState = sInfo.getState();
             }
         }
     }

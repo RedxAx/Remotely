@@ -5,6 +5,7 @@ import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
 import net.minecraft.client.MinecraftClient;
 import redxax.oxy.remotely.config.Config;
+import restudio.rebase.instance.Instance;
 import restudio.rescreen.util.Notification;
 
 import java.util.HashMap;
@@ -155,15 +156,18 @@ public class ReverseProxyManager {
         new Notification("Ports Forwarded:", ports.toString(), Notification.Type.INFO);
     }
 
-    public static boolean isPortForwarded(int localPort) {
-        return activeSessions.containsKey(localPort) && activeSessions.get(localPort).isConnected();
+    public static boolean isPortForwarded(Instance instance) {
+        if (instance == null || instance.getPort() <= 0) {
+            return false;
+        }
+        return activeSessions.containsKey(instance.getPort()) && activeSessions.get(instance.getPort()).isConnected();
     }
 
-    public static void reverse(ServerInfo sInfo) {
+    public static void reverse(Instance sInfo) {
         if (sInfo == null || sInfo.getPort() <= 0) {
             new Notification("Invalid Server Port", "Make Sure To Configure The Port Correctly", Notification.Type.ERROR);
         } else {
-            if (isPortForwarded(sInfo.getPort())) {
+            if (isPortForwarded(sInfo)) {
                 shutdown(sInfo.getPort());
             } else {
                 reverse(sInfo.getPort());

@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.ui.widgets;
 
+import restudio.rebase.instance.Instance;
 import restudio.rescreen.config.Config;
-import redxax.oxy.remotely.servers.ServerInfo;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 
@@ -13,14 +13,14 @@ import static restudio.rescreen.config.Config.globalTextColor;
 import static redxax.oxy.remotely.RemotelyClient.tr;
 
 public class DesktopIconWidget extends AnimatedWidget {
-    private final ServerInfo serverInfo;
+    private final Instance serverInfo;
     private final BufferedImage icon;
     private final boolean isCreateButton;
 
     private BiConsumer<DesktopIconWidget, Integer> onClick;
 
     public static class Builder extends AnimatedWidget.Builder<DesktopIconWidget, Builder> {
-        public Builder(ServerInfo serverInfo, boolean isCreateButton, BufferedImage icon) {
+        public Builder(Instance serverInfo, boolean isCreateButton, BufferedImage icon) {
             super(new DesktopIconWidget(0, 0, 34, 34, serverInfo, isCreateButton, icon));
         }
 
@@ -35,8 +35,8 @@ public class DesktopIconWidget extends AnimatedWidget {
         }
     }
 
-    public DesktopIconWidget(int x, int y, int width, int height, ServerInfo serverInfo, boolean isCreateButton, BufferedImage icon) {
-        super(x, y, width, height,(isCreateButton ? "New Server" : serverInfo.name));
+    public DesktopIconWidget(int x, int y, int width, int height, Instance serverInfo, boolean isCreateButton, BufferedImage icon) {
+        super(x, y, width, height,(isCreateButton ? "New Server" : serverInfo.getName()));
         this.serverInfo = serverInfo;
         this.isCreateButton = isCreateButton;
         this.icon = icon;
@@ -70,7 +70,7 @@ public class DesktopIconWidget extends AnimatedWidget {
         }
     }
 
-    public ServerInfo getServerInfo() {
+    public Instance getServerInfo() {
         return serverInfo;
     }
 

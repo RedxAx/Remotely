@@ -5,8 +5,7 @@ import com.jediterm.pty.PtyProcessTtyConnector;
 import com.jediterm.terminal.TtyConnector;
 import com.pty4j.PtyProcess;
 import com.pty4j.PtyProcessBuilder;
-import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.servers.ServerState;
+import restudio.rebase.instance.Instance;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -35,7 +34,7 @@ public class TerminalProcessManager {
         return commandStr;
     }
 
-    public static TtyConnector createTtyConnector(ServerInfo serverInfo, String workingDir, TermSize initialSize) throws IOException {
+    public static TtyConnector createTtyConnector(Instance serverInfo, String workingDir, TermSize initialSize) throws IOException {
         PtyProcess process;
         if (serverInfo != null) {
             process = launchServerProcess(serverInfo, initialSize);
@@ -82,14 +81,14 @@ public class TerminalProcessManager {
         }
     }
 
-    public static PtyProcess launchServerProcess(ServerInfo serverInfo, TermSize initialSize) throws IOException {
+    public static PtyProcess launchServerProcess(Instance serverInfo, TermSize initialSize) throws IOException {
         try {
             if (serverInfo == null) {
-                throw new IOException("ServerInfo is null for a detached server process");
+                throw new IOException("Instance is null for a detached server process");
             }
-            File workingDir = new File(serverInfo.path);
+            File workingDir = new File(serverInfo.getPath());
             if (!workingDir.exists() || !workingDir.isDirectory()) {
-                throw new IOException("Server directory not found or is not a directory: " + serverInfo.path);
+                throw new IOException("Server directory not found or is not a directory: " + serverInfo.getPath());
             }
 
             File scriptFile = new File(workingDir, "start.bat");
