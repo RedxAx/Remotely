@@ -2,24 +2,21 @@ package redxax.oxy.remotely.servers;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
 import net.minecraft.client.MinecraftClient;
-import redxax.oxy.remotely.config.RemotelyConfigManager;
-import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
-import restudio.rescreen.platform.IDrawContext;
-import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.SSHManager;
+import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreen;
 import redxax.oxy.remotely.explorer.FileExplorerScreen;
 import redxax.oxy.remotely.resources.ResourceManagerScreen;
 import redxax.oxy.remotely.terminal.MultiTerminalScreen;
+import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
+import restudio.rebase.hosting.RemoteHost;
+import restudio.rebase.instance.Instance;
+import restudio.rebase.instance.InstanceManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -30,29 +27,23 @@ import restudio.rescreen.util.Sound;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.io.*;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
+import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
 import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
-import static redxax.oxy.remotely.config.Config.*;
+import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class ServerManagerScreen extends ReScreen {
     private final RemotelyClient remotelyClient;
-    private static List<ServerInfo> localServers;
-    private static final List<RemoteHostInfo> remoteHosts = new ArrayList<>();
-    private static final Map<RemoteHostInfo, List<ServerInfo>> remoteServers = new HashMap<>();
-    private int serverIndexForDeletion = -1;
+    private Instance instanceForDeletion;
     private PopupWidget addServerPopup;
     private PopupWidget deleteServerPopup;
     private PopupWidget remoteHostPopup;
@@ -68,39 +59,27 @@ public class ServerManagerScreen extends ReScreen {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt;
+    private InstanceManager instanceManager;
 
-    public static List<RemoteHostInfo> getRemoteHosts() {
-        return remoteHosts;
-    }
-
-    public static int getActiveTabIndex() {
-        return RemotelyClient.INSTANCE.getSavedTabIndex();
-    }
-
-    public ServerManagerScreen(restudio.rescreen.ui.core.Screen parent, RemotelyClient remotelyClient, List<ServerInfo> servers) {
+    public ServerManagerScreen(restudio.rescreen.ui.core.Screen parent, RemotelyClient remotelyClient) {
         super();
         this.parent = parent;
         this.remotelyClient = remotelyClient;
-        ServerManagerScreen.localServers = servers;
     }
 
-    public ServerManagerScreen(net.minecraft.client.gui.screen.Screen parent, RemotelyClient remotelyClient, List<ServerInfo> servers) {
+    public ServerManagerScreen(net.minecraft.client.gui.screen.Screen parent, RemotelyClient remotelyClient) {
         super();
         this.mcParent = parent;
         this.remotelyClient = remotelyClient;
-        ServerManagerScreen.localServers = servers;
     }
 
     @Override
     public void init() {
         super.init();
-        if (localServers.isEmpty()) {
-            loadSavedServers();
-        }
-        loadSavedRemoteHosts();
+        this.instanceManager = InstanceManager.getInstance();
+        instanceManager.loadInstances();
         loadIcons();
         createPopups();
-        scanForUnknownServers();
 
         int taskbarHeight = 28;
         header().position(HeaderBuilder.Position.BOTTOM).size(taskbarHeight)
@@ -118,15 +97,8 @@ public class ServerManagerScreen extends ReScreen {
                 .allowRename(false).allowReorder(false).allowClose(false)
                 .onPlusButtonClicked(() -> openRemoteHostPopup(false))
                 .onTabSelected(this::onHostTabSelected)
-                .onTabClosed(tab -> saveRemoteHosts())
+                .onTabClosed(tab -> instanceManager.saveRemoteHosts())
                 .onTabsReordered(tabs -> {
-                    List<RemoteHostInfo> reorderedHosts = new ArrayList<>();
-                    for (int i = 1; i < tabs.size(); i++) {
-                        reorderedHosts.add((RemoteHostInfo) tabs.get(i).getData());
-                    }
-                    remoteHosts.clear();
-                    remoteHosts.addAll(reorderedHosts);
-                    saveRemoteHosts();
                 })
                 .build();
 
@@ -157,7 +129,7 @@ public class ServerManagerScreen extends ReScreen {
 
     private void populateHostTabs() {
         tabs().addTab("Local", activeContainer).setData(null);
-        for (RemoteHostInfo host : remoteHosts) {
+        for (RemoteHost host : instanceManager.getRemoteHosts()) {
             Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
             c.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true);
             tabs().addTab(host.name, c).setData(host);
@@ -169,15 +141,14 @@ public class ServerManagerScreen extends ReScreen {
 
     private void loadServersForCurrentTab() {
         activeContainer.clearWidgets();
-        List<ServerInfo> currentServers = getCurrentServers();
-        for (ServerInfo server : currentServers) {
+        for (Instance server : getCurrentServers()) {
             addServerWidget(server, false);
         }
         addServerWidget(null, true);
         activeContainer.updateWidgetPositions();
     }
 
-    private void addServerWidget(ServerInfo info, boolean isCreate) {
+    private void addServerWidget(Instance info, boolean isCreate) {
         DesktopIconWidget widget = new DesktopIconWidget.Builder(info, isCreate, isCreate ? serverIcon : getServerIcon(info)).onClick(this::onDesktopIconClick).build();
         activeContainer.addWidget(widget);
     }
@@ -188,7 +159,7 @@ public class ServerManagerScreen extends ReScreen {
             loadServersForCurrentTab();
         }
         if (tabs().getActiveTabIndex() > 0) {
-            RemoteHostInfo host = (RemoteHostInfo) tab.getData();
+            RemoteHost host = (RemoteHost) tab.getData();
             if (!host.isConnected && !host.isConnecting) {
                 connectRemoteHostAsync(host);
             }
@@ -210,10 +181,10 @@ public class ServerManagerScreen extends ReScreen {
                 activeContainer.clearSelection();
                 activeContainer.addSelectedWidget(widget);
                 ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
-                        .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getServerInfo().path, widget.getServerInfo())), "Edit Server's Settings")
+                        .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getServerInfo().getPath(), widget.getServerInfo())), "Edit Server's Settings")
                         .addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getServerInfo(), false)), "Open Server's Folder")
                         .addHeaderButton("delete.png", () -> {
-                            serverIndexForDeletion = getCurrentServers().indexOf(widget.getServerInfo());
+                            instanceForDeletion = widget.getServerInfo();
                             deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
                             deleteServerPopup.setY((this.height - deleteServerPopup.getHeight())/2);
                             deleteServerPopup.show();
@@ -223,22 +194,13 @@ public class ServerManagerScreen extends ReScreen {
         }
     }
 
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == GLFW.GLFW_KEY_S && modifiers == GLFW.GLFW_MOD_CONTROL) {
-            client.setScreen(new SettingsScreen(this, (RemotelyConfigManager) restudio.rescreen.config.Config.configManager));
-            return true;
-        }
-        return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    private List<ServerInfo> getCurrentServers() {
+    private List<Instance> getCurrentServers() {
         if (tabsManager == null || tabs().getActiveTabIndex() == 0) {
-            return localServers;
+            return instanceManager.getLocalInstances();
         }
         if (tabs().getActiveTabIndex() > 0) {
-            RemoteHostInfo host = (RemoteHostInfo) tabs().getActiveTab().getData();
-            return remoteServers.getOrDefault(host, new ArrayList<>());
+            RemoteHost host = (RemoteHost) tabs().getActiveTab().getData();
+            return instanceManager.getRemoteInstances(host);
         }
         return new ArrayList<>();
     }
@@ -246,9 +208,9 @@ public class ServerManagerScreen extends ReScreen {
     private void openFileExplorer() {
         int activeTabIndex = tabs().getActiveTabIndex();
         if (activeTabIndex == 0) {
-            client.setScreen(new FileExplorerScreen(this, new ServerInfo(remotelyDir.toString()), false));
+            client.setScreen(new FileExplorerScreen(this, new Instance("local", "", remotelyDir.toString()), false));
         } else {
-            RemoteHostInfo host = (RemoteHostInfo) tabs().getTabs().get(activeTabIndex).getData();
+            RemoteHost host = (RemoteHost) tabs().getTabs().get(activeTabIndex).getData();
             client.setScreen(new FileExplorerScreen(this, host));
         }
     }
@@ -310,16 +272,8 @@ public class ServerManagerScreen extends ReScreen {
                 .label(("Delete The Server"))
                 .onClick(() -> {
                     playSound(Sound.DELETE);
-                    deleteServerTrash(serverIndexForDeletion);
-                    deleteServerPopup.hide();
-                })
-                .build();
-
-        AnimatedButton deleteRemoveBtn = new AnimatedButton.Builder()
-                .label(("Remove From List"))
-                .onClick(() -> {
-                    playSound(Sound.DELETE);
-                    deleteServerRemove(serverIndexForDeletion);
+                    instanceManager.removeInstance(instanceForDeletion);
+                    loadServersForCurrentTab();
                     deleteServerPopup.hide();
                 })
                 .build();
@@ -333,7 +287,6 @@ public class ServerManagerScreen extends ReScreen {
                 .build();
 
         builder.addRow("", true, 27, deleteTrashBtn);
-        builder.addRow("", true, 27, deleteRemoveBtn);
         builder.addRow("", true, 27, cancelBtn);
 
         deleteServerPopup = builder.build();
@@ -372,10 +325,10 @@ public class ServerManagerScreen extends ReScreen {
         remoteHostPopup.hide();
         addDrawableChild(remoteHostPopup);
     }
-    private void connectRemoteHostAsync(RemoteHostInfo hostInfo) {
+    private void connectRemoteHostAsync(RemoteHost hostInfo) {
         hostInfo.isConnecting = true;
         new Thread(() -> {
-            SSHManager sshManager = remotelyClient.getSSHManagerForHost(hostInfo);
+            restudio.rebase.util.ssh.SSHManager sshManager = hostInfo.getSshManager();
             if (sshManager != null && sshManager.isSSH()) {
                 hostInfo.isConnected = true;
                 hostInfo.connectionError = null;
@@ -390,7 +343,7 @@ public class ServerManagerScreen extends ReScreen {
     private void openRemoteHostPopup(boolean isEditing) {
         int activeTabIndex = tabs().getActiveTabIndex();
         if (isEditing) {
-            RemoteHostInfo host = (RemoteHostInfo) tabs().getTabs().get(activeTabIndex).getData();
+            RemoteHost host = (RemoteHost) tabs().getTabs().get(activeTabIndex).getData();
             remoteHostConfirmButton.setMessage(("Save"));
             remoteHostDeleteButton.visible = true;
 
@@ -433,9 +386,9 @@ public class ServerManagerScreen extends ReScreen {
             return;
         }
 
-        RemoteHostInfo rh;
+        RemoteHost rh;
         if (isEditing) {
-            rh = (RemoteHostInfo) tabs().getActiveTab().getData();
+            rh = (RemoteHost) tabs().getActiveTab().getData();
             rh.name = name;
             rh.user = user;
             rh.ip = ip;
@@ -446,10 +399,10 @@ public class ServerManagerScreen extends ReScreen {
             }
             rh.password = password;
             tabs().getActiveTab().setName(name);
-            saveRemoteHosts();
+            instanceManager.updateRemoteHost(rh);
             closeRemoteHostPopup();
         } else {
-            rh = new RemoteHostInfo();
+            rh = new RemoteHost();
             rh.name = name;
             rh.user = user;
             rh.ip = ip;
@@ -459,9 +412,7 @@ public class ServerManagerScreen extends ReScreen {
                 rh.port = 22;
             }
             rh.password = password;
-            remoteHosts.add(rh);
-            remoteServers.put(rh, new ArrayList<>());
-            saveRemoteHosts();
+            instanceManager.addRemoteHost(rh);
 
             Container c = createContainer("desktop_remote_" + rh.name, 0, 0, width, height - 35);
             c.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true);
@@ -475,26 +426,23 @@ public class ServerManagerScreen extends ReScreen {
 
     private void onDeleteRemoteHost() {
         if (tabs().getActiveTabIndex() > 0) {
-            RemoteHostInfo hostToRemove = (RemoteHostInfo) tabs().getActiveTab().getData();
-            remoteHosts.remove(hostToRemove);
-            remoteServers.remove(hostToRemove);
+            RemoteHost hostToRemove = (RemoteHost) tabs().getActiveTab().getData();
+            instanceManager.removeRemoteHost(hostToRemove);
             tabs().removeTab(tabs().getActiveTabIndex());
-            saveRemoteHosts();
             tabs().setActiveTab(0);
             closeRemoteHostPopup();
         }
     }
 
-    private void openServerScreen(ServerInfo info) {
+    private void openServerScreen(Instance info) {
         client.setScreen(new MultiTerminalScreen(this, remotelyClient, info));
     }
 
     public static void openServerScreen(String path) {
-        List<ServerInfo> allServers = new ArrayList<>(localServers);
-        remoteServers.values().forEach(allServers::addAll);
-
-        for (ServerInfo info : allServers) {
-            if (info.path.equals(path)) {
+        List<Instance> allInstances = new ArrayList<>(InstanceManager.getInstance().getLocalInstances());
+        InstanceManager.getInstance().getRemoteHosts().forEach(h -> allInstances.addAll(InstanceManager.getInstance().getRemoteInstances(h)));
+        for (Instance info : allInstances) {
+            if (info.getPath().equals(path)) {
                 ScreenManager.getInstance().setScreen(new MultiTerminalScreen(ScreenManager.currentScreen, RemotelyClient.INSTANCE, info));
                 return;
             }
@@ -509,63 +457,37 @@ public class ServerManagerScreen extends ReScreen {
 
     private void openImportFileExplorer() {
         if (tabs().getActiveTabIndex() == 0) {
-            client.setScreen(new FileExplorerScreen(this, new ServerInfo(remotelyDir.toString()), true));
+            client.setScreen(new FileExplorerScreen(this, new Instance("import", "", remotelyDir.toString()), true));
         } else {
-            RemoteHostInfo remoteHost = (RemoteHostInfo) tabs().getActiveTab().getData();
+            RemoteHost remoteHost = (RemoteHost) tabs().getActiveTab().getData();
             client.setScreen(new FileExplorerScreen(this, remoteHost));
         }
     }
 
     private void openModpackInstallation() {
         try {
-            ServerInfo serverInfo = new ServerInfo("modpack");
-            serverInfo.name = "Modpack Server";
-            serverInfo.type = "modpack";
-            serverInfo.version = "latest";
+            Instance serverInfo = new Instance("Modpack Server", "latest", "modpack");
+            serverInfo.setModLoader(restudio.rebase.instance.loaders.ModLoader.FABRIC);
+
             if (tabs().getActiveTabIndex() > 0) {
-                RemoteHostInfo remoteHost = (RemoteHostInfo) tabs().getActiveTab().getData();
-                serverInfo.isRemote = true;
-                serverInfo.remoteHost = remoteHost;
-                serverInfo.path = remoteHost.getHomeDirectory() + "remotely/servers/" + serverInfo.name;
-                SSHManager sshManager = remotelyClient.getSSHManagerForHost(remoteHost);
+                RemoteHost remoteHost = (RemoteHost) tabs().getActiveTab().getData();
+                serverInfo.setRemote(true);
+                serverInfo.setRemoteHost(remoteHost);
+                serverInfo.setPath(remoteHost.getHomeDirectory() + "remotely/servers/" + serverInfo.getName());
+                restudio.rebase.util.ssh.SSHManager sshManager = remoteHost.getSshManager();
                 if (sshManager == null || !sshManager.isSSH()) {
                     new Notification("Could not connect to remote host for modpack installation.", Notification.Type.ERROR);
                     return;
                 }
             } else {
-                serverInfo.isRemote = false;
-                serverInfo.remoteHost = null;
-                serverInfo.path = remotelyDir + "/servers/" + serverInfo.name;
+                serverInfo.setRemote(false);
+                serverInfo.setRemoteHost(null);
+                serverInfo.setPath(remotelyDir + "/servers/" + serverInfo.getName());
             }
             ResourceManagerScreen modManagerScreen = new ResourceManagerScreen(this, serverInfo);
             client.setScreen(modManagerScreen);
         } catch (Exception e) {
             e.printStackTrace();
-        }
-    }
-
-    public void importServerJar(Path jarPath, String folderName) {
-        Path parentDir = jarPath.getParent();
-        if (parentDir != null) {
-            ServerInfo newInfo = new ServerInfo(parentDir.toString());
-            newInfo.name = folderName;
-            newInfo.path = parentDir.toString();
-            newInfo.type = "imported";
-            newInfo.version = "unknown";
-            newInfo.isRunning = false;
-            if (tabs().getActiveTabIndex() == 0) {
-                newInfo.isRemote = false;
-                newInfo.remoteHost = null;
-                localServers.add(newInfo);
-                saveServers();
-            } else {
-                RemoteHostInfo host = (RemoteHostInfo) tabs().getActiveTab().getData();
-                newInfo.isRemote = true;
-                newInfo.remoteHost = host;
-                remoteServers.get(host).add(newInfo);
-                saveRemoteHosts();
-            }
-            loadServersForCurrentTab();
         }
     }
 
@@ -598,294 +520,10 @@ public class ServerManagerScreen extends ReScreen {
         }
     }
 
-    public static void saveRemoteHosts() {
+    private BufferedImage getServerIcon(Instance server) {
         try {
-            Path dir = Paths.get(System.getProperty("user.dir"), "assets/remotely", "servers");
-            if (!Files.exists(dir)) Files.createDirectories(dir);
-            Path file = dir.resolve("remotehosts.json");
-
-            JsonArray hostsArray = new JsonArray();
-            for (RemoteHostInfo rh : remoteHosts) {
-                JsonObject hostObject = new JsonObject();
-                hostObject.addProperty("name", rh.name);
-                hostObject.addProperty("user", rh.user);
-                hostObject.addProperty("ip", rh.ip);
-                hostObject.addProperty("port", rh.port);
-                hostObject.addProperty("password", rh.password);
-
-                JsonArray serversArray = new JsonArray();
-                List<ServerInfo> servers = remoteServers.getOrDefault(rh, Collections.emptyList());
-                for (ServerInfo info : servers) {
-                    JsonObject serverObject = new JsonObject();
-                    serverObject.addProperty("name", info.name);
-                    serverObject.addProperty("path", info.path);
-                    serverObject.addProperty("type", info.type);
-                    serverObject.addProperty("version", info.version);
-                    serverObject.addProperty("isRunning", info.isRunning);
-                    serverObject.addProperty("isRemote", info.isRemote);
-                    serversArray.add(serverObject);
-                }
-                hostObject.add("servers", serversArray);
-                hostsArray.add(hostObject);
-            }
-            Files.writeString(file, GSON.toJson(hostsArray), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        } catch (IOException ignored) {}
-    }
-
-    private void loadSavedRemoteHosts() {
-        try {
-            Path dir = Paths.get(System.getProperty("user.dir"), "assets/remotely", "servers");
-            if (!Files.exists(dir)) Files.createDirectories(dir);
-            Path file = dir.resolve("remotehosts.json");
-            if (!Files.exists(file)) return;
-
-            String json = Files.readString(file);
-            JsonArray hostsArray = JsonParser.parseString(json).getAsJsonArray();
-
-            for (JsonElement hostElement : hostsArray) {
-                JsonObject hostObject = hostElement.getAsJsonObject();
-                RemoteHostInfo rh = new RemoteHostInfo();
-                rh.name = hostObject.get("name").getAsString();
-                rh.user = hostObject.get("user").getAsString();
-                rh.ip = hostObject.get("ip").getAsString();
-                rh.port = hostObject.get("port").getAsInt();
-                rh.password = hostObject.get("password").getAsString();
-
-                boolean exists = remoteHosts.stream().anyMatch(h -> h.ip.equals(rh.ip) && h.port == rh.port && h.user.equals(rh.user));
-                if (!exists) {
-                    remoteHosts.add(rh);
-
-                    List<ServerInfo> servers = new ArrayList<>();
-                    JsonArray serversArray = hostObject.getAsJsonArray("servers");
-                    for (JsonElement serverElement : serversArray) {
-                        JsonObject serverObject = serverElement.getAsJsonObject();
-                        ServerInfo info = new ServerInfo(serverObject.get("path").getAsString());
-                        info.name = serverObject.get("name").getAsString();
-                        info.type = serverObject.get("type").getAsString();
-                        info.version = serverObject.get("version").getAsString();
-                        info.isRunning = serverObject.get("isRunning").getAsBoolean();
-                        info.isRemote = serverObject.get("isRemote").getAsBoolean();
-                        info.remoteHost = rh;
-                        servers.add(info);
-                    }
-                    remoteServers.put(rh, servers);
-                }
-            }
-        } catch (Exception ignored) {}
-    }
-
-
-    private void scanForUnknownServers() {
-        Path serversDir = Paths.get(remotelyDir + "/servers/").toAbsolutePath().normalize();
-        if (!Files.exists(serversDir)) {
-            try {
-                Files.createDirectories(serversDir);
-            } catch (IOException e) {
-                new Notification("Failed To Create Server Directory.",  Notification.Type.ERROR);
-            }
-        }
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(serversDir)) {
-            for (Path entry : stream) {
-                if (Files.isDirectory(entry)) {
-                    Path serverJarPath = entry.resolve("server.jar");
-                    if (Files.exists(serverJarPath)) {
-                        String folderName = entry.getFileName().toString();
-                        String fullPath = entry.toAbsolutePath().toString().replace("/", "\\");
-                        Path normalizedPath = Paths.get(fullPath).normalize();
-                        if (!isServerRegistered(normalizedPath.toString())) {
-                            String type = "imported";
-                            String version = "unknown";
-                            try (ZipFile zip = new ZipFile(serverJarPath.toFile())) {
-                                Enumeration<? extends ZipEntry> entriesZip = zip.entries();
-                                boolean hasPaper = false;
-                                boolean hasWaterfall = false;
-                                boolean hasVelocity = false;
-                                boolean hasFabric = false;
-                                boolean hasVanilla = false;
-                                boolean hasForge = false;
-                                boolean hasNeoforge = false;
-                                boolean hasLeaf = false;
-                                boolean hasQuilt = false;
-                                while (entriesZip.hasMoreElements()) {
-                                    ZipEntry ze = entriesZip.nextElement();
-                                    String name = ze.getName();
-                                    if (name.startsWith("io/papermc/")) {
-                                        hasPaper = true;
-                                    }
-                                    if (name.startsWith("io/github/waterfallmc/")) {
-                                        hasWaterfall = true;
-                                    }
-                                    if (name.startsWith("com/velocitypowered/")) {
-                                        hasVelocity = true;
-                                    }
-                                    if (name.equals("install.properties")) {
-                                        hasFabric = true;
-                                    }
-                                    if (name.startsWith("net/minecraftforge/")) {
-                                        hasForge = true;
-                                    }
-                                    if (name.startsWith("dev/mcvapi/")) {
-                                        hasNeoforge = true;
-                                    }
-                                    if (name.startsWith("cn/dreeam/")) {
-                                        hasLeaf = true;
-                                    }
-                                    if (name.equals("lang/installer.properties")) {
-                                        hasQuilt = true;
-                                    }
-                                    if (name.startsWith("net/minecraft/")) {
-                                        hasVanilla = true;
-                                    }
-                                }
-                                if (hasPaper) {
-                                    type = "Paper";
-                                    ZipEntry versionJson = zip.getEntry("version.json");
-                                    if (versionJson != null) {
-                                        try (InputStream is = zip.getInputStream(versionJson);
-                                             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
-                                            JsonObject obj = JsonParser.parseReader(reader).getAsJsonObject();
-                                            version = obj.get("id").getAsString();
-                                        }
-                                    }
-                                } else if (hasVelocity) {
-                                    type = "Velocity";
-                                } else if (hasWaterfall) {
-                                    type = "Waterfall";
-                                } else if (hasFabric) {
-                                    type = "Fabric";
-                                    ZipEntry installProps = zip.getEntry("install.properties");
-                                    if (installProps != null) {
-                                        Properties props = new Properties();
-                                        try (InputStream is = zip.getInputStream(installProps)) {
-                                            props.load(is);
-                                            version = props.getProperty("game-version", "unknown");
-                                        }
-                                    }
-                                } else if (hasForge) {
-                                    type = "Forge";
-                                    ZipEntry versionJson = zip.getEntry("version.json");
-                                    if (versionJson != null) {
-                                        try (InputStream is = zip.getInputStream(versionJson);
-                                             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
-                                            JsonObject obj = JsonParser.parseReader(reader).getAsJsonObject();
-                                            version = obj.get("id").getAsString();
-                                        }
-                                    }
-                                } else if (hasNeoforge) {
-                                    type = "Neoforge";
-                                    ZipEntry versionJson = zip.getEntry("metadata.json");
-                                    if (versionJson != null) {
-                                        try (InputStream is = zip.getInputStream(versionJson);
-                                             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
-                                            JsonObject obj = JsonParser.parseReader(reader).getAsJsonObject();
-                                            version = obj.get("version").getAsString();
-                                        }
-                                    }
-                                } else if (hasLeaf) {
-                                    type = "Leaf";
-                                    ZipEntry versionJson = zip.getEntry("version.json");
-                                    if (versionJson != null) {
-                                        try (InputStream is = zip.getInputStream(versionJson);
-                                             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
-                                            JsonObject obj = JsonParser.parseReader(reader).getAsJsonObject();
-                                            version = obj.get("id").getAsString();
-                                        }
-                                    }
-                                } else if (hasQuilt) {
-                                    type = "Quilt";
-                                    ZipEntry installerProps = zip.getEntry("lang/installer.properties");
-                                    if (installerProps != null) {
-                                        Properties props = new Properties();
-                                        try (InputStream is = zip.getInputStream(installerProps)) {
-                                            props.load(is);
-                                        }
-                                    }
-                                } else if (hasVanilla) {
-                                    type = "Vanilla";
-                                    ZipEntry versionJson = zip.getEntry("version.json");
-                                    if (versionJson != null) {
-                                        try (InputStream is = zip.getInputStream(versionJson);
-                                             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
-                                            JsonObject obj = JsonParser.parseReader(reader).getAsJsonObject();
-                                            version = obj.get("id").getAsString();
-                                        }
-                                    }
-                                }
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                            if (scanServers) addServer(folderName, normalizedPath.toString(), type, version, false, null);
-                        }
-                    }
-                }
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private boolean isServerRegistered(String normalizedPath) {
-        for (ServerInfo server : localServers) {
-            String serverPath = Paths.get(server.path).toAbsolutePath().normalize().toString().replace("/", "\\");
-            if (serverPath.equalsIgnoreCase(normalizedPath)) {
-                return true;
-            }
-        }
-        for (List<ServerInfo> serverList : remoteServers.values()) {
-            for (ServerInfo server : serverList) {
-                if (server.path.replace("/", "\\").equalsIgnoreCase(normalizedPath)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    public static void addServer(String name, String path, String type, String version, boolean isRemote, RemoteHostInfo host) {
-        ServerInfo newServer = new ServerInfo(path);
-        newServer.name = name;
-        newServer.path = path;
-        newServer.type = type;
-        newServer.version = version;
-        newServer.isRunning = false;
-        newServer.isRemote = isRemote;
-        if (isRemote) {
-            newServer.remoteHost = host;
-            remoteServers.computeIfAbsent(host, k -> new ArrayList<>()).add(newServer);
-            saveRemoteHosts();
-        } else {
-            localServers.add(newServer);
-            saveServers();
-        }
-    }
-
-    public static void saveServers() {
-        try {
-            Path dir = Paths.get(System.getProperty("user.dir"), "assets/remotely", "servers");
-            if (!Files.exists(dir)) Files.createDirectories(dir);
-            Path file = dir.resolve("servers.json");
-            Files.writeString(file, GSON.toJson(localServers), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        } catch (IOException ignored) {}
-    }
-
-    private void loadSavedServers() {
-        try {
-            Path dir = Paths.get(System.getProperty("user.dir"), "remotely", "servers");
-            if (!Files.exists(dir)) Files.createDirectories(dir);
-            Path file = dir.resolve("servers.json");
-            if (!Files.exists(file)) return;
-            String json = Files.readString(file);
-            ServerInfo[] loaded = GSON.fromJson(json, ServerInfo[].class);
-            if(loaded != null) {
-                localServers.addAll(Arrays.asList(loaded));
-            }
-        } catch (IOException ignored) {}
-    }
-
-    private BufferedImage getServerIcon(ServerInfo server) {
-        try {
-            if (!server.isRemote) {
-                File iconFile = new File(server.path, "icon.png");
+            if (!server.isRemote()) {
+                File iconFile = new File(server.getPath(), "icon.png");
                 if (iconFile.exists() && iconFile.isFile()) {
                     return ImageIO.read(iconFile);
                 }
@@ -893,7 +531,7 @@ public class ServerManagerScreen extends ReScreen {
         } catch (IOException e) {
             devPrint("Failed to load server icon: " + e.getMessage());
         }
-        return switch (server.type.toLowerCase()) {
+        return switch (server.getModLoader().name().toLowerCase()) {
             case "vanilla" -> vanilla;
             case "fabric" -> fabric;
             case "forge" -> forge;
@@ -905,58 +543,6 @@ public class ServerManagerScreen extends ReScreen {
             case "quilt" -> quilt;
             default -> unknown;
         };
-    }
-
-    private void deleteServerTrash(int index) {
-        List<ServerInfo> currentServers = getCurrentServers();
-        if (index >= 0 && index < currentServers.size()) {
-            ServerInfo s = currentServers.get(index);
-            String dateOfDeletion = new SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(new Date());
-
-            if (s.isRemote && s.remoteHost != null) {
-                SSHManager ssh = s.remoteHost.getSSHManager();
-                if (ssh != null && ssh.isSSH()) {
-                    String trashDir = s.remoteHost.getHomeDirectory() + ".remotely/trash/";
-                    String newRemotePath = trashDir + s.name + "-" + dateOfDeletion;
-                    try {
-                        ssh.runRemoteCommand("mkdir -p " + trashDir);
-                        ssh.renameRemoteFile(s.path, newRemotePath);
-                        new Notification("Server Moved To Trash.", Notification.Type.INFO);
-                        currentServers.remove(index);
-                    } catch (Exception e) {
-                        new Notification("Failed To Trash Remote Server.", Notification.Type.ERROR);
-                    }
-                }
-            } else {
-                File trashDir = new File(System.getProperty("user.dir") + File.separator + "assets/remotely" + File.separator + "trash");
-                if (!trashDir.exists()) trashDir.mkdirs();
-                File folderPath = new File(s.path);
-                if (folderPath.exists()) {
-                    String newLocalName = s.name + "-" + dateOfDeletion;
-                    File trashSub = new File(trashDir, newLocalName);
-                    if (folderPath.renameTo(trashSub)) {
-                        new Notification("Server Moved To Trash.", Notification.Type.INFO);
-                        currentServers.remove(index);
-                    } else {
-                        new Notification("Failed To Move Server To Trash.", Notification.Type.ERROR);
-                    }
-
-                }
-            }
-            saveServers();
-            saveRemoteHosts();
-            loadServersForCurrentTab();
-        }
-    }
-
-    private void deleteServerRemove(int index) {
-        List<ServerInfo> currentServers = getCurrentServers();
-        if (index >= 0 && index < currentServers.size()) {
-            currentServers.remove(index);
-            saveServers();
-            saveRemoteHosts();
-            loadServersForCurrentTab();
-        }
     }
 
     @Override

@@ -14,10 +14,6 @@ import com.jediterm.terminal.emulator.mouse.MouseMode;
 import com.jediterm.terminal.model.*;
 import com.jediterm.terminal.ui.settings.SettingsProvider;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.util.InputUtil;
-import restudio.rescreen.platform.IDrawContext;
-import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.text.TextColor;
@@ -27,12 +23,12 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.api.RemotelyAPI;
-import redxax.oxy.remotely.api.RemotelyApiFactory;
 import redxax.oxy.remotely.config.Config;
-import redxax.oxy.remotely.servers.ServerInfo;
-import redxax.oxy.remotely.servers.ServerState;
-import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rebase.api.RebaseAPI;
+import restudio.rebase.api.RebaseApiFactory;
+import restudio.rebase.instance.Instance;
+import restudio.rebase.instance.InstanceState;
+import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Notification;
@@ -44,7 +40,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static redxax.oxy.remotely.config.Config.*;
 import static redxax.oxy.remotely.RemotelyClient.tr;
 import static restudio.rescreen.config.Config.deltaTime;
 import static restudio.rescreen.config.Config.shadow;
@@ -53,8 +48,8 @@ import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
-    private final ServerInfo serverInfo;
-    private final RemotelyAPI remotelyAPI;
+    private final Instance serverInfo;
+    private final RebaseAPI rebaseAPI;
 
     private final JediTerminal myTerminal;
     private final TerminalTextBuffer myTextBuffer;
@@ -67,7 +62,6 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     private int myCursorX = 1;
     private int myCursorY = 1;
     private boolean myCursorVisible = true;
-    private long myLastCursorChange = System.currentTimeMillis();
 
     private float scrollY = 0;
     private float targetScrollY = 0;
@@ -83,13 +77,13 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     private int charWidth = -1;
 
     public static class Builder extends AnimatedWidget.Builder<TerminalWidget, Builder> {
-        private ServerInfo serverInfo;
+        private Instance serverInfo;
 
         public Builder() {
             super(new TerminalWidget(0, 0, 200, 150, null));
         }
 
-        public Builder server(ServerInfo info) {
+        public Builder server(Instance info) {
             this.serverInfo = info;
             return this;
         }
@@ -105,10 +99,10 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         }
     }
 
-    public TerminalWidget(int x, int y, int width, int height, ServerInfo serverInfo) {
+    public TerminalWidget(int x, int y, int width, int height, Instance serverInfo) {
         super(x, y, width, height, "");
         this.serverInfo = serverInfo;
-        this.remotelyAPI = RemotelyApiFactory.get(this.serverInfo);
+        this.rebaseAPI = RebaseApiFactory.get(this.serverInfo);
 
         mySettingsProvider = new RemotelySettingsProvider();
         myExecutorServiceManager = new ExecutorServiceManager();
@@ -137,7 +131,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         myExecutorServiceManager.getUnboundedExecutorService().submit(() -> {
             TtyConnector ttyConnector = null;
             try {
-                ttyConnector = remotelyAPI.createTtyConnector(serverInfo, myLastTermSize, this::appendOutput, this::setServerState);
+                ttyConnector = rebaseAPI.createTtyConnector(serverInfo, myLastTermSize, this::appendOutput, this::setServerState);
             } catch (Exception e) {
                 appendOutput("Failed to create TtyConnector: " + e.getMessage() + "\n");
             }
@@ -169,9 +163,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         if (myTerminalStarter != null) {
             myTerminalStarter.close();
         }
-        if (serverInfo != null && serverInfo.isRemote && serverInfo.remoteHost.getSSHManager() != null) {
-            // SSHManager is shared, don't shut it down here unless it's the last terminal for that host.
-            // For simplicity, we now shut it down on client exit.
+        if (serverInfo != null && serverInfo.isRemote() && serverInfo.getRemoteHost().getSshManager() != null) {
         }
         myExecutorServiceManager.shutdownWhenAllExecuted();
     }
@@ -184,13 +176,13 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     private void detectServerState(String line) {
         if (serverInfo != null) {
             if (line.contains("Done (")) {
-                serverInfo.state = ServerState.RUNNING;
+                serverInfo.setState(InstanceState.RUNNING);
             } else if (line.matches(".*\\b[Ff]atal\\b.*") || line.matches(".*\\b[Uu]nhandled exception\\b.*") || line.contains("You need to agree to the EULA") || line.contains("Error: Unable to access jarfile") || line.contains("Failed to bind to port") || line.contains("java.lang.OutOfMemoryError") || line.contains("locked by another process")) {
-                serverInfo.state = ServerState.CRASHED;
+                serverInfo.setState(InstanceState.CRASHED);
             } else if (line.toLowerCase().contains("stopping server") || line.toLowerCase().contains("server stopped")) {
-                serverInfo.state = ServerState.STOPPED;
+                serverInfo.setState(InstanceState.STOPPED);
             } else if (line.toLowerCase().contains("starting minecraft server")) {
-                serverInfo.state = ServerState.STARTING;
+                serverInfo.setState(InstanceState.STARTING);
             }
         }
     }
@@ -528,9 +520,6 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         if (hasAltDown()) {
             glfwModifiers |= GLFW.GLFW_MOD_ALT;
         }
-//        if (hasMetaDown()) {
-//            glfwModifiers |= GLFW.GLFW_MOD_SUPER;
-//        }
         return KeyCodeConverter.toAwtModifiers(glfwModifiers);
     }
 
@@ -654,10 +643,6 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         return myTerminalStarter != null && (myMouseMode != MouseMode.MOUSE_REPORTING_NONE || myTextBuffer.isUsingAlternateBuffer()) && (awtModifiers & InputEvent.SHIFT_MASK) == 0;
     }
 
-    private boolean isLocalMouseAction(int button, int awtModifiers) {
-        return mySettingsProvider.forceActionOnMouseReporting() || (awtModifiers & InputEvent.SHIFT_MASK) != 0 || (myMouseMode == MouseMode.MOUSE_REPORTING_NONE && !myTextBuffer.isUsingAlternateBuffer());
-    }
-
     private MouseEvent createJediTermMouseEvent(int button, int awtModifiers) {
         int jediButton = switch (button) {
             case GLFW.GLFW_MOUSE_BUTTON_LEFT -> MouseButtonCodes.LEFT;
@@ -674,14 +659,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
     }
 
     private boolean isAltPressedOnly(int awtModifiers) {
-        return (awtModifiers & InputEvent.ALT_MASK) != 0 && (awtModifiers & InputEvent.CTRL_MASK) == 0 && (awtModifiers & InputEvent.SHIFT_MASK) == 0 && (awtModifiers & InputEvent.META_MASK) == 0;
-    }
-
-    private static char simpleMapKeyCodeToChar(int awtKeyCode, int awtModifiers) {
-        if ((awtModifiers & InputEvent.SHIFT_MASK) != 0) {
-            return Character.toUpperCase((char) awtKeyCode);
-        }
-        return Character.toLowerCase((char) awtKeyCode);
+        return (awtModifiers & InputEvent.ALT_MASK) != 0 && (awtModifiers & InputEvent.CTRL_MASK) == 0 && (awtModifiers & InputEvent.SHIFT_MASK) == 0;
     }
 
     @Override
@@ -740,7 +718,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
             char c = (char)awtKeyCode;
             if (Character.isLetterOrDigit(c)) {
                 if (myTerminalStarter != null) {
-                    myTerminalStarter.sendString(new String(new char[]{Ascii.ESC, simpleMapKeyCodeToChar(awtKeyCode, awtModifiers)}), true);
+                    myTerminalStarter.sendString(new String(new char[]{Ascii.ESC, (char) awtKeyCode}), true);
                 }
                 return true;
             }
@@ -763,7 +741,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
     private boolean isCopyAction(int code, int modifiers) {
         if (isMacOS()) {
-            return code == KeyEvent.VK_C && modifiers == InputEvent.META_DOWN_MASK;
+            return code == KeyEvent.VK_C && modifiers == 0;
         } else {
             return code == KeyEvent.VK_C && modifiers == (InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK);
         }
@@ -771,7 +749,7 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
 
     private boolean isPasteAction(int code, int modifiers) {
         if (isMacOS()) {
-            return code == KeyEvent.VK_V && modifiers == InputEvent.META_DOWN_MASK;
+            return code == KeyEvent.VK_V && modifiers == 0;
         } else {
             return code == KeyEvent.VK_V && modifiers == (InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK);
         }
@@ -846,13 +824,13 @@ public class TerminalWidget extends AnimatedWidget implements TerminalDisplay {
         scrollY = MathHelper.clamp(scrollY, 0, maxScroll);
     }
 
-    public ServerInfo getServerInfo() {
+    public Instance getServerInfo() {
         return serverInfo;
     }
 
-    public void setServerState(ServerState state) {
+    public void setServerState(InstanceState state) {
         if (this.serverInfo != null) {
-            this.serverInfo.state = state;
+            this.serverInfo.setState(state);
         }
     }
 
