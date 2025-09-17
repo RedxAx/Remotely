@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static redxax.oxy.remotely.config.Config.mainMenuStyle;
+import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 @Mixin(TitleScreen.class)
 public abstract class TitleScreenMixin extends net.minecraft.client.gui.screen.Screen {
@@ -140,7 +141,7 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screen.S
 
     @Unique
     private void openFileExplorerScreen() {
-        RemotelyClient.INSTANCE.openFileExplorer(this);
+        RemotelyClient.INSTANCE.openFileExplorer(null, remotelyDir);
     }
 
     @Unique

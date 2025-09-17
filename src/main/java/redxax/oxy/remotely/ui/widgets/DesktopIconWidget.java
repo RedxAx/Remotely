@@ -8,7 +8,6 @@ import restudio.rescreen.ui.widgets.AnimatedWidget;
 import java.awt.image.BufferedImage;
 import java.util.function.BiConsumer;
 
-import static redxax.oxy.remotely.Render.*;
 import static restudio.rescreen.config.Config.globalTextColor;
 import static redxax.oxy.remotely.RemotelyClient.tr;
 
@@ -52,7 +51,7 @@ public class DesktopIconWidget extends AnimatedWidget {
         ctx.drawPixelArt(icon, iconX, iconY, iconSize, iconSize);
 
         String name = getMessage();
-        String trimmed = trimTextToWidthWithEllipsis(name, getWidth() + 4);
+        String trimmed = tr.trimToWidth(name, getWidth() + 4);
         int textWidth = tr.getWidth(trimmed);
         int textX = getX() + (getWidth() - textWidth) / 2;
         int textY = iconY + iconSize + 4;
@@ -70,7 +69,7 @@ public class DesktopIconWidget extends AnimatedWidget {
         }
     }
 
-    public Instance getServerInfo() {
+    public Instance getInstance() {
         return serverInfo;
     }
 
