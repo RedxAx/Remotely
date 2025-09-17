@@ -3,7 +3,6 @@ package redxax.oxy.remotely.ui.tests;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.terminal.MultiTerminalScreen;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Notification;
@@ -54,7 +53,6 @@ public class WidgetsTestingScreen extends ReScreen {
         addDrawableChild(contextMenu);
 
         headerBuilder.addLeft("remotely.png", () -> client.setScreen(new WidgetsTestingScreen()), "Reload Screen")
-                .addLeft("terminal.png", () -> client.setScreen(new MultiTerminalScreen(this, RemotelyClient.INSTANCE)), "Terminal")
                 .addLeft("external.png", () -> client.setScreen(new ContainerTestingScreen()), "Open Container Testing Screen")
                 .addLeft("start.png", null, "Start")
                 .addRight("close.png", () -> client.setScreen(null), "Close Screen")

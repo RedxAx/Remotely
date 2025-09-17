@@ -1,22 +1,18 @@
 package redxax.oxy.remotely.servers;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.jcraft.jsch.JSch;
-import com.jcraft.jsch.JSchException;
-import com.jcraft.jsch.Session;
 import net.minecraft.client.MinecraftClient;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.SSHManager;
+import redxax.oxy.remotely.RemotelyManager;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
-import redxax.oxy.remotely.config.SettingsScreen;
-import redxax.oxy.remotely.explorer.FileExplorerScreen;
-import redxax.oxy.remotely.resources.ResourceManagerScreen;
-import redxax.oxy.remotely.terminal.MultiTerminalScreen;
+import redxax.oxy.remotely.config.SettingsScreenFactory;
+import redxax.oxy.remotely.ui.screens.RemotelyInstanceDetailsScreen;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
+import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceManager;
+import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
+import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -30,11 +26,9 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
@@ -56,7 +50,6 @@ public class ServerManagerScreen extends ReScreen {
     private AnimatedButton remoteHostDeleteButton;
     private restudio.rescreen.ui.core.Screen parent;
     private net.minecraft.client.gui.screen.Screen mcParent;
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt;
     private InstanceManager instanceManager;
@@ -64,29 +57,31 @@ public class ServerManagerScreen extends ReScreen {
     public ServerManagerScreen(restudio.rescreen.ui.core.Screen parent, RemotelyClient remotelyClient) {
         super();
         this.parent = parent;
+        this.mcParent = null;
         this.remotelyClient = remotelyClient;
     }
 
     public ServerManagerScreen(net.minecraft.client.gui.screen.Screen parent, RemotelyClient remotelyClient) {
         super();
         this.mcParent = parent;
+        this.parent = null;
         this.remotelyClient = remotelyClient;
     }
 
     @Override
     public void init() {
         super.init();
-        this.instanceManager = InstanceManager.getInstance();
+        this.instanceManager = Rebase.get().getInstanceManager();
         instanceManager.loadInstances();
         loadIcons();
         createPopups();
 
         int taskbarHeight = 28;
         header().position(HeaderBuilder.Position.BOTTOM).size(taskbarHeight)
-                .addLeft("terminal.png", () -> client.setScreen(new MultiTerminalScreen(this, remotelyClient)), "Terminal")
+                .addLeft("terminal.png", () -> remotelyClient.openMultiTerminal(this), "Terminal")
                 .addLeft("explorer.png", this::openFileExplorer, "File Explorer")
-                .addLeft("minibrowser.png", this::openBrowser, "Web Browser")
-                .addLeft("remotely.png", () -> client.setScreen(new SettingsScreen(this, (RemotelyConfigManager) restudio.rescreen.config.Config.configManager)), "Settings")
+                .addLeft("minibrowser.png", () -> remotelyClient.openBrowser(this), "Web Browser")
+                .addLeft("remotely.png", () -> client.setScreen(SettingsScreenFactory.createGlobalSettingsScreen( this,(RemotelyConfigManager) Rebase.get().getConfigManager())), "Settings")
                 .build();
 
         tabs().builder()
@@ -94,12 +89,11 @@ public class ServerManagerScreen extends ReScreen {
                 .size(width / 2 - 5, 18)
                 .rightToLeft(true)
                 .allowAdd(true)
-                .allowRename(false).allowReorder(false).allowClose(false)
+                .allowRename(true).allowReorder(true).allowClose(true)
                 .onPlusButtonClicked(() -> openRemoteHostPopup(false))
                 .onTabSelected(this::onHostTabSelected)
-                .onTabClosed(tab -> instanceManager.saveRemoteHosts())
-                .onTabsReordered(tabs -> {
-                })
+                .onTabClosed(this::onHostTabClosed)
+                .onTabRenamed(this::onHostTabRenamed)
                 .build();
 
         Container desktopContainer = createContainer("desktop", 0, 0, width, height - 35);
@@ -166,6 +160,18 @@ public class ServerManagerScreen extends ReScreen {
         }
     }
 
+    private void onHostTabClosed(TabsManager.Tab tab) {
+        if (tab.getData() instanceof RemoteHost host) {
+            instanceManager.removeRemoteHost(host);
+        }
+    }
+
+    private void onHostTabRenamed(TabsManager.Tab tab) {
+        if (tab.getData() instanceof RemoteHost host) {
+            openRemoteHostPopup(true);
+        }
+    }
+
     private void onDesktopIconClick(DesktopIconWidget widget, int button) {
         if (button == 0) {
             if (widget.isCreateButton()) {
@@ -174,17 +180,17 @@ public class ServerManagerScreen extends ReScreen {
                 addServerPopup.setY((this.height - addServerPopup.getHeight())/2);
                 addServerPopup.show();
             } else {
-                openServerScreen(widget.getServerInfo());
+                openServerScreen(widget.getInstance());
             }
         } else if (button == 1) {
             if (!widget.isCreateButton()) {
                 activeContainer.clearSelection();
                 activeContainer.addSelectedWidget(widget);
                 ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
-                        .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getServerInfo().getPath(), widget.getServerInfo())), "Edit Server's Settings")
-                        .addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getServerInfo(), false)), "Open Server's Folder")
+                        .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, Path.of(remotelyDir.toString(), "servers"), widget.getInstance(), widget.getInstance().getRemoteHost())), "Edit Server's Settings")
+                        .addHeaderButton("explorer.png", () -> remotelyClient.openFileExplorer(this, Path.of(widget.getInstance().getPath())), "Open Server's Folder")
                         .addHeaderButton("delete.png", () -> {
-                            instanceForDeletion = widget.getServerInfo();
+                            instanceForDeletion = widget.getInstance();
                             deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
                             deleteServerPopup.setY((this.height - deleteServerPopup.getHeight())/2);
                             deleteServerPopup.show();
@@ -206,17 +212,7 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void openFileExplorer() {
-        int activeTabIndex = tabs().getActiveTabIndex();
-        if (activeTabIndex == 0) {
-            client.setScreen(new FileExplorerScreen(this, new Instance("local", "", remotelyDir.toString()), false));
-        } else {
-            RemoteHost host = (RemoteHost) tabs().getTabs().get(activeTabIndex).getData();
-            client.setScreen(new FileExplorerScreen(this, host));
-        }
-    }
-
-    private void openBrowser() {
-        client.setScreen(new BrowserScreen(this, "www.google.com"));
+        remotelyClient.openFileExplorer(this, remotelyDir);
     }
 
     private void createPopups() {
@@ -230,10 +226,12 @@ public class ServerManagerScreen extends ReScreen {
                 .size(260, 140)
                 .onClose(() -> addServerPopup.hide());
 
+        RemoteHost currentHost = (tabs().getActiveTabIndex() > 0) ? (RemoteHost) tabs().getActiveTab().getData() : null;
+
         AnimatedButton createBtn = new AnimatedButton.Builder()
                 .label(("Server Creation"))
                 .onClick(() -> {
-                    client.setScreen(new ServerConfigurationScreen(this, Path.of(String.valueOf(remotelyDir), "servers").toString(), null));
+                    client.setScreen(new ServerConfigurationScreen(this, Path.of(String.valueOf(remotelyDir), "servers"), null, currentHost));
                     addServerPopup.hide();
                 })
                 .build();
@@ -325,24 +323,25 @@ public class ServerManagerScreen extends ReScreen {
         remoteHostPopup.hide();
         addDrawableChild(remoteHostPopup);
     }
+
     private void connectRemoteHostAsync(RemoteHost hostInfo) {
         hostInfo.isConnecting = true;
         new Thread(() -> {
             restudio.rebase.util.ssh.SSHManager sshManager = hostInfo.getSshManager();
-            if (sshManager != null && sshManager.isSSH()) {
-                hostInfo.isConnected = true;
-                hostInfo.connectionError = null;
+            if (sshManager != null) {
+                sshManager.connectToRemoteHost(hostInfo.getUser(), hostInfo.getIp(), hostInfo.getPort(), hostInfo.getPassword());
+                hostInfo.isConnected = sshManager.isSSH();
             } else {
                 hostInfo.isConnected = false;
-                hostInfo.connectionError = "Failed to connect.";
             }
+            hostInfo.connectionError = hostInfo.isConnected ? null : "Failed to connect.";
             hostInfo.isConnecting = false;
         }).start();
     }
 
     private void openRemoteHostPopup(boolean isEditing) {
         int activeTabIndex = tabs().getActiveTabIndex();
-        if (isEditing) {
+        if (isEditing && activeTabIndex > 0) {
             RemoteHost host = (RemoteHost) tabs().getTabs().get(activeTabIndex).getData();
             remoteHostConfirmButton.setMessage(("Save"));
             remoteHostDeleteButton.visible = true;
@@ -368,60 +367,43 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void onConfirmRemoteHost() {
-        String name = remoteHostNameInput.getText().trim();
-        String user = remoteHostUserInput.getText().trim();
-        String ip = remoteHostIpInput.getText().trim();
-        String portStr = remoteHostPortInput.getText().trim();
-        String password = remoteHostPasswordInput.getText();
+        RemoteHost host;
+        boolean isEditing = tabs().getActiveTabIndex() > 0 && "Save".equals(remoteHostConfirmButton.getMessage());
 
-        if (name.isEmpty() || ip.isEmpty() || portStr.isEmpty()) {
-            new Notification("All fields must be filled!", Notification.Type.ERROR);
-            return;
-        }
-
-        boolean isEditing = remoteHostConfirmButton.getMessage().equals("Save");
-
-        if (!isEditing && !testSSHConnection(user, ip, portStr, password)) {
-            new Notification("Invalid details or Connection Failed", Notification.Type.ERROR);
-            return;
-        }
-
-        RemoteHost rh;
         if (isEditing) {
-            rh = (RemoteHost) tabs().getActiveTab().getData();
-            rh.name = name;
-            rh.user = user;
-            rh.ip = ip;
-            try {
-                rh.port = Integer.parseInt(portStr);
-            } catch (NumberFormatException e) {
-                rh.port = 22;
-            }
-            rh.password = password;
-            tabs().getActiveTab().setName(name);
-            instanceManager.updateRemoteHost(rh);
-            closeRemoteHostPopup();
+            host = (RemoteHost) tabs().getActiveTab().getData();
         } else {
-            rh = new RemoteHost();
-            rh.name = name;
-            rh.user = user;
-            rh.ip = ip;
-            try {
-                rh.port = Integer.parseInt(portStr);
-            } catch (NumberFormatException e) {
-                rh.port = 22;
-            }
-            rh.password = password;
-            instanceManager.addRemoteHost(rh);
-
-            Container c = createContainer("desktop_remote_" + rh.name, 0, 0, width, height - 35);
-            c.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true);
-            TabsManager.Tab newTab = tabs().addTab(rh.name, c);
-            newTab.setData(rh);
-            tabs().setActiveTab(tabs().getTabs().size() - 1);
-
-            closeRemoteHostPopup();
+            host = new RemoteHost();
         }
+
+        host.name = remoteHostNameInput.getText();
+        host.user = remoteHostUserInput.getText();
+        host.ip = remoteHostIpInput.getText();
+        try {
+            host.port = Integer.parseInt(remoteHostPortInput.getText());
+        } catch (NumberFormatException e) {
+            new Notification("Error", "Port must be a valid number.", Notification.Type.ERROR);
+            return;
+        }
+        host.password = remoteHostPasswordInput.getText();
+
+        if (host.name.isEmpty() || host.ip.isEmpty()) {
+            new Notification("Error", "Host Name and IP cannot be empty.", Notification.Type.ERROR);
+            return;
+        }
+
+        if (isEditing) {
+            instanceManager.updateRemoteHost(host);
+            tabs().getActiveTab().setName(host.name);
+        } else {
+            instanceManager.addRemoteHost(host);
+            Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
+            c.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true);
+            tabs().addTab(host.name, c).setData(host);
+            tabs().setActiveTab(tabs().getTabs().size() - 1);
+        }
+
+        closeRemoteHostPopup();
     }
 
     private void onDeleteRemoteHost() {
@@ -435,7 +417,11 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void openServerScreen(Instance info) {
-        client.setScreen(new MultiTerminalScreen(this, remotelyClient, info));
+        if (mcParent != null) {
+            client.setScreen(new RemotelyInstanceDetailsScreen(mcParent, info));
+        } else {
+            client.setScreen(new RemotelyInstanceDetailsScreen(parent, info));
+        }
     }
 
     public static void openServerScreen(String path) {
@@ -443,7 +429,7 @@ public class ServerManagerScreen extends ReScreen {
         InstanceManager.getInstance().getRemoteHosts().forEach(h -> allInstances.addAll(InstanceManager.getInstance().getRemoteInstances(h)));
         for (Instance info : allInstances) {
             if (info.getPath().equals(path)) {
-                ScreenManager.getInstance().setScreen(new MultiTerminalScreen(ScreenManager.currentScreen, RemotelyClient.INSTANCE, info));
+                ScreenManager.getInstance().setScreen(new RemotelyInstanceDetailsScreen(ScreenManager.currentScreen, info));
                 return;
             }
         }
@@ -456,12 +442,7 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void openImportFileExplorer() {
-        if (tabs().getActiveTabIndex() == 0) {
-            client.setScreen(new FileExplorerScreen(this, new Instance("import", "", remotelyDir.toString()), true));
-        } else {
-            RemoteHost remoteHost = (RemoteHost) tabs().getActiveTab().getData();
-            client.setScreen(new FileExplorerScreen(this, remoteHost));
-        }
+        client.setScreen(new FileExplorerScreen(parent, null, remotelyDir, Path.of(remotelyDir.toString(), "data"), true));
     }
 
     private void openModpackInstallation() {
@@ -474,18 +455,12 @@ public class ServerManagerScreen extends ReScreen {
                 serverInfo.setRemote(true);
                 serverInfo.setRemoteHost(remoteHost);
                 serverInfo.setPath(remoteHost.getHomeDirectory() + "remotely/servers/" + serverInfo.getName());
-                restudio.rebase.util.ssh.SSHManager sshManager = remoteHost.getSshManager();
-                if (sshManager == null || !sshManager.isSSH()) {
-                    new Notification("Could not connect to remote host for modpack installation.", Notification.Type.ERROR);
-                    return;
-                }
             } else {
                 serverInfo.setRemote(false);
                 serverInfo.setRemoteHost(null);
                 serverInfo.setPath(remotelyDir + "/servers/" + serverInfo.getName());
             }
-            ResourceManagerScreen modManagerScreen = new ResourceManagerScreen(this, serverInfo);
-            client.setScreen(modManagerScreen);
+            client.setScreen(new ResourceBrowserScreen(this, serverInfo));
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -495,29 +470,6 @@ public class ServerManagerScreen extends ReScreen {
     public void removed() {
         remotelyClient.saveTabIndex(tabs().getActiveTabIndex());
         super.removed();
-    }
-
-    private boolean testSSHConnection(String user, String ip, String portStr, String password) {
-        int port = 22;
-        try {
-            port = Integer.parseInt(portStr);
-        } catch (NumberFormatException ignored) {}
-
-        Session session = null;
-        try {
-            JSch jsch = new JSch();
-            session = jsch.getSession(user, ip, port);
-            session.setPassword(password);
-            session.setConfig("StrictHostKeyChecking", "no");
-            session.connect(10000);
-            return session.isConnected();
-        } catch (JSchException e) {
-            return false;
-        } finally {
-            if (session != null && session.isConnected()) {
-                session.disconnect();
-            }
-        }
     }
 
     private BufferedImage getServerIcon(Instance server) {
@@ -531,16 +483,11 @@ public class ServerManagerScreen extends ReScreen {
         } catch (IOException e) {
             devPrint("Failed to load server icon: " + e.getMessage());
         }
-        return switch (server.getModLoader().name().toLowerCase()) {
+        return switch (server.getModLoader().name().toLowerCase(Locale.ROOT)) {
             case "vanilla" -> vanilla;
             case "fabric" -> fabric;
             case "forge" -> forge;
-            case "paper" -> paper;
             case "neoforge" -> neoforge;
-            case "velocity" -> velocity;
-            case "waterfall" -> waterfall;
-            case "leaf" -> leaf;
-            case "quilt" -> quilt;
             default -> unknown;
         };
     }
@@ -549,5 +496,16 @@ public class ServerManagerScreen extends ReScreen {
     public void onDisplayed() {
         super.onDisplayed();
         playSound(Sound.SERVERMANAGER);
+    }
+
+    @Override
+    public void close() {
+        if (parent != null) {
+            client.setScreen(parent);
+        } else if (mcParent != null) {
+            MinecraftClient.getInstance().setScreen(mcParent);
+        } else {
+            super.close();
+        }
     }
 }

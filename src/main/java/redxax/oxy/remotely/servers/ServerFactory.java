@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.servers;
 
 
+import restudio.rebase.instance.InstanceManager;
 import restudio.rescreen.util.Notification;
 
 import java.io.BufferedReader;
@@ -75,7 +76,7 @@ public class ServerFactory {
                 return scriptCode;
             }
             devPrint("Server '" + serverName + "' setup process initiated successfully in " + serverDir.toAbsolutePath());
-            ServerManagerScreen.addServer(serverName, serverDir.toString(), serverType, serverVersion, false, null);
+//            ServerManagerScreen.addServer(serverName, serverDir.toString(), serverType, serverVersion, false, null);
             return 0;
         } catch (IOException e) {
             return 98;

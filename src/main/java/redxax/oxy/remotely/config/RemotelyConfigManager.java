@@ -1,10 +1,9 @@
 package redxax.oxy.remotely.config;
 
-import restudio.rescreen.config.ConfigManager;
+import restudio.rebase.config.RebaseConfigManager;
 import java.nio.file.Path;
-import static redxax.oxy.remotely.config.Config.*;
 
-public class RemotelyConfigManager extends ConfigManager {
+public class RemotelyConfigManager extends RebaseConfigManager {
 
     public RemotelyConfigManager(Path applicationDir) {
         super(applicationDir);
@@ -13,17 +12,17 @@ public class RemotelyConfigManager extends ConfigManager {
     @Override
     public void apply() {
         super.apply();
-        wallpaper = getWallpaper();
+        Config.wallpaper = getWallpaper();
         restudio.rescreen.config.Config.background = getBackground();
-        customReverseProxy = getCustomReverseProxy();
-        proxyHost = getProxyHost();
-        proxyUser = getProxyUser();
-        isDev = isDev();
-        enableDebugTools = getEnableDebugTools();
-        mainMenuStyle = getMainMenuStyle();
-        redesignMainMenu = getRedesignMainMenu();
-        scanServers = getScanServers();
-        showIp = getShowIp();
+        Config.customReverseProxy = getCustomReverseProxy();
+        Config.proxyHost = getProxyHost();
+        Config.proxyUser = getProxyUser();
+        Config.isDev = isDev();
+        Config.enableDebugTools = getEnableDebugTools();
+        Config.mainMenuStyle = getMainMenuStyle();
+        Config.redesignMainMenu = getRedesignMainMenu();
+        Config.scanServers = getScanServers();
+        Config.showIp = getShowIp();
     }
 
     public boolean getWallpaper() { return Boolean.parseBoolean(properties.getProperty("remotely.wallpaper", "false")); }

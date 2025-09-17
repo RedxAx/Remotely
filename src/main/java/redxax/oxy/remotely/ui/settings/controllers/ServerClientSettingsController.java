@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
-import restudio.rescreen.ui.settings.Setting;
+import restudio.rebase.ui.settings.Setting;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 

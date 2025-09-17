@@ -43,7 +43,7 @@ dependencies {
 
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     implementation("com.jcraft:jsch:0.1.55")
-    implementation("com.vladsch.flexmark:flexmark:0.62.2")
+    implementation("com.vladsch.flexmark:flexmark-all:0.64.8")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
 
     implementation("org.jetbrains.pty4j:pty4j:0.13.10-1")

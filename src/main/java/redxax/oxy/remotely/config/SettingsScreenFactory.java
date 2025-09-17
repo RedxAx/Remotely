@@ -4,23 +4,18 @@ import redxax.oxy.remotely.ui.settings.controllers.AppearanceSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.DevelopmentSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerClientSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.SoundSettingsController;
-import restudio.rescreen.ui.core.Screen;
-import restudio.rescreen.ui.settings.Setting;
+import restudio.rebase.ui.settings.Setting;
+import restudio.rebase.ui.settings.SettingsScreen;
+import restudio.rescreen.ui.rescreen.ReScreen;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
-public class SettingsScreen extends restudio.rescreen.ui.settings.SettingsScreen {
+public class SettingsScreenFactory {
 
-    public SettingsScreen(Screen parentScreen, RemotelyConfigManager configManager) {
-        super(parentScreen, "Remotely Settings", createSettingsMap(configManager), () -> {
-            if (configManager != null) configManager.save();
-        }, null);
-    }
-
-    private static Map<String, Supplier<List<Setting>>> createSettingsMap(RemotelyConfigManager configManager) {
+    public static SettingsScreen createGlobalSettingsScreen(ReScreen parent, RemotelyConfigManager configManager) {
         Map<String, Supplier<List<Setting>>> settingsByTab = new LinkedHashMap<>();
 
         AppearanceSettingsController appearanceController = new AppearanceSettingsController(configManager);
@@ -35,11 +30,8 @@ public class SettingsScreen extends restudio.rescreen.ui.settings.SettingsScreen
         DevelopmentSettingsController devController = new DevelopmentSettingsController(configManager);
         settingsByTab.put("Development", devController::getSettings);
 
-        return settingsByTab;
-    }
-
-    @Override
-    public int getColumns() {
-        return 2;
+        return new SettingsScreen(parent, "Remotely Settings", settingsByTab, () -> {
+            if (configManager != null) configManager.save();
+        }, null);
     }
 }
