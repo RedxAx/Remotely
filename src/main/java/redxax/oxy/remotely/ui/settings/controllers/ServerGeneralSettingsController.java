@@ -4,12 +4,14 @@ import net.minecraft.client.MinecraftClient;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.ui.settings.Setting;
+import restudio.rescreen.ui.widgets.ScrollSelectorWidget;
 import restudio.rescreen.ui.widgets.TabSwitchWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class ServerGeneralSettingsController {
     private final Instance instance;
@@ -61,10 +63,10 @@ public class ServerGeneralSettingsController {
                 .build();
         general.addRow("Hardcore", false, 20, hardcoreWidget);
 
-        List<String> serverTypes = Arrays.asList("Vanilla", "Fabric", "Forge", "NeoForge");
-        TabSwitchWidget serverTypeWidget = new TabSwitchWidget.Builder()
+        List<String> serverTypes = Arrays.stream(ModLoader.values()).map(ModLoader::toString).collect(Collectors.toList());
+        ScrollSelectorWidget serverTypeWidget = new ScrollSelectorWidget.Builder()
                 .options(serverTypes)
-                .currentIndex(Arrays.asList(ModLoader.values()).indexOf(instance.getModLoader()))
+                .selectedIndex(Arrays.asList(ModLoader.values()).indexOf(instance.getModLoader()))
                 .onChange(index -> instance.setModLoader(ModLoader.values()[index]))
                 .build();
         general.addRow("Server Type", true, 20, serverTypeWidget);

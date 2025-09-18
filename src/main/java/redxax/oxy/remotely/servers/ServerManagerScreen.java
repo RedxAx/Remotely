@@ -51,7 +51,7 @@ public class ServerManagerScreen extends ReScreen {
     private restudio.rescreen.ui.core.Screen parent;
     private net.minecraft.client.gui.screen.Screen mcParent;
 
-    private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt;
+    private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
     private InstanceManager instanceManager;
 
     public ServerManagerScreen(restudio.rescreen.ui.core.Screen parent, RemotelyClient remotelyClient) {
@@ -116,6 +116,9 @@ public class ServerManagerScreen extends ReScreen {
             velocity = loadResourceIcon("velocity.png");
             leaf = loadResourceIcon("leaf.png");
             quilt = loadResourceIcon("quilt.png");
+            spigot = loadResourceIcon("spigot.png");
+            bukkit = loadResourceIcon("bukkit.png");
+            purpur = loadResourceIcon("purpur.png");
         } catch (Exception e) {
             new Notification("Failed to load icons: " + e.getMessage(), Notification.Type.ERROR);
         }
@@ -488,6 +491,13 @@ public class ServerManagerScreen extends ReScreen {
             case "fabric" -> fabric;
             case "forge" -> forge;
             case "neoforge" -> neoforge;
+            case "paper" -> paper;
+            case "purpur" -> purpur;
+            case "spigot" -> spigot;
+            case "bukkit" -> bukkit;
+            case "leaf" -> leaf;
+            case "velocity" -> velocity;
+            case "waterfall" -> waterfall;
             default -> unknown;
         };
     }

@@ -95,13 +95,7 @@ public class RemotelyClient {
     }
 
     public void shutdownAllTerminals() {
-        for (ReScreen.TabsManager.Tab tab : multiTerminalTabs) {
-            if (tab.getData() instanceof TerminalWidget widget) {
-                widget.shutdown();
-            }
-        }
-        multiTerminalTabs.clear();
-
+        TerminalWidget.shutdownAll();
         saveSnippets();
     }
 

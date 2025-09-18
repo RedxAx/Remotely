@@ -1,9 +1,9 @@
 package redxax.oxy.remotely.adapters;
 
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.util.math.RotationAxis;
 import org.joml.Vector3f;
+import restudio.rebase.ui.text.StyledText;
 import restudio.rescreen.platform.IMatrixStack;
 import restudio.rescreen.platform.IDrawContext;
 import net.minecraft.client.util.math.MatrixStack;
@@ -92,7 +92,11 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void drawStyledText(Object text, int x, int y, int color, boolean shadow) {
-        TextRenderer.drawStyled(this, text, x, y, color, shadow);
+        if (text instanceof StyledText styledText) {
+            drawText(styledText.text, x, y, styledText.color, shadow);
+        } else {
+            TextRenderer.drawStyled(this, text, x, y, color, shadow);
+        }
     }
 
     @Override
