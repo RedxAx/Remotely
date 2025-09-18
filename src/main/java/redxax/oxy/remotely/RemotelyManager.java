@@ -58,6 +58,11 @@ public class RemotelyManager implements IRebaseManager {
 
         this.instanceResourceManager = new InstanceResourceManager(resourceMetadataManager, cacheManager, resourceProviders);
         this.updateManager = new UpdateManager(applicationDir);
+        init();
+    }
+
+    private void init() {
+        javaManager.refreshRuntimes();
     }
 
 
