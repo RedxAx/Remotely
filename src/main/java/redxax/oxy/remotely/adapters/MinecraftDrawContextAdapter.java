@@ -71,14 +71,35 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     }
 
     @Override
-    public void fillGradient(int i, int i1, int i2, int i3, int i4, int i5, boolean b) {
-        if (!b) {
-            dc.fillGradient(i, i1, i2, i3, i4, i5);
+    public void fillGradient(int x1, int y1, int x2, int y2, int color1, int color2, boolean horizontal) {
+        if (!horizontal) {
+            dc.fillGradient(x1, y1, x2, y2, color1, color2);
         } else {
-            matrices.push();
-            matrices.scale(1, -1, 1);
-            dc.fillGradient(i, -i3, i2, -i1, i4, i5);
-            matrices.pop();
+            float a1 = (float)(color1 >> 24 & 255);
+            float r1 = (float)(color1 >> 16 & 255);
+            float g1 = (float)(color1 >> 8 & 255);
+            float b1 = (float)(color1 & 255);
+
+            float a2 = (float)(color2 >> 24 & 255);
+            float r2 = (float)(color2 >> 16 & 255);
+            float g2 = (float)(color2 >> 8 & 255);
+            float b2 = (float)(color2 & 255);
+
+            int width = x2 - x1;
+            if (width <= 0) return;
+
+            for (int i = 0; i < width; i++) {
+                float t = (width == 1) ? 0.0f : (float) i / (float) (width - 1);
+
+                int a = (int) (a1 * (1 - t) + a2 * t);
+                int r = (int) (r1 * (1 - t) + r2 * t);
+                int g = (int) (g1 * (1 - t) + g2 * t);
+                int b = (int) (b1 * (1 - t) + b2 * t);
+
+                int interpolatedColor = (a << 24) | (r << 16) | (g << 8) | b;
+
+                dc.fill(x1 + i, y1, x1 + i + 1, y2, interpolatedColor);
+            }
         }
     }
 
@@ -92,11 +113,7 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void drawStyledText(Object text, int x, int y, int color, boolean shadow) {
-        if (text instanceof StyledText styledText) {
-            drawText(styledText.text, x, y, styledText.color, shadow);
-        } else {
-            TextRenderer.drawStyled(this, text, x, y, color, shadow);
-        }
+        TextRenderer.drawStyled(this, text, x, y, color, shadow);
     }
 
     @Override
