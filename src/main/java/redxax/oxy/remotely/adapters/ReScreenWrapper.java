@@ -20,8 +20,6 @@ public class ReScreenWrapper extends Screen {
     protected void init() {
         super.init();
 
-        syncReScreenTimingAndAnimationConfig();
-
         sm.setGuiScale((float) this.client.getWindow().getScaleFactor());
         sm.updateDimensions(MinecraftClient.getInstance().getWindow().getWidth(), MinecraftClient.getInstance().getWindow().getHeight());
 
@@ -106,15 +104,5 @@ public class ReScreenWrapper extends Screen {
         super.onDisplayed();
         restudio.rescreen.ui.core.Screen current = sm.getCurrentScreen();
         if (current != null) current.onDisplayed();
-    }
-
-    private void syncReScreenTimingAndAnimationConfig() {
-//        restudio.rescreen.config.Config.globalExpandSpeed = redxax.oxy.remotely.config.Config.globalExpandSpeed;
-//        restudio.rescreen.config.Config.globalMovementSpeed = redxax.oxy.remotely.config.Config.globalMovementSpeed;
-//        restudio.rescreen.config.Config.globalScrollSpeed = redxax.oxy.remotely.config.Config.globalScrollSpeed;
-//        restudio.rescreen.config.Config.scaleAnimationSpeed = redxax.oxy.remotely.config.Config.scaleAnimationSpeed;
-//        restudio.rescreen.config.Config.animScaleFactor = (float) this.client.getWindow().getScaleFactor();
-//        restudio.rescreen.config.Config.targetScaleFactor = (float) this.client.getWindow().getScaleFactor();
-//        restudio.rescreen.config.Config.shadow = redxax.oxy.remotely.config.Config.shadow;
     }
 }

@@ -1,6 +1,5 @@
 package redxax.oxy.remotely;
 
-import com.google.gson.Gson;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.util.Identifier;
 import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
@@ -14,7 +13,6 @@ import restudio.rebase.ui.widgets.TerminalWidget;
 
 import net.minecraft.client.MinecraftClient;
 import restudio.rescreen.platform.ITextRenderer;
-import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.config.Config;
 
 import java.io.File;
@@ -27,12 +25,6 @@ import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
 public class RemotelyClient {
 
-    public List<ReScreen.TabsManager.Tab> multiTerminalTabs = new ArrayList<>();
-
-    private static final Gson GSON = new Gson();
-    public int activeTerminalIndex = 0;
-    public boolean showSnippetsPanel = false;
-    public static List<CommandSnippet> globalSnippets = new ArrayList<>();
     public static RemotelyClient INSTANCE;
     private int activeHostIndex = 0;
     public static String os;
@@ -105,24 +97,6 @@ public class RemotelyClient {
 
     public int getSavedTabIndex() {
         return activeHostIndex;
-    }
-
-    public void saveFileEditorTabs(List<Path> tabs) {
-    }
-
-    public List<Path> loadFileEditorTabs() {
-        return new ArrayList<>();
-    }
-
-    public static class CommandSnippet {
-        public String name;
-        public String commands;
-        public String shortcut;
-        public CommandSnippet(String name, String commands, String shortcut) {
-            this.name = name;
-            this.commands = commands;
-            this.shortcut = shortcut;
-        }
     }
 
     public void saveSnippets() {
