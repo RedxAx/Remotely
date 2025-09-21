@@ -7,6 +7,7 @@ import org.lwjgl.glfw.GLFW;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
@@ -321,7 +322,7 @@ public class BrowserScreen extends ReScreen {
                 addNewTab();
                 return true;
             }
-            if (keyCode == GLFW.GLFW_KEY_W && tabs.size() > 0) {
+            if (keyCode == GLFW.GLFW_KEY_W && !tabs.isEmpty()) {
                 tabs().removeTab(tabs().getActiveTabIndex());
                 return true;
             }

@@ -15,6 +15,7 @@ import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Notification;
@@ -169,7 +170,7 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void onHostTabRenamed(TabsManager.Tab tab) {
-        if (tab.getData() instanceof RemoteHost host) {
+        if (tab.getData() instanceof RemoteHost) {
             openRemoteHostPopup(true);
         }
     }
