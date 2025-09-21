@@ -4,6 +4,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.render.VertexConsumerProvider.Immediate;
 import org.joml.Matrix4f;
+import restudio.rebase.ui.text.StyledText;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
 
@@ -33,6 +34,21 @@ public class MinecraftTextRendererAdapter implements ITextRenderer {
             int finalColor = (color == 0) ? 0xFFFFFFFF : color;
 
             tr.draw(mcText, (float) x, (float) y, finalColor, shadow, matrix, vcp, TextRenderer.TextLayerType.NORMAL, 0, 0xF000F0);
+            vcp.draw();
+        } else if (text instanceof StyledText styledText) {
+            if ((styledText.color >> 24 & 0xFF) == 0) {
+                return;
+            }
+            if (!(ctx instanceof MinecraftDrawContextAdapter mcCtx)) return;
+            Matrix4f matrix = mcCtx.getMcMatrices().peek().getPositionMatrix();
+            Immediate vcp = MinecraftClient.getInstance().getBufferBuilders().getEntityVertexConsumers();
+
+            net.minecraft.text.MutableText renderText = net.minecraft.text.Text.literal(styledText.text);
+            if (styledText.font instanceof net.minecraft.util.Identifier fontId) {
+                renderText.setStyle(net.minecraft.text.Style.EMPTY.withFont(fontId));
+            }
+
+            tr.draw(renderText, (float) x, (float) y, styledText.color, shadow, matrix, vcp, TextRenderer.TextLayerType.NORMAL, 0, 0xF000F0);
             vcp.draw();
         } else {
             draw(ctx, String.valueOf(text), x, y, color, shadow);
