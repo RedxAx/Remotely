@@ -1,7 +1,7 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
-import restudio.rebase.ui.settings.Setting;
+import restudio.rebase.settings.Setting;
 import restudio.rescreen.ui.widgets.DoubleSliderWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Sound;

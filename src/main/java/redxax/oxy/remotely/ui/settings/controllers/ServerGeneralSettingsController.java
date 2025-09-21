@@ -3,7 +3,7 @@ package redxax.oxy.remotely.ui.settings.controllers;
 import net.minecraft.client.MinecraftClient;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;
-import restudio.rebase.ui.settings.Setting;
+import restudio.rebase.settings.Setting;
 import restudio.rescreen.ui.widgets.ScrollSelectorWidget;
 import restudio.rescreen.ui.widgets.TabSwitchWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
