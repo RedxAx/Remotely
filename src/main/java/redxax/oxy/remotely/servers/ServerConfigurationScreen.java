@@ -7,15 +7,14 @@ import redxax.oxy.remotely.ui.settings.controllers.ServerPerformanceSettingsCont
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.ui.settings.Setting;
-import restudio.rebase.ui.settings.SettingsScreen;
+import restudio.rebase.settings.Setting;
+import restudio.rebase.settings.SettingsScreen;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
-import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +29,7 @@ public class ServerConfigurationScreen extends ReScreen {
     private final Instance tempInstance;
     private final RemoteHost remoteHostContext;
 
-    public ServerConfigurationScreen(Screen parent, Path settingsRoot, Instance instance, RemoteHost remoteHostContext) {
+    public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext) {
         super();
         this.parent = parent;
         this.isEditMode = instance != null;

@@ -118,7 +118,6 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
                     InstanceResourceWidget widget = new InstanceResourceWidget(this, instance, resource, this::loadResources);
                     widget.setHeight(30);
                     resourcesContainer.addWidget(widget);
-                    System.out.println("Loaded resource: " + resource.getName());
                 }
             }
             resourcesContainer.updateWidgetPositions();

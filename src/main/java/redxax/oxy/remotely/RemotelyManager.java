@@ -145,4 +145,9 @@ public class RemotelyManager implements IRebaseManager {
     public void log(String message) {
         System.out.println("[Remotely/Rebase] " + message);
     }
+
+    @Override
+    public String getName() {
+        return "Remotely";
+    }
 }

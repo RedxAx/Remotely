@@ -2,7 +2,6 @@ package redxax.oxy.remotely.servers;
 
 import net.minecraft.client.MinecraftClient;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.RemotelyManager;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.ui.screens.RemotelyInstanceDetailsScreen;
@@ -190,7 +189,7 @@ public class ServerManagerScreen extends ReScreen {
                 activeContainer.clearSelection();
                 activeContainer.addSelectedWidget(widget);
                 ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
-                        .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, Path.of(remotelyDir.toString(), "servers"), widget.getInstance(), widget.getInstance().getRemoteHost())), "Edit Server's Settings")
+                        .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), widget.getInstance().getRemoteHost())), "Edit Server's Settings")
                         .addHeaderButton("explorer.png", () -> remotelyClient.openFileExplorer(this, Path.of(widget.getInstance().getPath())), "Open Server's Folder")
                         .addHeaderButton("delete.png", () -> {
                             instanceForDeletion = widget.getInstance();
@@ -234,7 +233,7 @@ public class ServerManagerScreen extends ReScreen {
         AnimatedButton createBtn = new AnimatedButton.Builder()
                 .label(("Server Creation"))
                 .onClick(() -> {
-                    client.setScreen(new ServerConfigurationScreen(this, Path.of(String.valueOf(remotelyDir), "servers"), null, currentHost));
+                    client.setScreen(new ServerConfigurationScreen(this, null, currentHost));
                     addServerPopup.hide();
                 })
                 .build();
