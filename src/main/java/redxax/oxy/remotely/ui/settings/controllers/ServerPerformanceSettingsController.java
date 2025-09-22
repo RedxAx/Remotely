@@ -19,12 +19,12 @@ public class ServerPerformanceSettingsController {
     public List<Setting> getSettings() {
         Setting.Builder performance = new Setting.Builder("Performance Settings");
 
-        int viewDistance = Integer.parseInt(instance.getSettings().getProperty("view-distance", "8"));
-        DoubleSliderWidget viewDistanceSlider = createIntSlider(2, 32, viewDistance, val -> instance.getSettings().setProperty("view-distance", String.valueOf(val)));
+        int viewDistance = Integer.parseInt(instance.getServerProperties().getProperty("view-distance", "8"));
+        DoubleSliderWidget viewDistanceSlider = createIntSlider(2, 32, viewDistance, val -> instance.getServerProperties().setProperty("view-distance", String.valueOf(val)));
         performance.addRow("View Distance", true, 20, viewDistanceSlider);
 
-        int simDistance = Integer.parseInt(instance.getSettings().getProperty("simulation-distance", "8"));
-        DoubleSliderWidget simDistanceSlider = createIntSlider(2, 32, simDistance, val -> instance.getSettings().setProperty("simulation-distance", String.valueOf(val)));
+        int simDistance = Integer.parseInt(instance.getServerProperties().getProperty("simulation-distance", "8"));
+        DoubleSliderWidget simDistanceSlider = createIntSlider(2, 32, simDistance, val -> instance.getServerProperties().setProperty("simulation-distance", String.valueOf(val)));
         performance.addRow("Simulation Distance", true, 20, simDistanceSlider);
 
         TextInputWidget memoryWidget = new TextInputWidget.Builder()

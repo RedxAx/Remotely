@@ -150,4 +150,9 @@ public class RemotelyManager implements IRebaseManager {
     public String getName() {
         return "Remotely";
     }
+
+    @Override
+    public Path getInstancesDir() {
+        return remotelyDir.resolve("instances");
+    }
 }
