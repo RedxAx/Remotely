@@ -7,6 +7,7 @@ import redxax.oxy.remotely.adapters.ReScreenWrapper;
 import redxax.oxy.remotely.servers.BrowserScreen;
 import redxax.oxy.remotely.servers.ServerManagerScreen;
 import redxax.oxy.remotely.ui.screens.RemotelyInstanceDetailsScreen;
+import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.text.FontRegistry;
 import restudio.rebase.ui.widgets.TerminalWidget;
@@ -19,6 +20,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
@@ -30,6 +32,8 @@ public class RemotelyClient {
     public static String os;
     public static MinecraftClient mc = MinecraftClient.getInstance();
     public static ITextRenderer tr;
+    private final List<Object> multiTerminalTabs = new CopyOnWriteArrayList<>();
+    private int activeMultiTerminalTabIndex = 0;
 
     public void initialize() {
         INSTANCE = this;
@@ -59,11 +63,61 @@ public class RemotelyClient {
     }
 
     public void openMultiTerminal(Screen parent) {
-        mc.setScreen(new ReScreenWrapper(new RemotelyInstanceDetailsScreen(parent, null)));
+        if (multiTerminalTabs.isEmpty()) {
+            multiTerminalTabs.add(UUID.randomUUID().toString());
+            activeMultiTerminalTabIndex = 0;
+        }
+        mc.setScreen(new ReScreenWrapper(new RemotelyInstanceDetailsScreen(parent, this)));
     }
 
     public void openMultiTerminal(restudio.rescreen.ui.core.Screen parent) {
-        mc.setScreen(new ReScreenWrapper(new RemotelyInstanceDetailsScreen(parent, null)));
+        if (multiTerminalTabs.isEmpty()) {
+            multiTerminalTabs.add(UUID.randomUUID().toString());
+            activeMultiTerminalTabIndex = 0;
+        }
+        mc.setScreen(new ReScreenWrapper(new RemotelyInstanceDetailsScreen(parent, this)));
+    }
+
+    public void openInstanceInTerminal(Screen parent, Instance instance) {
+        boolean found = multiTerminalTabs.stream().anyMatch(o -> o instanceof Instance i && i.getInstanceId().equals(instance.getInstanceId()));
+        if (!found) {
+            multiTerminalTabs.add(instance);
+        }
+
+        for (int i = 0; i < multiTerminalTabs.size(); i++) {
+            Object o = multiTerminalTabs.get(i);
+            if (o instanceof Instance inst && inst.getInstanceId().equals(instance.getInstanceId())) {
+                activeMultiTerminalTabIndex = i;
+                break;
+            }
+        }
+
+        if (mc.currentScreen instanceof ReScreenWrapper wrapper && wrapper.getScreen() instanceof RemotelyInstanceDetailsScreen screen) {
+            screen.addInstanceTab(instance);
+        } else {
+            openMultiTerminal(parent);
+        }
+    }
+
+    public void openInstanceInTerminal(restudio.rescreen.ui.core.Screen parent, Instance instance) {
+        boolean found = multiTerminalTabs.stream().anyMatch(o -> o instanceof Instance i && i.getInstanceId().equals(instance.getInstanceId()));
+        if (!found) {
+            multiTerminalTabs.add(instance);
+        }
+
+        for (int i = 0; i < multiTerminalTabs.size(); i++) {
+            Object o = multiTerminalTabs.get(i);
+            if (o instanceof Instance inst && inst.getInstanceId().equals(instance.getInstanceId())) {
+                activeMultiTerminalTabIndex = i;
+                break;
+            }
+        }
+
+        if (mc.currentScreen instanceof ReScreenWrapper wrapper && wrapper.getScreen() instanceof RemotelyInstanceDetailsScreen screen) {
+            screen.addInstanceTab(instance);
+        } else {
+            openMultiTerminal(parent);
+        }
     }
 
     public void openServerManager(Screen parent) {
@@ -103,6 +157,18 @@ public class RemotelyClient {
     }
 
     public void loadSnippets() {
+    }
+
+    public List<Object> getMultiTerminalTabs() {
+        return multiTerminalTabs;
+    }
+
+    public int getActiveMultiTerminalTabIndex() {
+        return activeMultiTerminalTabIndex;
+    }
+
+    public void setActiveMultiTerminalTabIndex(int activeMultiTerminalTabIndex) {
+        this.activeMultiTerminalTabIndex = activeMultiTerminalTabIndex;
     }
 
     public static void migrateRemotelyData() {
