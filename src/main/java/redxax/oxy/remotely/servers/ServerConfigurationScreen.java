@@ -40,6 +40,7 @@ public class ServerConfigurationScreen extends ReScreen {
             this.tempInstance = new Instance(instance, instance.getName());
         } else {
             this.tempInstance = new Instance("New Server", MinecraftClient.getInstance().getGameVersion(), "");
+            this.tempInstance.loadServerProperties();
         }
     }
 
@@ -71,15 +72,12 @@ public class ServerConfigurationScreen extends ReScreen {
     private void saveConfiguration() {
         if (isEditMode) {
             editServer();
-            client.setScreen(parent);
-            return;
-        }
-
-        if (remoteHostContext != null) {
-            // TODO: Implement remote server creation
-            new Notification("Not Implemented", "Remote server creation is not yet supported.", Notification.Type.WARN);
         } else {
-            createNewLocalServer();
+            if (remoteHostContext != null) {
+                new Notification("Not Implemented", "Remote server creation is not yet supported.", Notification.Type.WARN);
+            } else {
+                createNewLocalServer();
+            }
         }
         client.setScreen(parent);
     }
@@ -91,6 +89,8 @@ public class ServerConfigurationScreen extends ReScreen {
 
         Rebase.get().getInstanceManager().createInstance(tempInstance, notification)
                 .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
+                    newInstance.getServerProperties().putAll(tempInstance.getServerProperties());
+                    newInstance.saveServerProperties();
                     notification.change(newInstance.getName() + " Created Successfully!", "Click To Open", Notification.Type.SUCCESS, () -> ServerManagerScreen.openServerScreen(newInstance.getPath()));
                     notification.loading = false;
                     notification.autoSlideOut = true;
@@ -110,7 +110,11 @@ public class ServerConfigurationScreen extends ReScreen {
         originalInstance.setModLoader(tempInstance.getModLoader());
         originalInstance.setVersionId(tempInstance.getVersionId());
         originalInstance.getSettings().putAll(tempInstance.getSettings());
+        originalInstance.getServerProperties().clear();
+        originalInstance.getServerProperties().putAll(tempInstance.getServerProperties());
+
         originalInstance.save();
+        originalInstance.saveServerProperties();
 
         new Notification(originalInstance.getName() + " Edited Successfully!", Notification.Type.SUCCESS);
     }
