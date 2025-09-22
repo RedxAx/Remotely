@@ -105,4 +105,8 @@ public class ReScreenWrapper extends Screen {
         restudio.rescreen.ui.core.Screen current = sm.getCurrentScreen();
         if (current != null) current.onDisplayed();
     }
+
+    public restudio.rescreen.ui.core.Screen getScreen() {
+        return libScreen;
+    }
 }

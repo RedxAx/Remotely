@@ -97,7 +97,7 @@ public class ServerManagerScreen extends ReScreen {
                 .build();
 
         Container desktopContainer = createContainer("desktop", 0, 0, width, height - 35);
-        desktopContainer.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(false).enableDoubleClick(false);
+        desktopContainer.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true).enableDoubleClick(false).disableScissorRegion(true).enableDoubleClick(false);
 
         setActiveContainer(desktopContainer);
         populateHostTabs();
@@ -421,9 +421,9 @@ public class ServerManagerScreen extends ReScreen {
 
     private void openServerScreen(Instance info) {
         if (mcParent != null) {
-            client.setScreen(new RemotelyInstanceDetailsScreen(mcParent, info));
+            remotelyClient.openInstanceInTerminal(mcParent, info);
         } else {
-            client.setScreen(new RemotelyInstanceDetailsScreen(parent, info));
+            remotelyClient.openInstanceInTerminal(parent, info);
         }
     }
 
@@ -432,7 +432,7 @@ public class ServerManagerScreen extends ReScreen {
         InstanceManager.getInstance().getRemoteHosts().forEach(h -> allInstances.addAll(InstanceManager.getInstance().getRemoteInstances(h)));
         for (Instance info : allInstances) {
             if (info.getPath().equals(path)) {
-                ScreenManager.getInstance().setScreen(new RemotelyInstanceDetailsScreen(ScreenManager.currentScreen, info));
+                RemotelyClient.INSTANCE.openInstanceInTerminal(ScreenManager.currentScreen, info);
                 return;
             }
         }
