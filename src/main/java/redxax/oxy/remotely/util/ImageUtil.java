@@ -1,11 +1,12 @@
 package redxax.oxy.remotely.util;
 
-import com.cinemamod.mcef.MCEFBrowser;
 import com.mojang.blaze3d.systems.RenderSystem;
 import javax.imageio.ImageIO;
 import net.minecraft.client.MinecraftClient;
-//? if >1.21.1 && !=1.21.5
+//? if >1.21.1 && <1.21.5
 /*import net.minecraft.client.gl.ShaderProgramKeys;*/
+//? if >=1.21.6
+/*import net.minecraft.client.gl.RenderPipelines;*/
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.*;
 import net.minecraft.client.texture.NativeImage;
@@ -96,7 +97,7 @@ public class ImageUtil {
             /^Supplier<String> textureName = () -> "redxax.oxy:image_" + image.hashCode();
             NativeImageBackedTexture texture = new NativeImageBackedTexture(textureName, nativeImage);
             ^///?} else {
-             NativeImageBackedTexture texture = new NativeImageBackedTexture(nativeImage);
+            NativeImageBackedTexture texture = new NativeImageBackedTexture(nativeImage);
             //?}
             textureId = Identifier.tryParse("redxax.oxy:image_" + image.hashCode());
             MinecraftClient.getInstance().getTextureManager().registerTexture(textureId, texture);
@@ -145,7 +146,7 @@ public class ImageUtil {
                     nativeImage.setColorArgb(i, j, argb);
                 }
             }
-            //? if =1.21.5 {
+            //? if >=1.21.5 {
             /^Supplier<String> textureName = () -> "redxax.oxy:image_" + image.hashCode();
             NativeImageBackedTexture texture = new NativeImageBackedTexture(textureName, nativeImage);
             textureId = Identifier.tryParse("redxax.oxy:image_" + image.hashCode());
@@ -156,106 +157,11 @@ public class ImageUtil {
             MinecraftClient.getInstance().getTextureManager().registerTexture(textureId, texture);
             textureCache.put(image, textureId);
         }
-        context.drawTexture(RenderLayer::getGuiTextured, textureId, x, y, 0F, 0F, width, height, width, height);
-        *///?}
-    }
-
-    public static void warpedDrawGuiTexture(DrawContext context, int x, int y, Identifier icon, int iconWidth, int iconHeight) {
-        //? if <=1.21.1 && !=1.20.1 {
-        context.drawTexture(icon, x, y, iconWidth, iconHeight, 0, 0, iconWidth, iconHeight, iconWidth, iconHeight);
-         //?} elif >1.21.1 {
-        /*context.drawGuiTexture(RenderLayer::getGuiTextured, icon, x, y, iconWidth, iconHeight);
-        *///?}
-    }
-
-    public static void drawBrowser(MCEFBrowser currentBrowser, boolean fullscreen,
-                                   int width, int height, int TOP_OFFSET, int BROWSER_DRAW_OFFSET) {
-        //? if = 1.20.1 {
-        /*if (fullscreen) {
-            RenderSystem.disableDepthTest();
-            RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
-            RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
-            Tessellator t = Tessellator.getInstance();
-            BufferBuilder buffer = t.getBuffer();
-            buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
-            buffer.vertex(0, height, 0).texture(0.0f, 1.0f).color(255,255,255,255).next();
-            buffer.vertex(width, height, 0).texture(1.0f, 1.0f).color(255,255,255,255).next();
-            buffer.vertex(width, 0, 0).texture(1.0f, 0.0f).color(255,255,255,255).next();
-            buffer.vertex(0, 0, 0).texture(0.0f, 0.0f).color(255,255,255,255).next();
-            t.draw();
-            RenderSystem.setShaderTexture(0, 0);
-            RenderSystem.enableDepthTest();
-        } else {
-            RenderSystem.disableDepthTest();
-            RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
-            RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
-            Tessellator t = Tessellator.getInstance();
-            BufferBuilder buffer = t.getBuffer();
-            buffer.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
-            buffer.vertex(BROWSER_DRAW_OFFSET, height - BROWSER_DRAW_OFFSET, 0).texture(0.0f, 1.0f).color(255, 255, 255, 255).next();
-            buffer.vertex(width - BROWSER_DRAW_OFFSET, height - BROWSER_DRAW_OFFSET, 0).texture(1.0f, 1.0f).color(255, 255, 255, 255).next();
-            buffer.vertex(width - BROWSER_DRAW_OFFSET, TOP_OFFSET, 0).texture(1.0f, 0.0f).color(255, 255, 255, 255).next();
-            buffer.vertex(BROWSER_DRAW_OFFSET, TOP_OFFSET, 0).texture(0.0f, 0.0f).color(255, 255, 255, 255).next();
-            t.draw();
-            RenderSystem.setShaderTexture(0, 0);
-            RenderSystem.enableDepthTest();
-        }
-        *///?} elif <=1.21.1 {
-        if (fullscreen) {
-            RenderSystem.disableDepthTest();
-            RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
-            RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
-            Tessellator t = Tessellator.getInstance();
-            BufferBuilder buffer = t.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
-            buffer.vertex(0, height, 0).texture(0.0f, 1.0f).color(255,255,255,255);
-            buffer.vertex(width, height, 0).texture(1.0f, 1.0f).color(255,255,255,255);
-            buffer.vertex(width, 0, 0).texture(1.0f, 0.0f).color(255,255,255,255);
-            buffer.vertex(0, 0, 0).texture(0.0f, 0.0f).color(255,255,255,255);
-            BufferRenderer.drawWithGlobalProgram(buffer.end());
-            RenderSystem.setShaderTexture(0, 0);
-            RenderSystem.enableDepthTest();
-        } else {
-            RenderSystem.disableDepthTest();
-            RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
-            RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
-            Tessellator t = Tessellator.getInstance();
-            BufferBuilder buffer = t.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
-            buffer.vertex(BROWSER_DRAW_OFFSET, height - BROWSER_DRAW_OFFSET, 0).texture(0.0f, 1.0f).color(255, 255, 255, 255);
-            buffer.vertex(width - BROWSER_DRAW_OFFSET, height - BROWSER_DRAW_OFFSET, 0).texture(1.0f, 1.0f).color(255, 255, 255, 255);
-            buffer.vertex(width - BROWSER_DRAW_OFFSET, TOP_OFFSET, 0).texture(1.0f, 0.0f).color(255, 255, 255, 255);
-            buffer.vertex(BROWSER_DRAW_OFFSET, TOP_OFFSET, 0).texture(0.0f, 0.0f).color(255, 255, 255, 255);
-            BufferRenderer.drawWithGlobalProgram(buffer.end());
-            RenderSystem.setShaderTexture(0, 0);
-            RenderSystem.enableDepthTest();
-        }
-        //?} elif <=1.21.4 {
-        /*if (fullscreen) {
-            RenderSystem.disableDepthTest();
-            RenderSystem.setShader(ShaderProgramKeys.POSITION_TEX_COLOR);
-            RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
-            Tessellator t = Tessellator.getInstance();
-            BufferBuilder buffer = t.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
-            buffer.vertex(0, height, 0).texture(0.0f, 1.0f).color(255, 255, 255, 255);
-            buffer.vertex(width, height, 0).texture(1.0f, 1.0f).color(255, 255, 255, 255);
-            buffer.vertex(width, 0, 0).texture(1.0f, 0.0f).color(255, 255, 255, 255);
-            buffer.vertex(0, 0, 0).texture(0.0f, 0.0f).color(255, 255, 255, 255);
-            BufferRenderer.drawWithGlobalProgram(buffer.end());
-            RenderSystem.setShaderTexture(0, 0);
-            RenderSystem.enableDepthTest();
-        } else {
-            RenderSystem.disableDepthTest();
-            RenderSystem.setShader(ShaderProgramKeys.POSITION_TEX_COLOR);
-            RenderSystem.setShaderTexture(0, currentBrowser.getRenderer().getTextureID());
-            Tessellator t = Tessellator.getInstance();
-            BufferBuilder buffer = t.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
-            buffer.vertex(BROWSER_DRAW_OFFSET, height - BROWSER_DRAW_OFFSET, 0).texture(0.0f, 1.0f).color(255, 255, 255, 255);
-            buffer.vertex(width - BROWSER_DRAW_OFFSET, height - BROWSER_DRAW_OFFSET, 0).texture(1.0f, 1.0f).color(255, 255, 255, 255);
-            buffer.vertex(width - BROWSER_DRAW_OFFSET, TOP_OFFSET, 0).texture(1.0f, 0.0f).color(255, 255, 255, 255);
-            buffer.vertex(BROWSER_DRAW_OFFSET, TOP_OFFSET, 0).texture(0.0f, 0.0f).color(255, 255, 255, 255);
-            BufferRenderer.drawWithGlobalProgram(buffer.end());
-            RenderSystem.setShaderTexture(0, 0);
-            RenderSystem.enableDepthTest();
-        }
+        //? if >=1.21.6 {
+        /^context.drawGuiTexture(RenderPipelines.GUI_TEXTURED, textureId, x, y, 0, 0, width, height, width, height);
+        ^///?} else {
+        context.drawTexture(RenderPipeline::getGuiTextured, textureId, x, y, 0F, 0F, width, height, width, height);
+        //?}
         *///?}
     }
 }

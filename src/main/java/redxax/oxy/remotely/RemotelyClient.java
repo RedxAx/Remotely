@@ -4,7 +4,6 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.util.Identifier;
 import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
 import redxax.oxy.remotely.adapters.ReScreenWrapper;
-import redxax.oxy.remotely.servers.BrowserScreen;
 import redxax.oxy.remotely.servers.ServerManagerScreen;
 import redxax.oxy.remotely.ui.screens.RemotelyInstanceDetailsScreen;
 import restudio.rebase.instance.Instance;
@@ -56,7 +55,6 @@ public class RemotelyClient {
 
     private void onClientShutdown() {
         shutdownAllTerminals();
-        BrowserScreen.closeAll();
     }
 
     public static void loadThemesFromDir() {
@@ -126,18 +124,6 @@ public class RemotelyClient {
 
     public void openFileExplorer(restudio.rescreen.ui.core.Screen parent, Path path) {
         mc.setScreen(new ReScreenWrapper(new FileExplorerScreen(parent, null, path, Path.of(remotelyDir.toString(), "data"), false)));
-    }
-
-    public void openBrowser(Screen parent) {
-        if (BrowserScreen.checkIfMcefExist()) {
-            mc.setScreen(new ReScreenWrapper(new BrowserScreen(parent, "https://www.google.com")));
-        }
-    }
-
-    public void openBrowser(restudio.rescreen.ui.core.Screen parent) {
-        if (BrowserScreen.checkIfMcefExist()) {
-            mc.setScreen(new ReScreenWrapper(new BrowserScreen(parent, "https://www.google.com")));
-        }
     }
 
     public void shutdownAllTerminals() {

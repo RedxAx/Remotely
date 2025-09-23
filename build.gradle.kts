@@ -21,14 +21,8 @@ repositories {
     maven("https://maven.terraformersmc.com/")
     maven("https://maven.nucleoid.xyz/")
     maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
-
-    maven {
-        url = uri("https://mcef-download.cinemamod.com/repositories/releases")
-    }
 }
 
-
-val mcefVer = if (minecraft == "1.21.5") "1.21.4" else minecraft
 
 val shadowBundle: Configuration by configurations.creating {
     isCanBeConsumed = false
@@ -49,9 +43,6 @@ dependencies {
     implementation("org.jetbrains.pty4j:pty4j:0.13.10-1")
     implementation("org.jetbrains.jediterm:jediterm-core:3.54")
     implementation("org.jetbrains.jediterm:jediterm-pty:2.69")
-
-    modCompileOnly("com.cinemamod:mcef:2.1.6-$mcefVer")
-    modImplementation("com.cinemamod:mcef-fabric:2.1.6-$mcefVer")
 
     shadowBundle("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     shadowBundle("com.jcraft:jsch:0.1.55")
