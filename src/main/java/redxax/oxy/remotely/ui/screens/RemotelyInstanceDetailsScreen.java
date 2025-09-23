@@ -496,9 +496,23 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
     @Override
     public void resize(int width, int height) {
         super.resize(width, height);
+        if (tabsManager != null) {
+            tabsManager.setPosition(5, 35);
+            tabsManager.setSize(width - 10, 18);
+        }
+
         for (TabContext context : tabContexts.values()) {
-            if (context.terminalWidget != null && context.mainContainer != null) {
-                context.terminalWidget.setSize(context.mainContainer.getEffectiveWidth(), context.mainContainer.getHeight());
+            if (context.mainContainer != null) {
+                context.mainContainer.setPosition(5, 60);
+                context.mainContainer.size(width - 10, height - 65);
+
+                int containerWidth = context.mainContainer.getEffectiveWidth();
+                if (context.terminalWidget != null) {
+                    context.terminalWidget.setSize(containerWidth, height - 85);
+                }
+                if (context.resourcesContainer != null) {
+                    context.resourcesContainer.size(containerWidth, height - 66);
+                }
             }
         }
         updatePositions();
@@ -506,6 +520,7 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
 
     @Override
     public void updatePositions() {
+        super.updatePositions();
         TabContext context = getActiveContext();
         if (context == null || context.isLocalTerminalMode || context.mainContainer == null || context.containerSwitch == null || context.selectorsRow == null) {
             return;

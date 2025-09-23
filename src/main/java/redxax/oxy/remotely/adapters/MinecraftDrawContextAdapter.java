@@ -15,10 +15,16 @@ import redxax.oxy.remotely.util.ImageUtil;
 public class MinecraftDrawContextAdapter implements IDrawContext {
     private final DrawContext dc;
     private final MatrixStack matrices;
+    private final float renderScale;
 
-    public MinecraftDrawContextAdapter(DrawContext dc) {
+    public MinecraftDrawContextAdapter(DrawContext dc, float renderScale) {
         this.dc = dc;
         this.matrices = dc.getMatrices();
+        this.renderScale = renderScale;
+    }
+
+    public MinecraftDrawContextAdapter(DrawContext dc) {
+        this(dc, 1.0f);
     }
 
     public DrawContext getMcContext() {
@@ -47,12 +53,12 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void enableScissor(float x1, float y1, float x2, float y2) {
-        dc.enableScissor((int) x1, (int) y1, (int) x2, (int) y2);
+        dc.enableScissor((int) (x1 * renderScale), (int) (y1 * renderScale), (int) (x2 * renderScale), (int) (y2 * renderScale));
     }
 
     @Override
     public boolean scissorsContains(int i, int i1) {
-        return dc.scissorContains(i, i1);
+        return dc.scissorContains((int)(i * renderScale), (int)(i1 * renderScale));
     }
 
     @Override
