@@ -3,18 +3,13 @@
   "package": "redxax.oxy.remotely.mixin",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
-    "accessor.ImageWidgetTextureAccessor"
   ],
   "client": [
-    "ClickableWidgetMixin",
     "GameMenuScreenMixin",
     "KeyboardMixin",
     "MinecraftClientMixin",
-    "ParentElementMixin",
     "ScreenMixin",
-    "TitleScreenMixin",
-    "accessor.ClickableWidgetAccessor",
-    "accessor.SliderWidgetAccessor"
+    "TitleScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1

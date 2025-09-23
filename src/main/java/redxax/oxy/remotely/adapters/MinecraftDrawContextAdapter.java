@@ -2,10 +2,12 @@ package redxax.oxy.remotely.adapters;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.util.math.RotationAxis;
+import org.joml.Matrix3x2fStack;
 import org.joml.Vector3f;
 import restudio.rebase.ui.text.StyledText;
 import restudio.rescreen.platform.IMatrixStack;
 import restudio.rescreen.platform.IDrawContext;
+//? if < 1.21.6
 import net.minecraft.client.util.math.MatrixStack;
 import restudio.rescreen.render.TextRenderer;
 
@@ -14,7 +16,11 @@ import redxax.oxy.remotely.util.ImageUtil;
 
 public class MinecraftDrawContextAdapter implements IDrawContext {
     private final DrawContext dc;
+    //? if >= 1.21.6 {
+    /*private final Matrix3x2fStack matrices;
+    *///?} else {
     private final MatrixStack matrices;
+     //?}
     private final float renderScale;
 
     public MinecraftDrawContextAdapter(DrawContext dc, float renderScale) {
@@ -31,19 +37,61 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
         return dc;
     }
 
+    //? if >= 1.21.6 {
+    /*public Matrix3x2fStack getMcMatrices() {
+        return matrices;
+    }
+    *///?} else {
     public MatrixStack getMcMatrices() {
         return matrices;
     }
+    //?}
 
     @Override
     public IMatrixStack getMatrices() {
         return new IMatrixStack() {
-            @Override public void push() { matrices.push(); }
-            @Override public void pop() { matrices.pop(); }
-            @Override public void translate(float x, float y, float z) { matrices.translate(x, y, z); }
-            @Override public void scale(float v, float v1, float v2) { matrices.scale(v, v1, v2); }
-            @Override public void rotate(float v, float v1, float v2, float v3) { matrices.multiply(RotationAxis.of(new Vector3f(v1, v2, v3)).rotationDegrees(v)); }
-            @Override public void multiply(float v) { matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(v)); }
+            @Override public void push() {
+                //? if >= 1.21.6 {
+                /*matrices.pushMatrix();
+                *///?} else {
+                matrices.push();
+                 //?}
+            }
+            @Override public void pop() {
+                //? if >= 1.21.6 {
+                /*matrices.popMatrix();
+                *///?} else {
+                matrices.pop();
+                 //?}
+            }
+            @Override public void translate(float x, float y, float z) {
+                //? if >= 1.21.6 {
+                /*matrices.translate(x, y);
+                *///?} else {
+                matrices.translate(x, y, z);
+                 //?}
+            }
+            @Override public void scale(float v, float v1, float v2) {
+                //? if >= 1.21.6 {
+                /*matrices.scale(v, v1);
+                *///?} else {
+                matrices.scale(v, v1, v2);
+                 //?}
+            }
+            @Override public void rotate(float v, float v1, float v2, float v3) {
+                //? if >= 1.21.6 {
+                /*matrices.rotate((float) Math.toRadians(v));
+                *///?} else {
+                matrices.multiply(RotationAxis.of(new Vector3f(v1, v2, v3)).rotationDegrees(v));
+                 //?}
+            }
+            @Override public void multiply(float v) {
+                //? if >= 1.21.6 {
+                /*matrices.rotate((float) Math.toRadians(v));
+                *///?} else {
+                matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(v));
+                 //?}
+            }
         };
     }
 
@@ -53,12 +101,20 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void enableScissor(float x1, float y1, float x2, float y2) {
+        //? if >= 1.21.6 {
+        /*dc.enableScissor((int) x1, (int) y1, (int) x2, (int) y2);
+        *///?} else {
         dc.enableScissor((int) (x1 * renderScale), (int) (y1 * renderScale), (int) (x2 * renderScale), (int) (y2 * renderScale));
+         //?}
     }
 
     @Override
     public boolean scissorsContains(int i, int i1) {
+        //? if >= 1.21.6 {
+        /*return dc.scissorContains(i, i1);
+        *///?} else {
         return dc.scissorContains((int)(i * renderScale), (int)(i1 * renderScale));
+         //?}
     }
 
     @Override

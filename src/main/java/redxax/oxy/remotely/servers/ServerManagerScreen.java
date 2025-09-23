@@ -81,7 +81,6 @@ public class ServerManagerScreen extends ReScreen {
         header().position(HeaderBuilder.Position.BOTTOM).size(taskbarHeight)
                 .addLeft("terminal.png", () -> remotelyClient.openMultiTerminal(this), "Terminal")
                 .addLeft("explorer.png", this::openFileExplorer, "File Explorer")
-                .addLeft("minibrowser.png", () -> remotelyClient.openBrowser(this), "Web Browser")
                 .addLeft("remotely.png", () -> client.setScreen(SettingsScreenFactory.createGlobalSettingsScreen( this,(RemotelyConfigManager) Rebase.get().getConfigManager())), "Settings")
                 .build();
 

@@ -44,13 +44,22 @@ public class ReScreenWrapper extends Screen {
 
         IDrawContext libCtx = new MinecraftDrawContextAdapter(drawContext, renderScale);
 
+        //? if >= 1.21.6 {
+        /*drawContext.getMatrices().pushMatrix();
+        drawContext.getMatrices().scale(renderScale, renderScale);
+        *///?} else {
         drawContext.getMatrices().push();
         drawContext.getMatrices().scale(renderScale, renderScale, 1f);
+        //?}
 
         sm.render(libCtx, (int)(mouseX * mouseScale), (int)(mouseY * mouseScale), delta);
         sm.processTasks();
 
+        //? if >= 1.21.6 {
+        /*drawContext.getMatrices().popMatrix();
+        *///?} else {
         drawContext.getMatrices().pop();
+        //?}
     }
 
     @Override

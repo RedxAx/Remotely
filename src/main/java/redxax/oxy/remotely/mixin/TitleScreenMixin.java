@@ -59,7 +59,6 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screen.S
             minimalButtons.add(new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("manager.png").onClick(this::openServerManagerScreen).hint("Servers").build());
             minimalButtons.add(new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("terminal.png").onClick(this::openMultiTerminalScreen).hint("Terminal").build());
             minimalButtons.add(new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("explorer.png").onClick(this::openFileExplorerScreen).hint("File Explorer").build());
-            minimalButtons.add(new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("minibrowser.png").onClick(this::openBrowserScreen).hint("Web Browser").build());
         }
         if (optionsButton != null && mainMenuStyle.equals("Normal")) {
             normalButtons.clear();
@@ -142,10 +141,5 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screen.S
     @Unique
     private void openFileExplorerScreen() {
         RemotelyClient.INSTANCE.openFileExplorer(null, remotelyDir);
-    }
-
-    @Unique
-    private void openBrowserScreen() {
-        RemotelyClient.INSTANCE.openBrowser(this);
     }
 }
