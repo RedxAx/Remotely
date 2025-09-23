@@ -19,8 +19,6 @@ public class ReScreenWrapper extends Screen {
     @Override
     protected void init() {
         super.init();
-
-        sm.setGuiScale((float) this.client.getWindow().getScaleFactor());
         sm.updateDimensions(MinecraftClient.getInstance().getWindow().getWidth(), MinecraftClient.getInstance().getWindow().getHeight());
 
         try {
@@ -34,15 +32,25 @@ public class ReScreenWrapper extends Screen {
     public void render(DrawContext drawContext, int mouseX, int mouseY, float delta) {
         super.render(drawContext, mouseX, mouseY, delta);
 
-        IDrawContext libCtx = new MinecraftDrawContextAdapter(drawContext);
+        sm.updateDimensions(this.client.getWindow().getWidth(), this.client.getWindow().getHeight());
 
-        if (this.width != sm.getScaledWidth() || this.height != sm.getScaledHeight() || (float) this.client.getWindow().getScaleFactor() != sm.getGuiScale()) {
-            sm.setGuiScale((float) this.client.getWindow().getScaleFactor());
-            sm.updateDimensions(this.client.getWindow().getWidth(), this.client.getWindow().getHeight());
-        }
+        float mcScale = (float) this.client.getWindow().getScaleFactor();
+        float reScreenScale = sm.getGuiScale();
 
-        sm.render(libCtx, mouseX, mouseY, delta);
+        if (mcScale == 0 || reScreenScale == 0) return;
+
+        float renderScale = reScreenScale / mcScale;
+        float mouseScale = mcScale / reScreenScale;
+
+        IDrawContext libCtx = new MinecraftDrawContextAdapter(drawContext, renderScale);
+
+        drawContext.getMatrices().push();
+        drawContext.getMatrices().scale(renderScale, renderScale, 1f);
+
+        sm.render(libCtx, (int)(mouseX * mouseScale), (int)(mouseY * mouseScale), delta);
         sm.processTasks();
+
+        drawContext.getMatrices().pop();
     }
 
     @Override
