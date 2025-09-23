@@ -10,6 +10,7 @@ import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceManager;
+import restudio.rebase.resource.ResourceType;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -449,24 +450,7 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void openModpackInstallation() {
-        try {
-            Instance serverInfo = new Instance("Modpack Server", "latest", "modpack");
-            serverInfo.setModLoader(restudio.rebase.instance.loaders.ModLoader.FABRIC);
-
-            if (tabs().getActiveTabIndex() > 0) {
-                RemoteHost remoteHost = (RemoteHost) tabs().getActiveTab().getData();
-                serverInfo.setRemote(true);
-                serverInfo.setRemoteHost(remoteHost);
-                serverInfo.setPath(remoteHost.getHomeDirectory() + "remotely/servers/" + serverInfo.getName());
-            } else {
-                serverInfo.setRemote(false);
-                serverInfo.setRemoteHost(null);
-                serverInfo.setPath(remotelyDir + "/servers/" + serverInfo.getName());
-            }
-            client.setScreen(new ResourceBrowserScreen(this, serverInfo));
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true));
     }
 
     @Override
