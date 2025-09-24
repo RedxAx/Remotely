@@ -166,7 +166,7 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         TabContext context = new TabContext(inst, localId);
 
         Container mainContainer = createContainer("main", 5, 60, width - 10, height - 65);
-        mainContainer.backgroundDrawing(false).disableScissorRegion(true).verticalSpacing(14).padding(0).layout(new ManagedLayout());
+        mainContainer.layout(new ManagedLayout()).backgroundDrawing(false).disableScissorRegion(true).verticalSpacing(14).padding(0);
         mainContainer.setScissorRegion(mainContainer.getX() - 2, mainContainer.getY() - 2, mainContainer.getWidth() + mainContainer.getX() + 4,  mainContainer.getY() + mainContainer.getHeight() + 6);
         context.mainContainer = mainContainer;
 
