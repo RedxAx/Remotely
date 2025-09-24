@@ -13,7 +13,6 @@ import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.ui.core.Screen;
 
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -46,8 +45,6 @@ public class RemotelyClient {
         } catch (Exception e) {
             devPrint("Failed to load Windows background: " + e.getMessage());
         }
-        loadThemesFromDir();
-        migrateRemotelyData();
         Runtime.getRuntime().addShutdownHook(new Thread(this::onClientShutdown));
         os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
 
@@ -60,8 +57,6 @@ public class RemotelyClient {
         shutdownAllTerminals();
     }
 
-    public static void loadThemesFromDir() {
-    }
 
     public void openMultiTerminal(Object parent) {
         if (multiTerminalTabs.isEmpty()) {
@@ -131,43 +126,6 @@ public class RemotelyClient {
 
     public void setActiveMultiTerminalTabIndex(int activeMultiTerminalTabIndex) {
         this.activeMultiTerminalTabIndex = activeMultiTerminalTabIndex;
-    }
-
-    public static void migrateRemotelyData() {
-        Path oldPath = Paths.get("C:/remotely");
-        if (System.getProperty("os.name").toLowerCase().contains("win") && Files.exists(oldPath)) {
-            try {
-                Path target = Paths.get(System.getProperty("user.home"), "/remotely");
-                if (!Files.exists(target)) {
-                    Files.createDirectories(target);
-                }
-                Files.walk(oldPath).forEach(sourcePath -> {
-                    Path targetPath = target.resolve(oldPath.relativize(sourcePath));
-                    try {
-                        if (sourcePath.getFileName().toString().equals("themes")) {
-                            Files.delete(sourcePath);
-                            return;
-                        }
-                        Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
-                    } catch (IOException e) {
-                        devPrint("Failed to migrate Remotely data: " + e.getMessage());
-                    }
-                });
-            } catch (IOException e) {
-                devPrint("Failed to migrate Remotely data: " + e.getMessage());
-            }
-            try {
-                Files.walk(oldPath).sorted(Comparator.reverseOrder()).forEach(path -> {
-                    try {
-                        Files.delete(path);
-                    } catch (IOException e) {
-                        devPrint("Failed to delete old Remotely data: " + e.getMessage());
-                    }
-                });
-            } catch (IOException e) {
-                devPrint("Failed to delete old Remotely data: " + e.getMessage());
-            }
-        }
     }
 
     public ApplicationHost getHost() {
