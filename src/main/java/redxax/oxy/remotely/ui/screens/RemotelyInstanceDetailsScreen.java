@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.ui.screens;
 
-import net.minecraft.client.MinecraftClient;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
@@ -18,7 +17,6 @@ import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.platform.IDrawContext;
-import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
@@ -33,7 +31,7 @@ import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
 
-    private net.minecraft.client.gui.screen.Screen mcParent;
+    private final Object parent;
     private final RemotelyClient remotelyClient;
     private final Map<TabsManager.Tab, TabContext> tabContexts = new HashMap<>();
 
@@ -98,14 +96,9 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         @Override public String toString() { return displayName; }
     }
 
-    public RemotelyInstanceDetailsScreen(Screen parent, RemotelyClient client) {
-        super(parent, null);
-        this.remotelyClient = client;
-    }
-
-    public RemotelyInstanceDetailsScreen(net.minecraft.client.gui.screen.Screen mcParent, RemotelyClient client) {
-        super(null, null);
-        this.mcParent = mcParent;
+    public RemotelyInstanceDetailsScreen(Object parent, RemotelyClient client) {
+        super(parent instanceof restudio.rescreen.ui.core.Screen ? (restudio.rescreen.ui.core.Screen) parent : null, null);
+        this.parent = parent;
         this.remotelyClient = client;
     }
 
@@ -177,7 +170,7 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         mainContainer.setScissorRegion(mainContainer.getX() - 2, mainContainer.getY() - 2, mainContainer.getWidth() + mainContainer.getX() + 4,  mainContainer.getY() + mainContainer.getHeight() + 6);
         context.mainContainer = mainContainer;
 
-        context.terminalWidget = TerminalWidget.getOrCreate(inst, localId, 5, 60, width - 10, height - 85);
+        context.terminalWidget = TerminalWidget.getOrCreate(inst, localId, 5, 60, width - 10, height - 66);
         mainContainer.addWidget(context.terminalWidget);
 
         if (!context.isLocalTerminalMode) {
@@ -429,15 +422,15 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
 
         TabContext context = getActiveContext();
         if (context != null && !context.isLocalTerminalMode) {
-            header().addLeft("explorer.png", this::exploreInstanceFiles, "File Explorer");
+            header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
+
+            boolean isRunning = context.instance.getState() == InstanceState.RUNNING || context.instance.getState() == InstanceState.STARTING;
+            header().addLeft(isRunning ? "stop.png" : "start.png", this::launchOrStopInstance, isRunning ? "Stop Server" : "Start Server");
 
             ModLoader modLoader = context.instance.getModLoader();
             if (modLoader != null && modLoader != ModLoader.VELOCITY && modLoader != ModLoader.WATERFALL && modLoader != ModLoader.BUNGEECORD) {
                 header().addLeft("resources.png", this::openInstanceResources, "Resources");
             }
-
-            boolean isRunning = context.instance.getState() == InstanceState.RUNNING || context.instance.getState() == InstanceState.STARTING;
-            header().addLeft(isRunning ? "stop.png" : "start.png", this::launchOrStopInstance, isRunning ? "Stop Server" : "Start Server");
 
             boolean isProxy = context.instance.getModLoader() != null && List.of("velocity", "waterfall", "bungeecord").contains(context.instance.getModLoader().name().toLowerCase(Locale.getDefault()));
             header().setButtonVisible("resources.png", !isProxy);
@@ -519,7 +512,7 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
 
                 int containerWidth = context.mainContainer.getEffectiveWidth();
                 if (context.terminalWidget != null) {
-                    context.terminalWidget.setSize(containerWidth, height - 85);
+                    context.terminalWidget.setSize(containerWidth, height - 65);
                 }
                 if (context.resourcesContainer != null) {
                     context.resourcesContainer.size(containerWidth, height - 66);
@@ -547,13 +540,7 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
 
     @Override
     public void closeScreen() {
-        if (parent != null) {
-            client.setScreen(parent);
-        } else if (mcParent != null) {
-            MinecraftClient.getInstance().setScreen(mcParent);
-        } else {
-            super.closeScreen();
-        }
+        remotelyClient.getHost().openParentScreen(this, parent);
     }
 
     @Override

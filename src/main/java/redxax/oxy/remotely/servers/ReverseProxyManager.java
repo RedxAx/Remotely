@@ -3,7 +3,7 @@ package redxax.oxy.remotely.servers;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
-import net.minecraft.client.MinecraftClient;
+import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.Config;
 import restudio.rebase.instance.Instance;
 import restudio.rescreen.util.Notification;
@@ -70,7 +70,7 @@ public class ReverseProxyManager {
                 throw new JSchException("No forwarding found for port " + localPort);
             }
             int allocatedPort = Integer.parseInt(mappingStr.split(":")[0]);
-            notification.change("Reverse Proxy Started on Port " + allocatedPort, "Click To Copy The IP", Notification.Type.SUCCESS, () -> MinecraftClient.getInstance().keyboard.setClipboard(Config.proxyHost + ":" + allocatedPort));
+            notification.change("Reverse Proxy Started on Port " + allocatedPort, "Click To Copy The IP", Notification.Type.SUCCESS, () -> RemotelyClient.INSTANCE.getHost().setClipboard(Config.proxyHost + ":" + allocatedPort));
             notification.loading = false;
         } catch (JSchException e) {
             notification.change("Error Setting Up Reverse Proxy: ", e.getMessage(), Notification.Type.ERROR, null);

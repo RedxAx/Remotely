@@ -62,7 +62,7 @@ public class ScreenMixin {
     @Inject(method = "init*", at = @At("HEAD"))
     private void onInit(CallbackInfo ci) {
         MouseCursor.reset(false);
-        RemotelyClient.INSTANCE.ensureTextRenderer();
+        RemotelyClient.INSTANCE.getHost().ensureTextRenderer();
         Main.setWindow(MinecraftClient.getInstance().getWindow().getHandle());
     }
 }

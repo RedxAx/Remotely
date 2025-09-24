@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.servers;
 
-import net.minecraft.client.MinecraftClient;
+import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.ui.settings.controllers.ServerAdvancedSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerGeneralSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerPerformanceSettingsController;
@@ -28,18 +28,20 @@ public class ServerConfigurationScreen extends ReScreen {
     private final Instance originalInstance;
     private final Instance tempInstance;
     private final RemoteHost remoteHostContext;
+    private final RemotelyClient remotelyClient;
 
-    public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext) {
+    public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient) {
         super();
         this.parent = parent;
         this.isEditMode = instance != null;
         this.originalInstance = instance;
         this.remoteHostContext = remoteHostContext;
+        this.remotelyClient = remotelyClient;
 
         if (isEditMode) {
             this.tempInstance = new Instance(instance, instance.getName());
         } else {
-            this.tempInstance = new Instance("New Server", MinecraftClient.getInstance().getGameVersion(), "");
+            this.tempInstance = new Instance("New Server", remotelyClient.getHost().getGameVersion(), "");
             this.tempInstance.loadServerProperties();
         }
     }
@@ -50,7 +52,7 @@ public class ServerConfigurationScreen extends ReScreen {
 
         Map<String, Supplier<List<Setting>>> settingsByTab = new LinkedHashMap<>();
 
-        ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance);
+        ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance, remotelyClient);
         settingsByTab.put("General", generalController::getSettings);
 
         ServerAdvancedSettingsController advancedController = new ServerAdvancedSettingsController(tempInstance);

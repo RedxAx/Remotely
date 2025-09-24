@@ -1,19 +1,16 @@
 package redxax.oxy.remotely;
 
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.util.Identifier;
-import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
-import redxax.oxy.remotely.adapters.ReScreenWrapper;
+import redxax.oxy.remotely.host.ApplicationHost;
+import redxax.oxy.remotely.host.MinecraftApplicationHost;
 import redxax.oxy.remotely.servers.ServerManagerScreen;
 import redxax.oxy.remotely.ui.screens.RemotelyInstanceDetailsScreen;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.text.FontRegistry;
 import restudio.rebase.ui.widgets.TerminalWidget;
-
-import net.minecraft.client.MinecraftClient;
-import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.config.Config;
+import restudio.rescreen.platform.ITextRenderer;
+import restudio.rescreen.ui.core.Screen;
 
 import java.io.File;
 import java.io.IOException;
@@ -27,15 +24,19 @@ import static redxax.oxy.remotely.util.DevUtil.devPrint;
 public class RemotelyClient {
 
     public static RemotelyClient INSTANCE;
+    private final ApplicationHost host;
     private int activeHostIndex = 0;
     public static String os;
-    public static MinecraftClient mc = MinecraftClient.getInstance();
     public static ITextRenderer tr;
     private final List<Object> multiTerminalTabs = new CopyOnWriteArrayList<>();
     private int activeMultiTerminalTabIndex = 0;
 
-    public void initialize() {
+    public RemotelyClient(ApplicationHost host) {
+        this.host = host;
         INSTANCE = this;
+    }
+
+    public void initialize() {
         Config.applicationDir = remotelyDir;
         System.out.println("Remotely mod initialized on the client.");
         loadSnippets();
@@ -50,7 +51,9 @@ public class RemotelyClient {
         Runtime.getRuntime().addShutdownHook(new Thread(this::onClientShutdown));
         os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
 
-        FontRegistry.MONO_FONT = Identifier.of("remotely", "mono");
+        if (host instanceof MinecraftApplicationHost) {
+            FontRegistry.MONO_FONT = host.getFontIdentifier("remotely", "mono");
+        }
     }
 
     private void onClientShutdown() {
@@ -60,23 +63,15 @@ public class RemotelyClient {
     public static void loadThemesFromDir() {
     }
 
-    public void openMultiTerminal(Screen parent) {
+    public void openMultiTerminal(Object parent) {
         if (multiTerminalTabs.isEmpty()) {
             multiTerminalTabs.add(UUID.randomUUID().toString());
             activeMultiTerminalTabIndex = 0;
         }
-        mc.setScreen(new ReScreenWrapper(new RemotelyInstanceDetailsScreen(parent, this)));
+        host.setScreen(new RemotelyInstanceDetailsScreen(parent, this));
     }
 
-    public void openMultiTerminal(restudio.rescreen.ui.core.Screen parent) {
-        if (multiTerminalTabs.isEmpty()) {
-            multiTerminalTabs.add(UUID.randomUUID().toString());
-            activeMultiTerminalTabIndex = 0;
-        }
-        mc.setScreen(new ReScreenWrapper(new RemotelyInstanceDetailsScreen(parent, this)));
-    }
-
-    public void openInstanceInTerminal(Screen parent, Instance instance) {
+    public void openInstanceInTerminal(Object parent, Instance instance) {
         boolean found = multiTerminalTabs.stream().anyMatch(o -> o instanceof Instance i && i.getInstanceId().equals(instance.getInstanceId()));
         if (!found) {
             multiTerminalTabs.add(instance);
@@ -90,40 +85,21 @@ public class RemotelyClient {
             }
         }
 
-        if (mc.currentScreen instanceof ReScreenWrapper wrapper && wrapper.getScreen() instanceof RemotelyInstanceDetailsScreen screen) {
+        Screen currentScreen = host.getCurrentScreen();
+        if (currentScreen instanceof RemotelyInstanceDetailsScreen screen) {
             screen.addInstanceTab(instance);
         } else {
             openMultiTerminal(parent);
         }
     }
 
-    public void openInstanceInTerminal(restudio.rescreen.ui.core.Screen parent, Instance instance) {
-        boolean found = multiTerminalTabs.stream().anyMatch(o -> o instanceof Instance i && i.getInstanceId().equals(instance.getInstanceId()));
-        if (!found) {
-            multiTerminalTabs.add(instance);
-        }
-
-        for (int i = 0; i < multiTerminalTabs.size(); i++) {
-            Object o = multiTerminalTabs.get(i);
-            if (o instanceof Instance inst && inst.getInstanceId().equals(instance.getInstanceId())) {
-                activeMultiTerminalTabIndex = i;
-                break;
-            }
-        }
-
-        if (mc.currentScreen instanceof ReScreenWrapper wrapper && wrapper.getScreen() instanceof RemotelyInstanceDetailsScreen screen) {
-            screen.addInstanceTab(instance);
-        } else {
-            openMultiTerminal(parent);
-        }
+    public void openServerManager(Object parent) {
+        host.setScreen(new ServerManagerScreen(parent, this));
     }
 
-    public void openServerManager(Screen parent) {
-        mc.setScreen(new ReScreenWrapper(new ServerManagerScreen(parent, this)));
-    }
-
-    public void openFileExplorer(restudio.rescreen.ui.core.Screen parent, Path path) {
-        mc.setScreen(new ReScreenWrapper(new FileExplorerScreen(parent, null, path, Path.of(remotelyDir.toString(), "data"), false)));
+    public void openFileExplorer(Object parent, Path path) {
+        Screen reScreenParent = parent instanceof Screen ? (Screen) parent : null;
+        host.setScreen(new FileExplorerScreen(reScreenParent, null, path, Path.of(remotelyDir.toString(), "data"), false));
     }
 
     public void shutdownAllTerminals() {
@@ -194,9 +170,8 @@ public class RemotelyClient {
         }
     }
 
-    public void ensureTextRenderer() {
-        restudio.rescreen.render.TextRenderer.setTextRendererAdapter(new MinecraftTextRendererAdapter());
-        tr = restudio.rescreen.render.TextRenderer.getTr();
+    public ApplicationHost getHost() {
+        return host;
     }
 
     public static boolean isModLoaded(String modId) {
