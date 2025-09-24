@@ -81,8 +81,7 @@ public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.scree
         if (mainMenuStyle.equals("Minimal") && optionsButton != null) {
             int spacing = 8;
             int buttonSize = 18;
-            int totalWidth = minimalButtons.size() * buttonSize + spacing * (minimalButtons.size() - 1);
-            int startX = ((this.width - totalWidth) / 2) - 51;
+            int startX = optionsButton.getX();
             int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
             for (int i = 0; i < minimalButtons.size(); i++) {
                 SquareButtonWidget b = minimalButtons.get(i);

@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.servers;
 
-import net.minecraft.client.MinecraftClient;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
@@ -49,23 +48,14 @@ public class ServerManagerScreen extends ReScreen {
     private TextInputWidget remoteHostPasswordInput;
     private AnimatedButton remoteHostConfirmButton;
     private AnimatedButton remoteHostDeleteButton;
-    private restudio.rescreen.ui.core.Screen parent;
-    private net.minecraft.client.gui.screen.Screen mcParent;
+    private final Object parent;
 
     private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
     private InstanceManager instanceManager;
 
-    public ServerManagerScreen(restudio.rescreen.ui.core.Screen parent, RemotelyClient remotelyClient) {
+    public ServerManagerScreen(Object parent, RemotelyClient remotelyClient) {
         super();
         this.parent = parent;
-        this.mcParent = null;
-        this.remotelyClient = remotelyClient;
-    }
-
-    public ServerManagerScreen(net.minecraft.client.gui.screen.Screen parent, RemotelyClient remotelyClient) {
-        super();
-        this.mcParent = parent;
-        this.parent = null;
         this.remotelyClient = remotelyClient;
     }
 
@@ -128,7 +118,7 @@ public class ServerManagerScreen extends ReScreen {
         tabs().addTab("Local", activeContainer).setData(null);
         for (RemoteHost host : instanceManager.getRemoteHosts()) {
             Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
-            c.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true);
+            c.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
             tabs().addTab(host.name, c).setData(host);
         }
         int savedIndex = remotelyClient.getSavedTabIndex();
@@ -190,8 +180,8 @@ public class ServerManagerScreen extends ReScreen {
                 activeContainer.clearSelection();
                 activeContainer.addSelectedWidget(widget);
                 ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
-                        .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), widget.getInstance().getRemoteHost())), "Edit Server's Settings")
-                        .addHeaderButton("explorer.png", () -> remotelyClient.openFileExplorer(this, Path.of(widget.getInstance().getPath())), "Open Server's Folder")
+                        .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), widget.getInstance().getRemoteHost(), remotelyClient)), "Edit Server's Settings")
+                        .addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, null, Path.of(widget.getInstance().getPath()), remotelyDir, false)), "Open Server's Folder")
                         .addHeaderButton("delete.png", () -> {
                             instanceForDeletion = widget.getInstance();
                             deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
@@ -215,7 +205,7 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void openFileExplorer() {
-        remotelyClient.openFileExplorer(this, remotelyDir);
+        client.setScreen(new FileExplorerScreen(this, null, remotelyDir, Path.of(remotelyDir.toString(), "data"), false));
     }
 
     private void createPopups() {
@@ -234,7 +224,7 @@ public class ServerManagerScreen extends ReScreen {
         AnimatedButton createBtn = new AnimatedButton.Builder()
                 .label(("Server Creation"))
                 .onClick(() -> {
-                    client.setScreen(new ServerConfigurationScreen(this, null, currentHost));
+                    client.setScreen(new ServerConfigurationScreen(this, null, currentHost, remotelyClient));
                     addServerPopup.hide();
                 })
                 .build();
@@ -401,7 +391,7 @@ public class ServerManagerScreen extends ReScreen {
         } else {
             instanceManager.addRemoteHost(host);
             Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
-            c.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true);
+            c.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
             tabs().addTab(host.name, c).setData(host);
             tabs().setActiveTab(tabs().getTabs().size() - 1);
         }
@@ -420,11 +410,7 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void openServerScreen(Instance info) {
-        if (mcParent != null) {
-            remotelyClient.openInstanceInTerminal(mcParent, info);
-        } else {
-            remotelyClient.openInstanceInTerminal(parent, info);
-        }
+        remotelyClient.openInstanceInTerminal(this, info);
     }
 
     public static void openServerScreen(String path) {
@@ -445,7 +431,7 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void openImportFileExplorer() {
-        client.setScreen(new FileExplorerScreen(parent, null, remotelyDir, Path.of(remotelyDir.toString(), "data"), true));
+        remotelyClient.openFileExplorer(parent, remotelyDir);
     }
 
     private void openModpackInstallation() {
@@ -493,12 +479,6 @@ public class ServerManagerScreen extends ReScreen {
 
     @Override
     public void close() {
-        if (parent != null) {
-            client.setScreen(parent);
-        } else if (mcParent != null) {
-            MinecraftClient.getInstance().setScreen(mcParent);
-        } else {
-            super.close();
-        }
+        remotelyClient.getHost().openParentScreen(this, parent);
     }
 }

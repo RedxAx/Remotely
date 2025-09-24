@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import net.minecraft.client.MinecraftClient;
+import redxax.oxy.remotely.RemotelyClient;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.settings.Setting;
@@ -15,9 +15,11 @@ import java.util.stream.Collectors;
 
 public class ServerGeneralSettingsController {
     private final Instance instance;
+    private final RemotelyClient remotelyClient;
 
-    public ServerGeneralSettingsController(Instance instance) {
+    public ServerGeneralSettingsController(Instance instance, RemotelyClient remotelyClient) {
         this.instance = instance;
+        this.remotelyClient = remotelyClient;
     }
 
     private String capitalize(String str) {
@@ -80,7 +82,7 @@ public class ServerGeneralSettingsController {
 
         TextInputWidget versionWidget = new TextInputWidget.Builder()
                 .text(instance.getVersionId())
-                .placeholder(MinecraftClient.getInstance().getGameVersion())
+                .placeholder(remotelyClient.getHost().getGameVersion())
                 .onChange(instance::setVersionId)
                 .build();
         general.addRow("Server Version", true, 20, versionWidget);

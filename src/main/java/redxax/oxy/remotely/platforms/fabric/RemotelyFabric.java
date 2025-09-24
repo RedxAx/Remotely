@@ -5,12 +5,12 @@ import redxax.oxy.remotely.ModPlatform;
 import net.fabricmc.api.ModInitializer;
 import redxax.oxy.remotely.RemotelyInit;
 import net.fabricmc.loader.api.FabricLoader;
+import redxax.oxy.remotely.host.MinecraftApplicationHost;
 
 public class RemotelyFabric implements ModInitializer {
 	@Override
 	public void onInitialize() {
-		RemotelyInit.entrypoint(new FabricPlatform());
-
+        RemotelyInit.entrypoint(new FabricPlatform(), new MinecraftApplicationHost());
 	}
 	public static class FabricPlatform implements ModPlatform{
 
