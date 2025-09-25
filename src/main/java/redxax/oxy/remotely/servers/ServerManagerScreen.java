@@ -431,7 +431,7 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void openImportFileExplorer() {
-        remotelyClient.openFileExplorer(parent, remotelyDir);
+        client.setScreen(new FileExplorerScreen(this, null, remotelyDir, remotelyDir, true));
     }
 
     private void openModpackInstallation() {
