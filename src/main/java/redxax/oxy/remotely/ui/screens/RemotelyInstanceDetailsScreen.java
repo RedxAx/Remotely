@@ -485,14 +485,10 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         if (context == null || context.isLocalTerminalMode) return;
         ResourceType defaultType = ResourceType.MOD;
         if (context.instance.isServer()) {
-            switch (context.instance.getModLoader()) {
-                case PAPER, SPIGOT, BUKKIT, PURPUR, LEAF, VELOCITY, WATERFALL, BUNGEECORD:
-                    defaultType = ResourceType.PLUGIN;
-                    break;
-                default:
-                    defaultType = ResourceType.MOD;
-                    break;
-            }
+            defaultType = switch (context.instance.getModLoader()) {
+                case PAPER, SPIGOT, BUKKIT, PURPUR, LEAF, VELOCITY, WATERFALL, BUNGEECORD -> ResourceType.PLUGIN;
+                default -> ResourceType.MOD;
+            };
         }
         client.setScreen(new ResourceBrowserScreen(this, context.instance, defaultType, true));
     }
