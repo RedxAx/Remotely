@@ -11,6 +11,9 @@ import restudio.rebase.ui.screens.resources.ResourceOverviewScreen;
 import restudio.rebase.ui.widgets.DownloadProgressWidget;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.theme.Accent;
+import restudio.rescreen.theme.ThemeColor;
+import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.widgets.*;
@@ -33,7 +36,7 @@ public class InstanceResourceWidget extends AnimatedWidget {
     private final ToggleWidget toggleButton;
     private final SquareButtonWidget updateButton;
     private boolean updateBackup = false;
-    private final int imageColor;
+    private int imageColor;
     private long lastClickTime = 0;
 
     public InstanceResourceWidget(ReScreen parentScreen, Instance instance, InstanceResource resource, Runnable refreshCallback) {
@@ -63,7 +66,7 @@ public class InstanceResourceWidget extends AnimatedWidget {
                 .imagePath("download.png")
                 .onClick(this::showUpdateDialog)
                 .hint("Update Available!")
-                .accentType(Config.AccentType.NICE)
+                .accentType(ThemeManager.getAccent("nice"))
                 .size(18, 18)
                 .visible(resource.availableUpdate != null)
                 .entranceAnimation(false)
@@ -97,6 +100,7 @@ public class InstanceResourceWidget extends AnimatedWidget {
 
             }
         }
+        this.imageColor = ImageUtils.getDominantColor(resource.getIcon());
     }
 
     private void showUpdateDialog() {
@@ -141,10 +145,13 @@ public class InstanceResourceWidget extends AnimatedWidget {
         int iconSize = 26;
         int textX = getX() + iconSize + 10;
 
-        int expandedGradientWidth = getWidth() / 6;
-        int animatedGradientWidth = getAnimatedValue(this.hashCode() + 143, hovered ? expandedGradientWidth : 0, hovered ? 1 : 1.5);
+        int globalTextColor = ThemeManager.getColor(ThemeColor.text);
+        int globalDarkTextColor = ThemeManager.getColor(ThemeColor.textDark);
 
-        int animatedImageColor = getAnimatedColor(this.hashCode() + resource.getName().hashCode() + 34, hovered ? imageColor : bgColor, 2);
+        int expandedGradientWidth = getWidth() / 6;
+        int animatedGradientWidth = ThemeManager.getAnimatedValue(this.hashCode() + 143, hovered ? expandedGradientWidth : 0, hovered ? 1 : 1.5);
+
+        int animatedImageColor = ThemeManager.getAnimatedColor(this.hashCode() + resource.getName().hashCode() + 34, hovered ? imageColor : bgColor, 2);
         if (animatedGradientWidth > 1) ctx.fillGradient(getX() + 1, getY() + 1, getX() + animatedGradientWidth, getY() + getHeight() - 1, animatedImageColor, bgColor, true);
 
         if (resource.getIcon() != null) {
@@ -157,7 +164,8 @@ public class InstanceResourceWidget extends AnimatedWidget {
 
         if (!details.isEmpty()) {
             ctx.enableScissor(getX() + 1, getY() + 1, getX() + getWidth() - 50, getY() + getHeight() - 1);
-            ctx.drawText(details, textX, getY() + 18, getAnimatedColor(details.hashCode() + 124, hovered ? globalTextColor : globalDarkTextColor), shadow);
+            int detailsTextColor = ThemeManager.getAnimatedColor(details.hashCode() + 124, hovered ? globalTextColor : globalDarkTextColor, 1.0);
+            ctx.drawText(details, textX, getY() + 18, detailsTextColor, shadow);
             ctx.disableScissor();
         }
 

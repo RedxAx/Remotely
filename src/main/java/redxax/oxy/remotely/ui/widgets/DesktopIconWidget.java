@@ -4,14 +4,14 @@ import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.theme.Accent;
+import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 
 import java.awt.image.BufferedImage;
 import java.util.function.BiConsumer;
 
-import static restudio.rescreen.config.Config.globalTextColor;
 import static redxax.oxy.remotely.RemotelyClient.tr;
-import static restudio.rescreen.config.Config.niceAccentColor;
 
 public class DesktopIconWidget extends AnimatedWidget {
     private final Instance serverInfo;
@@ -61,17 +61,28 @@ public class DesktopIconWidget extends AnimatedWidget {
         int textX = getX() + (getWidth() - textWidth) / 2;
         int textY = iconY + iconSize + 4;
 
-        ctx.drawText((trimmed), textX, textY, globalTextColor, Config.shadow);
+        Accent niceAccent = ThemeManager.getAccent("nice");
+        Accent dangerAccent = ThemeManager.getAccent("danger");
+        Accent defaultAccent = ThemeManager.getDefaultAccent();
+
+        ctx.drawText((trimmed), textX, textY, textColor, Config.shadow);
         if (hint.isEmpty()) {
             setHint(name);
         }
-        if (serverInfo.getState() == InstanceState.RUNNING || serverInfo.getState() == InstanceState.STARTING) {
-            accentType = Config.AccentType.NICE;
-            ctx.drawAnimatedCornerGradient(x, y, width, height, niceAccentColor);
-        } else if (serverInfo.getState() == InstanceState.CRASHED) {
-            accentType = Config.AccentType.DANGER;
-        } else {
-            accentType = Config.AccentType.DEFAULT;
+        if (serverInfo != null) {
+            if (serverInfo.getState() == InstanceState.RUNNING || serverInfo.getState() == InstanceState.STARTING) {
+                accentType = niceAccent;
+            } else if (serverInfo.getState() == InstanceState.CRASHED) {
+                accentType = dangerAccent;
+            } else {
+                accentType = defaultAccent;
+            }
+        } else if (isCreateButton) {
+            accentType = defaultAccent;
+        }
+
+        if (accentType == niceAccent) {
+            ctx.drawAnimatedCornerGradient(x, y, width, height, niceAccent.getAccentColor());
         }
     }
 
