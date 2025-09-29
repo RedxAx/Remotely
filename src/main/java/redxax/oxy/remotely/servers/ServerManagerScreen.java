@@ -12,6 +12,7 @@ import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
+import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -309,7 +310,7 @@ public class ServerManagerScreen extends ReScreen {
 
         remoteHostConfirmButton = new AnimatedButton.Builder().label(("Test & Add")).onClick(this::onConfirmRemoteHost).build();
         AnimatedButton cancelButton = new AnimatedButton.Builder().label(("Cancel")).onClick(this::closeRemoteHostPopup).build();
-        remoteHostDeleteButton = new AnimatedButton.Builder().label(("Delete")).onClick(this::onDeleteRemoteHost).accentType(restudio.rescreen.config.Config.AccentType.DANGER).build();
+        remoteHostDeleteButton = new AnimatedButton.Builder().label(("Delete")).onClick(this::onDeleteRemoteHost).accentType(ThemeManager.getAccent("danger")).build();
         builder.addRow("", false, 20, remoteHostConfirmButton, cancelButton, remoteHostDeleteButton);
 
         remoteHostPopup = builder.build();

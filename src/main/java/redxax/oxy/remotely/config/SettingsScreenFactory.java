@@ -7,8 +7,10 @@ import redxax.oxy.remotely.ui.settings.controllers.SoundSettingsController;
 import restudio.rebase.settings.Setting;
 import restudio.rebase.settings.SettingsScreen;
 import restudio.rebase.settings.controllers.JavaManagerController;
+import restudio.rebase.settings.controllers.ThemeController;
 import restudio.rescreen.ui.rescreen.ReScreen;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +24,13 @@ public class SettingsScreenFactory {
         AppearanceSettingsController appearanceController = new AppearanceSettingsController(configManager);
         settingsByTab.put("Appearance", appearanceController::getSettings);
 
+        ThemeController themeController = new ThemeController();
+        settingsByTab.put("Theme", () -> {
+            List<Setting> allThemeSettings = new ArrayList<>();
+            allThemeSettings.addAll(themeController.getThemeSettings());
+            allThemeSettings.addAll(themeController.getAccentSettings());
+            return allThemeSettings;
+        });
         SoundSettingsController soundController = new SoundSettingsController(configManager);
         settingsByTab.put("Sounds", soundController::getSettings);
 

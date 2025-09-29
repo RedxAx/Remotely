@@ -1,5 +1,6 @@
 package redxax.oxy.remotely;
 
+import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.host.ApplicationHost;
 import redxax.oxy.remotely.host.MinecraftApplicationHost;
 import redxax.oxy.remotely.servers.ServerManagerScreen;
@@ -37,6 +38,7 @@ public class RemotelyClient {
 
     public void initialize() {
         Config.applicationDir = remotelyDir;
+        Config.setConfigManager(new RemotelyConfigManager(remotelyDir));
         System.out.println("Remotely mod initialized on the client.");
         loadSnippets();
         try {

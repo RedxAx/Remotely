@@ -3,6 +3,7 @@ package redxax.oxy.remotely.ui.tests;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import redxax.oxy.remotely.RemotelyClient;
+import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Notification;
@@ -62,12 +63,12 @@ public class WidgetsTestingScreen extends ReScreen {
                 .visible(true)
                 .build();
 
-        AnimatedButton cancelButton = new AnimatedButton.Builder().label(("Cancel")).size(80, 20).onClick(() -> testPopup.hide()).accentType(Config.AccentType.DANGER).build();
+        AnimatedButton cancelButton = new AnimatedButton.Builder().label(("Cancel")).size(80, 20).onClick(() -> testPopup.hide()).accentType(ThemeManager.getAccent("danger")).build();
 
         AnimatedButton okButton = new AnimatedButton.Builder().label(("OK")).size(80, 20).onClick(() -> {
-                    new Notification("Confirmed!", Notification.Type.SUCCESS);
-                    testPopup.hide();
-                }).build();
+            new Notification("Confirmed!", Notification.Type.SUCCESS);
+            testPopup.hide();
+        }).build();
 
         this.testPopup = new PopupWidget.Builder("Upgraded Popup")
                 .pos((width / 2) - (350 / 2), 50)

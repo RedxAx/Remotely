@@ -5,7 +5,6 @@ import redxax.oxy.remotely.host.ReScreenApplicationHost;
 import redxax.oxy.remotely.servers.ServerManagerScreen;
 import restudio.rescreen.ReStudioEntry;
 import restudio.rescreen.config.Config;
-import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
@@ -33,6 +32,6 @@ public class RemotelyEntry extends ReStudioEntry {
 
     @Override
     protected void setupScreens() {
-        ScreenManager.getInstance().setScreen(new ServerManagerScreen((Screen) null, RemotelyClient.INSTANCE));
+        ScreenManager.getInstance().setScreen(new ServerManagerScreen(null, RemotelyClient.INSTANCE));
     }
 }
