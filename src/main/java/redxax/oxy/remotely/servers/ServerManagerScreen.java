@@ -220,11 +220,10 @@ public class ServerManagerScreen extends ReScreen {
                 .size(260, 140)
                 .onClose(() -> addServerPopup.hide());
 
-        RemoteHost currentHost = (tabs().getActiveTabIndex() > 0) ? (RemoteHost) tabs().getActiveTab().getData() : null;
-
         AnimatedButton createBtn = new AnimatedButton.Builder()
                 .label(("Server Creation"))
                 .onClick(() -> {
+                    RemoteHost currentHost = (tabs().getActiveTabIndex() > 0) ? (RemoteHost) tabs().getActiveTab().getData() : null;
                     client.setScreen(new ServerConfigurationScreen(this, null, currentHost, remotelyClient));
                     addServerPopup.hide();
                 })
