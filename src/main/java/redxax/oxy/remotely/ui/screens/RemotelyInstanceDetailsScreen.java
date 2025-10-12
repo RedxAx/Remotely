@@ -112,7 +112,24 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
     @Override
     protected void setupHeader() {
         header().addRight("close.png", this::closeScreen, "Close");
+        header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
+
+        header().addLeft("start.png", this::launchOrStopInstance, "Start Server");
+        header().addLeft("stop.png", this::launchOrStopInstance, "Stop Server");
+
+        header().addLeft("resources.png", this::openInstanceResources, "Resources");
+
+        Runnable reverseAction = () -> {
+            TabContext context = getActiveContext();
+            if (context != null && !context.isLocalTerminalMode) {
+                ReverseProxyManager.reverse(context.instance, () -> ScreenManager.getInstance().execute(this::updateHeaderButtons));
+            }
+        };
+        header().addLeft("reverse.png", reverseAction, "Open Server To The Public");
+        header().addLeft("closeReverse.png", reverseAction, "Close Reverse Proxy");
+
         header().build();
+        updateHeaderButtons();
     }
 
     @Override
@@ -420,28 +437,32 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
     }
 
     private void updateHeaderButtons() {
-        header().reset();
-        header().addRight("close.png", this::closeScreen, "Close");
-
         TabContext context = getActiveContext();
-        if (context != null && !context.isLocalTerminalMode) {
-            header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
+        boolean isInstanceTab = context != null && !context.isLocalTerminalMode;
 
+        header().setButtonVisible("explorer.png", isInstanceTab);
+
+        if (isInstanceTab) {
             boolean isRunning = context.instance.getState() == InstanceState.RUNNING || context.instance.getState() == InstanceState.STARTING;
-            header().addLeft(isRunning ? "stop.png" : "start.png", this::launchOrStopInstance, isRunning ? "Stop Server" : "Start Server");
+            header().setButtonVisible("start.png", !isRunning);
+            header().setButtonVisible("stop.png", isRunning);
 
             ModLoader modLoader = context.instance.getModLoader();
-            if (modLoader != null && modLoader != ModLoader.VELOCITY && modLoader != ModLoader.WATERFALL && modLoader != ModLoader.BUNGEECORD) {
-                header().addLeft("resources.png", this::openInstanceResources, "Resources");
-            }
-
-            boolean isProxy = context.instance.getModLoader() != null && List.of("velocity", "waterfall", "bungeecord").contains(context.instance.getModLoader().name().toLowerCase(Locale.getDefault()));
-            header().setButtonVisible("resources.png", !isProxy);
+            boolean showResources = modLoader != null && modLoader != ModLoader.VELOCITY && modLoader != ModLoader.WATERFALL && modLoader != ModLoader.BUNGEECORD;
+            boolean isProxy = modLoader != null && List.of("velocity", "waterfall", "bungeecord").contains(modLoader.name().toLowerCase(Locale.getDefault()));
+            header().setButtonVisible("resources.png", showResources && !isProxy);
 
             boolean isReversed = ReverseProxyManager.isPortForwarded(context.instance);
-            header().addLeft(isReversed ? "closeReverse.png" : "reverse.png", () -> ReverseProxyManager.reverse(context.instance, () -> ScreenManager.getInstance().execute(this::updateHeaderButtons)), isReversed ? "Close Reverse Proxy" : "Open Server To The Public");
+            header().setButtonVisible("reverse.png", !isReversed);
+            header().setButtonVisible("closeReverse.png", isReversed);
+
+        } else {
+            header().setButtonVisible("start.png", false);
+            header().setButtonVisible("stop.png", false);
+            header().setButtonVisible("resources.png", false);
+            header().setButtonVisible("reverse.png", false);
+            header().setButtonVisible("closeReverse.png", false);
         }
-        header().build();
     }
 
     private void launchOrStopInstance() {
@@ -452,12 +473,9 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
             if (context.instance.isRemote()) {
                 context.terminalWidget.executeCommand("stop");
             } else {
-                TerminalWidget.shutdown(context.instance.getInstanceId());
+                context.terminalWidget.stopProcess();
                 context.instance.setState(InstanceState.STOPPED);
-                updateHeaderButtons();
-                context.mainContainer.removeWidget(context.terminalWidget);
-                context.terminalWidget = TerminalWidget.getOrCreate(context.instance, 5, 60, width - 10, height - 85);
-                context.mainContainer.addWidget(context.terminalWidget);
+                context.terminalWidget.clearLog();
             }
         } else {
             context.instance.setState(InstanceState.STARTING);
