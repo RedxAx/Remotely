@@ -3,7 +3,6 @@ package redxax.oxy.remotely.servers;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
-import redxax.oxy.remotely.ui.screens.RemotelyInstanceDetailsScreen;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
@@ -128,6 +127,7 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void loadServersForCurrentTab() {
+        if (activeContainer == null) return;
         activeContainer.clearWidgets();
         for (Instance server : getCurrentServers()) {
             addServerWidget(server, false);
@@ -475,6 +475,8 @@ public class ServerManagerScreen extends ReScreen {
     public void onDisplayed() {
         super.onDisplayed();
         playSound(Sound.SERVERMANAGER);
+        Rebase.get().getInstanceManager().loadInstances();
+        loadServersForCurrentTab();
     }
 
     @Override
