@@ -17,6 +17,7 @@ import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
@@ -411,9 +412,11 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
 
     @Override
     protected void onStateChanged(InstanceState newState) {
-        TabContext context = getActiveContext();
-        if (context == null || context.isLocalTerminalMode) return;
-        updateHeaderButtons();
+        ScreenManager.getInstance().execute(() -> {
+            TabContext context = getActiveContext();
+            if (context == null || context.isLocalTerminalMode) return;
+            updateHeaderButtons();
+        });
     }
 
     private void updateHeaderButtons() {
@@ -436,7 +439,7 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
             header().setButtonVisible("resources.png", !isProxy);
 
             boolean isReversed = ReverseProxyManager.isPortForwarded(context.instance);
-            header().addLeft(isReversed ? "closeReverse.png" : "reverse.png", () -> ReverseProxyManager.reverse(context.instance), isReversed ? "Close Reverse Proxy" : "Open Server To The Public");
+            header().addLeft(isReversed ? "closeReverse.png" : "reverse.png", () -> ReverseProxyManager.reverse(context.instance, () -> ScreenManager.getInstance().execute(this::updateHeaderButtons)), isReversed ? "Close Reverse Proxy" : "Open Server To The Public");
         }
         header().build();
     }
@@ -457,6 +460,7 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
                 context.mainContainer.addWidget(context.terminalWidget);
             }
         } else {
+            context.instance.setState(InstanceState.STARTING);
             if (context.instance.isRemote()) {
                 try {
                     RebaseAPI api = RebaseApiFactory.get(context.instance);
@@ -467,6 +471,7 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
                     });
                 } catch (Exception e) {
                     new Notification("Failed to start server", e.getMessage(), Notification.Type.ERROR);
+                    context.instance.setState(InstanceState.STOPPED);
                 }
             } else {
                 context.terminalWidget.startServerProcess();

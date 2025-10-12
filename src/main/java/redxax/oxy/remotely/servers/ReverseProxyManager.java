@@ -14,14 +14,14 @@ import java.util.Map;
 public class ReverseProxyManager {
     private static final Map<Integer, Session> activeSessions = new HashMap<>();
 
-    public static void reverse(int localPort) {
+    public static void reverse(int localPort, Runnable onComplete) {
         Notification notification = new Notification("Reversing " + localPort + "...", Notification.Type.INFO);
         notification.autoSlideOut = false;
         notification.loading = true;
         if (activeSessions.containsKey(localPort)) {
             Session existing = activeSessions.get(localPort);
             if (existing.isConnected()) {
-                notification.change("Port " + localPort + " Is Already being forwarded", "Click To Disconnect", Notification.Type.WARN, () -> shutdown(localPort));
+                notification.change("Port " + localPort + " Is Already being forwarded", "Click To Disconnect", Notification.Type.WARN, () -> shutdown(localPort, onComplete));
                 notification.loading = false;
                 return;
             }
@@ -43,15 +43,16 @@ public class ReverseProxyManager {
                 session.setConfig("StrictHostKeyChecking", "no");
                 session.connect(10000);
                 activeSessions.put(localPort, session);
-                startReverseProxy(session, localPort, notification);
+                startReverseProxy(session, localPort, notification, onComplete);
             } catch (JSchException e) {
                 notification.change("Error Setting Up Reverse Proxy: ", e.getMessage(), Notification.Type.ERROR, null);
                 notification.loading = false;
+                if (onComplete != null) onComplete.run();
             }
         }, "Reverse Proxy Thread").start();
     }
 
-    private static void startReverseProxy(Session session, int localPort, Notification notification) {
+    private static void startReverseProxy(Session session, int localPort, Notification notification, Runnable onComplete) {
         try {
             session.setPortForwardingR(0, "localhost", localPort);
             String[] portForwarding = session.getPortForwardingR();
@@ -75,10 +76,12 @@ public class ReverseProxyManager {
         } catch (JSchException e) {
             notification.change("Error Setting Up Reverse Proxy: ", e.getMessage(), Notification.Type.ERROR, null);
             notification.loading = false;
+        } finally {
+            if (onComplete != null) onComplete.run();
         }
     }
 
-    public static void shutdown(int localPort) {
+    public static void shutdown(int localPort, Runnable onComplete) {
         Session session = activeSessions.get(localPort);
         if (session != null && session.isConnected()) {
             try {
@@ -103,9 +106,12 @@ public class ReverseProxyManager {
                 new Notification("Reverse Proxy for port " + localPort + " shutdown successfully", Notification.Type.INFO);
             } catch (JSchException e) {
                 new Notification("Error Shutting Down Reverse Proxy: ", e.getMessage(), Notification.Type.ERROR);
+            } finally {
+                if (onComplete != null) onComplete.run();
             }
         } else {
             new Notification("Port " + localPort + " Isn't Forwarded", Notification.Type.WARN);
+            if (onComplete != null) onComplete.run();
         }
     }
 
@@ -163,14 +169,15 @@ public class ReverseProxyManager {
         return activeSessions.containsKey(instance.getPort()) && activeSessions.get(instance.getPort()).isConnected();
     }
 
-    public static void reverse(Instance sInfo) {
+    public static void reverse(Instance sInfo, Runnable onComplete) {
         if (sInfo == null || sInfo.getPort() <= 0) {
             new Notification("Invalid Server Port", "Make Sure To Configure The Port Correctly", Notification.Type.ERROR);
+            if (onComplete != null) onComplete.run();
         } else {
             if (isPortForwarded(sInfo)) {
-                shutdown(sInfo.getPort());
+                shutdown(sInfo.getPort(), onComplete);
             } else {
-                reverse(sInfo.getPort());
+                reverse(sInfo.getPort(), onComplete);
             }
         }
     }
