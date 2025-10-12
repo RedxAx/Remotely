@@ -424,6 +424,13 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
             loadResources();
             return true;
         }
+
+        if (keyCode == GLFW.GLFW_KEY_GRAVE_ACCENT && hasControlDown()) {
+            if (getActiveContext() == null) return false;
+            int i = getActiveContext().containerSwitch.getCurrentIndex();
+            getActiveContext().containerSwitch.handleTabClick(i == 0 ? 1 : 0);
+            return true;
+        }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
