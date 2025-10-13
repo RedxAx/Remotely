@@ -76,7 +76,7 @@ public class ServerConfigurationScreen extends ReScreen {
             editServer();
         } else {
             if (remoteHostContext != null) {
-                new Notification("Not Implemented", "Remote server creation is not yet supported.", Notification.Type.WARN);
+                createNewRemoteServer();
             } else {
                 createNewLocalServer();
             }
@@ -100,6 +100,30 @@ public class ServerConfigurationScreen extends ReScreen {
                     ScreenManager.getInstance().execute(() -> {
                         Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                         notification.change("Server Creation Failed", cause.getMessage(), Notification.Type.ERROR, null);
+                        notification.loading = false;
+                        notification.autoSlideOut = true;
+                    });
+                    return null;
+                });
+    }
+
+    private void createNewRemoteServer() {
+        Notification notification = new Notification("Creating remote server...", tempInstance.getName(), Notification.Type.INFO);
+        notification.autoSlideOut = false;
+        notification.loading = true;
+
+        Rebase.get().getInstanceManager().createRemoteInstance(tempInstance, remoteHostContext, notification)
+                .thenCompose(newInstance ->
+                        Rebase.get().getInstanceManager().fetchRemoteInstances(remoteHostContext).handle((v, e) -> null).thenApply(v -> newInstance)
+                )
+                .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
+                    notification.change(newInstance.getName() + " Created Successfully!", "Remote server created.", Notification.Type.SUCCESS, null);
+                    notification.loading = false;
+                    notification.autoSlideOut = true;
+                })).exceptionally(ex -> {
+                    ScreenManager.getInstance().execute(() -> {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        notification.change("Remote Server Creation Failed", cause.getMessage(), Notification.Type.ERROR, null);
                         notification.loading = false;
                         notification.autoSlideOut = true;
                     });
