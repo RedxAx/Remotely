@@ -52,7 +52,7 @@ public class InstanceResourceWidget extends AnimatedWidget {
         this.toggleButton = new ToggleWidget.Builder().animateElevation(false).entranceAnimation(false).onChange(() -> {
             ToggleWidget toggle = toggleButtonRef.get();
             boolean originalState = resource.isEnabled();
-            Rebase.get().getResourceManager().setEnabled(resource, !originalState).exceptionally(e -> {
+            Rebase.get().getResourceManager().setEnabled(instance, resource, !originalState).exceptionally(e -> {
                 ScreenManager.getInstance().execute(() -> {
                     new Notification("Failed to toggle resource", e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), Notification.Type.ERROR);
                     toggle.setValue(originalState);
@@ -100,7 +100,7 @@ public class InstanceResourceWidget extends AnimatedWidget {
 
             }
         }
-        this.imageColor = ImageUtils.getDominantColor(resource.getIcon());
+        this.imageColor = ImageUtils.getDominantColor(this.resource.getIcon());
     }
 
     private void showUpdateDialog() {
