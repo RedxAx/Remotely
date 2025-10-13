@@ -9,6 +9,7 @@ import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.settings.Setting;
 import restudio.rebase.settings.SettingsScreen;
+import restudio.rescreen.ui.widgets.LoadingAnimationWidget;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -18,6 +19,7 @@ import restudio.rescreen.util.Sound;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
 import static restudio.rescreen.util.SoundUtils.playSound;
@@ -29,6 +31,7 @@ public class ServerConfigurationScreen extends ReScreen {
     private final Instance tempInstance;
     private final RemoteHost remoteHostContext;
     private final RemotelyClient remotelyClient;
+    private LoadingAnimationWidget loadingWidget;
 
     public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient) {
         super();
@@ -42,7 +45,6 @@ public class ServerConfigurationScreen extends ReScreen {
             this.tempInstance = new Instance(instance, instance.getName());
         } else {
             this.tempInstance = new Instance("New Server", remotelyClient.getHost().getGameVersion(), "");
-            this.tempInstance.loadServerProperties();
         }
     }
 
@@ -50,6 +52,31 @@ public class ServerConfigurationScreen extends ReScreen {
     public void init() {
         super.init();
 
+        loadingWidget = new LoadingAnimationWidget(0, 0, width, height);
+        addDrawableChild(loadingWidget);
+
+        CompletableFuture<Void> propertiesFuture;
+        if (isEditMode) {
+            if (tempInstance.isRemote()) {
+                propertiesFuture = tempInstance.loadRemoteServerProperties();
+            } else {
+                propertiesFuture = CompletableFuture.runAsync(tempInstance::loadServerProperties);
+            }
+        } else {
+            tempInstance.loadServerProperties();
+            propertiesFuture = CompletableFuture.completedFuture(null);
+        }
+
+        propertiesFuture.thenRun(() -> ScreenManager.getInstance().execute(this::setupSettingsUI)).exceptionally(e -> {
+            ScreenManager.getInstance().execute(() -> {
+                new Notification("Error", "Could not load server properties: " + e.getMessage(), Notification.Type.ERROR);
+                close();
+            });
+            return null;
+        });
+    }
+
+    private void setupSettingsUI() {
         Map<String, Supplier<List<Setting>>> settingsByTab = new LinkedHashMap<>();
 
         ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance, remotelyClient);

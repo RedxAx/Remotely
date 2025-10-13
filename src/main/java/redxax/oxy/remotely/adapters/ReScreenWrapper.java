@@ -25,7 +25,9 @@ public class ReScreenWrapper extends Screen {
             sm.execute(() -> {});
         } catch (Throwable ignored) {}
 
-        sm.setScreen(libScreen);
+        if (sm.getCurrentScreen() != libScreen) {
+            sm.setScreen(libScreen);
+        }
     }
 
     @Override
@@ -57,7 +59,7 @@ public class ReScreenWrapper extends Screen {
 
         //? if >= 1.21.6 {
         /*drawContext.getMatrices().popMatrix();
-        *///?} else {
+         *///?} else {
         drawContext.getMatrices().pop();
         //?}
     }
@@ -81,6 +83,13 @@ public class ReScreenWrapper extends Screen {
         double sf = this.client.getWindow().getScaleFactor();
         boolean handled = sm.mouseDragged(mouseX * sf, mouseY * sf, button, deltaX * sf, deltaY * sf);
         return handled || super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+
+    @Override
+    public void mouseMoved(double mouseX, double mouseY) {
+        double sf = this.client.getWindow().getScaleFactor();
+        sm.mouseMoved(mouseX * sf, mouseY * sf);
+        super.mouseMoved(mouseX, mouseY);
     }
 
     @Override
@@ -111,8 +120,6 @@ public class ReScreenWrapper extends Screen {
     @Override
     public void removed() {
         super.removed();
-        restudio.rescreen.ui.core.Screen current = sm.getCurrentScreen();
-        if (current != null) current.removed();
         sm.setScreen(null);
     }
 
