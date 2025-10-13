@@ -17,6 +17,7 @@ import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.ui.widgets.LoadingAnimationWidget;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.TabsManager;
@@ -35,6 +36,7 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
     private final Object parent;
     private final RemotelyClient remotelyClient;
     private final Map<TabsManager.Tab, TabContext> tabContexts = new HashMap<>();
+    private LoadingAnimationWidget loadingWidget;
 
     private static class TabContext {
         Instance instance;
@@ -377,6 +379,12 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
             };
         }).toList();
 
+        if (filteredResources.isEmpty()) {
+            context.resourcesContainer.addWidget(new AnimatedButton.Builder().label("No resources match filter.").active(false).build());
+            context.resourcesContainer.updateWidgetPositions();
+            return;
+        }
+
 
         List<InstanceResourceWidget> widgets = new ArrayList<>();
         for (InstanceResource resource : filteredResources) {
@@ -399,6 +407,14 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         if (context == null || context.resourcesContainer == null || context.instance == null) return;
         context.resourcesContainer.clearWidgets();
 
+        if (loadingWidget == null) {
+            loadingWidget = new LoadingAnimationWidget(0, 0, 0, 0);
+        }
+        loadingWidget.setSize(context.resourcesContainer.getEffectiveWidth(), 100);
+        loadingWidget.setPosition(0, (context.resourcesContainer.getHeight() - 100) / 2);
+        context.resourcesContainer.addWidget(loadingWidget);
+        context.resourcesContainer.updateWidgetPositions();
+
         Rebase.get().getResourceManager().getResources(context.instance).thenCompose(resources -> Rebase.get().getUpdateManager().checkForUpdates(context.instance).thenApply(updates -> {
             for (InstanceResource resource : resources) {
                 resource.availableUpdate = null;
@@ -410,7 +426,14 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         })).thenAccept(loadedResources -> client.execute(() -> {
             context.currentResources = loadedResources;
             rebuildResourcesTab();
-        }));
+        })).exceptionally(e -> {
+            client.execute(() -> {
+                context.resourcesContainer.clearWidgets();
+                context.resourcesContainer.addWidget(new AnimatedButton.Builder().label("Failed to load resources.").active(false).build());
+                context.resourcesContainer.updateWidgetPositions();
+            });
+            return null;
+        });
     }
 
     @Override
@@ -486,21 +509,24 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
             }
         } else {
             context.instance.setState(InstanceState.STARTING);
-            if (context.instance.isRemote()) {
-                try {
-                    RebaseAPI api = RebaseApiFactory.get(context.instance);
-                    api.launchServer(context.instance, command -> {
+            RebaseAPI api = RebaseApiFactory.get(context.instance);
+            api.launchServer(context.instance).thenAccept(command -> {
+                ScreenManager.getInstance().execute(() -> {
+                    if (context.instance.isRemote()) {
                         if (command != null && !command.isEmpty()) {
                             context.terminalWidget.executeCommand(command);
                         }
-                    });
-                } catch (Exception e) {
+                    } else {
+                        context.terminalWidget.startServerProcess();
+                    }
+                });
+            }).exceptionally(e -> {
+                ScreenManager.getInstance().execute(() -> {
                     new Notification("Failed to start server", e.getMessage(), Notification.Type.ERROR);
                     context.instance.setState(InstanceState.STOPPED);
-                }
-            } else {
-                context.terminalWidget.startServerProcess();
-            }
+                });
+                return null;
+            });
         }
     }
 

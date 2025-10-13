@@ -81,7 +81,7 @@ public class ServerManagerScreen extends ReScreen {
                 .size(width / 2 - 5, 18)
                 .rightToLeft(true)
                 .allowAdd(true)
-                .allowRename(true).allowReorder(true).allowClose(true)
+                .allowRename(false).allowReorder(false).allowClose(false)
                 .onPlusButtonClicked(() -> openRemoteHostPopup(false))
                 .onTabSelected(this::onHostTabSelected)
                 .onTabClosed(this::onHostTabClosed)
@@ -150,7 +150,14 @@ public class ServerManagerScreen extends ReScreen {
         Object data = tab.getData();
         if (data instanceof RemoteHost host) {
             if (!host.getSshManager().isSSH()) {
-                connectRemoteHostAsync(host);
+                if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("calm"));
+                connectRemoteHostAsync(host, () -> {
+                    if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getDefaultAccent());
+                    instanceManager.fetchRemoteInstances(host)
+                            .whenComplete((v, e) -> ScreenManager.getInstance().execute(this::loadServersForCurrentTab));
+                }, () -> {
+                    if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("danger"));
+                });
             } else if (instanceManager.getRemoteInstances(host).isEmpty()) {
                 instanceManager.fetchRemoteInstances(host)
                         .whenComplete((v, e) -> ScreenManager.getInstance().execute(this::loadServersForCurrentTab));
@@ -162,7 +169,6 @@ public class ServerManagerScreen extends ReScreen {
 
     private void onHostTabClosed(TabsManager.Tab tab) {
         if (tab != null && tab.getData() instanceof RemoteHost host) {
-            instanceManager.removeRemoteHost(host);
         }
     }
 
@@ -331,16 +337,22 @@ public class ServerManagerScreen extends ReScreen {
         addDrawableChild(remoteHostPopup);
     }
 
-    private void connectRemoteHostAsync(RemoteHost hostInfo) {
+    private void connectRemoteHostAsync(RemoteHost hostInfo, Runnable onSuccess, Runnable onFailure) {
         new Thread(() -> {
             try {
-                if(hostInfo.getSshManager().connect()) {
-                    Rebase.get().getInstanceManager().fetchRemoteInstances(hostInfo)
-                            .whenComplete((v, e) -> ScreenManager.getInstance().execute(this::loadServersForCurrentTab));
+                if (hostInfo.getSshManager().connect()) {
+                    ScreenManager.getInstance().execute(onSuccess);
+                } else {
+                    throw new Exception("Connection failed silently.");
                 }
             } catch (Exception e) {
                 RebaseLogger.log("Failed to connect to remote host " + hostInfo.name + ": " + e.getMessage());
-                ScreenManager.getInstance().execute(() -> new Notification("Connection Failed", e.getMessage(), Notification.Type.ERROR));
+                ScreenManager.getInstance().execute(() -> {
+                    new Notification("Connection Failed", e.getMessage(), Notification.Type.ERROR);
+                    if (onFailure != null) {
+                        onFailure.run();
+                    }
+                });
             }
         }).start();
     }
