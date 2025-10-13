@@ -11,6 +11,8 @@ import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
+import restudio.rebase.util.RebaseLogger;
+import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
@@ -143,25 +145,29 @@ public class ServerManagerScreen extends ReScreen {
 
     private void onHostTabSelected(TabsManager.Tab tab) {
         remotelyClient.saveTabIndex(tabs().getActiveTabIndex());
-        if (tab.getContainer().getWidgets().isEmpty()) {
-            loadServersForCurrentTab();
-        }
-        if (tabs().getActiveTabIndex() > 0) {
-            RemoteHost host = (RemoteHost) tab.getData();
-            if (!host.isConnected && !host.isConnecting) {
+        setActiveContainer(tab.getContainer());
+
+        Object data = tab.getData();
+        if (data instanceof RemoteHost host) {
+            if (!host.getSshManager().isSSH()) {
                 connectRemoteHostAsync(host);
+            } else if (instanceManager.getRemoteInstances(host).isEmpty()) {
+                instanceManager.fetchRemoteInstances(host)
+                        .whenComplete((v, e) -> ScreenManager.getInstance().execute(this::loadServersForCurrentTab));
             }
         }
+        
+        loadServersForCurrentTab();
     }
 
     private void onHostTabClosed(TabsManager.Tab tab) {
-        if (tab.getData() instanceof RemoteHost host) {
+        if (tab != null && tab.getData() instanceof RemoteHost host) {
             instanceManager.removeRemoteHost(host);
         }
     }
 
     private void onHostTabRenamed(TabsManager.Tab tab) {
-        if (tab.getData() instanceof RemoteHost) {
+        if (tab != null && tab.getData() instanceof RemoteHost) {
             openRemoteHostPopup(true);
         }
     }
@@ -195,18 +201,26 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private List<Instance> getCurrentServers() {
-        if (tabsManager == null || tabs().getActiveTabIndex() == 0) {
+        if (tabsManager == null) {
             return instanceManager.getLocalInstances();
         }
-        if (tabs().getActiveTabIndex() > 0) {
-            RemoteHost host = (RemoteHost) tabs().getActiveTab().getData();
-            return instanceManager.getRemoteInstances(host);
+        TabsManager.Tab active = tabs().getActiveTab();
+        if (active == null) {
+            return instanceManager.getLocalInstances();
         }
-        return new ArrayList<>();
+        int idx = tabs().getActiveTabIndex();
+        if (idx <= 0) {
+            return instanceManager.getLocalInstances();
+        }
+        Object data = active.getData();
+        if (!(data instanceof RemoteHost host)) {
+            return instanceManager.getLocalInstances();
+        }
+        return instanceManager.getRemoteInstances(host);
     }
 
     private void openFileExplorer() {
-        client.setScreen(new FileExplorerScreen(this, null, remotelyDir, Path.of(remotelyDir.toString(), "data"), false));
+        client.setScreen(new FileExplorerScreen(this, null, remotelyDir, remotelyDir, false));
     }
 
     private void createPopups() {
@@ -223,7 +237,7 @@ public class ServerManagerScreen extends ReScreen {
         AnimatedButton createBtn = new AnimatedButton.Builder()
                 .label(("Server Creation"))
                 .onClick(() -> {
-                    RemoteHost currentHost = (tabs().getActiveTabIndex() > 0) ? (RemoteHost) tabs().getActiveTab().getData() : null;
+                    RemoteHost currentHost = (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null) ? (RemoteHost) tabs().getActiveTab().getData() : null;
                     client.setScreen(new ServerConfigurationScreen(this, null, currentHost, remotelyClient));
                     addServerPopup.hide();
                 })
@@ -318,23 +332,22 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void connectRemoteHostAsync(RemoteHost hostInfo) {
-        hostInfo.isConnecting = true;
         new Thread(() -> {
-            restudio.rebase.util.ssh.SSHManager sshManager = hostInfo.getSshManager();
-            if (sshManager != null) {
-                sshManager.connectToRemoteHost(hostInfo.getUser(), hostInfo.getIp(), hostInfo.getPort(), hostInfo.getPassword());
-                hostInfo.isConnected = sshManager.isSSH();
-            } else {
-                hostInfo.isConnected = false;
+            try {
+                if(hostInfo.getSshManager().connect()) {
+                    Rebase.get().getInstanceManager().fetchRemoteInstances(hostInfo)
+                            .whenComplete((v, e) -> ScreenManager.getInstance().execute(this::loadServersForCurrentTab));
+                }
+            } catch (Exception e) {
+                RebaseLogger.log("Failed to connect to remote host " + hostInfo.name + ": " + e.getMessage());
+                ScreenManager.getInstance().execute(() -> new Notification("Connection Failed", e.getMessage(), Notification.Type.ERROR));
             }
-            hostInfo.connectionError = hostInfo.isConnected ? null : "Failed to connect.";
-            hostInfo.isConnecting = false;
         }).start();
     }
 
     private void openRemoteHostPopup(boolean isEditing) {
         int activeTabIndex = tabs().getActiveTabIndex();
-        if (isEditing && activeTabIndex > 0) {
+        if (isEditing && activeTabIndex > 0 && tabs().getActiveTab() != null) {
             RemoteHost host = (RemoteHost) tabs().getTabs().get(activeTabIndex).getData();
             remoteHostConfirmButton.setMessage(("Save"));
             remoteHostDeleteButton.visible = true;
@@ -363,7 +376,7 @@ public class ServerManagerScreen extends ReScreen {
         RemoteHost host;
         boolean isEditing = tabs().getActiveTabIndex() > 0 && "Save".equals(remoteHostConfirmButton.getMessage());
 
-        if (isEditing) {
+        if (isEditing && tabs().getActiveTab() != null) {
             host = (RemoteHost) tabs().getActiveTab().getData();
         } else {
             host = new RemoteHost();
