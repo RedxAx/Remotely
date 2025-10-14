@@ -15,7 +15,7 @@ import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.ui.core.Screen;
 
 import java.io.File;
-import java.nio.file.*;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -70,20 +70,18 @@ public class RemotelyClient {
     }
 
     private void connectAllRemoteHosts() {
-        Rebase.get().getInstanceManager().getRemoteHosts().forEach(host -> {
-            CompletableFuture.runAsync(() -> {
-                try {
-                    host.getSshManager().connect();
-                } catch (Exception e) {
-                    devPrint("Failed to connect to " + host.name + ": " + e.getMessage());
-                }
-            });
-        });
+        Rebase.get().getInstanceManager().getRemoteHosts().forEach(host -> CompletableFuture.runAsync(() -> {
+            try {
+                host.getSshManager().connect();
+            } catch (Exception e) {
+                devPrint("Failed to connect to " + host.name + ": " + e.getMessage());
+            }
+        }));
     }
 
     private void checkRemoteHostConnections() {
         Rebase.get().getInstanceManager().getRemoteHosts().forEach(host -> {
-            if (!host.getSshManager().isSSH()) {
+            if (!host.getSshManager().isSSH() || !host.getSshManager().isSFTPConnected()) {
                 CompletableFuture.runAsync(() -> {
                     try {
                         devPrint("Reconnecting to " + host.name);
@@ -100,7 +98,6 @@ public class RemotelyClient {
         connectionScheduler.shutdownNow();
         Rebase.get().getInstanceManager().getRemoteHosts().forEach(host -> host.getSshManager().disconnect());
     }
-
 
     public void openMultiTerminal(Object parent) {
         if (multiTerminalTabs.isEmpty()) {
