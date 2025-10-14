@@ -43,8 +43,16 @@ public class ServerConfigurationScreen extends ReScreen {
 
         if (isEditMode) {
             this.tempInstance = new Instance(instance, instance.getName());
+            if (instance.isRemote() || remoteHostContext != null) {
+                this.tempInstance.setRemote(true);
+                this.tempInstance.setRemoteHost(instance.getRemoteHost() != null ? instance.getRemoteHost() : remoteHostContext);
+            }
         } else {
             this.tempInstance = new Instance("New Server", remotelyClient.getHost().getGameVersion(), "");
+            if (remoteHostContext != null) {
+                this.tempInstance.setRemote(true);
+                this.tempInstance.setRemoteHost(remoteHostContext);
+            }
         }
     }
 
