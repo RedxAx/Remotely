@@ -65,7 +65,7 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screen.S
             minimalButtons.add(new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("explorer.png").onClick(this::openFileExplorerScreen).hint("File Explorer").build());
             minimalButtons.add(new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("external.png").onClick(() -> {
                 if (RemotelyClient.INSTANCE.openExternal()) {
-                    minimalButtons.removeLast();
+                    minimalButtons.getLast().setActive(false);
                 }
             }).hint("Open Remotely Externally").build());
         }
