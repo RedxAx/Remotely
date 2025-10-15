@@ -13,8 +13,10 @@ import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.util.Notification;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -155,6 +157,30 @@ public class RemotelyClient {
     }
 
     public void loadSnippets() {
+    }
+
+    public boolean openExternal() {
+        try {
+            String javaHome = System.getProperty("java.home");
+            String javaBin = javaHome + File.separator + "bin" + File.separator + "java";
+            String classpath = System.getProperty("java.class.path");
+            String className = RemotelyInit.class.getName();
+
+            File tempFile = File.createTempFile("remotely_args", ".txt");
+            tempFile.deleteOnExit();
+            try (java.io.PrintWriter writer = new java.io.PrintWriter(tempFile)) {
+                writer.println("-cp");
+                writer.println(classpath);
+                writer.println(className);
+            }
+
+            new ProcessBuilder(javaBin, "@" + tempFile.getAbsolutePath()).start();
+            return  true;
+        } catch (IOException e) {
+            System.out.println("Failed to open Remotely externally: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
     }
 
     public List<Object> getMultiTerminalTabs() {

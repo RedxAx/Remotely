@@ -8,7 +8,10 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.RemotelyInit;
 import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
+import redxax.oxy.remotely.host.ApplicationHost;
+import redxax.oxy.remotely.host.ReScreenApplicationHost;
 import restudio.rescreen.platform.IDrawContext;
 import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -19,6 +22,7 @@ import restudio.rescreen.ui.widgets.SquareButtonWidget;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static redxax.oxy.remotely.config.Config.mainMenuStyle;
 import static redxax.oxy.remotely.config.Config.remotelyDir;
@@ -26,7 +30,7 @@ import static redxax.oxy.remotely.config.Config.remotelyDir;
 @Mixin(TitleScreen.class)
 public abstract class TitleScreenMixin extends net.minecraft.client.gui.screen.Screen {
     @Unique private ButtonWidget optionsButton;
-    @Unique private final List<SquareButtonWidget> minimalButtons = new ArrayList<>();
+    @Unique private final List<SquareButtonWidget> minimalButtons = new CopyOnWriteArrayList<>();
     @Unique private final List<AnimatedButton> normalButtons = new ArrayList<>();
     @Unique private boolean wasMousePressed = false;
 
@@ -59,6 +63,11 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screen.S
             minimalButtons.add(new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("manager.png").onClick(this::openServerManagerScreen).hint("Servers").build());
             minimalButtons.add(new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("terminal.png").onClick(this::openMultiTerminalScreen).hint("Terminal").build());
             minimalButtons.add(new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("explorer.png").onClick(this::openFileExplorerScreen).hint("File Explorer").build());
+            minimalButtons.add(new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("external.png").onClick(() -> {
+                if (RemotelyClient.INSTANCE.openExternal()) {
+                    minimalButtons.removeLast();
+                }
+            }).hint("Open Remotely Externally").build());
         }
         if (optionsButton != null && mainMenuStyle.equals("Normal")) {
             normalButtons.clear();
