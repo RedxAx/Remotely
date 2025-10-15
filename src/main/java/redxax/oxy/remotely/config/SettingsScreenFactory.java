@@ -6,6 +6,7 @@ import redxax.oxy.remotely.ui.settings.controllers.ServerClientSettingsControlle
 import redxax.oxy.remotely.ui.settings.controllers.SoundSettingsController;
 import restudio.rebase.settings.Setting;
 import restudio.rebase.settings.SettingsScreen;
+import restudio.rebase.settings.controllers.ExplorerSettingsController;
 import restudio.rebase.settings.controllers.JavaManagerController;
 import restudio.rebase.settings.controllers.ThemeController;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -39,6 +40,9 @@ public class SettingsScreenFactory {
 
         JavaManagerController javaController = new JavaManagerController();
         settingsByTab.put("Java", javaController::getSettings);
+
+        ExplorerSettingsController explorerController = new ExplorerSettingsController(configManager);
+        settingsByTab.put("File Explorer", explorerController::getSettings);
 
         DevelopmentSettingsController devController = new DevelopmentSettingsController(configManager);
         settingsByTab.put("Development", devController::getSettings);
