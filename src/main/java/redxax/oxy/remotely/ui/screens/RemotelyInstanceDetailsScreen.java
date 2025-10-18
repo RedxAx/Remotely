@@ -478,9 +478,8 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
             header().setButtonVisible("stop.png", isRunning);
 
             ModLoader modLoader = context.instance.getModLoader();
-            boolean showResources = modLoader != null && modLoader != ModLoader.VELOCITY && modLoader != ModLoader.WATERFALL && modLoader != ModLoader.BUNGEECORD;
-            boolean isProxy = modLoader != null && List.of("velocity", "waterfall", "bungeecord").contains(modLoader.name().toLowerCase(Locale.getDefault()));
-            header().setButtonVisible("resources.png", showResources && !isProxy);
+            boolean showResources = modLoader != null;
+            header().setButtonVisible("resources.png", showResources);
 
             boolean isReversed = ReverseProxyManager.isPortForwarded(context.instance);
             header().setButtonVisible("reverse.png", !isReversed);
