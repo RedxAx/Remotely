@@ -38,6 +38,11 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
     private final Map<TabsManager.Tab, TabContext> tabContexts = new HashMap<>();
     private LoadingAnimationWidget loadingWidget;
 
+    private TabSwitchWidget sharedContainerSwitch;
+    private RowWidget sharedSelectorsRow;
+    private DropDownWidget<String> sharedContentSortSelector;
+    private DropDownWidget<String> sharedContentFilterSelector;
+
     private static class TabContext {
         Instance instance;
         String localTerminalId;
@@ -48,10 +53,7 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         ContentSort currentSort = ContentSort.NAME_AZ;
         ContentFilter currentFilter = ContentFilter.ALL;
         final boolean isLocalTerminalMode;
-        TabSwitchWidget containerSwitch;
-        RowWidget selectorsRow;
-        DropDownWidget<String> contentSortSelector;
-        DropDownWidget<String> contentFilterSelector;
+        int selectedViewIndex = 0;
 
         TabContext(Instance instance, String localTerminalId) {
             this.instance = instance;
@@ -141,10 +143,33 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
                 .allowAdd(true).allowClose(true).allowReorder(true).allowRename(true)
                 .onPlusButtonClicked(this::addNewTerminalTab)
                 .onTabSelected(this::onTabSelected)
-                .onTabClosed(this::onTabClosed)
+                .onTabClosed(tab -> {
+                    onTabClosed(tab);
+                    getGroupManager().onTabClosed(tab);
+                })
                 .onTabsReordered(this::onTabsReordered)
                 .onTabRenamed(this::onTabRenamed)
                 .build();
+
+        if (sharedContentSortSelector == null) {
+            List<String> sortOptions = Arrays.stream(ContentSort.values()).map(ContentSort::toString).collect(Collectors.toList());
+            sharedContentSortSelector = new DropDownWidget.Builder<>(sortOptions).entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT).size(90, 18).onSelectionChanged(this::onSharedSortChanged).animateElevation(false).build();
+            sharedContentSortSelector.setPriority(100);
+            List<String> filterOptions = Arrays.stream(ContentFilter.values()).map(ContentFilter::toString).collect(Collectors.toList());
+            sharedContentFilterSelector = new DropDownWidget.Builder<>(filterOptions).entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT).size(90, 18).onSelectionChanged(this::onSharedFilterChanged).animateElevation(false).build();
+            sharedContentFilterSelector.setPriority(100);
+            sharedSelectorsRow = new RowWidget.Builder().addWidget(sharedContentFilterSelector, sharedContentSortSelector).entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT).padding(1).size(181, 18).build();
+            sharedSelectorsRow.setVisible(false);
+            sharedSelectorsRow.setPriority(100);
+            addDrawableChild(sharedSelectorsRow);
+        }
+
+        if (sharedContainerSwitch == null) {
+            sharedContainerSwitch = new TabSwitchWidget.Builder().entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT).size(37, 18).options(List.of("terminal.png", "resources.png")).iconMode(true).onChange(this::onSharedSwitchChange).build();
+            addDrawableChild(sharedContainerSwitch);
+            sharedContainerSwitch.recreateButtons();
+            sharedContainerSwitch.setVisible(false);
+        }
 
         for (Object tabInfo : remotelyClient.getMultiTerminalTabs()) {
             createAndAddTab(tabInfo, false);
@@ -156,6 +181,43 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         } else if (!tabs().getTabs().isEmpty()) {
             tabs().setActiveTab(0);
         }
+    }
+
+    private void onSharedSwitchChange(int i) {
+        TabContext ctx = getActiveContext();
+        if (ctx == null) return;
+        ctx.selectedViewIndex = i;
+        if (i == 0) {
+            ctx.mainContainer.scrollToWidget(ctx.terminalWidget);
+            sharedSelectorsRow.setVisible(false);
+        } else {
+            ctx.mainContainer.scrollToWidget(ctx.resourcesContainer);
+            sharedSelectorsRow.setVisible(true);
+        }
+    }
+
+    private void onSharedSortChanged(String selection) {
+        TabContext ctx = getActiveContext();
+        if (ctx == null) return;
+        for (ContentSort sort : ContentSort.values()) {
+            if (sort.toString().equals(selection)) {
+                ctx.currentSort = sort;
+                break;
+            }
+        }
+        rebuildResourcesTab();
+    }
+
+    private void onSharedFilterChanged(String selection) {
+        TabContext ctx = getActiveContext();
+        if (ctx == null) return;
+        for (ContentFilter filter : ContentFilter.values()) {
+            if (filter.toString().equals(selection)) {
+                ctx.currentFilter = filter;
+                break;
+            }
+        }
+        rebuildResourcesTab();
     }
 
     private void onTabRenamed(TabsManager.Tab tab) {
@@ -184,44 +246,16 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         String localId = (tabInfo instanceof String) ? (String) tabInfo : null;
 
         TabContext context = new TabContext(inst, localId);
-
-        Container mainContainer = createContainer("main", 5, 60, width - 10, height - 65);
+        String containerId = inst != null ? "remotely-main-" + inst.getInstanceId() : "remotely-term-" + localId;
+        Container mainContainer = createContainer(containerId, 5, 60, width - 10, height - 65);
         mainContainer.layout(new ManagedLayout()).backgroundDrawing(false).disableScissorRegion(true).verticalSpacing(14).padding(0);
-        mainContainer.setScissorRegion(mainContainer.getX() - 2, mainContainer.getY() - 2, mainContainer.getWidth() + mainContainer.getX() + 4,  mainContainer.getY() + mainContainer.getHeight() + 6);
+        mainContainer.setScissorRegion(mainContainer.getX() - 2, mainContainer.getY() - 2, mainContainer.getWidth() + mainContainer.getX() + 4, mainContainer.getY() + mainContainer.getHeight() + 6);
         context.mainContainer = mainContainer;
 
         context.terminalWidget = TerminalWidget.getOrCreate(inst, localId, 5, 60, width - 10, height - 66);
         mainContainer.addWidget(context.terminalWidget);
 
         if (!context.isLocalTerminalMode) {
-            List<String> sortOptions = Arrays.stream(ContentSort.values()).map(ContentSort::toString).collect(Collectors.toList());
-            context.contentSortSelector = new DropDownWidget.Builder<>(sortOptions).entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT).size(90, 18).onSelectionChanged(s -> onSortChanged(context, s)).animateElevation(false).build();
-            context.contentSortSelector.setSelectedItem(context.currentSort.toString());
-            context.contentSortSelector.setPriority(100);
-
-            List<String> filterOptions = Arrays.stream(ContentFilter.values()).map(ContentFilter::toString).collect(Collectors.toList());
-            context.contentFilterSelector = new DropDownWidget.Builder<>(filterOptions).entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT).size(90, 18).onSelectionChanged(s -> onFilterChanged(context, s)).animateElevation(false).build();
-            context.contentFilterSelector.setSelectedItem(context.currentFilter.toString());
-            context.contentFilterSelector.setPriority(100);
-
-            context.selectorsRow = new RowWidget.Builder().addWidget(context.contentFilterSelector, context.contentSortSelector).entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT).padding(1).size(181, 18).build();
-            context.selectorsRow.setVisible(false);
-            context.selectorsRow.setPriority(100);
-            addDrawableChild(context.selectorsRow);
-
-            context.containerSwitch = new TabSwitchWidget.Builder().entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT).size(37, 18).options(List.of("terminal.png", "resources.png")).iconMode(true).onChange(i -> {
-                if (i == 0) {
-                    context.mainContainer.scrollToWidget(context.terminalWidget);
-                    context.selectorsRow.setVisible(false);
-                } else {
-                    context.mainContainer.scrollToWidget(context.resourcesContainer);
-                    context.selectorsRow.setVisible(true);
-                }
-            }).build();
-            addDrawableChild(context.containerSwitch);
-            context.containerSwitch.recreateButtons();
-
-
             context.resourcesContainer = new Container(5, 60, width - 10, height - 66);
             context.resourcesContainer.layout(new ManagedLayout()).columns(1).padding(2);
             mainContainer.addWidget(context.resourcesContainer);
@@ -267,12 +301,6 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         if (this.instance != null) {
             this.instance.removeStateListener(stateListener);
         }
-
-        tabContexts.values().forEach(ctx -> {
-            if(ctx.containerSwitch != null) ctx.containerSwitch.setVisible(false);
-            if(ctx.selectorsRow != null) ctx.selectorsRow.setVisible(false);
-        });
-
         TabContext newContext = tabContexts.get(tab);
         if (newContext == null) return;
 
@@ -280,17 +308,30 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         if (this.instance != null) {
             this.instance.addStateListener(stateListener);
         }
-
-        if(newContext.containerSwitch != null) newContext.containerSwitch.setVisible(true);
-        if(newContext.selectorsRow != null) {
-            newContext.selectorsRow.setVisible(newContext.containerSwitch.getCurrentIndex() == 1);
-        }
-
         updateHeaderButtons();
         updatePositions();
 
         if (!newContext.isLocalTerminalMode && newContext.currentResources.isEmpty()) {
             loadResources();
+        }
+        if (sharedContainerSwitch != null) {
+            boolean showSwitch = !newContext.isLocalTerminalMode;
+            sharedContainerSwitch.setVisible(showSwitch);
+            if (showSwitch) {
+                sharedContainerSwitch.handleTabClick(Math.max(0, Math.min(1, newContext.selectedViewIndex)));
+            }
+        }
+        if (sharedSelectorsRow != null) {
+            boolean showSelectors = !newContext.isLocalTerminalMode && newContext.selectedViewIndex == 1;
+            sharedSelectorsRow.setVisible(showSelectors);
+            if (!newContext.isLocalTerminalMode) {
+                if (sharedContentFilterSelector != null) {
+                    sharedContentFilterSelector.setSelectedItem(newContext.currentFilter.toString());
+                }
+                if (sharedContentSortSelector != null) {
+                    sharedContentSortSelector.setSelectedItem(newContext.currentSort.toString());
+                }
+            }
         }
         remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
     }
@@ -305,34 +346,12 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
                 remotelyClient.getMultiTerminalTabs().remove(context.localTerminalId);
             }
             context.cleanup();
-            if(context.containerSwitch != null) remove(context.containerSwitch);
-            if(context.selectorsRow != null) remove(context.selectorsRow);
         }
         if (tabs().getTabs().isEmpty()) {
             closeScreen();
         } else {
             remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
         }
-    }
-
-    private void onSortChanged(TabContext context, String selection) {
-        for (ContentSort sort : ContentSort.values()) {
-            if (sort.toString().equals(selection)) {
-                context.currentSort = sort;
-                break;
-            }
-        }
-        rebuildResourcesTab();
-    }
-
-    private void onFilterChanged(TabContext context, String selection) {
-        for (ContentFilter filter : ContentFilter.values()) {
-            if (filter.toString().equals(selection)) {
-                context.currentFilter = filter;
-                break;
-            }
-        }
-        rebuildResourcesTab();
     }
 
     private Comparator<InstanceResourceWidget> getWidgetComparator() {
@@ -447,11 +466,10 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
             loadResources();
             return true;
         }
-
         if (keyCode == GLFW.GLFW_KEY_GRAVE_ACCENT && hasControlDown()) {
-            if (getActiveContext() == null) return false;
-            int i = getActiveContext().containerSwitch.getCurrentIndex();
-            getActiveContext().containerSwitch.handleTabClick(i == 0 ? 1 : 0);
+            if (getActiveContext() == null || sharedContainerSwitch == null) return false;
+            int i = getActiveContext().selectedViewIndex;
+            sharedContainerSwitch.handleTabClick(i == 0 ? 1 : 0);
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -577,16 +595,15 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
     public void updatePositions() {
         super.updatePositions();
         TabContext context = getActiveContext();
-        if (context == null || context.isLocalTerminalMode || context.mainContainer == null || context.containerSwitch == null || context.selectorsRow == null) {
+        if (context == null || context.mainContainer == null || sharedContainerSwitch == null || sharedSelectorsRow == null) {
             return;
         }
 
         int y = 36;
-        int switchX = context.mainContainer.getX() + context.mainContainer.getEffectiveWidth() - context.containerSwitch.getWidth();
-        context.containerSwitch.setPosition(switchX, y);
-
-        int selectorsX = switchX - context.selectorsRow.getWidth() - 1;
-        context.selectorsRow.setPosition(selectorsX, y);
+        int switchX = 5 + width - 10 - sharedContainerSwitch.getWidth();
+        sharedContainerSwitch.setPosition(switchX, y);
+        int selectorsX = switchX - sharedSelectorsRow.getWidth() - 1;
+        sharedSelectorsRow.setPosition(selectorsX, y);
     }
 
     @Override
