@@ -13,7 +13,6 @@ import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.ui.core.Screen;
-import restudio.rescreen.util.Notification;
 
 import java.io.File;
 import java.io.IOException;

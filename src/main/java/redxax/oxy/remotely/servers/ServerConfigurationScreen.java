@@ -7,8 +7,8 @@ import redxax.oxy.remotely.ui.settings.controllers.ServerPerformanceSettingsCont
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.settings.Setting;
-import restudio.rebase.settings.SettingsScreen;
+import restudio.rescreen.ui.settings.Setting;
+import restudio.rescreen.ui.settings.SettingsScreen;
 import restudio.rescreen.ui.widgets.LoadingAnimationWidget;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
