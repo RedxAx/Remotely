@@ -16,6 +16,7 @@ import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
+import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.widgets.LoadingAnimationWidget;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -143,10 +144,7 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
                 .allowAdd(true).allowClose(true).allowReorder(true).allowRename(true)
                 .onPlusButtonClicked(this::addNewTerminalTab)
                 .onTabSelected(this::onTabSelected)
-                .onTabClosed(tab -> {
-                    onTabClosed(tab);
-                    getGroupManager().onTabClosed(tab);
-                })
+                .onTabClosed(this::onTabClosed)
                 .onTabsReordered(this::onTabsReordered)
                 .onTabRenamed(this::onTabRenamed)
                 .build();
@@ -337,6 +335,7 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
     }
 
     private void onTabClosed(TabsManager.Tab tab) {
+        getGroupManager().onTabClosed(tab);
         TabContext context = tabContexts.remove(tab);
         if (context != null) {
             if (context.instance != null) {
