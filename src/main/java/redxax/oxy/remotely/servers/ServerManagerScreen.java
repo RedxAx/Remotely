@@ -506,6 +506,12 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     @Override
+    public void updatePositions() {
+        super.updatePositions();
+        tabs().setPosition(width - tabs().getWidth(), height - 28 + 4);
+    }
+
+    @Override
     public void close() {
         remotelyClient.getHost().openParentScreen(this, parent);
     }
