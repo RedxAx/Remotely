@@ -24,6 +24,7 @@ import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
 import javax.imageio.ImageIO;
+import javax.naming.Context;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -168,7 +169,13 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void onHostTabClosed(TabsManager.Tab tab) {
+        System.out.println("Requesting deletion of remote host");
         if (tab != null && tab.getData() instanceof RemoteHost host) {
+            ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this).addIconItem("Confirm Deletion", "delete.png", () -> {
+                instanceManager.removeRemoteHost(host);
+                tabs().removeTab(tab.getId());
+                }, "Delete Remote Host", ThemeManager.getAccent("danger"));
+            showContextMenu(getMouseX(), tabsManager.getY() + 2, builder);
         }
     }
 
