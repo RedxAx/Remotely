@@ -460,7 +460,8 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void openModpackInstallation() {
-        client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true));
+        RemoteHost currentHost = (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null) ? (RemoteHost) tabs().getActiveTab().getData() : null;
+        client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, currentHost));
     }
 
     @Override

@@ -13,10 +13,8 @@ import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.resource.InstanceResource;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
-import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
-import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.widgets.LoadingAnimationWidget;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -32,8 +30,7 @@ import java.util.stream.Collectors;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 
-public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
-
+public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.instance.InstanceDetailsScreen {
     private final Object parent;
     private final RemotelyClient remotelyClient;
     private final Map<TabsManager.Tab, TabContext> tabContexts = new HashMap<>();
@@ -55,16 +52,14 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         ContentFilter currentFilter = ContentFilter.ALL;
         final boolean isLocalTerminalMode;
         int selectedViewIndex = 0;
-
         TabContext(Instance instance, String localTerminalId) {
             this.instance = instance;
             this.localTerminalId = localTerminalId;
             this.isLocalTerminalMode = (instance == null);
         }
-
         public void cleanup() {
             if (terminalWidget != null) {
-                if(instance != null) {
+                if (instance != null) {
                     TerminalWidget.shutdown(instance.getInstanceId());
                 } else if (localTerminalId != null) {
                     TerminalWidget.shutdownLocal(localTerminalId);
@@ -82,7 +77,6 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         TYPE("Type"),
         ENABLED("Enabled"),
         UPDATE_AVAILABLE("Update Available");
-
         private final String displayName;
         ContentSort(String displayName) { this.displayName = displayName; }
         @Override public String toString() { return displayName; }
@@ -96,7 +90,6 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         DATA_PACKS("Data Packs"),
         UPDATE_AVAILABLE("Update Available"),
         DISABLED("Disabled");
-
         private final String displayName;
         ContentFilter(String displayName) { this.displayName = displayName; }
         @Override public String toString() { return displayName; }
@@ -118,12 +111,9 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
     protected void setupHeader() {
         header().addRight("close.png", this::closeScreen, "Close");
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
-
         header().addLeft("start.png", this::launchOrStopInstance, "Start Server");
         header().addLeft("stop.png", this::launchOrStopInstance, "Stop Server");
-
         header().addLeft("resources.png", this::openInstanceResources, "Resources");
-
         Runnable reverseAction = () -> {
             TabContext context = getActiveContext();
             if (context != null && !context.isLocalTerminalMode) {
@@ -132,7 +122,6 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         };
         header().addLeft("reverse.png", reverseAction, "Open Server To The Public");
         header().addLeft("closeReverse.png", reverseAction, "Close Reverse Proxy");
-
         header().build();
         updateHeaderButtons();
     }
@@ -290,7 +279,7 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
     }
 
     private void addNewTerminalTab() {
-        String newId = UUID.randomUUID().toString();
+        String newId = java.util.UUID.randomUUID().toString();
         remotelyClient.getMultiTerminalTabs().add(newId);
         createAndAddTab(newId, true);
     }
@@ -403,7 +392,6 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
             return;
         }
 
-
         List<InstanceResourceWidget> widgets = new ArrayList<>();
         for (InstanceResource resource : filteredResources) {
             InstanceResourceWidget widget = new InstanceResourceWidget(this, instance, resource, this::loadResources);
@@ -428,6 +416,11 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         if (loadingWidget == null) {
             loadingWidget = new LoadingAnimationWidget(0, 0, 0, 0);
         }
+        List<InstanceResource> cached = Rebase.get().getResourceManager().getCachedResourcesSync(context.instance);
+        if (!cached.isEmpty()) {
+            context.currentResources = cached;
+            rebuildResourcesTab();
+        }
         loadingWidget.setSize(context.resourcesContainer.getEffectiveWidth(), 100);
         loadingWidget.setPosition(0, (context.resourcesContainer.getHeight() - 100) / 2);
         context.resourcesContainer.addWidget(loadingWidget);
@@ -444,6 +437,8 @@ public class RemotelyInstanceDetailsScreen extends InstanceDetailsScreen {
         })).thenAccept(loadedResources -> client.execute(() -> {
             context.currentResources = loadedResources;
             rebuildResourcesTab();
+            context.resourcesContainer.removeWidget(loadingWidget);
+            context.resourcesContainer.updateWidgetPositions();
         })).exceptionally(e -> {
             client.execute(() -> {
                 context.resourcesContainer.clearWidgets();

@@ -5,7 +5,6 @@ import redxax.oxy.remotely.host.ApplicationHost;
 import redxax.oxy.remotely.host.MinecraftApplicationHost;
 import redxax.oxy.remotely.servers.ServerManagerScreen;
 import redxax.oxy.remotely.ui.screens.RemotelyInstanceDetailsScreen;
-import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.text.FontRegistry;
@@ -18,11 +17,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
@@ -36,7 +31,6 @@ public class RemotelyClient {
     public static ITextRenderer tr;
     private final List<Object> multiTerminalTabs = new CopyOnWriteArrayList<>();
     private int activeMultiTerminalTabIndex = 0;
-    private final ScheduledExecutorService connectionScheduler = Executors.newSingleThreadScheduledExecutor();
 
     public RemotelyClient(ApplicationHost host) {
         this.host = host;
@@ -60,44 +54,10 @@ public class RemotelyClient {
         if (host instanceof MinecraftApplicationHost) {
             FontRegistry.MONO_FONT = host.getFontIdentifier("remotely", "mono");
         }
-
-        connectAllRemoteHosts();
-        connectionScheduler.scheduleAtFixedRate(this::checkRemoteHostConnections, 1, 1, TimeUnit.MINUTES);
     }
 
     private void onClientShutdown() {
         shutdownAllTerminals();
-        shutdownConnections();
-    }
-
-    private void connectAllRemoteHosts() {
-        Rebase.get().getInstanceManager().getRemoteHosts().forEach(host -> CompletableFuture.runAsync(() -> {
-            try {
-                host.getSshManager().connect();
-            } catch (Exception e) {
-                devPrint("Failed to connect to " + host.name + ": " + e.getMessage());
-            }
-        }));
-    }
-
-    private void checkRemoteHostConnections() {
-        Rebase.get().getInstanceManager().getRemoteHosts().forEach(host -> {
-            if (!host.getSshManager().isSSH() || !host.getSshManager().isSFTPConnected()) {
-                CompletableFuture.runAsync(() -> {
-                    try {
-                        devPrint("Reconnecting to " + host.name);
-                        host.getSshManager().connect();
-                    } catch (Exception e) {
-                        devPrint("Failed to reconnect to " + host.name + ": " + e.getMessage());
-                    }
-                });
-            }
-        });
-    }
-
-    public void shutdownConnections() {
-        connectionScheduler.shutdownNow();
-        Rebase.get().getInstanceManager().getRemoteHosts().forEach(host -> host.getSshManager().disconnect());
     }
 
     public void openMultiTerminal(Object parent) {
@@ -152,11 +112,8 @@ public class RemotelyClient {
         return activeHostIndex;
     }
 
-    public void saveSnippets() {
-    }
-
-    public void loadSnippets() {
-    }
+    public void saveSnippets() {}
+    public void loadSnippets() {}
 
     public boolean openExternal() {
         try {
@@ -174,7 +131,7 @@ public class RemotelyClient {
             }
 
             new ProcessBuilder(javaBin, "@" + tempFile.getAbsolutePath()).start();
-            return  true;
+            return true;
         } catch (IOException e) {
             System.out.println("Failed to open Remotely externally: " + e.getMessage());
             e.printStackTrace();
