@@ -4,7 +4,6 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.util.math.RotationAxis;
 import org.joml.Matrix3x2fStack;
 import org.joml.Vector3f;
-import restudio.rebase.ui.text.StyledText;
 import restudio.rescreen.platform.IMatrixStack;
 import restudio.rescreen.platform.IDrawContext;
 //? if < 1.21.6
