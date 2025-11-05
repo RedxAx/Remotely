@@ -37,6 +37,7 @@ dependencies {
 
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     implementation("com.jcraft:jsch:0.1.55")
+    implementation("com.github.javakeyring:java-keyring:1.0.4")
     implementation("com.vladsch.flexmark:flexmark-all:0.64.8")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
 
