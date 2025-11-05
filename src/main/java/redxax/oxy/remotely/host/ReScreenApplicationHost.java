@@ -29,7 +29,12 @@ public class ReScreenApplicationHost implements ApplicationHost {
 
     @Override
     public Object getFontIdentifier(String namespace, String path) {
-        return path;
+        if (namespace == null || namespace.isEmpty()) namespace = "minecraft";
+        if (path == null) path = "";
+        String ns = namespace.toLowerCase();
+        String p = path.startsWith("/") ? path.substring(1) : path;
+        p = p.toLowerCase();
+        return ns + ":" + p;
     }
 
     @Override

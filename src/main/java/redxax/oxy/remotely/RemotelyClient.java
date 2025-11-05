@@ -2,15 +2,14 @@ package redxax.oxy.remotely;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.host.ApplicationHost;
-import redxax.oxy.remotely.host.MinecraftApplicationHost;
 import redxax.oxy.remotely.servers.ServerManagerScreen;
 import redxax.oxy.remotely.ui.screens.RemotelyInstanceDetailsScreen;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
-import restudio.rebase.ui.text.FontRegistry;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.ITextRenderer;
+import restudio.rescreen.text.FontRegistry;
 import restudio.rescreen.ui.core.Screen;
 
 import java.io.File;
@@ -50,10 +49,7 @@ public class RemotelyClient {
         }
         Runtime.getRuntime().addShutdownHook(new Thread(this::onClientShutdown));
         os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
-
-        if (host instanceof MinecraftApplicationHost) {
-            FontRegistry.MONO_FONT = host.getFontIdentifier("remotely", "mono");
-        }
+        FontRegistry.MONO_FONT = host.getFontIdentifier("remotely", "mono");
     }
 
     private void onClientShutdown() {

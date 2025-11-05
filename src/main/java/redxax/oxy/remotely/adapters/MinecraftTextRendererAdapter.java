@@ -3,11 +3,13 @@ package redxax.oxy.remotely.adapters;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.render.VertexConsumerProvider.Immediate;
+import net.minecraft.text.Style;
+import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 import org.joml.Matrix4f;
-import org.joml.Matrix4fc;
-import restudio.rebase.ui.text.StyledText;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
+import restudio.rescreen.text.StyledText;
 
 public class MinecraftTextRendererAdapter implements ITextRenderer {
     private final TextRenderer tr;
@@ -67,9 +69,7 @@ public class MinecraftTextRendererAdapter implements ITextRenderer {
     }
 
     @Override
-    public void draw(String s, int i, int i1, int i2, boolean b) {
-
-    }
+    public void draw(String s, int i, int i1, int i2, boolean b) {}
 
     @Override
     public int getWidth(String text) {
@@ -78,6 +78,15 @@ public class MinecraftTextRendererAdapter implements ITextRenderer {
 
     @Override
     public int getWidth(String s, restudio.rescreen.render.TextRenderer.FontStyle fontStyle) {
+        return tr.getWidth(s);
+    }
+
+    @Override
+    public int getWidth(String s, Object font) {
+        if (font instanceof Identifier id) {
+            Text styled = Text.literal(s).setStyle(Style.EMPTY.withFont(id));
+            return tr.getWidth(styled);
+        }
         return tr.getWidth(s);
     }
 
