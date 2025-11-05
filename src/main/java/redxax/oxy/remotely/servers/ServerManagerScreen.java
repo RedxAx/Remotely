@@ -375,7 +375,7 @@ public class ServerManagerScreen extends ReScreen {
             remoteHostUserInput.setText(host.user);
             remoteHostIpInput.setText(host.ip);
             remoteHostPortInput.setText(String.valueOf(host.port));
-            remoteHostPasswordInput.setText(host.password);
+            remoteHostPasswordInput.setText(host.getPassword());
         } else {
             remoteHostConfirmButton.setMessage(("Test & Add"));
             remoteHostDeleteButton.visible = false;
@@ -410,7 +410,7 @@ public class ServerManagerScreen extends ReScreen {
             new Notification("Error", "Port must be a valid number.", Notification.Type.ERROR);
             return;
         }
-        host.password = remoteHostPasswordInput.getText();
+        host.setPassword(remoteHostPasswordInput.getText());
 
         if (host.name.isEmpty() || host.ip.isEmpty()) {
             new Notification("Error", "Host Name and IP cannot be empty.", Notification.Type.ERROR);
