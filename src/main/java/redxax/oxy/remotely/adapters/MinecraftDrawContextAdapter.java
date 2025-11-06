@@ -2,7 +2,6 @@ package redxax.oxy.remotely.adapters;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.util.math.RotationAxis;
-import org.joml.Matrix3x2fStack;
 import org.joml.Vector3f;
 import restudio.rescreen.platform.IMatrixStack;
 import restudio.rescreen.platform.IDrawContext;
@@ -12,6 +11,8 @@ import restudio.rescreen.render.TextRenderer;
 
 import java.awt.image.BufferedImage;
 import redxax.oxy.remotely.util.ImageUtil;
+import restudio.rescreen.util.Identifier;
+import restudio.rescreen.util.ResourceManager;
 
 public class MinecraftDrawContextAdapter implements IDrawContext {
     private final DrawContext dc;
@@ -185,5 +186,15 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     @Override
     public void drawPixelArt(BufferedImage bufferedImage, float v, float v1, float v2, float v3) {
         ImageUtil.drawPixelArt(dc, (int) v, (int) v1, (int) v2, (int) v3, bufferedImage);
+    }
+
+    @Override
+    public void drawBufferedImage(Identifier identifier, float v, float v1, float v2, float v3) {
+        drawBufferedImage(ResourceManager.getInstance().getImage(identifier), v, v1, v2, v3);
+    }
+
+    @Override
+    public void drawPixelArt(Identifier identifier, float v, float v1, float v2, float v3) {
+        drawPixelArt(ResourceManager.getInstance().getImage(identifier), v, v1, v2, v3);
     }
 }
