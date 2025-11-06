@@ -19,6 +19,7 @@ import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.ImageUtils;
 import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.ResourceManager;
 import restudio.rescreen.util.Sound;
 
 import java.nio.file.Files;
@@ -78,7 +79,7 @@ public class InstanceResourceWidget extends AnimatedWidget {
         if (resource.getProjectId() == null || resource.getProviderName() == null) return;
         CacheManager cacheManager = Rebase.get().getCacheManager();
         Path imagePath = cacheManager.getIconPath(resource.getProviderName(), resource.getProjectId());
-        if (ImageUtils.compareImages(resource.getIcon(), "missing.png")) {
+        if (ImageUtils.compareImages(resource.getIcon(), ResourceManager.getInstance().getMissingTexture())) {
             if (Files.exists(imagePath)) {
                 resource.setIcon(ImageUtils.loadImage(imagePath));
             } else if (resource.getProjectId() != null && resource.getProviderName() != null) {

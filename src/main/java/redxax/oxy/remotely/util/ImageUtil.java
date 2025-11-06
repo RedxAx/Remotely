@@ -47,7 +47,7 @@ public class ImageUtil {
     }
 
     public static BufferedImage loadResourceIcon(String path) {
-        return restudio.rescreen.util.ImageUtils.loadResourceIcon(path);
+        return restudio.rescreen.util.ImageUtils.loadImage(path);
     }
 
     public static BufferedImage loadSpriteSheet(String path) throws Exception {
