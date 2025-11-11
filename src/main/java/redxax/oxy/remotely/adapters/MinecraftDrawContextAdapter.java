@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.adapters;
 
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.render.RenderLayer;
 import net.minecraft.util.math.RotationAxis;
 import org.joml.Matrix3x2fStack;
 import org.joml.Vector3f;
@@ -197,5 +198,10 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     @Override
     public void drawPixelArt(Identifier identifier, float v, float v1, float v2, float v3) {
         drawPixelArt(ResourceManager.getInstance().getImage(identifier), v, v1, v2, v3);
+    }
+
+    @Override
+    public void drawInvertedRect(float v, float v1, float v2, float v3) {
+        dc.fill(RenderLayer.getGuiTextHighlight(), (int) v, (int) v1, (int) v2, (int) v3, 0xFF0000FF);
     }
 }
