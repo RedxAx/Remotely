@@ -10,13 +10,16 @@ import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.preset.ResourceList;
 import restudio.rebase.resource.InstanceResource;
 import restudio.rebase.resource.ResourceType;
+import restudio.rebase.resource.UpdateInfo;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
+import restudio.rebase.ui.widgets.DownloadProgressWidget;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.platform.IDrawContext;
-import restudio.rescreen.ui.widgets.LoadingAnimationWidget;
+import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.TabsManager;
@@ -24,8 +27,12 @@ import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Notification;
 
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
@@ -48,6 +55,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         Container mainContainer;
         Container resourcesContainer;
         List<InstanceResource> currentResources = new ArrayList<>();
+        Map<String, List<String>> resourceGroups;
         ContentSort currentSort = ContentSort.NAME_AZ;
         ContentFilter currentFilter = ContentFilter.ALL;
         final boolean isLocalTerminalMode;
@@ -56,6 +64,11 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
             this.instance = instance;
             this.localTerminalId = localTerminalId;
             this.isLocalTerminalMode = (instance == null);
+            if (instance != null) {
+                this.resourceGroups = instance.getResourceGroups();
+            } else {
+                this.resourceGroups = new HashMap<>();
+            }
         }
         public void cleanup() {
             if (terminalWidget != null) {
@@ -122,6 +135,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         };
         header().addLeft("reverse.png", reverseAction, "Open Server To The Public");
         header().addLeft("closeReverse.png", reverseAction, "Close Reverse Proxy");
+        header().addLeft("download.png", this::showUpdateAllDialog, "Update All Resources");
         header().build();
         updateHeaderButtons();
     }
@@ -177,9 +191,11 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         if (i == 0) {
             ctx.mainContainer.scrollToWidget(ctx.terminalWidget);
             sharedSelectorsRow.setVisible(false);
+            header().setButtonVisible("download.png", false);
         } else {
             ctx.mainContainer.scrollToWidget(ctx.resourcesContainer);
             sharedSelectorsRow.setVisible(true);
+            header().setButtonVisible("download.png", true);
         }
     }
 
@@ -244,7 +260,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
 
         if (!context.isLocalTerminalMode) {
             context.resourcesContainer = new Container(5, 60, width - 10, height - 66);
-            context.resourcesContainer.layout(new ManagedLayout()).columns(1).padding(2);
+            context.resourcesContainer.layout(new ManagedLayout()).columns(1).padding(2).enableSelecting(true);
             mainContainer.addWidget(context.resourcesContainer);
         }
 
@@ -306,6 +322,9 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
             sharedContainerSwitch.setVisible(showSwitch);
             if (showSwitch) {
                 sharedContainerSwitch.handleTabClick(Math.max(0, Math.min(1, newContext.selectedViewIndex)));
+                header().setButtonVisible("download.png", newContext.selectedViewIndex == 1);
+            } else {
+                header().setButtonVisible("download.png", false);
             }
         }
         if (sharedSelectorsRow != null) {
@@ -392,16 +411,63 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
             return;
         }
 
-        List<InstanceResourceWidget> widgets = new ArrayList<>();
-        for (InstanceResource resource : filteredResources) {
-            InstanceResourceWidget widget = new InstanceResourceWidget(this, instance, resource, this::loadResources);
-            widget.setHeight(30);
-            widgets.add(widget);
+        Set<String> groupedResourceFiles = new HashSet<>();
+        if (context.resourceGroups != null) {
+            context.resourceGroups.values().forEach(groupedResourceFiles::addAll);
         }
 
-        widgets.sort(getWidgetComparator());
+        if (context.resourceGroups != null) {
+            for (Map.Entry<String, List<String>> entry : context.resourceGroups.entrySet()) {
+                String groupName = entry.getKey();
+                List<String> resourceFiles = entry.getValue();
 
-        for (InstanceResourceWidget widget : widgets) {
+                List<InstanceResourceWidget> groupMemberWidgets = new ArrayList<>();
+                for (String resourceFile : resourceFiles) {
+                    filteredResources.stream().filter(r -> r.getFileName().equals(resourceFile)).findFirst().ifPresent(resource -> {
+                        InstanceResourceWidget widget = new InstanceResourceWidget(this, instance, resource, this::loadResources);
+                        widget.setHeight(30);
+                        widget.selectable = false;
+                        groupMemberWidgets.add(widget);
+                    });
+                }
+
+                if (groupMemberWidgets.isEmpty()) {
+                    continue;
+                }
+
+                PopupWidget.Builder groupBuilder = new PopupWidget.Builder(groupName)
+                        .enableCollapseOnClose(true)
+                        .setExpandWithDropdowns(true)
+                        .addTitleButton(() -> {
+                            context.resourceGroups.remove(groupName);
+                            context.instance.setResourceGroups(context.resourceGroups);
+                            context.instance.save();
+                            rebuildResourcesTab();
+                        }, "Ungroup", ThemeManager.getAccent("calm"));
+
+                groupMemberWidgets.sort(getWidgetComparator());
+
+                for (InstanceResourceWidget widget : groupMemberWidgets) {
+                    groupBuilder.addRow("", true, false, widget.getHeight(), widget);
+                }
+                PopupWidget groupPopup = groupBuilder.build();
+                context.resourcesContainer.addWidget(groupPopup);
+                groupPopup.setLayer(0);
+            }
+        }
+
+        List<InstanceResourceWidget> ungroupedWidgets = new ArrayList<>();
+        for (InstanceResource resource : filteredResources) {
+            if (!groupedResourceFiles.contains(resource.getFileName())) {
+                InstanceResourceWidget widget = new InstanceResourceWidget(this, instance, resource, this::loadResources);
+                widget.setHeight(30);
+                ungroupedWidgets.add(widget);
+            }
+        }
+
+        ungroupedWidgets.sort(getWidgetComparator());
+
+        for (InstanceResourceWidget widget : ungroupedWidgets) {
             context.resourcesContainer.addWidget(widget);
         }
 
@@ -470,6 +536,31 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
     }
 
     @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        TabContext context = getActiveContext();
+        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && context != null && !context.isLocalTerminalMode && context.selectedViewIndex == 1) {
+            Container contentContainer = context.resourcesContainer;
+            if (contentContainer.isMouseOver(mouseX, mouseY)) {
+                List<AnimatedWidget> selectedWidgets = contentContainer.getSelectedWidgets();
+                if (!selectedWidgets.isEmpty()) {
+                    boolean mouseOverSelected = false;
+                    for (AnimatedWidget widget : selectedWidgets) {
+                        if (widget.isMouseOver(mouseX, mouseY)) {
+                            mouseOverSelected = true;
+                            break;
+                        }
+                    }
+                    if (mouseOverSelected) {
+                        showContentContextMenu(mouseX, mouseY, selectedWidgets);
+                        return true;
+                    }
+                }
+            }
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
     protected void onStateChanged(InstanceState newState) {
         ScreenManager.getInstance().execute(() -> {
             TabContext context = getActiveContext();
@@ -496,13 +587,14 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
             boolean isReversed = ReverseProxyManager.isPortForwarded(context.instance);
             header().setButtonVisible("reverse.png", !isReversed);
             header().setButtonVisible("closeReverse.png", isReversed);
-
+            header().setButtonVisible("download.png", context.selectedViewIndex == 1);
         } else {
             header().setButtonVisible("start.png", false);
             header().setButtonVisible("stop.png", false);
             header().setButtonVisible("resources.png", false);
             header().setButtonVisible("reverse.png", false);
             header().setButtonVisible("closeReverse.png", false);
+            header().setButtonVisible("download.png", false);
         }
     }
 
@@ -558,6 +650,165 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
             };
         }
         client.setScreen(new ResourceBrowserScreen(this, context.instance, defaultType, true));
+    }
+
+    private void showUpdateAllDialog() {
+        TabContext context = getActiveContext();
+        if (context == null || context.isLocalTerminalMode) return;
+
+        List<InstanceResource> updatableResources = context.currentResources.stream()
+                .filter(r -> r.availableUpdate != null).collect(Collectors.toList());
+
+        if (updatableResources.isEmpty()) {
+            new Notification("No Updates Available", "All your resources are up to date.", Notification.Type.INFO);
+            return;
+        }
+
+        PopupWidget.Builder builder = new PopupWidget.Builder("Update All Resources").size(400, 200).setResizable(true);
+        List<InstanceResourceWidget> resourceWidgets = new ArrayList<>();
+        for (InstanceResource resource : updatableResources) {
+            InstanceResourceWidget widget = new InstanceResourceWidget(this, context.instance, resource, this::loadResources);
+            widget.setRenderingMode(InstanceResourceWidget.RenderingMode.COMPACT_UPDATE);
+            resourceWidgets.add(widget);
+            builder.addRow("", true, false, 18, widget);
+        }
+
+        AtomicBoolean createBackup = new AtomicBoolean(true);
+        ToggleWidget backupToggle = new ToggleWidget.Builder().toggled(true).onChange(() -> createBackup.set(!createBackup.get())).build();
+
+        DownloadProgressWidget progress = new DownloadProgressWidget.DownloadProgressBuilder().size(builder.getWidget().getWidth() - 20, 18).build();
+        progress.setVisible(false);
+
+        builder.addTitleButton(() -> {
+            List<UpdateInfo> selectedUpdates = resourceWidgets.stream()
+                    .filter(w -> w.includedInUpdate)
+                    .map(w -> new UpdateInfo(w.getResource(), w.getResource().availableUpdate))
+                    .collect(Collectors.toList());
+
+            if (selectedUpdates.isEmpty()) {
+                new Notification("No Resources Selected", "You must select at least one resource to update.", Notification.Type.INFO);
+                return;
+            }
+            progress.setVisible(true);
+            Rebase.get().getUpdateManager().performBulkUpdate(context.instance, selectedUpdates, progress::updateProgress, this::loadResources, createBackup.get(), 7)
+                    .whenComplete((v, ex) -> ScreenManager.getInstance().execute(() -> {
+                        builder.getWidget().setVisible(false);
+                        if (ex != null) {
+                            new Notification("Update Failed", ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage(), Notification.Type.ERROR);
+                        }
+                        loadResources();
+                    }));
+        }, "Download Selected", ThemeManager.getAccent("nice"));
+
+        builder.addRow("Backup?", false, 18, backupToggle);
+        builder.addRow("Progress", false, false, 20, progress);
+
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    private void showContentContextMenu(double mouseX, double mouseY, List<AnimatedWidget> selectedWidgets) {
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this).addHeaderButton("delete.png", () -> {
+            List<InstanceResource> resourcesToDelete = selectedWidgets.stream()
+                    .filter(InstanceResourceWidget.class::isInstance)
+                    .map(w -> ((InstanceResourceWidget) w).getResource())
+                    .collect(Collectors.toList());
+            deleteResources(resourcesToDelete);
+        }, "Delete Selected", ThemeManager.getAccent("danger"));
+
+        if (selectedWidgets.size() > 1) {
+            builder.addHeaderButton("merge.png", () -> showCreateGroupPopup(selectedWidgets), "Group Selected");
+        }
+
+        showContextMenu((int) mouseX, (int) mouseY, builder);
+    }
+
+    private void showCreateGroupPopup(List<AnimatedWidget> widgetsToGroup) {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Create Resource Group").size(300, 100).setResizable(false);
+        TabContext context = getActiveContext();
+        if (context == null || context.isLocalTerminalMode) return;
+
+        TextInputWidget nameField = new TextInputWidget.Builder().placeholder("Group Name").size(240, 18).build();
+
+        SquareButtonWidget createButton = new SquareButtonWidget.Builder().imagePath("create.png").onClick(() -> {
+            String groupName = nameField.getText().trim();
+            if (groupName.isEmpty()) {
+                new Notification("Error", "Group name cannot be empty.", Notification.Type.ERROR);
+                return;
+            }
+
+            List<String> resourceFileNames = widgetsToGroup.stream()
+                    .filter(InstanceResourceWidget.class::isInstance)
+                    .map(w -> ((InstanceResourceWidget) w).getResource().getFileName())
+                    .collect(Collectors.toList());
+
+            if (context.resourceGroups == null) context.resourceGroups = new HashMap<>();
+            context.resourceGroups.put(groupName, resourceFileNames);
+            context.instance.setResourceGroups(context.resourceGroups);
+            context.instance.save();
+
+            rebuildResourcesTab();
+            builder.getWidget().setVisible(false);
+        }).accentType(ThemeManager.getAccent("nice")).build();
+
+        SquareButtonWidget saveAsPreset = new SquareButtonWidget.Builder().imagePath("download.png").onClick(() -> {
+            String groupName = nameField.getText().trim();
+            if(groupName.isEmpty()) {
+                new Notification("Error", "Please enter a name for the preset.", Notification.Type.ERROR);
+                return;
+            }
+            List<String> resourcesIDs = widgetsToGroup.stream()
+                    .filter(InstanceResourceWidget.class::isInstance)
+                    .map(w -> ((InstanceResourceWidget) w).getResource().getProjectId())
+                    .filter(Objects::nonNull).collect(Collectors.toList());
+            ResourceList resourceList = new ResourceList(groupName, resourcesIDs);
+            new Notification("Preset Saved", "Preset '" + resourceList.name + "' Was Saved.", Notification.Type.SUCCESS);
+        }).hint("Save As Preset").accentType(ThemeManager.getAccent("calm")).build();
+
+
+        builder.addRow("", false, false, 20, nameField, createButton, saveAsPreset);
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    public void deleteResources(List<InstanceResource> resourcesToDelete) {
+        if (resourcesToDelete == null || resourcesToDelete.isEmpty()) {
+            return;
+        }
+        TabContext context = getActiveContext();
+        if (context == null || context.isLocalTerminalMode) return;
+
+        for (InstanceResource resource : resourcesToDelete) {
+            try {
+                Files.delete(resource.getPath());
+            } catch (java.io.IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+
+        client.execute(() -> {
+            List<String> deletedFileNames = resourcesToDelete.stream().map(InstanceResource::getFileName).collect(Collectors.toList());
+            context.currentResources.removeAll(resourcesToDelete);
+
+            boolean changed = false;
+            if (context.resourceGroups != null) {
+                for (List<String> groupFiles : context.resourceGroups.values()) {
+                    if (groupFiles.removeAll(deletedFileNames)) {
+                        changed = true;
+                    }
+                }
+                if (context.resourceGroups.entrySet().removeIf(e -> e.getValue().isEmpty())) {
+                    changed = true;
+                }
+            }
+            if (changed) {
+                context.instance.setResourceGroups(context.resourceGroups);
+                context.instance.save();
+            }
+            loadResources();
+        });
     }
 
     @Override
