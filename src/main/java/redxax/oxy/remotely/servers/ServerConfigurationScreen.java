@@ -4,15 +4,18 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.ui.settings.controllers.ServerAdvancedSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerGeneralSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerPerformanceSettingsController;
+import restudio.rebase.ui.settings.controllers.VersionSettingsController;
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
+import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.SettingsScreen;
 import restudio.rescreen.ui.widgets.LoadingAnimationWidget;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
@@ -31,7 +34,6 @@ public class ServerConfigurationScreen extends ReScreen {
     private final Instance tempInstance;
     private final RemoteHost remoteHostContext;
     private final RemotelyClient remotelyClient;
-    private LoadingAnimationWidget loadingWidget;
 
     public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient) {
         super();
@@ -60,7 +62,7 @@ public class ServerConfigurationScreen extends ReScreen {
     public void init() {
         super.init();
 
-        loadingWidget = new LoadingAnimationWidget(0, 0, width, height);
+        LoadingAnimationWidget loadingWidget = new LoadingAnimationWidget(0, 0, width, height);
         addDrawableChild(loadingWidget);
 
         CompletableFuture<Void> propertiesFuture;
@@ -86,6 +88,9 @@ public class ServerConfigurationScreen extends ReScreen {
 
     private void setupSettingsUI() {
         Map<String, Supplier<List<Setting>>> settingsByTab = new LinkedHashMap<>();
+
+        VersionSettingsController versionController = new VersionSettingsController(tempInstance);
+        settingsByTab.put("Version", versionController::getSettings);
 
         ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance, remotelyClient);
         settingsByTab.put("General", generalController::getSettings);
@@ -120,21 +125,25 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     private void createNewLocalServer() {
-        Notification notification = new Notification("Creating server...", tempInstance.getName(), Notification.Type.INFO);
-        notification.autoSlideOut = false;
-        notification.loading = true;
+        Notification notification = new Notification.Builder()
+                .message("Creating Server...")
+                .autoSlideOut(false)
+                .image(Identifier.animatedIcon("loadingGreen.png"))
+                .animateImage(true)
+                .accent(ThemeManager.getAccent("calm"))
+                .build();
 
         Rebase.get().getInstanceManager().createInstance(tempInstance, notification)
                 .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
                     newInstance.getServerProperties().putAll(tempInstance.getServerProperties());
                     newInstance.saveServerProperties();
-                    notification.change(newInstance.getName() + " Created Successfully!", "Click To Open", Notification.Type.SUCCESS, () -> ServerManagerScreen.openServerScreen(newInstance.getPath()));
+                    notification.update().message(newInstance.getName() + " Created Successfully!").description("Click To Open").type(Notification.Type.SUCCESS).loading(false).image(null).action(() -> ServerManagerScreen.openServerScreen(newInstance.getPath()));
                     notification.loading = false;
                     notification.autoSlideOut = true;
                 })).exceptionally(ex -> {
                     ScreenManager.getInstance().execute(() -> {
                         Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                        notification.change("Server Creation Failed", cause.getMessage(), Notification.Type.ERROR, null);
+                        notification.update().message("Server Creation Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
                         notification.loading = false;
                         notification.autoSlideOut = true;
                     });
