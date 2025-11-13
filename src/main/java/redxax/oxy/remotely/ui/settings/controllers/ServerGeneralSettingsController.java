@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import redxax.oxy.remotely.RemotelyClient;
 import restudio.rebase.instance.Instance;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.widgets.TabSwitchWidget;
@@ -14,7 +13,7 @@ import java.util.List;
 public class ServerGeneralSettingsController {
     private final Instance instance;
 
-    public ServerGeneralSettingsController(Instance instance, RemotelyClient remotelyClient) {
+    public ServerGeneralSettingsController(Instance instance) {
         this.instance = instance;
     }
 
