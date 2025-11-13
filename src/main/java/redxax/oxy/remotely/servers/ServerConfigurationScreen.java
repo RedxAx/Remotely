@@ -2,6 +2,7 @@ package redxax.oxy.remotely.servers;
 
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.ui.settings.controllers.ServerAdvancedSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.ServerExtraSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerGeneralSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerPerformanceSettingsController;
 import restudio.rebase.ui.settings.controllers.VersionSettingsController;
@@ -92,7 +93,7 @@ public class ServerConfigurationScreen extends ReScreen {
         VersionSettingsController versionController = new VersionSettingsController(tempInstance);
         settingsByTab.put("Version", versionController::getSettings);
 
-        ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance, remotelyClient);
+        ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance);
         settingsByTab.put("General", generalController::getSettings);
 
         ServerAdvancedSettingsController advancedController = new ServerAdvancedSettingsController(tempInstance);
@@ -100,6 +101,9 @@ public class ServerConfigurationScreen extends ReScreen {
 
         ServerPerformanceSettingsController performanceController = new ServerPerformanceSettingsController(tempInstance);
         settingsByTab.put("Performance", performanceController::getSettings);
+
+        ServerExtraSettingsController extraController = new ServerExtraSettingsController(tempInstance);
+        settingsByTab.put("Extra Files", extraController::getSettings);
 
         SettingsScreen settingsScreen = new SettingsScreen(
                 parent,
