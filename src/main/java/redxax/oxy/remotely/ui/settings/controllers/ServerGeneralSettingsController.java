@@ -2,24 +2,20 @@ package redxax.oxy.remotely.ui.settings.controllers;
 
 import redxax.oxy.remotely.RemotelyClient;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rescreen.ui.settings.Setting;
-import restudio.rescreen.ui.widgets.ScrollSelectorWidget;
 import restudio.rescreen.ui.widgets.TabSwitchWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
+ 
 
 public class ServerGeneralSettingsController {
     private final Instance instance;
-    private final RemotelyClient remotelyClient;
 
     public ServerGeneralSettingsController(Instance instance, RemotelyClient remotelyClient) {
         this.instance = instance;
-        this.remotelyClient = remotelyClient;
     }
 
     private String capitalize(String str) {
@@ -72,21 +68,8 @@ public class ServerGeneralSettingsController {
                 .build();
         general.addRow("Hardcore", false, 20, hardcoreWidget);
 
-        List<String> serverTypes = Arrays.stream(ModLoader.values()).map(ModLoader::toString).collect(Collectors.toList());
-        ScrollSelectorWidget serverTypeWidget = new ScrollSelectorWidget.Builder()
-                .options(serverTypes)
-                .selectedIndex(Arrays.asList(ModLoader.values()).indexOf(instance.getModLoader()))
-                .onChange(index -> instance.setModLoader(ModLoader.values()[index]))
-                .build();
-        general.addRow("Server Type", true, 20, serverTypeWidget);
-
-        TextInputWidget versionWidget = new TextInputWidget.Builder()
-                .text(instance.getVersionId())
-                .placeholder(remotelyClient.getHost().getGameVersion())
-                .onChange(instance::setVersionId)
-                .build();
-        general.addRow("Server Version", true, 20, versionWidget);
-
+        
+        
         return List.of(general.build());
     }
 }

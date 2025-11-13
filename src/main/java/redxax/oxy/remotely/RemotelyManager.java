@@ -15,9 +15,31 @@ import restudio.rebase.resource.ResourceMetadataManager;
 import restudio.rebase.resource.UpdateManager;
 import restudio.rebase.resource.provider.*;
 import restudio.rebase.util.PlaytimeManager;
+import restudio.rebase.instance.loaders.FabricHandler;
+import restudio.rebase.instance.loaders.ForgeHandler;
+import restudio.rebase.instance.loaders.NeoForgeHandler;
+import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.instance.loaders.ModLoaderHandler;
+import restudio.rebase.instance.loaders.ModLoaderVersion;
+import restudio.rebase.minecraft.GameVersion;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Arrays;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.nio.file.Files;
+import java.io.IOException;
+import java.time.Duration;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 
@@ -34,6 +56,10 @@ public class RemotelyManager implements IRebaseManager {
     private final InstanceResourceManager instanceResourceManager;
     private final UpdateManager updateManager;
     private final List<IResourceProvider> resourceProviders;
+    private Path versionsDir;
+    private final Map<ModLoader, ModLoaderHandler> modLoaderHandlers = new HashMap<>();
+    private final Map<String, GameVersion> allGameVersions = new ConcurrentHashMap<>();
+    private static final String VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
     public RemotelyManager() {
         Path applicationDir = remotelyDir;
@@ -58,11 +84,106 @@ public class RemotelyManager implements IRebaseManager {
 
         this.instanceResourceManager = new InstanceResourceManager(resourceMetadataManager, cacheManager, resourceProviders);
         this.updateManager = new UpdateManager(applicationDir);
+        this.versionsDir = applicationDir.resolve("versions");
+        try { Files.createDirectories(this.versionsDir); } catch (IOException ignored) {}
+        modLoaderHandlers.put(ModLoader.FABRIC, new FabricHandler(applicationDir));
+        modLoaderHandlers.put(ModLoader.FORGE, new ForgeHandler(applicationDir));
+        modLoaderHandlers.put(ModLoader.NEOFORGE, new NeoForgeHandler(applicationDir));
         init();
     }
 
     private void init() {
         javaManager.refreshRuntimes();
+    }
+
+    private CompletableFuture<JsonObject> loadRemoteManifest() {
+        Path manifestCachePath = cacheManager.getCacheDir().resolve("manifests").resolve("version_manifest_v2.json");
+        return cacheManager.getOrFetchJson(VERSION_MANIFEST_URL, manifestCachePath, Duration.ofHours(24), JsonObject.class);
+    }
+
+    private void parseRemoteManifest(JsonObject manifest) {
+        JsonArray versionsArray = manifest.getAsJsonArray("versions");
+        for (JsonElement element : versionsArray) {
+            JsonObject versionObj = element.getAsJsonObject();
+            String id = versionObj.get("id").getAsString();
+            String type = versionObj.get("type").getAsString();
+            String url = versionObj.get("url").getAsString();
+            GameVersion remoteVanillaVersion = new GameVersion(id, type, id, ModLoader.VANILLA, null, versionsDir.resolve(id));
+            remoteVanillaVersion.setRemoteUrl(url);
+            if (versionObj.has("releaseTime")) {
+                remoteVanillaVersion.setReleaseTime(versionObj.get("releaseTime").getAsString());
+            }
+            allGameVersions.putIfAbsent(id, remoteVanillaVersion);
+        }
+    }
+
+    private void loadLocalVersions() {
+        try (Stream<Path> stream = Files.list(versionsDir)) {
+            stream.filter(Files::isDirectory).forEach(dir -> {
+                String versionId = dir.getFileName().toString();
+                Path jsonFile = dir.resolve(versionId + ".json");
+                if (Files.exists(jsonFile)) {
+                    try {
+                        String content = Files.readString(jsonFile);
+                        JsonObject versionData = JsonParser.parseString(content).getAsJsonObject();
+                        String id = versionData.get("id").getAsString();
+                        String type = versionData.get("type").getAsString();
+                        String inheritsFrom = versionData.has("inheritsFrom") ? versionData.get("inheritsFrom").getAsString() : id;
+
+                        ModLoader loader = ModLoader.VANILLA;
+                        String loaderVersion = null;
+                        if (id.startsWith("fabric-loader-")) {
+                            loader = ModLoader.FABRIC;
+                            String prefix = "fabric-loader-";
+                            String suffix = "-" + inheritsFrom;
+                            if (id.startsWith(prefix) && id.endsWith(suffix) && id.length() > prefix.length() + suffix.length()) {
+                                loaderVersion = id.substring(prefix.length(), id.length() - suffix.length());
+                            } else {
+                                String[] parts = id.split("-");
+                                if (parts.length >= 4) {
+                                    loaderVersion = String.join("-", Arrays.copyOfRange(parts, 2, parts.length - 1));
+                                }
+                            }
+                        } else if (id.contains("-forge-")) {
+                            loader = ModLoader.FORGE;
+                            String[] parts = id.split("-forge-");
+                            if (parts.length > 1) {
+                                loaderVersion = parts[1];
+                            }
+                        } else if (id.startsWith("neoforge-") || id.contains("-neoforge-")) {
+                            loader = ModLoader.NEOFORGE;
+                            if (id.startsWith("neoforge-")) {
+                                loaderVersion = id.substring("neoforge-".length());
+                            } else {
+                                String[] parts = id.split("-neoforge-");
+                                if (parts.length > 1) {
+                                    loaderVersion = parts[1];
+                                }
+                            }
+                        }
+
+                        GameVersion localVersion = new GameVersion(id, type, inheritsFrom, loader, loaderVersion, dir);
+                        localVersion.setRemoteUrl(jsonFile.toUri().toString());
+
+                        if (versionData.has("releaseTime")) {
+                            localVersion.setReleaseTime(versionData.get("releaseTime").getAsString());
+                        } else {
+                            GameVersion parentVersion = allGameVersions.get(inheritsFrom);
+                            if (parentVersion != null) {
+                                localVersion.setReleaseTime(parentVersion.getReleaseTime());
+                            }
+                        }
+
+                        GameVersion existingVersion = allGameVersions.get(id);
+                        if (localVersion.getReleaseTime() == null && existingVersion != null) {
+                            localVersion.setReleaseTime(existingVersion.getReleaseTime());
+                        }
+
+                        allGameVersions.put(id, localVersion);
+                    } catch (Exception ignored) {}
+                }
+            });
+        } catch (IOException ignored) {}
     }
 
 
@@ -154,5 +275,30 @@ public class RemotelyManager implements IRebaseManager {
     @Override
     public Path getInstancesDir() {
         return remotelyDir.resolve("instances");
+    }
+
+    @Override
+    public List<GameVersion> getLocalBaseVersions() {
+        if (allGameVersions.isEmpty()) {
+            JsonObject manifest = loadRemoteManifest().join();
+            if (manifest != null) {
+                parseRemoteManifest(manifest);
+            }
+            loadLocalVersions();
+        }
+        return allGameVersions.values().stream().filter(v -> v.getModLoader() == ModLoader.VANILLA).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ModLoaderVersion> getModLoaderVersions(ModLoader loader, String mcVersion) {
+        if (loader == null || loader == ModLoader.VANILLA) {
+            return new ArrayList<>();
+        }
+        ModLoaderHandler handler = modLoaderHandlers.get(loader);
+        if (handler == null) {
+            log("No handler found for mod loader: " + loader);
+            return new ArrayList<>();
+        }
+        return handler.getAvailableVersions(mcVersion).join();
     }
 }
