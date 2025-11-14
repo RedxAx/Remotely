@@ -21,6 +21,7 @@ import restudio.rebase.instance.loaders.NeoForgeHandler;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.instance.loaders.ModLoaderHandler;
 import restudio.rebase.instance.loaders.ModLoaderVersion;
+import restudio.rebase.instance.loaders.DummyModLoaderHandler;
 import restudio.rebase.minecraft.GameVersion;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -89,6 +90,16 @@ public class RemotelyManager implements IRebaseManager {
         modLoaderHandlers.put(ModLoader.FABRIC, new FabricHandler(applicationDir));
         modLoaderHandlers.put(ModLoader.FORGE, new ForgeHandler(applicationDir));
         modLoaderHandlers.put(ModLoader.NEOFORGE, new NeoForgeHandler(applicationDir));
+
+        modLoaderHandlers.put(ModLoader.PAPER, new DummyModLoaderHandler(applicationDir, ModLoader.PAPER));
+        modLoaderHandlers.put(ModLoader.SPIGOT, new DummyModLoaderHandler(applicationDir, ModLoader.SPIGOT));
+        modLoaderHandlers.put(ModLoader.BUKKIT, new DummyModLoaderHandler(applicationDir, ModLoader.BUKKIT));
+        modLoaderHandlers.put(ModLoader.PURPUR, new DummyModLoaderHandler(applicationDir, ModLoader.PURPUR));
+        modLoaderHandlers.put(ModLoader.LEAF, new DummyModLoaderHandler(applicationDir, ModLoader.LEAF));
+        modLoaderHandlers.put(ModLoader.VELOCITY, new DummyModLoaderHandler(applicationDir, ModLoader.VELOCITY));
+        modLoaderHandlers.put(ModLoader.WATERFALL, new DummyModLoaderHandler(applicationDir, ModLoader.WATERFALL));
+        modLoaderHandlers.put(ModLoader.BUNGEECORD, new DummyModLoaderHandler(applicationDir, ModLoader.BUNGEECORD));
+
         init();
     }
 
