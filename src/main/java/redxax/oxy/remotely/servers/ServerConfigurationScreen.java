@@ -181,6 +181,10 @@ public class ServerConfigurationScreen extends ReScreen {
 
     private void editServer() {
         originalInstance.setName(tempInstance.getName());
+
+        restudio.rebase.instance.loaders.ModLoader oldLoader = originalInstance.getModLoader();
+        String oldVersion = originalInstance.getVersionId();
+
         originalInstance.setModLoader(tempInstance.getModLoader());
         originalInstance.setVersionId(tempInstance.getVersionId());
         originalInstance.getSettings().putAll(tempInstance.getSettings());
@@ -190,7 +194,52 @@ public class ServerConfigurationScreen extends ReScreen {
         originalInstance.save();
         originalInstance.saveServerProperties();
 
-        new Notification(originalInstance.getName() + " Edited Successfully!", Notification.Type.SUCCESS);
+        boolean versionChanged = oldLoader != originalInstance.getModLoader() || (oldVersion == null ? originalInstance.getVersionId() != null : !oldVersion.equals(originalInstance.getVersionId()));
+
+        if (versionChanged) {
+            Notification notification = new Notification.Builder()
+                    .message("Applying Version Changes...")
+                    .autoSlideOut(false)
+                    .image(Identifier.animatedIcon("loadingGreen.png"))
+                    .animateImage(true)
+                    .accent(ThemeManager.getAccent("calm"))
+                    .build();
+
+            if (originalInstance.isRemote()) {
+                Rebase.get().getInstanceManager().createRemoteInstance(originalInstance, originalInstance.getRemoteHost(), notification)
+                        .thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(originalInstance.getRemoteHost()).handle((v, e) -> null).thenApply(v -> newInstance))
+                        .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
+                            notification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);
+                            notification.loading = false;
+                            notification.autoSlideOut = true;
+                        })).exceptionally(ex -> {
+                            ScreenManager.getInstance().execute(() -> {
+                                Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                                notification.update().message("Update Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
+                                notification.loading = false;
+                                notification.autoSlideOut = true;
+                            });
+                            return null;
+                        });
+            } else {
+                Rebase.get().getInstanceManager().createInstance(originalInstance, notification)
+                        .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
+                            notification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);
+                            notification.loading = false;
+                            notification.autoSlideOut = true;
+                        })).exceptionally(ex -> {
+                            ScreenManager.getInstance().execute(() -> {
+                                Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                                notification.update().message("Update Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
+                                notification.loading = false;
+                                notification.autoSlideOut = true;
+                            });
+                            return null;
+                        });
+            }
+        } else {
+            new Notification(originalInstance.getName() + " Edited Successfully!", Notification.Type.SUCCESS);
+        }
     }
 
     @Override
