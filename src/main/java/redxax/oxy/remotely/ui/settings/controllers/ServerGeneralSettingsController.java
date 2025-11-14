@@ -8,7 +8,7 @@ import restudio.rescreen.ui.widgets.ToggleWidget;
 
 import java.util.Arrays;
 import java.util.List;
- 
+
 
 public class ServerGeneralSettingsController {
     private final Instance instance;
@@ -67,8 +67,8 @@ public class ServerGeneralSettingsController {
                 .build();
         general.addRow("Hardcore", false, 20, hardcoreWidget);
 
-        
-        
+
+
         return List.of(general.build());
     }
 }
