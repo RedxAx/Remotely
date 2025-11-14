@@ -17,7 +17,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.stream.Collectors;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ServerExtraSettingsController {
 
@@ -69,10 +69,7 @@ public class ServerExtraSettingsController {
     }
 
     private MountableButtonWidget createFileEditButton(String fileName) {
-        return new MountableButtonWidget.Builder(fileName)
-                .description("Edit " + fileName)
-                .onClick(() -> openEditorPopupFor(fileName))
-                .build();
+        return new MountableButtonWidget(fileName, "Edit " + fileName, null, new CopyOnWriteArrayList<>(), () -> openEditorPopupFor(fileName));
     }
 
     private void openEditorPopupFor(String fileName) {

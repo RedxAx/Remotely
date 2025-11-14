@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.ui.widgets;
 
-import org.lwjgl.glfw.GLFW;
 import restudio.rebase.Rebase;
 import restudio.rebase.cache.CacheManager;
 import restudio.rebase.instance.Instance;
@@ -202,7 +201,6 @@ public class InstanceResourceWidget extends AnimatedWidget {
         int iconSize = 26;
         int textX = getX() + iconSize + 10;
         int globalTextColor = ThemeManager.getColor(ThemeColor.text);
-        int globalDarkTextColor = ThemeManager.getColor(ThemeColor.textDark);
         int expandedGradientWidth = getWidth() / 6;
         int animatedGradientWidth = ThemeManager.getAnimatedValue(this.hashCode() + 143, hovered ? expandedGradientWidth : 0, hovered ? 1 : 1.5);
         int animatedImageColor = ThemeManager.getAnimatedColor(this.hashCode() + resource.getName().hashCode() + 34, hovered ? imageColor : bgColor, 2);
@@ -219,8 +217,7 @@ public class InstanceResourceWidget extends AnimatedWidget {
 
         if (!details.isEmpty()) {
             ctx.enableScissor(getX() + 1, getY() + 1, getX() + getWidth() - 50, getY() + getHeight() - 1);
-            int detailsTextColor = ThemeManager.getAnimatedColor(details.hashCode() + 124, hovered ? globalTextColor : globalDarkTextColor, 1.0);
-            ctx.drawText(details, textX, getY() + 18, detailsTextColor, shadow);
+            ctx.drawText(details, textX, getY() + 18, borderColor, shadow);
             ctx.disableScissor();
         }
 
@@ -276,8 +273,6 @@ public class InstanceResourceWidget extends AnimatedWidget {
             if (updateButton.visible && updateButton.isHovered()) {
                 updateButton.onClick(mouseX, mouseY, button);
             }
-        } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            // Context menu logic can be added here if needed
         }
     }
 

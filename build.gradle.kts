@@ -33,6 +33,7 @@ dependencies {
     minecraft("com.mojang:minecraft:$minecraft")
 
     implementation(files(rootProject.files("libs/ReScreen-1.0.jar")))
+    implementation(files(rootProject.files("libs/Remodel-1.0.0.jar")))
     implementation(files(rootProject.files("libs/Rebase-1.0-SNAPSHOT.jar")))
 
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")

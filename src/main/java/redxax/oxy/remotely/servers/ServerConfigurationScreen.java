@@ -4,7 +4,9 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.ui.settings.controllers.ServerAdvancedSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerExtraSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerGeneralSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.ServerManagementSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerPerformanceSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.ServerGameRulesSettingsController;
 import restudio.rebase.ui.settings.controllers.VersionSettingsController;
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
@@ -102,16 +104,16 @@ public class ServerConfigurationScreen extends ReScreen {
         ServerPerformanceSettingsController performanceController = new ServerPerformanceSettingsController(tempInstance);
         settingsByTab.put("Performance", performanceController::getSettings);
 
+        ServerManagementSettingsController managementController = new ServerManagementSettingsController(tempInstance);
+        settingsByTab.put("Management", managementController::getSettings);
+
+        ServerGameRulesSettingsController gameRulesController = new ServerGameRulesSettingsController(tempInstance);
+        settingsByTab.put("Game Rules", gameRulesController::getSettings);
+
         ServerExtraSettingsController extraController = new ServerExtraSettingsController(tempInstance);
         settingsByTab.put("Extra Files", extraController::getSettings);
 
-        SettingsScreen settingsScreen = new SettingsScreen(
-                parent,
-                isEditMode ? "Edit " + originalInstance.getName() : "Create New Server",
-                settingsByTab,
-                this::saveConfiguration,
-                null
-        );
+        SettingsScreen settingsScreen = new SettingsScreen(parent, isEditMode ? "Edit " + originalInstance.getName() : "Create New Server", settingsByTab, this::saveConfiguration, null);
         client.setScreen(settingsScreen);
     }
 
@@ -129,30 +131,23 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     private void createNewLocalServer() {
-        Notification notification = new Notification.Builder()
-                .message("Creating Server...")
-                .autoSlideOut(false)
-                .image(Identifier.animatedIcon("loadingGreen.png"))
-                .animateImage(true)
-                .accent(ThemeManager.getAccent("calm"))
-                .build();
+        Notification notification = new Notification.Builder().message("Creating Server...").autoSlideOut(false).image(Identifier.animatedIcon("loadingGreen.png")).animateImage(true).accent(ThemeManager.getAccent("calm")).build();
 
-        Rebase.get().getInstanceManager().createInstance(tempInstance, notification)
-                .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
-                    newInstance.getServerProperties().putAll(tempInstance.getServerProperties());
-                    newInstance.saveServerProperties();
-                    notification.update().message(newInstance.getName() + " Created Successfully!").description("Click To Open").type(Notification.Type.SUCCESS).loading(false).image(null).action(() -> ServerManagerScreen.openServerScreen(newInstance.getPath()));
-                    notification.loading = false;
-                    notification.autoSlideOut = true;
-                })).exceptionally(ex -> {
-                    ScreenManager.getInstance().execute(() -> {
-                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                        notification.update().message("Server Creation Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
-                        notification.loading = false;
-                        notification.autoSlideOut = true;
-                    });
-                    return null;
-                });
+        Rebase.get().getInstanceManager().createInstance(tempInstance, notification).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
+            newInstance.getServerProperties().putAll(tempInstance.getServerProperties());
+            newInstance.saveServerProperties();
+            notification.update().message(newInstance.getName() + " Created Successfully!").description("Click To Open").type(Notification.Type.SUCCESS).loading(false).image(null).action(() -> ServerManagerScreen.openServerScreen(newInstance.getPath()));
+            notification.loading = false;
+            notification.autoSlideOut = true;
+        })).exceptionally(ex -> {
+            ScreenManager.getInstance().execute(() -> {
+                Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                notification.update().message("Server Creation Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
+                notification.loading = false;
+                notification.autoSlideOut = true;
+            });
+            return null;
+        });
     }
 
     private void createNewRemoteServer() {
@@ -160,23 +155,19 @@ public class ServerConfigurationScreen extends ReScreen {
         notification.autoSlideOut = false;
         notification.loading = true;
 
-        Rebase.get().getInstanceManager().createRemoteInstance(tempInstance, remoteHostContext, notification)
-                .thenCompose(newInstance ->
-                        Rebase.get().getInstanceManager().fetchRemoteInstances(remoteHostContext).handle((v, e) -> null).thenApply(v -> newInstance)
-                )
-                .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
-                    notification.change(newInstance.getName() + " Created Successfully!", "Remote server created.", Notification.Type.SUCCESS, null);
-                    notification.loading = false;
-                    notification.autoSlideOut = true;
-                })).exceptionally(ex -> {
-                    ScreenManager.getInstance().execute(() -> {
-                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                        notification.change("Remote Server Creation Failed", cause.getMessage(), Notification.Type.ERROR, null);
-                        notification.loading = false;
-                        notification.autoSlideOut = true;
-                    });
-                    return null;
-                });
+        Rebase.get().getInstanceManager().createRemoteInstance(tempInstance, remoteHostContext, notification).thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(remoteHostContext).handle((v, e) -> null).thenApply(v -> newInstance)).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
+            notification.change(newInstance.getName() + " Created Successfully!", "Remote server created.", Notification.Type.SUCCESS, null);
+            notification.loading = false;
+            notification.autoSlideOut = true;
+        })).exceptionally(ex -> {
+            ScreenManager.getInstance().execute(() -> {
+                Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                notification.change("Remote Server Creation Failed", cause.getMessage(), Notification.Type.ERROR, null);
+                notification.loading = false;
+                notification.autoSlideOut = true;
+            });
+            return null;
+        });
     }
 
     private void editServer() {
@@ -197,45 +188,36 @@ public class ServerConfigurationScreen extends ReScreen {
         boolean versionChanged = oldLoader != originalInstance.getModLoader() || (oldVersion == null ? originalInstance.getVersionId() != null : !oldVersion.equals(originalInstance.getVersionId()));
 
         if (versionChanged) {
-            Notification notification = new Notification.Builder()
-                    .message("Applying Version Changes...")
-                    .autoSlideOut(false)
-                    .image(Identifier.animatedIcon("loadingGreen.png"))
-                    .animateImage(true)
-                    .accent(ThemeManager.getAccent("calm"))
-                    .build();
+            Notification notification = new Notification.Builder().message("Applying Version Changes...").autoSlideOut(false).image(Identifier.animatedIcon("loadingGreen.png")).animateImage(true).accent(ThemeManager.getAccent("calm")).build();
 
             if (originalInstance.isRemote()) {
-                Rebase.get().getInstanceManager().createRemoteInstance(originalInstance, originalInstance.getRemoteHost(), notification)
-                        .thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(originalInstance.getRemoteHost()).handle((v, e) -> null).thenApply(v -> newInstance))
-                        .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
-                            notification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);
-                            notification.loading = false;
-                            notification.autoSlideOut = true;
-                        })).exceptionally(ex -> {
-                            ScreenManager.getInstance().execute(() -> {
-                                Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                                notification.update().message("Update Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
-                                notification.loading = false;
-                                notification.autoSlideOut = true;
-                            });
-                            return null;
-                        });
+                Rebase.get().getInstanceManager().createRemoteInstance(originalInstance, originalInstance.getRemoteHost(), notification).thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(originalInstance.getRemoteHost()).handle((v, e) -> null).thenApply(v -> newInstance)).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
+                    notification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);
+                    notification.loading = false;
+                    notification.autoSlideOut = true;
+                })).exceptionally(ex -> {
+                    ScreenManager.getInstance().execute(() -> {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        notification.update().message("Update Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
+                        notification.loading = false;
+                        notification.autoSlideOut = true;
+                    });
+                    return null;
+                });
             } else {
-                Rebase.get().getInstanceManager().createInstance(originalInstance, notification)
-                        .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
-                            notification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);
-                            notification.loading = false;
-                            notification.autoSlideOut = true;
-                        })).exceptionally(ex -> {
-                            ScreenManager.getInstance().execute(() -> {
-                                Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                                notification.update().message("Update Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
-                                notification.loading = false;
-                                notification.autoSlideOut = true;
-                            });
-                            return null;
-                        });
+                Rebase.get().getInstanceManager().createInstance(originalInstance, notification).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
+                    notification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);
+                    notification.loading = false;
+                    notification.autoSlideOut = true;
+                })).exceptionally(ex -> {
+                    ScreenManager.getInstance().execute(() -> {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        notification.update().message("Update Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
+                        notification.loading = false;
+                        notification.autoSlideOut = true;
+                    });
+                    return null;
+                });
             }
         } else {
             new Notification(originalInstance.getName() + " Edited Successfully!", Notification.Type.SUCCESS);
