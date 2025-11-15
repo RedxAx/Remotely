@@ -20,7 +20,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
     Identifier deopIcon = Identifier.icon("deop.png");
 
     public PlayerEntryWidget(Player player, Consumer<Player> onKick, Consumer<Player> onBan, Consumer<Player> onToggleOp) {
-        super(player.name, "", (player.isOperator ? "Operator | Ping: " : "Ping: ") + player.ping + "ms", new CopyOnWriteArrayList<>(), null);
+        super(player.name, "", (player.isOperator ? "Operator" : ""), new CopyOnWriteArrayList<>(), null);
         this.player = player;
         this.animateElevation = false;
         this.xOffset = 30;
@@ -68,7 +68,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
             ctx.drawPixelArt(face, getX() + 2, getY() + (getHeight() - iconSize) / 2f, iconSize, iconSize);
         }
         name = player.name;
-        description = (player.isOperator ? "Operator | Ping: " : "Ping: ") + player.ping + "ms";
+        description = (player.isOperator ? "Operator" : "");
 
         if (player.isOperator) {
             accentType = ThemeManager.getAccent("calm");

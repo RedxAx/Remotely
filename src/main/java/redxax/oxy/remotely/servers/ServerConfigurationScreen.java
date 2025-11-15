@@ -7,6 +7,7 @@ import redxax.oxy.remotely.ui.settings.controllers.ServerGeneralSettingsControll
 import redxax.oxy.remotely.ui.settings.controllers.ServerManagementSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerPerformanceSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerGameRulesSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.ServerLiveSettingsController;
 import restudio.rebase.ui.settings.controllers.VersionSettingsController;
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
@@ -22,9 +23,7 @@ import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
@@ -89,6 +88,7 @@ public class ServerConfigurationScreen extends ReScreen {
 
     private void setupSettingsUI() {
         Map<String, Supplier<List<Setting>>> settingsByTab = new LinkedHashMap<>();
+        List<Runnable> cleanupActions = new ArrayList<>();
 
         VersionSettingsController versionController = new VersionSettingsController(tempInstance);
         settingsByTab.put("Version", versionController::getSettings);
@@ -105,13 +105,29 @@ public class ServerConfigurationScreen extends ReScreen {
         ServerManagementSettingsController managementController = new ServerManagementSettingsController(tempInstance);
         settingsByTab.put("Management", managementController::getSettings);
 
-        ServerGameRulesSettingsController gameRulesController = new ServerGameRulesSettingsController(isEditMode ? originalInstance : tempInstance);
-        settingsByTab.put("Game Rules", gameRulesController::getSettings);
+
+        
+        if (isEditMode) {
+            ServerGameRulesSettingsController gameRulesController = new ServerGameRulesSettingsController(originalInstance);
+            cleanupActions.add(gameRulesController::cleanup);
+
+            ServerLiveSettingsController liveSettingsController = new ServerLiveSettingsController(originalInstance);
+            Supplier<List<Setting>> settings = () -> {
+                List<Setting> combinedSettings = new ArrayList<>();
+                combinedSettings.addAll(gameRulesController.getSettings());
+                combinedSettings.addAll(liveSettingsController.getSettings());
+                return combinedSettings;
+            };
+            settingsByTab.put("Live Settings", settings);
+            cleanupActions.add(liveSettingsController::cleanup);
+        }
 
         ServerExtraSettingsController extraController = new ServerExtraSettingsController(tempInstance);
         settingsByTab.put("Extra Files", extraController::getSettings);
 
-        SettingsScreen settingsScreen = new SettingsScreen(parent, isEditMode ? "Edit " + originalInstance.getName() : "Create New Server", settingsByTab, this::saveConfiguration, gameRulesController::cleanup);
+        Runnable combinedCleanup = () -> cleanupActions.forEach(Runnable::run);
+
+        SettingsScreen settingsScreen = new SettingsScreen(parent, isEditMode ? "Edit " + originalInstance.getName() : "Create New Server", settingsByTab, this::saveConfiguration, combinedCleanup);
         client.setScreen(settingsScreen);
     }
 
