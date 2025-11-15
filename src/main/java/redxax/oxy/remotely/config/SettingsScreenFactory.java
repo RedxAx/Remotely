@@ -1,9 +1,6 @@
 package redxax.oxy.remotely.config;
 
-import redxax.oxy.remotely.ui.settings.controllers.AppearanceSettingsController;
-import redxax.oxy.remotely.ui.settings.controllers.DevelopmentSettingsController;
-import redxax.oxy.remotely.ui.settings.controllers.ServerClientSettingsController;
-import redxax.oxy.remotely.ui.settings.controllers.SoundSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.*;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rebase.settings.controllers.ExplorerSettingsController;
 import restudio.rebase.settings.controllers.JavaManagerController;
@@ -37,6 +34,9 @@ public class SettingsScreenFactory {
 
         ServerClientSettingsController serverController = new ServerClientSettingsController(configManager);
         settingsByTab.put("Servers", serverController::getSettings);
+
+        PlayerActionsSettingsController playerActionsController = new PlayerActionsSettingsController(configManager);
+        settingsByTab.put("Player Actions", playerActionsController::getSettings);
 
         JavaManagerController javaController = new JavaManagerController();
         settingsByTab.put("Java", javaController::getSettings);

@@ -4,7 +4,7 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
-import redxax.oxy.remotely.ui.widgets.msmp.PlayerEntryWidget;
+import redxax.oxy.remotely.ui.widgets.msmp.PlayerManagerController;
 import restudio.rebase.Rebase;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
@@ -13,7 +13,6 @@ import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.msmp.IMSMPApi;
 import restudio.rebase.msmp.MSMPManager;
-import restudio.rebase.msmp.dto.Player;
 import restudio.rebase.preset.ResourceList;
 import restudio.rebase.resource.InstanceResource;
 import restudio.rebase.resource.ResourceType;
@@ -37,7 +36,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import static redxax.oxy.remotely.config.Config.enableDebugTools;
@@ -62,6 +60,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         Container mainContainer;
         Container resourcesContainer;
         Container playersContainer;
+        PlayerManagerController playerManagerController;
         List<InstanceResource> currentResources = new ArrayList<>();
         Map<String, List<String>> resourceGroups;
         ContentSort currentSort = ContentSort.NAME_AZ;
@@ -303,6 +302,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
 
             context.playersContainer = new Container(5, 60, width - 10, height - 66);
             context.playersContainer.layout(new ManagedLayout()).columns(1).padding(2);
+            context.playerManagerController = new PlayerManagerController(inst, RebaseApiFactory.get(inst), context.playersContainer, context.terminalWidget);
             mainContainer.addWidget(context.playersContainer);
 
             setPlayersStatus(context, "MSMP: Disconnected", "danger");
@@ -366,9 +366,20 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
             onStateChanged(this.instance.getState());
             if (this.instance.isServer()) {
                 MSMPManager manager = this.instance.getMSMPManager();
-                manager.setOnPlayersChange(players -> ScreenManager.getInstance().execute(() -> updatePlayerList(newContext, players)));
-                manager.setOnStatusChange(status -> ScreenManager.getInstance().execute(() -> updateStatusBadge(newContext, status)));
-                manager.handleInstanceStateChange(this.instance.getState()); // Force update
+                manager.setOnPlayersChange(players -> ScreenManager.getInstance().execute(() -> {
+                    if (newContext.playerManagerController != null) {
+                        newContext.playerManagerController.updateOnlinePlayers(players);
+                    }
+                }));
+                manager.setOnStatusChange(status -> ScreenManager.getInstance().execute(() -> {
+                    updateStatusBadge(newContext, status);
+                    IMSMPApi api = this.instance.getMSMPManager().getApi();
+                    if (newContext.playerManagerController != null) {
+                        newContext.playerManagerController.setMsmpApi(api);
+                        newContext.playerManagerController.fullRefresh();
+                    }
+                }));
+                manager.handleInstanceStateChange(this.instance.getState());
             }
             if (newContext.currentResources.isEmpty()) {
                 loadResources();
@@ -582,14 +593,6 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
-
-        TabContext ctx = getActiveContext();
-        if (ctx == null || ctx.isLocalTerminalMode || !enableDebugTools || ctx.instance == null) return;
-
-        IMSMPApi api = ctx.instance.getMSMPManager().getApi();
-        if (api != null) {
-            context.drawText("Instance State: " + ctx.instance.getState().name() + " | MSMP Connected: " + api.isConnected(), 10, 10, ThemeManager.getColor(ThemeColor.text), shadow);
-        }
     }
 
     @Override
@@ -924,31 +927,5 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
     private TabContext getActiveContext() {
         if (tabsManager == null || tabsManager.getActiveTab() == null) return null;
         return tabContexts.get(tabsManager.getActiveTab());
-    }
-
-    private void updatePlayerList(TabContext ctx, List<Player> players) {
-        if (ctx == null || ctx.isLocalTerminalMode) return;
-        ctx.playersContainer.clearWidgets();
-
-        IMSMPApi api = ctx.instance.getMSMPManager().getApi();
-        if (api == null || !api.isConnected()) {
-            updateStatusBadge(ctx, "MSMP: Disconnected");
-            return;
-        }
-
-        if (players.isEmpty()) {
-            setPlayersStatus(ctx, "No players online", "calm");
-        } else {
-            setPlayersStatus(ctx, players.size() + " player(s) online", "nice");
-            for (Player p : players) {
-                PlayerEntryWidget widget = new PlayerEntryWidget(p, player -> api.kickPlayer(player.uuid.toString(), "Kicked by operator."),
-                        player -> api.banPlayer(player.uuid.toString(), "Banned by operator."), player -> {
-                    CompletableFuture<Void> future = player.isOperator ? api.deopPlayer(player.uuid.toString()) : api.opPlayer(player.uuid.toString(), 4);
-                    future.thenRun(() -> api.getPlayers().thenAccept(updatedPlayers -> ScreenManager.getInstance().execute(() -> updatePlayerList(ctx, updatedPlayers))));
-                });
-                ctx.playersContainer.addWidget(widget);
-            }
-        }
-        ctx.playersContainer.updateWidgetPositions();
     }
 }
