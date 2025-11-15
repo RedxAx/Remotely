@@ -20,7 +20,7 @@ public class ServerGameRulesSettingsController {
     private final Instance instance;
     private AnimatedButton statusBadge;
     private final Consumer<InstanceState> stateListener;
-    private final Setting.Builder builder = new Setting.Builder("Game Rules (Live)");
+    private Setting gameRulesSetting;
     private MSMPManager msmpManager;
 
     public ServerGameRulesSettingsController(Instance instance) {
@@ -52,11 +52,13 @@ public class ServerGameRulesSettingsController {
 
     public List<Setting> getSettings() {
         this.msmpManager = instance.getMSMPManager();
+        Setting.Builder builder = new Setting.Builder("Game Rules (Live)");
         statusBadge = new AnimatedButton.Builder().label("...").active(false).build();
-        builder.addRow("", true, 20, statusBadge);
+        builder.addRow("", true, false, 20, statusBadge);
+        this.gameRulesSetting = builder.build();
         msmpManager.setOnStatusChange(this::setStatus);
         updateStatus();
-        return List.of(builder.build());
+        return List.of(gameRulesSetting);
     }
 
     private void loadRules() {
@@ -73,7 +75,9 @@ public class ServerGameRulesSettingsController {
     }
 
     private void buildRulesUI(List<GameRule> rules) {
-        builder.clearWidgets();
+        gameRulesSetting.clearRows();
+        gameRulesSetting.addRow("", List.of(statusBadge), 30, true, false);
+
         if (rules == null || rules.isEmpty()) {
             setStatus("No game rules available");
             return;
@@ -83,17 +87,18 @@ public class ServerGameRulesSettingsController {
         rules.sort(Comparator.comparing(g -> g.name));
 
         for (GameRule rule : rules) {
+            MountableButtonWidget.Builder rowBuilder = new MountableButtonWidget.Builder(rule.name);
+
             if ("boolean".equalsIgnoreCase(rule.type)) {
                 ToggleWidget toggle = new ToggleWidget.Builder().toggled(Boolean.parseBoolean(rule.value)).build();
                 toggle.onChange = () -> setRule(rule.name, String.valueOf(toggle.getValue()));
-                MountableButtonWidget row = new MountableButtonWidget.Builder(rule.name).addWidget(toggle).build();
-                builder.addWidget("", row, 30);
+                rowBuilder.addWidget(toggle);
             } else {
                 TextInputWidget text = new TextInputWidget.Builder().text(rule.value).build();
                 text.onEnter = () -> setRule(rule.name, text.getText());
-                MountableButtonWidget row = new MountableButtonWidget.Builder(rule.name).addWidget(text).build();
-                builder.addWidget("", row, 30);
+                rowBuilder.addWidget(text);
             }
+            gameRulesSetting.addRow("", List.of(rowBuilder.build()), 30, true, false);
         }
     }
 
