@@ -36,7 +36,6 @@ public class ServerConfigurationScreen extends ReScreen {
     private final Instance originalInstance;
     private final Instance tempInstance;
     private final RemoteHost remoteHostContext;
-    private final RemotelyClient remotelyClient;
 
     public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient) {
         super();
@@ -44,7 +43,6 @@ public class ServerConfigurationScreen extends ReScreen {
         this.isEditMode = instance != null;
         this.originalInstance = instance;
         this.remoteHostContext = remoteHostContext;
-        this.remotelyClient = remotelyClient;
 
         if (isEditMode) {
             this.tempInstance = new Instance(instance, instance.getName());
@@ -107,13 +105,13 @@ public class ServerConfigurationScreen extends ReScreen {
         ServerManagementSettingsController managementController = new ServerManagementSettingsController(tempInstance);
         settingsByTab.put("Management", managementController::getSettings);
 
-        ServerGameRulesSettingsController gameRulesController = new ServerGameRulesSettingsController(tempInstance);
+        ServerGameRulesSettingsController gameRulesController = new ServerGameRulesSettingsController(isEditMode ? originalInstance : tempInstance);
         settingsByTab.put("Game Rules", gameRulesController::getSettings);
 
         ServerExtraSettingsController extraController = new ServerExtraSettingsController(tempInstance);
         settingsByTab.put("Extra Files", extraController::getSettings);
 
-        SettingsScreen settingsScreen = new SettingsScreen(parent, isEditMode ? "Edit " + originalInstance.getName() : "Create New Server", settingsByTab, this::saveConfiguration, null);
+        SettingsScreen settingsScreen = new SettingsScreen(parent, isEditMode ? "Edit " + originalInstance.getName() : "Create New Server", settingsByTab, this::saveConfiguration, gameRulesController::cleanup);
         client.setScreen(settingsScreen);
     }
 

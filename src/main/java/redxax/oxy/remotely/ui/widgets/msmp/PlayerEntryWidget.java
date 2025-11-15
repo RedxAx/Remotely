@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.ui.widgets.msmp;
 
-import redxax.oxy.remotely.msmp.dto.Player;
+import restudio.rebase.msmp.dto.Player;
 import restudio.rebase.account.Account;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;

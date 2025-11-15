@@ -9,7 +9,7 @@ public class Config {
     public static String proxyHost = "RedxAx.net";
     public static String proxyUser = "tunnel";
     public static boolean isDev = false;
-    public static boolean enableDebugTools = false;
+    public static boolean enableDebugTools = true;
     public static final Path remotelyDir = Paths.get(System.getProperty("user.home"), "remotely");
     public static String mainMenuStyle = "Minimal";
     public static boolean redesignMainMenu = false;

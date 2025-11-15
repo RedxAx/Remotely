@@ -2,9 +2,6 @@ package redxax.oxy.remotely.ui.screens;
 
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.msmp.IMSMPApi;
-import redxax.oxy.remotely.msmp.MSMPClient;
-import redxax.oxy.remotely.msmp.dto.Player;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
 import redxax.oxy.remotely.ui.widgets.msmp.PlayerEntryWidget;
@@ -14,6 +11,9 @@ import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.msmp.IMSMPApi;
+import restudio.rebase.msmp.MSMPManager;
+import restudio.rebase.msmp.dto.Player;
 import restudio.rebase.preset.ResourceList;
 import restudio.rebase.resource.InstanceResource;
 import restudio.rebase.resource.ResourceType;
@@ -23,6 +23,7 @@ import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.ui.widgets.DownloadProgressWidget;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
@@ -37,24 +38,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import static redxax.oxy.remotely.config.Config.enableDebugTools;
 import static redxax.oxy.remotely.config.Config.remotelyDir;
+import static restudio.rescreen.config.Config.shadow;
 
 public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.instance.InstanceDetailsScreen {
     private final Object parent;
     private final RemotelyClient remotelyClient;
     private final Map<TabsManager.Tab, TabContext> tabContexts = new HashMap<>();
     private LoadingAnimationWidget loadingWidget;
-    private static final Pattern MSMP_TOKEN_PATTERN = Pattern.compile(".*Generated one-time management server token: ([a-zA-Z0-9]+).*");
-    private static final Pattern MSMP_TOKEN_PATTERN_ALT = Pattern.compile(".*one-time management.*token.*: ([a-zA-Z0-9]+).*", Pattern.CASE_INSENSITIVE);
-    private static final Pattern SERVER_READY_PATTERN = Pattern.compile(".*Done \\([0-9.]+s\\)!.*", Pattern.CASE_INSENSITIVE);
-    private static final Pattern SERVER_READY_PATTERN_ALT = Pattern.compile(".*For help, type \"help\".*", Pattern.CASE_INSENSITIVE);
-    private static final Pattern SERVER_STOP_PATTERN = Pattern.compile(".*(Stopping the server|Stopping server|Server stopped).*", Pattern.CASE_INSENSITIVE);
-    private static final Pattern MANAGEMENT_LISTEN_PATTERN = Pattern.compile(".*json\\s*-?\\s*rpc.*(?:listening on|server on)\\s+([^:]+):(\\d+).*", Pattern.CASE_INSENSITIVE);
 
     private TabSwitchWidget sharedContainerSwitch;
     private RowWidget sharedSelectorsRow;
@@ -68,30 +62,19 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         Container mainContainer;
         Container resourcesContainer;
         Container playersContainer;
-        IMSMPApi msmpApi;
-        boolean msmpConnected = false;
-        CompletableFuture<String> msmpTokenFuture;
         List<InstanceResource> currentResources = new ArrayList<>();
         Map<String, List<String>> resourceGroups;
         ContentSort currentSort = ContentSort.NAME_AZ;
         ContentFilter currentFilter = ContentFilter.ALL;
         final boolean isLocalTerminalMode;
         int selectedViewIndex = 0;
-        AnimatedButton msmpStatusPlayers;
-        TerminalWidget.OutputListener lifecycleListener;
-        boolean serverMarkedRunning;
-        boolean serverMarkedStopped;
-        boolean msmpConnectRequested;
-        String discoveredHost;
-        int discoveredPort;
-        boolean msmpListenDetected;
+        AnimatedButton msmpStatusBadge;
 
         TabContext(Instance instance, String localTerminalId) {
             this.instance = instance;
             this.localTerminalId = localTerminalId;
             this.isLocalTerminalMode = instance == null;
-            if (instance != null) this.resourceGroups = instance.getResourceGroups();
-            else this.resourceGroups = new HashMap<>();
+            this.resourceGroups = instance != null ? instance.getResourceGroups() : new HashMap<>();
         }
 
         public void cleanup() {
@@ -102,11 +85,6 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
                     TerminalWidget.shutdownLocal(localTerminalId);
                 } else {
                     terminalWidget.shutdown();
-                }
-                if (msmpApi != null) {
-                    msmpApi.close();
-                    msmpApi = null;
-                    msmpConnected = false;
                 }
             }
         }
@@ -216,6 +194,10 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         } else if (!tabs().getTabs().isEmpty()) {
             tabs().setActiveTab(0);
         }
+
+        if (!tabs().getTabs().isEmpty()) {
+            onTabSelected(tabs().getActiveTab());
+        }
     }
 
     private void onSharedSwitchChange(int i) {
@@ -225,7 +207,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         if (i < 0 || i > maxIndex) i = 0;
         ctx.selectedViewIndex = i;
         List<AnimatedWidget> widgets = ctx.mainContainer.getWidgets();
-        if (i >= 0 && i < widgets.size()) {
+        if (i < widgets.size()) {
             ctx.mainContainer.scrollToWidget(widgets.get(i));
         }
         sharedSelectorsRow.setVisible(i == 1);
@@ -282,59 +264,21 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
     }
 
     private void setPlayersStatus(TabContext ctx, String text, String accent) {
-        if (ctx.msmpStatusPlayers != null) {
-            ctx.playersContainer.removeWidget(ctx.msmpStatusPlayers);
+        if (ctx.msmpStatusBadge != null) {
+            ctx.playersContainer.removeWidget(ctx.msmpStatusBadge);
         }
-        ctx.msmpStatusPlayers = createStatusBadge(text, accent);
-        ctx.playersContainer.addWidget(ctx.msmpStatusPlayers);
+        ctx.msmpStatusBadge = createStatusBadge(text, accent);
+        ctx.playersContainer.addWidget(ctx.msmpStatusBadge);
         ctx.playersContainer.updateWidgetPositions();
     }
 
-    private void attachLifecycleListeners(TabContext context) {
-        if (context.isLocalTerminalMode || context.terminalWidget == null) return;
-        if (context.lifecycleListener != null) {
-            context.terminalWidget.removeOutputListener(context.lifecycleListener);
-        }
-        context.lifecycleListener = line -> {
-            Matcher listen = MANAGEMENT_LISTEN_PATTERN.matcher(line);
-            if (listen.matches()) {
-                context.msmpListenDetected = true;
-                context.discoveredHost = listen.group(1);
-                try {
-                    context.discoveredPort = Integer.parseInt(listen.group(2));
-                } catch (Exception ignored) {
-                    context.discoveredPort = 25585;
-                }
-                if (context.instance != null && context.instance.isRemote() && "localhost".equalsIgnoreCase(context.discoveredHost)) {
-                    if (context.instance.getRemoteHost() != null && context.instance.getRemoteHost().ip != null) {
-                        context.discoveredHost = context.instance.getRemoteHost().ip;
-                    }
-                }
-                ScreenManager.getInstance().execute(() -> {
-                    setPlayersStatus(context, "MSMP: Connecting...", "calm");
-                    connectToMSMP(context);
-                });
-            }
+    private void updateStatusBadge(TabContext ctx, String status) {
+        String accent = "calm";
+        if (status.contains("Connected")) accent = "nice";
+        else if (status.contains("failed") || status.contains("timed out") || status.contains("Error") || status.contains("stopped")) accent = "danger";
+        else if(status.contains("disabled")) accent = "danger";
 
-            boolean ready = SERVER_READY_PATTERN.matcher(line).matches() || SERVER_READY_PATTERN_ALT.matcher(line).matches();
-            if (ready && !context.serverMarkedRunning) {
-                context.serverMarkedRunning = true;
-                ScreenManager.getInstance().execute(() -> {
-                    if (context.instance != null) setInstanceStateByName(context.instance, "RUNNING", InstanceState.RUNNING);
-                    setPlayersStatus(context, "MSMP: Connecting...", "calm");
-                    connectToMSMP(context);
-                });
-            }
-            boolean stopping = SERVER_STOP_PATTERN.matcher(line).matches();
-            if (stopping && !context.serverMarkedStopped) {
-                context.serverMarkedStopped = true;
-                ScreenManager.getInstance().execute(() -> {
-                    if (context.instance != null) setInstanceStateByName(context.instance, "STOPPED", InstanceState.STOPPED);
-                    setPlayersStatus(context, "Server stopped", "danger");
-                });
-            }
-        };
-        context.terminalWidget.addOutputListener(context.lifecycleListener);
+        setPlayersStatus(ctx, status, accent);
     }
 
     private void createAndAddTab(Object tabInfo, boolean setActive) {
@@ -352,15 +296,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         mainContainer.addWidget(context.terminalWidget);
 
         if (!context.isLocalTerminalMode) {
-            context.msmpTokenFuture = new CompletableFuture<>();
-            context.terminalWidget.addOutputListener(line -> {
-                if (context.msmpTokenFuture.isDone()) return;
-                Matcher m1 = MSMP_TOKEN_PATTERN.matcher(line);
-                Matcher m2 = MSMP_TOKEN_PATTERN_ALT.matcher(line);
-                if (m1.matches()) context.msmpTokenFuture.complete(m1.group(1));
-                else if (m2.matches()) context.msmpTokenFuture.complete(m2.group(1));
-            });
-
+            inst.attachTerminalListener(context.terminalWidget);
             context.resourcesContainer = new Container(5, 60, width - 10, height - 66);
             context.resourcesContainer.layout(new ManagedLayout()).columns(1).padding(2).enableSelecting(true);
             mainContainer.addWidget(context.resourcesContainer);
@@ -370,8 +306,6 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
             mainContainer.addWidget(context.playersContainer);
 
             setPlayersStatus(context, "MSMP: Disconnected", "danger");
-
-            attachLifecycleListeners(context);
         } else {
             mainContainer.addWidget(new Container(0, 0, 0, 0));
             mainContainer.addWidget(new Container(0, 0, 0, 0));
@@ -390,6 +324,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
 
         if (setActive) {
             tabs().setActiveTab(tabs().getTabs().size() - 1);
+            onTabSelected(tabs().getActiveTab());
         }
     }
 
@@ -416,12 +351,10 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
     private void onTabSelected(TabsManager.Tab tab) {
         if (this.instance != null) {
             this.instance.removeStateListener(stateListener);
-        }
-        TabContext oldContext = getActiveContext();
-        if (oldContext != null && oldContext.msmpApi != null) {
-            oldContext.msmpApi.close();
-            oldContext.msmpApi = null;
-            oldContext.msmpConnected = false;
+            if (this.instance.isServer()) {
+                this.instance.getMSMPManager().setOnPlayersChange(null);
+                this.instance.getMSMPManager().setOnStatusChange(null);
+            }
         }
 
         TabContext newContext = tabContexts.get(tab);
@@ -430,33 +363,26 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         this.instance = newContext.instance;
         if (this.instance != null) {
             this.instance.addStateListener(stateListener);
-            InstanceState st = this.instance.getState();
-            if (st == InstanceState.RUNNING) {
-                setPlayersStatus(newContext, "MSMP: Connecting...", "calm");
-                connectToMSMP(newContext);
-            } else if (st == InstanceState.STARTING) {
-                setPlayersStatus(newContext, "Server starting...", "calm");
-                waitForTokenThenConnect(newContext);
-            } else {
-                setPlayersStatus(newContext, "Server is not running", "danger");
+            onStateChanged(this.instance.getState());
+            if (this.instance.isServer()) {
+                MSMPManager manager = this.instance.getMSMPManager();
+                manager.setOnPlayersChange(players -> ScreenManager.getInstance().execute(() -> updatePlayerList(newContext, players)));
+                manager.setOnStatusChange(status -> ScreenManager.getInstance().execute(() -> updateStatusBadge(newContext, status)));
+                manager.handleInstanceStateChange(this.instance.getState()); // Force update
+            }
+            if (newContext.currentResources.isEmpty()) {
+                loadResources();
             }
         }
         updateHeaderButtons();
         updatePositions();
-
-        if (!newContext.isLocalTerminalMode) {
-            if (newContext.currentResources.isEmpty()) {
-                loadResources();
-            }
-            attachLifecycleListeners(newContext);
-        }
 
         if (sharedContainerSwitch != null) {
             boolean showSwitch = !newContext.isLocalTerminalMode;
             sharedContainerSwitch.setVisible(showSwitch);
             if (showSwitch) {
                 sharedContainerSwitch.recreateButtons();
-                int maxIndex = newContext.isLocalTerminalMode ? 0 : 2;
+                int maxIndex = 2;
                 if (newContext.selectedViewIndex < 0 || newContext.selectedViewIndex > maxIndex) {
                     newContext.selectedViewIndex = 0;
                 }
@@ -485,6 +411,10 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         if (context != null) {
             if (context.instance != null) {
                 context.instance.removeStateListener(stateListener);
+                if (context.instance.isServer()) {
+                    context.instance.getMSMPManager().setOnPlayersChange(null);
+                    context.instance.getMSMPManager().setOnStatusChange(null);
+                }
                 remotelyClient.getMultiTerminalTabs().remove(context.instance);
             } else if (context.localTerminalId != null) {
                 remotelyClient.getMultiTerminalTabs().remove(context.localTerminalId);
@@ -500,6 +430,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
 
     private Comparator<InstanceResourceWidget> getWidgetComparator() {
         TabContext context = getActiveContext();
+        if (context == null) return (w1, w2) -> 0;
         return (w1, w2) -> {
             InstanceResource r1 = w1.getResource();
             InstanceResource r2 = w2.getResource();
@@ -651,6 +582,14 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
+
+        TabContext ctx = getActiveContext();
+        if (ctx == null || ctx.isLocalTerminalMode || !enableDebugTools || ctx.instance == null) return;
+
+        IMSMPApi api = ctx.instance.getMSMPManager().getApi();
+        if (api != null) {
+            context.drawText("Instance State: " + ctx.instance.getState().name() + " | MSMP Connected: " + api.isConnected(), 10, 10, ThemeManager.getColor(ThemeColor.text), shadow);
+        }
     }
 
     @Override
@@ -695,156 +634,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
 
     @Override
     protected void onStateChanged(InstanceState newState) {
-        ScreenManager.getInstance().execute(() -> {
-            TabContext context = getActiveContext();
-            if (context == null || context.isLocalTerminalMode) return;
-            updateHeaderButtons();
-
-            if (newState == InstanceState.RUNNING && !context.msmpConnected) {
-                setPlayersStatus(context, "MSMP: Connecting...", "calm");
-                connectToMSMP(context);
-            } else if (newState == InstanceState.STARTING) {
-                setPlayersStatus(context, "Server starting...", "calm");
-                waitForTokenThenConnect(context);
-            } else if (newState == InstanceState.STOPPED || newState == InstanceState.CRASHED) {
-                if (context.msmpApi != null) {
-                    context.msmpApi.close();
-                    context.msmpApi = null;
-                    context.msmpConnected = false;
-                }
-                setPlayersStatus(context, "Server stopped", "danger");
-            }
-        });
-    }
-
-    private void waitForTokenThenConnect(TabContext context) {
-        if (context == null || context.isLocalTerminalMode || context.msmpConnected || context.msmpConnectRequested) return;
-
-        boolean enabledLocally = Boolean.parseBoolean(context.instance.getServerProperties().getProperty("management-server-enabled", "false")) || Boolean.parseBoolean(context.instance.getServerProperties().getProperty("management.server.enabled", "false"));
-        boolean shouldGate = !context.instance.isRemote();
-        if (shouldGate && !enabledLocally) {
-            setPlayersStatus(context, "MSMP disabled in server.properties", "danger");
-            return;
-        }
-
-        context.msmpConnectRequested = true;
-
-        String persistentSecret = getPersistentSecret(context);
-        if (persistentSecret != null && !persistentSecret.isEmpty()) {
-            setPlayersStatus(context, "MSMP: Connecting...", "calm");
-            connectToMSMP(context);
-            return;
-        }
-
-        if (context.msmpTokenFuture != null) {
-            setPlayersStatus(context, "Waiting for management token…", "calm");
-            context.msmpTokenFuture.thenRun(() -> ScreenManager.getInstance().execute(() -> connectToMSMP(context)));
-        } else {
-            setPlayersStatus(context, "Waiting for management token…", "calm");
-        }
-    }
-
-    private String getPersistentSecret(TabContext context) {
-        Properties p = context.instance.getServerProperties();
-        String v1 = p.getProperty("management-server-secret");
-        if (v1 != null && !v1.isEmpty()) return v1;
-        String v2 = p.getProperty("management.server.secret");
-        if (v2 != null && !v2.isEmpty()) return v2;
-        String v3 = p.getProperty("management-server-token");
-        if (v3 != null && !v3.isEmpty()) return v3;
-        String v4 = p.getProperty("management.server.token");
-        if (v4 != null && !v4.isEmpty()) return v4;
-        return null;
-    }
-
-    private void connectToMSMP(TabContext context) {
-        if (context.isLocalTerminalMode || context.msmpConnected || context.instance == null) return;
-
-        boolean enabledLocally = Boolean.parseBoolean(context.instance.getServerProperties().getProperty("management-server-enabled", "false")) || Boolean.parseBoolean(context.instance.getServerProperties().getProperty("management.server.enabled", "false"));
-        boolean shouldGate = !context.instance.isRemote();
-        if (shouldGate && !enabledLocally) {
-            setPlayersStatus(context, "MSMP disabled in server.properties", "danger");
-            return;
-        }
-
-        boolean tls = Boolean.parseBoolean(context.instance.getServerProperties().getProperty("management-server-tls-enabled",
-                context.instance.getServerProperties().getProperty("management.server.tls.enabled", "false")));
-        String hostProp = context.instance.getServerProperties().getProperty("management-server-host", "localhost");
-        int portProp = 0;
-        try {
-            portProp = Integer.parseInt(context.instance.getServerProperties().getProperty("management-server-port", "25585"));
-        } catch (Exception ignored) {}
-
-        String host = context.discoveredHost != null ? context.discoveredHost : hostProp;
-        int port = context.discoveredPort > 0 ? context.discoveredPort : (portProp > 0 ? portProp : 25585);
-        if (context.instance.isRemote() && "localhost".equalsIgnoreCase(host) && context.instance.getRemoteHost() != null && context.instance.getRemoteHost().ip != null) {
-            host = context.instance.getRemoteHost().ip;
-        }
-
-        String schemeHost = (tls ? "wss://" : "ws://") + host;
-
-        setPlayersStatus(context, "MSMP: Connecting...", "calm");
-
-        context.msmpApi = new MSMPClient();
-
-        String persistentSecret = getPersistentSecret(context);
-
-        CompletableFuture<String> tokenFuture;
-        if (persistentSecret != null && !persistentSecret.isEmpty()) {
-            tokenFuture = CompletableFuture.completedFuture(persistentSecret);
-        } else {
-            tokenFuture = context.msmpTokenFuture != null ? context.msmpTokenFuture : CompletableFuture.failedFuture(new IllegalStateException("No token or secret available"));
-        }
-
-        tokenFuture.thenAccept(token -> context.msmpApi.connect(schemeHost, port, token).thenAccept(success -> {
-            if (success) {
-                ScreenManager.getInstance().execute(() -> {
-                    context.msmpConnected = true;
-                    setPlayersStatus(context, "MSMP: Connected", "nice");
-                    new Notification("MSMP Connected", "Live server data is now active.", Notification.Type.SUCCESS);
-
-                    context.msmpApi.subscribeToLifecycle(event -> ScreenManager.getInstance().execute(() -> handleLifecycleEvent(context, event)));
-                    context.msmpApi.subscribeToPlayers(players -> ScreenManager.getInstance().execute(() -> updatePlayerList(context, players)));
-                    context.msmpApi.getPlayers().thenAccept(players -> ScreenManager.getInstance().execute(() -> updatePlayerList(context, players)));
-                });
-            } else {
-                ScreenManager.getInstance().execute(() -> {
-                    setPlayersStatus(context, "MSMP: Connection failed", "danger");
-                    new Notification("MSMP Connection Failed", "Unknown error", Notification.Type.ERROR);
-                });
-            }
-        }).exceptionally(e -> {
-            ScreenManager.getInstance().execute(() -> {
-                String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-                setPlayersStatus(context, "MSMP Error: " + msg, "danger");
-                new Notification("MSMP Connection Failed", msg, Notification.Type.ERROR);
-            });
-            return null;
-        })).exceptionally(e -> {
-            ScreenManager.getInstance().execute(() -> {
-                String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-                setPlayersStatus(context, "Token/secret unavailable: " + msg, "danger");
-            });
-            return null;
-        });
-    }
-
-    private void handleLifecycleEvent(TabContext ctx, String event) {
-        if (ctx == null || ctx.isLocalTerminalMode) return;
-        if (ctx.instance == null) return;
-        if ("started".equalsIgnoreCase(event)) {
-            setInstanceStateByName(ctx.instance, "RUNNING", InstanceState.RUNNING);
-            setPlayersStatus(ctx, "Server started", "nice");
-        } else if ("stopping".equalsIgnoreCase(event)) {
-            setInstanceStateByName(ctx.instance, "STOPPED", InstanceState.STOPPED);
-            setPlayersStatus(ctx, "Server stopping", "danger");
-        } else if ("saving".equalsIgnoreCase(event)) {
-            setInstanceStateByName(ctx.instance, "SAVING", InstanceState.STARTING);
-            setPlayersStatus(ctx, "Server saving…", "calm");
-        } else if ("saved".equalsIgnoreCase(event)) {
-            setInstanceStateByName(ctx.instance, "SAVED", InstanceState.RUNNING);
-            setPlayersStatus(ctx, "Server saved", "nice");
-        }
+        ScreenManager.getInstance().execute(this::updateHeaderButtons);
     }
 
     private void updateHeaderButtons() {
@@ -885,11 +675,11 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
                 context.terminalWidget.executeCommand("stop");
             } else {
                 context.terminalWidget.stopProcess();
-                setInstanceStateByName(context.instance, "STOPPED", InstanceState.STOPPED);
+                context.instance.setState(InstanceState.STOPPED);
                 context.terminalWidget.clearLog();
             }
         } else {
-            setInstanceStateByName(context.instance, "STARTING", InstanceState.STARTING);
+            context.instance.setState(InstanceState.STARTING);
             RebaseAPI api = RebaseApiFactory.get(context.instance);
             api.launchServer(context.instance).thenAccept(command -> {
                 ScreenManager.getInstance().execute(() -> {
@@ -900,12 +690,11 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
                     } else {
                         context.terminalWidget.startServerProcess();
                     }
-                    waitForTokenThenConnect(context);
                 });
             }).exceptionally(e -> {
                 ScreenManager.getInstance().execute(() -> {
                     new Notification("Failed to start server", e.getMessage(), Notification.Type.ERROR);
-                    setInstanceStateByName(context.instance, "STOPPED", InstanceState.STOPPED);
+                    context.instance.setState(InstanceState.STOPPED);
                 });
                 return null;
             });
@@ -951,8 +740,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
             builder.addRow("", true, false, 18, widget);
         }
 
-        AtomicBoolean createBackup = new AtomicBoolean(true);
-        ToggleWidget backupToggle = new ToggleWidget.Builder().toggled(true).onChange(() -> createBackup.set(!createBackup.get())).build();
+        ToggleWidget backupToggle = new ToggleWidget.Builder().toggled(true).build();
 
         DownloadProgressWidget progress = new DownloadProgressWidget.DownloadProgressBuilder().size(builder.getWidget().getWidth() - 20, 18).build();
         progress.setVisible(false);
@@ -965,7 +753,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
                 return;
             }
             progress.setVisible(true);
-            Rebase.get().getUpdateManager().performBulkUpdate(context.instance, selectedUpdates, progress::updateProgress, this::loadResources, createBackup.get(), 7).whenComplete((v, ex) -> ScreenManager.getInstance().execute(() -> {
+            Rebase.get().getUpdateManager().performBulkUpdate(context.instance, selectedUpdates, progress::updateProgress, this::loadResources, backupToggle.getValue(), 7).whenComplete((v, ex) -> ScreenManager.getInstance().execute(() -> {
                 builder.getWidget().setVisible(false);
                 if (ex != null) {
                     new Notification("Update Failed", ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage(), Notification.Type.ERROR);
@@ -1121,12 +909,12 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
     public void removed() {
         super.removed();
         for (TabContext context : tabContexts.values()) {
-            if (context.instance != null) context.instance.removeStateListener(stateListener);
-            IMSMPApi msmpApi = context.msmpApi;
-            if (msmpApi != null) msmpApi.close();
-            if (context.terminalWidget != null && context.lifecycleListener != null) {
-                context.terminalWidget.removeOutputListener(context.lifecycleListener);
-                context.lifecycleListener = null;
+            if (context.instance != null) {
+                context.instance.removeStateListener(stateListener);
+                if (context.instance.isServer()) {
+                    context.instance.getMSMPManager().setOnPlayersChange(null);
+                    context.instance.getMSMPManager().setOnStatusChange(null);
+                }
             }
         }
         tabContexts.clear();
@@ -1141,34 +929,26 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
     private void updatePlayerList(TabContext ctx, List<Player> players) {
         if (ctx == null || ctx.isLocalTerminalMode) return;
         ctx.playersContainer.clearWidgets();
-        if (!ctx.msmpConnected) {
-            setPlayersStatus(ctx, "MSMP: Disconnected", "danger");
-            ctx.playersContainer.updateWidgetPositions();
+
+        IMSMPApi api = ctx.instance.getMSMPManager().getApi();
+        if (api == null || !api.isConnected()) {
+            updateStatusBadge(ctx, "MSMP: Disconnected");
             return;
         }
+
         if (players.isEmpty()) {
             setPlayersStatus(ctx, "No players online", "calm");
         } else {
             setPlayersStatus(ctx, players.size() + " player(s) online", "nice");
             for (Player p : players) {
-                PlayerEntryWidget widget = new PlayerEntryWidget(p, player -> ctx.msmpApi.kickPlayer(player.uuid.toString(), "Kicked by operator."),
-                        player -> ctx.msmpApi.banPlayer(player.uuid.toString(), "Banned by operator."), player -> {
-                            CompletableFuture<Void> future = player.isOperator ? ctx.msmpApi.deopPlayer(player.uuid.toString()) : ctx.msmpApi.opPlayer(player.uuid.toString(), 4);
-                            future.thenRun(() -> ctx.msmpApi.getPlayers().thenAccept(updatedPlayers -> ScreenManager.getInstance().execute(() -> updatePlayerList(ctx, updatedPlayers))));
-                        }
-                );
+                PlayerEntryWidget widget = new PlayerEntryWidget(p, player -> api.kickPlayer(player.uuid.toString(), "Kicked by operator."),
+                        player -> api.banPlayer(player.uuid.toString(), "Banned by operator."), player -> {
+                    CompletableFuture<Void> future = player.isOperator ? api.deopPlayer(player.uuid.toString()) : api.opPlayer(player.uuid.toString(), 4);
+                    future.thenRun(() -> api.getPlayers().thenAccept(updatedPlayers -> ScreenManager.getInstance().execute(() -> updatePlayerList(ctx, updatedPlayers))));
+                });
                 ctx.playersContainer.addWidget(widget);
             }
         }
         ctx.playersContainer.updateWidgetPositions();
-    }
-
-    private void setInstanceStateByName(Instance instance, String stateName, InstanceState fallback) {
-        try {
-            InstanceState s = InstanceState.valueOf(stateName.toUpperCase());
-            instance.setState(s);
-        } catch (Exception e) {
-            instance.setState(fallback);
-        }
     }
 }
