@@ -3,7 +3,7 @@ package redxax.oxy.remotely;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.host.ApplicationHost;
 import redxax.oxy.remotely.servers.ServerManagerScreen;
-import redxax.oxy.remotely.ui.screens.RemotelyInstanceDetailsScreen;
+import redxax.oxy.remotely.ui.screens.ServerDetailsScreen;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
@@ -61,7 +61,7 @@ public class RemotelyClient {
             multiTerminalTabs.add(UUID.randomUUID().toString());
             activeMultiTerminalTabIndex = 0;
         }
-        host.setScreen(new RemotelyInstanceDetailsScreen(parent, this));
+        host.setScreen(new ServerDetailsScreen(parent, this));
     }
 
     public void openInstanceInTerminal(Object parent, Instance instance) {
@@ -79,7 +79,7 @@ public class RemotelyClient {
         }
 
         Screen currentScreen = host.getCurrentScreen();
-        if (currentScreen instanceof RemotelyInstanceDetailsScreen screen) {
+        if (currentScreen instanceof ServerDetailsScreen screen) {
             screen.addInstanceTab(instance);
         } else {
             openMultiTerminal(parent);
