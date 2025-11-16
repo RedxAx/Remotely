@@ -265,8 +265,8 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
             context.playersContainer = new Container(5, 60, width - 10, height - 66);
             context.playersContainer.layout(new ManagedLayout()).columns(1).padding(2);
-            context.playerManagerController = new PlayerManagerController(inst, RebaseApiFactory.get(inst), context.playersContainer, context.terminalWidget);
-            context.terminalWidget.addOutputListener(context.playerManagerController::processConsoleLine);
+            context.playerManagerController = PlayerManagerController.getOrCreate(inst, RebaseApiFactory.get(inst));
+            context.playerManagerController.setUiBindings(context.playersContainer, context.terminalWidget);
             mainContainer.addWidget(context.playersContainer);
         } else {
             mainContainer.addWidget(new Container(0, 0, 0, 0));
@@ -693,7 +693,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         TabContext context = getActiveContext();
         if (context == null || context.isLocalTerminalMode) return;
 
-        List<InstanceResource> updatableResources = context.currentResources.stream().filter(r -> r.availableUpdate != null).collect(Collectors.toList());
+        List<InstanceResource> updatableResources = context.currentResources.stream().filter(r -> r.availableUpdate != null).toList();
 
         if (updatableResources.isEmpty()) {
             new Notification("No Updates Available", "All your resources are up to date.", Notification.Type.INFO);
@@ -808,7 +808,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         }
 
         client.execute(() -> {
-            List<String> deletedFileNames = resourcesToDelete.stream().map(InstanceResource::getFileName).collect(Collectors.toList());
+            List<String> deletedFileNames = resourcesToDelete.stream().map(InstanceResource::getFileName).toList();
             context.currentResources.removeAll(resourcesToDelete);
 
             boolean changed = false;

@@ -14,6 +14,7 @@ import restudio.rescreen.util.TimeUtils;
 
 import java.awt.image.BufferedImage;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -22,9 +23,10 @@ public class PlayerEntryWidget extends MountableButtonWidget {
 
     private final ManagedPlayer player;
     private final PlayerManagerController controller;
-    private BufferedImage face;
+    private volatile BufferedImage face;
     private final Identifier opIcon = Identifier.icon("op.png");
     private final Identifier deopIcon = Identifier.icon("deop.png");
+    private boolean faceRequested = false;
 
     public PlayerEntryWidget(ManagedPlayer player, PlayerManagerController controller) {
         super(player.name, "", "", new CopyOnWriteArrayList<>(), null);
@@ -33,9 +35,6 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         this.animateElevation = inClickableWhenInactive = false;
         this.xOffset = 28;
 
-        Account tempAccount = new Account(player.name, player.uuid.toString(), null, 0);
-        tempAccount.getFace();
-        
         boolean serverRunning = controller.isServerRunning();
 
         SquareButtonWidget kickButton = new SquareButtonWidget.Builder()
@@ -88,12 +87,15 @@ public class PlayerEntryWidget extends MountableButtonWidget {
     @Override
     public void tick() {
         super.tick();
-        if (face == null) {
-            Account tempAccount = new Account(player.name, player.uuid.toString(), null, 0);
-            BufferedImage fetchedFace = tempAccount.getFace();
-            if (fetchedFace != null) {
-                this.face = fetchedFace;
-            }
+        if (face == null && !faceRequested) {
+            faceRequested = true;
+            CompletableFuture.runAsync(() -> {
+                Account tempAccount = new Account(player.name, player.uuid.toString(), null, 0);
+                BufferedImage fetchedFace = tempAccount.getFace();
+                if (fetchedFace != null) {
+                    this.face = fetchedFace;
+                }
+            });
         }
     }
 
