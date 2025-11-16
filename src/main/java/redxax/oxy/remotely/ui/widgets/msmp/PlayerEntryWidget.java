@@ -9,7 +9,6 @@ import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Identifier;
-import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.TimeUtils;
 
 import java.awt.image.BufferedImage;
@@ -32,7 +31,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         super(player.name, "", "", new CopyOnWriteArrayList<>(), null);
         this.player = player;
         this.controller = controller;
-        this.animateElevation = inClickableWhenInactive = false;
+        this.ClickableWhenInactive = true;
         this.xOffset = 28;
 
         boolean serverRunning = controller.isServerRunning();
@@ -124,6 +123,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
             name += player.isOp ? " | Operator (Level " + player.opLevel + ")" : "";
             description = "Offline | Last seen: " + (player.lastSeen > 0 ? TimeUtils.timeSense(player.lastSeen) : "never");
             accentType = ThemeManager.getDefaultAccent();
+            active = false;
         }
         titleColor = player.isOnline ? ThemeManager.getColor(ThemeColor.text) : ThemeManager.getColor(ThemeColor.textDark);
 
@@ -145,7 +145,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
 
     private void showVariableInputPopup(ManagedPlayer player, PlayerAction action, List<String> variables) {
         PopupWidget.Builder builder = new PopupWidget.Builder("Execute: " + action.name)
-            .size(300, 60 + variables.size() * 30).setAntiOutOfBound(true).setResizable(true);
+                .size(300, 60 + variables.size() * 30).setAntiOutOfBound(true).setResizable(true);
 
 
         Map<String, TextInputWidget> inputs = new HashMap<>();
@@ -171,7 +171,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
                     execute.run();
                 }
             };
-            builder.addRow("$" + var, true, 20, input);
+            builder.addRow("", true, 20, input);
         }
 
         builder.addTitleButton(execute, "Execute", ThemeManager.getAccent("nice"));
