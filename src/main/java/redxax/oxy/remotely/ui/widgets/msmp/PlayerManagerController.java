@@ -6,9 +6,8 @@ import redxax.oxy.remotely.data.managed.*;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
-import restudio.rebase.msmp.IMSMPApi;
-import restudio.rebase.msmp.dto.Player;
 import restudio.rebase.ui.widgets.TerminalWidget;
+import restudio.rebase.util.RebaseLogger;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.widgets.AnimatedButton;
@@ -18,7 +17,10 @@ import java.lang.reflect.Type;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class PlayerManagerController {
@@ -33,17 +35,25 @@ public class PlayerManagerController {
     private final Path opsPath;
     private final Path bannedPlayersPath;
     private final Path bannedIpsPath;
-    private IMSMPApi msmpApi;
     private final Container container;
     private final TerminalWidget terminalWidget;
     private List<PlayerAction> cachedPlayerActions = new ArrayList<>();
+
+    private static final Pattern PLAYER_JOIN_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*?(\\w+)\\[/([0-9.:]+)\\] logged in with entity id \\d+ at .*");
+    private static final Pattern PLAYER_LEAVE_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*?(\\w+) left the game");
+    private static final Pattern PLAYER_UUID_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*?UUID of player (\\w+) is ([0-9a-f\\-]+)");
+    private static final Pattern SERVER_DONE_PATTERN = Pattern.compile(".*Done \\(.*\\)! For help, type \"help\".*");
+    private static final Pattern SERVER_STOP_PATTERN = Pattern.compile(".*Stopping server.*");
+    private static final Pattern PLAYER_OP_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*Made (\\w+) a server operator.*");
+    private static final Pattern PLAYER_DEOP_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*Made (\\w+) no longer a server operator.*");
+    private static final Pattern PLAYER_BAN_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*?Banned (\\w+): .*");
+    private static final Pattern PLAYER_UNBAN_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*?Unbanned (\\w+)");
 
     public PlayerManagerController(Instance instance, RebaseAPI api, Container container, TerminalWidget terminalWidget) {
         this.instance = instance;
         this.api = api;
         this.container = container;
         this.terminalWidget = terminalWidget;
-        this.msmpApi = instance.getMSMPManager().getApi();
         Path instancePath = Path.of(instance.getPath());
         this.remotelyDir = instancePath.resolve("Remotely");
 
@@ -66,8 +76,125 @@ public class PlayerManagerController {
         });
     }
 
-    public void setMsmpApi(IMSMPApi msmpApi) {
-        this.msmpApi = msmpApi;
+    public void processConsoleLine(String line) {
+        RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Received line: '" + line + "'");
+        if (line == null) return;
+        line = line.trim();
+        RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Trimmed line: '" + line + "'");
+        if (line.isEmpty()) return;
+
+        if (SERVER_DONE_PATTERN.matcher(line).matches()) {
+            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched SERVER_DONE_PATTERN");
+            instance.setState(InstanceState.RUNNING);
+            fullRefresh();
+            return;
+        }
+        if (SERVER_STOP_PATTERN.matcher(line).matches()) {
+            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched SERVER_STOP_PATTERN");
+            instance.setState(InstanceState.STOPPED);
+            return;
+        }
+
+        Matcher uuidMatcher = PLAYER_UUID_PATTERN.matcher(line);
+        if (uuidMatcher.matches()) {
+            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_UUID_PATTERN");
+            handlePlayerLogon(UUID.fromString(uuidMatcher.group(2)), uuidMatcher.group(1));
+            return;
+        }
+
+        Matcher joinMatcher = PLAYER_JOIN_PATTERN.matcher(line);
+        if (joinMatcher.matches()) {
+            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_JOIN_PATTERN");
+            handlePlayerJoin(joinMatcher.group(1), joinMatcher.group(2));
+            return;
+        }
+
+        Matcher leaveMatcher = PLAYER_LEAVE_PATTERN.matcher(line);
+        if (leaveMatcher.matches()) {
+            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_LEAVE_PATTERN");
+            handlePlayerLeave(leaveMatcher.group(1));
+            return;
+        }
+
+        Matcher opMatcher = PLAYER_OP_PATTERN.matcher(line);
+        if (opMatcher.matches()) {
+            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_OP_PATTERN");
+            updatePlayerStatus(opMatcher.group(1), p -> p.isOp = true);
+            return;
+        }
+
+        Matcher deopMatcher = PLAYER_DEOP_PATTERN.matcher(line);
+        if (deopMatcher.matches()) {
+            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_DEOP_PATTERN");
+            updatePlayerStatus(deopMatcher.group(1), p -> p.isOp = false);
+            return;
+        }
+
+        Matcher banMatcher = PLAYER_BAN_PATTERN.matcher(line);
+        if (banMatcher.matches()) {
+            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_BAN_PATTERN");
+            updatePlayerStatus(banMatcher.group(1), p -> p.isBanned = true);
+            return;
+        }
+
+        Matcher unbanMatcher = PLAYER_UNBAN_PATTERN.matcher(line);
+        if (unbanMatcher.matches()) {
+            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_UNBAN_PATTERN");
+            updatePlayerStatus(unbanMatcher.group(1), p -> {
+                p.isBanned = false;
+                p.isIpBanned = false;
+            });
+        }
+    }
+
+    private void updatePlayerStatus(String name, Consumer<ManagedPlayer> updater) {
+        synchronized (players) {
+            players.values().stream().filter(p -> p.name.equalsIgnoreCase(name)).findFirst().ifPresent(player -> {
+                updater.accept(player);
+                ScreenManager.getInstance().execute(this::rebuildPlayerWidgets);
+            });
+        }
+    }
+
+    private void handlePlayerLogon(UUID uuid, String name) {
+        synchronized (players) {
+            ManagedPlayer player = players.computeIfAbsent(uuid, u -> {
+                ManagedPlayer newPlayer = new ManagedPlayer(u, name);
+                savePlayerLog();
+                return newPlayer;
+            });
+
+            if (!player.name.equals(name)) {
+                player.name = name;
+                savePlayerLog();
+            }
+        }
+    }
+
+    private void handlePlayerJoin(String name, String address) {
+        synchronized (players) {
+            Optional<ManagedPlayer> playerOpt = players.values().stream().filter(p -> p.name.equalsIgnoreCase(name)).findFirst();
+            if (playerOpt.isPresent()) {
+                ManagedPlayer player = playerOpt.get();
+                player.isOnline = true;
+                player.address = address;
+                ScreenManager.getInstance().execute(this::rebuildPlayerWidgets);
+            } else {
+                terminalWidget.executeCommand("uuid " + name);
+            }
+        }
+    }
+
+    private void handlePlayerLeave(String name) {
+        synchronized (players) {
+            players.values().stream().filter(p -> p.name.equalsIgnoreCase(name)).findFirst().ifPresent(player -> {
+                player.isOnline = false;
+                player.address = null;
+                player.lastSeen = System.currentTimeMillis();
+                savePlayerLog();
+                ScreenManager.getInstance().execute(this::rebuildPlayerWidgets);
+            });
+        }
     }
 
     public CompletableFuture<Void> fullRefresh() {
@@ -75,38 +202,26 @@ public class PlayerManagerController {
         CompletableFuture<List<OpEntry>> opsFuture = loadJsonFile(opsPath, new TypeToken<>() {});
         CompletableFuture<List<BanEntry>> bannedPlayersFuture = loadJsonFile(bannedPlayersPath, new TypeToken<>() {});
         CompletableFuture<List<IpBanEntry>> bannedIpsFuture = loadJsonFile(bannedIpsPath, new TypeToken<>() {});
-        CompletableFuture<List<Player>> onlinePlayersFuture;
 
         loadPlayerActions();
 
-        if (isMsmpConnected()) {
-            onlinePlayersFuture = msmpApi.getPlayers();
-        } else {
-            onlinePlayersFuture = CompletableFuture.completedFuture(new ArrayList<>());
-        }
-
-        return CompletableFuture.allOf(playerLogFuture, opsFuture, bannedPlayersFuture, bannedIpsFuture, onlinePlayersFuture)
+        return CompletableFuture.allOf(playerLogFuture, opsFuture, bannedPlayersFuture, bannedIpsFuture)
                 .thenAccept(v -> {
                     List<PlayerLogEntry> playerLog = playerLogFuture.join();
                     Map<UUID, OpEntry> ops = opsFuture.join().stream().collect(Collectors.toMap(op -> UUID.fromString(op.uuid), Function.identity(), (a, b) -> a));
                     Map<UUID, BanEntry> bannedPlayersMap = bannedPlayersFuture.join().stream().collect(Collectors.toMap(ban -> UUID.fromString(ban.uuid), Function.identity(), (a, b) -> a));
                     Map<String, IpBanEntry> bannedIps = bannedIpsFuture.join().stream().collect(Collectors.toMap(ban -> ban.ip, Function.identity(), (a, b) -> a));
-                    List<Player> onlinePlayers = onlinePlayersFuture.join();
-
-                    Map<UUID, PlayerLogEntry> allKnownPlayers = new HashMap<>();
-                    playerLog.forEach(p -> allKnownPlayers.put(p.uuid, p));
-                    ops.values().forEach(p -> allKnownPlayers.computeIfAbsent(UUID.fromString(p.uuid), u -> new PlayerLogEntry(u, p.name)));
-                    bannedPlayersMap.values().forEach(p -> allKnownPlayers.computeIfAbsent(UUID.fromString(p.uuid), u -> new PlayerLogEntry(u, p.name)));
 
                     synchronized (players) {
-                        players.clear();
-                        allKnownPlayers.values().forEach(p -> {
-                            ManagedPlayer mp = new ManagedPlayer(p.uuid, p.name);
-                            mp.lastSeen = p.lastSeen;
-                            players.put(p.uuid, mp);
-                        });
+                        Map<UUID, PlayerLogEntry> allKnownPlayers = new HashMap<>();
+                        playerLog.forEach(p -> allKnownPlayers.put(p.uuid, p));
+                        ops.values().forEach(p -> allKnownPlayers.computeIfAbsent(UUID.fromString(p.uuid), u -> new PlayerLogEntry(u, p.name)));
+                        bannedPlayersMap.values().forEach(p -> allKnownPlayers.computeIfAbsent(UUID.fromString(p.uuid), u -> new PlayerLogEntry(u, p.name)));
 
-                        updateFromOnlinePlayers(onlinePlayers, true);
+                        allKnownPlayers.forEach((uuid, entry) -> {
+                            ManagedPlayer p = players.computeIfAbsent(uuid, u -> new ManagedPlayer(u, entry.name));
+                            p.lastSeen = entry.lastSeen;
+                        });
 
                         players.values().forEach(p -> {
                             p.isOp = ops.containsKey(p.uuid);
@@ -115,10 +230,12 @@ public class PlayerManagerController {
                             p.isBanned = bannedPlayersMap.containsKey(p.uuid);
                             if (p.isBanned) p.banInfo = bannedPlayersMap.get(p.uuid);
 
-                            if (p.address != null) {
+                            if (p.isOnline && p.address != null) {
                                 String playerIp = p.address.split(":")[0].replace("/", "");
                                 p.isIpBanned = bannedIps.containsKey(playerIp);
                                 if (p.isIpBanned) p.ipBanInfo = bannedIps.get(playerIp);
+                            } else {
+                                p.isIpBanned = false;
                             }
                         });
                     }
@@ -129,65 +246,14 @@ public class PlayerManagerController {
                 });
     }
 
-    public void updateOnlinePlayers(List<Player> onlinePlayers) {
-        synchronized (players) {
-            boolean logChanged = false;
-            Set<UUID> onlineUuids = onlinePlayers.stream().map(p -> p.uuid).collect(Collectors.toSet());
-
-            for (ManagedPlayer p : players.values()) {
-                if (p.isOnline && !onlineUuids.contains(p.uuid)) {
-                    p.lastSeen = System.currentTimeMillis();
-                    logChanged = true;
-                }
-            }
-            updateFromOnlinePlayers(onlinePlayers, true);
-
-            if (logChanged) {
-                savePlayerLog();
-            }
-        }
-        fullRefresh();
-    }
-
-    private void updateFromOnlinePlayers(List<Player> onlinePlayers, boolean clearOldOnlineStatus) {
-        if (clearOldOnlineStatus) {
-            players.values().forEach(p -> {
-                p.isOnline = false;
-                p.ping = -1;
-                p.address = null;
-            });
-        }
-
-        boolean logChanged = false;
-
-        for (Player onlinePlayer : onlinePlayers) {
-            ManagedPlayer p = players.computeIfAbsent(onlinePlayer.uuid, u -> {
-                ManagedPlayer newPlayer = new ManagedPlayer(u, onlinePlayer.name);
-                newPlayer.lastSeen = System.currentTimeMillis();
-                return newPlayer;
-            });
-
-            if (!players.containsKey(p.uuid)) {
-                logChanged = true;
-            }
-
-            p.isOnline = true;
-            p.name = onlinePlayer.name;
-            p.ping = onlinePlayer.ping;
-            p.address = onlinePlayer.address;
-        }
-
-        if (logChanged) {
-            savePlayerLog();
-        }
-    }
-
     private void savePlayerLog() {
         List<PlayerLogEntry> playerLog = new ArrayList<>();
-        for (ManagedPlayer p : players.values()) {
-            PlayerLogEntry ple = new PlayerLogEntry(p.uuid, p.name);
-            ple.lastSeen = p.lastSeen;
-            playerLog.add(ple);
+        synchronized(players) {
+            for (ManagedPlayer p : players.values()) {
+                PlayerLogEntry ple = new PlayerLogEntry(p.uuid, p.name);
+                ple.lastSeen = p.lastSeen;
+                playerLog.add(ple);
+            }
         }
         saveJsonFile(playerLogPath, playerLog);
     }
@@ -202,7 +268,8 @@ public class PlayerManagerController {
                     return new ArrayList<>();
                 }
                 Type type = typeToken.getType();
-                return gson.fromJson(content, type);
+                List<T> result = gson.fromJson(content, type);
+                return result != null ? result : new ArrayList<>();
             });
         });
     }
@@ -218,13 +285,13 @@ public class PlayerManagerController {
 
     private void loadPlayerActions() {
         loadJsonFile(playerActionsPath, new TypeToken<List<PlayerAction>>() {})
-            .thenAccept(actions -> {
-                if (actions != null) {
-                    this.cachedPlayerActions = actions;
-                } else {
-                    this.cachedPlayerActions = new ArrayList<>();
-                }
-            });
+                .thenAccept(actions -> {
+                    if (actions != null) {
+                        this.cachedPlayerActions = actions;
+                    } else {
+                        this.cachedPlayerActions = new ArrayList<>();
+                    }
+                });
     }
 
     public List<PlayerAction> getPlayerActions() {
@@ -236,10 +303,13 @@ public class PlayerManagerController {
         if (players.isEmpty()) {
             container.addWidget(new AnimatedButton.Builder().label("No players found.").active(false).build());
         } else {
-            List<ManagedPlayer> sortedPlayers = players.values().stream()
-                    .sorted(Comparator.comparing((ManagedPlayer p) -> !p.isOnline)
-                            .thenComparing(p -> p.name.toLowerCase(Locale.ROOT)))
-                    .collect(Collectors.toList());
+            List<ManagedPlayer> sortedPlayers;
+            synchronized (players) {
+                sortedPlayers = players.values().stream()
+                        .sorted(Comparator.comparing((ManagedPlayer p) -> !p.isOnline)
+                                .thenComparing(p -> p.name.toLowerCase(Locale.ROOT)))
+                        .collect(Collectors.toList());
+            }
 
             for (ManagedPlayer p : sortedPlayers) {
                 container.addWidget(new PlayerEntryWidget(p, this));
@@ -248,51 +318,37 @@ public class PlayerManagerController {
         container.updateWidgetPositions();
     }
 
-    public CompletableFuture<Object> kickPlayer(ManagedPlayer player, String reason) {
-        return msmpApi.kickPlayer(player.uuid.toString(), reason);
+    public void kickPlayer(ManagedPlayer player, String reason) {
+        runCustomCommand(player, "kick " + player.name + " " + reason);
     }
 
-    public CompletableFuture<Void> banPlayer(ManagedPlayer player, String reason, String expires, boolean ipBan) {
-        CompletableFuture<Void> playerBanFuture = msmpApi.banPlayer(player.uuid.toString(), player.name, reason, expires);
-        if (ipBan && player.address != null) {
-            String ip = player.address.split(":")[0].replace("/", "");
-            return playerBanFuture.thenCompose(v -> msmpApi.banIp(ip, player.uuid.toString(), reason, expires));
-        }
-        return playerBanFuture;
+    public void banPlayer(ManagedPlayer player, String reason, boolean ipBan) {
+        String command = ipBan ? "ban-ip " : "ban ";
+        command += player.name + " " + reason;
+        runCustomCommand(player, command);
     }
 
-    public CompletableFuture<Void> unbanPlayer(ManagedPlayer player) {
-        CompletableFuture<Void> future = msmpApi.unbanPlayer(player.uuid.toString());
-        if (player.isIpBanned && player.ipBanInfo != null) {
-            return future.thenCompose(v -> msmpApi.unbanIp(player.ipBanInfo.ip));
-        }
-        return future;
+    public void unbanPlayer(ManagedPlayer player) {
+        String command = player.isIpBanned && player.ipBanInfo != null ? "pardon-ip " + player.ipBanInfo.ip : "pardon " + player.name;
+        runCustomCommand(player, command);
     }
 
-    public CompletableFuture<Void> toggleOp(ManagedPlayer player) {
-        CompletableFuture<Void> future = player.isOp ?
-                msmpApi.deopPlayer(player.uuid.toString()) :
-                msmpApi.opPlayer(player.uuid.toString(), 4);
-        return future.thenCompose(v -> fullRefresh());
-    }
-
-    public boolean isMsmpConnected() {
-        return this.msmpApi != null && this.msmpApi.isConnected();
+    public void toggleOp(ManagedPlayer player) {
+        String command = player.isOp ? "deop " : "op ";
+        runCustomCommand(player, command + player.name);
     }
 
     public boolean isServerRunning() {
         return instance.getState() == InstanceState.RUNNING;
     }
 
-    public CompletableFuture<Void> runCustomCommand(ManagedPlayer player, String commandTemplate) {
+    public void runCustomCommand(ManagedPlayer player, String commandTemplate) {
         if (terminalWidget == null) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Terminal not available."));
+            new Notification("Error", "Terminal not available.", Notification.Type.ERROR);
+            return;
         }
-        String command = commandTemplate
-                .replace("$name", player.name)
-                .replace("$uuid", player.uuid.toString());
+        String command = commandTemplate.replace("$name", player.name).replace("$uuid", player.uuid.toString());
 
         terminalWidget.executeCommand(command);
-        return CompletableFuture.completedFuture(null);
     }
 }

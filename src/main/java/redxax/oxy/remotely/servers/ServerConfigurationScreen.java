@@ -106,22 +106,24 @@ public class ServerConfigurationScreen extends ReScreen {
         
         boolean msmpEnabled = Boolean.parseBoolean(tempInstance.getServerProperties().getProperty("management-server-enabled", "false"));
 
-        if (isEditMode && msmpCompatible && msmpEnabled) {
+        if (isEditMode) {
             PlayerActionsSettingsController playerActionsController = new PlayerActionsSettingsController(originalInstance);
             settingsByTab.put("Player Actions", playerActionsController::getSettings);
 
-            ServerGameRulesSettingsController gameRulesController = new ServerGameRulesSettingsController(originalInstance);
-            cleanupActions.add(gameRulesController::cleanup);
+            if (msmpCompatible && msmpEnabled) {
+                ServerGameRulesSettingsController gameRulesController = new ServerGameRulesSettingsController(originalInstance);
+                cleanupActions.add(gameRulesController::cleanup);
 
-            ServerLiveSettingsController liveSettingsController = new ServerLiveSettingsController(originalInstance);
-            Supplier<List<Setting>> settings = () -> {
-                List<Setting> combinedSettings = new ArrayList<>();
-                combinedSettings.addAll(gameRulesController.getSettings());
-                combinedSettings.addAll(liveSettingsController.getSettings());
-                return combinedSettings;
-            };
-            settingsByTab.put("Live Settings", settings);
-            cleanupActions.add(liveSettingsController::cleanup);
+                ServerLiveSettingsController liveSettingsController = new ServerLiveSettingsController(originalInstance);
+                Supplier<List<Setting>> settings = () -> {
+                    List<Setting> combinedSettings = new ArrayList<>();
+                    combinedSettings.addAll(gameRulesController.getSettings());
+                    combinedSettings.addAll(liveSettingsController.getSettings());
+                    return combinedSettings;
+                };
+                settingsByTab.put("Live Settings", settings);
+                cleanupActions.add(liveSettingsController::cleanup);
+            }
         }
 
         ServerExtraSettingsController extraController = new ServerExtraSettingsController(tempInstance);
