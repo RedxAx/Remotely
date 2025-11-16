@@ -1,13 +1,7 @@
 package redxax.oxy.remotely.servers;
 
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.ui.settings.controllers.ServerAdvancedSettingsController;
-import redxax.oxy.remotely.ui.settings.controllers.ServerExtraSettingsController;
-import redxax.oxy.remotely.ui.settings.controllers.ServerGeneralSettingsController;
-import redxax.oxy.remotely.ui.settings.controllers.ServerManagementSettingsController;
-import redxax.oxy.remotely.ui.settings.controllers.ServerPerformanceSettingsController;
-import redxax.oxy.remotely.ui.settings.controllers.ServerGameRulesSettingsController;
-import redxax.oxy.remotely.ui.settings.controllers.ServerLiveSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.*;
 import restudio.rebase.ui.settings.controllers.VersionSettingsController;
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
@@ -105,9 +99,10 @@ public class ServerConfigurationScreen extends ReScreen {
         ServerManagementSettingsController managementController = new ServerManagementSettingsController(tempInstance);
         settingsByTab.put("Management", managementController::getSettings);
 
-
-        
         if (isEditMode) {
+            PlayerActionsSettingsController playerActionsController = new PlayerActionsSettingsController(originalInstance);
+            settingsByTab.put("Player Actions", playerActionsController::getSettings);
+
             ServerGameRulesSettingsController gameRulesController = new ServerGameRulesSettingsController(originalInstance);
             cleanupActions.add(gameRulesController::cleanup);
 

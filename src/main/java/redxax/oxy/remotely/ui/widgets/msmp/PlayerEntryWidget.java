@@ -1,22 +1,22 @@
 package redxax.oxy.remotely.ui.widgets.msmp;
 
-import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.data.managed.ManagedPlayer;
 import redxax.oxy.remotely.data.managed.PlayerAction;
 import restudio.rebase.account.Account;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
-import restudio.rescreen.ui.widgets.AnimatedWidget;
-import restudio.rescreen.ui.widgets.MountableButtonWidget;
-import restudio.rescreen.ui.widgets.SquareButtonWidget;
+import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.TimeUtils;
 
 import java.awt.image.BufferedImage;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class PlayerEntryWidget extends MountableButtonWidget {
 
@@ -30,8 +30,8 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         super(player.name, "", "", new CopyOnWriteArrayList<>(), null);
         this.player = player;
         this.controller = controller;
-        this.animateElevation = false;
-        this.xOffset = 30;
+        this.animateElevation = inClickableWhenInactive = false;
+        this.xOffset = 28;
 
         Account tempAccount = new Account(player.name, player.uuid.toString(), null, 0);
         tempAccount.getFace();
@@ -70,18 +70,20 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         opButton.active = msmpConnected;
 
         List<AnimatedWidget> buttons = new CopyOnWriteArrayList<>();
-        if (Config.customPlayerActions != null) {
-            for (PlayerAction action : Config.customPlayerActions) {
-                SquareButtonWidget actionButton = new SquareButtonWidget.Builder()
-                        .identifier(Identifier.icon(action.icon))
-                        .size(18, 18)
-                        .hint(action.name)
-                        .accentType(ThemeManager.getAccent("calm"))
-                        .onClick(() -> controller.runCustomCommand(player, action.command).exceptionally(e -> {
+        List<PlayerAction> actions = controller.getPlayerActions();
+        if (actions != null) {
+            for (PlayerAction action : actions) {
+                SquareButtonWidget actionButton = new SquareButtonWidget.Builder().identifier(Identifier.icon(action.icon)).size(18, 18).hint(action.name).onClick(() -> {
+                    List<String> variables = findCustomVariables(action.command);
+                    if (variables.isEmpty()) {
+                        controller.runCustomCommand(player, action.command).exceptionally(e -> {
                             new Notification("Error", "Command failed: " + e.getMessage(), Notification.Type.ERROR);
                             return null;
-                        }))
-                        .build();
+                        });
+                    } else {
+                        showVariableInputPopup(player, action, variables);
+                    }
+                }).build();
                 actionButton.active = serverRunning;
                 buttons.add(actionButton);
             }
@@ -115,7 +117,9 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         name = player.name;
 
         if (player.isBanned || player.isIpBanned) {
-            description = "§4Banned §rFor " + player.banInfo.reason + " | Expires: " + player.banInfo.expires + " | Type: " + (player.isIpBanned ? "IP Ban" : "Account Ban");
+            String reason = (player.banInfo != null) ? player.banInfo.reason : ((player.ipBanInfo != null) ? player.ipBanInfo.reason : "Unknown");
+            String expires = (player.banInfo != null) ? player.banInfo.expires : ((player.ipBanInfo != null) ? player.ipBanInfo.expires : "Unknown");
+            description = "Banned For " + reason + " | Expires: " + expires + " | Type: " + (player.isIpBanned ? "IP Ban" : "Account Ban");
             accentType = ThemeManager.getAccent("danger");
         } else if (player.isOnline) {
             description = "Online";
@@ -128,8 +132,64 @@ public class PlayerEntryWidget extends MountableButtonWidget {
             name += player.isOp ? " | Operator (Level " + player.opLevel + ")" : "";
             description = "Offline | Last seen: " + (player.lastSeen > 0 ? TimeUtils.timeSense(player.lastSeen) : "never");
             accentType = ThemeManager.getDefaultAccent();
+            active = false;
         }
+        titleColor = player.isOnline ? ThemeManager.getColor(ThemeColor.text) : ThemeManager.getColor(ThemeColor.textDark);
 
         super.drawContent(ctx, mouseX, mouseY);
+    }
+
+    private List<String> findCustomVariables(String command) {
+        List<String> variables = new ArrayList<>();
+        Pattern pattern = Pattern.compile("\\$([a-zA-Z0-9_]+)");
+        Matcher matcher = pattern.matcher(command);
+        while (matcher.find()) {
+            String var = matcher.group(1);
+            if (!"name".equalsIgnoreCase(var) && !"uuid".equalsIgnoreCase(var) && !variables.contains(var)) {
+                variables.add(var);
+            }
+        }
+        return new ArrayList<>(variables);
+    }
+
+    private void showVariableInputPopup(ManagedPlayer player, PlayerAction action, List<String> variables) {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Execute: " + action.name)
+            .size(300, 60 + variables.size() * 30).setAntiOutOfBound(true).setResizable(true);
+
+
+        Map<String, TextInputWidget> inputs = new HashMap<>();
+        Runnable execute = () -> {
+            String command = action.command;
+            for (Map.Entry<String, TextInputWidget> entry : inputs.entrySet()) {
+                String value = entry.getValue().getText();
+                command = command.replace("$" + entry.getKey(), value);
+            }
+
+            controller.runCustomCommand(player, command).exceptionally(e -> {
+                new Notification("Error", "Command failed: " + e.getMessage(), Notification.Type.ERROR);
+                return null;
+            });
+            builder.getWidget().setVisible(false);
+        };
+        for (String var : variables) {
+            TextInputWidget input = new TextInputWidget.Builder().placeholder("Enter value for $" + var).build();
+            inputs.put(var, input);
+            input.onEnter = () -> {
+                int index = variables.indexOf(var);
+                if (index >= 0 && index < variables.size() - 1) {
+                    TextInputWidget nextWidget = inputs.get(variables.get(index + 1));
+                    ((PopupWidget) builder.getWidget()).setFocusedWidget(nextWidget);
+                } else {
+                    execute.run();
+                }
+            };
+            builder.addRow("$" + var, true, 20, input);
+        }
+
+        builder.addTitleButton(execute, "Execute", ThemeManager.getAccent("nice"));
+
+        PopupWidget popup = builder.build();
+        ScreenManager.getInstance().getCurrentScreen().addDrawableChild(popup);
+        popup.show();
     }
 }

@@ -27,13 +27,16 @@ public class PlayerManagerController {
     private final RebaseAPI api;
     private final Gson gson = new Gson();
     private final Map<UUID, ManagedPlayer> players = new LinkedHashMap<>();
+    private final Path remotelyDir;
     private final Path playerLogPath;
+    private final Path playerActionsPath;
     private final Path opsPath;
     private final Path bannedPlayersPath;
     private final Path bannedIpsPath;
     private IMSMPApi msmpApi;
     private final Container container;
     private final TerminalWidget terminalWidget;
+    private List<PlayerAction> cachedPlayerActions = new ArrayList<>();
 
     public PlayerManagerController(Instance instance, RebaseAPI api, Container container, TerminalWidget terminalWidget) {
         this.instance = instance;
@@ -42,10 +45,25 @@ public class PlayerManagerController {
         this.terminalWidget = terminalWidget;
         this.msmpApi = instance.getMSMPManager().getApi();
         Path instancePath = Path.of(instance.getPath());
-        this.playerLogPath = instancePath.resolve("remotely-player-log.json");
+        this.remotelyDir = instancePath.resolve("Remotely");
+
+        this.playerLogPath = remotelyDir.resolve("player-log.json");
+        this.playerActionsPath = remotelyDir.resolve("player-actions.json");
+
         this.opsPath = instancePath.resolve("ops.json");
         this.bannedPlayersPath = instancePath.resolve("banned-players.json");
         this.bannedIpsPath = instancePath.resolve("banned-ips.json");
+
+        ensureRemotelyDirectory();
+        loadPlayerActions();
+    }
+
+    private void ensureRemotelyDirectory() {
+        api.fileExists(remotelyDir).thenAccept(exists -> {
+            if (!exists) {
+                api.createDirectory(remotelyDir);
+            }
+        });
     }
 
     public void setMsmpApi(IMSMPApi msmpApi) {
@@ -58,6 +76,8 @@ public class PlayerManagerController {
         CompletableFuture<List<BanEntry>> bannedPlayersFuture = loadJsonFile(bannedPlayersPath, new TypeToken<>() {});
         CompletableFuture<List<IpBanEntry>> bannedIpsFuture = loadJsonFile(bannedIpsPath, new TypeToken<>() {});
         CompletableFuture<List<Player>> onlinePlayersFuture;
+
+        loadPlayerActions();
 
         if (isMsmpConnected()) {
             onlinePlayersFuture = msmpApi.getPlayers();
@@ -196,6 +216,21 @@ public class PlayerManagerController {
         }
     }
 
+    private void loadPlayerActions() {
+        loadJsonFile(playerActionsPath, new TypeToken<List<PlayerAction>>() {})
+            .thenAccept(actions -> {
+                if (actions != null) {
+                    this.cachedPlayerActions = actions;
+                } else {
+                    this.cachedPlayerActions = new ArrayList<>();
+                }
+            });
+    }
+
+    public List<PlayerAction> getPlayerActions() {
+        return cachedPlayerActions;
+    }
+
     public void rebuildPlayerWidgets() {
         container.clearWidgets();
         if (players.isEmpty()) {
@@ -213,7 +248,7 @@ public class PlayerManagerController {
         container.updateWidgetPositions();
     }
 
-    public CompletableFuture<Void> kickPlayer(ManagedPlayer player, String reason) {
+    public CompletableFuture<Object> kickPlayer(ManagedPlayer player, String reason) {
         return msmpApi.kickPlayer(player.uuid.toString(), reason);
     }
 
@@ -221,7 +256,7 @@ public class PlayerManagerController {
         CompletableFuture<Void> playerBanFuture = msmpApi.banPlayer(player.uuid.toString(), player.name, reason, expires);
         if (ipBan && player.address != null) {
             String ip = player.address.split(":")[0].replace("/", "");
-            return playerBanFuture.thenCompose(v -> msmpApi.banIp(ip, reason, expires));
+            return playerBanFuture.thenCompose(v -> msmpApi.banIp(ip, player.uuid.toString(), reason, expires));
         }
         return playerBanFuture;
     }

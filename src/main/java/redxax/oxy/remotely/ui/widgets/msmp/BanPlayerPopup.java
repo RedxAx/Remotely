@@ -15,26 +15,17 @@ public class BanPlayerPopup extends PopupWidget {
         super(0, 0, 350, 200, "Ban " + player.name);
         setLayer(500);
 
-        Builder builder = new Builder("Ban " + player.name)
-                .size(350, 160)
-                .setResizable(true);
+        Builder builder = new Builder("Ban " + player.name).size(350, 160).setResizable(true);
 
-        TextInputWidget reasonInput = new TextInputWidget.Builder().placeholder("Reason for ban").build();
-        TextInputWidget expiresInput = new TextInputWidget.Builder().text("forever").build();
+        var ref = new Object() {
+            TextInputWidget reasonInput = new TextInputWidget.Builder().placeholder("Reason for ban").build();
+        };
         ToggleWidget ipBanToggle = new ToggleWidget.Builder().toggled(false).build();
-
-        builder.addRow("Reason", true, 20, reasonInput);
-        builder.addRow("Expires (e.g., 1d, 2h, forever)", true, 20, expiresInput);
-        if (player.isOnline && player.address != null && !player.address.isEmpty()) {
-            builder.addRow("IP Ban", false, 20, ipBanToggle);
-        }
-
-        builder.addTitleButton(() -> {
-            String reason = reasonInput.getText();
-            String expires = expiresInput.getText();
+        Runnable banAction = () -> {
+            String reason = ref.reasonInput.getText();
             boolean ipBan = ipBanToggle.getValue();
 
-            controller.banPlayer(player, reason, expires, ipBan).whenComplete((v, ex) -> {
+            controller.banPlayer(player, reason, "", ipBan).whenComplete((v, ex) -> {
                 if (ex != null) {
                     new Notification("Error", "Failed to ban player: " + ex.getMessage(), Notification.Type.ERROR);
                 } else {
@@ -43,8 +34,15 @@ public class BanPlayerPopup extends PopupWidget {
                 controller.fullRefresh();
             });
             hide();
+        };
+        ref.reasonInput = new TextInputWidget.Builder().placeholder("Reason for ban").onEnter(banAction).build();
 
-        }, "Confirm Ban", ThemeManager.getAccent("danger"));
+        builder.addRow("Reason", true, 20, ref.reasonInput);
+        if (player.isOnline && player.address != null && !player.address.isEmpty()) {
+            builder.addRow("IP Ban", false, 20, ipBanToggle);
+        }
+
+        builder.addTitleButton(banAction, "Confirm Ban", ThemeManager.getAccent("danger"));
 
         PopupWidget configuredPopup = builder.build();
         this.rows.addAll(configuredPopup.rows);
