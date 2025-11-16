@@ -1,7 +1,6 @@
 package redxax.oxy.remotely.ui.widgets.msmp;
 
 import redxax.oxy.remotely.data.managed.ManagedPlayer;
-import restudio.rebase.msmp.IMSMPApi;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.widgets.PopupWidget;
@@ -24,15 +23,8 @@ public class BanPlayerPopup extends PopupWidget {
         Runnable banAction = () -> {
             String reason = ref.reasonInput.getText();
             boolean ipBan = ipBanToggle.getValue();
-
-            controller.banPlayer(player, reason, "", ipBan).whenComplete((v, ex) -> {
-                if (ex != null) {
-                    new Notification("Error", "Failed to ban player: " + ex.getMessage(), Notification.Type.ERROR);
-                } else {
-                    new Notification("Success", player.name + " has been banned.", Notification.Type.SUCCESS);
-                }
-                controller.fullRefresh();
-            });
+            controller.banPlayer(player, reason, ipBan);
+            new Notification("player.name + \" has been banned.", "Click Here To Unban", Notification.Type.SUCCESS, () -> controller.unbanPlayer(player));
             hide();
         };
         ref.reasonInput = new TextInputWidget.Builder().placeholder("Reason for ban").onEnter(banAction).build();
@@ -42,7 +34,7 @@ public class BanPlayerPopup extends PopupWidget {
             builder.addRow("IP Ban", false, 20, ipBanToggle);
         }
 
-        builder.addTitleButton(banAction, "Confirm Ban", ThemeManager.getAccent("danger"));
+        builder.addTitleButton(banAction, "Confirm Ban", ThemeManager.getAccent("nice"));
 
         PopupWidget configuredPopup = builder.build();
         this.rows.addAll(configuredPopup.rows);

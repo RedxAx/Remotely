@@ -35,31 +35,24 @@ public class PlayerEntryWidget extends MountableButtonWidget {
 
         Account tempAccount = new Account(player.name, player.uuid.toString(), null, 0);
         tempAccount.getFace();
-
-        boolean msmpConnected = controller.isMsmpConnected();
+        
         boolean serverRunning = controller.isServerRunning();
 
         SquareButtonWidget kickButton = new SquareButtonWidget.Builder()
                 .imagePath("delete.png").size(18, 18).hint("Kick Player").accentType(ThemeManager.getAccent("danger"))
-                .onClick(() -> controller.kickPlayer(player, "Kicked by operator").thenRun(controller::fullRefresh).exceptionally(e -> {
-                    new Notification("Error", "Failed to kick player: " + e.getMessage(), Notification.Type.ERROR);
-                    return null;
-                })).build();
-        kickButton.active = player.isOnline && msmpConnected;
+                .onClick(() -> controller.kickPlayer(player, "Kicked by operator")).build();
+        kickButton.active = player.isOnline && serverRunning;
 
         String banHint = player.isBanned ? "Unban Player" : "Ban Player";
         SquareButtonWidget banButton = new SquareButtonWidget.Builder().imagePath(player.isBanned ? "heart.png" : "close.png").size(18, 18).hint(banHint)
                 .accentType(player.isBanned ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")).onClick(() -> {
                     if (player.isBanned) {
-                        controller.unbanPlayer(player).thenRun(controller::fullRefresh).exceptionally(e -> {
-                            new Notification("Error", "Failed to unban player: " + e.getMessage(), Notification.Type.ERROR);
-                            return null;
-                        });
+                        controller.unbanPlayer(player);
                     } else {
                         new BanPlayerPopup(ScreenManager.getInstance().getCurrentScreen(), player, controller);
                     }
                 }).build();
-        banButton.active = msmpConnected;
+        banButton.active = serverRunning;
 
 
         String opHint = player.isOp ? "De-Op Player" : "Op Player";
@@ -67,7 +60,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
                 .identifier(player.isOp ? deopIcon : opIcon).size(18, 18).hint(opHint)
                 .accentType(ThemeManager.getAccent("calm"))
                 .onClick(() -> controller.toggleOp(player)).build();
-        opButton.active = msmpConnected;
+        opButton.active = serverRunning;
 
         List<AnimatedWidget> buttons = new CopyOnWriteArrayList<>();
         List<PlayerAction> actions = controller.getPlayerActions();
@@ -76,10 +69,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
                 SquareButtonWidget actionButton = new SquareButtonWidget.Builder().identifier(Identifier.icon(action.icon)).size(18, 18).hint(action.name).onClick(() -> {
                     List<String> variables = findCustomVariables(action.command);
                     if (variables.isEmpty()) {
-                        controller.runCustomCommand(player, action.command).exceptionally(e -> {
-                            new Notification("Error", "Command failed: " + e.getMessage(), Notification.Type.ERROR);
-                            return null;
-                        });
+                        controller.runCustomCommand(player, action.command);
                     } else {
                         showVariableInputPopup(player, action, variables);
                     }
@@ -132,7 +122,6 @@ public class PlayerEntryWidget extends MountableButtonWidget {
             name += player.isOp ? " | Operator (Level " + player.opLevel + ")" : "";
             description = "Offline | Last seen: " + (player.lastSeen > 0 ? TimeUtils.timeSense(player.lastSeen) : "never");
             accentType = ThemeManager.getDefaultAccent();
-            active = false;
         }
         titleColor = player.isOnline ? ThemeManager.getColor(ThemeColor.text) : ThemeManager.getColor(ThemeColor.textDark);
 
@@ -165,10 +154,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
                 command = command.replace("$" + entry.getKey(), value);
             }
 
-            controller.runCustomCommand(player, command).exceptionally(e -> {
-                new Notification("Error", "Command failed: " + e.getMessage(), Notification.Type.ERROR);
-                return null;
-            });
+            controller.runCustomCommand(player, command);
             builder.getWidget().setVisible(false);
         };
         for (String var : variables) {

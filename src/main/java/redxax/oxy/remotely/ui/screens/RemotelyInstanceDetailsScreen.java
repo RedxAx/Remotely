@@ -11,8 +11,6 @@ import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
-import restudio.rebase.msmp.IMSMPApi;
-import restudio.rebase.msmp.MSMPManager;
 import restudio.rebase.preset.ResourceList;
 import restudio.rebase.resource.InstanceResource;
 import restudio.rebase.resource.ResourceType;
@@ -23,7 +21,6 @@ import restudio.rebase.ui.widgets.DownloadProgressWidget;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.platform.IDrawContext;
-import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
@@ -39,9 +36,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static redxax.oxy.remotely.config.Config.enableDebugTools;
 import static redxax.oxy.remotely.config.Config.remotelyDir;
-import static restudio.rescreen.config.Config.shadow;
 
 public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.instance.InstanceDetailsScreen {
     private final Object parent;
@@ -68,7 +63,6 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         ContentFilter currentFilter = ContentFilter.ALL;
         final boolean isLocalTerminalMode;
         int selectedViewIndex = 0;
-        AnimatedButton msmpStatusBadge;
 
         TabContext(Instance instance, String localTerminalId) {
             this.instance = instance;
@@ -191,10 +185,8 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
     private void onSharedSwitchChange(int i) {
         TabContext ctx = getActiveContext();
         if (ctx == null) return;
-
-        boolean msmpAvailable = !ctx.isLocalTerminalMode && VersionUtil.isMSMPCompatible(ctx.instance.getVersionId()) && Boolean.parseBoolean(ctx.instance.getServerProperties().getProperty("management-server-enabled", "false"));
-        int maxIndex = msmpAvailable ? 2 : 1;
-        if (ctx.isLocalTerminalMode) maxIndex = 0;
+        
+        int maxIndex = (ctx.isLocalTerminalMode || !ctx.instance.isServer()) ? 0 : 2;
 
         if (i < 0 || i > maxIndex) i = 0;
         ctx.selectedViewIndex = i;
@@ -252,28 +244,6 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
     }
 
-    private AnimatedButton createStatusBadge(String text, String accentKey) {
-        return new AnimatedButton.Builder().label(text).accentType(ThemeManager.getAccent(accentKey)).enableGradient(accentKey.equals("calm")).build();
-    }
-
-    private void setPlayersStatus(TabContext ctx, String text, String accent) {
-        if (ctx.msmpStatusBadge != null) {
-            ctx.playersContainer.removeWidget(ctx.msmpStatusBadge);
-        }
-        ctx.msmpStatusBadge = createStatusBadge(text, accent);
-        ctx.playersContainer.addWidget(ctx.msmpStatusBadge);
-        ctx.playersContainer.updateWidgetPositions();
-    }
-
-    private void updateStatusBadge(TabContext ctx, String status) {
-        String accent = "calm";
-        if (status.contains("Connected")) accent = "nice";
-        else if (status.contains("failed") || status.contains("timed out") || status.contains("Error") || status.contains("stopped")) accent = "danger";
-        else if(status.contains("disabled")) accent = "danger";
-
-        setPlayersStatus(ctx, status, accent);
-    }
-
     private void createAndAddTab(Object tabInfo, boolean setActive) {
         Instance inst = (tabInfo instanceof Instance) ? (Instance) tabInfo : null;
         String localId = (tabInfo instanceof String) ? (String) tabInfo : null;
@@ -288,8 +258,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         context.terminalWidget = TerminalWidget.getOrCreate(inst, localId, 5, 60, width - 10, height - 66);
         mainContainer.addWidget(context.terminalWidget);
 
-        if (!context.isLocalTerminalMode) {
-            inst.attachTerminalListener(context.terminalWidget);
+        if (!context.isLocalTerminalMode && inst.isServer()) {
             context.resourcesContainer = new Container(5, 60, width - 10, height - 66);
             context.resourcesContainer.layout(new ManagedLayout()).columns(1).padding(2).enableSelecting(true);
             mainContainer.addWidget(context.resourcesContainer);
@@ -297,9 +266,8 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
             context.playersContainer = new Container(5, 60, width - 10, height - 66);
             context.playersContainer.layout(new ManagedLayout()).columns(1).padding(2);
             context.playerManagerController = new PlayerManagerController(inst, RebaseApiFactory.get(inst), context.playersContainer, context.terminalWidget);
+            context.terminalWidget.addOutputListener(context.playerManagerController::processConsoleLine);
             mainContainer.addWidget(context.playersContainer);
-
-            setPlayersStatus(context, "MSMP: Disconnected", "danger");
         } else {
             mainContainer.addWidget(new Container(0, 0, 0, 0));
             mainContainer.addWidget(new Container(0, 0, 0, 0));
@@ -345,10 +313,6 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
     private void onTabSelected(TabsManager.Tab tab) {
         if (this.instance != null) {
             this.instance.removeStateListener(stateListener);
-            if (this.instance.isServer()) {
-                this.instance.getMSMPManager().setOnPlayersChange(null);
-                this.instance.getMSMPManager().setOnStatusChange(null);
-            }
         }
 
         TabContext newContext = tabContexts.get(tab);
@@ -365,57 +329,33 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
             this.instance.addStateListener(stateListener);
             onStateChanged(this.instance.getState());
 
-            boolean msmpAvailable = VersionUtil.isMSMPCompatible(this.instance.getVersionId()) &&
-                    Boolean.parseBoolean(this.instance.getServerProperties().getProperty("management-server-enabled", "false"));
-
-            if (!newContext.isLocalTerminalMode) {
-                List<String> options = new ArrayList<>(List.of("terminal.png", "resources.png"));
-                if (msmpAvailable) {
-                    options.add("steve.png");
-                }
+            if (!newContext.isLocalTerminalMode && this.instance.isServer()) {
+                List<String> options = new ArrayList<>(List.of("terminal.png", "resources.png", "steve.png"));
+                
                 sharedContainerSwitch = new TabSwitchWidget.Builder()
                         .entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT)
-                        .size(options.size() == 3 ? 56 : 38, 18)
-                        .options(options)
+                        .size(options.size() * 19, 18)
                         .iconMode(true)
+                        .options(options)
                         .onChange(this::onSharedSwitchChange).build();
                 addDrawableChild(sharedContainerSwitch);
+                
+                if (newContext.playerManagerController != null) {
+                    newContext.playerManagerController.fullRefresh();
+                }
+
+                if (VersionUtil.isMSMPCompatible(this.instance.getVersionId()) && Boolean.parseBoolean(this.instance.getServerProperties().getProperty("management-server-enabled", "false"))) {
+                     this.instance.getMSMPManager().handleInstanceStateChange(this.instance.getState());
+                }
             }
 
-            if (this.instance.isServer()) {
-                MSMPManager manager = this.instance.getMSMPManager();
-                if (msmpAvailable) {
-                    manager.setOnPlayersChange(players -> ScreenManager.getInstance().execute(() -> {
-                        if (newContext.playerManagerController != null) {
-                            newContext.playerManagerController.updateOnlinePlayers(players);
-                        }
-                    }));
-                    manager.setOnStatusChange(status -> ScreenManager.getInstance().execute(() -> {
-                        updateStatusBadge(newContext, status);
-                        IMSMPApi api = this.instance.getMSMPManager().getApi();
-                        if (newContext.playerManagerController != null) {
-                            newContext.playerManagerController.setMsmpApi(api);
-                            newContext.playerManagerController.fullRefresh();
-                        }
-                    }));
-                } else {
-                    newContext.playersContainer.clearWidgets();
-                    if (!VersionUtil.isMSMPCompatible(this.instance.getVersionId())) {
-                        newContext.playersContainer.addWidget(new AnimatedButton.Builder().label("Player management requires Minecraft 25w35a or newer.").active(false).build());
-                    } else {
-                        newContext.playersContainer.addWidget(new AnimatedButton.Builder().label("The management API is not enabled in server.properties.").active(false).build());
-                    }
-                    newContext.playersContainer.updateWidgetPositions();
-                }
-                manager.handleInstanceStateChange(this.instance.getState());
-            }
 
             if (newContext.currentResources.isEmpty()) {
                 loadResources();
             }
 
             if (sharedContainerSwitch != null) {
-                int maxIndex = msmpAvailable ? 2 : 1;
+                int maxIndex = (!newContext.isLocalTerminalMode && instance.isServer()) ? 2 : 0;
                 if(newContext.selectedViewIndex > maxIndex) newContext.selectedViewIndex = 0;
                 sharedContainerSwitch.handleTabClick(newContext.selectedViewIndex);
                 onSharedSwitchChange(newContext.selectedViewIndex);
@@ -446,10 +386,6 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         if (context != null) {
             if (context.instance != null) {
                 context.instance.removeStateListener(stateListener);
-                if (context.instance.isServer()) {
-                    context.instance.getMSMPManager().setOnPlayersChange(null);
-                    context.instance.getMSMPManager().setOnStatusChange(null);
-                }
                 remotelyClient.getMultiTerminalTabs().remove(context.instance);
             } else if (context.localTerminalId != null) {
                 remotelyClient.getMultiTerminalTabs().remove(context.localTerminalId);
@@ -661,7 +597,13 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
 
     @Override
     protected void onStateChanged(InstanceState newState) {
-        ScreenManager.getInstance().execute(this::updateHeaderButtons);
+        ScreenManager.getInstance().execute(() -> {
+            updateHeaderButtons();
+            TabContext context = getActiveContext();
+            if (context != null && context.playerManagerController != null) {
+                context.playerManagerController.rebuildPlayerWidgets();
+            }
+        });
     }
 
     private void updateHeaderButtons() {
@@ -936,10 +878,6 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         for (TabContext context : tabContexts.values()) {
             if (context.instance != null) {
                 context.instance.removeStateListener(stateListener);
-                if (context.instance.isServer()) {
-                    context.instance.getMSMPManager().setOnPlayersChange(null);
-                    context.instance.getMSMPManager().setOnStatusChange(null);
-                }
             }
         }
         tabContexts.clear();
