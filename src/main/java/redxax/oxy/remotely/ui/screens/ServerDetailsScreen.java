@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 
-public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.instance.InstanceDetailsScreen {
+public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.InstanceDetailsScreen {
     private final Object parent;
     private final RemotelyClient remotelyClient;
     private final Map<TabsManager.Tab, TabContext> tabContexts = new HashMap<>();
@@ -109,7 +109,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         @Override public String toString() { return displayName; }
     }
 
-    public RemotelyInstanceDetailsScreen(Object parent, RemotelyClient client) {
+    public ServerDetailsScreen(Object parent, RemotelyClient client) {
         super(parent instanceof restudio.rescreen.ui.core.Screen ? (restudio.rescreen.ui.core.Screen) parent : null, null);
         this.parent = parent;
         this.remotelyClient = client;
