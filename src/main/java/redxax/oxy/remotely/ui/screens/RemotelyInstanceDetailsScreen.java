@@ -21,6 +21,7 @@ import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.ui.widgets.DownloadProgressWidget;
 import restudio.rebase.ui.widgets.TerminalWidget;
+import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
@@ -171,18 +172,6 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
             addDrawableChild(sharedSelectorsRow);
         }
 
-        if (sharedContainerSwitch == null) {
-            sharedContainerSwitch = new TabSwitchWidget.Builder()
-                    .entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT)
-                    .size(56, 18)
-                    .options(List.of("terminal.png", "resources.png", "steve.png"))
-                    .iconMode(true)
-                    .onChange(this::onSharedSwitchChange).build();
-            addDrawableChild(sharedContainerSwitch);
-            sharedContainerSwitch.recreateButtons();
-            sharedContainerSwitch.setVisible(false);
-        }
-
         for (Object tabInfo : remotelyClient.getMultiTerminalTabs()) {
             createAndAddTab(tabInfo, false);
         }
@@ -202,9 +191,14 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
     private void onSharedSwitchChange(int i) {
         TabContext ctx = getActiveContext();
         if (ctx == null) return;
-        int maxIndex = ctx.isLocalTerminalMode ? 0 : 2;
+
+        boolean msmpAvailable = !ctx.isLocalTerminalMode && VersionUtil.isMSMPCompatible(ctx.instance.getVersionId()) && Boolean.parseBoolean(ctx.instance.getServerProperties().getProperty("management-server-enabled", "false"));
+        int maxIndex = msmpAvailable ? 2 : 1;
+        if (ctx.isLocalTerminalMode) maxIndex = 0;
+
         if (i < 0 || i > maxIndex) i = 0;
         ctx.selectedViewIndex = i;
+
         List<AnimatedWidget> widgets = ctx.mainContainer.getWidgets();
         if (i < widgets.size()) {
             ctx.mainContainer.scrollToWidget(widgets.get(i));
@@ -361,46 +355,76 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
         if (newContext == null) return;
 
         this.instance = newContext.instance;
+
+        if (sharedContainerSwitch != null) {
+            remove(sharedContainerSwitch);
+            sharedContainerSwitch = null;
+        }
+
         if (this.instance != null) {
             this.instance.addStateListener(stateListener);
             onStateChanged(this.instance.getState());
+
+            boolean msmpAvailable = VersionUtil.isMSMPCompatible(this.instance.getVersionId()) &&
+                    Boolean.parseBoolean(this.instance.getServerProperties().getProperty("management-server-enabled", "false"));
+
+            if (!newContext.isLocalTerminalMode) {
+                List<String> options = new ArrayList<>(List.of("terminal.png", "resources.png"));
+                if (msmpAvailable) {
+                    options.add("steve.png");
+                }
+                sharedContainerSwitch = new TabSwitchWidget.Builder()
+                        .entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT)
+                        .size(options.size() == 3 ? 56 : 38, 18)
+                        .options(options)
+                        .iconMode(true)
+                        .onChange(this::onSharedSwitchChange).build();
+                addDrawableChild(sharedContainerSwitch);
+            }
+
             if (this.instance.isServer()) {
                 MSMPManager manager = this.instance.getMSMPManager();
-                manager.setOnPlayersChange(players -> ScreenManager.getInstance().execute(() -> {
-                    if (newContext.playerManagerController != null) {
-                        newContext.playerManagerController.updateOnlinePlayers(players);
+                if (msmpAvailable) {
+                    manager.setOnPlayersChange(players -> ScreenManager.getInstance().execute(() -> {
+                        if (newContext.playerManagerController != null) {
+                            newContext.playerManagerController.updateOnlinePlayers(players);
+                        }
+                    }));
+                    manager.setOnStatusChange(status -> ScreenManager.getInstance().execute(() -> {
+                        updateStatusBadge(newContext, status);
+                        IMSMPApi api = this.instance.getMSMPManager().getApi();
+                        if (newContext.playerManagerController != null) {
+                            newContext.playerManagerController.setMsmpApi(api);
+                            newContext.playerManagerController.fullRefresh();
+                        }
+                    }));
+                } else {
+                    newContext.playersContainer.clearWidgets();
+                    if (!VersionUtil.isMSMPCompatible(this.instance.getVersionId())) {
+                        newContext.playersContainer.addWidget(new AnimatedButton.Builder().label("Player management requires Minecraft 25w35a or newer.").active(false).build());
+                    } else {
+                        newContext.playersContainer.addWidget(new AnimatedButton.Builder().label("The management API is not enabled in server.properties.").active(false).build());
                     }
-                }));
-                manager.setOnStatusChange(status -> ScreenManager.getInstance().execute(() -> {
-                    updateStatusBadge(newContext, status);
-                    IMSMPApi api = this.instance.getMSMPManager().getApi();
-                    if (newContext.playerManagerController != null) {
-                        newContext.playerManagerController.setMsmpApi(api);
-                        newContext.playerManagerController.fullRefresh();
-                    }
-                }));
+                    newContext.playersContainer.updateWidgetPositions();
+                }
                 manager.handleInstanceStateChange(this.instance.getState());
             }
+
             if (newContext.currentResources.isEmpty()) {
                 loadResources();
             }
-        }
-        updateHeaderButtons();
-        updatePositions();
 
-        if (sharedContainerSwitch != null) {
-            boolean showSwitch = !newContext.isLocalTerminalMode;
-            sharedContainerSwitch.setVisible(showSwitch);
-            if (showSwitch) {
-                sharedContainerSwitch.recreateButtons();
-                int maxIndex = 2;
-                if (newContext.selectedViewIndex < 0 || newContext.selectedViewIndex > maxIndex) {
-                    newContext.selectedViewIndex = 0;
-                }
+            if (sharedContainerSwitch != null) {
+                int maxIndex = msmpAvailable ? 2 : 1;
+                if(newContext.selectedViewIndex > maxIndex) newContext.selectedViewIndex = 0;
                 sharedContainerSwitch.handleTabClick(newContext.selectedViewIndex);
                 onSharedSwitchChange(newContext.selectedViewIndex);
             }
         }
+
+        updateHeaderButtons();
+        updatePositions();
+
         if (sharedSelectorsRow != null) {
             boolean showSelectors = !newContext.isLocalTerminalMode && newContext.selectedViewIndex == 1;
             sharedSelectorsRow.setVisible(showSelectors);
@@ -893,9 +917,7 @@ public class RemotelyInstanceDetailsScreen extends restudio.rebase.ui.screens.in
     @Override
     public void updatePositions() {
         super.updatePositions();
-        TabContext context = getActiveContext();
-        if (context == null || context.mainContainer == null || sharedContainerSwitch == null || sharedSelectorsRow == null) return;
-
+        if (sharedContainerSwitch == null || sharedSelectorsRow == null) return;
         int y = 36;
         int switchX = width - 5 - sharedContainerSwitch.getWidth();
         sharedContainerSwitch.setPosition(switchX, y);
