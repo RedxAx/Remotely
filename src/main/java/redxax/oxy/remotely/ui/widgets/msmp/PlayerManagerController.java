@@ -25,6 +25,8 @@ import java.util.stream.Collectors;
 
 public class PlayerManagerController {
 
+    private static final Map<String, PlayerManagerController> registry = new HashMap<>();
+
     private final Instance instance;
     private final RebaseAPI api;
     private final Gson gson = new Gson();
@@ -35,19 +37,19 @@ public class PlayerManagerController {
     private final Path opsPath;
     private final Path bannedPlayersPath;
     private final Path bannedIpsPath;
-    private final Container container;
-    private final TerminalWidget terminalWidget;
+    private Container container;
+    private TerminalWidget terminalWidget;
     private List<PlayerAction> cachedPlayerActions = new ArrayList<>();
 
-    private static final Pattern PLAYER_JOIN_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*?(\\w+)\\[/([0-9.:]+)\\] logged in with entity id \\d+ at .*");
-    private static final Pattern PLAYER_LEAVE_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*?(\\w+) left the game");
-    private static final Pattern PLAYER_UUID_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*?UUID of player (\\w+) is ([0-9a-f\\-]+)");
+    private static final Pattern PLAYER_JOIN_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+)\\[/([0-9.:]+)] logged in with entity id \\d+ at .*");
+    private static final Pattern PLAYER_LEAVE_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+) left the game");
+    private static final Pattern PLAYER_UUID_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?UUID of player (\\w+) is ([0-9a-f\\-]+)");
     private static final Pattern SERVER_DONE_PATTERN = Pattern.compile(".*Done \\(.*\\)! For help, type \"help\".*");
     private static final Pattern SERVER_STOP_PATTERN = Pattern.compile(".*Stopping server.*");
-    private static final Pattern PLAYER_OP_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*Made (\\w+) a server operator.*");
-    private static final Pattern PLAYER_DEOP_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*Made (\\w+) no longer a server operator.*");
-    private static final Pattern PLAYER_BAN_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*?Banned (\\w+): .*");
-    private static final Pattern PLAYER_UNBAN_PATTERN = Pattern.compile("(?:.*\\[INFO\\]: )?.*?Unbanned (\\w+)");
+    private static final Pattern PLAYER_OP_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*Made (\\w+) a server operator.*");
+    private static final Pattern PLAYER_DEOP_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*Made (\\w+) no longer a server operator.*");
+    private static final Pattern PLAYER_BAN_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?Banned (\\w+): .*");
+    private static final Pattern PLAYER_UNBAN_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?Unbanned (\\w+)");
 
     public PlayerManagerController(Instance instance, RebaseAPI api, Container container, TerminalWidget terminalWidget) {
         this.instance = instance;
@@ -66,6 +68,31 @@ public class PlayerManagerController {
 
         ensureRemotelyDirectory();
         loadPlayerActions();
+        fullRefresh();
+    }
+
+    public static PlayerManagerController getOrCreate(Instance instance, RebaseAPI api) {
+        PlayerManagerController c = registry.get(instance.getInstanceId());
+        if (c == null) {
+            c = new PlayerManagerController(instance, api, null, null);
+            registry.put(instance.getInstanceId(), c);
+            c.attachGlobalOutputListener();
+        }
+        return c;
+    }
+
+    public void setUiBindings(Container container, TerminalWidget terminalWidget) {
+        this.container = container;
+        this.terminalWidget = terminalWidget;
+        if (this.terminalWidget != null) {
+            this.terminalWidget.addOutputListener(this::processConsoleLine);
+        }
+        ScreenManager.getInstance().execute(this::rebuildPlayerWidgets);
+    }
+
+    private void attachGlobalOutputListener() {
+        TerminalWidget tw = TerminalWidget.getOrCreate(instance, null, 0, 0, 0, 0);
+        tw.addOutputListener(this::processConsoleLine);
     }
 
     private void ensureRemotelyDirectory() {
@@ -284,14 +311,7 @@ public class PlayerManagerController {
     }
 
     private void loadPlayerActions() {
-        loadJsonFile(playerActionsPath, new TypeToken<List<PlayerAction>>() {})
-                .thenAccept(actions -> {
-                    if (actions != null) {
-                        this.cachedPlayerActions = actions;
-                    } else {
-                        this.cachedPlayerActions = new ArrayList<>();
-                    }
-                });
+        loadJsonFile(playerActionsPath, new TypeToken<List<PlayerAction>>() {}).thenAccept(actions -> this.cachedPlayerActions = Objects.requireNonNullElseGet(actions, ArrayList::new));
     }
 
     public List<PlayerAction> getPlayerActions() {
@@ -299,16 +319,14 @@ public class PlayerManagerController {
     }
 
     public void rebuildPlayerWidgets() {
+        if (container == null) return;
         container.clearWidgets();
         if (players.isEmpty()) {
             container.addWidget(new AnimatedButton.Builder().label("No players found.").active(false).build());
         } else {
             List<ManagedPlayer> sortedPlayers;
             synchronized (players) {
-                sortedPlayers = players.values().stream()
-                        .sorted(Comparator.comparing((ManagedPlayer p) -> !p.isOnline)
-                                .thenComparing(p -> p.name.toLowerCase(Locale.ROOT)))
-                        .collect(Collectors.toList());
+                sortedPlayers = players.values().stream().sorted(Comparator.comparing((ManagedPlayer p) -> !p.isOnline).thenComparing(p -> p.name.toLowerCase(Locale.ROOT))).toList();
             }
 
             for (ManagedPlayer p : sortedPlayers) {
