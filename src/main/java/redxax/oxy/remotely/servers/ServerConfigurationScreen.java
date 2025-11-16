@@ -6,6 +6,7 @@ import restudio.rebase.ui.settings.controllers.VersionSettingsController;
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.SettingsScreen;
@@ -96,10 +97,16 @@ public class ServerConfigurationScreen extends ReScreen {
         ServerPerformanceSettingsController performanceController = new ServerPerformanceSettingsController(tempInstance);
         settingsByTab.put("Performance", performanceController::getSettings);
 
-        ServerManagementSettingsController managementController = new ServerManagementSettingsController(tempInstance);
-        settingsByTab.put("Management", managementController::getSettings);
+        boolean msmpCompatible = VersionUtil.isMSMPCompatible(tempInstance.getVersionId());
+        
+        if (msmpCompatible) {
+            ServerManagementSettingsController managementController = new ServerManagementSettingsController(tempInstance);
+            settingsByTab.put("Management", managementController::getSettings);
+        }
+        
+        boolean msmpEnabled = Boolean.parseBoolean(tempInstance.getServerProperties().getProperty("management-server-enabled", "false"));
 
-        if (isEditMode) {
+        if (isEditMode && msmpCompatible && msmpEnabled) {
             PlayerActionsSettingsController playerActionsController = new PlayerActionsSettingsController(originalInstance);
             settingsByTab.put("Player Actions", playerActionsController::getSettings);
 
