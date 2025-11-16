@@ -1,7 +1,11 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import redxax.oxy.remotely.config.RemotelyConfigManager;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import redxax.oxy.remotely.data.managed.PlayerAction;
+import restudio.rebase.api.RebaseAPI;
+import restudio.rebase.api.RebaseApiFactory;
+import restudio.rebase.instance.Instance;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -10,40 +14,85 @@ import restudio.rescreen.ui.settings.SettingsScreen;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Notification;
 
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 import static restudio.rescreen.render.TextRenderer.tr;
 
 public class PlayerActionsSettingsController {
 
-    private final RemotelyConfigManager configManager;
+    private final Instance instance;
+    private final RebaseAPI api;
+    private final Path playerActionsPath;
+    private final Gson gson = new Gson();
+    private List<PlayerAction> loadedActions = new ArrayList<>();
 
-    public PlayerActionsSettingsController(RemotelyConfigManager configManager) {
-        this.configManager = configManager;
+    public PlayerActionsSettingsController(Instance instance) {
+        this.instance = instance;
+        this.api = RebaseApiFactory.get(instance);
+        this.playerActionsPath = Path.of(instance.getPath(), "Remotely", "player-actions.json");
+
+        ensureDirectory();
+    }
+
+    private void ensureDirectory() {
+        Path dir = playerActionsPath.getParent();
+        api.fileExists(dir).thenAccept(exists -> {
+           if (!exists) api.createDirectory(dir); 
+        });
+    }
+
+    private void loadActions() {
+        try {
+            String content = api.readFile(playerActionsPath).join();
+            if (content != null && !content.isEmpty()) {
+                List<PlayerAction> loaded = gson.fromJson(content, new TypeToken<List<PlayerAction>>(){}.getType());
+                this.loadedActions = loaded != null ? loaded : new ArrayList<>();
+            } else {
+                this.loadedActions = new ArrayList<>();
+            }
+        } catch (Exception e) {
+            this.loadedActions = new ArrayList<>();
+        }
+    }
+
+    private void saveActions(List<PlayerAction> actions) {
+        try {
+            String json = gson.toJson(actions);
+            api.writeFile(playerActionsPath, json).join();
+            this.loadedActions = actions;
+        } catch (Exception e) {
+            new Notification("Error", "Failed to save actions: " + e.getMessage(), Notification.Type.ERROR);
+        }
     }
 
     public List<Setting> getSettings() {
-        Setting.Builder builder = new Setting.Builder("Custom Player Actions");
+        loadActions();
+        Setting.Builder builder = new Setting.Builder("Player Actions");
 
         IconButton createButton = new IconButton.Builder()
                 .label("Create New")
                 .imagePath("create.png")
-                .onClick(() -> showPlayerActionPopup(null))
+                .onClick(() -> showPlayerActionPopup(-1))
                 .size(24 + tr.getWidth("Create New"), 20).accentType(ThemeManager.getAccent("nice")).build();
         builder.addRow("", false, false, 20, createButton);
 
-        for (PlayerAction action : configManager.getPlayerActions()) {
+        for (int i = 0; i < loadedActions.size(); i++) {
+            PlayerAction action = loadedActions.get(i);
+            int index = i;
+
             SquareButtonWidget editButton = new SquareButtonWidget.Builder()
                     .imagePath("edit.png")
-                    .onClick(() -> showPlayerActionPopup(action))
+                    .onClick(() -> showPlayerActionPopup(index))
                     .build();
 
             SquareButtonWidget deleteButton = new SquareButtonWidget.Builder()
                     .imagePath("delete.png")
                     .onClick(() -> {
-                        List<PlayerAction> actions = configManager.getPlayerActions();
-                        actions.remove(action);
-                        configManager.savePlayerActions(actions);
+                        List<PlayerAction> currentActions = new ArrayList<>(loadedActions);
+                        currentActions.remove(index);
+                        saveActions(currentActions);
                         refreshActions();
                         new Notification("Success", "Action '" + action.name + "' deleted.", Notification.Type.SUCCESS);
                     })
@@ -69,8 +118,10 @@ public class PlayerActionsSettingsController {
         }
     }
 
-    private void showPlayerActionPopup(PlayerAction actionToEdit) {
-        boolean isEditing = actionToEdit != null;
+    private void showPlayerActionPopup(int indexToEdit) {
+        boolean isEditing = indexToEdit >= 0 && indexToEdit < loadedActions.size();
+        PlayerAction actionToEdit = isEditing ? loadedActions.get(indexToEdit) : null;
+        
         String title = isEditing ? "Edit Player Action" : "Create Player Action";
 
         PopupWidget.Builder builder = new PopupWidget.Builder(title)
@@ -102,17 +153,18 @@ public class PlayerActionsSettingsController {
                 return;
             }
 
-            List<PlayerAction> actions = configManager.getPlayerActions();
+            List<PlayerAction> currentActions = new ArrayList<>(loadedActions);
             if (isEditing) {
-                actionToEdit.name = name;
-                actionToEdit.icon = icon;
-                actionToEdit.command = command;
+                PlayerAction edited = currentActions.get(indexToEdit);
+                edited.name = name;
+                edited.icon = icon;
+                edited.command = command;
                 new Notification("Success", "Action '" + name + "' updated.", Notification.Type.SUCCESS);
             } else {
-                actions.add(new PlayerAction(name, icon, command));
+                currentActions.add(new PlayerAction(name, icon, command));
                 new Notification("Success", "Action '" + name + "' created.", Notification.Type.SUCCESS);
             }
-            configManager.savePlayerActions(actions);
+            saveActions(currentActions);
 
             builder.getWidget().setVisible(false);
             refreshActions();

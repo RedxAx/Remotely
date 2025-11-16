@@ -1,13 +1,9 @@
 package redxax.oxy.remotely.config;
 
 import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
-import redxax.oxy.remotely.data.managed.PlayerAction;
 import restudio.rebase.config.RebaseConfigManager;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 
 public class RemotelyConfigManager extends RebaseConfigManager {
 
@@ -31,7 +27,6 @@ public class RemotelyConfigManager extends RebaseConfigManager {
         Config.redesignMainMenu = getRedesignMainMenu();
         Config.scanServers = getScanServers();
         Config.showIp = getShowIp();
-        Config.customPlayerActions = getPlayerActions();
     }
 
     public boolean getWallpaper() { return Boolean.parseBoolean(properties.getProperty("remotely.wallpaper", "false")); }
@@ -66,22 +61,4 @@ public class RemotelyConfigManager extends RebaseConfigManager {
 
     public boolean getShowIp() { return Boolean.parseBoolean(properties.getProperty("remotely.showIp", "true")); }
     public void setShowIp(boolean value) { properties.setProperty("remotely.showIp", String.valueOf(value)); save(); apply(); }
-
-    private String getCustomPlayerActionsJson() { return properties.getProperty("remotely.playerActions", "[]"); }
-    private void setCustomPlayerActionsJson(String value) { properties.setProperty("remotely.playerActions", value); save(); apply(); }
-
-    public List<PlayerAction> getPlayerActions() {
-        String json = getCustomPlayerActionsJson();
-        try {
-            List<PlayerAction> actions = gson.fromJson(json, new TypeToken<List<PlayerAction>>(){}.getType());
-            return actions != null ? actions : new ArrayList<>();
-        } catch (Exception e) {
-            return new ArrayList<>();
-        }
-    }
-
-    public void savePlayerActions(List<PlayerAction> actions) {
-        String json = gson.toJson(actions);
-        setCustomPlayerActionsJson(json);
-    }
 }

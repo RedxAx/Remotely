@@ -35,9 +35,6 @@ public class SettingsScreenFactory {
         ServerClientSettingsController serverController = new ServerClientSettingsController(configManager);
         settingsByTab.put("Servers", serverController::getSettings);
 
-        PlayerActionsSettingsController playerActionsController = new PlayerActionsSettingsController(configManager);
-        settingsByTab.put("Player Actions", playerActionsController::getSettings);
-
         JavaManagerController javaController = new JavaManagerController();
         settingsByTab.put("Java", javaController::getSettings);
 
