@@ -1,13 +1,10 @@
 package redxax.oxy.remotely.config;
 
-import com.google.gson.Gson;
 import restudio.rebase.config.RebaseConfigManager;
 
 import java.nio.file.Path;
 
 public class RemotelyConfigManager extends RebaseConfigManager {
-
-    private final Gson gson = new Gson();
 
     public RemotelyConfigManager(Path applicationDir) {
         super(applicationDir);
