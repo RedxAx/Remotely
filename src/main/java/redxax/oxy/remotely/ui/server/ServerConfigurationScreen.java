@@ -1,4 +1,4 @@
-package redxax.oxy.remotely.servers;
+package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.ui.settings.controllers.*;

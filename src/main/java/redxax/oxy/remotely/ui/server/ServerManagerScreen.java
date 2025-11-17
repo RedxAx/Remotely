@@ -1,4 +1,4 @@
-package redxax.oxy.remotely.servers;
+package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
@@ -12,7 +12,6 @@ import restudio.rebase.resource.ResourceType;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.util.RebaseLogger;
-import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
@@ -24,7 +23,6 @@ import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
 import javax.imageio.ImageIO;
-import javax.naming.Context;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -495,6 +493,7 @@ public class ServerManagerScreen extends ReScreen {
             case "neoforge" -> neoforge;
             case "paper" -> paper;
             case "purpur" -> purpur;
+            case "quilt" -> quilt;
             case "spigot" -> spigot;
             case "bukkit" -> bukkit;
             case "leaf" -> leaf;

@@ -2,7 +2,7 @@ package redxax.oxy.remotely;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.host.ReScreenApplicationHost;
-import redxax.oxy.remotely.servers.ServerManagerScreen;
+import redxax.oxy.remotely.ui.server.ServerManagerScreen;
 import restudio.rescreen.ReStudioEntry;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.ui.core.ScreenManager;

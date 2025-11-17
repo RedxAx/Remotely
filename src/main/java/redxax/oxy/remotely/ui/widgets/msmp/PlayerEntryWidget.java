@@ -83,6 +83,10 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         mountedWidgets.addAll(buttons);
     }
 
+    public ManagedPlayer getPlayer() {
+        return player;
+    }
+
     @Override
     public void tick() {
         super.tick();
