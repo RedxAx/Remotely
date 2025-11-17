@@ -43,7 +43,7 @@ dependencies {
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
 
     implementation("org.jetbrains.pty4j:pty4j:0.13.10-1")
-    implementation("org.jetbrains.jediterm:jediterm-core:3.54")
+    implementation("org.jetbrains.jediterm:jediterm-core:3.57")
     implementation("org.jetbrains.jediterm:jediterm-pty:2.69")
 
     shadowBundle(files(rootProject.files("libs/ReScreen-1.0.jar")))
@@ -53,7 +53,7 @@ dependencies {
     shadowBundle("com.jcraft:jsch:0.1.55")
     shadowBundle("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     shadowBundle("org.jetbrains.pty4j:pty4j:0.13.10-1")
-    shadowBundle("org.jetbrains.jediterm:jediterm-core:3.54")
+    shadowBundle("org.jetbrains.jediterm:jediterm-core:3.57")
     shadowBundle("org.jetbrains.jediterm:jediterm-pty:2.69")
 
     if (loader == "fabric") {
