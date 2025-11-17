@@ -49,12 +49,6 @@ public class ServerGeneralSettingsController {
                 .build();
         general.addRow("Difficulty", true, 20, difficultyWidget);
 
-        ToggleWidget eulaWidget = new ToggleWidget.Builder()
-                .toggled(Boolean.parseBoolean(instance.getServerProperties().getProperty("eula", "true")))
-                .onChange(val -> instance.getServerProperties().setProperty("eula", String.valueOf(val)))
-                .build();
-        general.addRow("Agree to EULA", false, 20, eulaWidget);
-
         ToggleWidget pvpWidget = new ToggleWidget.Builder()
                 .toggled(Boolean.parseBoolean(instance.getServerProperties().getProperty("pvp", "true")))
                 .onChange(val -> instance.getServerProperties().setProperty("pvp", String.valueOf(val)))

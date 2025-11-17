@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.ui.server;
 
+import net.minecraft.client.gui.widget.IconWidget;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
@@ -13,6 +14,7 @@ import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.rescreen.Container;
@@ -24,6 +26,7 @@ import redxax.oxy.remotely.ui.server.containers.ResourceContainer;
 import redxax.oxy.remotely.ui.server.containers.SharedContainerSwitcher;
 
 import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
 import java.util.*;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
@@ -407,24 +410,70 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                 context.terminalWidget.clearLog();
             }
         } else {
-            context.instance.setState(InstanceState.STARTING);
-            RebaseAPI api = RebaseApiFactory.get(context.instance);
-            api.launchServer(context.instance).thenAccept(command -> ScreenManager.getInstance().execute(() -> {
-                if (context.instance.isRemote()) {
-                    if (command != null && !command.isEmpty()) {
-                        context.terminalWidget.executeCommand(command);
-                    }
+            final RebaseAPI api = RebaseApiFactory.get(context.instance);
+            final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
+
+            api.readFile(eulaPath).exceptionally(t -> "").thenAccept(content -> ScreenManager.getInstance().execute(() -> {
+                boolean eulaAccepted = content.contains("eula=true");
+                if (eulaAccepted) {
+                    proceedWithServerStart(context);
                 } else {
-                    context.terminalWidget.startServerProcess();
+                    showEulaPopup(context);
                 }
-            })).exceptionally(e -> {
-                ScreenManager.getInstance().execute(() -> {
-                    new Notification("Failed to start server", e.getMessage(), Notification.Type.ERROR);
-                    context.instance.setState(InstanceState.STOPPED);
-                });
-                return null;
-            });
+            }));
         }
+    }
+
+    private void showEulaPopup(TabContext context) {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Mojang EULA Agreement")
+                .size(400 - 73, 120)
+                .setResizable(false);
+
+        AnimatedButton textWidget = new AnimatedButton.Builder()
+                .label("Before You Start, Please Agree To The EULA.")
+                .active(false)
+                .flat(true)
+                .build();
+        builder.addRow("", true, 20, textWidget);
+        builder.addMarkdown("", "By Click The Agree Button Below, You Agree To The [Minecraft EULA](https://www.minecraft.net/en-us/eula).", 20);
+        PopupWidget popup = builder.build();
+
+        builder.addRow("", true, 18, new IconButton.Builder().imagePath("checkmark").centered(true).accentType(ThemeManager.getAccent("nice"))
+                .label("I have read and agree to the EULA").size(0, 18).onClick(() -> {
+                    final RebaseAPI api = RebaseApiFactory.get(context.instance);
+                    final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
+                    context.instance.getServerProperties().setProperty("eula", "true");
+
+                    CompletableFuture.runAsync(context.instance::saveServerProperties).thenCompose(v -> api.writeFile(eulaPath, "eula=true")).thenRun(() -> ScreenManager.getInstance().execute(() -> {
+                        popup.hide();
+                        proceedWithServerStart(context);
+                    })).exceptionally(ex -> {
+                        ScreenManager.getInstance().execute(() -> new Notification("Error", "Failed to agree to EULA: " + ex.getMessage(), Notification.Type.ERROR));
+                        return null;
+                    });
+                }).build());
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    private void proceedWithServerStart(TabContext context) {
+        context.instance.setState(InstanceState.STARTING);
+        RebaseAPI api = RebaseApiFactory.get(context.instance);
+        api.launchServer(context.instance).thenAccept(command -> ScreenManager.getInstance().execute(() -> {
+            if (context.instance.isRemote()) {
+                if (command != null && !command.isEmpty()) {
+                    context.terminalWidget.executeCommand(command);
+                }
+            } else {
+                context.terminalWidget.startServerProcess();
+            }
+        })).exceptionally(e -> {
+            ScreenManager.getInstance().execute(() -> {
+                new Notification("Failed to start server", e.getMessage(), Notification.Type.ERROR);
+                context.instance.setState(InstanceState.STOPPED);
+            });
+            return null;
+        });
     }
 
     private void exploreInstanceFiles() {
@@ -438,12 +487,6 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         if (context == null || context.isLocalTerminalMode) return;
         client.setScreen(new ServerConfigurationScreen(this, context.instance, context.instance.getRemoteHost(), remotelyClient));
     }
-
-    
-
-    
-
-
 
     @Override
     public void resize(int width, int height) {
