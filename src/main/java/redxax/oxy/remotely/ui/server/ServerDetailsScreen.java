@@ -412,6 +412,10 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         } else {
             final RebaseAPI api = RebaseApiFactory.get(context.instance);
             final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
+            if (context.instance.isRemote()) {
+                proceedWithServerStart(context);
+                return;
+            }
 
             api.readFile(eulaPath).exceptionally(t -> "").thenAccept(content -> ScreenManager.getInstance().execute(() -> {
                 boolean eulaAccepted = content.contains("eula=true");
