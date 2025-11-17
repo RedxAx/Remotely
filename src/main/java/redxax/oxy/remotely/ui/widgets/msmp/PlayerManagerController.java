@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.ui.widgets.msmp;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import redxax.oxy.remotely.data.managed.*;
 import restudio.rebase.api.RebaseAPI;
@@ -303,7 +304,7 @@ public class PlayerManagerController {
 
     private CompletableFuture<Void> saveJsonFile(Path path, Object data) {
         try {
-            String json = gson.toJson(data);
+            String json = new GsonBuilder().setPrettyPrinting().create().toJson(data);
             return api.writeFile(path, json);
         } catch (Exception e) {
             return CompletableFuture.failedFuture(e);
