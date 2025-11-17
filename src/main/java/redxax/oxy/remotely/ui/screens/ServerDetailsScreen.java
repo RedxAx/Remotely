@@ -3,6 +3,7 @@ package redxax.oxy.remotely.ui.screens;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
+import redxax.oxy.remotely.servers.ServerConfigurationScreen;
 import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
 import redxax.oxy.remotely.ui.widgets.msmp.PlayerManagerController;
 import restudio.rebase.Rebase;
@@ -125,6 +126,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     protected void setupHeader() {
         header().addRight("close.png", this::closeScreen, "Close");
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
+        header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
         header().addLeft("start.png", this::launchOrStopInstance, "Start Server");
         header().addLeft("stop.png", this::launchOrStopInstance, "Stop Server");
         header().addLeft("resources.png", this::openInstanceResources, "Resources");
@@ -650,17 +652,15 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         } else {
             context.instance.setState(InstanceState.STARTING);
             RebaseAPI api = RebaseApiFactory.get(context.instance);
-            api.launchServer(context.instance).thenAccept(command -> {
-                ScreenManager.getInstance().execute(() -> {
-                    if (context.instance.isRemote()) {
-                        if (command != null && !command.isEmpty()) {
-                            context.terminalWidget.executeCommand(command);
-                        }
-                    } else {
-                        context.terminalWidget.startServerProcess();
+            api.launchServer(context.instance).thenAccept(command -> ScreenManager.getInstance().execute(() -> {
+                if (context.instance.isRemote()) {
+                    if (command != null && !command.isEmpty()) {
+                        context.terminalWidget.executeCommand(command);
                     }
-                });
-            }).exceptionally(e -> {
+                } else {
+                    context.terminalWidget.startServerProcess();
+                }
+            })).exceptionally(e -> {
                 ScreenManager.getInstance().execute(() -> {
                     new Notification("Failed to start server", e.getMessage(), Notification.Type.ERROR);
                     context.instance.setState(InstanceState.STOPPED);
@@ -674,6 +674,12 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         TabContext context = getActiveContext();
         if (context == null || context.isLocalTerminalMode) return;
         client.setScreen((new FileExplorerScreen(this, context.instance, Path.of(context.instance.getPath()), Path.of(remotelyDir.toString(), "data"), false)));
+    }
+
+    public void openInstanceSettings() {
+        TabContext context = getActiveContext();
+        if (context == null || context.isLocalTerminalMode) return;
+        client.setScreen(new ServerConfigurationScreen(this, context.instance, context.instance.getRemoteHost(), remotelyClient));
     }
 
     private void openInstanceResources() {
