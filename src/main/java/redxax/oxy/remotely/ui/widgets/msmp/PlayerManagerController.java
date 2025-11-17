@@ -41,6 +41,7 @@ public class PlayerManagerController {
     private Container container;
     private TerminalWidget terminalWidget;
     private List<PlayerAction> cachedPlayerActions = new ArrayList<>();
+    private final PlayerHistoryService historyService;
 
     private static final Pattern PLAYER_JOIN_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+)\\[/([0-9.:]+)] logged in with entity id \\d+ at .*");
     private static final Pattern PLAYER_LEAVE_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+) left the game");
@@ -49,8 +50,9 @@ public class PlayerManagerController {
     private static final Pattern SERVER_STOP_PATTERN = Pattern.compile(".*Stopping server.*");
     private static final Pattern PLAYER_OP_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*Made (\\w+) a server operator.*");
     private static final Pattern PLAYER_DEOP_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*Made (\\w+) no longer a server operator.*");
-    private static final Pattern PLAYER_BAN_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?Banned (\\w+): .*");
+    private static final Pattern PLAYER_BAN_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?Banned (\\w+): (.*)");
     private static final Pattern PLAYER_UNBAN_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?Unbanned (\\w+)");
+    private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;]*[A-Za-z]");
 
     public PlayerManagerController(Instance instance, RebaseAPI api, Container container, TerminalWidget terminalWidget) {
         this.instance = instance;
@@ -69,6 +71,11 @@ public class PlayerManagerController {
 
         ensureRemotelyDirectory();
         loadPlayerActions();
+        this.historyService = new PlayerHistoryService(api, remotelyDir.resolve("player-history"), name -> {
+            synchronized (players) {
+                return players.values().stream().filter(p -> p.name.equalsIgnoreCase(name)).map(p -> p.uuid).findFirst().orElse(null);
+            }
+        });
         fullRefresh();
     }
 
@@ -85,9 +92,6 @@ public class PlayerManagerController {
     public void setUiBindings(Container container, TerminalWidget terminalWidget) {
         this.container = container;
         this.terminalWidget = terminalWidget;
-        if (this.terminalWidget != null) {
-            this.terminalWidget.addOutputListener(this::processConsoleLine);
-        }
         ScreenManager.getInstance().execute(this::rebuildPlayerWidgets);
     }
 
@@ -105,73 +109,68 @@ public class PlayerManagerController {
     }
 
     public void processConsoleLine(String line) {
-        RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Received line: '" + line + "'");
         if (line == null) return;
-        line = line.trim();
-        RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Trimmed line: '" + line + "'");
+        line = ANSI_PATTERN.matcher(line).replaceAll("").trim();
         if (line.isEmpty()) return;
 
+        historyService.onConsoleLine(line);
+
         if (SERVER_DONE_PATTERN.matcher(line).matches()) {
-            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched SERVER_DONE_PATTERN");
             instance.setState(InstanceState.RUNNING);
             fullRefresh();
             return;
         }
         if (SERVER_STOP_PATTERN.matcher(line).matches()) {
-            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched SERVER_STOP_PATTERN");
             instance.setState(InstanceState.STOPPED);
             return;
         }
 
         Matcher uuidMatcher = PLAYER_UUID_PATTERN.matcher(line);
         if (uuidMatcher.matches()) {
-            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_UUID_PATTERN");
             handlePlayerLogon(UUID.fromString(uuidMatcher.group(2)), uuidMatcher.group(1));
             return;
         }
 
         Matcher joinMatcher = PLAYER_JOIN_PATTERN.matcher(line);
         if (joinMatcher.matches()) {
-            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_JOIN_PATTERN");
             handlePlayerJoin(joinMatcher.group(1), joinMatcher.group(2));
             return;
         }
 
         Matcher leaveMatcher = PLAYER_LEAVE_PATTERN.matcher(line);
         if (leaveMatcher.matches()) {
-            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_LEAVE_PATTERN");
             handlePlayerLeave(leaveMatcher.group(1));
             return;
         }
 
         Matcher opMatcher = PLAYER_OP_PATTERN.matcher(line);
         if (opMatcher.matches()) {
-            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_OP_PATTERN");
             updatePlayerStatus(opMatcher.group(1), p -> p.isOp = true);
+            historyService.recordAccessChangeByName(opMatcher.group(1), SessionEventType.OP_CHANGE, "op=true", System.currentTimeMillis());
             return;
         }
 
         Matcher deopMatcher = PLAYER_DEOP_PATTERN.matcher(line);
         if (deopMatcher.matches()) {
-            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_DEOP_PATTERN");
             updatePlayerStatus(deopMatcher.group(1), p -> p.isOp = false);
+            historyService.recordAccessChangeByName(deopMatcher.group(1), SessionEventType.OP_CHANGE, "op=false", System.currentTimeMillis());
             return;
         }
 
         Matcher banMatcher = PLAYER_BAN_PATTERN.matcher(line);
         if (banMatcher.matches()) {
-            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_BAN_PATTERN");
             updatePlayerStatus(banMatcher.group(1), p -> p.isBanned = true);
+            historyService.recordAccessChangeByName(banMatcher.group(1), SessionEventType.BAN, "reason=" + banMatcher.group(2), System.currentTimeMillis());
             return;
         }
 
         Matcher unbanMatcher = PLAYER_UNBAN_PATTERN.matcher(line);
         if (unbanMatcher.matches()) {
-            RebaseLogger.log("[DEEP_DEBUG] [PlayerManagerController] Matched PLAYER_UNBAN_PATTERN");
             updatePlayerStatus(unbanMatcher.group(1), p -> {
                 p.isBanned = false;
                 p.isIpBanned = false;
             });
+            historyService.recordAccessChangeByName(unbanMatcher.group(1), SessionEventType.UNBAN, "", System.currentTimeMillis());
         }
     }
 
@@ -206,6 +205,7 @@ public class PlayerManagerController {
                 ManagedPlayer player = playerOpt.get();
                 player.isOnline = true;
                 player.address = address;
+                historyService.startSession(player.uuid, player.name, address, System.currentTimeMillis());
                 ScreenManager.getInstance().execute(this::rebuildPlayerWidgets);
             } else {
                 terminalWidget.executeCommand("uuid " + name);
@@ -220,6 +220,7 @@ public class PlayerManagerController {
                 player.address = null;
                 player.lastSeen = System.currentTimeMillis();
                 savePlayerLog();
+                historyService.endSession(player.uuid, player.lastSeen);
                 ScreenManager.getInstance().execute(this::rebuildPlayerWidgets);
             });
         }
@@ -319,6 +320,10 @@ public class PlayerManagerController {
         return cachedPlayerActions;
     }
 
+    public PlayerHistoryService getHistoryService() {
+        return historyService;
+    }
+
     public void rebuildPlayerWidgets() {
         if (container == null) return;
         container.clearWidgets();
@@ -339,22 +344,26 @@ public class PlayerManagerController {
 
     public void kickPlayer(ManagedPlayer player, String reason) {
         runCustomCommand(player, "kick " + player.name + " " + reason);
+        historyService.recordAccessChange(player.uuid, player.name, SessionEventType.KICK, reason, System.currentTimeMillis());
     }
 
     public void banPlayer(ManagedPlayer player, String reason, boolean ipBan) {
         String command = ipBan ? "ban-ip " : "ban ";
         command += player.name + " " + reason;
         runCustomCommand(player, command);
+        historyService.recordAccessChange(player.uuid, player.name, SessionEventType.BAN, (ipBan ? "ip=true;" : "ip=false;") + reason, System.currentTimeMillis());
     }
 
     public void unbanPlayer(ManagedPlayer player) {
         String command = player.isIpBanned && player.ipBanInfo != null ? "pardon-ip " + player.ipBanInfo.ip : "pardon " + player.name;
         runCustomCommand(player, command);
+        historyService.recordAccessChange(player.uuid, player.name, SessionEventType.UNBAN, "", System.currentTimeMillis());
     }
 
     public void toggleOp(ManagedPlayer player) {
         String command = player.isOp ? "deop " : "op ";
         runCustomCommand(player, command + player.name);
+        historyService.recordAccessChange(player.uuid, player.name, SessionEventType.OP_CHANGE, player.isOp ? "op=false" : "op=true", System.currentTimeMillis());
     }
 
     public boolean isServerRunning() {
