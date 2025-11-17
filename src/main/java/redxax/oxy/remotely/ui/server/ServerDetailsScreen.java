@@ -35,6 +35,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     private final Object parent;
     private final RemotelyClient remotelyClient;
     private final Map<TabsManager.Tab, TabContext> tabContexts = new HashMap<>();
+    private IconButton startIconButton;
 
     private SharedContainerSwitcher containerSwitcher;
 
@@ -86,8 +87,18 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         header().addRight("close.png", this::closeScreen, "Close");
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
-        header().addLeft("start.png", this::launchOrStopInstance, "Start Server");
-        header().addLeft("stop.png", this::launchOrStopInstance, "Stop Server");
+        startIconButton = new IconButton.Builder()
+                .imagePath("start.png")
+                .onClick(this::launchOrStopInstance)
+                .hint("Start Server")
+                .accentType(ThemeManager.getAccent("nice"))
+                .size(18, 18)
+                .elevateOnFocused(false)
+                .animateLayout(true)
+                .autoWidthOnTextChange(true)
+                .build();
+        header().addLeft(startIconButton);
+        
         header().addLeft("resources.png", () -> {
             TabContext ctx = getActiveContext();
             if (ctx != null && !ctx.isLocalTerminalMode && ctx.resourcesContainer != null) {
@@ -194,6 +205,9 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         context.mainContainer = mainContainer;
 
         context.terminalWidget = TerminalWidget.getOrCreate(inst, localId, 5, 60, width - 10, height - 66);
+        if (inst != null) {
+            inst.attachTerminalListener(context.terminalWidget);
+        }
         mainContainer.addWidget(context.terminalWidget);
 
         if (!context.isLocalTerminalMode && inst != null && inst.isServer()) {
@@ -374,11 +388,30 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
         header().setButtonVisible("explorer.png", isInstanceTab);
 
+        if (startIconButton != null) {
+            startIconButton.setVisible(isInstanceTab);
+            if (isInstanceTab) {
+                InstanceState state = context.instance.getState();
+                boolean showSquare = state == InstanceState.STOPPED || state == InstanceState.CRASHED;
+                if (showSquare) {
+                    startIconButton.setMessage("");
+                    startIconButton.setWidth(18);
+                    startIconButton.setIcon("start.png");
+                    startIconButton.accentType = state == InstanceState.CRASHED ? ThemeManager.getAccent("danger") : ThemeManager.getAccent("nice");
+                } else {
+                    startIconButton.setMessage(state.toString().toLowerCase().substring(0, 1).toUpperCase() + state.name().toLowerCase().substring(1));
+                    if (state == InstanceState.STARTING || state == InstanceState.SAVED || state == InstanceState.SAVING) {
+                        startIconButton.setIcon("stop.png");
+                        startIconButton.accentType = ThemeManager.getAccent("calm");
+                    } else if (state == InstanceState.RUNNING) {
+                        startIconButton.setIcon("stop.png");
+                        startIconButton.accentType = ThemeManager.getAccent("danger");
+                    }
+                }
+                header().requestLayoutUpdate();
+            }
+        }
         if (isInstanceTab) {
-            boolean isRunning = context.instance.getState() == InstanceState.RUNNING || context.instance.getState() == InstanceState.STARTING;
-            header().setButtonVisible("start.png", !isRunning);
-            header().setButtonVisible("stop.png", isRunning);
-
             ModLoader modLoader = context.instance.getModLoader();
             boolean showResources = modLoader != null;
             header().setButtonVisible("resources.png", showResources);
@@ -388,8 +421,6 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             header().setButtonVisible("closeReverse.png", isReversed);
             header().setButtonVisible("download.png", context.selectedViewIndex == 1);
         } else {
-            header().setButtonVisible("start.png", false);
-            header().setButtonVisible("stop.png", false);
             header().setButtonVisible("resources.png", false);
             header().setButtonVisible("reverse.png", false);
             header().setButtonVisible("closeReverse.png", false);
