@@ -46,6 +46,9 @@ dependencies {
     implementation("org.jetbrains.jediterm:jediterm-core:3.54")
     implementation("org.jetbrains.jediterm:jediterm-pty:2.69")
 
+    shadowBundle(files(rootProject.files("libs/ReScreen-1.0.jar")))
+    shadowBundle(files(rootProject.files("libs/Remodel-1.0.0.jar")))
+    shadowBundle(files(rootProject.files("libs/Rebase-1.0-SNAPSHOT.jar")))
     shadowBundle("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     shadowBundle("com.jcraft:jsch:0.1.55")
     shadowBundle("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
