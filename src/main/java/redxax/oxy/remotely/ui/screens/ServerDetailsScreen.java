@@ -254,7 +254,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         String containerId = inst != null ? "remotely-main-" + inst.getInstanceId() : "remotely-term-" + localId;
         Container mainContainer = createContainer(containerId, 5, 60, width - 10, height - 65);
         mainContainer.layout(new ManagedLayout()).backgroundDrawing(false).disableScissorRegion(false).verticalSpacing(14).padding(0);
-        mainContainer.setScissorRegion(mainContainer.getX() - 2, mainContainer.getY() - 2, mainContainer.getWidth() + mainContainer.getX() + 4, mainContainer.getY() + mainContainer.getHeight() + 6);
+        mainContainer.setRelativeScissor(- 1, - 1, - 1, - 3);
         context.mainContainer = mainContainer;
 
         context.terminalWidget = TerminalWidget.getOrCreate(inst, localId, 5, 60, width - 10, height - 66);
@@ -262,11 +262,11 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
         if (!context.isLocalTerminalMode && inst.isServer()) {
             context.resourcesContainer = new Container(5, 60, width - 10, height - 66);
-            context.resourcesContainer.layout(new ManagedLayout()).columns(1).padding(2).enableSelecting(true);
+            context.resourcesContainer.layout(new ManagedLayout()).columns(1).padding(2).enableSelecting(true).setRelativeScissor(- 1, - 1, - 1, - 3);
             mainContainer.addWidget(context.resourcesContainer);
 
             context.playersContainer = new Container(5, 60, width - 10, height - 66);
-            context.playersContainer.layout(new ManagedLayout()).columns(1).padding(2);
+            context.playersContainer.layout(new ManagedLayout()).columns(1).padding(2).setRelativeScissor(- 1, - 1, - 1, - 3);
             context.playerManagerController = PlayerManagerController.getOrCreate(inst, RebaseApiFactory.get(inst));
             context.playerManagerController.setUiBindings(context.playersContainer, context.terminalWidget);
             mainContainer.addWidget(context.playersContainer);
