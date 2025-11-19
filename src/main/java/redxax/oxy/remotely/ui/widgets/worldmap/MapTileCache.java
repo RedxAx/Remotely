@@ -24,7 +24,7 @@ public class MapTileCache {
         });
     }
 
-    public BufferedImage getOverviewTile(int rx, int rz, int centerRx, int centerRz) {
+    public BufferedImage getTile(int rx, int rz, int centerRx, int centerRz) {
         long key = getKey(rx, rz);
         if (overviewCache.containsKey(key)) return overviewCache.get(key);
 
@@ -82,15 +82,33 @@ public class MapTileCache {
                         int px = cx * 16 + x;
                         int pz = cz * 16 + z;
 
-                        int h = chunk.getHeight(x, z);
-                        int hNorth = (z > 0) ? chunk.getHeight(x, z - 1) : h;
-
-                        float shade = (h < hNorth) ? 0.75f : (h > hNorth) ? 1.15f : 1.0f;
-
                         String biome = chunk.getBiomeId(x, z);
-                        int baseColor = assetManager.getBlockColor(id, biome);
+                        int color = assetManager.getBlockColor(id, biome);
 
-                        pixels[pz * 512 + px] = applyShade(baseColor, shade);
+                        int alpha = (color >> 24) & 0xFF;
+
+                        if (alpha < 255) {
+                            String floorId = chunk.getFloorId(x, z);
+                            if (floorId != null && !floorId.equals(id)) {
+                                int floorH = chunk.getFloorHeight(x, z);
+                                int floorHNorth = (z > 0) ? chunk.getFloorHeight(x, z - 1) : floorH;
+                                float floorShade = (floorH < floorHNorth) ? 0.75f : (floorH > floorHNorth) ? 1.15f : 1.0f;
+
+                                int floorColor = assetManager.getBlockColor(floorId, biome);
+                                floorColor = applyShade(floorColor, floorShade);
+
+                                color = blend(floorColor, color);
+                            } else {
+                                color = 0xFF000000 | (color & 0xFFFFFF);
+                            }
+                        } else {
+                            int h = chunk.getHeight(x, z);
+                            int hNorth = (z > 0) ? chunk.getHeight(x, z - 1) : h;
+                            float shade = (h < hNorth) ? 0.75f : (h > hNorth) ? 1.15f : 1.0f;
+                            color = applyShade(color, shade);
+                        }
+
+                        pixels[pz * 512 + px] = color;
                     }
                 }
             }
@@ -110,6 +128,24 @@ public class MapTileCache {
         int g = Math.min(255, (int) (((color >> 8) & 0xFF) * mult));
         int b = Math.min(255, (int) ((color & 0xFF) * mult));
         return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    private int blend(int dst, int src) {
+        int sa = (src >> 24) & 0xFF;
+        int sr = (src >> 16) & 0xFF;
+        int sg = (src >> 8) & 0xFF;
+        int sb = src & 0xFF;
+
+        int dr = (dst >> 16) & 0xFF;
+        int dg = (dst >> 8) & 0xFF;
+        int db = dst & 0xFF;
+
+        float a = sa / 255.0f;
+        int r = (int) (sr * a + dr * (1 - a));
+        int g = (int) (sg * a + dg * (1 - a));
+        int b = (int) (sb * a + db * (1 - a));
+
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
     }
 
     private long getKey(int x, int z) {

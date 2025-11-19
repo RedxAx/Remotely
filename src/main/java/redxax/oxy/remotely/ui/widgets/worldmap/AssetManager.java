@@ -24,6 +24,7 @@ public class AssetManager {
         BIOME_GRASS.put("default", 0xFF79C05A);
         BIOME_WATER.put("default", 0xFF3F76E4);
         BIOME_FOLIAGE.put("default", 0xFF59AE30);
+        BIOME_FOLIAGE.put("leaf_litter", 0xFF644B32);
 
         regBiome("minecraft:plains", 0xFF91BD59, 0xFF3F76E4, 0xFF77AB2F);
         regBiome("minecraft:sunflower_plains", 0xFF91BD59, 0xFF3F76E4, 0xFF77AB2F);
@@ -69,13 +70,13 @@ public class AssetManager {
                 if (!jarFile.exists()) throw new RuntimeException("JAR not found");
 
                 Map<String, Integer> priorityMap = new HashMap<>();
-                
+
                 try (JarFile jar = new JarFile(jarFile)) {
                     jar.stream().forEach(entry -> {
                         String name = entry.getName();
                         if (name.startsWith("assets/minecraft/textures/block/") && name.endsWith(".png") && !name.contains("mcmeta")) {
                             String filename = name.substring(name.lastIndexOf('/') + 1).replace(".png", "");
-                            
+
                             String blockId;
                             int priority = 1;
 
@@ -84,7 +85,7 @@ public class AssetManager {
                                 priority = 3;
                             } else if (filename.contains("_stage")) {
                                 blockId = filename.substring(0, filename.lastIndexOf("_stage"));
-                                priority = 10; 
+                                priority = 10;
                             } else if (filename.endsWith("_side") || filename.endsWith("_bottom") || filename.endsWith("_front")) {
                                 blockId = filename.replace("_side", "").replace("_bottom", "").replace("_front", "");
                             } else {
@@ -101,7 +102,7 @@ public class AssetManager {
                                         BufferedImage tex = ImageIO.read(jar.getInputStream(entry));
                                         if (tex != null) {
                                             int avgColor = calculateAverageColor(tex);
-                                            if ((avgColor >>> 24) == 0xFF) {
+                                            if ((avgColor >>> 24) > 0) {
                                                 colorMap.put(blockId, avgColor);
                                                 priorityMap.put(blockId, priority);
                                             }
@@ -121,7 +122,7 @@ public class AssetManager {
     }
 
     private int calculateAverageColor(BufferedImage image) {
-        long rSum = 0, gSum = 0, bSum = 0;
+        long rSum = 0, gSum = 0, bSum = 0, aSum = 0;
         int count = 0;
         int w = image.getWidth();
         int h = image.getHeight();
@@ -130,17 +131,18 @@ public class AssetManager {
             for (int x = 0; x < w; x++) {
                 int rgb = image.getRGB(x, y);
                 int alpha = (rgb >> 24) & 0xFF;
-                if (alpha > 200) {
+                if (alpha > 10) {
                     rSum += (rgb >> 16) & 0xFF;
                     gSum += (rgb >> 8) & 0xFF;
                     bSum += (rgb) & 0xFF;
+                    aSum += alpha;
                     count++;
                 }
             }
         }
         if (count == 0) return 0;
 
-        return 0xFF000000 | ((int)(rSum/count) << 16) | ((int)(gSum/count) << 8) | (int)(bSum/count);
+        return ((int)(aSum/count) << 24) | ((int)(rSum/count) << 16) | ((int)(gSum/count) << 8) | (int)(bSum/count);
     }
 
     public int getBlockColor(String blockId, String biomeId) {
@@ -150,7 +152,7 @@ public class AssetManager {
             return applyTint(base, tint);
         }
         if (shouldTintFoliage(blockId)) {
-            int tint = BIOME_FOLIAGE.getOrDefault(biomeId, BIOME_FOLIAGE.get("default"));
+            int tint = !blockId.contains("leaf_litter") ? BIOME_FOLIAGE.getOrDefault(biomeId, BIOME_FOLIAGE.get("default")) : BIOME_FOLIAGE.get("leaf_litter");
             return applyTint(base, tint);
         }
         if (shouldTintWater(blockId)) {
@@ -158,47 +160,6 @@ public class AssetManager {
             return applyTint(base, tint);
         }
         return base;
-    }
-
-    public int getBlockColorBlended(String blockId, String biomeId, String[] neighborBiomes) {
-        int base = shouldTintFoliage(blockId) && highQualityLoaded ? NEUTRAL_FOLIAGE_BASE : resolveBaseColor(blockId);
-        if (shouldTintGrass(blockId)) {
-            int[] tints = collectTints(BIOME_GRASS, biomeId, neighborBiomes);
-            int avgTint = averageColor(tints);
-            return applyTint(base, avgTint);
-        }
-        if (shouldTintFoliage(blockId)) {
-            int[] tints = collectTints(BIOME_FOLIAGE, biomeId, neighborBiomes);
-            int avgTint = averageColor(tints);
-            return applyTint(base, avgTint);
-        }
-        if (shouldTintWater(blockId)) {
-            int[] tints = collectTints(BIOME_WATER, biomeId, neighborBiomes);
-            int avgTint = averageColor(tints);
-            return applyTint(base, avgTint);
-        }
-        return base;
-    }
-
-    private int[] collectTints(Map<String, Integer> map, String centerBiome, String[] neighbors) {
-        int[] arr = new int[1 + (neighbors == null ? 0 : neighbors.length)];
-        arr[0] = map.getOrDefault(centerBiome, map.get("default"));
-        if (neighbors != null) {
-            for (int i = 0; i < neighbors.length; i++) arr[i + 1] = map.getOrDefault(neighbors[i], map.get("default"));
-        }
-        return arr;
-    }
-
-    private int averageColor(int[] colors) {
-        int r = 0, g = 0, b = 0;
-        int n = colors.length;
-        for (int c : colors) {
-            r += (c >> 16) & 0xFF;
-            g += (c >> 8) & 0xFF;
-            b += c & 0xFF;
-        }
-        r /= n; g /= n; b /= n;
-        return 0xFF000000 | (r << 16) | (g << 8) | b;
     }
 
     private int resolveBaseColor(String blockId) {
@@ -227,34 +188,35 @@ public class AssetManager {
     }
 
     private boolean isWood(String id) {
-        return id.contains("oak") || id.contains("spruce") || id.contains("birch") || 
-               id.contains("jungle") || id.contains("acacia") || id.contains("cherry") || 
-               id.contains("mangrove") || id.contains("dark_oak");
+        return id.contains("oak") || id.contains("spruce") || id.contains("birch") ||
+            id.contains("jungle") || id.contains("acacia") || id.contains("cherry") ||
+            id.contains("mangrove") || id.contains("dark_oak");
     }
 
     private int getFallbackHashColor(String id) {
-         int hash = id.hashCode();
-         int r = (hash & 0xFF0000) >> 16;
-         int g = (hash & 0x00FF00) >> 8;
-         int b = (hash & 0x0000FF);
-         return 0xFF000000 | (r << 16) | (g << 8) | b;
+        int hash = id.hashCode();
+        int r = (hash & 0xFF0000) >> 16;
+        int g = (hash & 0x00FF00) >> 8;
+        int b = (hash & 0x0000FF);
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
     }
 
     private boolean shouldTintGrass(String id) {
         return id.contains("grass_block") || id.equals("minecraft:grass");
     }
     private boolean shouldTintFoliage(String id) {
-        return id.contains("leaves") || id.contains("vine") || id.contains("fern") || id.contains("leaf_litter") || id.contains("fallen_leaves");
+        return id.contains("leaves") || id.contains("vine") || id.contains("fern") || id.contains("leaf_litter") || id.contains("fallen_leaves") || id.contains("azalea") || id.contains("flowering_azalea");
     }
     private boolean shouldTintWater(String id) {
         return id.contains("water") || id.contains("bubble_column");
     }
 
     private int applyTint(int color, int tint) {
+        int alpha = (color >> 24) & 0xFF;
         int r = ((color >> 16) & 0xFF) * ((tint >> 16) & 0xFF) / 255;
         int g = ((color >> 8) & 0xFF) * ((tint >> 8) & 0xFF) / 255;
         int b = (color & 0xFF) * (tint & 0xFF) / 255;
-        return 0xFF000000 | (r << 16) | (g << 8) | b;
+        return (alpha << 24) | (r << 16) | (g << 8) | b;
     }
 
     public boolean isHighQualityLoaded() {
