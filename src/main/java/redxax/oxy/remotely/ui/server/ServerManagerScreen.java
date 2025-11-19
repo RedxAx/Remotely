@@ -4,7 +4,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
-import redxax.oxy.remotely.ui.widgets.worldmap.WorldMapScreen;
+import restudio.rebase.ui.worldmap.WorldMapScreen;
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
