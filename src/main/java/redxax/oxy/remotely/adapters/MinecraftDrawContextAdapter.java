@@ -2,10 +2,16 @@ package redxax.oxy.remotely.adapters;
 
 import dev.deftu.omnicore.api.client.image.OmniImage;
 import dev.deftu.omnicore.api.client.image.OmniImages;
+import dev.deftu.omnicore.api.client.render.DefaultVertexFormats;
+import dev.deftu.omnicore.api.client.render.DrawMode;
 import dev.deftu.omnicore.api.client.render.OmniRenderingContext;
 import dev.deftu.omnicore.api.client.render.OmniTextRenderer;
+import dev.deftu.omnicore.api.client.render.pipeline.OmniRenderPipeline;
 import dev.deftu.omnicore.api.client.render.pipeline.OmniRenderPipelines;
+import dev.deftu.omnicore.api.client.render.state.OmniBlendState;
 import dev.deftu.omnicore.api.client.render.stack.OmniPoseStack;
+import dev.deftu.omnicore.api.client.render.vertex.OmniBufferBuilder;
+import dev.deftu.omnicore.api.client.render.vertex.OmniBufferBuilders;
 import dev.deftu.omnicore.api.client.textures.OmniTextureHandle;
 import dev.deftu.omnicore.api.client.textures.OmniTextures;
 import dev.deftu.omnicore.api.color.OmniColor;
@@ -26,6 +32,14 @@ import java.util.WeakHashMap;
 
 public class MinecraftDrawContextAdapter implements IDrawContext {
     private static final Map<BufferedImage, OmniTextureHandle> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
+
+    private static final OmniRenderPipeline INVERTED_PIPELINE = OmniRenderPipelines
+        .builderWithDefaultShader(ResourceLocation.fromNamespaceAndPath("rescreen", "inverted_rect"),
+            DefaultVertexFormats.POSITION_COLOR, DrawMode.QUADS).setColorLogic(OmniRenderPipeline.ColorLogic.OR_REVERSE)
+        .setBlendState(OmniBlendState.DISABLED).build();
+
+    private static final OmniColor SELECTION_COLOR = new OmniColor(0.0f, 0.0f, 1.0f, 1.0f);
+
     private final OmniRenderingContext ctx;
     private final OmniPoseStack matrices;
     private final float renderScale;
@@ -189,5 +203,16 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
         drawBufferedImage(identifier, x, y, width, height);
     }
 
-    @Override public void drawInvertedRect(float v, float v1, float v2, float v3) {}
+    @Override
+    public void drawInvertedRect(float x1, float y1, float x2, float y2) {
+        if (x1 == x2 || y1 == y2) return;
+        float minX = Math.min(x1, x2);
+        float minY = Math.min(y1, y2);
+        float w = Math.max(x1, x2) - minX;
+        float h = Math.max(y1, y2) - minY;
+
+        OmniBufferBuilder builder = OmniBufferBuilders.create(INVERTED_PIPELINE);
+        builder.quad(ctx.pose(), minX, minY, w, h, SELECTION_COLOR);
+        builder.buildOrThrow().drawAndClose(INVERTED_PIPELINE);
+    }
 }
