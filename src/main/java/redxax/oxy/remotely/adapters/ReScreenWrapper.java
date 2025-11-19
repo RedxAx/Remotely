@@ -45,6 +45,7 @@ public class ReScreenWrapper extends OmniScreen {
 
     @Override
     public void onRender(@NotNull OmniRenderingContext ctx, int mouseX, int mouseY, float tickDelta) {
+        this.onBackgroundRender(ctx, mouseX, mouseY, tickDelta);
         super.onRender(ctx, mouseX, mouseY, tickDelta);
 
         long now = System.nanoTime();
