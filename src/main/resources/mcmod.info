@@ -1,0 +1,11 @@
+[
+    {
+        "modid": "${mod_id}",
+        "name": "${mod_name}",
+        "version": "${mod_version}",
+        "mcversion": "${mc_version}",
+        "description": "${mod_description}",
+        "authorList": ["RedxAx", "DumbFridge"],
+        "dependencies": ["textile", "omnicore"]
+    }
+]

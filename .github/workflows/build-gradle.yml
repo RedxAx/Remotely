@@ -1,0 +1,55 @@
+name: Build with Gradle
+
+on:
+  push:
+    branches:
+      - '**'
+    paths-ignore:
+      - 'README'
+      - 'README.md'
+      - 'LICENSE'
+      - 'LICENSE-TEMPLATE'
+      - 'LICENSE.md'
+      - 'LICENSE-TEMPLATE.md'
+  pull_request:
+    branches:
+      - '**'
+    paths-ignore:
+      - 'README'
+      - 'README.md'
+      - 'LICENSE'
+      - 'LICENSE-TEMPLATE'
+      - 'LICENSE.md'
+      - 'LICENSE-TEMPLATE.md'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Build Project
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build with Gradle
+        run: ./gradlew build --no-daemon
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: Artifacts
+          path: |
+            build/libs/*.jar
+            versions/*/build/libs/*.jar
+          if-no-files-found: error

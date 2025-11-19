@@ -1,97 +1,54 @@
 package redxax.oxy.remotely.adapters;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.render.VertexConsumerProvider.Immediate;
-import net.minecraft.text.Style;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
-import org.joml.Matrix4f;
+import dev.deftu.omnicore.api.client.render.OmniTextRenderer;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
-import restudio.rescreen.text.StyledText;
 
 public class MinecraftTextRendererAdapter implements ITextRenderer {
-    private final TextRenderer tr;
 
-    public MinecraftTextRendererAdapter() {
-        this.tr = MinecraftClient.getInstance().textRenderer;
-    }
+    public MinecraftTextRendererAdapter() {}
 
     @Override
     public void draw(IDrawContext ctx, String text, int x, int y, int color, boolean shadow) {
         if (!(ctx instanceof MinecraftDrawContextAdapter mcCtx)) return;
-        //? if >= 1.21.6 {
-        /*mcCtx.getMcContext().drawText(tr, text, x, y, color, shadow);
-        *///?} else {
-        Matrix4f matrix = mcCtx.getMcMatrices().peek().getPositionMatrix();
-        Immediate vcp = MinecraftClient.getInstance().getBufferBuilders().getEntityVertexConsumers();
-        tr.draw(text, (float)x, (float)y, color, shadow, matrix, vcp, TextRenderer.TextLayerType.NORMAL, 0, 0xF000F0);
-        vcp.draw();
-        //?}
+        mcCtx.drawText(text, x, y, color, shadow);
     }
 
     @Override
     public void drawStyled(IDrawContext ctx, Object text, int x, int y, int color, boolean shadow) {
-        if (text instanceof net.minecraft.text.Text mcText) {
-            if (!(ctx instanceof MinecraftDrawContextAdapter mcCtx)) return;
-            //? if >= 1.21.6 {
-            /*int finalColor = (color == 0) ? 0xFFFFFFFF : color;
-            mcCtx.getMcContext().drawText(tr, mcText, x, y, finalColor, shadow);
-            *///?} else {
-            Matrix4f matrix = mcCtx.getMcMatrices().peek().getPositionMatrix();
-            Immediate vcp = MinecraftClient.getInstance().getBufferBuilders().getEntityVertexConsumers();
-            int finalColor = (color == 0) ? 0xFFFFFFFF : color;
-            tr.draw(mcText, (float) x, (float) y, finalColor, shadow, matrix, vcp, TextRenderer.TextLayerType.NORMAL, 0, 0xF000F0);
-            vcp.draw();
-            //?}
-        } else if (text instanceof StyledText styledText) {
-            if ((styledText.color >> 24 & 0xFF) == 0) {
-                return;
-            }
-            if (!(ctx instanceof MinecraftDrawContextAdapter mcCtx)) return;
-            net.minecraft.text.MutableText renderText = net.minecraft.text.Text.literal(styledText.text);
-            if (styledText.font instanceof net.minecraft.util.Identifier fontId) {
-                renderText.setStyle(net.minecraft.text.Style.EMPTY.withFont(fontId));
-            }
-
-            //? if >= 1.21.6 {
-            /*mcCtx.getMcContext().drawText(tr, renderText, x, y, styledText.color, shadow);
-            *///?} else {
-            Matrix4f matrix = mcCtx.getMcMatrices().peek().getPositionMatrix();
-            Immediate vcp = MinecraftClient.getInstance().getBufferBuilders().getEntityVertexConsumers();
-            tr.draw(renderText, (float) x, (float) y, styledText.color, shadow, matrix, vcp, TextRenderer.TextLayerType.NORMAL, 0, 0xF000F0);
-            vcp.draw();
-            //?}
-        } else {
-            draw(ctx, String.valueOf(text), x, y, color, shadow);
-        }
+        if (!(ctx instanceof MinecraftDrawContextAdapter mcCtx)) return;
+        mcCtx.drawStyledText(text, x, y, color, shadow);
     }
 
     @Override
-    public void draw(String s, int i, int i1, int i2, boolean b) {}
+    public void draw(String s, int i, int i1, int i2, boolean b) {
+        draw(null, s, i, i1, i2, b);
+    }
 
     @Override
     public int getWidth(String text) {
-        return tr.getWidth(text);
+        return OmniTextRenderer.width(text);
     }
 
     @Override
     public int getWidth(String s, restudio.rescreen.render.TextRenderer.FontStyle fontStyle) {
-        return tr.getWidth(s);
-    }
-
-    @Override
-    public int getWidth(String s, Object font) {
-        if (font instanceof Identifier id) {
-            Text styled = Text.literal(s).setStyle(Style.EMPTY.withFont(id));
-            return tr.getWidth(styled);
-        }
-        return tr.getWidth(s);
+        return getWidth(s);
     }
 
     @Override
     public String trimToWidth(String text, int maxWidth) {
-        return tr.trimToWidth(text, maxWidth);
+        int textWidth = getWidth(text);
+        if (textWidth <= maxWidth) {
+            return text;
+        }
+        StringBuilder trimmed = new StringBuilder();
+        for (char c : text.toCharArray()) {
+            trimmed.append(c);
+            if (getWidth(trimmed.toString()) > maxWidth) {
+                trimmed.deleteCharAt(trimmed.length() - 1);
+                break;
+            }
+        }
+        return trimmed.toString();
     }
 }

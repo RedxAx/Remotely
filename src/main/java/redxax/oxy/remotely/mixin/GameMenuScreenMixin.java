@@ -1,131 +1,112 @@
 package redxax.oxy.remotely.mixin;
 
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.GameMenuScreen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.resource.language.I18n;
-import net.minecraft.text.Text;
-import org.lwjgl.glfw.GLFW;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractButton;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.PauseScreen;
+import net.minecraft.client.resources.language.I18n;
+import net.minecraft.network.chat.Component;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
-import restudio.rescreen.platform.IDrawContext;
+import redxax.oxy.remotely.ui.ReWidgetWrapper;
+import redxax.oxy.remotely.util.InitializationManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
-
-import java.util.ArrayList;
-import java.util.List;
 
 import static redxax.oxy.remotely.config.Config.mainMenuStyle;
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 
-@Mixin(GameMenuScreen.class)
-public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.screen.Screen {
-    @Unique private ButtonWidget optionsButton;
-    @Unique private final List<SquareButtonWidget> minimalButtons = new ArrayList<>();
-    @Unique private final List<AnimatedButton> normalButtons = new ArrayList<>();
-    @Unique private boolean wasMousePressed = false;
+@Mixin(PauseScreen.class)
+public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.screens.Screen {
 
-    protected GameMenuScreenMixin(Text title) {
+    protected GameMenuScreenMixin(Component title) {
         super(title);
+    }
+
+    @Inject(method = "init", at = @At("HEAD"))
+    private void onInit(CallbackInfo ci) {
+        InitializationManager.ensureInitialized();
     }
 
     @Inject(method = "init", at = @At("RETURN"))
     private void addServerManagerButton(CallbackInfo ci) {
-        String returnToMenuButtonText = I18n.translate("menu.returnToMenu");
-        String disconnectButtonText = I18n.translate("menu.disconnect");
-        optionsButton = this.children().stream().filter(child -> child instanceof ButtonWidget).map(child -> (ButtonWidget) child).filter(button -> button.getMessage().getString().equals(returnToMenuButtonText) || button.getMessage().getString().equals(disconnectButtonText)).findFirst().orElse(null);
-        if (optionsButton != null && mainMenuStyle.equals("Vanilla")) {
-            int buttonX = optionsButton.getX();
-            int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
-            int smallButtonWidth = 50;
-            int largeButtonWidth = 100;
-            int gap = 5;
-            int totalWidth = smallButtonWidth * 2 + largeButtonWidth + gap * 2;
-            int excessWidth = totalWidth - 200;
-            largeButtonWidth -= excessWidth;
-            ButtonWidget serverButton = ButtonWidget.builder(Text.literal("Servers"), btn -> openServerManagerScreen()).dimensions(buttonX, buttonY, smallButtonWidth, 20).build();
-            this.addDrawableChild(serverButton);
-            ButtonWidget fileExplorerButton = ButtonWidget.builder(Text.literal("File Explorer"), btn -> openFileExplorerScreen()).dimensions(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20).build();
-            this.addDrawableChild(fileExplorerButton);
-            ButtonWidget terminalButton = ButtonWidget.builder(Text.literal("Terminal"), btn -> openMultiTerminalScreen()).dimensions(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY, smallButtonWidth, 20).build();
-            this.addDrawableChild(terminalButton);
-        }
-        if (optionsButton != null && mainMenuStyle.equals("Minimal")) {
-            minimalButtons.clear();
-            minimalButtons.add(new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("manager.png").onClick(this::openServerManagerScreen).hint("Servers").build());
-            minimalButtons.add(new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("terminal.png").onClick(this::openMultiTerminalScreen).hint("Terminal").build());
-            minimalButtons.add(new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("explorer.png").onClick(this::openFileExplorerScreen).hint("File Explorer").build());
-        }
-        if (optionsButton != null && mainMenuStyle.equals("Normal")) {
-            normalButtons.clear();
-            int smallButtonWidth = 50;
-            int largeButtonWidth = 100;
-            int gap = 5;
-            int totalWidth = smallButtonWidth * 2 + largeButtonWidth + gap * 2;
-            int excessWidth = totalWidth - 200;
-            largeButtonWidth -= excessWidth;
-            normalButtons.add(new AnimatedButton.Builder().label("Servers").onClick(this::openServerManagerScreen).size(smallButtonWidth, 18).entranceAnimation(false).build());
-            normalButtons.add(new AnimatedButton.Builder().label("File Explorer").onClick(this::openFileExplorerScreen).size(largeButtonWidth, 18).entranceAnimation(false).build());
-            normalButtons.add(new AnimatedButton.Builder().label("Terminal").onClick(this::openMultiTerminalScreen).size(smallButtonWidth, 18).entranceAnimation(false).build());
+        String returnToMenuButtonText = I18n.get("menu.returnToMenu");
+        String disconnectButtonText = I18n.get("menu.disconnect");
+        AbstractButton optionsButton = this.children().stream().filter(child -> child instanceof AbstractButton).map(child -> (AbstractButton) child).filter(button -> button.getMessage().getString().equals(returnToMenuButtonText) || button.getMessage().getString().equals(disconnectButtonText)).findFirst().orElse(null);
+
+        if (optionsButton == null) return;
+
+        switch (mainMenuStyle) {
+            case "Vanilla" -> {
+                int buttonX = optionsButton.getX();
+                int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
+                int smallButtonWidth = 50;
+                int largeButtonWidth = 100;
+                int gap = 5;
+                int totalWidth = smallButtonWidth * 2 + largeButtonWidth + gap * 2;
+                int excessWidth = totalWidth - 200;
+                largeButtonWidth -= excessWidth;
+                AbstractButton serverButton = Button.builder(Component.literal("Servers"), btn -> openServerManagerScreen()).bounds(buttonX, buttonY, smallButtonWidth, 20).build();
+                this.addWidget(serverButton);
+                AbstractButton fileExplorerButton = Button.builder(Component.literal("File Explorer"), btn -> openFileExplorerScreen()).bounds(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20).build();
+                this.addWidget(fileExplorerButton);
+                AbstractButton terminalButton = Button.builder(Component.literal("Terminal"), btn -> openMultiTerminalScreen()).bounds(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY, smallButtonWidth, 20).build();
+                this.addWidget(terminalButton);
+            }
+            case "Minimal" -> {
+                int spacing = 8;
+                int buttonSize = 18;
+                int startX = optionsButton.getX();
+                int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
+
+                SquareButtonWidget serverBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("manager.png").onClick(this::openServerManagerScreen).hint("Servers").build();
+                serverBtn.setPosition(startX, buttonY);
+                this.addWidget(new ReWidgetWrapper(serverBtn));
+
+                SquareButtonWidget terminalBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("terminal.png").onClick(this::openMultiTerminalScreen).hint("Terminal").build();
+                terminalBtn.setPosition(startX + (buttonSize + spacing), buttonY);
+                this.addWidget(new ReWidgetWrapper(terminalBtn));
+
+                SquareButtonWidget explorerBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("explorer.png").onClick(this::openFileExplorerScreen).hint("File Explorer").build();
+                explorerBtn.setPosition(startX + 2 * (buttonSize + spacing), buttonY);
+                this.addWidget(new ReWidgetWrapper(explorerBtn));
+            }
+            case "Normal" -> {
+                int buttonX = optionsButton.getX();
+                int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
+                int smallButtonWidth = 50;
+                int largeButtonWidth = 100;
+                int gap = 5;
+                int totalWidth = smallButtonWidth * 2 + largeButtonWidth + gap * 2;
+                int excessWidth = totalWidth - 200;
+                largeButtonWidth -= excessWidth;
+
+                AnimatedButton serverBtn = new AnimatedButton.Builder().label("Servers").onClick(this::openServerManagerScreen).size(smallButtonWidth, 18).entranceAnimation(false).build();
+                serverBtn.setPosition(buttonX, buttonY);
+                this.addWidget(new ReWidgetWrapper(serverBtn));
+
+                AnimatedButton explorerBtn = new AnimatedButton.Builder().label("File Explorer").onClick(this::openFileExplorerScreen).size(largeButtonWidth, 18).entranceAnimation(false).build();
+                explorerBtn.setPosition(buttonX + smallButtonWidth + gap, buttonY);
+                this.addWidget(new ReWidgetWrapper(explorerBtn));
+
+                AnimatedButton terminalBtn = new AnimatedButton.Builder().label("Terminal").onClick(this::openMultiTerminalScreen).size(smallButtonWidth, 18).entranceAnimation(false).build();
+                terminalBtn.setPosition(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY);
+                this.addWidget(new ReWidgetWrapper(terminalBtn));
+            }
         }
     }
 
     @Inject(method = "render", at = @At("TAIL"))
-    private void render(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
-        IDrawContext libCtx = new MinecraftDrawContextAdapter(context);
-        if (mainMenuStyle.equals("Minimal") && optionsButton != null) {
-            int spacing = 8;
-            int buttonSize = 18;
-            int startX = optionsButton.getX();
-            int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
-            for (int i = 0; i < minimalButtons.size(); i++) {
-                SquareButtonWidget b = minimalButtons.get(i);
-                b.setPosition(startX + i * (buttonSize + spacing), buttonY);
-                b.renderWidget(libCtx, mouseX, mouseY, delta);
+    private void render(GuiGraphics guiGraphics, int i, int j, float f, CallbackInfo ci) {
+        for (var widget : this.children()) {
+            if (widget instanceof ReWidgetWrapper wrapper) {
+                wrapper.render(guiGraphics, i, j, f);
             }
         }
-        if (mainMenuStyle.equals("Normal") && optionsButton != null) {
-            int buttonX = optionsButton.getX();
-            int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
-            int smallButtonWidth = 50;
-            int largeButtonWidth = 100;
-            int gap = 5;
-            int totalWidth = smallButtonWidth * 2 + largeButtonWidth + gap * 2;
-            int excessWidth = totalWidth - 200;
-            largeButtonWidth -= excessWidth;
-            if (normalButtons.size() == 3) {
-                normalButtons.get(0).setPosition(buttonX, buttonY);
-                normalButtons.get(1).setPosition(buttonX + smallButtonWidth + gap, buttonY);
-                normalButtons.get(2).setPosition(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY);
-            }
-            for (AnimatedButton btn : normalButtons) {
-                btn.renderWidget(libCtx, mouseX, mouseY, delta);
-            }
-        }
-        checkClicks(mouseX, mouseY);
-    }
-
-    @Unique
-    private void checkClicks(double mouseX, double mouseY) {
-        boolean mousePressed = GLFW.glfwGetMouseButton(this.client.getWindow().getHandle(), GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
-        if (mousePressed && !this.wasMousePressed) {
-            if (mainMenuStyle.equals("Minimal")) {
-                for (SquareButtonWidget b : minimalButtons) {
-                    b.mouseClicked(mouseX, mouseY, 0);
-                }
-            }
-            if (mainMenuStyle.equals("Normal")) {
-                for (AnimatedButton btn : normalButtons) {
-                    btn.mouseClicked(mouseX, mouseY, 0);
-                }
-            }
-        }
-        this.wasMousePressed = mousePressed;
     }
 
     @Unique

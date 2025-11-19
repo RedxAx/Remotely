@@ -4,6 +4,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
+import redxax.oxy.remotely.ui.widgets.worldmap.WorldMapScreen;
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
@@ -18,7 +19,10 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
-import restudio.rescreen.ui.widgets.*;
+import restudio.rescreen.ui.widgets.AnimatedButton;
+import restudio.rescreen.ui.widgets.ContextMenuWidget;
+import restudio.rescreen.ui.widgets.PopupWidget;
+import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
@@ -162,7 +166,7 @@ public class ServerManagerScreen extends ReScreen {
                         .whenComplete((v, e) -> ScreenManager.getInstance().execute(this::loadServersForCurrentTab));
             }
         }
-        
+
         loadServersForCurrentTab();
     }
 
@@ -200,6 +204,7 @@ public class ServerManagerScreen extends ReScreen {
                 ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
                         .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), widget.getInstance().getRemoteHost(), remotelyClient)), "Edit Server's Settings")
                         .addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, null, Path.of(widget.getInstance().getPath()), remotelyDir, false)), "Open Server's Folder")
+                        .addHeaderButton("map.png", () -> openWorldScreen(widget.getInstance()), "View World Map")
                         .addHeaderButton("delete.png", () -> {
                             instanceForDeletion = widget.getInstance();
                             deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
@@ -232,6 +237,11 @@ public class ServerManagerScreen extends ReScreen {
 
     private void openFileExplorer() {
         client.setScreen(new FileExplorerScreen(this, null, remotelyDir, remotelyDir, false));
+    }
+
+    public void openWorldScreen(Instance instance) {
+        WorldMapScreen mapWidget = new WorldMapScreen(this, instance);
+        client.setScreen(mapWidget);
     }
 
     private void createPopups() {

@@ -1,10 +1,11 @@
 package redxax.oxy.remotely.ui.server;
 
-import net.minecraft.client.gui.widget.IconWidget;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
+import redxax.oxy.remotely.ui.server.containers.ResourceContainer;
+import redxax.oxy.remotely.ui.server.containers.SharedContainerSwitcher;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.instance.Instance;
@@ -20,14 +21,15 @@ import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
-import restudio.rescreen.ui.widgets.*;
+import restudio.rescreen.ui.widgets.AnimatedButton;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.IconButton;
+import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.util.Notification;
-import redxax.oxy.remotely.ui.server.containers.ResourceContainer;
-import redxax.oxy.remotely.ui.server.containers.SharedContainerSwitcher;
 
 import java.nio.file.Path;
-import java.util.concurrent.CompletableFuture;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 
@@ -68,7 +70,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         }
     }
 
-    
+
 
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
         super(parent instanceof restudio.rescreen.ui.core.Screen ? (restudio.rescreen.ui.core.Screen) parent : null, null);
@@ -98,7 +100,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                 .autoWidthOnTextChange(true)
                 .build();
         header().addLeft(startIconButton);
-        
+
         header().addLeft("resources.png", () -> {
             TabContext ctx = getActiveContext();
             if (ctx != null && !ctx.isLocalTerminalMode && ctx.resourcesContainer != null) {
@@ -154,7 +156,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     private void onSharedSwitchChange(int i) {
         TabContext ctx = getActiveContext();
         if (ctx == null) return;
-        
+
         int maxIndex = (ctx.isLocalTerminalMode || !ctx.instance.isServer()) ? 0 : 2;
 
         if (i < 0 || i > maxIndex) i = 0;
@@ -170,7 +172,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         header().setButtonVisible("download.png", i == 1);
     }
 
-    
+
 
     private void onTabRenamed(TabsManager.Tab tab) {
         TabContext context = tabContexts.get(tab);
@@ -253,7 +255,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     }
 
     private void addNewTerminalTab() {
-        String newId = java.util.UUID.randomUUID().toString();
+        String newId = UUID.randomUUID().toString();
         remotelyClient.getMultiTerminalTabs().add(newId);
         createAndAddTab(newId, true);
     }
@@ -284,7 +286,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                 containerSwitcher.register("steve.png", newContext.playersContainer);
                 containerSwitcher.setOnChange(this::onSharedSwitchChange);
                 containerSwitcher.build();
-                
+
                 if (newContext.playersContainer != null) {
                     newContext.playersContainer.fullRefresh();
                 }
@@ -341,7 +343,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         }
     }
 
-    
+
 
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
@@ -540,6 +542,16 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                     if (w instanceof Container) {
                         w.setSize(containerWidth, height - 66);
                     }
+                }
+                if (context.terminalWidget != null) {
+                    context.terminalWidget.setWidth(containerWidth);
+                    context.terminalWidget.setHeight(height - 66);
+                }
+                if (context.resourcesContainer != null) {
+                    context.resourcesContainer.size(containerWidth, height - 66);
+                }
+                if (context.playersContainer != null) {
+                    context.playersContainer.size(containerWidth, height - 66);
                 }
             }
         }

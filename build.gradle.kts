@@ -1,18 +1,37 @@
-import java.util.*
+import dev.deftu.gradle.utils.version.MinecraftVersions
+import dev.deftu.gradle.utils.includeOrShade
 
 plugins {
-    id("dev.architectury.loom")
-    id("me.modmuss50.mod-publish-plugin")
-    id("com.github.johnrengelman.shadow")
+    java
+    kotlin("jvm")
+    id("dev.deftu.gradle.multiversion") // Applies preprocessing for multiple versions of Minecraft and/or multiple mod loaders.
+    id("dev.deftu.gradle.tools") // Applies several configurations to things such as the Java version, project name/version, etc.
+    id("dev.deftu.gradle.tools.resources") // Applies resource processing so that we can replace tokens, such as our mod name/version, in our resources.
+    id("dev.deftu.gradle.tools.bloom") // Applies the Bloom plugin, which allows us to replace tokens in our source files, such as being able to use `@MOD_VERSION` in our source files.
+    id("dev.deftu.gradle.tools.shadow") // Applies the Shadow plugin, which allows us to shade our dependencies into our mod JAR. This is NOT recommended for Fabric mods, but we have an *additional* configuration for those!
+    id("dev.deftu.gradle.tools.minecraft.loom") // Applies the Loom plugin, which automagically configures Essential's Architectury Loom plugin for you.
+    id("dev.deftu.gradle.tools.minecraft.releases-v2") // Applies the Minecraft auto-releasing plugin, which allows you to automatically release your mod to CurseForge and Modrinth.
 }
 
-val minecraft = stonecutter.current.version
-val loader = loom.platform.get().name.lowercase()
+toolkitMultiversion {
+    moveBuildsToRootProject.set(true)
+}
 
-version = "${mod.version}+$minecraft"
-group = mod.group
-base {
-    archivesName.set("${mod.id}-$loader")
+toolkitLoomHelper {
+    useDevAuth("1.2.1")
+    useMixinExtras("0.5.0")
+
+    if (!mcData.isNeoForge) {
+        useMixinRefMap(modData.id)
+    }
+
+    if (mcData.isForge) {
+        useForgeMixin(modData.id)
+    }
+
+    if (mcData.isForgeLike && mcData.version >= MinecraftVersions.VERSION_1_16_5) {
+        useKotlinForForge()
+    }
 }
 
 repositories {
@@ -23,14 +42,7 @@ repositories {
     maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
 }
 
-
-val shadowBundle: Configuration by configurations.creating {
-    isCanBeConsumed = false
-    isCanBeResolved = true
-}
-
 dependencies {
-    minecraft("com.mojang:minecraft:$minecraft")
 
     implementation(files(rootProject.files("libs/ReScreen-1.0.jar")))
     implementation(files(rootProject.files("libs/Remodel-1.0.0.jar")))
@@ -46,169 +58,63 @@ dependencies {
     implementation("org.jetbrains.jediterm:jediterm-core:3.54")
     implementation("org.jetbrains.jediterm:jediterm-pty:2.69")
 
-    shadowBundle(files(rootProject.files("libs/ReScreen-1.0.jar")))
-    shadowBundle(files(rootProject.files("libs/Remodel-1.0.0.jar")))
-    shadowBundle(files(rootProject.files("libs/Rebase-1.0-SNAPSHOT.jar")))
-    shadowBundle("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
-    shadowBundle("com.jcraft:jsch:0.1.55")
-    shadowBundle("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
-    shadowBundle("org.jetbrains.pty4j:pty4j:0.13.10-1")
-    shadowBundle("org.jetbrains.jediterm:jediterm-core:3.54")
-    shadowBundle("org.jetbrains.jediterm:jediterm-pty:2.69")
+    includeOrShade(files(rootProject.files("libs/ReScreen-1.0.jar")))
+    includeOrShade(files(rootProject.files("libs/Remodel-1.0.0.jar")))
+    includeOrShade(files(rootProject.files("libs/Rebase-1.0-SNAPSHOT.jar")))
 
-    if (loader == "fabric") {
-        modImplementation("net.fabricmc:fabric-loader:${mod.dep("fabric_loader")}")
-        mappings("net.fabricmc:yarn:$minecraft+build.${mod.dep("yarn_build")}:v2")
-        modImplementation("com.terraformersmc:modmenu:${mod.dep("modmenu_version")}")
-        modRuntimeOnly("net.fabricmc.fabric-api:fabric-api:${mod.dep("fabric_version")}")
+    includeOrShade("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
+    includeOrShade("com.jcraft:jsch:0.1.55")
+    includeOrShade("com.github.javakeyring:java-keyring:1.0.4")
+    includeOrShade("com.vladsch.flexmark:flexmark-all:0.64.8")
+    includeOrShade("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
+    includeOrShade("org.jetbrains.pty4j:pty4j:0.13.10-1")
+    includeOrShade("org.jetbrains.jediterm:jediterm-core:3.54")
+    includeOrShade("org.jetbrains.jediterm:jediterm-pty:2.69")
 
-    }
-    if (loader == "forge") {
-        "forge"("net.minecraftforge:forge:${minecraft}-${mod.dep("forge_loader")}")
-        mappings("net.fabricmc:yarn:$minecraft+build.${mod.dep("yarn_build")}:v2")
-
-        "io.github.llamalad7:mixinextras-forge:${mod.dep("mixin_extras")}".let {
-            implementation(it)
-            include(it)
-        }
-    }
-    if (loader == "neoforge") {
-        "neoForge"("net.neoforged:neoforge:${mod.dep("neoforge_loader")}")
-        mappings(loom.layered {
-            mappings("net.fabricmc:yarn:$minecraft+build.${mod.dep("yarn_build")}:v2")
-            mod.dep("neoforge_patch").takeUnless { it.startsWith('[') }?.let {
-                mappings("dev.architectury:yarn-mappings-patch-neoforge:$it")
-            }
-        })
-    }
-}
-
-loom {
-    accessWidenerPath = rootProject.file("src/main/resources/remotely.accesswidener")
-
-    decompilers {
-        get("vineflower").apply { // Adds names to lambdas - useful for mixins
-            options.put("mark-corresponding-synthetics", "1")
-        }
-    }
-    if (loader == "forge") {
-        forge.mixinConfigs(
-            "remotely-common.mixins.json",
-        )
-    }
-}
-
-
-val localProperties = Properties()
-val localPropertiesFile = rootProject.file("local.properties")
-if (localPropertiesFile.exists()) {
-    localProperties.load(localPropertiesFile.inputStream())
-}
-publishMods {
-    val modrinthToken = localProperties.getProperty("publish.modrinthToken", "")
-    val curseforgeToken = localProperties.getProperty("publish.curseforgeToken", "")
-
-
-    file = project.tasks.remapJar.get().archiveFile
-    dryRun = modrinthToken == null || curseforgeToken == null
-
-    displayName = "${mod.name} ${loader.replaceFirstChar { it.uppercase() }} ${property("mod.mc_title")}-${mod.version}"
-    version = mod.version
-    changelog = rootProject.file("CHANGELOG.md").readText()
-    type = BETA
-
-    modLoaders.add(loader)
-
-    val targets = property("mod.mc_targets").toString().split(' ')
-    modrinth {
-        projectId = property("publish.modrinth").toString()
-        accessToken = modrinthToken
-        targets.forEach(minecraftVersions::add)
-        if (loader == "fabric") {
-            requires("fabric-api")
-            optional("modmenu")
+    // Add Textile and OmniCore
+    with(libs.textile.get()) {
+        implementation(this)
+        val modDep = modImplementation("${this.group}:${this.name}-$mcData:${this.version}")
+        if (mcData.isLegacyForge) {
+            includeOrShade(this)
+            modDep?.let { includeOrShade(it) }
         }
     }
 
-    curseforge {
-        projectId = property("publish.curseforge").toString()
-        accessToken = curseforgeToken.toString()
-        targets.forEach(minecraftVersions::add)
-        if (loader == "fabric") {
-            requires("fabric-api")
-            optional("modmenu")
+    with(libs.omnicore.get()) {
+        val modDep = modImplementation("${this.group}:${this.name}-$mcData:${this.version}")
+        if (mcData.isLegacyForge) {
+            modDep?.let { includeOrShade(it) }
         }
     }
-}
 
-java {
-    withSourcesJar()
-    val java = if (stonecutter.eval(minecraft, ">=1.20.5")) JavaVersion.VERSION_21 else JavaVersion.VERSION_17
-    targetCompatibility = java
-    sourceCompatibility = java
-}
+    // Add (Legacy) Fabric API (these are both optional but are particularly useful).
+    if (mcData.isFabric) {
+        modImplementation("net.fabricmc:fabric-language-kotlin:${mcData.dependencies.fabric.fabricLanguageKotlinVersion}")
 
-tasks.shadowJar {
-    configurations = listOf(shadowBundle)
-    archiveClassifier = "dev-shadow"
-}
-
-tasks.remapJar {
-    injectAccessWidener = true
-    input = tasks.shadowJar.get().archiveFile
-    archiveClassifier = null
-    dependsOn(tasks.shadowJar)
-}
-
-tasks.jar {
-    archiveClassifier = "dev"
-}
-
-val buildAndCollect = tasks.register<Copy>("buildAndCollect") {
-    group = "versioned"
-    description = "Must run through 'chiseledBuild'"
-    from(tasks.remapJar.get().archiveFile, tasks.remapSourcesJar.get().archiveFile)
-    into(rootProject.layout.buildDirectory.file("libs/${mod.version}/$loader"))
-    dependsOn("build")
-}
-
-if (stonecutter.current.isActive) {
-    rootProject.tasks.register("buildActive") {
-        group = "project"
-        dependsOn(buildAndCollect)
+        if (mcData.isLegacyFabric) {
+            // 1.8.9 - 1.13
+            modImplementation("net.legacyfabric.legacy-fabric-api:legacy-fabric-api:${mcData.dependencies.legacyFabric.legacyFabricApiVersion}")
+        } else {
+            // 1.16.5+
+            modImplementation("net.fabricmc.fabric-api:fabric-api:${mcData.dependencies.fabric.fabricApiVersion}")
+        }
     }
 
-    rootProject.tasks.register("runActive") {
-        group = "project"
-        dependsOn(tasks.named("runClient"))
+    // Add Kotlin and Mixin in Legacy Forge
+    if (mcData.version <= MinecraftVersions.VERSION_1_12_2) {
+        implementation(includeOrShade(kotlin("stdlib-jdk8"))!!)
+        implementation(includeOrShade("org.jetbrains.kotlin:kotlin-reflect:1.6.10")!!)
+
+        modImplementation(includeOrShade("org.spongepowered:mixin:0.7.11-SNAPSHOT")!!)
     }
 }
 
-tasks.processResources {
-    properties(
-        listOf("fabric.mod.json"),
-        "id" to mod.id,
-        "name" to mod.name,
-        "version" to mod.version,
-        "minecraft" to mod.prop("mc_dep_fabric")
-    )
-    properties(
-        listOf("META-INF/mods.toml", "pack.mcmeta"),
-        "id" to mod.id,
-        "name" to mod.name,
-        "version" to mod.version,
-        "minecraft" to mod.prop("mc_dep_forgelike")
-    )
-    properties(
-        listOf("META-INF/neoforge.mods.toml", "pack.mcmeta"),
-        "id" to mod.id,
-        "name" to mod.name,
-        "version" to mod.version,
-        "minecraft" to mod.prop("mc_dep_forgelike")
-    )
-}
-
-tasks.build {
-    group = "versioned"
-    description = "Must run through 'chiseledBuild'"
+tasks {
+    fatJar {
+        if (mcData.isLegacyForge) {
+            relocate("dev.deftu.textile", "${modData.group}.dependencies.textile")
+            relocate("dev.deftu.omnicore", "${modData.group}.dependencies.omnicore")
+        }
+    }
 }

@@ -1,134 +1,131 @@
 package redxax.oxy.remotely.adapters;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.text.Text;
+import dev.deftu.omnicore.api.client.input.KeyboardModifiers;
+import dev.deftu.omnicore.api.client.input.OmniKey;
+import dev.deftu.omnicore.api.client.input.OmniMouseButton;
+import dev.deftu.omnicore.api.client.render.ImmediateScreenRenderer;
+import dev.deftu.omnicore.api.client.render.OmniRenderingContext;
+import dev.deftu.omnicore.api.client.render.OmniResolution;
+import dev.deftu.omnicore.api.client.screen.KeyPressEvent;
+import dev.deftu.omnicore.api.client.screen.OmniScreen;
+import dev.deftu.textile.Text;
+import net.minecraft.client.Minecraft;
+import org.jetbrains.annotations.NotNull;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.core.ScreenManager;
 
-public class ReScreenWrapper extends Screen {
+import java.lang.reflect.Field;
+
+public class ReScreenWrapper extends OmniScreen {
     private final restudio.rescreen.ui.core.Screen libScreen;
     private final ScreenManager sm = ScreenManager.getInstance();
+    private long lastFrameTime = 0;
 
     public ReScreenWrapper(restudio.rescreen.ui.core.Screen libScreen) {
-        super(Text.of("ReScreen Wrapper " + libScreen.getClass().getSimpleName()));
+        super(Text.literal("ReScreen Wrapper " + libScreen.getClass().getSimpleName()));
         this.libScreen = libScreen;
     }
 
     @Override
-    protected void init() {
-        super.init();
-        sm.updateDimensions(MinecraftClient.getInstance().getWindow().getWidth(), MinecraftClient.getInstance().getWindow().getHeight());
-
+    public void onInitialize(int width, int height) {
+        super.onInitialize(width, height);
+        lastFrameTime = System.nanoTime();
+        long handle = Minecraft.getInstance().getWindow().handle();
+        sm.setWindowHandle(handle);
         try {
-            sm.execute(() -> {});
+            Field f = restudio.rescreen.Main.class.getDeclaredField("window");
+            f.setAccessible(true);
+            f.setLong(null, handle);
         } catch (Throwable ignored) {}
+        sm.updateDimensions(OmniResolution.getWindowWidth(), OmniResolution.getWindowHeight());
+        sm.setGuiScale((float) OmniResolution.getScaleFactor());
+        ImmediateScreenRenderer.initialize();
+        sm.setScreen(libScreen);
+    }
 
-        if (sm.getCurrentScreen() != libScreen) {
-            sm.setScreen(libScreen);
+    @Override
+    public void onRender(@NotNull OmniRenderingContext ctx, int mouseX, int mouseY, float tickDelta) {
+        super.onRender(ctx, mouseX, mouseY, tickDelta);
+
+        long now = System.nanoTime();
+        float deltaSeconds = (float) ((now - lastFrameTime) / 1_000_000_000.0);
+        lastFrameTime = now;
+
+        if (deltaSeconds > 0.1f) deltaSeconds = 0.1f;
+        if (deltaSeconds < 0.0f) deltaSeconds = 0.016f;
+
+        sm.updateDimensions(OmniResolution.getWindowWidth(), OmniResolution.getWindowHeight());
+        float mcScale = (float) OmniResolution.getScaleFactor();
+        float reScale = sm.getGuiScale();
+        if (mcScale == 0 || reScale == 0) return;
+        float renderScale = reScale / mcScale;
+        float mouseScale = mcScale / reScale;
+        IDrawContext libCtx = new MinecraftDrawContextAdapter(ctx, renderScale);
+
+        float finalDelta = deltaSeconds;
+        ImmediateScreenRenderer.render(ctx, () -> {
+            ctx.pose().push();
+            ctx.pose().scale(renderScale, renderScale, 1f);
+            sm.render(libCtx, (int) (mouseX * mouseScale), (int) (mouseY * mouseScale), finalDelta);
+            sm.processTasks();
+            ctx.pose().pop();
+        });
+    }
+
+    @Override
+    public boolean onMouseClick(@NotNull OmniMouseButton button, double mouseX, double mouseY, @NotNull KeyboardModifiers modifiers) {
+        double sf = OmniResolution.getScaleFactor();
+        boolean handled = sm.mouseClicked(mouseX * sf, mouseY * sf, button.getCode());
+        return handled || super.onMouseClick(button, mouseX, mouseY, modifiers);
+    }
+
+    @Override
+    public boolean onMouseRelease(@NotNull OmniMouseButton button, double mouseX, double mouseY, @NotNull KeyboardModifiers modifiers) {
+        double sf = OmniResolution.getScaleFactor();
+        boolean handled = sm.mouseReleased(mouseX * sf, mouseY * sf, button.getCode());
+        return handled || super.onMouseRelease(button, mouseX, mouseY, modifiers);
+    }
+
+    @Override
+    public boolean onMouseDrag(@NotNull OmniMouseButton button, double mouseX, double mouseY, double deltaX, double deltaY, long clickTime, @NotNull KeyboardModifiers modifiers) {
+        double sf = OmniResolution.getScaleFactor();
+        boolean handled = sm.mouseDragged(mouseX * sf, mouseY * sf, button.getCode(), deltaX * sf, deltaY * sf);
+        return handled || super.onMouseDrag(button, mouseX, mouseY, deltaX, deltaY, clickTime, modifiers);
+    }
+
+    @Override
+    public boolean onMouseScroll(double mouseX, double mouseY, double amount, double horizontalAmount) {
+        double sf = OmniResolution.getScaleFactor();
+        boolean handled = sm.mouseScrolled(mouseX * sf, mouseY * sf, horizontalAmount, amount);
+        return handled || super.onMouseScroll(mouseX, mouseY, amount, horizontalAmount);
+    }
+
+    @Override
+    public boolean onKeyPress(@NotNull OmniKey key, int scanCode, char typedChar, @NotNull KeyboardModifiers modifiers, @NotNull KeyPressEvent event) {
+        boolean handled = false;
+        if (event == KeyPressEvent.PRESSED) {
+            handled = sm.keyPressed(key.getCode(), scanCode, modifiers.toMods());
+        } else if (event == KeyPressEvent.TYPED) {
+            handled = sm.charTyped(typedChar, modifiers.toMods());
         }
+        return handled || super.onKeyPress(key, scanCode, typedChar, modifiers, event);
     }
 
     @Override
-    public void render(DrawContext drawContext, int mouseX, int mouseY, float delta) {
-        super.render(drawContext, mouseX, mouseY, delta);
-
-        sm.updateDimensions(this.client.getWindow().getWidth(), this.client.getWindow().getHeight());
-
-        float mcScale = (float) this.client.getWindow().getScaleFactor();
-        float reScreenScale = sm.getGuiScale();
-
-        if (mcScale == 0 || reScreenScale == 0) return;
-
-        float renderScale = reScreenScale / mcScale;
-        float mouseScale = mcScale / reScreenScale;
-
-        IDrawContext libCtx = new MinecraftDrawContextAdapter(drawContext, renderScale);
-
-        //? if >= 1.21.6 {
-        /*drawContext.getMatrices().pushMatrix();
-        drawContext.getMatrices().scale(renderScale, renderScale);
-        *///?} else {
-        drawContext.getMatrices().push();
-        drawContext.getMatrices().scale(renderScale, renderScale, 1f);
-        //?}
-
-        sm.render(libCtx, (int)(mouseX * mouseScale), (int)(mouseY * mouseScale), delta);
-        sm.processTasks();
-
-        //? if >= 1.21.6 {
-        /*drawContext.getMatrices().popMatrix();
-         *///?} else {
-        drawContext.getMatrices().pop();
-        //?}
+    public boolean onKeyRelease(@NotNull OmniKey key, int scanCode, @NotNull KeyboardModifiers modifiers) {
+        boolean handled = sm.keyReleased(key.getCode(), scanCode, modifiers.toMods());
+        return handled || super.onKeyRelease(key, scanCode, modifiers);
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        double sf = this.client.getWindow().getScaleFactor();
-        boolean handled = sm.mouseClicked(mouseX * sf, mouseY * sf, button);
-        return handled || super.mouseClicked(mouseX, mouseY, button);
-    }
-
-    @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        double sf = this.client.getWindow().getScaleFactor();
-        boolean handled = sm.mouseReleased(mouseX * sf, mouseY * sf, button);
-        return handled || super.mouseReleased(mouseX, mouseY, button);
-    }
-
-    @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        double sf = this.client.getWindow().getScaleFactor();
-        boolean handled = sm.mouseDragged(mouseX * sf, mouseY * sf, button, deltaX * sf, deltaY * sf);
-        return handled || super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
-    }
-
-    @Override
-    public void mouseMoved(double mouseX, double mouseY) {
-        double sf = this.client.getWindow().getScaleFactor();
-        sm.mouseMoved(mouseX * sf, mouseY * sf);
-        super.mouseMoved(mouseX, mouseY);
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontal, double vertical) {
-        double sf = this.client.getWindow().getScaleFactor();
-        boolean handled = sm.mouseScrolled(mouseX * sf, mouseY * sf, horizontal, vertical);
-        return handled || super.mouseScrolled(mouseX, mouseY, horizontal, vertical);
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        boolean handled = sm.keyPressed(keyCode, scanCode, modifiers);
-        return handled || super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    @Override
-    public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
-        boolean handled = sm.keyReleased(keyCode, scanCode, modifiers);
-        return handled || super.keyReleased(keyCode, scanCode, modifiers);
-    }
-
-    @Override
-    public boolean charTyped(char chr, int modifiers) {
-        boolean handled = sm.charTyped(chr, modifiers);
-        return handled || super.charTyped(chr, modifiers);
-    }
-
-    @Override
-    public void removed() {
-        super.removed();
+    public void onScreenClose() {
+        super.onScreenClose();
+        restudio.rescreen.ui.core.Screen current = sm.getCurrentScreen();
+        if (current != null) current.removed();
         sm.setScreen(null);
     }
 
-    @Override
-    public void onDisplayed() {
-        super.onDisplayed();
-        restudio.rescreen.ui.core.Screen current = sm.getCurrentScreen();
-        if (current != null) current.onDisplayed();
-    }
+    public void onDisplayed() {}
 
     public restudio.rescreen.ui.core.Screen getScreen() {
         return libScreen;

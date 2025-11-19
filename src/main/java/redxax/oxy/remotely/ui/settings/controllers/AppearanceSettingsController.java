@@ -2,7 +2,9 @@ package redxax.oxy.remotely.ui.settings.controllers;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import restudio.rescreen.ui.settings.Setting;
-import restudio.rescreen.ui.widgets.*;
+import restudio.rescreen.ui.widgets.DoubleSliderWidget;
+import restudio.rescreen.ui.widgets.TabSwitchWidget;
+import restudio.rescreen.ui.widgets.ToggleWidget;
 
 import java.util.ArrayList;
 import java.util.Arrays;

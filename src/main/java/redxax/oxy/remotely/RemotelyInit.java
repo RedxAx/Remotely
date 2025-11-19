@@ -8,13 +8,8 @@ import restudio.rescreen.Main;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 
-public class RemotelyInit
-{
-    public static ModPlatform PLATFORM = null;
-
-    public static void initCommon(ModPlatform platform) {
-        RemotelyInit.PLATFORM = platform;
-
+public class RemotelyInit {
+    public static void initCommon() {
         InstanceManager.initialize(remotelyDir);
 
         RemotelyManager remotelyManager = new RemotelyManager();
@@ -26,23 +21,9 @@ public class RemotelyInit
         new RemotelyClient(host).initialize();
     }
 
-    public static void entrypoint(ModPlatform platform, ApplicationHost host) {
-        initCommon(platform);
-        initClient(host);
-    }
-
     public static void main(String[] args) {
         Main.setEntryClass(RemotelyEntry.class);
-        initCommon(new ModPlatform() {
-            @Override
-            public String getModloader() {
-                return "standalone";
-            }
-            @Override
-            public boolean isModLoaded(String modloader) {
-                return true;
-            }
-        });
+        initCommon();
         Main.main(args);
     }
 }
