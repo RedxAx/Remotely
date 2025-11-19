@@ -27,13 +27,13 @@ public class PlayersContainer extends Container {
         this.terminalWidget = terminalWidget;
         this.layout(new ManagedLayout()).columns(1).padding(2).enableSelecting(true).setRelativeScissor(- 1, - 1, - 1, - 3);
         controller = PlayerManagerController.getOrCreate(instance, RebaseApiFactory.get(instance));
-        controller.setUiBindings(this, terminalWidget);
+        controller.setUiBindings(this);
     }
 
     public void setInstance(Instance newInstance) {
         this.instance = newInstance;
         controller = PlayerManagerController.getOrCreate(newInstance, RebaseApiFactory.get(newInstance));
-        controller.setUiBindings(this, terminalWidget);
+        controller.setUiBindings(this);
     }
 
     public void rebuildPlayerWidgets() {
@@ -49,22 +49,33 @@ public class PlayersContainer extends Container {
         if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
             if (isMouseOver(mouseX, mouseY)) {
                 java.util.List<AnimatedWidget> selected = getSelectedWidgets();
-                if (!selected.isEmpty()) {
-                    boolean mouseOverSelected = false;
-                    for (AnimatedWidget widget : selected) {
-                        if (widget.isMouseOver(mouseX, mouseY)) {
-                            mouseOverSelected = true;
-                            break;
-                        }
+
+                boolean mouseOverSelected = false;
+                for (AnimatedWidget widget : selected) {
+                    if (widget.isMouseOver(mouseX, mouseY)) {
+                        mouseOverSelected = true;
+                        break;
                     }
-                    if (mouseOverSelected) {
-                        showPlayersContextMenu(mouseX, mouseY);
-                        return true;
-                    }
+                }
+
+                if (mouseOverSelected) {
+                    showPlayersContextMenu(mouseX, mouseY);
+                    return true;
+                } else {
+                    showGeneralContextMenu(mouseX, mouseY);
+                    return true;
                 }
             }
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private void showGeneralContextMenu(double mouseX, double mouseY) {
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(host)
+            .addHeaderButton("reload.png", this::fullRefresh, "Refresh List")
+            .addItem("LuckPerms Dashboard", controller::openLuckPermsDashboard, "Open full editor")
+            .addItem("LuckPerms Settings", controller::openLuckPermsSettings, "Configure integration");
+        host.showContextMenu((int) mouseX, (int) mouseY, builder);
     }
 
     private void showPlayersContextMenu(double mouseX, double mouseY) {
@@ -78,10 +89,13 @@ public class PlayersContainer extends Container {
         }
         if (players.isEmpty()) return;
         ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(host)
-                .addHeaderButton("delete.png", () -> kickSelected(players), "Kick Selected", ThemeManager.getAccent("danger"))
-                .addHeaderButton("close.png", () -> showBanMultiPopup(players), "Ban Selected")
-                .addHeaderButton("heart.png", () -> unbanSelected(players), "Unban Selected")
-                .addHeaderButton("op.png", () -> toggleOpSelected(players), "Toggle Op Selected");
+            .addHeaderButton("delete.png", () -> kickSelected(players), "Kick Selected", ThemeManager.getAccent("danger"))
+            .addHeaderButton("close.png", () -> showBanMultiPopup(players), "Ban Selected")
+            .addHeaderButton("heart.png", () -> unbanSelected(players), "Unban Selected")
+            .addHeaderButton("op.png", () -> toggleOpSelected(players), "Toggle Op Selected");
+
+        builder.addItem("LuckPerms Dashboard", controller::openLuckPermsDashboard, "Open full editor");
+
         java.util.List<PlayerAction> actions = controller.getPlayerActions();
         if (actions != null) {
             for (PlayerAction action : actions) {
@@ -123,7 +137,7 @@ public class PlayersContainer extends Container {
             return;
         }
         PopupWidget.Builder builder = new PopupWidget.Builder("Execute: " + action.name)
-                .size(300, 60 + variables.size() * 30).setAntiOutOfBound(true).setResizable(true);
+            .size(300, 60 + variables.size() * 30).setAntiOutOfBound(true).setResizable(true);
         java.util.Map<String, TextInputWidget> inputs = new java.util.HashMap<>();
         Runnable execute = () -> {
             String template = action.command;
@@ -157,7 +171,7 @@ public class PlayersContainer extends Container {
 
     private void showBanMultiPopup(java.util.List<ManagedPlayer> players) {
         PopupWidget.Builder builder = new PopupWidget.Builder("Ban Selected")
-                .size(320, 120).setAntiOutOfBound(true).setResizable(true);
+            .size(320, 120).setAntiOutOfBound(true).setResizable(true);
         TextInputWidget reason = new TextInputWidget.Builder().placeholder("Reason").size(280, 18).build();
         ToggleWidget ipBan = new ToggleWidget.Builder().toggled(false).build();
         builder.addRow("Reason", false, 20, reason);

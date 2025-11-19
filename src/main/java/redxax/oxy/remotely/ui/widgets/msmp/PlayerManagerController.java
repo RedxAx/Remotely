@@ -11,6 +11,7 @@ import redxax.oxy.remotely.data.player.IPlayerHistoryProvider;
 import redxax.oxy.remotely.data.player.standard.StandardPlayerActionProvider;
 import redxax.oxy.remotely.data.player.standard.StandardPlayerDataProvider;
 import redxax.oxy.remotely.data.player.standard.StandardPlayerHistoryProvider;
+import redxax.oxy.remotely.ui.integrations.luckperms.LuckPermsDashboardScreen;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
@@ -56,7 +57,7 @@ public class PlayerManagerController {
                     }
                     return null;
                 });
-                
+
                 IPlayerDataProvider dp = new StandardPlayerDataProvider(instance, api, tw, hp);
                 IPlayerActionProvider ap = new StandardPlayerActionProvider(instance, api, tw);
 
@@ -73,17 +74,23 @@ public class PlayerManagerController {
         actionProvider.initialize();
         historyProvider.initialize();
     }
-    
-    public void setUiBindings(Container container, TerminalWidget terminalWidget) {
+
+    public void setUiBindings(Container container) {
         this.container = container;
         this.dataProvider.addUpdateListener(players -> ScreenManager.getInstance().execute(this::rebuildPlayerWidgets));
         ScreenManager.getInstance().execute(this::rebuildPlayerWidgets);
     }
 
     public CompletableFuture<Void> fullRefresh() {
-        return dataProvider.fullRefresh();
+        CompletableFuture<Void> standardRefresh = dataProvider.fullRefresh();
+
+        if (dataProvider instanceof StandardPlayerDataProvider sdp) {
+            sdp.getLuckPermsService().clearCache();
+        }
+
+        return standardRefresh;
     }
-    
+
     public IPlayerDataProvider getDataProvider() {
         return dataProvider;
     }
@@ -144,5 +151,19 @@ public class PlayerManagerController {
 
     public CompletableFuture<List<PlayerSession>> getPlayerSessions(UUID uuid) {
         return historyProvider.getSessions(uuid);
+    }
+
+    public void openLuckPermsSettings() {
+        if (dataProvider instanceof StandardPlayerDataProvider sdp) {
+            ScreenManager.getInstance().getCurrentScreen().addDrawableChild(new LuckPermsSettingsPopup(sdp.getLuckPermsService(), this::fullRefresh));
+        }
+    }
+
+    public void openLuckPermsDashboard() {
+        if (dataProvider instanceof StandardPlayerDataProvider sdp && sdp.getLuckPermsService().isEnabled()) {
+            ScreenManager.getInstance().setScreen(new LuckPermsDashboardScreen(ScreenManager.getInstance().getCurrentScreen(), sdp.getLuckPermsService()));
+        } else {
+            new Notification("Error", "LuckPerms integration is disabled.", Notification.Type.ERROR);
+        }
     }
 }
