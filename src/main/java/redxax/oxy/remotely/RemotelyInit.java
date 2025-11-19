@@ -10,6 +10,12 @@ import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public class RemotelyInit {
     public static void initCommon() {
+        try {
+            if (Rebase.get() != null) return;
+        } catch (IllegalStateException ignored) {
+            System.out.println("Rebase already initialized, skipping...");
+        }
+
         InstanceManager.initialize(remotelyDir);
 
         RemotelyManager remotelyManager = new RemotelyManager();

@@ -42,8 +42,6 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screens.
         if (optionsButton == null) {
             System.err.println("[Remotely] Could not find Options button to attach additional buttons.");
             return;
-        } else {
-            System.out.println("[Remotely] Found Options button at: (" + optionsButton.getX() + ", " + optionsButton.getY() + ")");
         }
 
         switch (mainMenuStyle) {
@@ -57,11 +55,11 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screens.
                 int excessWidth = totalWidth - 200;
                 largeButtonWidth -= excessWidth;
                 AbstractButton serverButton = Button.builder(Component.literal("Servers"), btn -> openServerManagerScreen()).bounds(buttonX, buttonY, smallButtonWidth, 20).build();
-                this.addWidget(serverButton);
+                this.addRenderableWidget(serverButton);
                 AbstractButton fileExplorerButton = Button.builder(Component.literal("File Explorer"), btn -> openFileExplorerScreen()).bounds(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20).build();
-                this.addWidget(fileExplorerButton);
+                this.addRenderableWidget(fileExplorerButton);
                 AbstractButton terminalButton = Button.builder(Component.literal("Terminal"), btn -> openMultiTerminalScreen()).bounds(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY, smallButtonWidth, 20).build();
-                this.addWidget(terminalButton);
+                this.addRenderableWidget(terminalButton);
             }
             case "Minimal" -> {
                 int spacing = 8;
@@ -71,15 +69,15 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screens.
 
                 SquareButtonWidget serverBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("manager.png").onClick(this::openServerManagerScreen).hint("Servers").build();
                 serverBtn.setPosition(startX, buttonY);
-                this.addWidget(new ReWidgetWrapper(serverBtn));
+                this.addRenderableWidget(new ReWidgetWrapper(serverBtn));
 
                 SquareButtonWidget terminalBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("terminal.png").onClick(this::openMultiTerminalScreen).hint("Terminal").build();
                 terminalBtn.setPosition(startX + (buttonSize + spacing), buttonY);
-                this.addWidget(new ReWidgetWrapper(terminalBtn));
+                this.addRenderableWidget(new ReWidgetWrapper(terminalBtn));
 
                 SquareButtonWidget explorerBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("explorer.png").onClick(this::openFileExplorerScreen).hint("File Explorer").build();
                 explorerBtn.setPosition(startX + 2 * (buttonSize + spacing), buttonY);
-                this.addWidget(new ReWidgetWrapper(explorerBtn));
+                this.addRenderableWidget(new ReWidgetWrapper(explorerBtn));
             }
             case "Normal" -> {
                 int buttonX = optionsButton.getX();
@@ -93,24 +91,15 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screens.
 
                 AnimatedButton serverBtn = new AnimatedButton.Builder().entranceAnimation(false).label("Servers").onClick(this::openServerManagerScreen).size(smallButtonWidth, 18).build();
                 serverBtn.setPosition(buttonX, buttonY);
-                this.addWidget(new ReWidgetWrapper(serverBtn));
+                this.addRenderableWidget(new ReWidgetWrapper(serverBtn));
 
                 AnimatedButton explorerBtn = new AnimatedButton.Builder().entranceAnimation(false).label("File Explorer").onClick(this::openFileExplorerScreen).size(largeButtonWidth, 18).build();
                 explorerBtn.setPosition(buttonX + smallButtonWidth + gap, buttonY);
-                this.addWidget(new ReWidgetWrapper(explorerBtn));
+                this.addRenderableWidget(new ReWidgetWrapper(explorerBtn));
 
                 AnimatedButton terminalBtn = new AnimatedButton.Builder().entranceAnimation(false).label("Terminal").onClick(this::openMultiTerminalScreen).size(smallButtonWidth, 18).build();
                 terminalBtn.setPosition(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY);
-                this.addWidget(new ReWidgetWrapper(terminalBtn));
-            }
-        }
-    }
-
-    @Inject(method = "render", at = @At("TAIL"))
-    private void render(GuiGraphics guiGraphics, int i, int j, float f, CallbackInfo ci) {
-        for (var widget : this.children()) {
-            if (widget instanceof ReWidgetWrapper wrapper) {
-                wrapper.render(guiGraphics, i, j, f);
+                this.addRenderableWidget(new ReWidgetWrapper(terminalBtn));
             }
         }
     }

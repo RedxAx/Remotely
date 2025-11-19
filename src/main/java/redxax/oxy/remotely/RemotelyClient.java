@@ -4,6 +4,7 @@ import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.host.ApplicationHost;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
 import redxax.oxy.remotely.ui.server.ServerDetailsScreen;
+import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
@@ -39,27 +40,36 @@ public class RemotelyClient {
 
     public void initialize() {
         Config.applicationDir = remotelyDir;
-        Config.setConfigManager(new RemotelyConfigManager(remotelyDir));
+        try {
+            if (Rebase.get() != null && Rebase.get().getConfigManager() instanceof RemotelyConfigManager) {
+                Config.setConfigManager(Rebase.get().getConfigManager());
+            } else {
+                Config.setConfigManager(new RemotelyConfigManager(remotelyDir));
+            }
+        } catch (IllegalStateException e) {
+            Config.setConfigManager(new RemotelyConfigManager(remotelyDir));
+        }
+
         ThemeManager.init();
         System.out.println("Remotely mod initialized on the client.");
         loadSnippets();
 
         os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
         if (os.contains("win")) {
-            try {
-                String bgPath = System.getProperty("user.home") + "/AppData/Roaming/Microsoft/Windows/Themes/TranscodedWallpaper";
-                restudio.rescreen.config.Config.windowsBackground = javax.imageio.ImageIO.read(new File(bgPath));
-            } catch (Exception e) {
-                devPrint("Failed to load Windows background: " + e.getMessage());
-            }
+            new Thread(() -> {
+                try {
+                    String bgPath = System.getProperty("user.home") + "/AppData/Roaming/Microsoft/Windows/Themes/TranscodedWallpaper";
+                    File file = new File(bgPath);
+                    if (file.exists() && file.canRead()) {
+                        restudio.rescreen.config.Config.windowsBackground = javax.imageio.ImageIO.read(file);
+                    }
+                } catch (Exception e) {
+                    devPrint("Failed to load Windows background: " + e.getMessage());
+                }
+            }, "Remotely-Wallpaper-Loader").start();
         }
 
-        Runtime.getRuntime().addShutdownHook(new Thread(this::onClientShutdown));
         FontRegistry.MONO_FONT = host.getFontIdentifier("remotely", "mono");
-    }
-
-    private void onClientShutdown() {
-        shutdownAllTerminals();
     }
 
     public void openMultiTerminal(Object parent) {
@@ -157,7 +167,4 @@ public class RemotelyClient {
         return host;
     }
 
-    public static boolean isModLoaded(String modId) {
-        return false;
-    }
 }
