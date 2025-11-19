@@ -17,6 +17,9 @@ import dev.deftu.omnicore.api.client.textures.OmniTextures;
 import dev.deftu.omnicore.api.color.OmniColor;
 import dev.deftu.omnicore.api.color.OmniColors;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.FontDescription;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 import restudio.rescreen.platform.IDrawContext;
@@ -166,11 +169,14 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     @Override
     public void drawStyledText(Object text, int x, int y, int color, boolean shadow) {
         if (text instanceof Component mcText) {
-            OmniTextRenderer.render(ctx, mcText.getString(), (float) x, (float) y, fromArgb(color == 0 ? 0xFFFFFFFF : color), shadow);
+            OmniTextRenderer.render(ctx, mcText, (float) x, (float) y, fromArgb(color == 0 ? 0xFFFFFFFF : color), shadow);
         } else if (text instanceof StyledText styledText) {
             if ((styledText.color >> 24 & 0xFF) == 0) return;
-            Component renderText = Component.literal(styledText.text);
-            OmniTextRenderer.render(ctx, renderText.getString(), (float) x, (float) y, fromArgb(styledText.color), shadow);
+            MutableComponent renderText = Component.literal(styledText.text);
+            if (styledText.font instanceof ResourceLocation rl) {
+                renderText.setStyle(Style.EMPTY.withFont(new FontDescription.Resource(rl)));
+            }
+            OmniTextRenderer.render(ctx, renderText, (float) x, (float) y, fromArgb(styledText.color), shadow);
         } else {
             drawText(String.valueOf(text), x, y, color, shadow);
         }
