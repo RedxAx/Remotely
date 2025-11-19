@@ -29,10 +29,14 @@ public class AssetManager {
         regBiome("minecraft:plains", 0xFF91BD59, 0xFF3F76E4, 0xFF77AB2F);
         regBiome("minecraft:sunflower_plains", 0xFF91BD59, 0xFF3F76E4, 0xFF77AB2F);
 
+        regBiome("minecraft:meadow", 0xFF83BB6D, 0xFF3F76E4, 0xFF6BA941);
+        regBiome("minecraft:cherry_grove", 0xFFB6DB61, 0xFF5DB7EF, 0xFFB6DB61);
+
         regBiome("minecraft:forest", 0xFF79C05A, 0xFF3F76E4, 0xFF59AE30);
         regBiome("minecraft:flower_forest", 0xFF79C05A, 0xFF3F76E4, 0xFF59AE30);
         regBiome("minecraft:birch_forest", 0xFF88BB67, 0xFF3F76E4, 0xFF6BA941);
         regBiome("minecraft:dark_forest", 0xFF507A32, 0xFF3F76E4, 0xFF59AE30);
+        regBiome("minecraft:old_growth_birch_forest", 0xFF88BB67, 0xFF3F76E4, 0xFF6BA941);
 
         regBiome("minecraft:swamp", 0xFF6A7039, 0xFF617B64, 0xFF6A7039);
         regBiome("minecraft:mangrove_swamp", 0xFF6A7039, 0xFF3A7A6A, 0xFF6A7039);
@@ -42,15 +46,29 @@ public class AssetManager {
         regBiome("minecraft:bamboo_jungle", 0xFF76C600, 0xFF3F76E4, 0xFF76C600);
 
         regBiome("minecraft:snowy_plains", 0xFF80B497, 0xFF3D57D6, 0xFF68B474);
+        regBiome("minecraft:ice_spikes", 0xFF80B497, 0xFF3D57D6, 0xFF68B474);
         regBiome("minecraft:taiga", 0xFF81C281, 0xFF4076E4, 0xFF68B474);
+        regBiome("minecraft:snowy_taiga", 0xFF81C281, 0xFF4076E4, 0xFF68B474);
+        regBiome("minecraft:old_growth_pine_taiga", 0xFF81C281, 0xFF4076E4, 0xFF68B474);
 
         regBiome("minecraft:desert", 0xFFBFB755, 0xFF32A0DE, 0xFFAEA42A);
         regBiome("minecraft:savanna", 0xFFBFB755, 0xFF32A0DE, 0xFFAEA42A);
+        regBiome("minecraft:savanna_plateau", 0xFFBFB755, 0xFF32A0DE, 0xFFAEA42A);
         regBiome("minecraft:badlands", 0xFF90814D, 0xFF32A0DE, 0xFF9E814D);
+        regBiome("minecraft:wooded_badlands", 0xFF90814D, 0xFF32A0DE, 0xFF9E814D);
 
         regBiome("minecraft:ocean", 0xFF8EB971, 0xFF1787D4, 0xFF71A74D);
+        regBiome("minecraft:deep_ocean", 0xFF8EB971, 0xFF1787D4, 0xFF71A74D);
         regBiome("minecraft:warm_ocean", 0xFF8EB971, 0xFF43D5EE, 0xFF71A74D);
         regBiome("minecraft:lukewarm_ocean", 0xFF8EB971, 0xFF45ADF2, 0xFF71A74D);
+        regBiome("minecraft:cold_ocean", 0xFF8EB971, 0xFF3D57D6, 0xFF71A74D);
+        regBiome("minecraft:frozen_ocean", 0xFF80B497, 0xFF3D57D6, 0xFF68B474);
+
+        regBiome("minecraft:river", 0xFF8EB971, 0xFF3F76E4, 0xFF71A74D);
+        regBiome("minecraft:frozen_river", 0xFF80B497, 0xFF3D57D6, 0xFF68B474);
+        regBiome("minecraft:beach", 0xFF8EB971, 0xFF3F76E4, 0xFF71A74D);
+        regBiome("minecraft:snowy_beach", 0xFF80B497, 0xFF3D57D6, 0xFF68B474);
+        regBiome("minecraft:stony_shore", 0xFF8EB971, 0xFF3F76E4, 0xFF71A74D);
     }
 
     private static void regBiome(String id, int grass, int water, int foliage) {
@@ -102,7 +120,7 @@ public class AssetManager {
                                         BufferedImage tex = ImageIO.read(jar.getInputStream(entry));
                                         if (tex != null) {
                                             int avgColor = calculateAverageColor(tex);
-                                            if ((avgColor >>> 24) > 0) {
+                                            if ((avgColor >>> 24) > 10) {
                                                 colorMap.put(blockId, avgColor);
                                                 priorityMap.put(blockId, priority);
                                             }
@@ -146,7 +164,13 @@ public class AssetManager {
     }
 
     public int getBlockColor(String blockId, String biomeId) {
-        int base = shouldTintFoliage(blockId) && highQualityLoaded ? NEUTRAL_FOLIAGE_BASE : resolveBaseColor(blockId);
+        int base = resolveBaseColor(blockId);
+
+        if (highQualityLoaded) {
+            if (shouldTintFoliage(blockId)) base = NEUTRAL_FOLIAGE_BASE;
+            else if (shouldTintGrass(blockId)) base = NEUTRAL_FOLIAGE_BASE;
+        }
+
         if (shouldTintGrass(blockId)) {
             int tint = BIOME_GRASS.getOrDefault(biomeId, BIOME_GRASS.get("default"));
             return applyTint(base, tint);
@@ -175,14 +199,16 @@ public class AssetManager {
         else if (stripped.endsWith("_pressure_plate")) stripped = stripped.replace("_pressure_plate", "");
         else if (stripped.endsWith("_fence_gate")) stripped = stripped.replace("_fence_gate", "");
         else if (stripped.endsWith("_fence")) stripped = stripped.replace("_fence", "");
+        else if (stripped.endsWith("_carpet")) stripped = stripped.replace("_carpet", "");
+
         color = colorMap.get(stripped);
-        if (color == null && !stripped.contains("_planks") && isWood(stripped)) color = colorMap.get(stripped + "_planks");
+        if (color != null) return color;
+
+        if (!stripped.contains("_planks") && isWood(stripped)) color = colorMap.get(stripped + "_planks");
         if (color == null && stripped.contains("_wood")) color = colorMap.get(stripped.replace("_wood", "_log"));
         if (color == null && blockId.contains("path")) color = colorMap.get("minecraft:dirt");
-        if (color == null && stripped.contains("pointed_dripstone")) {
-            Integer d = colorMap.get("minecraft:dripstone_block");
-            if (d != null) return d;
-        }
+        if (color == null && stripped.contains("pointed_dripstone")) color = colorMap.get("minecraft:dripstone_block");
+
         if (color == null) return getFallbackHashColor(blockId);
         return color;
     }
@@ -202,13 +228,13 @@ public class AssetManager {
     }
 
     private boolean shouldTintGrass(String id) {
-        return id.contains("grass_block") || id.equals("minecraft:grass");
+        return id.contains("grass_block") || id.equals("minecraft:grass") || id.contains("short_grass") || id.contains("tall_grass");
     }
     private boolean shouldTintFoliage(String id) {
-        return id.contains("leaves") || id.contains("vine") || id.contains("fern") || id.contains("leaf_litter") || id.contains("fallen_leaves") || id.contains("azalea") || id.contains("flowering_azalea");
+        return id.contains("leaves") || id.contains("vine") || id.contains("fern") || id.contains("leaf_litter") || id.contains("fallen_leaves") || id.contains("azalea");
     }
     private boolean shouldTintWater(String id) {
-        return id.contains("water") || id.contains("bubble_column");
+        return id.contains("water") || id.contains("bubble_column") || id.contains("ice");
     }
 
     private int applyTint(int color, int tint) {

@@ -36,16 +36,12 @@ public class WorldMapRenderer {
         float worldCenterZ = (worldTop + worldBottom) / 2f;
         int centerRx = (int) Math.floor(worldCenterX / REGION_SIZE_BLOCKS);
         int centerRz = (int) Math.floor(worldCenterZ / REGION_SIZE_BLOCKS);
-        renderMap(ctx, rXMin, rZMin, rXMax, rZMax, centerRx, centerRz);
 
-    }
-
-    private void renderMap(IDrawContext ctx, int rXMin, int rZMin, int rXMax, int rZMax, int centerRx, int centerRz) {
         for (int rx = rXMin; rx <= rXMax; rx++) {
             for (int rz = rZMin; rz <= rZMax; rz++) {
                 BufferedImage tile = tileCache.getTile(rx, rz, centerRx, centerRz);
                 if (tile != null) {
-                    ctx.drawPixelArt(tile, rx * REGION_SIZE_BLOCKS, rz * REGION_SIZE_BLOCKS, REGION_SIZE_BLOCKS + 0.4f, REGION_SIZE_BLOCKS + 0.4f);
+                    ctx.drawPixelArt(tile, rx * REGION_SIZE_BLOCKS, rz * REGION_SIZE_BLOCKS, REGION_SIZE_BLOCKS, REGION_SIZE_BLOCKS);
                 }
             }
         }
@@ -54,12 +50,15 @@ public class WorldMapRenderer {
     public String[] getBlockAndBiomeAt(double worldX, double worldZ) {
         int wx = (int) Math.floor(worldX);
         int wz = (int) Math.floor(worldZ);
-        int cx = (int) Math.floor(wx / 16.0);
-        int cz = (int) Math.floor(wz / 16.0);
+        int cx = wx >> 4;
+        int cz = wz >> 4;
+
         ChunkData chunk = chunkLoader.getChunk(cx, cz);
         if (chunk == null) return null;
-        int lx = Math.floorMod(wx, 16);
-        int lz = Math.floorMod(wz, 16);
+
+        int lx = wx & 15;
+        int lz = wz & 15;
+
         String blockId = chunk.getBlockId(lx, lz);
         String biomeId = chunk.getBiomeId(lx, lz);
         return new String[] { blockId, biomeId };
