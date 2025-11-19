@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.mixin;
 
-import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.PauseScreen;
@@ -12,7 +11,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.ui.ReWidgetWrapper;
+import redxax.oxy.remotely.adapters.ICustomWidgetHolder;
 import redxax.oxy.remotely.util.InitializationManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
@@ -30,6 +29,9 @@ public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.scree
     @Inject(method = "init", at = @At("HEAD"))
     private void onInit(CallbackInfo ci) {
         InitializationManager.ensureInitialized();
+        if (this instanceof ICustomWidgetHolder holder) {
+            holder.remotely$clearWidgets();
+        }
     }
 
     @Inject(method = "init", at = @At("RETURN"))
@@ -39,6 +41,8 @@ public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.scree
         AbstractButton optionsButton = this.children().stream().filter(child -> child instanceof AbstractButton).map(child -> (AbstractButton) child).filter(button -> button.getMessage().getString().equals(returnToMenuButtonText) || button.getMessage().getString().equals(disconnectButtonText)).findFirst().orElse(null);
 
         if (optionsButton == null) return;
+
+        ICustomWidgetHolder widgetHolder = (ICustomWidgetHolder) this;
 
         switch (mainMenuStyle) {
             case "Vanilla" -> {
@@ -60,24 +64,24 @@ public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.scree
             case "Minimal" -> {
                 int spacing = 8;
                 int buttonSize = 18;
-                int startX = optionsButton.getX();
-                int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
+                int startX = optionsButton.getX() + 1;
+                int buttonY = optionsButton.getY() + optionsButton.getHeight() + buttonSize;
 
-                SquareButtonWidget serverBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("manager.png").onClick(this::openServerManagerScreen).hint("Servers").build();
+                SquareButtonWidget serverBtn = new SquareButtonWidget.Builder().imagePath("manager.png").onClick(this::openServerManagerScreen).build();
                 serverBtn.setPosition(startX, buttonY);
-                this.addRenderableWidget(new ReWidgetWrapper(serverBtn));
+                widgetHolder.remotely$addWidget(serverBtn);
 
-                SquareButtonWidget terminalBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("terminal.png").onClick(this::openMultiTerminalScreen).hint("Terminal").build();
+                SquareButtonWidget terminalBtn = new SquareButtonWidget.Builder().imagePath("terminal.png").onClick(this::openMultiTerminalScreen).build();
                 terminalBtn.setPosition(startX + (buttonSize + spacing), buttonY);
-                this.addRenderableWidget(new ReWidgetWrapper(terminalBtn));
+                widgetHolder.remotely$addWidget(terminalBtn);
 
-                SquareButtonWidget explorerBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("explorer.png").onClick(this::openFileExplorerScreen).hint("File Explorer").build();
+                SquareButtonWidget explorerBtn = new SquareButtonWidget.Builder().imagePath("explorer.png").onClick(this::openFileExplorerScreen).build();
                 explorerBtn.setPosition(startX + 2 * (buttonSize + spacing), buttonY);
-                this.addRenderableWidget(new ReWidgetWrapper(explorerBtn));
+                widgetHolder.remotely$addWidget(explorerBtn);
             }
             case "Normal" -> {
-                int buttonX = optionsButton.getX();
-                int buttonY = optionsButton.getY() + optionsButton.getHeight() + 5;
+                int buttonX = optionsButton.getX() + 1;
+                int buttonY = optionsButton.getY() + optionsButton.getHeight() + 18;
                 int smallButtonWidth = 50;
                 int largeButtonWidth = 100;
                 int gap = 5;
@@ -85,17 +89,17 @@ public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.scree
                 int excessWidth = totalWidth - 200;
                 largeButtonWidth -= excessWidth;
 
-                AnimatedButton serverBtn = new AnimatedButton.Builder().label("Servers").onClick(this::openServerManagerScreen).size(smallButtonWidth, 18).entranceAnimation(false).build();
+                AnimatedButton serverBtn = new AnimatedButton.Builder().label("Servers").onClick(this::openServerManagerScreen).size(smallButtonWidth, 18).build();
                 serverBtn.setPosition(buttonX, buttonY);
-                this.addRenderableWidget(new ReWidgetWrapper(serverBtn));
+                widgetHolder.remotely$addWidget(serverBtn);
 
-                AnimatedButton explorerBtn = new AnimatedButton.Builder().label("File Explorer").onClick(this::openFileExplorerScreen).size(largeButtonWidth, 18).entranceAnimation(false).build();
+                AnimatedButton explorerBtn = new AnimatedButton.Builder().label("File Explorer").onClick(this::openFileExplorerScreen).size(largeButtonWidth, 18).build();
                 explorerBtn.setPosition(buttonX + smallButtonWidth + gap, buttonY);
-                this.addRenderableWidget(new ReWidgetWrapper(explorerBtn));
+                widgetHolder.remotely$addWidget(explorerBtn);
 
-                AnimatedButton terminalBtn = new AnimatedButton.Builder().label("Terminal").onClick(this::openMultiTerminalScreen).size(smallButtonWidth, 18).entranceAnimation(false).build();
+                AnimatedButton terminalBtn = new AnimatedButton.Builder().label("Terminal").onClick(this::openMultiTerminalScreen).size(smallButtonWidth, 18).build();
                 terminalBtn.setPosition(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY);
-                this.addRenderableWidget(new ReWidgetWrapper(terminalBtn));
+                widgetHolder.remotely$addWidget(terminalBtn);
             }
         }
     }
