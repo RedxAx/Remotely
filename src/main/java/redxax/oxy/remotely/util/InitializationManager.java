@@ -10,12 +10,15 @@ public class InitializationManager {
 
     public static void ensureInitialized() {
         if (!initialized) {
+            RemotelyInit.initCommon();
             if (RemotelyClient.INSTANCE == null) {
                 RemotelyInit.initClient(new MinecraftApplicationHost());
             }
             initialized = true;
         }
         MouseCursor.reset(false);
-        RemotelyClient.INSTANCE.getHost().ensureTextRenderer();
+        if (RemotelyClient.INSTANCE != null) {
+            RemotelyClient.INSTANCE.getHost().ensureTextRenderer();
+        }
     }
 }
