@@ -6,11 +6,11 @@ import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.preset.ResourceList;
+import restudio.rebase.resource.InstanceResource;
+import restudio.rebase.resource.ResourceType;
 import restudio.rebase.resource.UpdateInfo;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.ui.widgets.DownloadProgressWidget;
-import restudio.rebase.resource.InstanceResource;
-import restudio.rebase.resource.ResourceType;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
@@ -83,12 +83,12 @@ public class ResourceContainer extends Container {
 
     private void initializeSelectors() {
         List<String> sortOptions = Arrays.stream(ContentSort.values()).map(ContentSort::toString).toList();
-        sortSelector = new DropDownWidget.Builder<>(sortOptions).entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT).size(90, 18).onSelectionChanged(this::onSortChanged).animateElevation(false).build();
+        sortSelector = new DropDownWidget.Builder<>(sortOptions).entranceCorner(EntranceCorner.TOP_RIGHT).size(90, 18).onSelectionChanged(this::onSortChanged).animateElevation(false).build();
         sortSelector.setPriority(100);
         List<String> filterOptions = Arrays.stream(ContentFilter.values()).map(ContentFilter::toString).toList();
-        filterSelector = new DropDownWidget.Builder<>(filterOptions).entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT).size(90, 18).onSelectionChanged(this::onFilterChanged).animateElevation(false).build();
+        filterSelector = new DropDownWidget.Builder<>(filterOptions).entranceCorner(EntranceCorner.TOP_RIGHT).size(90, 18).onSelectionChanged(this::onFilterChanged).animateElevation(false).build();
         filterSelector.setPriority(100);
-        selectorsRow = new RowWidget.Builder().addWidget(filterSelector, sortSelector).entranceCorner(AnimatedWidget.EntranceCorner.TOP_RIGHT).padding(1).size(181, 18).build();
+        selectorsRow = new RowWidget.Builder().addWidget(filterSelector, sortSelector).entranceCorner(EntranceCorner.TOP_RIGHT).padding(1).size(181, 18).build();
         selectorsRow.setVisible(false);
         selectorsRow.setPriority(100);
         host.addDrawableChild(selectorsRow);
@@ -337,11 +337,11 @@ public class ResourceContainer extends Container {
 
     public void openInstanceResources() {
         if (instance == null) return;
-        restudio.rebase.resource.ResourceType defaultType = restudio.rebase.resource.ResourceType.MOD;
+        ResourceType defaultType = ResourceType.MOD;
         if (instance.isServer()) {
             defaultType = switch (instance.getModLoader()) {
-                case PAPER, SPIGOT, BUKKIT, PURPUR, LEAF, VELOCITY, WATERFALL, BUNGEECORD -> restudio.rebase.resource.ResourceType.PLUGIN;
-                default -> restudio.rebase.resource.ResourceType.MOD;
+                case PAPER, SPIGOT, BUKKIT, PURPUR, LEAF, VELOCITY, WATERFALL, BUNGEECORD -> ResourceType.PLUGIN;
+                default -> ResourceType.MOD;
             };
         }
         ScreenManager.getInstance().setScreen(new ResourceBrowserScreen(host, instance, defaultType, true));

@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.ui.tests;
 
-import net.minecraft.text.Text;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.SidePanel;

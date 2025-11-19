@@ -2,7 +2,6 @@ package redxax.oxy.remotely.ui.tests;
 
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
-import redxax.oxy.remotely.RemotelyClient;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.widgets.*;

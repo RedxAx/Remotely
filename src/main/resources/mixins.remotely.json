@@ -1,0 +1,19 @@
+{
+  "required": true,
+  "package": "redxax.oxy.remotely.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "mixins": [
+  ],
+  "client": [
+    "GameMenuScreenMixin",
+    "KeyboardMixin",
+    "MinecraftClientMixin",
+    "ScreenMixin",
+    "TitleScreenMixin"
+  ],
+  "server": [
+  ]
+}

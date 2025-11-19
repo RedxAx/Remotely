@@ -10,6 +10,7 @@ import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.text.FontRegistry;
+import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 
 import java.io.File;
@@ -39,16 +40,21 @@ public class RemotelyClient {
     public void initialize() {
         Config.applicationDir = remotelyDir;
         Config.setConfigManager(new RemotelyConfigManager(remotelyDir));
+        ThemeManager.init();
         System.out.println("Remotely mod initialized on the client.");
         loadSnippets();
-        try {
-            String bgPath = System.getProperty("user.home") + "/AppData/Roaming/Microsoft/Windows/Themes/TranscodedWallpaper";
-            restudio.rescreen.config.Config.windowsBackground = javax.imageio.ImageIO.read(new File(bgPath));
-        } catch (Exception e) {
-            devPrint("Failed to load Windows background: " + e.getMessage());
-        }
-        Runtime.getRuntime().addShutdownHook(new Thread(this::onClientShutdown));
+
         os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
+        if (os.contains("win")) {
+            try {
+                String bgPath = System.getProperty("user.home") + "/AppData/Roaming/Microsoft/Windows/Themes/TranscodedWallpaper";
+                restudio.rescreen.config.Config.windowsBackground = javax.imageio.ImageIO.read(new File(bgPath));
+            } catch (Exception e) {
+                devPrint("Failed to load Windows background: " + e.getMessage());
+            }
+        }
+
+        Runtime.getRuntime().addShutdownHook(new Thread(this::onClientShutdown));
         FontRegistry.MONO_FONT = host.getFontIdentifier("remotely", "mono");
     }
 

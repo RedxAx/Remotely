@@ -2,23 +2,26 @@ package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.ui.settings.controllers.*;
-import restudio.rebase.ui.settings.controllers.VersionSettingsController;
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.ui.settings.controllers.VersionSettingsController;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.theme.ThemeManager;
-import restudio.rescreen.ui.settings.Setting;
-import restudio.rescreen.ui.settings.SettingsScreen;
-import restudio.rescreen.ui.widgets.LoadingAnimationWidget;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.settings.Setting;
+import restudio.rescreen.ui.settings.SettingsScreen;
+import restudio.rescreen.ui.widgets.LoadingAnimationWidget;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
@@ -98,12 +101,12 @@ public class ServerConfigurationScreen extends ReScreen {
         settingsByTab.put("Performance", performanceController::getSettings);
 
         boolean msmpCompatible = VersionUtil.isMSMPCompatible(tempInstance.getVersionId());
-        
+
         if (msmpCompatible) {
             ServerManagementSettingsController managementController = new ServerManagementSettingsController(tempInstance);
             settingsByTab.put("Management", managementController::getSettings);
         }
-        
+
         boolean msmpEnabled = Boolean.parseBoolean(tempInstance.getServerProperties().getProperty("management-server-enabled", "false"));
 
         if (isEditMode) {

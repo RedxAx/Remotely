@@ -3,6 +3,8 @@ package redxax.oxy.remotely.ui.server.containers;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.data.managed.ManagedPlayer;
 import redxax.oxy.remotely.data.managed.PlayerAction;
+import redxax.oxy.remotely.ui.widgets.msmp.PlayerEntryWidget;
+import redxax.oxy.remotely.ui.widgets.msmp.PlayerManagerController;
 import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.widgets.TerminalWidget;
@@ -11,8 +13,6 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
-import redxax.oxy.remotely.ui.widgets.msmp.PlayerEntryWidget;
-import redxax.oxy.remotely.ui.widgets.msmp.PlayerManagerController;
 
 public class PlayersContainer extends Container {
     private final ReScreen host;

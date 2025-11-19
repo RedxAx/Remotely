@@ -1,11 +1,14 @@
 package redxax.oxy.remotely.config;
 
-import redxax.oxy.remotely.ui.settings.controllers.*;
-import restudio.rescreen.ui.settings.Setting;
+import redxax.oxy.remotely.ui.settings.controllers.AppearanceSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.DevelopmentSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.ServerClientSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.SoundSettingsController;
 import restudio.rebase.settings.controllers.ExplorerSettingsController;
 import restudio.rebase.settings.controllers.JavaManagerController;
 import restudio.rebase.settings.controllers.ThemeController;
 import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.SettingsScreen;
 
 import java.util.ArrayList;

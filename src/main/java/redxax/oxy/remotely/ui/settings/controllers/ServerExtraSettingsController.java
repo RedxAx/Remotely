@@ -4,13 +4,13 @@ import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
+import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
-import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.util.Notification;
 
 import java.nio.file.Path;

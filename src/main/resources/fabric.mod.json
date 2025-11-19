@@ -1,30 +1,34 @@
 {
   "schemaVersion": 1,
-  "id": "${id}",
-  "version": "${version}",
-  "name": "${name}",
-  "description": "",
+  "id": "${mod_id}",
+  "version": "${mod_version}",
+  "name": "${mod_name}",
+  "description": "${mod_description}",
   "authors": [
-    "RedxAx, DumbFridge"
+    "RedxAx",
+    "DumpFridge"
   ],
   "contact": {
+    "issues": "https://github.com/RedxAx/Remotely/issues",
+    "sources": "https://github.com/RedxAx/Remotely"
   },
-  "license": "https://github.com/RedxAx/Remotely/blob/main/LICENSE",
+  "license": "Custom License",
   "icon": "assets/remotely/Reemotely.png",
   "environment": "*",
   "entrypoints": {
     "main": [
-      "redxax.oxy.remotely.platforms.fabric.RemotelyFabric"
-    ],
-    "modmenu": [
-      "redxax.oxy.remotely.platforms.fabric.ModMenuIntegration"
+      {
+        "adapter": "kotlin",
+        "value": "redxax.oxy.remotely.Entrypoint"
+      }
     ]
   },
   "mixins": [
-    "remotely-common.mixins.json"
+    "mixins.remotely.json"
   ],
   "depends": {
-    "fabricloader": ">=0.15",
-    "minecraft": "${minecraft}"
+    "minecraft": "~${minor_mc_version}",
+    "fabricloader": ">=0.17.2",
+    "fabric-language-kotlin": "*"
   }
 }

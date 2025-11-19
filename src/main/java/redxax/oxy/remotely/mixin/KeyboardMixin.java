@@ -1,28 +1,27 @@
 package redxax.oxy.remotely.mixin;
 
-import net.minecraft.client.Keyboard;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.KeyboardHandler;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.input.KeyEvent;
 import org.lwjgl.glfw.GLFW;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import restudio.rescreen.ui.core.ScreenManager;
 
-@Mixin(value = Keyboard.class)
+@Mixin(value = KeyboardHandler.class)
 public class KeyboardMixin {
 
-    @Shadow
-    @Final
-    private MinecraftClient client;
+    @Unique
+    private final Minecraft client = Minecraft.getInstance();
 
-    @Inject(method = "onKey", at = @At("HEAD"), cancellable = true)
-    private void onKey(long window, int key, int scancode, int action, int  modifiers, CallbackInfo ci) {
-        if (Screen.hasControlDown() && key == GLFW.GLFW_KEY_B) {
-            if (client.currentScreen == null) return;
-            client.currentScreen.keyPressed(key, scancode, modifiers);
+    @Inject(method = "keyPress", at = @At("HEAD"), cancellable = true)
+    private void onKey(long l, int i, KeyEvent keyEvent, CallbackInfo ci) {
+        if (client.hasControlDown() && keyEvent.key() == GLFW.GLFW_KEY_B) {
+            if (client.screen == null) return;
+            client.screen.keyPressed(keyEvent);
             ci.cancel();
         }
     }

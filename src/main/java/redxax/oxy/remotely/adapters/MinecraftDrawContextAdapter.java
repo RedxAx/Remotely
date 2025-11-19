@@ -1,99 +1,85 @@
 package redxax.oxy.remotely.adapters;
 
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.util.math.RotationAxis;
-import org.joml.Matrix3x2fStack;
-import org.joml.Vector3f;
-import restudio.rescreen.platform.IMatrixStack;
+import dev.deftu.omnicore.api.client.image.OmniImage;
+import dev.deftu.omnicore.api.client.image.OmniImages;
+import dev.deftu.omnicore.api.client.render.OmniRenderingContext;
+import dev.deftu.omnicore.api.client.render.OmniTextRenderer;
+import dev.deftu.omnicore.api.client.render.pipeline.OmniRenderPipelines;
+import dev.deftu.omnicore.api.client.render.stack.OmniPoseStack;
+import dev.deftu.omnicore.api.client.textures.OmniTextureHandle;
+import dev.deftu.omnicore.api.client.textures.OmniTextures;
+import dev.deftu.omnicore.api.color.OmniColor;
+import dev.deftu.omnicore.api.color.OmniColors;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import org.jetbrains.annotations.NotNull;
 import restudio.rescreen.platform.IDrawContext;
-//? if < 1.21.6
-import net.minecraft.client.util.math.MatrixStack;
-import restudio.rescreen.render.TextRenderer;
-
-import java.awt.image.BufferedImage;
-import redxax.oxy.remotely.util.ImageUtil;
+import restudio.rescreen.platform.IMatrixStack;
+import restudio.rescreen.text.StyledText;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.ResourceManager;
 
+import java.awt.image.BufferedImage;
+import java.util.Collections;
+import java.util.Map;
+import java.util.WeakHashMap;
+
 public class MinecraftDrawContextAdapter implements IDrawContext {
-    private final DrawContext dc;
-    //? if >= 1.21.6 {
-    /*private final Matrix3x2fStack matrices;
-    *///?} else {
-    private final MatrixStack matrices;
-     //?}
+    private static final Map<BufferedImage, OmniTextureHandle> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
+    private final OmniRenderingContext ctx;
+    private final OmniPoseStack matrices;
     private final float renderScale;
 
-    public MinecraftDrawContextAdapter(DrawContext dc, float renderScale) {
-        this.dc = dc;
-        this.matrices = dc.getMatrices();
+    public MinecraftDrawContextAdapter(@NotNull OmniRenderingContext ctx, float renderScale) {
+        this.ctx = ctx;
+        this.matrices = ctx.pose();
         this.renderScale = renderScale;
     }
 
-    public MinecraftDrawContextAdapter(DrawContext dc) {
-        this(dc, 1.0f);
+    public MinecraftDrawContextAdapter(@NotNull OmniRenderingContext ctx) {
+        this(ctx, 1.0f);
     }
 
-    public DrawContext getMcContext() {
-        return dc;
+    public OmniRenderingContext getOmniContext() {
+        return ctx;
     }
 
-    //? if >= 1.21.6 {
-    /*public Matrix3x2fStack getMcMatrices() {
-        return matrices;
+    private OmniColor fromArgb(int argb) {
+        float a = (float) ((argb >> 24) & 255) / 255.0F;
+        float r = (float) ((argb >> 16) & 255) / 255.0F;
+        float g = (float) ((argb >> 8) & 255) / 255.0F;
+        float b = (float) (argb & 255) / 255.0F;
+        return new OmniColor(r, g, b, a);
     }
-    *///?} else {
-    public MatrixStack getMcMatrices() {
-        return matrices;
+
+    private static OmniTextureHandle ensureTexture(BufferedImage image) {
+        OmniTextureHandle existing = TEXTURE_CACHE.get(image);
+        if (existing != null) return existing;
+        synchronized (TEXTURE_CACHE) {
+            OmniTextureHandle again = TEXTURE_CACHE.get(image);
+            if (again != null) return again;
+            try (OmniImage oi = OmniImages.from(image)) {
+                OmniTextureHandle handle = OmniTextures.load(oi);
+                OmniTextures.register(handle.getLocation(), handle);
+                TEXTURE_CACHE.put(image, handle);
+                return handle;
+            } catch (Exception e) {
+                System.out.println("Failed to load texture for buffered image");
+                e.printStackTrace();
+                return null;
+            }
+        }
     }
-    //?}
 
     @Override
     public IMatrixStack getMatrices() {
         return new IMatrixStack() {
-            @Override public void push() {
-                //? if >= 1.21.6 {
-                /*matrices.pushMatrix();
-                *///?} else {
-                matrices.push();
-                 //?}
-            }
-            @Override public void pop() {
-                //? if >= 1.21.6 {
-                /*matrices.popMatrix();
-                *///?} else {
-                matrices.pop();
-                 //?}
-            }
-            @Override public void translate(float x, float y, float z) {
-                //? if >= 1.21.6 {
-                /*matrices.translate(x, y);
-                *///?} else {
-                matrices.translate(x, y, z);
-                 //?}
-            }
-            @Override public void scale(float v, float v1, float v2) {
-                //? if >= 1.21.6 {
-                /*matrices.scale(v, v1);
-                *///?} else {
-                matrices.scale(v, v1, v2);
-                 //?}
-            }
-            @Override public void rotate(float v, float v1, float v2, float v3) {
-                //? if >= 1.21.6 {
-                /*matrices.rotate((float) Math.toRadians(v));
-                *///?} else {
-                matrices.multiply(RotationAxis.of(new Vector3f(v1, v2, v3)).rotationDegrees(v));
-                 //?}
-            }
-            @Override public void multiply(float v) {
-                //? if >= 1.21.6 {
-                /*matrices.rotate((float) Math.toRadians(v));
-                *///?} else {
-                matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(v));
-                 //?}
-            }
+            @Override public void push() { matrices.push(); }
+            @Override public void pop() { matrices.pop(); }
+            @Override public void translate(float x, float y, float z) { matrices.translate(x, y, z); }
+            @Override public void scale(float x, float y, float z) { matrices.scale(x, y, z); }
+            @Override public void rotate(float angle, float x, float y, float z) { matrices.rotate(angle, x, y, z, true); }
+            @Override public void multiply(float angle) { matrices.rotate(angle, 0, 0, 1, true); }
         };
     }
 
@@ -103,66 +89,54 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void enableScissor(float x1, float y1, float x2, float y2) {
-        //? if >= 1.21.6 {
-        /*dc.enableScissor((int) x1, (int) y1, (int) x2, (int) y2);
-        *///?} else {
-        dc.enableScissor((int) (x1 * renderScale), (int) (y1 * renderScale), (int) (x2 * renderScale), (int) (y2 * renderScale));
-         //?}
+        ctx.pushScissor((int) x1, (int) y1, (int) (x2 - x1), (int) (y2 - y1));
     }
 
     @Override
     public boolean scissorsContains(int i, int i1) {
-        //? if >= 1.21.6 {
-        /*return dc.scissorContains(i, i1);
-        *///?} else {
-        return dc.scissorContains((int)(i * renderScale), (int)(i1 * renderScale));
-         //?}
+        return ctx.doesScissorContain(i, i1);
     }
 
     @Override
     public void disableScissor() {
-        dc.disableScissor();
+        ctx.popScissor();
     }
 
     @Override
     public void fill(int x1, int y1, int x2, int y2, int argb) {
-        dc.fill(x1, y1, x2, y2, argb);
+        OmniColor color = fromArgb(argb);
+        ctx.renderGradientQuad((float) x1, (float) y1, x2 - x1, y2 - y1, color, color);
     }
 
     @Override
     public void fillGradient(int i, int i1, int i2, int i3, int i4, int i5) {
-        dc.fillGradient(i, i1, i2, i3, i4, i5);
+        ctx.renderGradientQuad((float) i, (float) i1, i2 - i, i3 - i1, fromArgb(i4), fromArgb(i5));
     }
 
     @Override
     public void fillGradient(int x1, int y1, int x2, int y2, int color1, int color2, boolean horizontal) {
         if (!horizontal) {
-            dc.fillGradient(x1, y1, x2, y2, color1, color2);
+            fillGradient(x1, y1, x2, y2, color1, color2);
         } else {
-            float a1 = (float)(color1 >> 24 & 255);
-            float r1 = (float)(color1 >> 16 & 255);
-            float g1 = (float)(color1 >> 8 & 255);
-            float b1 = (float)(color1 & 255);
-
-            float a2 = (float)(color2 >> 24 & 255);
-            float r2 = (float)(color2 >> 16 & 255);
-            float g2 = (float)(color2 >> 8 & 255);
-            float b2 = (float)(color2 & 255);
-
+            float a1 = (float) (color1 >> 24 & 255);
+            float r1 = (float) (color1 >> 16 & 255);
+            float g1 = (float) (color1 >> 8 & 255);
+            float b1 = (float) (color1 & 255);
+            float a2 = (float) (color2 >> 24 & 255);
+            float r2 = (float) (color2 >> 16 & 255);
+            float g2 = (float) (color2 >> 8 & 255);
+            float b2 = (float) (color2 & 255);
             int width = x2 - x1;
             if (width <= 0) return;
-
             for (int i = 0; i < width; i++) {
                 float t = (width == 1) ? 0.0f : (float) i / (float) (width - 1);
-
                 int a = (int) (a1 * (1 - t) + a2 * t);
                 int r = (int) (r1 * (1 - t) + r2 * t);
                 int g = (int) (g1 * (1 - t) + g2 * t);
                 int b = (int) (b1 * (1 - t) + b2 * t);
-
                 int interpolatedColor = (a << 24) | (r << 16) | (g << 8) | b;
-
-                dc.fill(x1 + i, y1, x1 + i + 1, y2, interpolatedColor);
+                OmniColor omniColor = fromArgb(interpolatedColor);
+                ctx.renderGradientQuad((float) (x1 + i), (float) y1, 1, y2 - y1, omniColor, omniColor);
             }
         }
     }
@@ -172,22 +146,37 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void drawText(String text, int x, int y, int color, boolean shadow) {
-        TextRenderer.getTr().draw(this, text, x, y, color, shadow);
+        OmniTextRenderer.render(ctx, text, (float) x, (float) y, fromArgb(color), shadow);
     }
 
     @Override
     public void drawStyledText(Object text, int x, int y, int color, boolean shadow) {
-        TextRenderer.drawStyled(this, text, x, y, color, shadow);
+        if (text instanceof Component mcText) {
+            OmniTextRenderer.render(ctx, mcText.getString(), (float) x, (float) y, fromArgb(color == 0 ? 0xFFFFFFFF : color), shadow);
+        } else if (text instanceof StyledText styledText) {
+            if ((styledText.color >> 24 & 0xFF) == 0) return;
+            Component renderText = Component.literal(styledText.text);
+            OmniTextRenderer.render(ctx, renderText.getString(), (float) x, (float) y, fromArgb(styledText.color), shadow);
+        } else {
+            drawText(String.valueOf(text), x, y, color, shadow);
+        }
     }
 
     @Override
     public void drawBufferedImage(BufferedImage image, float x, float y, float width, float height) {
-        ImageUtil.drawBufferedImage(dc, image, (int) x, (int) y, (int) width, (int) height);
+        if (image == null) return;
+        OmniTextureHandle handle = ensureTexture(image);
+        if (handle == null) return;
+        int dw = Math.max(1, (int) Math.ceil(width <= 0 ? handle.getWidth() : width));
+        int dh = Math.max(1, (int) Math.ceil(height <= 0 ? handle.getHeight() : height));
+        float du = 0.5f / Math.max(1, handle.getWidth());
+        float dv = 0.5f / Math.max(1, handle.getHeight());
+        ctx.renderTextureRegion(OmniRenderPipelines.TEXTURED, handle.getLocation(), x, y, dw, dh, du, dv, 1f - du, 1f - dv, OmniColors.WHITE);
     }
 
     @Override
-    public void drawPixelArt(BufferedImage bufferedImage, float v, float v1, float v2, float v3) {
-        ImageUtil.drawPixelArt(dc, (int) v, (int) v1, (int) v2, (int) v3, bufferedImage);
+    public void drawPixelArt(BufferedImage bufferedImage, float x, float y, float width, float height) {
+        drawBufferedImage(bufferedImage, x, y, width, height);
     }
 
     @Override
@@ -196,12 +185,9 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     }
 
     @Override
-    public void drawPixelArt(Identifier identifier, float v, float v1, float v2, float v3) {
-        drawPixelArt(ResourceManager.getInstance().getImage(identifier), v, v1, v2, v3);
+    public void drawPixelArt(Identifier identifier, float x, float y, float width, float height) {
+        drawBufferedImage(identifier, x, y, width, height);
     }
 
-    @Override
-    public void drawInvertedRect(float v, float v1, float v2, float v3) {
-        dc.fill(RenderLayer.getGuiTextHighlight(), (int) v, (int) v1, (int) v2, (int) v3, 0xFF0000FF);
-    }
+    @Override public void drawInvertedRect(float v, float v1, float v2, float v3) {}
 }

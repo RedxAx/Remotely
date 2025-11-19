@@ -16,12 +16,10 @@ public class RemotelyEntry extends ReStudioEntry {
             RemotelyInit.initClient(new ReScreenApplicationHost());
         }
 
-        if ("standalone".equals(RemotelyInit.PLATFORM.getModloader())) {
-            RemotelyClient.INSTANCE.getHost().ensureTextRenderer();
-        }
+        RemotelyClient.INSTANCE.getHost().ensureTextRenderer();
+
 
         Config.applicationDir = remotelyDir;
-        Config.setConfigManager(new RemotelyConfigManager(remotelyDir));
         setupScreens();
     }
 
