@@ -1,8 +1,8 @@
-
 package redxax.oxy.remotely.data.player.standard;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import redxax.oxy.remotely.data.managed.*;
 import redxax.oxy.remotely.data.player.IPlayerDataProvider;
 import redxax.oxy.remotely.data.player.IPlayerHistoryCollector;
@@ -36,6 +36,7 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
     private final Path opsPath;
     private final Path bannedPlayersPath;
     private final Path bannedIpsPath;
+    private final LuckPermsService luckPermsService;
 
     private static final Pattern PLAYER_JOIN_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+)\\[/([0-9.:]+)] logged in with entity id \\d+ at .*");
     private static final Pattern PLAYER_LEAVE_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+) left the game");
@@ -57,13 +58,14 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         this.opsPath = instancePath.resolve("ops.json");
         this.bannedPlayersPath = instancePath.resolve("banned-players.json");
         this.bannedIpsPath = instancePath.resolve("banned-ips.json");
+        this.luckPermsService = new LuckPermsService(api, instancePath);
     }
 
     @Override
     public void initialize() {
         ensureRemotelyDirectory();
         terminalWidget.addOutputListener(this::processConsoleLine);
-        fullRefresh();
+        luckPermsService.initialize().thenRun(this::fullRefresh);
     }
 
     @Override
@@ -73,6 +75,10 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         updateListeners.clear();
     }
 
+    public LuckPermsService getLuckPermsService() {
+        return luckPermsService;
+    }
+
     @Override
     public CompletableFuture<Void> fullRefresh() {
         CompletableFuture<List<PlayerLogEntry>> playerLogFuture = loadJsonFile(playerLogPath, new TypeToken<>() {});
@@ -80,20 +86,23 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         CompletableFuture<List<BanEntry>> bannedPlayersFuture = loadJsonFile(bannedPlayersPath, new TypeToken<>() {});
         CompletableFuture<List<IpBanEntry>> bannedIpsFuture = loadJsonFile(bannedIpsPath, new TypeToken<>() {});
 
-        return CompletableFuture.allOf(playerLogFuture, opsFuture, bannedPlayersFuture, bannedIpsFuture).thenAccept(v -> {
+        return CompletableFuture.allOf(playerLogFuture, opsFuture, bannedPlayersFuture, bannedIpsFuture).thenCompose(v -> {
             List<PlayerLogEntry> playerLog = playerLogFuture.join();
             Map<UUID, OpEntry> ops = opsFuture.join().stream().collect(Collectors.toMap(op -> UUID.fromString(op.uuid), Function.identity(), (a, b) -> a));
             Map<UUID, BanEntry> bannedPlayersMap = bannedPlayersFuture.join().stream().collect(Collectors.toMap(ban -> UUID.fromString(ban.uuid), Function.identity(), (a, b) -> a));
             Map<String, IpBanEntry> bannedIps = bannedIpsFuture.join().stream().collect(Collectors.toMap(ban -> ban.ip, Function.identity(), (a, b) -> a));
+
             synchronized (players) {
                 Map<UUID, PlayerLogEntry> allKnownPlayers = new HashMap<>();
                 playerLog.forEach(p -> allKnownPlayers.put(p.uuid, p));
                 ops.values().forEach(p -> allKnownPlayers.computeIfAbsent(UUID.fromString(p.uuid), u -> new PlayerLogEntry(u, p.name)));
                 bannedPlayersMap.values().forEach(p -> allKnownPlayers.computeIfAbsent(UUID.fromString(p.uuid), u -> new PlayerLogEntry(u, p.name)));
+
                 allKnownPlayers.forEach((uuid, entry) -> {
                     ManagedPlayer p = players.computeIfAbsent(uuid, u -> new ManagedPlayer(u, entry.name));
                     p.lastSeen = entry.lastSeen;
                 });
+
                 players.values().forEach(p -> {
                     p.isOp = ops.containsKey(p.uuid);
                     if (p.isOp) p.opLevel = ops.get(p.uuid).level;
@@ -108,8 +117,25 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
                     }
                 });
             }
-            notifyListeners();
-        });
+
+            return luckPermsService.getAllUsers().thenAccept(lpUsers -> {
+                synchronized (players) {
+                    for (String uuidStr : lpUsers) {
+                        try {
+                            UUID uuid = UUID.fromString(uuidStr);
+                            if (!players.containsKey(uuid)) {
+                                players.put(uuid, new ManagedPlayer(uuid, "Unknown (LP)"));
+                                luckPermsService.getUserMetadata(uuid).thenAccept(meta -> {
+                                    if (meta != null) {
+                                        // Trigger name update if we can resolve it?
+                                    }
+                                });
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                }
+            });
+        }).thenRun(this::notifyListeners);
     }
 
     @Override

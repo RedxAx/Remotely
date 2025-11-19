@@ -1,7 +1,9 @@
 package redxax.oxy.remotely.ui.widgets.msmp;
 
+import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import redxax.oxy.remotely.data.managed.ManagedPlayer;
 import redxax.oxy.remotely.data.managed.PlayerAction;
+import redxax.oxy.remotely.data.player.standard.StandardPlayerDataProvider;
 import restudio.rebase.account.Account;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeColor;
@@ -30,6 +32,11 @@ public class PlayerEntryWidget extends MountableButtonWidget {
     private final Identifier deopIcon = Identifier.icon("deop.png");
     private boolean faceRequested = false;
 
+    private String cachedPrefix = "";
+    private String cachedSuffix = "";
+    private String cachedGroup = "";
+    private boolean lpDataRequested = false;
+
     public PlayerEntryWidget(ManagedPlayer player, PlayerManagerController controller) {
         super(player.name, "", "", new CopyOnWriteArrayList<>(), null);
         this.player = player;
@@ -40,27 +47,26 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         boolean serverRunning = controller.isServerRunning();
 
         SquareButtonWidget kickButton = new SquareButtonWidget.Builder()
-                .imagePath("delete.png").size(18, 18).hint("Kick Player").accentType(ThemeManager.getAccent("danger"))
-                .onClick(() -> controller.kickPlayer(player, "Kicked by operator")).build();
+            .imagePath("delete.png").size(18, 18).hint("Kick Player").accentType(ThemeManager.getAccent("danger"))
+            .onClick(() -> controller.kickPlayer(player, "Kicked by operator")).build();
         kickButton.active = player.isOnline && serverRunning;
 
         String banHint = player.isBanned ? "Unban Player" : "Ban Player";
         SquareButtonWidget banButton = new SquareButtonWidget.Builder().imagePath(player.isBanned ? "heart.png" : "close.png").size(18, 18).hint(banHint)
-                .accentType(player.isBanned ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")).onClick(() -> {
-                    if (player.isBanned) {
-                        controller.unbanPlayer(player);
-                    } else {
-                        new BanPlayerPopup(ScreenManager.getInstance().getCurrentScreen(), player, controller);
-                    }
-                }).build();
+            .accentType(player.isBanned ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")).onClick(() -> {
+                if (player.isBanned) {
+                    controller.unbanPlayer(player);
+                } else {
+                    new BanPlayerPopup(ScreenManager.getInstance().getCurrentScreen(), player, controller);
+                }
+            }).build();
         banButton.active = serverRunning;
-
 
         String opHint = player.isOp ? "De-Op Player" : "Op Player";
         SquareButtonWidget opButton = new SquareButtonWidget.Builder()
-                .identifier(player.isOp ? deopIcon : opIcon).size(18, 18).hint(opHint)
-                .accentType(ThemeManager.getAccent("calm"))
-                .onClick(() -> controller.toggleOp(player)).build();
+            .identifier(player.isOp ? deopIcon : opIcon).size(18, 18).hint(opHint)
+            .accentType(ThemeManager.getAccent("calm"))
+            .onClick(() -> controller.toggleOp(player)).build();
         opButton.active = serverRunning;
 
         List<AnimatedWidget> buttons = new CopyOnWriteArrayList<>();
@@ -103,6 +109,20 @@ public class PlayerEntryWidget extends MountableButtonWidget {
                 }
             });
         }
+
+        if (!lpDataRequested && controller.getDataProvider() instanceof StandardPlayerDataProvider sdp) {
+            LuckPermsService lp = sdp.getLuckPermsService();
+            if (lp.isEnabled()) {
+                lpDataRequested = true;
+                lp.getUserMetadata(player.uuid).thenAccept(meta -> {
+                    if (meta != null) {
+                        this.cachedPrefix = meta.prefix != null ? meta.prefix : "";
+                        this.cachedSuffix = meta.suffix != null ? meta.suffix : "";
+                        this.cachedGroup = meta.primaryGroup != null ? meta.primaryGroup : "";
+                    }
+                });
+            }
+        }
     }
 
     @Override
@@ -112,7 +132,13 @@ public class PlayerEntryWidget extends MountableButtonWidget {
             ctx.drawPixelArt(face, getX() + 2, getY() + (getHeight() - iconSize) / 2f, iconSize, iconSize);
         }
 
-        name = player.name;
+        StringBuilder displayName = new StringBuilder();
+        if (!cachedPrefix.isEmpty()) displayName.append(cachedPrefix);
+        displayName.append(player.name);
+        if (!cachedSuffix.isEmpty()) displayName.append(cachedSuffix);
+
+        name = displayName.toString().replace("&", "\u00a7");
+        hiddenText = cachedGroup;
 
         if (player.isBanned || player.isIpBanned) {
             String reason = (player.banInfo != null) ? player.banInfo.reason : ((player.ipBanInfo != null) ? player.ipBanInfo.reason : "Unknown");
@@ -122,13 +148,14 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         } else if (player.isOnline) {
             description = "Online";
             if (player.isOp) {
-                name += " | Operator (Level " + player.opLevel + ")";
+                description += " | Operator (Level " + player.opLevel + ")";
                 accentType = ThemeManager.getAccent("calm");
             }
             else accentType = ThemeManager.getDefaultAccent();
         } else {
-            name += player.isOp ? " | Operator (Level " + player.opLevel + ")" : "";
-            description = "Offline | Last seen: " + (player.lastSeen > 0 ? TimeUtils.timeSense(player.lastSeen) : "never");
+            description = "Offline";
+            if (player.isOp) description += " | Operator";
+            description += " | Last seen: " + (player.lastSeen > 0 ? TimeUtils.timeSense(player.lastSeen) : "never");
             accentType = ThemeManager.getDefaultAccent();
             active = false;
         }
@@ -152,8 +179,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
 
     private void showVariableInputPopup(ManagedPlayer player, PlayerAction action, List<String> variables) {
         PopupWidget.Builder builder = new PopupWidget.Builder("Execute: " + action.name)
-                .size(300, 60 + variables.size() * 30).setAntiOutOfBound(true).setResizable(true);
-
+            .size(300, 60 + variables.size() * 30).setAntiOutOfBound(true).setResizable(true);
 
         Map<String, TextInputWidget> inputs = new HashMap<>();
         Runnable execute = () -> {
@@ -162,7 +188,6 @@ public class PlayerEntryWidget extends MountableButtonWidget {
                 String value = entry.getValue().getText();
                 command = command.replace("$" + entry.getKey(), value);
             }
-
             controller.runCustomCommand(player, command);
             builder.getWidget().setVisible(false);
         };
@@ -180,9 +205,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
             };
             builder.addRow("", true, 20, input);
         }
-
         builder.addTitleButton(execute, "Execute", ThemeManager.getAccent("nice"));
-
         PopupWidget popup = builder.build();
         ScreenManager.getInstance().getCurrentScreen().addDrawableChild(popup);
         popup.show();
