@@ -15,6 +15,7 @@ public class RegionParser {
     public static ChunkData parseChunkData(Path file, int relX, int relZ) throws IOException {
         try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
             int offsetAddr = 4 * (relX + relZ * 32);
+            if (offsetAddr >= raf.length()) return null;
             raf.seek(offsetAddr);
 
             int offset = raf.readInt();
@@ -27,7 +28,7 @@ public class RegionParser {
             int length = raf.readInt();
             byte compression = raf.readByte();
 
-            if (length <= 0) return null;
+            if (length <= 0 || length > sectorCount * 4096) return null;
 
             byte[] data = new byte[length - 1];
             raf.readFully(data);
@@ -72,11 +73,10 @@ public class RegionParser {
 
         for (int z = 0; z < 16; z++) {
             for (int x = 0; x < 16; x++) {
-
                 String surfaceBlock = null;
                 int surfaceY = -1000;
                 String surfaceBiome = "minecraft:plains";
-                boolean surfaceIsFluid = false;
+                boolean surfaceIsFluid;
                 boolean done = false;
 
                 for (SimpleTag section : sections) {
@@ -97,7 +97,9 @@ public class RegionParser {
                         String block = getFromPalette(blockData, x, y, z);
 
                         if (block != null && !shouldIgnore(block)) {
-                            String biome = (biomeData != null) ? getFromPalette(biomeData, x >> 2, y >> 2, z >> 2) : "minecraft:plains";
+                            int bx = (x + (x%2)) >> 2;
+                            int bz = (z + (z%2)) >> 2;
+                            String biome = (biomeData != null) ? getFromPalette(biomeData, bx, y >> 2, bz) : "minecraft:plains";
 
                             if (surfaceBlock == null) {
                                 surfaceBlock = block;
@@ -111,7 +113,7 @@ public class RegionParser {
                                     break;
                                 }
                             } else {
-                                if (!isFluid(block)) {
+                                if (!isFluid(block) && !isFoliage(block)) {
                                     chunk.setBlock(x, z, surfaceBlock, surfaceY, surfaceBiome, block, yBase + y);
                                     done = true;
                                     break;
@@ -154,8 +156,7 @@ public class RegionParser {
             Object entry = rawList.get(i);
             if (entry instanceof String) {
                 pd.palette[i] = (String) entry;
-            } else if (entry instanceof SimpleTag) {
-                SimpleTag tag = (SimpleTag) entry;
+            } else if (entry instanceof SimpleTag tag) {
                 if (tag.value instanceof List) {
                     List<SimpleTag> fields = (List<SimpleTag>) tag.value;
                     for(SimpleTag field : fields) {
@@ -203,29 +204,16 @@ public class RegionParser {
     private static boolean shouldIgnore(String id) {
         if (id.equals("minecraft:air") || id.equals("minecraft:cave_air") || id.equals("minecraft:void_air")) return true;
         if (id.equals("minecraft:barrier") || id.equals("minecraft:structure_void") || id.equals("minecraft:light")) return true;
-
-        if (id.equals("minecraft:short_grass")) return true;
-        if (id.equals("minecraft:grass")) return true;
-        if (id.equals("minecraft:tall_grass") || id.equals("minecraft:fern") || id.equals("minecraft:large_fern")) return true;
-
-        if (id.equals("minecraft:seagrass") || id.equals("minecraft:tall_seagrass")) return true;
-        if (id.equals("minecraft:kelp") || id.equals("minecraft:kelp_plant")) return true;
-        if (id.equals("minecraft:dead_bush") || id.equals("minecraft:sweet_berry_bush")) return true;
-
-        if (id.equals("minecraft:crimson_roots") || id.equals("minecraft:warped_roots") || id.equals("minecraft:nether_sprouts")) return true;
-        if (id.equals("minecraft:twisting_vines") || id.equals("minecraft:weeping_vines")) return true;
-        if (id.equals("minecraft:twisting_vines_plant") || id.equals("minecraft:weeping_vines_plant")) return true;
-
-        if (id.contains("flower") || id.contains("tulip") || id.contains("orchid") || id.contains("daisy") || id.contains("bluet") || id.contains("poppy")) return true;
-        if (id.equals("minecraft:dandelion") || id.equals("minecraft:lilac") || id.equals("minecraft:peony") || id.equals("minecraft:rose_bush")) return true;
-
-        if (id.contains("torch") || id.contains("lantern") || id.contains("tripwire")) return true;
-
-        return false;
+        if (id.contains("tripwire") || id.contains("pressure_plate") || id.contains("button")) return true;
+        return id.contains("torch") || id.contains("lantern");
     }
 
     private static boolean isFluid(String id) {
         return id.contains("water") || id.contains("ice") || id.contains("bubble_column");
+    }
+
+    private static boolean isFoliage(String id) {
+        return id.contains("grass") || id.contains("fern") || id.contains("flower") || id.contains("bush") || id.contains("lily_pad");
     }
 
     static class SimpleTag {
