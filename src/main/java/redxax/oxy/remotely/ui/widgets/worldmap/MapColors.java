@@ -8,7 +8,8 @@ public class MapColors {
         reg(map, 0xFF866043, "dirt", "coarse_dirt", "rooted_dirt", "podzol", "farmland", "dirt_path");
         reg(map, 0xFF7D7D7D, "stone", "andesite", "cobblestone", "stone_bricks", "gravel", "clay", "dead_brain_coral_block", "infested_stone");
         reg(map, 0xFFC2B29C, "sand", "birch_planks", "birch_log", "stripped_birch_log", "sandstone", "end_stone");
-        reg(map, 0xFF4040FF, "water", "bubble_column", "ice", "packed_ice", "blue_ice");
+        reg(map, 0x884040FF, "water", "bubble_column");
+        reg(map, 0xFF4040FF, "ice", "packed_ice", "blue_ice");
         reg(map, 0xFF667F33, "oak_leaves", "jungle_leaves", "acacia_leaves", "dark_oak_leaves", "azalea_leaves", "vine");
         reg(map, 0xFF8F7748, "oak_planks", "oak_log", "stripped_oak_log", "jungle_planks", "barrel", "lectern", "chest", "trapped_chest", "crafting_table");
         reg(map, 0xFF815631, "spruce_planks", "spruce_log", "stripped_spruce_log", "spruce_leaves", "campfire");

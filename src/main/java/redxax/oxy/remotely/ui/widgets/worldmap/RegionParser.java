@@ -73,10 +73,14 @@ public class RegionParser {
         for (int z = 0; z < 16; z++) {
             for (int x = 0; x < 16; x++) {
 
-                boolean colDone = false;
+                String surfaceBlock = null;
+                int surfaceY = -1000;
+                String surfaceBiome = "minecraft:plains";
+                boolean surfaceIsFluid = false;
+                boolean done = false;
 
                 for (SimpleTag section : sections) {
-                    if (colDone) break;
+                    if (done) break;
 
                     int yBase = ((Number) find(section, "Y").value).intValue() * 16;
                     SimpleTag blockStates = find(section, "block_states");
@@ -94,11 +98,31 @@ public class RegionParser {
 
                         if (block != null && !shouldIgnore(block)) {
                             String biome = (biomeData != null) ? getFromPalette(biomeData, x >> 2, y >> 2, z >> 2) : "minecraft:plains";
-                            chunk.setBlock(x, z, block, yBase + y, biome);
-                            colDone = true;
-                            break;
+
+                            if (surfaceBlock == null) {
+                                surfaceBlock = block;
+                                surfaceY = yBase + y;
+                                surfaceBiome = biome;
+                                surfaceIsFluid = isFluid(block);
+
+                                if (!surfaceIsFluid) {
+                                    chunk.setBlock(x, z, surfaceBlock, surfaceY, surfaceBiome, surfaceBlock, surfaceY);
+                                    done = true;
+                                    break;
+                                }
+                            } else {
+                                if (!isFluid(block)) {
+                                    chunk.setBlock(x, z, surfaceBlock, surfaceY, surfaceBiome, block, yBase + y);
+                                    done = true;
+                                    break;
+                                }
+                            }
                         }
                     }
+                }
+
+                if (!done && surfaceBlock != null) {
+                    chunk.setBlock(x, z, surfaceBlock, surfaceY, surfaceBiome, surfaceBlock, surfaceY);
                 }
             }
         }
@@ -182,7 +206,7 @@ public class RegionParser {
 
         if (id.equals("minecraft:short_grass")) return true;
         if (id.equals("minecraft:grass")) return true;
-        if (id.equals("minecraft:tall_grass") || id.equals("minecraft:fern") || id.equals("minecraft:large_fern") || id.equals("bush")) return true;
+        if (id.equals("minecraft:tall_grass") || id.equals("minecraft:fern") || id.equals("minecraft:large_fern")) return true;
 
         if (id.equals("minecraft:seagrass") || id.equals("minecraft:tall_seagrass")) return true;
         if (id.equals("minecraft:kelp") || id.equals("minecraft:kelp_plant")) return true;
@@ -198,6 +222,10 @@ public class RegionParser {
         if (id.contains("torch") || id.contains("lantern") || id.contains("tripwire")) return true;
 
         return false;
+    }
+
+    private static boolean isFluid(String id) {
+        return id.contains("water") || id.contains("ice") || id.contains("bubble_column");
     }
 
     static class SimpleTag {
