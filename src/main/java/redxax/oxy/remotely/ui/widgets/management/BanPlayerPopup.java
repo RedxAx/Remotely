@@ -1,4 +1,4 @@
-package redxax.oxy.remotely.ui.widgets.msmp;
+package redxax.oxy.remotely.ui.widgets.management;
 
 import redxax.oxy.remotely.data.managed.ManagedPlayer;
 import restudio.rescreen.theme.ThemeManager;

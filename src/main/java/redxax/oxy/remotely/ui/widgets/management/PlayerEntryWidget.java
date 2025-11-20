@@ -1,4 +1,4 @@
-package redxax.oxy.remotely.ui.widgets.msmp;
+package redxax.oxy.remotely.ui.widgets.management;
 
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import redxax.oxy.remotely.data.managed.ManagedPlayer;
@@ -105,7 +105,8 @@ public class PlayerEntryWidget extends MountableButtonWidget {
                 Account tempAccount = new Account(player.name, player.uuid.toString(), null, 0);
                 BufferedImage fetchedFace = tempAccount.getFace();
                 if (fetchedFace != null) {
-                    this.face = fetchedFace;
+                    this.icon = fetchedFace;
+                    this.iconSize = 26;
                 }
             });
         }
@@ -127,11 +128,6 @@ public class PlayerEntryWidget extends MountableButtonWidget {
 
     @Override
     protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
-        int iconSize = 26;
-        if (face != null) {
-            ctx.drawPixelArt(face, getX() + 2, getY() + (getHeight() - iconSize) / 2f, iconSize, iconSize);
-        }
-
         StringBuilder displayName = new StringBuilder();
         if (!cachedPrefix.isEmpty()) displayName.append(cachedPrefix);
         displayName.append(player.name);
