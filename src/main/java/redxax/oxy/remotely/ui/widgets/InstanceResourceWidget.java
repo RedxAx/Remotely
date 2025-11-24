@@ -247,7 +247,7 @@ public class InstanceResourceWidget extends AnimatedWidget {
                         ResourceType activeResourceType = ResourceType.getTypeFromString(onlineResource.projectType);
                         if (activeResourceType == null) activeResourceType = resource.getType();
                         ResourceType finalActiveResourceType = activeResourceType;
-                        ScreenManager.getInstance().execute(() -> ScreenManager.getInstance().setScreen(new ResourceOverviewScreen(parentScreen, provider, onlineResource, instance, finalActiveResourceType, true)));
+                        ScreenManager.getInstance().execute(() -> ScreenManager.getInstance().setScreen(new ResourceOverviewScreen(parentScreen, provider, onlineResource, instance, finalActiveResourceType, true, null)));
                     }
                 }).whenComplete((v, e) -> Config.loading = false);
             }

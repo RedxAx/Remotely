@@ -4,6 +4,7 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
 import restudio.rebase.Rebase;
+import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.preset.ResourceList;
 import restudio.rebase.resource.InstanceResource;
@@ -21,6 +22,7 @@ import restudio.rescreen.util.Notification;
 
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 
 public class ResourceContainer extends Container {
@@ -235,15 +237,15 @@ public class ResourceContainer extends Container {
         addWidget(loadingWidget);
         updateWidgetPositions();
         Rebase.get().getResourceManager().getResources(instance).thenCompose(resources ->
-                Rebase.get().getUpdateManager().checkForUpdates(instance).thenApply(updates -> {
-                    for (InstanceResource resource : resources) {
-                        resource.availableUpdate = null;
-                        if (resource.getFileHash() != null && updates.containsKey(resource.getFileHash())) {
-                            resource.availableUpdate = updates.get(resource.getFileHash());
-                        }
+            Rebase.get().getUpdateManager().checkForUpdates(instance).thenApply(updates -> {
+                for (InstanceResource resource : resources) {
+                    resource.availableUpdate = null;
+                    if (resource.getFileHash() != null && updates.containsKey(resource.getFileHash())) {
+                        resource.availableUpdate = updates.get(resource.getFileHash());
                     }
-                    return resources;
-                })
+                }
+                return resources;
+            })
         ).thenAccept(loadedResources -> ScreenManager.getInstance().execute(() -> {
             currentResources = loadedResources;
             rebuildResourcesTab();
@@ -263,17 +265,12 @@ public class ResourceContainer extends Container {
 
     public boolean hasCurrentResources() { return !currentResources.isEmpty(); }
 
+    // ResourceContainer.deleteResources
     public void deleteResources(List<InstanceResource> resourcesToDelete) {
         if (resourcesToDelete == null || resourcesToDelete.isEmpty()) return;
         if (instance == null) return;
-        for (InstanceResource resource : resourcesToDelete) {
-            try {
-                Files.delete(resource.getPath());
-            } catch (java.io.IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        }
-        ScreenManager.getInstance().execute(() -> {
+        List<Path> paths = resourcesToDelete.stream().map(InstanceResource::getPath).toList();
+        InstanceApi.of(instance).files().delete(paths).thenRun(() -> ScreenManager.getInstance().execute(() -> {
             List<String> deletedFileNames = resourcesToDelete.stream().map(InstanceResource::getFileName).toList();
             currentResources.removeAll(resourcesToDelete);
             boolean changed = false;
@@ -292,6 +289,9 @@ public class ResourceContainer extends Container {
                 instance.save();
             }
             loadResources();
+        })).exceptionally(e -> {
+            ScreenManager.getInstance().execute(() -> new Notification("Failed To Delete: ", e.getMessage(), Notification.Type.ERROR));
+            return null;
         });
     }
 

@@ -3,7 +3,6 @@ package redxax.oxy.remotely.ui.widgets.management;
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import redxax.oxy.remotely.data.managed.ManagedPlayer;
 import redxax.oxy.remotely.data.managed.PlayerAction;
-import redxax.oxy.remotely.data.player.standard.StandardPlayerDataProvider;
 import restudio.rebase.account.Account;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeColor;
@@ -27,7 +26,6 @@ public class PlayerEntryWidget extends MountableButtonWidget {
 
     private final ManagedPlayer player;
     private final PlayerManagerController controller;
-    private volatile BufferedImage face;
     private final Identifier opIcon = Identifier.icon("op.png");
     private final Identifier deopIcon = Identifier.icon("deop.png");
     private boolean faceRequested = false;
@@ -99,7 +97,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
     @Override
     public void tick() {
         super.tick();
-        if (face == null && !faceRequested) {
+        if (icon == null && !faceRequested) {
             faceRequested = true;
             CompletableFuture.runAsync(() -> {
                 Account tempAccount = new Account(player.name, player.uuid.toString(), null, 0);
@@ -111,9 +109,9 @@ public class PlayerEntryWidget extends MountableButtonWidget {
             });
         }
 
-        if (!lpDataRequested && controller.getDataProvider() instanceof StandardPlayerDataProvider sdp) {
-            LuckPermsService lp = sdp.getLuckPermsService();
-            if (lp.isEnabled()) {
+        if (!lpDataRequested) {
+            LuckPermsService lp = controller.getLuckPermsService();
+            if (lp != null && lp.isEnabled()) {
                 lpDataRequested = true;
                 lp.getUserMetadata(player.uuid).thenAccept(meta -> {
                     if (meta != null) {
@@ -133,7 +131,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         displayName.append(player.name);
         if (!cachedSuffix.isEmpty()) displayName.append(cachedSuffix);
 
-        name = displayName.toString().replace("&", "\u00a7");
+        name = displayName.toString().replace("&", "§");
         hiddenText = cachedGroup;
 
         if (player.isBanned || player.isIpBanned) {
