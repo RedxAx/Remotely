@@ -106,7 +106,7 @@ dependencies {
         implementation(includeOrShade(kotlin("stdlib-jdk8"))!!)
         implementation(includeOrShade("org.jetbrains.kotlin:kotlin-reflect:1.6.10")!!)
 
-        modImplementation(includeOrShade("org.spongepowered:mixin:0.7.11-SNAPSHOT")!!)
+        modImplementation(includeOrShade("org.spongepowered:mixin:0.8.7")!!)
     }
 }
 
