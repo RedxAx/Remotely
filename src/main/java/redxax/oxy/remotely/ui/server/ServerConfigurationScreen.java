@@ -3,6 +3,7 @@ package redxax.oxy.remotely.ui.server;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.ui.settings.controllers.*;
 import restudio.rebase.Rebase;
+import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.settings.controllers.VersionSettingsController;
@@ -19,6 +20,7 @@ import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,15 +45,29 @@ public class ServerConfigurationScreen extends ReScreen {
 
         if (isEditMode) {
             this.tempInstance = new Instance(instance, instance.getName());
-            if (instance.isRemote() || remoteHostContext != null) {
-                this.tempInstance.setRemote(true);
-                this.tempInstance.setRemoteHost(instance.getRemoteHost() != null ? instance.getRemoteHost() : remoteHostContext);
+            boolean isRemote = instance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
+
+            if (isRemote || remoteHostContext != null) {
+                if (remoteHostContext != null) {
+                    Map<String, String> creds = new HashMap<>();
+                    creds.put("host", remoteHostContext.getIp());
+                    creds.put("port", String.valueOf(remoteHostContext.getPort()));
+                    creds.put("user", remoteHostContext.getUser());
+                    creds.put("password", remoteHostContext.getPassword());
+                    this.tempInstance.setBackendConfig(new BackendConfig("SSH", creds));
+                } else {
+                    this.tempInstance.setBackendConfig(instance.getBackendConfig());
+                }
             }
         } else {
             this.tempInstance = new Instance("New Server", remotelyClient.getHost().getGameVersion(), "");
             if (remoteHostContext != null) {
-                this.tempInstance.setRemote(true);
-                this.tempInstance.setRemoteHost(remoteHostContext);
+                Map<String, String> creds = new HashMap<>();
+                creds.put("host", remoteHostContext.getIp());
+                creds.put("port", String.valueOf(remoteHostContext.getPort()));
+                creds.put("user", remoteHostContext.getUser());
+                creds.put("password", remoteHostContext.getPassword());
+                this.tempInstance.setBackendConfig(new BackendConfig("SSH", creds));
             }
         }
     }
@@ -64,8 +80,10 @@ public class ServerConfigurationScreen extends ReScreen {
         addDrawableChild(loadingWidget);
 
         CompletableFuture<Void> propertiesFuture;
+        boolean isRemote = tempInstance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(tempInstance.getBackendConfig().type);
+
         if (isEditMode) {
-            if (tempInstance.isRemote()) {
+            if (isRemote) {
                 propertiesFuture = tempInstance.loadRemoteServerProperties();
             } else {
                 propertiesFuture = CompletableFuture.runAsync(tempInstance::loadServerProperties);
@@ -96,6 +114,9 @@ public class ServerConfigurationScreen extends ReScreen {
 
         ServerAdvancedSettingsController advancedController = new ServerAdvancedSettingsController(tempInstance);
         settingsByTab.put("Advanced", advancedController::getSettings);
+
+        ServerFeatureSettingsController featureController = new ServerFeatureSettingsController(tempInstance);
+        settingsByTab.put("Features", featureController::getSettings);
 
         ServerPerformanceSettingsController performanceController = new ServerPerformanceSettingsController(tempInstance);
         settingsByTab.put("Performance", performanceController::getSettings);
@@ -156,8 +177,10 @@ public class ServerConfigurationScreen extends ReScreen {
 
         Rebase.get().getInstanceManager().createInstance(tempInstance, notification).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
             newInstance.getServerProperties().putAll(tempInstance.getServerProperties());
+            newInstance.getSettings().putAll(tempInstance.getSettings());
             newInstance.saveServerProperties();
-            notification.update().message(newInstance.getName() + " Created Successfully!").description("Click To Open").type(Notification.Type.SUCCESS).loading(false).image(null).action(() -> ServerManagerScreen.openServerScreen(newInstance.getPath()));
+            newInstance.save();
+            notification.update().message(newInstance.getName() + " Created Successfully!").description("Click To Open").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).image(null).action(() -> ServerManagerScreen.openServerScreen(newInstance.getPath()));
             notification.loading = false;
             notification.autoSlideOut = true;
         })).exceptionally(ex -> {
@@ -207,24 +230,40 @@ public class ServerConfigurationScreen extends ReScreen {
         originalInstance.saveServerProperties();
 
         boolean versionChanged = oldLoader != originalInstance.getModLoader() || (oldVersion == null ? originalInstance.getVersionId() != null : !oldVersion.equals(originalInstance.getVersionId()));
+        boolean isRemote = originalInstance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(originalInstance.getBackendConfig().type);
 
         if (versionChanged) {
             Notification notification = new Notification.Builder().message("Applying Version Changes...").autoSlideOut(false).image(Identifier.animatedIcon("loadingGreen.png")).animateImage(true).accent(ThemeManager.getAccent("calm")).build();
 
-            if (originalInstance.isRemote()) {
-                Rebase.get().getInstanceManager().createRemoteInstance(originalInstance, originalInstance.getRemoteHost(), notification).thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(originalInstance.getRemoteHost()).handle((v, e) -> null).thenApply(v -> newInstance)).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
-                    notification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);
-                    notification.loading = false;
-                    notification.autoSlideOut = true;
-                })).exceptionally(ex -> {
-                    ScreenManager.getInstance().execute(() -> {
-                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                        notification.update().message("Update Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
+            if (isRemote) {
+                RemoteHost host = remoteHostContext;
+                if(host == null) {
+                    for(RemoteHost h : Rebase.get().getInstanceManager().getRemoteHosts()) {
+                        if(originalInstance.getBackendConfig().credentials.getOrDefault("host", "").equals(h.getIp())) {
+                            host = h;
+                            break;
+                        }
+                    }
+                }
+
+                if (host != null) {
+                    RemoteHost finalHost = host;
+                    Rebase.get().getInstanceManager().createRemoteInstance(originalInstance, host, notification).thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(finalHost).handle((v, e) -> null).thenApply(v -> newInstance)).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
+                        notification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);
                         notification.loading = false;
                         notification.autoSlideOut = true;
+                    })).exceptionally(ex -> {
+                        ScreenManager.getInstance().execute(() -> {
+                            Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                            notification.update().message("Update Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
+                            notification.loading = false;
+                            notification.autoSlideOut = true;
+                        });
+                        return null;
                     });
-                    return null;
-                });
+                } else {
+                    notification.update().message("Update Failed").description("Could not resolve remote host context").type(Notification.Type.ERROR);
+                }
             } else {
                 Rebase.get().getInstanceManager().createInstance(originalInstance, notification).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
                     notification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);

@@ -83,9 +83,7 @@ public class PlayerHistoryService {
     }
 
     public void recordAccessChange(UUID uuid, String name, SessionEventType type, String details, long timestamp) {
-        String key = (type == SessionEventType.BAN || type == SessionEventType.UNBAN || type == SessionEventType.KICK)
-                ? type.name()
-                : type.name() + "|" + String.valueOf(details);
+        String key = (type == SessionEventType.BAN || type == SessionEventType.UNBAN || type == SessionEventType.KICK) ? type.name() : type.name() + "|" + String.valueOf(details);
         Map<String, Long> seen = lastAccessSeen.computeIfAbsent(uuid, u -> new HashMap<>());
         Long lastTs = seen.get(key);
         if (lastTs != null && (timestamp - lastTs) < 1000) return;

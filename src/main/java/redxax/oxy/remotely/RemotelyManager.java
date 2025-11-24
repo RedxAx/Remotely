@@ -22,6 +22,11 @@ import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.instance.loaders.ModLoaderHandler;
 import restudio.rebase.instance.loaders.ModLoaderVersion;
 import restudio.rebase.minecraft.GameVersion;
+import restudio.rebase.backend.BackendFactory;
+import restudio.rebase.backend.BackendConfig;
+import restudio.rebase.backend.ServerBackend;
+import restudio.rebase.backend.impl.LocalBackend;
+import restudio.rebase.backend.impl.SshBackend;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -94,6 +99,8 @@ public class RemotelyManager implements IRebaseManager {
 
     private void init() {
         javaManager.refreshRuntimes();
+        BackendFactory.register("LOCAL", (cfg, inst) -> new LocalBackend(cfg != null ? cfg : new BackendConfig("LOCAL", new java.util.HashMap<>()), inst));
+        BackendFactory.register("SSH", SshBackend::new);
     }
 
     private CompletableFuture<JsonObject> loadRemoteManifest() {

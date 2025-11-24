@@ -9,7 +9,9 @@ import redxax.oxy.remotely.data.managed.SessionEventType;
 import redxax.oxy.remotely.data.player.IPlayerHistoryCollector;
 import redxax.oxy.remotely.data.player.IPlayerHistoryProvider;
 import restudio.rebase.api.RebaseAPI;
+import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.widgets.TerminalWidget;
+import restudio.rescreen.debug.DebugManager;
 
 import java.lang.reflect.Type;
 import java.nio.file.Path;
@@ -30,6 +32,7 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
     private final Function<String, UUID> nameResolver;
     private final Map<UUID, Map<String, Long>> lastCommandSeen = new HashMap<>();
     private final Map<UUID, Map<String, Long>> lastAccessSeen = new HashMap<>();
+    private final String instanceId;
     private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;]*[A-Za-z]");
 
     private static final Pattern COMMAND_ISSUED_PATTERN_1 = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+) issued server command: (.+)");
@@ -41,11 +44,20 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
         void accept(Matcher matcher, String line, long timestamp);
     }
 
+    public StandardPlayerHistoryProvider(Instance instance, RebaseAPI api, TerminalWidget terminalWidget, Path instancePath, Function<String, UUID> nameResolver) {
+        this.api = api;
+        this.terminalWidget = terminalWidget;
+        this.historyDir = instancePath.resolve("Remotely").resolve("player-history");
+        this.nameResolver = nameResolver;
+        this.instanceId = instance.getInstanceId();
+    }
+
     public StandardPlayerHistoryProvider(RebaseAPI api, TerminalWidget terminalWidget, Path instancePath, Function<String, UUID> nameResolver) {
         this.api = api;
         this.terminalWidget = terminalWidget;
         this.historyDir = instancePath.resolve("Remotely").resolve("player-history");
         this.nameResolver = nameResolver;
+        this.instanceId = "unknown";
     }
 
     @Override
@@ -85,6 +97,7 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
         List<PlayerSession> list = sessionsCache.computeIfAbsent(uuid, u -> new ArrayList<>());
         list.add(session);
         save(uuid);
+        DebugManager.getInstance().recordEvent(instanceId, "History", "Standard", "Session Started: " + name);
     }
 
     @Override
@@ -93,6 +106,7 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
         if (s != null) {
             s.endTime = endTime;
             save(uuid);
+            DebugManager.getInstance().recordEvent(instanceId, "History", "Standard", "Session Ended: " + s.name);
         }
     }
 
@@ -105,6 +119,7 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
         PlayerSession s = ensureActiveOrEphemeral(uuid, name, timestamp);
         s.events.add(new SessionEvent(timestamp, SessionEventType.COMMAND, command));
         save(uuid);
+        DebugManager.getInstance().recordEvent(instanceId, "History", "Standard", "Command: " + name + ": " + command);
     }
 
     @Override
@@ -118,6 +133,7 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
         PlayerSession s = ensureActiveOrEphemeral(uuid, name, timestamp);
         s.events.add(new SessionEvent(timestamp, type, details));
         save(uuid);
+        DebugManager.getInstance().recordEvent(instanceId, "History", "Standard", "Access Change: " + name + " " + type + " (" + details + ")");
     }
 
     public void recordCommandByName(String name, String command, long timestamp) {

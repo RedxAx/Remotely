@@ -67,13 +67,14 @@ public class StandardPlayerActionProvider implements IPlayerActionProvider {
 
     @Override
     public CompletableFuture<Void> runCustomCommand(ManagedPlayer player, String commandTemplate) {
-        if (terminalWidget == null) {
-            new Notification("Error", "Terminal not available.", Notification.Type.ERROR);
-            return CompletableFuture.failedFuture(new IllegalStateException("Terminal not available"));
-        }
-        String command = commandTemplate.replace("$name", player.name).replace("$uuid", player.uuid.toString());
-        terminalWidget.executeCommand(command);
-        return CompletableFuture.completedFuture(null);
+        return CompletableFuture.runAsync(() -> {
+            if (terminalWidget == null) {
+                new Notification.Builder().message("Failed To Execute").type(Notification.Type.ERROR).description("Terminal is not available");
+                return;
+            }
+            String command = commandTemplate.replace("$name", player.name).replace("$uuid", player.uuid.toString());
+            terminalWidget.executeCommand(command);
+        });
     }
 
     @Override
@@ -93,7 +94,7 @@ public class StandardPlayerActionProvider implements IPlayerActionProvider {
             }
         });
     }
-    
+
     private <T> CompletableFuture<List<T>> loadJsonFile(Path path, TypeToken<List<T>> typeToken) {
         return api.fileExists(path).thenCompose(exists -> {
             if (!exists) {

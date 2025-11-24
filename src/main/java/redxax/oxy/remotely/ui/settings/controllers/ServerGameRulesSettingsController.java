@@ -22,6 +22,7 @@ public class ServerGameRulesSettingsController {
     private final Consumer<InstanceState> stateListener;
     private Setting gameRulesSetting;
     private MSMPManager msmpManager;
+    private final Consumer<String> statusListener;
 
     public ServerGameRulesSettingsController(Instance instance) {
         this.instance = instance;
@@ -30,13 +31,21 @@ public class ServerGameRulesSettingsController {
                 ScreenManager.getInstance().execute(this::updateStatus);
             }
         };
+        this.statusListener = this::onMsmpStatusChange;
         this.instance.addStateListener(stateListener);
     }
 
     public void cleanup() {
         instance.removeStateListener(stateListener);
         if (msmpManager != null) {
-            msmpManager.setOnStatusChange(null);
+            msmpManager.removeStatusListener(statusListener);
+        }
+    }
+
+    private void onMsmpStatusChange(String text) {
+        setStatus(text);
+        if (("MSMP: Connected".equals(text) || (msmpManager.getApi() != null && msmpManager.getApi().isConnected())) && gameRulesSetting != null && gameRulesSetting.getRows().size() <= 1) {
+            loadRules();
         }
     }
 
@@ -44,7 +53,9 @@ public class ServerGameRulesSettingsController {
         IMSMPApi api = msmpManager.getApi();
         if (api != null && api.isConnected()) {
             setStatus("MSMP: Connected");
-            loadRules();
+            if (gameRulesSetting.getRows().size() <= 1) {
+                loadRules();
+            }
         } else {
             msmpManager.connect();
         }
@@ -56,8 +67,10 @@ public class ServerGameRulesSettingsController {
         statusBadge = new AnimatedButton.Builder().label("...").active(false).build();
         builder.addRow("", true, false, 20, statusBadge);
         this.gameRulesSetting = builder.build();
-        msmpManager.setOnStatusChange(this::setStatus);
+
+        msmpManager.addStatusListener(statusListener);
         updateStatus();
+
         return List.of(gameRulesSetting);
     }
 

@@ -1,23 +1,35 @@
 package redxax.oxy.remotely.ui.server;
 
-import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
 import redxax.oxy.remotely.ui.server.containers.ResourceContainer;
 import redxax.oxy.remotely.ui.server.containers.SharedContainerSwitcher;
+import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
+import restudio.rebase.api.unified.InstanceApi;
+import restudio.rebase.api.unified.adapter.UnifiedExecutionProvider;
+import restudio.rebase.backend.BackendConfig;
+import restudio.rebase.backend.ExecutionProvider;
+import restudio.rebase.backend.impl.LocalBackend;
+import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
+import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.msmp.MSMPManager;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
+import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
+import restudio.rescreen.debug.DebugManager;
+import restudio.rescreen.debug.IDebugInfoProvider;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
+import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
-import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
@@ -30,16 +42,70 @@ import restudio.rescreen.util.Notification;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import org.lwjgl.glfw.GLFW;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 
-public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.InstanceDetailsScreen {
+public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebugInfoProvider {
     private final Object parent;
     private final RemotelyClient remotelyClient;
     private final Map<TabsManager.Tab, TabContext> tabContexts = new HashMap<>();
     private IconButton startIconButton;
-
     private SharedContainerSwitcher containerSwitcher;
+
+    @Override
+    public List<String> getLeftLines() {
+        List<String> info = new ArrayList<>();
+        TabContext ctx = getActiveContext();
+        if (ctx == null) {
+            info.add("No Active Context");
+            return info;
+        }
+
+        if (ctx.isLocalTerminalMode) {
+            info.add("Mode: Local Terminal");
+            info.add("Term ID: " + ctx.localTerminalId);
+        } else if (ctx.instance != null) {
+            info.add("Mode: Instance (" + ctx.instance.getName() + ")");
+            info.add("Instance ID: " + ctx.instance.getInstanceId());
+            info.add("State: " + ctx.instance.getState());
+
+            MSMPManager msmp = ctx.instance.getMSMPManager();
+            info.add("MSMP: " + (msmp.isConnected ? "Connected" : "Disconnected"));
+            if (msmp.getApi() != null) {
+                info.add("  API Ready: " + msmp.getApi().isConnected());
+            }
+
+            if (ctx.instance.getBackend() != null) {
+                info.add("Backend: " + (ctx.instance.getBackend().isConnected() ? "Connected" : "Disconnected"));
+                info.add("  Type: " + ctx.instance.getBackendConfig().type);
+            } else {
+                info.add("Backend: None (Local FileSystem)");
+            }
+        }
+        return info;
+    }
+
+    @Override
+    public List<String> getRightLines() {
+        List<String> info = new ArrayList<>();
+        TabContext ctx = getActiveContext();
+        if (ctx != null && !ctx.isLocalTerminalMode && ctx.instance != null) {
+
+            PlayerManagerController pmc = PlayerManagerController.getOrCreate(ctx.instance);
+            LuckPermsService lp = pmc.getLuckPermsService();
+            if (lp != null) {
+                info.add("LuckPerms: " + (lp.isEnabled() ? "Enabled" : "Disabled"));
+                if (lp.isEnabled()) {
+                    info.add("  Base URL: " + lp.getConfig().apiUrl);
+                }
+            }
+
+            info.add("Providers Chain: " + pmc.getDebugChainInfo());
+            info.add("Selected View: " + ctx.selectedViewIndex);
+        }
+        return info;
+    }
 
     private static class TabContext {
         Instance instance;
@@ -70,10 +136,8 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         }
     }
 
-
-
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
-        super(parent instanceof restudio.rescreen.ui.core.Screen ? (restudio.rescreen.ui.core.Screen) parent : null, null);
+        super(parent instanceof Screen ? (Screen) parent : null, null);
         this.parent = parent;
         this.remotelyClient = client;
     }
@@ -90,15 +154,15 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
         startIconButton = new IconButton.Builder()
-                .imagePath("start.png")
-                .onClick(this::launchOrStopInstance)
-                .hint("Start Server")
-                .accentType(ThemeManager.getAccent("nice"))
-                .size(18, 18)
-                .elevateOnFocused(false)
-                .animateLayout(true)
-                .autoWidthOnTextChange(true)
-                .build();
+            .imagePath("start.png")
+            .onClick(this::launchOrStopInstance)
+            .hint("Start Server")
+            .accentType(ThemeManager.getAccent("nice"))
+            .size(18, 18)
+            .elevateOnFocused(false)
+            .animateLayout(true)
+            .autoWidthOnTextChange(true)
+            .build();
         header().addLeft(startIconButton);
 
         header().addLeft("resources.png", () -> {
@@ -128,14 +192,14 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     @Override
     protected void setupTabs() {
         tabs().builder()
-                .position(5, 35).size(width - 10, 18)
-                .allowAdd(true).allowClose(true).allowReorder(true).allowRename(true)
-                .onPlusButtonClicked(this::addNewTerminalTab)
-                .onTabSelected(this::onTabSelected)
-                .onTabClosed(this::onTabClosed)
-                .onTabsReordered(this::onTabsReordered)
-                .onTabRenamed(this::onTabRenamed)
-                .build();
+            .position(5, 35).size(width - 10, 18)
+            .allowAdd(true).allowClose(true).allowReorder(true).allowRename(true)
+            .onPlusButtonClicked(this::addNewTerminalTab)
+            .onTabSelected(this::onTabSelected)
+            .onTabClosed(this::onTabClosed)
+            .onTabsReordered(this::onTabsReordered)
+            .onTabRenamed(this::onTabRenamed)
+            .build();
 
         for (Object tabInfo : remotelyClient.getMultiTerminalTabs()) {
             createAndAddTab(tabInfo, false);
@@ -172,8 +236,6 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         header().setButtonVisible("download.png", i == 1);
     }
 
-
-
     private void onTabRenamed(TabsManager.Tab tab) {
         TabContext context = tabContexts.get(tab);
         if (context != null && context.instance != null) {
@@ -206,9 +268,17 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         mainContainer.setRelativeScissor(- 1, - 1, - 1, - 3);
         context.mainContainer = mainContainer;
 
-        context.terminalWidget = TerminalWidget.getOrCreate(inst, localId, 5, 60, width - 10, height - 66);
+        ExecutionProvider exec;
+        if (inst != null) {
+            exec = new UnifiedExecutionProvider(InstanceApi.of(inst).console());
+        } else {
+            exec = new LocalBackend(new BackendConfig("LOCAL", new HashMap<>()), null).getExecution();
+        }
+        context.terminalWidget = TerminalWidget.getOrCreate(inst, exec, localId, 5, 60, width - 10, height - 66);
         if (inst != null) {
             inst.attachTerminalListener(context.terminalWidget);
+            context.terminalWidget.addOutputListener(inst.getMSMPManager()::handleConsoleLine);
+            context.terminalWidget.start();
         }
         mainContainer.addWidget(context.terminalWidget);
 
@@ -276,6 +346,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         }
 
         if (this.instance != null) {
+            DebugManager.getInstance().setViewContext(this.instance.getInstanceId());
             this.instance.addStateListener(stateListener);
             onStateChanged(this.instance.getState());
 
@@ -292,10 +363,9 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                 }
 
                 if (VersionUtil.isMSMPCompatible(this.instance.getVersionId()) && Boolean.parseBoolean(this.instance.getServerProperties().getProperty("management-server-enabled", "false"))) {
-                     this.instance.getMSMPManager().handleInstanceStateChange(this.instance.getState());
+                    this.instance.getMSMPManager().handleInstanceStateChange(this.instance.getState());
                 }
             }
-
 
             if (newContext.resourcesContainer != null) {
                 newContext.resourcesContainer.ensureSelectorsSynced();
@@ -308,6 +378,8 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                 containerSwitcher.setActiveIndex(newContext.selectedViewIndex);
                 onSharedSwitchChange(newContext.selectedViewIndex);
             }
+        } else {
+            DebugManager.getInstance().setViewContext(newContext.localTerminalId);
         }
 
         updateHeaderButtons();
@@ -342,8 +414,6 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
         }
     }
-
-
 
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
@@ -433,26 +503,23 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     private void launchOrStopInstance() {
         TabContext context = getActiveContext();
         if (context == null || context.isLocalTerminalMode) return;
-
+        InstanceApi api = InstanceApi.of(context.instance);
         if (context.instance.getState() == InstanceState.RUNNING || context.instance.getState() == InstanceState.STARTING) {
-            if (context.instance.isRemote()) {
-                context.terminalWidget.executeCommand("stop");
-            } else {
+            api.console().stopServer().exceptionally(e -> {
+                ScreenManager.getInstance().execute(() -> new Notification("Stop Failed", e.getMessage(), Notification.Type.ERROR));
+                return null;
+            });
+            String t = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
+            if ("LOCAL".equalsIgnoreCase(t)) {
                 context.terminalWidget.stopProcess();
                 context.instance.setState(InstanceState.STOPPED);
-                context.terminalWidget.clearLog();
             }
         } else {
-            final RebaseAPI api = RebaseApiFactory.get(context.instance);
             final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
-            if (context.instance.isRemote()) {
-                proceedWithServerStart(context);
-                return;
-            }
-
-            api.readFile(eulaPath).exceptionally(t -> "").thenAccept(content -> ScreenManager.getInstance().execute(() -> {
-                boolean eulaAccepted = content.contains("eula=true");
-                if (eulaAccepted) {
+            RebaseAPI legacy = RebaseApiFactory.get(context.instance);
+            legacy.readFile(eulaPath).exceptionally(t -> "").thenAccept(content -> ScreenManager.getInstance().execute(() -> {
+                boolean eulaAccepted = content != null && content.contains("eula=true");
+                if (eulaAccepted || (content != null && content.isEmpty())) {
                     proceedWithServerStart(context);
                 } else {
                     showEulaPopup(context);
@@ -463,46 +530,47 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
     private void showEulaPopup(TabContext context) {
         PopupWidget.Builder builder = new PopupWidget.Builder("Mojang EULA Agreement")
-                .size(400 - 73, 120)
-                .setResizable(false);
+            .size(400 - 73, 120)
+            .setResizable(false);
 
         AnimatedButton textWidget = new AnimatedButton.Builder()
-                .label("Before You Start, Please Agree To The EULA.")
-                .active(false)
-                .flat(true)
-                .build();
+            .label("Before You Start, Please Agree To The EULA.")
+            .active(false)
+            .flat(true)
+            .build();
         builder.addRow("", true, 20, textWidget);
         builder.addMarkdown("", "By Click The Agree Button Below, You Agree To The [Minecraft EULA](https://www.minecraft.net/en-us/eula).", 20);
         PopupWidget popup = builder.build();
 
         builder.addRow("", true, 18, new IconButton.Builder().imagePath("checkmark").centered(true).accentType(ThemeManager.getAccent("nice"))
-                .label("I have read and agree to the EULA").size(0, 18).onClick(() -> {
-                    final RebaseAPI api = RebaseApiFactory.get(context.instance);
-                    final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
-                    context.instance.getServerProperties().setProperty("eula", "true");
+            .label("I have read and agree to the EULA").size(0, 18).onClick(() -> {
+                final RebaseAPI api = RebaseApiFactory.get(context.instance);
+                final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
+                context.instance.getServerProperties().setProperty("eula", "true");
 
-                    CompletableFuture.runAsync(context.instance::saveServerProperties).thenCompose(v -> api.writeFile(eulaPath, "eula=true")).thenRun(() -> ScreenManager.getInstance().execute(() -> {
-                        popup.hide();
-                        proceedWithServerStart(context);
-                    })).exceptionally(ex -> {
-                        ScreenManager.getInstance().execute(() -> new Notification("Error", "Failed to agree to EULA: " + ex.getMessage(), Notification.Type.ERROR));
-                        return null;
-                    });
-                }).build());
+                CompletableFuture.runAsync(context.instance::saveServerProperties).thenCompose(v -> api.writeFile(eulaPath, "eula=true")).thenRun(() -> ScreenManager.getInstance().execute(() -> {
+                    popup.hide();
+                    proceedWithServerStart(context);
+                })).exceptionally(ex -> {
+                    ScreenManager.getInstance().execute(() -> new Notification("Error", "Failed to agree to EULA: " + ex.getMessage(), Notification.Type.ERROR));
+                    return null;
+                });
+            }).build());
         addDrawableChild(popup);
         popup.show();
     }
 
     private void proceedWithServerStart(TabContext context) {
+        InstanceApi api = InstanceApi.of(context.instance);
         context.instance.setState(InstanceState.STARTING);
-        RebaseAPI api = RebaseApiFactory.get(context.instance);
-        api.launchServer(context.instance).thenAccept(command -> ScreenManager.getInstance().execute(() -> {
-            if (context.instance.isRemote()) {
-                if (command != null && !command.isEmpty()) {
-                    context.terminalWidget.executeCommand(command);
-                }
+        api.console().startServer().thenAccept(command -> ScreenManager.getInstance().execute(() -> {
+            if (command != null && !command.isEmpty()) {
+                context.terminalWidget.executeCommand(command);
             } else {
-                context.terminalWidget.startServerProcess();
+                String type = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
+                if ("LOCAL".equalsIgnoreCase(type)) {
+                    context.terminalWidget.startServerProcess();
+                }
             }
         })).exceptionally(e -> {
             ScreenManager.getInstance().execute(() -> {
@@ -522,43 +590,18 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     public void openInstanceSettings() {
         TabContext context = getActiveContext();
         if (context == null || context.isLocalTerminalMode) return;
-        client.setScreen(new ServerConfigurationScreen(this, context.instance, context.instance.getRemoteHost(), remotelyClient));
-    }
 
-    @Override
-    public void resize(int width, int height) {
-        super.resize(width, height);
-        if (tabsManager != null) {
-            tabsManager.setPosition(5, 35);
-            tabsManager.setSize(width - 10, 18);
-        }
-
-        for (TabContext context : tabContexts.values()) {
-            if (context.mainContainer != null) {
-                context.mainContainer.setPosition(5, 60);
-                context.mainContainer.size(width - 10, height - 65);
-                int containerWidth = context.mainContainer.getEffectiveWidth();
-                for (Widget w : context.mainContainer.getWidgets()) {
-                    if (w instanceof Container) {
-                        w.setSize(containerWidth, height - 66);
-                    }
-                }
-                if (context.terminalWidget != null) {
-                    context.terminalWidget.setWidth(containerWidth);
-                    context.terminalWidget.setHeight(height - 66);
-                }
-                if (context.resourcesContainer != null) {
-                    context.resourcesContainer.size(containerWidth, height - 66);
-                }
-                if (context.playersContainer != null) {
-                    context.playersContainer.size(containerWidth, height - 66);
+        RemoteHost host = null;
+        BackendConfig cfg = context.instance.getBackendConfig();
+        if (cfg != null && !"LOCAL".equalsIgnoreCase(cfg.type)) {
+            for(RemoteHost h : InstanceManager.getInstance().getRemoteHosts()) {
+                if(cfg.credentials.getOrDefault("host", "").equals(h.getIp())) {
+                    host = h;
+                    break;
                 }
             }
         }
-        if (containerSwitcher != null) {
-            containerSwitcher.recreateButtons();
-        }
-        updatePositions();
+        client.setScreen(new ServerConfigurationScreen(this, context.instance, host, remotelyClient));
     }
 
     @Override
@@ -575,12 +618,14 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
     @Override
     public void closeScreen() {
+        DebugManager.getInstance().setViewContext(null);
         remotelyClient.getHost().openParentScreen(this, parent);
     }
 
     @Override
     public void removed() {
         super.removed();
+        DebugManager.getInstance().setViewContext(null);
         for (TabContext context : tabContexts.values()) {
             if (context.instance != null) {
                 context.instance.removeStateListener(stateListener);

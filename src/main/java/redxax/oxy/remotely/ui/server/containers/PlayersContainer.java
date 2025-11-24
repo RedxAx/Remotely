@@ -5,7 +5,6 @@ import redxax.oxy.remotely.data.managed.ManagedPlayer;
 import redxax.oxy.remotely.data.managed.PlayerAction;
 import redxax.oxy.remotely.ui.widgets.management.PlayerEntryWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
-import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.theme.ThemeManager;
@@ -26,14 +25,14 @@ public class PlayersContainer extends Container {
         this.instance = instance;
         this.terminalWidget = terminalWidget;
         this.layout(new ManagedLayout()).columns(1).padding(2).enableSelecting(true).setRelativeScissor(- 1, - 1, - 1, - 3);
-        controller = PlayerManagerController.getOrCreate(instance, RebaseApiFactory.get(instance));
-        controller.setUiBindings(this);
+        controller = PlayerManagerController.getOrCreate(instance);
+        controller.setUiBindings(this, terminalWidget);
     }
 
     public void setInstance(Instance newInstance) {
         this.instance = newInstance;
-        controller = PlayerManagerController.getOrCreate(newInstance, RebaseApiFactory.get(newInstance));
-        controller.setUiBindings(this);
+        controller = PlayerManagerController.getOrCreate(newInstance);
+        controller.setUiBindings(this, terminalWidget);
     }
 
     public void rebuildPlayerWidgets() {

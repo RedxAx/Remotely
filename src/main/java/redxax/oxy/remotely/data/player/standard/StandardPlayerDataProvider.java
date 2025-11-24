@@ -2,13 +2,13 @@ package redxax.oxy.remotely.data.player.standard;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
-import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import redxax.oxy.remotely.data.managed.*;
 import redxax.oxy.remotely.data.player.IPlayerDataProvider;
 import redxax.oxy.remotely.data.player.IPlayerHistoryCollector;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.widgets.TerminalWidget;
+import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.ui.core.ScreenManager;
 
 import java.lang.reflect.Type;
@@ -30,13 +30,13 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
     private final Gson gson = new Gson();
     private final Map<UUID, ManagedPlayer> players = new LinkedHashMap<>();
     private final List<Consumer<List<ManagedPlayer>>> updateListeners = new CopyOnWriteArrayList<>();
+    private final String instanceId;
 
     private final Path remotelyDir;
     private final Path playerLogPath;
     private final Path opsPath;
     private final Path bannedPlayersPath;
     private final Path bannedIpsPath;
-    private final LuckPermsService luckPermsService;
 
     private static final Pattern PLAYER_JOIN_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+)\\[/([0-9.:]+)] logged in with entity id \\d+ at .*");
     private static final Pattern PLAYER_LEAVE_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+) left the game");
@@ -51,6 +51,7 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         this.api = api;
         this.terminalWidget = terminalWidget;
         this.historyCollector = historyCollector;
+        this.instanceId = instance.getInstanceId();
 
         Path instancePath = Path.of(instance.getPath());
         this.remotelyDir = instancePath.resolve("Remotely");
@@ -58,14 +59,13 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         this.opsPath = instancePath.resolve("ops.json");
         this.bannedPlayersPath = instancePath.resolve("banned-players.json");
         this.bannedIpsPath = instancePath.resolve("banned-ips.json");
-        this.luckPermsService = new LuckPermsService(api, instancePath);
     }
 
     @Override
     public void initialize() {
         ensureRemotelyDirectory();
         terminalWidget.addOutputListener(this::processConsoleLine);
-        luckPermsService.initialize().thenRun(this::fullRefresh);
+        fullRefresh();
     }
 
     @Override
@@ -75,10 +75,6 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         updateListeners.clear();
     }
 
-    public LuckPermsService getLuckPermsService() {
-        return luckPermsService;
-    }
-
     @Override
     public CompletableFuture<Void> fullRefresh() {
         CompletableFuture<List<PlayerLogEntry>> playerLogFuture = loadJsonFile(playerLogPath, new TypeToken<>() {});
@@ -86,7 +82,7 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         CompletableFuture<List<BanEntry>> bannedPlayersFuture = loadJsonFile(bannedPlayersPath, new TypeToken<>() {});
         CompletableFuture<List<IpBanEntry>> bannedIpsFuture = loadJsonFile(bannedIpsPath, new TypeToken<>() {});
 
-        return CompletableFuture.allOf(playerLogFuture, opsFuture, bannedPlayersFuture, bannedIpsFuture).thenCompose(v -> {
+        return CompletableFuture.allOf(playerLogFuture, opsFuture, bannedPlayersFuture, bannedIpsFuture).thenAccept(v -> {
             List<PlayerLogEntry> playerLog = playerLogFuture.join();
             Map<UUID, OpEntry> ops = opsFuture.join().stream().collect(Collectors.toMap(op -> UUID.fromString(op.uuid), Function.identity(), (a, b) -> a));
             Map<UUID, BanEntry> bannedPlayersMap = bannedPlayersFuture.join().stream().collect(Collectors.toMap(ban -> UUID.fromString(ban.uuid), Function.identity(), (a, b) -> a));
@@ -117,24 +113,6 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
                     }
                 });
             }
-
-            return luckPermsService.getAllUsers().thenAccept(lpUsers -> {
-                synchronized (players) {
-                    for (String uuidStr : lpUsers) {
-                        try {
-                            UUID uuid = UUID.fromString(uuidStr);
-                            if (!players.containsKey(uuid)) {
-                                players.put(uuid, new ManagedPlayer(uuid, "Unknown (LP)"));
-                                luckPermsService.getUserMetadata(uuid).thenAccept(meta -> {
-                                    if (meta != null) {
-                                        // Trigger name update if we can resolve it?
-                                    }
-                                });
-                            }
-                        } catch (Exception ignored) {}
-                    }
-                }
-            });
         }).thenRun(this::notifyListeners);
     }
 
@@ -165,6 +143,10 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         });
     }
 
+    private void logAction(String action, String target) {
+        DebugManager.getInstance().recordEvent(instanceId, "Player Action", "Standard", String.format("%s %s", action, target));
+    }
+
     private void processConsoleLine(String line) {
         if (line == null) return;
         line = ANSI_PATTERN.matcher(line).replaceAll("").trim();
@@ -192,6 +174,7 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         if (opMatcher.matches()) {
             updatePlayerStatus(opMatcher.group(1), p -> p.isOp = true);
             historyCollector.recordAccessChange(getPlayerUUID(opMatcher.group(1)), opMatcher.group(1), SessionEventType.OP_CHANGE, "op=true", System.currentTimeMillis());
+            logAction("Opped", opMatcher.group(1));
             return;
         }
 
@@ -199,6 +182,7 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         if (deopMatcher.matches()) {
             updatePlayerStatus(deopMatcher.group(1), p -> p.isOp = false);
             historyCollector.recordAccessChange(getPlayerUUID(deopMatcher.group(1)), deopMatcher.group(1), SessionEventType.OP_CHANGE, "op=false", System.currentTimeMillis());
+            logAction("De-opped", deopMatcher.group(1));
             return;
         }
 
@@ -206,6 +190,7 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         if (banMatcher.matches()) {
             updatePlayerStatus(banMatcher.group(1), p -> p.isBanned = true);
             historyCollector.recordAccessChange(getPlayerUUID(banMatcher.group(1)), banMatcher.group(1), SessionEventType.BAN, "reason=" + banMatcher.group(2), System.currentTimeMillis());
+            logAction("Banned", banMatcher.group(1));
             return;
         }
 
@@ -216,6 +201,7 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
                 p.isIpBanned = false;
             });
             historyCollector.recordAccessChange(getPlayerUUID(unbanMatcher.group(1)), unbanMatcher.group(1), SessionEventType.UNBAN, "", System.currentTimeMillis());
+            logAction("Unbanned", unbanMatcher.group(1));
         }
     }
 
@@ -256,6 +242,7 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
                 player.address = address;
                 historyCollector.startSession(player.uuid, player.name, address, System.currentTimeMillis());
                 notifyListeners();
+                DebugManager.getInstance().recordEvent(instanceId, "Player", "Standard", "Join: " + name);
             } else {
                 terminalWidget.executeCommand("uuid " + name);
             }
@@ -271,6 +258,7 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
                 savePlayerLog();
                 historyCollector.endSession(player.uuid, player.lastSeen);
                 notifyListeners();
+                DebugManager.getInstance().recordEvent(instanceId, "Player", "Standard", "Leave: " + name);
             });
         }
     }

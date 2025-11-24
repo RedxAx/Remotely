@@ -74,22 +74,22 @@ public class ServerManagerScreen extends ReScreen {
 
         int taskbarHeight = 28;
         header().position(HeaderBuilder.Position.BOTTOM).size(taskbarHeight)
-                .addLeft("terminal.png", () -> remotelyClient.openMultiTerminal(this), "Terminal")
-                .addLeft("explorer.png", this::openFileExplorer, "File Explorer")
-                .addLeft("remotely.png", () -> client.setScreen(SettingsScreenFactory.createGlobalSettingsScreen( this,(RemotelyConfigManager) Rebase.get().getConfigManager())), "Settings")
-                .build();
+            .addLeft("terminal.png", () -> remotelyClient.openMultiTerminal(this), "Terminal")
+            .addLeft("explorer.png", this::openFileExplorer, "File Explorer")
+            .addLeft("remotely.png", () -> client.setScreen(SettingsScreenFactory.createGlobalSettingsScreen( this,(RemotelyConfigManager) Rebase.get().getConfigManager())), "Settings")
+            .build();
 
         tabs().builder()
-                .position(width / 2, height - taskbarHeight + 4)
-                .size(width / 2 - 5, 18)
-                .rightToLeft(true)
-                .allowAdd(true)
-                .allowRename(false).allowReorder(false).allowClose(false)
-                .onPlusButtonClicked(() -> openRemoteHostPopup(false))
-                .onTabSelected(this::onHostTabSelected)
-                .onTabClosed(this::onHostTabClosed)
-                .onTabRenamed(this::onHostTabRenamed)
-                .build();
+            .position(width / 2, height - taskbarHeight + 4)
+            .size(width / 2 - 5, 18)
+            .rightToLeft(true)
+            .allowAdd(true)
+            .allowRename(false).allowReorder(false).allowClose(false)
+            .onPlusButtonClicked(() -> openRemoteHostPopup(false))
+            .onTabSelected(this::onHostTabSelected)
+            .onTabClosed(this::onHostTabClosed)
+            .onTabRenamed(this::onHostTabRenamed)
+            .build();
 
         Container desktopContainer = createContainer("desktop", 0, 0, width, height - 35);
         desktopContainer.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true).enableDoubleClick(false).disableScissorRegion(true).enableDoubleClick(false);
@@ -157,13 +157,13 @@ public class ServerManagerScreen extends ReScreen {
                 connectRemoteHostAsync(host, () -> {
                     if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getDefaultAccent());
                     instanceManager.fetchRemoteInstances(host)
-                            .whenComplete((v, e) -> ScreenManager.getInstance().execute(this::loadServersForCurrentTab));
+                        .whenComplete((v, e) -> ScreenManager.getInstance().execute(this::loadServersForCurrentTab));
                 }, () -> {
                     if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("danger"));
                 });
             } else if (instanceManager.getRemoteInstances(host).isEmpty()) {
                 instanceManager.fetchRemoteInstances(host)
-                        .whenComplete((v, e) -> ScreenManager.getInstance().execute(this::loadServersForCurrentTab));
+                    .whenComplete((v, e) -> ScreenManager.getInstance().execute(this::loadServersForCurrentTab));
             }
         }
 
@@ -176,7 +176,7 @@ public class ServerManagerScreen extends ReScreen {
             ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this).addIconItem("Confirm Deletion", "delete.png", () -> {
                 instanceManager.removeRemoteHost(host);
                 tabs().removeTab(tab.getId());
-                }, "Delete Remote Host", ThemeManager.getAccent("danger"));
+            }, "Delete Remote Host", ThemeManager.getAccent("danger"));
             showContextMenu(getMouseX(), tabsManager.getY() + 2, builder);
         }
     }
@@ -201,16 +201,29 @@ public class ServerManagerScreen extends ReScreen {
             if (!widget.isCreateButton()) {
                 activeContainer.clearSelection();
                 activeContainer.addSelectedWidget(widget);
+
+                Instance inst = widget.getInstance();
+                RemoteHost rh = null;
+                if(inst.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(inst.getBackendConfig().type)) {
+                    for(RemoteHost h : instanceManager.getRemoteHosts()) {
+                        if(inst.getBackendConfig().credentials.getOrDefault("host", "").equals(h.getIp())) {
+                            rh = h;
+                            break;
+                        }
+                    }
+                }
+
+                RemoteHost finalRh = rh;
                 ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
-                        .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), widget.getInstance().getRemoteHost(), remotelyClient)), "Edit Server's Settings")
-                        .addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, null, Path.of(widget.getInstance().getPath()), remotelyDir, false)), "Open Server's Folder")
-                        .addHeaderButton("map.png", () -> openWorldScreen(widget.getInstance()), "View World Map")
-                        .addHeaderButton("delete.png", () -> {
-                            instanceForDeletion = widget.getInstance();
-                            deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
-                            deleteServerPopup.setY((this.height - deleteServerPopup.getHeight())/2);
-                            deleteServerPopup.show();
-                        }, "Show Deletion Options");
+                    .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings")
+                    .addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getInstance(), Path.of(widget.getInstance().getPath()), remotelyDir, false)), "Open Server's Folder")
+                    .addHeaderButton("map.png", () -> openWorldScreen(widget.getInstance()), "View World Map")
+                    .addHeaderButton("delete.png", () -> {
+                        instanceForDeletion = widget.getInstance();
+                        deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
+                        deleteServerPopup.setY((this.height - deleteServerPopup.getHeight())/2);
+                        deleteServerPopup.show();
+                    }, "Show Deletion Options");
                 showContextMenu(widget.getX() + widget.getWidth() + 4, widget.getY() + 24, builder);
             }
         }
@@ -252,33 +265,33 @@ public class ServerManagerScreen extends ReScreen {
 
     private void createAddServerPopup() {
         PopupWidget.Builder builder = new PopupWidget.Builder("Add a Server")
-                .size(260, 140)
-                .onClose(() -> addServerPopup.hide());
+            .size(260, 140)
+            .onClose(() -> addServerPopup.hide());
 
         AnimatedButton createBtn = new AnimatedButton.Builder()
-                .label(("Server Creation"))
-                .onClick(() -> {
-                    RemoteHost currentHost = (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null) ? (RemoteHost) tabs().getActiveTab().getData() : null;
-                    client.setScreen(new ServerConfigurationScreen(this, null, currentHost, remotelyClient));
-                    addServerPopup.hide();
-                })
-                .build();
+            .label(("Server Creation"))
+            .onClick(() -> {
+                RemoteHost currentHost = (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null) ? (RemoteHost) tabs().getActiveTab().getData() : null;
+                client.setScreen(new ServerConfigurationScreen(this, null, currentHost, remotelyClient));
+                addServerPopup.hide();
+            })
+            .build();
 
         AnimatedButton importBtn = new AnimatedButton.Builder()
-                .label(("Server Import"))
-                .onClick(() -> {
-                    addServerPopup.hide();
-                    openImportFileExplorer();
-                })
-                .build();
+            .label(("Server Import"))
+            .onClick(() -> {
+                addServerPopup.hide();
+                openImportFileExplorer();
+            })
+            .build();
 
         AnimatedButton modpackBtn = new AnimatedButton.Builder()
-                .label(("Modpack Installation"))
-                .onClick(() -> {
-                    addServerPopup.hide();
-                    openModpackInstallation();
-                })
-                .build();
+            .label(("Modpack Installation"))
+            .onClick(() -> {
+                addServerPopup.hide();
+                openModpackInstallation();
+            })
+            .build();
 
         builder.addRow("", true, 27, createBtn);
         builder.addRow("", true, 27, importBtn);
@@ -291,26 +304,26 @@ public class ServerManagerScreen extends ReScreen {
 
     private void createDeleteServerPopup() {
         PopupWidget.Builder builder = new PopupWidget.Builder("Are You Sure?")
-                .size(260, 140)
-                .onClose(() -> deleteServerPopup.hide());
+            .size(260, 140)
+            .onClose(() -> deleteServerPopup.hide());
 
         AnimatedButton deleteTrashBtn = new AnimatedButton.Builder()
-                .label(("Delete The Server"))
-                .onClick(() -> {
-                    playSound(Sound.DELETE);
-                    instanceManager.removeInstance(instanceForDeletion);
-                    loadServersForCurrentTab();
-                    deleteServerPopup.hide();
-                })
-                .build();
+            .label(("Delete The Server"))
+            .onClick(() -> {
+                playSound(Sound.DELETE);
+                instanceManager.removeInstance(instanceForDeletion);
+                loadServersForCurrentTab();
+                deleteServerPopup.hide();
+            })
+            .build();
 
         AnimatedButton cancelBtn = new AnimatedButton.Builder()
-                .label(("Cancel"))
-                .onClick(() -> {
-                    playSound(Sound.CLICK);
-                    deleteServerPopup.hide();
-                })
-                .build();
+            .label(("Cancel"))
+            .onClick(() -> {
+                playSound(Sound.CLICK);
+                deleteServerPopup.hide();
+            })
+            .build();
 
         builder.addRow("", true, 27, deleteTrashBtn);
         builder.addRow("", true, 27, cancelBtn);
@@ -322,10 +335,10 @@ public class ServerManagerScreen extends ReScreen {
 
     private void createRemoteHostPopup() {
         PopupWidget.Builder builder = new PopupWidget.Builder("Remote Host")
-                .onClose(this::closeRemoteHostPopup)
-                .size(360, 250)
-                .setResizable(true)
-                .setMinSize(360, 250);
+            .onClose(this::closeRemoteHostPopup)
+            .size(360, 250)
+            .setResizable(true)
+            .setMinSize(360, 250);
 
         remoteHostNameInput = new TextInputWidget.Builder().build();
         builder.addRow("Host Name:", true, 20, remoteHostNameInput);
@@ -487,7 +500,8 @@ public class ServerManagerScreen extends ReScreen {
 
     private BufferedImage getServerIcon(Instance server) {
         try {
-            if (!server.isRemote()) {
+            boolean isRemote = server.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(server.getBackendConfig().type);
+            if (!isRemote) {
                 File iconFile = new File(server.getPath(), "icon.png");
                 if (iconFile.exists() && iconFile.isFile()) {
                     return ImageIO.read(iconFile);

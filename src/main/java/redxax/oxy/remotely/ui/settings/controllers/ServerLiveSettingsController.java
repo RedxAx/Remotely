@@ -23,6 +23,7 @@ public class ServerLiveSettingsController {
     private final Consumer<InstanceState> stateListener;
     private Setting liveSettingsContainer;
     private MSMPManager msmpManager;
+    private final Consumer<String> statusListener;
 
     public ServerLiveSettingsController(Instance instance) {
         this.instance = instance;
@@ -31,23 +32,30 @@ public class ServerLiveSettingsController {
                 ScreenManager.getInstance().execute(this::updateStatus);
             }
         };
+        this.statusListener = this::onMsmpStatusChange;
         this.instance.addStateListener(stateListener);
     }
 
     public void cleanup() {
         instance.removeStateListener(stateListener);
         if (msmpManager != null) {
-            msmpManager.setOnStatusChange(null);
+            msmpManager.removeStatusListener(statusListener);
+        }
+    }
+
+    private void onMsmpStatusChange(String text) {
+        setStatus(text);
+        if (("MSMP: Connected".equals(text) || (msmpManager.getApi() != null && msmpManager.getApi().isConnected())) && liveSettingsContainer != null && liveSettingsContainer.getRows().size() <= 1) {
+            loadSettings();
         }
     }
 
     private void updateStatus() {
-        IMSMPApi api = msmpManager.getApi();
-        if (api != null && api.isConnected()) {
+        if (msmpManager.isConnected || (msmpManager.getApi() != null && msmpManager.getApi().isConnected())) {
             setStatus("MSMP: Connected");
-            loadSettings();
-        } else {
-            msmpManager.connect();
+            if (liveSettingsContainer.getRows().size() <= 1) {
+                loadSettings();
+            }
         }
     }
 
@@ -57,8 +65,13 @@ public class ServerLiveSettingsController {
         statusBadge = new AnimatedButton.Builder().label("...").active(false).build();
         builder.addRow("", true, false, 20, statusBadge);
         this.liveSettingsContainer = builder.build();
-        msmpManager.setOnStatusChange(this::setStatus);
-        updateStatus();
+
+        msmpManager.addStatusListener(statusListener);
+
+        if (!msmpManager.isConnected) {
+            msmpManager.connect();
+        }
+
         return List.of(liveSettingsContainer);
     }
 
