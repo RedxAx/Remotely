@@ -277,7 +277,11 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
         context.terminalWidget = TerminalWidget.getOrCreate(inst, exec, localId, 5, 60, width - 10, height - 66);
         if (inst != null) {
-            inst.attachTerminalListener(context.terminalWidget);
+            boolean standardEnabled = Boolean.parseBoolean(inst.getSettings().getProperty("provider.standard.enabled", "true"));
+            if (standardEnabled) {
+                inst.attachTerminalListener(context.terminalWidget);
+            }
+
             context.terminalWidget.addOutputListener(inst.getMSMPManager()::handleConsoleLine);
             context.terminalWidget.start();
         }
