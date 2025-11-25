@@ -1,10 +1,12 @@
 package redxax.oxy.remotely;
 
 import redxax.oxy.remotely.host.ApplicationHost;
+import redxax.oxy.remotely.config.RemotelyConfigManager;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.util.RebaseLogger;
 import restudio.rescreen.Main;
+import restudio.rescreen.config.Config;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 
@@ -17,6 +19,9 @@ public class RemotelyInit {
         }
 
         InstanceManager.initialize(remotelyDir);
+
+        Config.applicationDir = remotelyDir;
+        Config.setConfigManager(new RemotelyConfigManager(remotelyDir));
 
         RemotelyManager remotelyManager = new RemotelyManager();
         Rebase.initialize(remotelyManager);

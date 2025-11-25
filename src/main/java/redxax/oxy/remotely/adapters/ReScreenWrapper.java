@@ -12,6 +12,7 @@ import dev.deftu.textile.Text;
 import net.minecraft.client.Minecraft;
 import org.jetbrains.annotations.NotNull;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.config.Config;
 import restudio.rescreen.ui.core.ScreenManager;
 
 import java.lang.reflect.Field;
@@ -38,7 +39,8 @@ public class ReScreenWrapper extends OmniScreen {
             f.setLong(null, handle);
         } catch (Throwable ignored) {}
         sm.updateDimensions(OmniResolution.getWindowWidth(), OmniResolution.getWindowHeight());
-        sm.setGuiScale((float) OmniResolution.getScaleFactor());
+        float persistedScale = Config.configManager != null ? Config.configManager.getGuiScale() : (float) OmniResolution.getScaleFactor();
+        sm.setGuiScale(persistedScale);
         ImmediateScreenRenderer.initialize();
         sm.setScreen(libScreen);
     }
