@@ -515,6 +515,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 context.instance.setState(InstanceState.STOPPED);
             }
         } else {
+            if (context.instance.getBackend() != null && "SSH".equalsIgnoreCase(context.instance.getBackendConfig().type)) {
+                proceedWithServerStart(context);
+            }
             final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
             RebaseAPI legacy = RebaseApiFactory.get(context.instance);
             legacy.readFile(eulaPath).exceptionally(t -> "").thenAccept(content -> ScreenManager.getInstance().execute(() -> {
