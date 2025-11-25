@@ -85,8 +85,7 @@ public class PlayerManagerController {
         MsmpPlayerProvider msmpProvider = null;
         boolean msmpEnabled = Boolean.parseBoolean(instance.getSettings().getProperty("provider.msmp.enabled", "true"));
         if (msmpEnabled) {
-            boolean propEnabled = Boolean.parseBoolean(instance.getServerProperties().getProperty("management-server-enabled", "false")) || Boolean.parseBoolean(instance.getServerProperties().getProperty("management.server.enabled", "false"));
-            if (propEnabled) msmpProvider = new MsmpPlayerProvider(instance.getMSMPManager());
+            msmpProvider = new MsmpPlayerProvider(instance.getMSMPManager());
         }
 
         BackendPlayerDataProvider backendProvider = null;
@@ -159,6 +158,11 @@ public class PlayerManagerController {
     }
 
     public CompletableFuture<Void> fullRefresh() {
+        if (Boolean.parseBoolean(instance.getSettings().getProperty("provider.msmp.enabled", "true"))) {
+            if (!instance.getMSMPManager().isConnected) {
+                instance.getMSMPManager().connect();
+            }
+        }
         return compositeDataProvider.fullRefresh();
     }
 
