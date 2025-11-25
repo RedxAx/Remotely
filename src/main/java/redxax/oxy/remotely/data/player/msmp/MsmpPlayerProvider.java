@@ -93,27 +93,9 @@ public class MsmpPlayerProvider implements IPlayerDataProvider, IPlayerActionPro
     }
 
     private void onMsmpPlayersUpdate(List<Player> msmpPlayers) {
-        if (msmpPlayers == null) return;
-
-        Set<UUID> currentOnlineUuids = new HashSet<>();
-        for (Player mp : msmpPlayers) {
-            currentOnlineUuids.add(mp.uuid);
-            ManagedPlayer managed = playerCache.computeIfAbsent(mp.uuid, u -> new ManagedPlayer(u, mp.name));
-            managed.name = mp.name;
-            managed.isOnline = true;
-            managed.ping = mp.ping;
-            managed.isOp = mp.isOperator;
-            managed.address = mp.address;
-            managed.lastSeen = System.currentTimeMillis();
+        if (msmpPlayers != null) {
+            fullRefresh();
         }
-
-        for (ManagedPlayer cached : playerCache.values()) {
-            if (!currentOnlineUuids.contains(cached.uuid)) {
-                cached.isOnline = false;
-                cached.ping = -1;
-            }
-        }
-        notifyListeners();
     }
 
     private void updateCache(List<Player> msmpPlayers, List<restudio.rebase.msmp.dto.BanEntry> bans, List<restudio.rebase.msmp.dto.BanEntry> ipBans, List<OpEntry> ops) {
@@ -232,21 +214,23 @@ public class MsmpPlayerProvider implements IPlayerDataProvider, IPlayerActionPro
         IMSMPApi api = msmpManager.getApi();
         if (api == null) return failedFuture("Not connected to MSMP");
         logAction("Kicked", player.name);
-        return api.kickPlayer(player.uuid.toString(), reason).thenApply(v -> null);
+        return api.kickPlayer(player.uuid.toString(), reason).thenCompose(v -> fullRefresh());
     }
 
     @Override
     public CompletableFuture<Void> banPlayer(ManagedPlayer player, String reason, boolean ipBan) {
         IMSMPApi api = msmpManager.getApi();
         if (api == null) return failedFuture("Not connected to MSMP");
+        CompletableFuture<Void> action;
         if (ipBan && player.address != null) {
             String ip = player.address.split(":")[0].replace("/", "");
             logAction("IP Banned", player.name + " (" + ip + ")");
-            return api.banIp(ip, player.uuid.toString(), reason, null);
+            action = api.banIp(ip, player.uuid.toString(), reason, null);
         } else {
             logAction("Banned", player.name);
-            return api.banPlayer(player.uuid.toString(), player.name, reason, null);
+            action = api.banPlayer(player.uuid.toString(), player.name, reason, null);
         }
+        return action.thenCompose(v -> fullRefresh());
     }
 
     @Override
@@ -254,21 +238,23 @@ public class MsmpPlayerProvider implements IPlayerDataProvider, IPlayerActionPro
         IMSMPApi api = msmpManager.getApi();
         if (api == null) return failedFuture("Not connected to MSMP");
         logAction("Unbanned", player.name);
-        return api.unbanPlayer(player.uuid.toString());
+        return api.unbanPlayer(player.uuid.toString()).thenCompose(v -> fullRefresh());
     }
 
     @Override
     public CompletableFuture<Void> toggleOp(ManagedPlayer player) {
         IMSMPApi api = msmpManager.getApi();
         if (api == null) return failedFuture("Not connected to MSMP");
+        CompletableFuture<Void> action;
         if (player.isOp) {
             logAction("De-opped", player.name);
-            return api.deopPlayer(player.uuid.toString());
+            action = api.deopPlayer(player.uuid.toString());
         }
         else {
             logAction("Opped", player.name);
-            return api.opPlayer(player.uuid.toString(), 4);
+            action = api.opPlayer(player.uuid.toString(), 4);
         }
+        return action.thenCompose(v -> fullRefresh());
     }
 
     @Override

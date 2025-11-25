@@ -81,23 +81,31 @@ public class PlayerManagerController {
     private void initializeProviders() {
         TerminalWidget tw = this.terminalWidget;
         RebaseAPI api = RebaseApiFactory.get(instance);
+        Properties settings = instance.getSettings();
 
         MsmpPlayerProvider msmpProvider = null;
-        boolean msmpEnabled = Boolean.parseBoolean(instance.getSettings().getProperty("provider.msmp.enabled", "true"));
+        boolean msmpEnabled = Boolean.parseBoolean(settings.getProperty("provider.msmp.enabled", "true"));
         if (msmpEnabled) {
             msmpProvider = new MsmpPlayerProvider(instance.getMSMPManager());
         }
 
         BackendPlayerDataProvider backendProvider = null;
-        boolean backendEnabled = Boolean.parseBoolean(instance.getSettings().getProperty("provider.backend.enabled", "true"));
+        boolean backendEnabled = Boolean.parseBoolean(settings.getProperty("provider.backend.enabled", "true"));
         if (backendEnabled && instance.getBackend() != null) {
             Optional<PlayerManagementFeature> feat = instance.getBackend().getFeature(PlayerManagementFeature.class);
             if (feat.isPresent()) backendProvider = new BackendPlayerDataProvider(feat.get());
         }
 
-        StandardPlayerHistoryProvider standardHistory = new StandardPlayerHistoryProvider(instance, api, tw, Path.of(instance.getPath()), name -> resolveUuidFromCache(instance, name));
-        StandardPlayerDataProvider standardProvider = new StandardPlayerDataProvider(instance, api, tw, standardHistory);
-        StandardPlayerActionProvider standardAction = new StandardPlayerActionProvider(instance, api, tw);
+        boolean standardEnabled = Boolean.parseBoolean(settings.getProperty("provider.standard.enabled", "true"));
+        StandardPlayerDataProvider standardProvider = null;
+        StandardPlayerActionProvider standardAction = null;
+        StandardPlayerHistoryProvider standardHistory = null;
+
+        if (standardEnabled) {
+            standardHistory = new StandardPlayerHistoryProvider(instance, api, tw, Path.of(instance.getPath()), name -> resolveUuidFromCache(instance, name));
+            standardProvider = new StandardPlayerDataProvider(instance, api, tw, standardHistory);
+            standardAction = new StandardPlayerActionProvider(instance, api, tw);
+        }
 
         compositeDataProvider.setBaseProvider(standardProvider);
         List<IPlayerDataProvider> overlays = new ArrayList<>();
@@ -106,17 +114,17 @@ public class PlayerManagerController {
         compositeDataProvider.setOverlayProviders(overlays);
 
         List<IPlayerActionProvider> chain = new ArrayList<>();
-        String priorityString = instance.getSettings().getProperty("provider.priority.players", "msmp,backend,standard");
+        String priorityString = settings.getProperty("provider.priority.players", "msmp,backend,standard");
         String[] priorities = priorityString.split(",");
 
         for (String p : priorities) {
             String key = p.trim().toLowerCase(Locale.ROOT);
             if ("msmp".equals(key) && msmpProvider != null) chain.add(msmpProvider);
             else if ("backend".equals(key) && backendProvider != null) chain.add(backendProvider);
-            else if ("standard".equals(key)) chain.add(standardAction);
+            else if ("standard".equals(key) && standardAction != null) chain.add(standardAction);
         }
-        boolean standardEnabled = Boolean.parseBoolean(instance.getSettings().getProperty("provider.standard.enabled", "true"));
-        if (standardEnabled && !chain.contains(standardAction)) {
+
+        if (standardAction != null && !chain.contains(standardAction)) {
             chain.add(standardAction);
         }
         this.actionProviderChain = chain;
@@ -127,7 +135,7 @@ public class PlayerManagerController {
 
         compositeDataProvider.initialize();
         for (IPlayerActionProvider p : this.actionProviderChain) p.initialize();
-        this.historyProvider.initialize();
+        if (this.historyProvider != null) this.historyProvider.initialize();
         this.luckPermsService.initialize();
 
         if (msmpProvider != null) {
@@ -259,10 +267,11 @@ public class PlayerManagerController {
     }
 
     public boolean isServerRunning() {
-        return instance.getState() == InstanceState.RUNNING;
+        return instance.getState() == InstanceState.RUNNING || (instance.getMSMPManager() != null && instance.getMSMPManager().isConnected);
     }
 
     public CompletableFuture<List<PlayerSession>> getPlayerSessions(UUID uuid) {
+        if (historyProvider == null) return CompletableFuture.completedFuture(new ArrayList<>());
         return historyProvider.getSessions(uuid);
     }
 
@@ -359,10 +368,18 @@ public class PlayerManagerController {
                 if (!overlayPlayers.isEmpty()) onlineSourceFound = true;
 
                 for (ManagedPlayer onlineMp : overlayPlayers.values()) {
-                    if (onlineMp.isOnline) {
+                    if (onlineMp.isOnline || onlineMp.isBanned || onlineMp.isOp) {
                         ManagedPlayer existing = mergedCache.get(onlineMp.uuid);
                         if (existing != null) {
-                            existing.isOnline = true;
+                            if (onlineMp.isOnline) existing.isOnline = true;
+                            if (onlineMp.isBanned) {
+                                existing.isBanned = true;
+                                existing.banInfo = onlineMp.banInfo;
+                            }
+                            if (onlineMp.isOp) {
+                                existing.isOp = true;
+                                existing.opLevel = onlineMp.opLevel;
+                            }
                             if (onlineMp.ping >= 0) existing.ping = onlineMp.ping;
                         } else {
                             mergedCache.put(onlineMp.uuid, copyPlayer(onlineMp));
