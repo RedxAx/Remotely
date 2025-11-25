@@ -1,11 +1,14 @@
 package redxax.oxy.remotely.data.player.msmp;
 
+import redxax.oxy.remotely.data.managed.BanEntry;
+import redxax.oxy.remotely.data.managed.IpBanEntry;
 import redxax.oxy.remotely.data.managed.ManagedPlayer;
 import redxax.oxy.remotely.data.managed.PlayerAction;
 import redxax.oxy.remotely.data.player.IPlayerActionProvider;
 import redxax.oxy.remotely.data.player.IPlayerDataProvider;
 import restudio.rebase.msmp.IMSMPApi;
 import restudio.rebase.msmp.MSMPManager;
+import restudio.rebase.msmp.dto.OpEntry;
 import restudio.rebase.msmp.dto.Player;
 import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -59,7 +62,19 @@ public class MsmpPlayerProvider implements IPlayerDataProvider, IPlayerActionPro
             msmpManager.connect();
             return CompletableFuture.completedFuture(null);
         }
-        return api.getPlayers().thenAccept(this::updateCacheFromMsmp);
+
+        CompletableFuture<List<Player>> playersF = api.getPlayers();
+        CompletableFuture<List<restudio.rebase.msmp.dto.BanEntry>> bansF = api.getBans();
+        CompletableFuture<List<restudio.rebase.msmp.dto.BanEntry>> ipBansF = api.getIpBans();
+        CompletableFuture<List<OpEntry>> opsF = api.getOps();
+
+        return CompletableFuture.allOf(playersF, bansF, ipBansF, opsF).thenRun(() -> {
+            try {
+                updateCache(playersF.join(), bansF.join(), ipBansF.join(), opsF.join());
+            } catch (Exception e) {
+                DebugManager.getInstance().log("MsmpPlayerProvider", "Failed to refresh data: " + e.getMessage());
+            }
+        });
     }
 
     @Override
@@ -78,14 +93,11 @@ public class MsmpPlayerProvider implements IPlayerDataProvider, IPlayerActionPro
     }
 
     private void onMsmpPlayersUpdate(List<Player> msmpPlayers) {
-        updateCacheFromMsmp(msmpPlayers);
-    }
-
-    private void updateCacheFromMsmp(List<Player> msmpPlayers) {
         if (msmpPlayers == null) return;
-        Set<UUID> currentUuids = new HashSet<>();
+
+        Set<UUID> currentOnlineUuids = new HashSet<>();
         for (Player mp : msmpPlayers) {
-            currentUuids.add(mp.uuid);
+            currentOnlineUuids.add(mp.uuid);
             ManagedPlayer managed = playerCache.computeIfAbsent(mp.uuid, u -> new ManagedPlayer(u, mp.name));
             managed.name = mp.name;
             managed.isOnline = true;
@@ -94,12 +106,111 @@ public class MsmpPlayerProvider implements IPlayerDataProvider, IPlayerActionPro
             managed.address = mp.address;
             managed.lastSeen = System.currentTimeMillis();
         }
+
         for (ManagedPlayer cached : playerCache.values()) {
-            if (!currentUuids.contains(cached.uuid)) {
+            if (!currentOnlineUuids.contains(cached.uuid)) {
                 cached.isOnline = false;
                 cached.ping = -1;
             }
         }
+        notifyListeners();
+    }
+
+    private void updateCache(List<Player> msmpPlayers, List<restudio.rebase.msmp.dto.BanEntry> bans, List<restudio.rebase.msmp.dto.BanEntry> ipBans, List<OpEntry> ops) {
+        Set<UUID> touched = new HashSet<>();
+
+        if (msmpPlayers != null) {
+            for (Player mp : msmpPlayers) {
+                touched.add(mp.uuid);
+                ManagedPlayer managed = playerCache.computeIfAbsent(mp.uuid, u -> new ManagedPlayer(u, mp.name));
+                managed.name = mp.name;
+                managed.isOnline = true;
+                managed.ping = mp.ping;
+                managed.address = mp.address;
+                managed.lastSeen = System.currentTimeMillis();
+            }
+        }
+
+        if (bans != null) {
+            for (restudio.rebase.msmp.dto.BanEntry b : bans) {
+                if (b.uuid == null) continue;
+                try {
+                    UUID u = UUID.fromString(b.uuid);
+                    touched.add(u);
+                    ManagedPlayer managed = playerCache.computeIfAbsent(u, uuid -> new ManagedPlayer(uuid, b.name != null ? b.name : "Unknown"));
+                    managed.isBanned = true;
+                    BanEntry legacyBan = new BanEntry();
+                    legacyBan.uuid = b.uuid;
+                    legacyBan.name = b.name;
+                    legacyBan.reason = b.reason;
+                    legacyBan.source = b.source;
+                    legacyBan.created = b.created;
+                    legacyBan.expires = b.expires;
+                    managed.banInfo = legacyBan;
+                } catch (Exception ignored) {}
+            }
+        }
+
+        if (ipBans != null) {
+             for (restudio.rebase.msmp.dto.BanEntry b : ipBans) {
+                 if (b.ip == null) continue;
+                 for (ManagedPlayer p : playerCache.values()) {
+                     if (p.address != null && p.address.startsWith(b.ip)) {
+                         p.isIpBanned = true;
+                         IpBanEntry legacy = new IpBanEntry();
+                         legacy.ip = b.ip;
+                         legacy.reason = b.reason;
+                         legacy.source = b.source;
+                         legacy.created = b.created;
+                         legacy.expires = b.expires;
+                         p.ipBanInfo = legacy;
+                     }
+                 }
+             }
+        }
+
+        if (ops != null) {
+            for (OpEntry op : ops) {
+                if (op.uuid == null) continue;
+                try {
+                    UUID u = UUID.fromString(op.uuid);
+                    touched.add(u);
+                    ManagedPlayer managed = playerCache.computeIfAbsent(u, uuid -> new ManagedPlayer(uuid, op.name != null ? op.name : "Unknown"));
+                    managed.isOp = true;
+                    managed.opLevel = op.level;
+                } catch (Exception ignored) {}
+            }
+        }
+
+        for (ManagedPlayer cached : playerCache.values()) {
+            if (msmpPlayers != null) {
+                boolean isOnline = false;
+                for(Player p : msmpPlayers) if(p.uuid.equals(cached.uuid)) { isOnline = true; break; }
+                if(!isOnline) {
+                    cached.isOnline = false;
+                    cached.ping = -1;
+                }
+            }
+
+            if (bans != null) {
+                boolean isBanned = false;
+                for(restudio.rebase.msmp.dto.BanEntry b : bans) if(b.uuid != null && b.uuid.equals(cached.uuid.toString())) { isBanned = true; break; }
+                if (!isBanned) {
+                    cached.isBanned = false;
+                    cached.banInfo = null;
+                }
+            }
+
+            if (ops != null) {
+                boolean isOp = false;
+                for(OpEntry o : ops) if(o.uuid != null && o.uuid.equals(cached.uuid.toString())) { isOp = true; break; }
+                if (!isOp) {
+                    cached.isOp = false;
+                    cached.opLevel = 0;
+                }
+            }
+        }
+
         notifyListeners();
     }
 
