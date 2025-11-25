@@ -4,12 +4,15 @@ import restudio.rebase.instance.Instance;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
+import restudio.rescreen.util.Notification;
 
 import java.util.List;
 import java.util.Properties;
+import java.util.regex.Pattern;
 
 public class ServerManagementSettingsController {
     private final Instance instance;
+    private static final Pattern SECRET_PATTERN = Pattern.compile("^[a-zA-Z0-9]{40}$");
 
     public ServerManagementSettingsController(Instance instance) {
         this.instance = instance;
@@ -17,16 +20,19 @@ public class ServerManagementSettingsController {
 
     public List<Setting> getSettings() {
         Properties p = instance.getServerProperties();
+        boolean isRemote = instance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
 
         String host = p.getProperty("management-server-host", "");
-        if (host.isEmpty()) p.setProperty("management-server-host", "localhost");
+        if (host.isEmpty()) {
+            host = isRemote ? "0.0.0.0" : "localhost";
+            p.setProperty("management-server-host", host);
+        }
 
         String port = p.getProperty("management-server-port", "");
         if (port.isEmpty() || "0".equals(port)) p.setProperty("management-server-port", "25585");
 
-        String tlsDash = p.getProperty("management-server-tls-enabled");
-        String tlsDot = p.getProperty("management.server.tls.enabled");
-        if (tlsDash == null && tlsDot == null) {
+        String tlsDash = p.getProperty("management-server-ssl-enabled");
+        if (p.getProperty("management-server-tls-enabled") == null && p.getProperty("management.server.tls.enabled") == null) {
             p.setProperty("management-server-tls-enabled", "false");
             p.setProperty("management.server.tls.enabled", "false");
         }
@@ -41,18 +47,16 @@ public class ServerManagementSettingsController {
                     if (currentPort.isEmpty() || "0".equals(currentPort)) {
                         p.setProperty("management-server-port", "25585");
                     }
-                    String tDash = p.getProperty("management-server-tls-enabled", "");
-                    String tDot = p.getProperty("management.server.tls.enabled", "");
-                    if (tDash.isEmpty() && tDot.isEmpty()) {
-                        p.setProperty("management-server-tls-enabled", "false");
-                        p.setProperty("management.server.tls.enabled", "false");
+                    String currentHost = p.getProperty("management-server-host", "");
+                    if (isRemote && (currentHost.isEmpty() || "localhost".equalsIgnoreCase(currentHost) || "127.0.0.1".equals(currentHost))) {
+                        p.setProperty("management-server-host", "0.0.0.0");
                     }
                 })
                 .build();
         management.addRow("Enable Management API", false, 20, enabledWidget);
 
         TextInputWidget hostWidget = new TextInputWidget.Builder()
-                .text(p.getProperty("management-server-host", "localhost"))
+                .text(p.getProperty("management-server-host", isRemote ? "0.0.0.0" : "localhost"))
                 .onChange(val -> p.setProperty("management-server-host", val))
                 .build();
         management.addRow("Management Host", true, 20, hostWidget);
@@ -63,12 +67,19 @@ public class ServerManagementSettingsController {
                 .build();
         management.addRow("Management Port", true, 20, portWidget);
 
-        TextInputWidget tokenWidget = new TextInputWidget.Builder()
-                .text(p.getProperty("management-server-token", ""))
-                .placeholder("Leave empty for one-time token")
-                .onChange(val -> p.setProperty("management-server-token", val))
+        String currentSecret = p.getProperty("management-server-secret", p.getProperty("management-server-token", ""));
+        TextInputWidget secretWidget = new TextInputWidget.Builder()
+                .text(currentSecret)
+                .placeholder("40 char alphanumeric secret")
+                .onChange(val -> {
+                    if (!val.isEmpty() && !SECRET_PATTERN.matcher(val).matches()) {
+                    }
+                    p.setProperty("management-server-secret", val);
+                    p.remove("management-server-token");
+                })
                 .build();
-        management.addRow("Persistent Token", true, 20, tokenWidget);
+
+        management.addRow("Secret (40 chars)", true, 20, secretWidget);
 
         Setting.Builder tls = new Setting.Builder("TLS / SSL");
 

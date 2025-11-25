@@ -7,8 +7,8 @@ import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
 import redxax.oxy.remotely.ui.server.containers.ResourceContainer;
 import redxax.oxy.remotely.ui.server.containers.SharedContainerSwitcher;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
-import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
+import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.api.unified.adapter.UnifiedExecutionProvider;
 import restudio.rebase.backend.BackendConfig;
@@ -33,13 +33,14 @@ import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
-import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.IconButton;
+import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.util.Notification;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import org.lwjgl.glfw.GLFW;
@@ -362,8 +363,11 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                     newContext.playersContainer.fullRefresh();
                 }
 
-                if (VersionUtil.isMSMPCompatible(this.instance.getVersionId()) && Boolean.parseBoolean(this.instance.getServerProperties().getProperty("management-server-enabled", "false"))) {
+                if (VersionUtil.isMSMPCompatible(this.instance.getVersionId())) {
+                    DebugManager.getInstance().log("ServerDetailsScreen", "MSMP Compatible Version Detected: " + this.instance.getVersionId());
                     this.instance.getMSMPManager().handleInstanceStateChange(this.instance.getState());
+                } else {
+                    DebugManager.getInstance().log("ServerDetailsScreen", "MSMP Incompatible Version Detected: " + this.instance.getVersionId());
                 }
             }
 
@@ -451,6 +455,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             if (context != null && context.playersContainer != null) {
                 context.playersContainer.rebuildPlayerWidgets();
             }
+            if (context != null && context.instance != null) {
+                context.instance.getMSMPManager().handleInstanceStateChange(newState);
+            }
         });
     }
 
@@ -517,6 +524,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         } else {
             if (context.instance.getBackend() != null && "SSH".equalsIgnoreCase(context.instance.getBackendConfig().type)) {
                 proceedWithServerStart(context);
+                return;
             }
             final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
             RebaseAPI legacy = RebaseApiFactory.get(context.instance);
@@ -587,7 +595,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private void exploreInstanceFiles() {
         TabContext context = getActiveContext();
         if (context == null || context.isLocalTerminalMode) return;
-        client.setScreen((new FileExplorerScreen(this, context.instance, Path.of(context.instance.getPath()), Path.of(remotelyDir.toString(), "data"), false)));
+        Path instancePath = Paths.get(context.instance.getPath());
+        client.setScreen((new FileExplorerScreen(this, context.instance, instancePath, Path.of(remotelyDir.toString(), "data"), false)));
     }
 
     public void openInstanceSettings() {
