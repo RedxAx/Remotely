@@ -3,6 +3,8 @@ package redxax.oxy.remotely.ui.server;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.ui.settings.controllers.*;
 import restudio.rebase.Rebase;
+import restudio.rebase.api.RebaseAPI;
+import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
@@ -19,11 +21,8 @@ import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.nio.file.Path;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
@@ -81,6 +80,8 @@ public class ServerConfigurationScreen extends ReScreen {
 
         CompletableFuture<Void> propertiesFuture;
         CompletableFuture<Void> settingsFuture;
+        CompletableFuture<List<String>> filesFuture;
+
         boolean isRemote = tempInstance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(tempInstance.getBackendConfig().type);
 
         if (isEditMode) {
@@ -91,13 +92,20 @@ public class ServerConfigurationScreen extends ReScreen {
                 propertiesFuture = CompletableFuture.runAsync(tempInstance::loadServerProperties);
                 settingsFuture = CompletableFuture.completedFuture(null);
             }
+            filesFuture = RebaseApiFactory.get(tempInstance).listDirectory(Path.of(tempInstance.getPath()))
+                .thenApply(entries -> entries.stream().map(RebaseAPI.FileEntry::toString).toList())
+                .exceptionally(e -> new ArrayList<>());
         } else {
             tempInstance.loadServerProperties();
             propertiesFuture = CompletableFuture.completedFuture(null);
             settingsFuture = CompletableFuture.completedFuture(null);
+            filesFuture = CompletableFuture.completedFuture(new ArrayList<>());
         }
 
-        CompletableFuture.allOf(propertiesFuture, settingsFuture).thenRun(() -> ScreenManager.getInstance().execute(this::setupSettingsUI)).exceptionally(e -> {
+        CompletableFuture.allOf(propertiesFuture, settingsFuture, filesFuture).thenRun(() -> {
+            List<String> files = filesFuture.join();
+            ScreenManager.getInstance().execute(() -> setupSettingsUI(files));
+        }).exceptionally(e -> {
             ScreenManager.getInstance().execute(() -> {
                 new Notification("Error", "Could not load server configuration: " + e.getMessage(), Notification.Type.ERROR);
                 close();
@@ -106,7 +114,7 @@ public class ServerConfigurationScreen extends ReScreen {
         });
     }
 
-    private void setupSettingsUI() {
+    private void setupSettingsUI(List<String> extraFiles) {
         Map<String, Supplier<List<Setting>>> settingsByTab = new LinkedHashMap<>();
         List<Runnable> cleanupActions = new ArrayList<>();
 
@@ -154,7 +162,7 @@ public class ServerConfigurationScreen extends ReScreen {
             }
         }
 
-        ServerExtraSettingsController extraController = new ServerExtraSettingsController(tempInstance);
+        ServerExtraSettingsController extraController = new ServerExtraSettingsController(tempInstance, extraFiles);
         settingsByTab.put("Extra Files", extraController::getSettings);
 
         Runnable combinedCleanup = () -> cleanupActions.forEach(Runnable::run);
