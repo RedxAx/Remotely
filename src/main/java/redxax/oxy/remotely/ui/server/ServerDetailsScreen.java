@@ -11,6 +11,7 @@ import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.api.unified.adapter.UnifiedExecutionProvider;
+import restudio.rebase.api.unified.internal.StandardOutputStateParser;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.ExecutionProvider;
 import restudio.rebase.backend.impl.LocalBackend;
@@ -117,6 +118,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         PlayersContainer playersContainer;
         final boolean isLocalTerminalMode;
         int selectedViewIndex = 0;
+        StandardOutputStateParser standardParser;
 
         TabContext(Instance instance, String localTerminalId) {
             this.instance = instance;
@@ -126,6 +128,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         public void cleanup() {
             if (terminalWidget != null) {
+                if (standardParser != null) {
+                    terminalWidget.removeOutputListener(standardParser);
+                }
                 if (instance != null) {
                     TerminalWidget.shutdown(instance.getInstanceId());
                 } else if (localTerminalId != null) {
@@ -277,11 +282,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
         context.terminalWidget = TerminalWidget.getOrCreate(inst, exec, localId, 5, 60, width - 10, height - 66);
         if (inst != null) {
-            boolean standardEnabled = Boolean.parseBoolean(inst.getSettings().getProperty("provider.standard.enabled", "true"));
-            if (standardEnabled) {
-                inst.attachTerminalListener(context.terminalWidget);
-            }
-
+            updateTerminalListeners(context);
             context.terminalWidget.addOutputListener(inst.getMSMPManager()::handleConsoleLine);
             context.terminalWidget.start();
         }
@@ -312,6 +313,24 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         if (setActive) {
             tabs().setActiveTab(tabs().getTabs().size() - 1);
             onTabSelected(tabs().getActiveTab());
+        }
+    }
+
+    private void updateTerminalListeners(TabContext context) {
+        if (context.instance == null || context.terminalWidget == null) return;
+
+        if (context.standardParser != null) {
+            context.terminalWidget.removeOutputListener(context.standardParser);
+            context.standardParser = null;
+        }
+
+        boolean standardEnabled = Boolean.parseBoolean(context.instance.getSettings().getProperty("provider.standard.enabled", "true"));
+        String priority = context.instance.getSettings().getProperty("provider.priority.lifecycle", "msmp,standard");
+
+        if (standardEnabled && priority.contains("standard")) {
+            StandardOutputStateParser parser = new StandardOutputStateParser(context.instance);
+            context.terminalWidget.addOutputListener(parser);
+            context.standardParser = parser;
         }
     }
 
@@ -354,6 +373,18 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             DebugManager.getInstance().setViewContext(this.instance.getInstanceId());
             this.instance.addStateListener(stateListener);
             onStateChanged(this.instance.getState());
+
+            this.instance.reloadSettingsFromBackend().thenRun(() -> {
+                ScreenManager.getInstance().execute(() -> {
+                    updateTerminalListeners(newContext);
+                    PlayerManagerController.getOrCreate(this.instance).reloadProviders();
+                    if (Boolean.parseBoolean(this.instance.getSettings().getProperty("provider.msmp.enabled", "true"))) {
+                        if (!this.instance.getMSMPManager().isConnected) {
+                            this.instance.getMSMPManager().connect();
+                        }
+                    }
+                });
+            });
 
             if (!newContext.isLocalTerminalMode && this.instance.isServer()) {
                 containerSwitcher = new SharedContainerSwitcher(this, newContext.mainContainer);
@@ -408,6 +439,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             if (context.instance != null) {
                 context.instance.removeStateListener(stateListener);
                 remotelyClient.getMultiTerminalTabs().remove(context.instance);
+                context.instance.getMSMPManager().disconnect();
             } else if (context.localTerminalId != null) {
                 remotelyClient.getMultiTerminalTabs().remove(context.localTerminalId);
             }

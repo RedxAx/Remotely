@@ -80,22 +80,26 @@ public class ServerConfigurationScreen extends ReScreen {
         addDrawableChild(loadingWidget);
 
         CompletableFuture<Void> propertiesFuture;
+        CompletableFuture<Void> settingsFuture;
         boolean isRemote = tempInstance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(tempInstance.getBackendConfig().type);
 
         if (isEditMode) {
             if (isRemote) {
                 propertiesFuture = tempInstance.loadRemoteServerProperties();
+                settingsFuture = tempInstance.reloadSettingsFromBackend();
             } else {
                 propertiesFuture = CompletableFuture.runAsync(tempInstance::loadServerProperties);
+                settingsFuture = CompletableFuture.completedFuture(null);
             }
         } else {
             tempInstance.loadServerProperties();
             propertiesFuture = CompletableFuture.completedFuture(null);
+            settingsFuture = CompletableFuture.completedFuture(null);
         }
 
-        propertiesFuture.thenRun(() -> ScreenManager.getInstance().execute(this::setupSettingsUI)).exceptionally(e -> {
+        CompletableFuture.allOf(propertiesFuture, settingsFuture).thenRun(() -> ScreenManager.getInstance().execute(this::setupSettingsUI)).exceptionally(e -> {
             ScreenManager.getInstance().execute(() -> {
-                new Notification("Error", "Could not load server properties: " + e.getMessage(), Notification.Type.ERROR);
+                new Notification("Error", "Could not load server configuration: " + e.getMessage(), Notification.Type.ERROR);
                 close();
             });
             return null;
