@@ -2,13 +2,11 @@ package redxax.oxy.remotely.ui.settings.controllers;
 
 import restudio.rebase.instance.Instance;
 import restudio.rescreen.ui.settings.Setting;
-import restudio.rescreen.ui.widgets.TabSwitchWidget;
-import restudio.rescreen.ui.widgets.TextInputWidget;
-import restudio.rescreen.ui.widgets.ToggleWidget;
+import restudio.rescreen.ui.settings.options.ConfigOption;
 
 import java.util.Arrays;
 import java.util.List;
-
+import java.util.Properties;
 
 public class ServerGeneralSettingsController {
     private final Instance instance;
@@ -26,42 +24,44 @@ public class ServerGeneralSettingsController {
 
     public List<Setting> getSettings() {
         Setting.Builder general = new Setting.Builder("General Settings");
+        Properties props = instance.getServerProperties();
 
-        TextInputWidget nameWidget = new TextInputWidget.Builder()
-                .text(instance.getName())
-                .onChange(instance::setName)
-                .build();
-        general.addRow("Server Name", true, 20, nameWidget);
+        general.addOption(ConfigOption.<String>builder("Server Name")
+                .description("The display name of the server instance.")
+                .bind(instance::getName, instance::setName)
+                .defaultValue("New Server")
+                .build());
 
-        List<String> gameModes = Arrays.asList("Survival", "Creative", "Adventure");
-        TabSwitchWidget gameModeWidget = new TabSwitchWidget.Builder()
+        List<String> gameModes = Arrays.asList("Survival", "Creative", "Adventure", "Spectator");
+        general.addOption(ConfigOption.<String>builder("Game Mode")
+                .description("Sets the game mode for new players.")
                 .options(gameModes)
-                .currentIndex(gameModes.indexOf(capitalize(instance.getServerProperties().getProperty("gamemode", "survival"))))
-                .onChange(index -> instance.getServerProperties().setProperty("gamemode", gameModes.get(index).toLowerCase()))
-                .build();
-        general.addRow("Game Mode", true, 20, gameModeWidget);
+                .bind(() -> capitalize(props.getProperty("gamemode", "survival")),
+                      val -> props.setProperty("gamemode", val.toLowerCase()))
+                .defaultValue("Survival")
+                .build());
 
         List<String> difficulties = Arrays.asList("Peaceful", "Easy", "Normal", "Hard");
-        TabSwitchWidget difficultyWidget = new TabSwitchWidget.Builder()
+        general.addOption(ConfigOption.<String>builder("Difficulty")
+                .description("Defines the difficulty level of the server.")
                 .options(difficulties)
-                .currentIndex(difficulties.indexOf(capitalize(instance.getServerProperties().getProperty("difficulty", "normal"))))
-                .onChange(index -> instance.getServerProperties().setProperty("difficulty", difficulties.get(index).toLowerCase()))
-                .build();
-        general.addRow("Difficulty", true, 20, difficultyWidget);
+                .bind(() -> capitalize(props.getProperty("difficulty", "normal")),
+                      val -> props.setProperty("difficulty", val.toLowerCase()))
+                .defaultValue("Normal")
+                .build());
 
-        ToggleWidget pvpWidget = new ToggleWidget.Builder()
-                .toggled(Boolean.parseBoolean(instance.getServerProperties().getProperty("pvp", "true")))
-                .onChange(val -> instance.getServerProperties().setProperty("pvp", String.valueOf(val)))
-                .build();
-        general.addRow("PvP", false, 20, pvpWidget);
+        general.addOption(ConfigOption.<Boolean>builder("PvP")
+                .description("Enable Player vs Player combat.")
+                .bind(() -> Boolean.parseBoolean(props.getProperty("pvp", "true")),
+                      val -> props.setProperty("pvp", String.valueOf(val)))
+                .defaultValue(true)
+                .build());
 
-        ToggleWidget hardcoreWidget = new ToggleWidget.Builder()
-                .toggled(Boolean.parseBoolean(instance.getServerProperties().getProperty("hardcore", "false")))
-                .onChange(val -> instance.getServerProperties().setProperty("hardcore", String.valueOf(val)))
-                .build();
-        general.addRow("Hardcore", false, 20, hardcoreWidget);
-
-
+        general.addOption(ConfigOption.<Boolean>builder("Hardcore")
+                .description("Enable hardcore mode (perma-death).")
+                .bind(() -> Boolean.parseBoolean(props.getProperty("hardcore", "false")), val -> props.setProperty("hardcore", String.valueOf(val)))
+                .defaultValue(false)
+                .build());
 
         return List.of(general.build());
     }

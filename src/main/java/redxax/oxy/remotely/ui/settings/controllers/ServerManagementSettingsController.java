@@ -2,9 +2,7 @@ package redxax.oxy.remotely.ui.settings.controllers;
 
 import restudio.rebase.instance.Instance;
 import restudio.rescreen.ui.settings.Setting;
-import restudio.rescreen.ui.widgets.TextInputWidget;
-import restudio.rescreen.ui.widgets.ToggleWidget;
-import restudio.rescreen.util.Notification;
+import restudio.rescreen.ui.settings.options.ConfigOption;
 
 import java.util.List;
 import java.util.Properties;
@@ -39,73 +37,83 @@ public class ServerManagementSettingsController {
 
         Setting.Builder management = new Setting.Builder("Server Management Protocol");
 
-        ToggleWidget enabledWidget = new ToggleWidget.Builder()
-                .toggled(Boolean.parseBoolean(p.getProperty("management-server-enabled", "false")))
-                .onChange(val -> {
-                    p.setProperty("management-server-enabled", String.valueOf(val));
-                    String currentPort = p.getProperty("management-server-port", "0");
-                    if (currentPort.isEmpty() || "0".equals(currentPort)) {
-                        p.setProperty("management-server-port", "25585");
-                    }
-                    String currentHost = p.getProperty("management-server-host", "");
-                    if (isRemote && (currentHost.isEmpty() || "localhost".equalsIgnoreCase(currentHost) || "127.0.0.1".equals(currentHost))) {
-                        p.setProperty("management-server-host", "0.0.0.0");
-                    }
-                })
+        ConfigOption<Boolean> enableManagement = ConfigOption.<Boolean>builder("Enable Management API")
+                .description("Allow remote management via MSMP.")
+                .bind(() -> Boolean.parseBoolean(p.getProperty("management-server-enabled", "false")),
+                      val -> {
+                          p.setProperty("management-server-enabled", String.valueOf(val));
+                          String currentPort = p.getProperty("management-server-port", "0");
+                          if (currentPort.isEmpty() || "0".equals(currentPort)) {
+                              p.setProperty("management-server-port", "25585");
+                          }
+                          String currentHost = p.getProperty("management-server-host", "");
+                          if (isRemote && (currentHost.isEmpty() || "localhost".equalsIgnoreCase(currentHost) || "127.0.0.1".equals(currentHost))) {
+                              p.setProperty("management-server-host", "0.0.0.0");
+                          }
+                      })
+                .defaultValue(false)
                 .build();
-        management.addRow("Enable Management API", false, 20, enabledWidget);
+        management.addOption(enableManagement);
 
-        TextInputWidget hostWidget = new TextInputWidget.Builder()
-                .text(p.getProperty("management-server-host", isRemote ? "0.0.0.0" : "localhost"))
-                .onChange(val -> p.setProperty("management-server-host", val))
-                .build();
-        management.addRow("Management Host", true, 20, hostWidget);
+        management.addOption(ConfigOption.<String>builder("Management Host")
+                .description("IP address to bind the management server to.")
+                .bind(() -> p.getProperty("management-server-host", isRemote ? "0.0.0.0" : "localhost"),
+                      val -> p.setProperty("management-server-host", val))
+                .defaultValue(isRemote ? "0.0.0.0" : "localhost")
+                .dependsOn(enableManagement)
+                .build());
 
-        TextInputWidget portWidget = new TextInputWidget.Builder()
-                .text(p.getProperty("management-server-port", "25585"))
-                .onChange(val -> p.setProperty("management-server-port", val))
-                .build();
-        management.addRow("Management Port", true, 20, portWidget);
+        management.addOption(ConfigOption.<String>builder("Management Port")
+                .description("Port for the management server.")
+                .bind(() -> p.getProperty("management-server-port", "25585"),
+                      val -> p.setProperty("management-server-port", val))
+                .defaultValue("25585")
+                .dependsOn(enableManagement)
+                .build());
 
-        String currentSecret = p.getProperty("management-server-secret", p.getProperty("management-server-token", ""));
-        TextInputWidget secretWidget = new TextInputWidget.Builder()
-                .text(currentSecret)
-                .placeholder("40 char alphanumeric secret")
-                .onChange(val -> {
-                    if (!val.isEmpty() && !SECRET_PATTERN.matcher(val).matches()) {
-                    }
-                    p.setProperty("management-server-secret", val);
-                    p.remove("management-server-token");
-                })
-                .build();
-
-        management.addRow("Secret (40 chars)", true, 20, secretWidget);
+        management.addOption(ConfigOption.<String>builder("Secret (40 chars)")
+                .description("Security token for authentication.")
+                .bind(() -> p.getProperty("management-server-secret", p.getProperty("management-server-token", "")),
+                      val -> {
+                          if (!val.isEmpty() && !SECRET_PATTERN.matcher(val).matches()) {
+                              // Validation logic or visual feedback could be added here
+                          }
+                          p.setProperty("management-server-secret", val);
+                          p.remove("management-server-token");
+                      })
+                .defaultValue("")
+                .dependsOn(enableManagement)
+                .build());
 
         Setting.Builder tls = new Setting.Builder("TLS / SSL");
 
-        boolean tlsEnabled = Boolean.parseBoolean(p.getProperty("management-server-tls-enabled", p.getProperty("management.server.tls.enabled", "false")));
-        ToggleWidget tlsEnabledWidget = new ToggleWidget.Builder()
-                .toggled(tlsEnabled)
-                .onChange(val -> {
-                    p.setProperty("management-server-tls-enabled", String.valueOf(val));
-                    p.setProperty("management.server.tls.enabled", String.valueOf(val));
-                })
+        ConfigOption<Boolean> enableTls = ConfigOption.<Boolean>builder("Enable TLS (SSL)")
+                .description("Encrypt management traffic.")
+                .bind(() -> Boolean.parseBoolean(p.getProperty("management-server-tls-enabled", p.getProperty("management.server.tls.enabled", "false"))),
+                      val -> {
+                          p.setProperty("management-server-tls-enabled", String.valueOf(val));
+                          p.setProperty("management.server.tls.enabled", String.valueOf(val));
+                      })
+                .defaultValue(false)
+                .dependsOn(enableManagement)
                 .build();
-        tls.addRow("Enable TLS (SSL)", false, 20, tlsEnabledWidget);
+        tls.addOption(enableTls);
 
-        TextInputWidget keystorePathWidget = new TextInputWidget.Builder()
-                .text(p.getProperty("management.server.tls.keystore.path", ""))
-                .placeholder("e.g., keystore.jks")
-                .onChange(val -> p.setProperty("management.server.tls.keystore.path", val))
-                .build();
-        tls.addRow("Keystore Path", true, 20, keystorePathWidget);
+        tls.addOption(ConfigOption.<String>builder("Keystore Path")
+                .description("Path to the JKS keystore file.")
+                .bind(() -> p.getProperty("management.server.tls.keystore.path", ""),
+                      val -> p.setProperty("management.server.tls.keystore.path", val))
+                .defaultValue("")
+                .dependsOn(enableTls)
+                .build());
 
-        TextInputWidget keystorePasswordWidget = new TextInputWidget.Builder()
-                .text(p.getProperty("management.server.tls.keystore.password", ""))
-                .placeholder("Keystore Password")
-                .onChange(val -> p.setProperty("management.server.tls.keystore.password", val))
-                .build();
-        tls.addRow("Keystore Password", true, 20, keystorePasswordWidget);
+        tls.addOption(ConfigOption.<String>builder("Keystore Password")
+                .description("Password for the keystore.")
+                .bind(() -> p.getProperty("management.server.tls.keystore.password", ""),
+                      val -> p.setProperty("management.server.tls.keystore.password", val))
+                .defaultValue("")
+                .dependsOn(enableTls)
+                .build());
 
         return List.of(management.build(), tls.build());
     }
