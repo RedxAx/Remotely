@@ -6,7 +6,7 @@ import restudio.rebase.Rebase;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.ui.settings.controllers.VersionSettingsController;
+import restudio.rebase.settings.controllers.VersionSettingsController;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;

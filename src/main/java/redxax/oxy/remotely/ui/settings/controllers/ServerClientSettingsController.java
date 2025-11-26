@@ -2,8 +2,7 @@ package redxax.oxy.remotely.ui.settings.controllers;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import restudio.rescreen.ui.settings.Setting;
-import restudio.rescreen.ui.widgets.TextInputWidget;
-import restudio.rescreen.ui.widgets.ToggleWidget;
+import restudio.rescreen.ui.settings.options.ConfigOption;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,29 +19,32 @@ public class ServerClientSettingsController {
         List<Setting> settings = new ArrayList<>();
         Setting.Builder servers = new Setting.Builder("Servers");
 
-        ToggleWidget scanServers = new ToggleWidget.Builder()
-                .toggled(configManager.getScanServers())
-                .onChange(configManager::setScanServers)
-                .build();
-        servers.addRow("Scan For Servers", false, 20, scanServers);
+        servers.addOption(ConfigOption.<Boolean>builder("Scan For Servers")
+                .description("Automatically scan local network for Remotely instances.")
+                .bind(configManager::getScanServers, configManager::setScanServers)
+                .defaultValue(true)
+                .build());
 
-        ToggleWidget customProxy = new ToggleWidget.Builder()
-                .toggled(configManager.getCustomReverseProxy())
-                .onChange(configManager::setCustomReverseProxy)
+        ConfigOption<Boolean> customProxy = ConfigOption.<Boolean>builder("Use Custom Reverse Proxy")
+                .description("Enable connection via a custom reverse proxy server.")
+                .bind(configManager::getCustomReverseProxy, configManager::setCustomReverseProxy)
+                .defaultValue(false)
                 .build();
-        servers.addRow("Use Custom Reverse Proxy", false, 20, customProxy);
+        servers.addOption(customProxy);
 
-        TextInputWidget proxyHost = new TextInputWidget.Builder()
-                .text(configManager.getProxyHost())
-                .onChange(configManager::setProxyHost)
-                .build();
-        servers.addRow("Reverse Proxy Host", true, 20, proxyHost);
+        servers.addOption(ConfigOption.<String>builder("Reverse Proxy Host")
+                .description("The hostname of the reverse proxy.")
+                .bind(configManager::getProxyHost, configManager::setProxyHost)
+                .defaultValue("RedxAx.net")
+                .dependsOn(customProxy)
+                .build());
 
-        TextInputWidget proxyUser = new TextInputWidget.Builder()
-                .text(configManager.getProxyUser())
-                .onChange(configManager::setProxyUser)
-                .build();
-        servers.addRow("Reverse Proxy User", true, 20, proxyUser);
+        servers.addOption(ConfigOption.<String>builder("Reverse Proxy User")
+                .description("The username for the reverse proxy connection.")
+                .bind(configManager::getProxyUser, configManager::setProxyUser)
+                .defaultValue("tunnel")
+                .dependsOn(customProxy)
+                .build());
 
         settings.add(servers.build());
         return settings;

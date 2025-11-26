@@ -2,7 +2,7 @@ package redxax.oxy.remotely.ui.settings.controllers;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import restudio.rescreen.ui.settings.Setting;
-import restudio.rescreen.ui.widgets.ToggleWidget;
+import restudio.rescreen.ui.settings.options.ConfigOption;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,23 +19,23 @@ public class DevelopmentSettingsController {
         List<Setting> settings = new ArrayList<>();
         Setting.Builder dev = new Setting.Builder("Development");
 
-        ToggleWidget devMode = new ToggleWidget.Builder()
-                .toggled(configManager.isDev())
-                .onChange(configManager::setDev)
-                .build();
-        dev.addRow("Developer Mode", false, 20, devMode);
+        dev.addOption(ConfigOption.<Boolean>builder("Developer Mode")
+                .description("Enable developer-specific features and logging.")
+                .bind(configManager::isDev, configManager::setDev)
+                .defaultValue(false)
+                .build());
 
-        ToggleWidget debugTools = new ToggleWidget.Builder()
-                .toggled(configManager.getEnableDebugTools())
-                .onChange(configManager::setEnableDebugTools)
-                .build();
-        dev.addRow("Enable Debug Tools", false, 20, debugTools);
+        dev.addOption(ConfigOption.<Boolean>builder("Enable Debug Tools")
+                .description("Show debug overlays and tools in the UI.")
+                .bind(configManager::getEnableDebugTools, configManager::setEnableDebugTools)
+                .defaultValue(false)
+                .build());
 
-        ToggleWidget showIp = new ToggleWidget.Builder()
-                .toggled(configManager.getShowIp())
-                .onChange(configManager::setShowIp)
-                .build();
-        dev.addRow("Show IP Address", false, 20, showIp);
+        dev.addOption(ConfigOption.<Boolean>builder("Show IP Address")
+                .description("Display the server IP address in the interface.")
+                .bind(configManager::getShowIp, configManager::setShowIp)
+                .defaultValue(true)
+                .build());
 
         settings.add(dev.build());
         return settings;
