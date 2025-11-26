@@ -54,6 +54,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private final Map<TabsManager.Tab, TabContext> tabContexts = new HashMap<>();
     private IconButton startIconButton;
     private SharedContainerSwitcher containerSwitcher;
+    private Instance sidecarInstance;
 
     @Override
     public List<String> getLeftLines() {
@@ -83,6 +84,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 info.add("  Type: " + ctx.instance.getBackendConfig().type);
             } else {
                 info.add("Backend: None (Local FileSystem)");
+            }
+            if (sidecarInstance != null) {
+                info.add("Sidecar: Active");
+                info.add("  Sidecar Connected: " + (sidecarInstance.getBackend() != null && sidecarInstance.getBackend().isConnected()));
             }
         }
         return info;
@@ -359,6 +364,13 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             this.instance.removeStateListener(stateListener);
         }
 
+        if (sidecarInstance != null) {
+            if (sidecarInstance.getBackend() != null) {
+                sidecarInstance.getBackend().disconnect();
+            }
+            sidecarInstance = null;
+        }
+
         TabContext newContext = tabContexts.get(tab);
         if (newContext == null) return;
 
@@ -628,19 +640,38 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         });
     }
 
-    private void exploreInstanceFiles() {
+    private Instance ensureSidecar() {
         TabContext context = getActiveContext();
-        if (context == null || context.isLocalTerminalMode) return;
-        Path instancePath = Paths.get(context.instance.getPath());
-        client.setScreen((new FileExplorerScreen(this, context.instance, instancePath, Path.of(remotelyDir.toString(), "data"), false)));
+        if (context == null || context.instance == null) return null;
+
+        if (sidecarInstance == null) {
+            sidecarInstance = new Instance(context.instance, context.instance.getName());
+            BackendConfig bc = context.instance.getBackendConfig();
+            if (bc != null && "SSH".equalsIgnoreCase(bc.type)) {
+                Map<String, String> creds = new HashMap<>(bc.credentials);
+                String originalHostId = creds.getOrDefault("hostId", UUID.randomUUID().toString());
+                creds.put("hostId", originalHostId + "-sidecar");
+                sidecarInstance.setBackendConfig(new BackendConfig(bc.type, creds));
+            } else {
+                sidecarInstance.setBackendConfig(bc);
+            }
+        }
+        return sidecarInstance;
+    }
+
+    private void exploreInstanceFiles() {
+        Instance target = ensureSidecar();
+        if (target == null) return;
+        Path instancePath = Paths.get(target.getPath());
+        client.setScreen((new FileExplorerScreen(this, target, instancePath, Path.of(remotelyDir.toString(), "data"), false)));
     }
 
     public void openInstanceSettings() {
-        TabContext context = getActiveContext();
-        if (context == null || context.isLocalTerminalMode) return;
+        Instance target = ensureSidecar();
+        if (target == null) return;
 
         RemoteHost host = null;
-        BackendConfig cfg = context.instance.getBackendConfig();
+        BackendConfig cfg = target.getBackendConfig();
         if (cfg != null && !"LOCAL".equalsIgnoreCase(cfg.type)) {
             for(RemoteHost h : InstanceManager.getInstance().getRemoteHosts()) {
                 if(cfg.credentials.getOrDefault("host", "").equals(h.getIp())) {
@@ -649,7 +680,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 }
             }
         }
-        client.setScreen(new ServerConfigurationScreen(this, context.instance, host, remotelyClient));
+        client.setScreen(new ServerConfigurationScreen(this, target, host, remotelyClient));
     }
 
     @Override
@@ -667,12 +698,18 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     @Override
     public void closeScreen() {
         DebugManager.getInstance().setViewContext(null);
+        if (sidecarInstance != null && sidecarInstance.getBackend() != null) {
+            sidecarInstance.getBackend().disconnect();
+        }
         remotelyClient.getHost().openParentScreen(this, parent);
     }
 
     @Override
     public void removed() {
         super.removed();
+        if (sidecarInstance != null && sidecarInstance.getBackend() != null) {
+            sidecarInstance.getBackend().disconnect();
+        }
         DebugManager.getInstance().setViewContext(null);
         for (TabContext context : tabContexts.values()) {
             if (context.instance != null) {

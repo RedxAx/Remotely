@@ -23,32 +23,25 @@ public class ServerExtraSettingsController {
 
     private final Instance instance;
     private final RebaseAPI api;
+    private final List<String> existingFiles;
 
     private static final List<String> CONFIG_FILES = List.of(
-            "server.properties",
-            "bukkit.yml",
-            "spigot.yml",
-            "paper-global.yml",
-            "paper-world-defaults.yml",
-            "purpur.yml"
+        "server.properties",
+        "bukkit.yml",
+        "spigot.yml",
+        "paper-global.yml",
+        "paper-world-defaults.yml",
+        "purpur.yml"
     );
 
-    public ServerExtraSettingsController(Instance instance) {
+    public ServerExtraSettingsController(Instance instance, List<String> existingFiles) {
         this.instance = instance;
         this.api = RebaseApiFactory.get(instance);
+        this.existingFiles = existingFiles != null ? existingFiles : new ArrayList<>();
     }
 
     public List<Setting> getSettings() {
         Setting.Builder builder = new Setting.Builder("Configuration Files");
-        Path instancePath = Path.of(instance.getPath());
-
-        List<String> existingFiles;
-        try {
-            existingFiles = api.listDirectory(instancePath).join().stream().map(RebaseAPI.FileEntry::toString).toList();
-        } catch (Exception e) {
-            builder.addRow("Could not list files: " + e.getMessage(), true, 20);
-            return List.of(builder.build());
-        }
 
         List<MountableButtonWidget> fileButtons = new ArrayList<>();
         for (String fileName : CONFIG_FILES) {
@@ -76,52 +69,52 @@ public class ServerExtraSettingsController {
         Path filePath = Path.of(instance.getPath()).resolve(fileName);
 
         api.readFile(filePath).exceptionally(t -> "Error loading file: " + t.getMessage())
-                .thenAccept(content -> ScreenManager.getInstance().execute(() -> {
+            .thenAccept(content -> ScreenManager.getInstance().execute(() -> {
 
-                    int padding = 20;
-                    int popupWidth = ScreenManager.currentScreen.width - (padding * 2);
-                    int popupHeight = ScreenManager.currentScreen.height - (padding * 2);
+                int padding = 20;
+                int popupWidth = ScreenManager.currentScreen.width - (padding * 2);
+                int popupHeight = ScreenManager.currentScreen.height - (padding * 2);
 
-                    int editorWidth = popupWidth - 12;
-                    int editorHeight = popupHeight - 16 - 18;
+                int editorWidth = popupWidth - 12;
+                int editorHeight = popupHeight - 16 - 18;
 
-                    CodeEditorWidget editor = new CodeEditorWidget(0, 0, editorWidth, editorHeight);
-                    editor.setLanguage(detectLanguage(fileName));
-                    editor.setText(content);
-                    editor.setMonospace(true);
+                CodeEditorWidget editor = new CodeEditorWidget(0, 0, editorWidth, editorHeight);
+                editor.setLanguage(detectLanguage(fileName));
+                editor.setText(content);
+                editor.setMonospace(true);
 
-                    PopupWidget popup = new PopupWidget(padding, padding, popupWidth, popupHeight, "Editing: " + fileName) {
-                        @Override
-                        public void tick() {
-                            super.tick();
-                            if (isResizing && !rows.isEmpty() && !rows.getFirst().widgets.isEmpty()) {
-                                Widget w = rows.getFirst().widgets.getFirst();
-                                int newEditorHeight = this.getHeight() - 16 - 6 * 2 - (rows.getFirst().id.isEmpty() ? 0 : 12) - 8;
-                                int newEditorWidth = this.getWidth() - 6 * 2;
-                                if (w.getWidth() != newEditorWidth) w.setWidth(newEditorWidth);
-                                if (w.getHeight() != newEditorHeight) w.setHeight(newEditorHeight);
-                            }
+                PopupWidget popup = new PopupWidget(padding, padding, popupWidth, popupHeight, "Editing: " + fileName) {
+                    @Override
+                    public void tick() {
+                        super.tick();
+                        if (isResizing && !rows.isEmpty() && !rows.getFirst().widgets.isEmpty()) {
+                            Widget w = rows.getFirst().widgets.getFirst();
+                            int newEditorHeight = this.getHeight() - 16 - 6 * 2 - (rows.getFirst().id.isEmpty() ? 0 : 12) - 8;
+                            int newEditorWidth = this.getWidth() - 6 * 2;
+                            if (w.getWidth() != newEditorWidth) w.setWidth(newEditorWidth);
+                            if (w.getHeight() != newEditorHeight) w.setHeight(newEditorHeight);
                         }
-                    };
+                    }
+                };
 
-                    popup.resizable = true;
-                    popup.addRow("", List.of(editor), editorHeight - 8, true);
+                popup.resizable = true;
+                popup.addRow("", List.of(editor), editorHeight - 8, true);
 
-                    popup.titleButtons.add(new AnimatedButton.Builder()
-                            .onClick(() -> {
-                                String newContent = editor.getText();
-                                api.writeFile(filePath, newContent).thenRun(() ->
-                                        ScreenManager.getInstance().execute(() -> new Notification("File Saved", fileName + " has been saved.", Notification.Type.SUCCESS))
-                                ).exceptionally(ex -> {
-                                    ScreenManager.getInstance().execute(() -> new Notification("Save Failed", ex.getMessage(), Notification.Type.ERROR));
-                                    return null;
-                                });
-                            })
-                            .accentType(ThemeManager.getAccent("nice")).animateElevation(false).size(12, 8).hint("Save").build());
+                popup.titleButtons.add(new AnimatedButton.Builder()
+                    .onClick(() -> {
+                        String newContent = editor.getText();
+                        api.writeFile(filePath, newContent).thenRun(() ->
+                            ScreenManager.getInstance().execute(() -> new Notification("File Saved", fileName + " has been saved.", Notification.Type.SUCCESS))
+                        ).exceptionally(ex -> {
+                            ScreenManager.getInstance().execute(() -> new Notification("Save Failed", ex.getMessage(), Notification.Type.ERROR));
+                            return null;
+                        });
+                    })
+                    .accentType(ThemeManager.getAccent("nice")).animateElevation(false).size(12, 8).hint("Save").build());
 
-                    ScreenManager.currentScreen.addDrawableChild(popup);
-                    popup.show();
-                }));
+                ScreenManager.currentScreen.addDrawableChild(popup);
+                popup.show();
+            }));
     }
 
     private String detectLanguage(String fileName) {

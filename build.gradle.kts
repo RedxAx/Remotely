@@ -49,10 +49,11 @@ dependencies {
     implementation(files(rootProject.files("libs/Rebase-1.0-SNAPSHOT.jar")))
 
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
-    implementation("com.jcraft:jsch:0.1.55")
+    implementation("com.hierynomus:sshj:0.40.0")
     implementation("com.github.javakeyring:java-keyring:1.0.4")
     implementation("com.vladsch.flexmark:flexmark-all:0.64.8")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
+    implementation("org.slf4j:slf4j-simple:2.0.9")
 
     implementation("org.jetbrains.pty4j:pty4j:0.13.10-1")
     implementation("org.jetbrains.jediterm:jediterm-core:3.54")
@@ -63,7 +64,7 @@ dependencies {
     includeOrShade(files(rootProject.files("libs/Rebase-1.0-SNAPSHOT.jar")))
 
     includeOrShade("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
-    includeOrShade("com.jcraft:jsch:0.1.55")
+    includeOrShade("com.hierynomus:sshj:0.40.0")
     includeOrShade("com.github.javakeyring:java-keyring:1.0.4")
     includeOrShade("com.vladsch.flexmark:flexmark-all:0.64.8")
     includeOrShade("com.googlecode.soundlibs:vorbisspi:1.0.3.3")

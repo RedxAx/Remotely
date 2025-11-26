@@ -152,7 +152,7 @@ public class ServerManagerScreen extends ReScreen {
 
         Object data = tab.getData();
         if (data instanceof RemoteHost host) {
-            if (!host.getSshManager().isSSH()) {
+            if (!host.getSshManager().isConnected()) {
                 if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("calm"));
                 connectRemoteHostAsync(host, () -> {
                     if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getDefaultAccent());
