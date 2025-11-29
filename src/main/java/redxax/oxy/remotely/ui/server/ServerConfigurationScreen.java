@@ -119,10 +119,14 @@ public class ServerConfigurationScreen extends ReScreen {
         List<Runnable> cleanupActions = new ArrayList<>();
 
         VersionSettingsController versionController = new VersionSettingsController(tempInstance);
-        settingsByTab.put("Version", versionController::getSettings);
-
         ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance);
-        settingsByTab.put("General", generalController::getSettings);
+
+        settingsByTab.put("General", () -> {
+            List<Setting> settings = new ArrayList<>();
+            settings.addAll(generalController.getSettings());
+            settings.addAll(versionController.getSettings());
+            return settings;
+        });
 
         ServerAdvancedSettingsController advancedController = new ServerAdvancedSettingsController(tempInstance);
         settingsByTab.put("Advanced", advancedController::getSettings);
