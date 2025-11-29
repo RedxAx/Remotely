@@ -4,6 +4,8 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
+import restudio.rebase.api.unified.InstanceApi;
+import restudio.rebase.instance.InstanceState;
 import restudio.rebase.ui.worldmap.WorldMapScreen;
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
@@ -20,13 +22,10 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
-import restudio.rescreen.ui.widgets.AnimatedButton;
-import restudio.rescreen.ui.widgets.AnimatedWidget;
-import restudio.rescreen.ui.widgets.ContextMenuWidget;
-import restudio.rescreen.ui.widgets.PopupWidget;
-import restudio.rescreen.ui.widgets.TextInputWidget;
+import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
+import restudio.rescreen.util.ImageUtils;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -264,19 +263,61 @@ public class ServerManagerScreen extends ReScreen {
                 }
 
                 RemoteHost finalRh = rh;
-                ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
-                    .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings")
+                ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
+
+                builder.addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings")
                     .addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getInstance(), Path.of(widget.getInstance().getPath()), remotelyDir, false)), "Open Server's Folder")
                     .addHeaderButton("map.png", () -> openWorldScreen(widget.getInstance()), "View World Map")
+                    .addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server")
                     .addHeaderButton("delete.png", () -> {
                         instanceForDeletion = widget.getInstance();
                         deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
                         deleteServerPopup.setY((this.height - deleteServerPopup.getHeight())/2);
                         deleteServerPopup.show();
-                    }, "Show Deletion Options");
+                    }, "Show Deletion Options", ThemeManager.getAccent("danger"));
+                builder.addIconItem("Customize Icon", "shades.png", () -> customizeIcon(inst), "");
                 showContextMenu(widget.getX() + widget.getWidth() + 4, widget.getY() + 24, builder);
             }
         }
+    }
+
+    private void duplicateInstance(Instance instance) {
+        Instance newInstance = instanceManager.duplicateInstance(instance, instance.getName() + " - Copy");
+        if (newInstance != null) {
+            new Notification("Server Duplicated", "Server duplicated successfully.", Notification.Type.SUCCESS);
+            loadServersForCurrentTab();
+        } else {
+            new Notification("Duplication Failed", "Could not duplicate server.", Notification.Type.ERROR);
+        }
+    }
+
+    private void customizeIcon(Instance instance) {
+        List<BufferedImage> images = new ArrayList<>();
+        for (int i = 1; i <= 9; i++) {
+            try {
+                images.add(restudio.rescreen.util.ImageUtils.loadIcon("ic_" + i + ".png"));
+            } catch (Exception ignored) {}
+        }
+
+        if (images.isEmpty()) {
+            new Notification("Error", "No icon assets found.", Notification.Type.ERROR);
+            return;
+        }
+
+        List<Integer> tints = Arrays.asList(0xFFFFFF, 0xFF6F61, 0x6FCF97, 0x6CC4F1, 0xFFC800, 0x9B51E0, 0xDF3E23, 0xd6f264, 0x7FFBFF);
+        IconCustomizerWidget popup = new IconCustomizerWidget("Icon Customizer", images, tints, result -> {
+            try {
+                File outputFile = new File(instance.getPath(), "icon.png");
+                ImageIO.write(result, "png", outputFile);
+                loadServersForCurrentTab();
+                new Notification("Icon Updated", "Custom icon set.", Notification.Type.SUCCESS);
+            } catch (IOException e) {
+                new Notification("Error", "Failed to save icon.", Notification.Type.ERROR);
+            }
+        });
+
+        addDrawableChild(popup);
+        popup.show();
     }
 
     private List<Instance> getCurrentServers() {
