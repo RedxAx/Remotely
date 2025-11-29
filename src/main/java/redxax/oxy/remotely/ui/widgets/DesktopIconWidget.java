@@ -87,10 +87,14 @@ public class DesktopIconWidget extends AnimatedWidget {
     }
 
     @Override
-    public void onClick(double mouseX, double mouseY, int button) {
-        if (this.onClick != null) {
-            this.onClick.accept(this, button);
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (isMouseOver(mouseX, mouseY)) {
+            if (onClick != null) {
+                onClick.accept(this, button);
+            }
+            return true;
         }
+        return false;
     }
 
     public Instance getInstance() {

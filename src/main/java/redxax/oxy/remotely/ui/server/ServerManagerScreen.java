@@ -13,6 +13,7 @@ import restudio.rebase.resource.ResourceType;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.util.RebaseLogger;
+import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
@@ -20,6 +21,7 @@ import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
 import restudio.rescreen.ui.widgets.AnimatedButton;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.ContextMenuWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
@@ -31,13 +33,12 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
+import static restudio.rescreen.render.Render.drawOuterBorder;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class ServerManagerScreen extends ReScreen {
@@ -54,6 +55,7 @@ public class ServerManagerScreen extends ReScreen {
     private AnimatedButton remoteHostConfirmButton;
     private AnimatedButton remoteHostDeleteButton;
     private final Object parent;
+    int bx1 = 0, by1 = 0, bx2 = 0, by2 = 0;
 
     private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
     private InstanceManager instanceManager;
@@ -92,7 +94,9 @@ public class ServerManagerScreen extends ReScreen {
             .build();
 
         Container desktopContainer = createContainer("desktop", 0, 0, width, height - 35);
-        desktopContainer.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true).enableDoubleClick(false).disableScissorRegion(true).enableDoubleClick(false);
+        DesktopLayout localLayout = new DesktopLayout();
+        localLayout.setOnReorder(() -> saveServerOrder(desktopContainer, null));
+        desktopContainer.layout(localLayout).backgroundDrawing(false).enableSelecting(true).enableDoubleClick(false).disableScissorRegion(true).enableDoubleClick(false);
 
         setActiveContainer(desktopContainer);
         populateHostTabs();
@@ -120,12 +124,14 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void populateHostTabs() {
-        tabs().addTab("Local", activeContainer).setData(null);
         for (RemoteHost host : instanceManager.getRemoteHosts()) {
             Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
-            c.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
+            DesktopLayout remoteLayout = new DesktopLayout();
+            remoteLayout.setOnReorder(() -> saveServerOrder(c, host));
+            c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
             tabs().addTab(host.name, c).setData(host);
         }
+        tabs().addTab("Local", activeContainer).setData(null);
         int savedIndex = remotelyClient.getSavedTabIndex();
         tabs().setActiveTab(Math.min(savedIndex, tabs().getTabs().size() - 1));
         loadServersForCurrentTab();
@@ -134,11 +140,55 @@ public class ServerManagerScreen extends ReScreen {
     private void loadServersForCurrentTab() {
         if (activeContainer == null) return;
         activeContainer.clearWidgets();
-        for (Instance server : getCurrentServers()) {
+
+        List<Instance> instances = new ArrayList<>(getCurrentServers());
+
+        String context = "local";
+        if (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null) {
+            Object data = tabs().getActiveTab().getData();
+            if (data instanceof RemoteHost host) {
+                context = "remote." + host.name;
+            }
+        }
+
+        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
+        List<String> order = config.getInstanceOrder(context);
+
+        if (!order.isEmpty()) {
+            Map<String, Integer> orderMap = new HashMap<>();
+            for (int i = 0; i < order.size(); i++) {
+                orderMap.put(order.get(i), i);
+            }
+
+            instances.sort((a, b) -> {
+                int idxA = orderMap.getOrDefault(a.getInstanceId(), Integer.MAX_VALUE);
+                int idxB = orderMap.getOrDefault(b.getInstanceId(), Integer.MAX_VALUE);
+                return Integer.compare(idxA, idxB);
+            });
+        }
+
+        for (Instance server : instances) {
             addServerWidget(server, false);
         }
         addServerWidget(null, true);
         activeContainer.updateWidgetPositions();
+    }
+
+    private void saveServerOrder(Container container, RemoteHost host) {
+        List<String> newOrderIds = new ArrayList<>();
+        for (AnimatedWidget w : container.getWidgets()) {
+            if (w instanceof DesktopIconWidget diw && !diw.isCreateButton()) {
+                newOrderIds.add(diw.getInstance().getInstanceId());
+            }
+        }
+
+        String context = "local";
+        if (host != null) {
+            context = "remote." + host.name;
+        }
+
+        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
+        config.setInstanceOrder(context, newOrderIds);
     }
 
     private void addServerWidget(Instance info, boolean isCreate) {
@@ -407,6 +457,12 @@ public class ServerManagerScreen extends ReScreen {
             remoteHostPasswordInput.setText("");
         }
 
+        remoteHostNameInput.setOnEnter(() -> remoteHostPopup.setFocusedWidget(remoteHostUserInput));
+        remoteHostUserInput.setOnEnter(() -> remoteHostPopup.setFocusedWidget(remoteHostIpInput));
+        remoteHostIpInput.setOnEnter(() -> remoteHostPopup.setFocusedWidget(remoteHostPortInput));
+        remoteHostPortInput.setOnEnter(() -> remoteHostPopup.setFocusedWidget(remoteHostPasswordInput));
+        remoteHostPasswordInput.setOnEnter(this::onConfirmRemoteHost);
+
         remoteHostPopup.setX((this.width - remoteHostPopup.getWidth()) / 2);
         remoteHostPopup.setY((this.height - remoteHostPopup.getHeight()) / 2);
         remoteHostPopup.show();
@@ -444,7 +500,9 @@ public class ServerManagerScreen extends ReScreen {
         } else {
             instanceManager.addRemoteHost(host);
             Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
-            c.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
+            DesktopLayout remoteLayout = new DesktopLayout();
+            remoteLayout.setOnReorder(() -> saveServerOrder(c, host));
+            c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
             tabs().addTab(host.name, c).setData(host);
             tabs().setActiveTab(tabs().getTabs().size() - 1);
         }
@@ -539,6 +597,29 @@ public class ServerManagerScreen extends ReScreen {
     public void updatePositions() {
         super.updatePositions();
         tabs().setPosition(width - tabs().getWidth(), height - 28 + 4);
+    }
+
+    @Override
+    public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
+        super.render(context, mouseX, mouseY, delta);
+
+        if (activeContainer != null && activeContainer.getLayout() instanceof DesktopLayout layout) {
+            int accentColor = ThemeManager.getDefaultAccent().getAccentColor();
+            int fill = ThemeManager.getAnimatedColor("selection_fill".hashCode(), layout.isSelecting() ? ((accentColor & 0x00FFFFFF) | 0x44000000) : 0x00000000);
+            int border = ThemeManager.getAnimatedColor("selection_border".hashCode(), layout.isSelecting() ? ((accentColor & 0x00FFFFFF) | 0xAA000000) : 0x00000000);
+
+            if (layout.isSelecting()) {
+                double[] box = layout.getSelectionBox();
+                if (box != null) {
+                    bx1 = (int) box[0];
+                    by1 = (int) box[1];
+                    bx2 = (int) box[2];
+                    by2 = (int) box[3];
+                }
+            }
+            context.fill(bx1, by1, bx2, by2, fill);
+            context.fillBorder(bx1, by1, bx2, by2, 1, border);
+        }
     }
 
     @Override

@@ -3,6 +3,9 @@ package redxax.oxy.remotely.config;
 import restudio.rebase.config.RebaseConfigManager;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 public class RemotelyConfigManager extends RebaseConfigManager {
 
@@ -58,4 +61,15 @@ public class RemotelyConfigManager extends RebaseConfigManager {
 
     public boolean getShowIp() { return Boolean.parseBoolean(properties.getProperty("remotely.showIp", "true")); }
     public void setShowIp(boolean value) { properties.setProperty("remotely.showIp", String.valueOf(value)); save(); apply(); }
+
+    public List<String> getInstanceOrder(String context) {
+        String val = properties.getProperty("remotely.order." + context, "");
+        if (val.isEmpty()) return new ArrayList<>();
+        return new ArrayList<>(Arrays.asList(val.split(",")));
+    }
+
+    public void setInstanceOrder(String context, List<String> order) {
+        properties.setProperty("remotely.order." + context, String.join(",", order));
+        save();
+    }
 }
