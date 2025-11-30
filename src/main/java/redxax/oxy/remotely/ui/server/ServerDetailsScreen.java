@@ -5,7 +5,6 @@ import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
 import redxax.oxy.remotely.ui.server.containers.ResourceContainer;
-import redxax.oxy.remotely.ui.server.containers.SharedContainerSwitcher;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.api.RebaseAPI;
@@ -17,12 +16,11 @@ import restudio.rebase.backend.ExecutionProvider;
 import restudio.rebase.backend.impl.LocalBackend;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.InstanceManager;
+import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.msmp.MSMPManager;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
-import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.debug.DebugManager;
@@ -34,11 +32,10 @@ import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
-import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.PopupWidget;
-import restudio.rescreen.util.Notification;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -48,115 +45,26 @@ import org.lwjgl.glfw.GLFW;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 
-public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebugInfoProvider {
-    private final Object parent;
+public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.InstanceDetailsScreen implements IDebugInfoProvider {
+
     private final RemotelyClient remotelyClient;
-    private final Map<TabsManager.Tab, TabContext> tabContexts = new HashMap<>();
     private IconButton startIconButton;
-    private SharedContainerSwitcher containerSwitcher;
     private Instance sidecarInstance;
 
-    @Override
-    public List<String> getLeftLines() {
-        List<String> info = new ArrayList<>();
-        TabContext ctx = getActiveContext();
-        if (ctx == null) {
-            info.add("No Active Context");
-            return info;
-        }
-
-        if (ctx.isLocalTerminalMode) {
-            info.add("Mode: Local Terminal");
-            info.add("Term ID: " + ctx.localTerminalId);
-        } else if (ctx.instance != null) {
-            info.add("Mode: Instance (" + ctx.instance.getName() + ")");
-            info.add("Instance ID: " + ctx.instance.getInstanceId());
-            info.add("State: " + ctx.instance.getState());
-
-            MSMPManager msmp = ctx.instance.getMSMPManager();
-            info.add("MSMP: " + (msmp.isConnected ? "Connected" : "Disconnected"));
-            if (msmp.getApi() != null) {
-                info.add("  API Ready: " + msmp.getApi().isConnected());
-            }
-
-            if (ctx.instance.getBackend() != null) {
-                info.add("Backend: " + (ctx.instance.getBackend().isConnected() ? "Connected" : "Disconnected"));
-                info.add("  Type: " + ctx.instance.getBackendConfig().type);
-            } else {
-                info.add("Backend: None (Local FileSystem)");
-            }
-            if (sidecarInstance != null) {
-                info.add("Sidecar: Active");
-                info.add("  Sidecar Connected: " + (sidecarInstance.getBackend() != null && sidecarInstance.getBackend().isConnected()));
-            }
-        }
-        return info;
-    }
-
-    @Override
-    public List<String> getRightLines() {
-        List<String> info = new ArrayList<>();
-        TabContext ctx = getActiveContext();
-        if (ctx != null && !ctx.isLocalTerminalMode && ctx.instance != null) {
-
-            PlayerManagerController pmc = PlayerManagerController.getOrCreate(ctx.instance);
-            LuckPermsService lp = pmc.getLuckPermsService();
-            if (lp != null) {
-                info.add("LuckPerms: " + (lp.isEnabled() ? "Enabled" : "Disabled"));
-                if (lp.isEnabled()) {
-                    info.add("  Base URL: " + lp.getConfig().apiUrl);
-                }
-            }
-
-            info.add("Providers Chain: " + pmc.getDebugChainInfo());
-            info.add("Selected View: " + ctx.selectedViewIndex);
-        }
-        return info;
-    }
-
-    private static class TabContext {
-        Instance instance;
+    private static class ServerContextInfo {
         String localTerminalId;
         TerminalWidget terminalWidget;
-        Container mainContainer;
-        ResourceContainer resourcesContainer;
-        PlayersContainer playersContainer;
-        final boolean isLocalTerminalMode;
-        int selectedViewIndex = 0;
         StandardOutputStateParser standardParser;
-
-        TabContext(Instance instance, String localTerminalId) {
-            this.instance = instance;
-            this.localTerminalId = localTerminalId;
-            this.isLocalTerminalMode = instance == null;
-        }
-
-        public void cleanup() {
-            if (terminalWidget != null) {
-                if (standardParser != null) {
-                    terminalWidget.removeOutputListener(standardParser);
-                }
-                if (instance != null) {
-                    TerminalWidget.shutdown(instance.getInstanceId());
-                } else if (localTerminalId != null) {
-                    TerminalWidget.shutdownLocal(localTerminalId);
-                } else {
-                    terminalWidget.shutdown();
-                }
-            }
-        }
+        ResourceContainer resourceContainer;
+        PlayersContainer playersContainer;
+        boolean isLocalTerminalMode;
     }
+
+    private final Map<TabContext, ServerContextInfo> contextInfos = new HashMap<>();
 
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
         super(parent instanceof Screen ? (Screen) parent : null, null);
-        this.parent = parent;
         this.remotelyClient = client;
-    }
-
-    @Override
-    public void init() {
-        super.init();
-        updatePositions();
     }
 
     @Override
@@ -164,6 +72,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         header().addRight("close.png", this::closeScreen, "Close");
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
+
         startIconButton = new IconButton.Builder()
             .imagePath("start.png")
             .onClick(this::launchOrStopInstance)
@@ -177,27 +86,27 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         header().addLeft(startIconButton);
 
         header().addLeft("resources.png", () -> {
-            TabContext ctx = getActiveContext();
-            if (ctx != null && !ctx.isLocalTerminalMode && ctx.resourcesContainer != null) {
-                ctx.resourcesContainer.openInstanceResources();
+            ServerContextInfo info = getCurrentInfo();
+            if (info != null && !info.isLocalTerminalMode && info.resourceContainer != null) {
+                info.resourceContainer.openInstanceResources();
             }
         }, "Resources");
+
         Runnable reverseAction = () -> {
-            TabContext context = getActiveContext();
-            if (context != null && !context.isLocalTerminalMode) {
-                ReverseProxyManager.reverse(context.instance, () -> ScreenManager.getInstance().execute(this::updateHeaderButtons));
+            if (instance != null) {
+                ReverseProxyManager.reverse(instance, () -> ScreenManager.getInstance().execute(() -> onViewChanged(getActiveContext(), null)));
             }
         };
         header().addLeft("reverse.png", reverseAction, "Open Server To The Public");
         header().addLeft("closeReverse.png", reverseAction, "Close Reverse Proxy");
         header().addLeft("download.png", () -> {
-            TabContext ctx = getActiveContext();
-            if (ctx != null && !ctx.isLocalTerminalMode && ctx.resourcesContainer != null) {
-                ctx.resourcesContainer.showUpdateAllDialog();
+            ServerContextInfo info = getCurrentInfo();
+            if (info != null && !info.isLocalTerminalMode && info.resourceContainer != null) {
+                info.resourceContainer.showUpdateAllDialog();
             }
         }, "Update All Resources");
+
         header().build();
-        updateHeaderButtons();
     }
 
     @Override
@@ -222,62 +131,26 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         } else if (!tabs().getTabs().isEmpty()) {
             tabs().setActiveTab(0);
         }
-
-        if (!tabs().getTabs().isEmpty()) {
-            onTabSelected(tabs().getActiveTab());
-        }
-    }
-
-    private void onSharedSwitchChange(int i) {
-        TabContext ctx = getActiveContext();
-        if (ctx == null) return;
-
-        int maxIndex = (ctx.isLocalTerminalMode || !ctx.instance.isServer()) ? 0 : 2;
-
-        if (i < 0 || i > maxIndex) i = 0;
-        ctx.selectedViewIndex = i;
-
-        List<AnimatedWidget> widgets = ctx.mainContainer.getWidgets();
-        if (i < widgets.size()) {
-            ctx.mainContainer.scrollToWidget(widgets.get(i));
-        }
-        if (ctx.resourcesContainer != null) {
-            ctx.resourcesContainer.setSelectorsVisible(i == 1);
-        }
-        header().setButtonVisible("download.png", i == 1);
-    }
-
-    private void onTabRenamed(TabsManager.Tab tab) {
-        TabContext context = tabContexts.get(tab);
-        if (context != null && context.instance != null) {
-            context.instance.setName(tab.getName());
-            context.instance.save();
-        }
-    }
-
-    private void onTabsReordered(List<TabsManager.Tab> newOrder) {
-        List<Object> newInstanceOrder = new ArrayList<>();
-        for (TabsManager.Tab tab : newOrder) {
-            TabContext context = tabContexts.get(tab);
-            if (context != null) {
-                newInstanceOrder.add(context.isLocalTerminalMode ? context.localTerminalId : context.instance);
-            }
-        }
-        remotelyClient.getMultiTerminalTabs().clear();
-        remotelyClient.getMultiTerminalTabs().addAll(newInstanceOrder);
-        remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
     }
 
     private void createAndAddTab(Object tabInfo, boolean setActive) {
         Instance inst = (tabInfo instanceof Instance) ? (Instance) tabInfo : null;
         String localId = (tabInfo instanceof String) ? (String) tabInfo : null;
+        String name = inst != null ? inst.getName() : "Terminal";
+        if (inst == null && localId == null) {
+            long count = contextInfos.values().stream().filter(i -> i.isLocalTerminalMode).count() + 1;
+            name = "Terminal " + count;
+        }
 
-        TabContext context = new TabContext(inst, localId);
-        String containerId = inst != null ? "remotely-main-" + inst.getInstanceId() : "remotely-term-" + localId;
-        Container mainContainer = createContainer(containerId, 5, 60, width - 10, height - 65);
-        mainContainer.layout(new ManagedLayout()).backgroundDrawing(false).disableScissorRegion(false).verticalSpacing(14).padding(0);
-        mainContainer.setRelativeScissor(- 1, - 1, - 1, - 3);
-        context.mainContainer = mainContainer;
+        Container main = createContainer("root", 5, 60, width - 10, height - 65);
+        main.layout(new ManagedLayout()).backgroundDrawing(false).disableScissorRegion(false).verticalSpacing(14).padding(0).setRelativeScissor(-1, -1, -1, -3);
+
+        TabContext ctx = new TabContext(inst, tabInfo);
+        ctx.mainContainer = main;
+
+        ServerContextInfo info = new ServerContextInfo();
+        info.isLocalTerminalMode = (inst == null);
+        info.localTerminalId = localId;
 
         ExecutionProvider exec;
         if (inst != null) {
@@ -285,239 +158,62 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         } else {
             exec = new LocalBackend(new BackendConfig("LOCAL", new HashMap<>()), null).getExecution();
         }
-        context.terminalWidget = TerminalWidget.getOrCreate(inst, exec, localId, 5, 60, width - 10, height - 66);
+
+        info.terminalWidget = TerminalWidget.getOrCreate(inst, exec, localId, 5, 60, width - 10, height - 66);
         if (inst != null) {
-            updateTerminalListeners(context);
-            context.terminalWidget.addOutputListener(inst.getMSMPManager()::handleConsoleLine);
-            context.terminalWidget.start();
+            info.terminalWidget.addOutputListener(inst.getMSMPManager()::handleConsoleLine);
+            info.terminalWidget.start();
+            setupTerminalListeners(inst, info);
         }
-        mainContainer.addWidget(context.terminalWidget);
+        ctx.addView(info.terminalWidget, "terminal.png", null);
 
-        if (!context.isLocalTerminalMode && inst != null && inst.isServer()) {
-            context.resourcesContainer = new ResourceContainer(this, remotelyClient, inst, 5, 60, width - 10, height - 66);
-            mainContainer.addWidget(context.resourcesContainer);
+        if (inst != null && inst.isServer()) {
+            ResourceContainer res = new ResourceContainer(this, remotelyClient, inst, 5, 60, width - 10, height - 66);
+            info.resourceContainer = res;
+            List<AnimatedWidget> resTools = new ArrayList<>();
+            resTools.add(res.getSelectorsRow());
+            ctx.addView(res, "resources.png", resTools);
 
-            context.playersContainer = new PlayersContainer(this, inst, context.terminalWidget, 5, 60, width - 10, height - 66);
-            mainContainer.addWidget(context.playersContainer);
-        } else {
-            mainContainer.addWidget(new Container(0, 0, 0, 0));
-            mainContainer.addWidget(new Container(0, 0, 0, 0));
-        }
-
-        String tabName;
-        if (inst != null) {
-            tabName = inst.getName();
-        } else {
-            long terminalCount = tabContexts.values().stream().filter(c -> c.isLocalTerminalMode).count() + 1;
-            tabName = "Terminal " + terminalCount;
+            PlayersContainer players = new PlayersContainer(this, inst, info.terminalWidget, 5, 60, width - 10, height - 66);
+            info.playersContainer = players;
+            ctx.addView(players, "steve.png", null);
         }
 
-        TabsManager.Tab tab = tabs().addTab(tabName, mainContainer);
-        tabContexts.put(tab, context);
+        contextInfos.put(ctx, info);
+        TabsManager.Tab tab = tabs().addTab(name, main);
+        registerTab(tab, ctx);
 
         if (setActive) {
             tabs().setActiveTab(tabs().getTabs().size() - 1);
-            onTabSelected(tabs().getActiveTab());
         }
     }
 
-    private void updateTerminalListeners(TabContext context) {
-        if (context.instance == null || context.terminalWidget == null) return;
-
-        if (context.standardParser != null) {
-            context.terminalWidget.removeOutputListener(context.standardParser);
-            context.standardParser = null;
+    private void setupTerminalListeners(Instance inst, ServerContextInfo info) {
+        if (info.standardParser != null) {
+            info.terminalWidget.removeOutputListener(info.standardParser);
+            info.standardParser = null;
         }
-
-        boolean standardEnabled = Boolean.parseBoolean(context.instance.getSettings().getProperty("provider.standard.enabled", "true"));
-        String priority = context.instance.getSettings().getProperty("provider.priority.lifecycle", "msmp,standard");
+        boolean standardEnabled = Boolean.parseBoolean(inst.getSettings().getProperty("provider.standard.enabled", "true"));
+        String priority = inst.getSettings().getProperty("provider.priority.lifecycle", "msmp,standard");
 
         if (standardEnabled && priority.contains("standard")) {
-            StandardOutputStateParser parser = new StandardOutputStateParser(context.instance);
-            context.terminalWidget.addOutputListener(parser);
-            context.standardParser = parser;
-        }
-    }
-
-    public void addInstanceTab(Instance instanceToAdd) {
-        for (TabContext ctx : tabContexts.values()) {
-            if (ctx.instance != null && ctx.instance.getInstanceId().equals(instanceToAdd.getInstanceId())) {
-                for (Map.Entry<TabsManager.Tab, TabContext> entry : tabContexts.entrySet()) {
-                    if (entry.getValue() == ctx) {
-                        tabs().setActiveTab(tabs().getTabs().indexOf(entry.getKey()));
-                        return;
-                    }
-                }
-            }
-        }
-        createAndAddTab(instanceToAdd, true);
-    }
-
-    private void addNewTerminalTab() {
-        String newId = UUID.randomUUID().toString();
-        remotelyClient.getMultiTerminalTabs().add(newId);
-        createAndAddTab(newId, true);
-    }
-
-    private void onTabSelected(TabsManager.Tab tab) {
-        if (this.instance != null) {
-            this.instance.removeStateListener(stateListener);
-        }
-
-        if (sidecarInstance != null) {
-            if (sidecarInstance.getBackend() != null) {
-                sidecarInstance.getBackend().disconnect();
-            }
-            sidecarInstance = null;
-        }
-
-        TabContext newContext = tabContexts.get(tab);
-        if (newContext == null) return;
-
-        this.instance = newContext.instance;
-
-        if (containerSwitcher != null && containerSwitcher.getWidget() != null) {
-            remove(containerSwitcher.getWidget());
-            containerSwitcher = null;
-        }
-
-        if (this.instance != null) {
-            DebugManager.getInstance().setViewContext(this.instance.getInstanceId());
-            this.instance.addStateListener(stateListener);
-            onStateChanged(this.instance.getState());
-
-            this.instance.reloadSettingsFromBackend().thenRun(() -> {
-                ScreenManager.getInstance().execute(() -> {
-                    updateTerminalListeners(newContext);
-                    PlayerManagerController.getOrCreate(this.instance).reloadProviders();
-                    if (Boolean.parseBoolean(this.instance.getSettings().getProperty("provider.msmp.enabled", "true"))) {
-                        if (!this.instance.getMSMPManager().isConnected) {
-                            this.instance.getMSMPManager().connect();
-                        }
-                    }
-                });
-            });
-
-            if (!newContext.isLocalTerminalMode && this.instance.isServer()) {
-                containerSwitcher = new SharedContainerSwitcher(this, newContext.mainContainer);
-                containerSwitcher.register("terminal.png", newContext.terminalWidget);
-                containerSwitcher.register("resources.png", newContext.resourcesContainer);
-                containerSwitcher.register("steve.png", newContext.playersContainer);
-                containerSwitcher.setOnChange(this::onSharedSwitchChange);
-                containerSwitcher.build();
-
-                if (newContext.playersContainer != null) {
-                    newContext.playersContainer.fullRefresh();
-                }
-
-                if (VersionUtil.isMSMPCompatible(this.instance.getVersionId())) {
-                    DebugManager.getInstance().log("ServerDetailsScreen", "MSMP Compatible Version Detected: " + this.instance.getVersionId());
-                    this.instance.getMSMPManager().handleInstanceStateChange(this.instance.getState());
-                } else {
-                    DebugManager.getInstance().log("ServerDetailsScreen", "MSMP Incompatible Version Detected: " + this.instance.getVersionId());
-                }
-            }
-
-            if (newContext.resourcesContainer != null) {
-                newContext.resourcesContainer.ensureSelectorsSynced();
-                newContext.resourcesContainer.loadResources();
-            }
-
-            if (containerSwitcher != null) {
-                int maxIndex = (!newContext.isLocalTerminalMode && instance.isServer()) ? 2 : 0;
-                if(newContext.selectedViewIndex > maxIndex) newContext.selectedViewIndex = 0;
-                containerSwitcher.setActiveIndex(newContext.selectedViewIndex);
-                onSharedSwitchChange(newContext.selectedViewIndex);
-            }
-        } else {
-            DebugManager.getInstance().setViewContext(newContext.localTerminalId);
-        }
-
-        updateHeaderButtons();
-        updatePositions();
-
-        if (newContext.resourcesContainer != null) {
-            boolean showSelectors = !newContext.isLocalTerminalMode && newContext.selectedViewIndex == 1;
-            newContext.resourcesContainer.setSelectorsVisible(showSelectors);
-            newContext.resourcesContainer.ensureSelectorsSynced();
-        }
-        remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
-    }
-
-    private void onTabClosed(TabsManager.Tab tab) {
-        getGroupManager().onTabClosed(tab);
-        TabContext context = tabContexts.remove(tab);
-        if (context != null) {
-            if (context.instance != null) {
-                context.instance.removeStateListener(stateListener);
-                remotelyClient.getMultiTerminalTabs().remove(context.instance);
-                context.instance.getMSMPManager().disconnect();
-            } else if (context.localTerminalId != null) {
-                remotelyClient.getMultiTerminalTabs().remove(context.localTerminalId);
-            }
-            context.cleanup();
-            if (context.resourcesContainer != null) {
-                context.resourcesContainer.detachSelectors();
-            }
-        }
-        if (tabs().getTabs().isEmpty()) {
-            closeScreen();
-        } else {
-            remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
+            StandardOutputStateParser parser = new StandardOutputStateParser(inst);
+            info.terminalWidget.addOutputListener(parser);
+            info.standardParser = parser;
         }
     }
 
     @Override
-    public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
-        super.render(context, mouseX, mouseY, delta);
-    }
+    protected void onViewChanged(TabContext context, ViewEntry activeView) {
+        ServerContextInfo info = contextInfos.get(context);
+        if (info == null) return;
 
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == GLFW.GLFW_KEY_R) {
-            TabContext ctx = getActiveContext();
-            if (ctx != null && ctx.resourcesContainer != null) {
-                ctx.resourcesContainer.loadResources();
-            }
-            return true;
-        }
-        if (keyCode == GLFW.GLFW_KEY_GRAVE_ACCENT && hasControlDown()) {
-            if (getActiveContext() == null || containerSwitcher == null || containerSwitcher.getWidget() == null) return false;
-            int i = getActiveContext().selectedViewIndex;
-            containerSwitcher.setActiveIndex(i == 0 ? 1 : 0);
-            return true;
-        }
-        return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
-
-    @Override
-    protected void onStateChanged(InstanceState newState) {
-        ScreenManager.getInstance().execute(() -> {
-            updateHeaderButtons();
-            TabContext context = getActiveContext();
-            if (context != null && context.playersContainer != null) {
-                context.playersContainer.rebuildPlayerWidgets();
-            }
-            if (context != null && context.instance != null) {
-                context.instance.getMSMPManager().handleInstanceStateChange(newState);
-            }
-        });
-    }
-
-    private void updateHeaderButtons() {
-        TabContext context = getActiveContext();
-        boolean isInstanceTab = context != null && !context.isLocalTerminalMode;
-
-        header().setButtonVisible("explorer.png", isInstanceTab);
+        boolean isInstance = !info.isLocalTerminalMode;
+        header().setButtonVisible("explorer.png", isInstance);
 
         if (startIconButton != null) {
-            startIconButton.setVisible(isInstanceTab);
-            if (isInstanceTab) {
+            startIconButton.setVisible(isInstance);
+            if (isInstance) {
                 InstanceState state = context.instance.getState();
                 boolean showSquare = state == InstanceState.STOPPED || state == InstanceState.CRASHED;
                 if (showSquare) {
@@ -538,7 +234,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 header().requestLayoutUpdate();
             }
         }
-        if (isInstanceTab) {
+
+        if (isInstance) {
             ModLoader modLoader = context.instance.getModLoader();
             boolean showResources = modLoader != null;
             header().setButtonVisible("resources.png", showResources);
@@ -546,7 +243,13 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             boolean isReversed = ReverseProxyManager.isPortForwarded(context.instance);
             header().setButtonVisible("reverse.png", !isReversed);
             header().setButtonVisible("closeReverse.png", isReversed);
-            header().setButtonVisible("download.png", context.selectedViewIndex == 1);
+
+            boolean isResView = activeView != null && activeView.widget() instanceof ResourceContainer;
+            header().setButtonVisible("download.png", isResView);
+            if (info.resourceContainer != null) {
+                info.resourceContainer.setSelectorsVisible(isResView);
+                if (isResView) info.resourceContainer.ensureSelectorsSynced();
+            }
         } else {
             header().setButtonVisible("resources.png", false);
             header().setButtonVisible("reverse.png", false);
@@ -555,23 +258,128 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
     }
 
+    @Override
+    protected void onTabSelected(TabsManager.Tab tab) {
+        if (sidecarInstance != null && sidecarInstance.getBackend() != null) {
+            sidecarInstance.getBackend().disconnect();
+            sidecarInstance = null;
+        }
+
+        super.onTabSelected(tab);
+
+        TabContext ctx = getActiveContext();
+        if (ctx == null) return;
+        ServerContextInfo info = contextInfos.get(ctx);
+
+        if (info.isLocalTerminalMode) {
+            DebugManager.getInstance().setViewContext(info.localTerminalId);
+        } else {
+            DebugManager.getInstance().setViewContext(ctx.instance.getInstanceId());
+            ctx.instance.reloadSettingsFromBackend().thenRun(() -> ScreenManager.getInstance().execute(() -> {
+                setupTerminalListeners(ctx.instance, info);
+                PlayerManagerController.getOrCreate(ctx.instance).reloadProviders();
+                if (Boolean.parseBoolean(ctx.instance.getSettings().getProperty("provider.msmp.enabled", "true"))) {
+                    if (!ctx.instance.getMSMPManager().isConnected) {
+                        ctx.instance.getMSMPManager().connect();
+                    }
+                }
+                if (info.playersContainer != null) info.playersContainer.fullRefresh();
+            }));
+
+            if (VersionUtil.isMSMPCompatible(ctx.instance.getVersionId())) {
+                ctx.instance.getMSMPManager().handleInstanceStateChange(ctx.instance.getState());
+            }
+            if (info.resourceContainer != null) info.resourceContainer.loadResources();
+        }
+
+        remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
+        int idx = ctx.selectedViewIndex < ctx.views.size() ? ctx.selectedViewIndex : 0;
+        if (!ctx.views.isEmpty()) {
+            onViewChanged(ctx, ctx.views.get(idx));
+        }
+    }
+
+    private void onTabClosed(TabsManager.Tab tab) {
+        getGroupManager().onTabClosed(tab);
+        TabContext ctx = tabContexts.remove(tab);
+        if (ctx != null) {
+            ServerContextInfo info = contextInfos.remove(ctx);
+            if (ctx.instance != null) {
+                ctx.instance.removeStateListener(stateListener);
+                remotelyClient.getMultiTerminalTabs().remove(ctx.instance);
+                ctx.instance.getMSMPManager().disconnect();
+            } else if (info.localTerminalId != null) {
+                remotelyClient.getMultiTerminalTabs().remove(info.localTerminalId);
+            }
+            if (info.terminalWidget != null) {
+                if (info.standardParser != null) info.terminalWidget.removeOutputListener(info.standardParser);
+                if (ctx.instance != null) TerminalWidget.shutdown(ctx.instance.getInstanceId());
+                else TerminalWidget.shutdownLocal(info.localTerminalId);
+            }
+            if (info.resourceContainer != null) info.resourceContainer.detachSelectors();
+        }
+        if (tabs().getTabs().isEmpty()) closeScreen();
+        else remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
+    }
+
+    private void onTabRenamed(TabsManager.Tab tab) {
+        TabContext context = tabContexts.get(tab);
+        if (context != null && context.instance != null) {
+            context.instance.setName(tab.getName());
+            context.instance.save();
+        }
+    }
+
+    private void onTabsReordered(List<TabsManager.Tab> newOrder) {
+        List<Object> newInstanceOrder = new ArrayList<>();
+        for (TabsManager.Tab tab : newOrder) {
+            TabContext context = tabContexts.get(tab);
+            ServerContextInfo info = contextInfos.get(context);
+            if (context != null && info != null) {
+                newInstanceOrder.add(info.isLocalTerminalMode ? info.localTerminalId : context.instance);
+            }
+        }
+        remotelyClient.getMultiTerminalTabs().clear();
+        remotelyClient.getMultiTerminalTabs().addAll(newInstanceOrder);
+        remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
+    }
+
+    private void addNewTerminalTab() {
+        String newId = UUID.randomUUID().toString();
+        remotelyClient.getMultiTerminalTabs().add(newId);
+        createAndAddTab(newId, true);
+    }
+
+    public void addInstanceTab(Instance instanceToAdd) {
+        for (TabContext ctx : tabContexts.values()) {
+            if (ctx.instance != null && ctx.instance.getInstanceId().equals(instanceToAdd.getInstanceId())) {
+                for (Map.Entry<TabsManager.Tab, TabContext> entry : tabContexts.entrySet()) {
+                    if (entry.getValue() == ctx) {
+                        tabs().setActiveTab(tabs().getTabs().indexOf(entry.getKey()));
+                        return;
+                    }
+                }
+            }
+        }
+        createAndAddTab(instanceToAdd, true);
+    }
+
     private void launchOrStopInstance() {
         TabContext context = getActiveContext();
-        if (context == null || context.isLocalTerminalMode) return;
+        ServerContextInfo info = contextInfos.get(context);
+        if (context == null || info.isLocalTerminalMode) return;
+
         InstanceApi api = InstanceApi.of(context.instance);
         if (context.instance.getState() == InstanceState.RUNNING || context.instance.getState() == InstanceState.STARTING) {
-            api.console().stopServer().exceptionally(e -> {
-                ScreenManager.getInstance().execute(() -> new Notification("Stop Failed", e.getMessage(), Notification.Type.ERROR));
-                return null;
-            });
+            api.console().stopServer();
             String t = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
             if ("LOCAL".equalsIgnoreCase(t)) {
-                context.terminalWidget.stopProcess();
+                info.terminalWidget.stopProcess();
                 context.instance.setState(InstanceState.STOPPED);
             }
         } else {
             if (context.instance.getBackend() != null && "SSH".equalsIgnoreCase(context.instance.getBackendConfig().type)) {
-                proceedWithServerStart(context);
+                proceedWithServerStart(context, info);
                 return;
             }
             final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
@@ -579,24 +387,29 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             legacy.readFile(eulaPath).exceptionally(t -> "").thenAccept(content -> ScreenManager.getInstance().execute(() -> {
                 boolean eulaAccepted = content != null && content.contains("eula=true");
                 if (eulaAccepted || (content != null && content.isEmpty())) {
-                    proceedWithServerStart(context);
+                    proceedWithServerStart(context, info);
                 } else {
-                    showEulaPopup(context);
+                    showEulaPopup(context, info);
                 }
             }));
         }
     }
 
-    private void showEulaPopup(TabContext context) {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Mojang EULA Agreement")
-            .size(400 - 73, 120)
-            .setResizable(false);
+    private void proceedWithServerStart(TabContext context, ServerContextInfo info) {
+        InstanceApi api = InstanceApi.of(context.instance);
+        context.instance.setState(InstanceState.STARTING);
+        api.console().startServer().thenAccept(command -> ScreenManager.getInstance().execute(() -> {
+            if (command != null && !command.isEmpty()) info.terminalWidget.executeCommand(command);
+            else {
+                String type = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
+                if ("LOCAL".equalsIgnoreCase(type)) info.terminalWidget.startServerProcess();
+            }
+        }));
+    }
 
-        AnimatedButton textWidget = new AnimatedButton.Builder()
-            .label("Before You Start, Please Agree To The EULA.")
-            .active(false)
-            .flat(true)
-            .build();
+    private void showEulaPopup(TabContext context, ServerContextInfo info) {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Mojang EULA Agreement").size(327, 120).setResizable(false);
+        AnimatedButton textWidget = new AnimatedButton.Builder().label("Before You Start, Please Agree To The EULA.").active(false).flat(true).build();
         builder.addRow("", true, 20, textWidget);
         builder.addMarkdown("", "By Click The Agree Button Below, You Agree To The [Minecraft EULA](https://www.minecraft.net/en-us/eula).", 20);
         PopupWidget popup = builder.build();
@@ -606,38 +419,13 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 final RebaseAPI api = RebaseApiFactory.get(context.instance);
                 final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
                 context.instance.getServerProperties().setProperty("eula", "true");
-
                 CompletableFuture.runAsync(context.instance::saveServerProperties).thenCompose(v -> api.writeFile(eulaPath, "eula=true")).thenRun(() -> ScreenManager.getInstance().execute(() -> {
                     popup.hide();
-                    proceedWithServerStart(context);
-                })).exceptionally(ex -> {
-                    ScreenManager.getInstance().execute(() -> new Notification("Error", "Failed to agree to EULA: " + ex.getMessage(), Notification.Type.ERROR));
-                    return null;
-                });
+                    proceedWithServerStart(context, info);
+                }));
             }).build());
         addDrawableChild(popup);
         popup.show();
-    }
-
-    private void proceedWithServerStart(TabContext context) {
-        InstanceApi api = InstanceApi.of(context.instance);
-        context.instance.setState(InstanceState.STARTING);
-        api.console().startServer().thenAccept(command -> ScreenManager.getInstance().execute(() -> {
-            if (command != null && !command.isEmpty()) {
-                context.terminalWidget.executeCommand(command);
-            } else {
-                String type = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
-                if ("LOCAL".equalsIgnoreCase(type)) {
-                    context.terminalWidget.startServerProcess();
-                }
-            }
-        })).exceptionally(e -> {
-            ScreenManager.getInstance().execute(() -> {
-                new Notification("Failed to start server", e.getMessage(), Notification.Type.ERROR);
-                context.instance.setState(InstanceState.STOPPED);
-            });
-            return null;
-        });
     }
 
     private Instance ensureSidecar() {
@@ -662,14 +450,12 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private void exploreInstanceFiles() {
         Instance target = ensureSidecar();
         if (target == null) return;
-        Path instancePath = Paths.get(target.getPath());
-        client.setScreen((new FileExplorerScreen(this, target, instancePath, Path.of(remotelyDir.toString(), "data"), false)));
+        client.setScreen((new FileExplorerScreen(this, target, Paths.get(target.getPath()), Path.of(remotelyDir.toString(), "data"), false)));
     }
 
     public void openInstanceSettings() {
         Instance target = ensureSidecar();
         if (target == null) return;
-
         RemoteHost host = null;
         BackendConfig cfg = target.getBackendConfig();
         if (cfg != null && !"LOCAL".equalsIgnoreCase(cfg.type)) {
@@ -684,44 +470,76 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     @Override
-    public void updatePositions() {
-        super.updatePositions();
-        TabContext ctx = getActiveContext();
-        if (containerSwitcher == null || containerSwitcher.getWidget() == null || ctx == null || ctx.resourcesContainer == null || ctx.resourcesContainer.getSelectorsRow() == null) return;
-        int y = 36;
-        int switchX = width - 5 - containerSwitcher.getWidget().getWidth();
-        containerSwitcher.setPosition(switchX, y);
-        int selectorsX = switchX - ctx.resourcesContainer.getSelectorsRow().getWidth() - 1;
-        ctx.resourcesContainer.getSelectorsRow().setPosition(selectorsX, y);
+    public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
+        super.render(context, mouseX, mouseY, delta);
     }
 
     @Override
-    public void closeScreen() {
-        DebugManager.getInstance().setViewContext(null);
-        if (sidecarInstance != null && sidecarInstance.getBackend() != null) {
-            sidecarInstance.getBackend().disconnect();
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == GLFW.GLFW_KEY_R) {
+            ServerContextInfo info = getCurrentInfo();
+            if (info != null && info.resourceContainer != null) info.resourceContainer.loadResources();
+            return true;
         }
-        remotelyClient.getHost().openParentScreen(this, parent);
-    }
-
-    @Override
-    public void removed() {
-        super.removed();
-        if (sidecarInstance != null && sidecarInstance.getBackend() != null) {
-            sidecarInstance.getBackend().disconnect();
-        }
-        DebugManager.getInstance().setViewContext(null);
-        for (TabContext context : tabContexts.values()) {
-            if (context.instance != null) {
-                context.instance.removeStateListener(stateListener);
+        if (keyCode == GLFW.GLFW_KEY_GRAVE_ACCENT && hasControlDown()) {
+            if (viewSwitcher != null) {
+                TabContext ctx = getActiveContext();
+                int i = ctx.selectedViewIndex + 1;
+                if(i >= ctx.views.size()) i = 0;
+                viewSwitcher.setActiveIndex(i);
             }
+            return true;
         }
-        tabContexts.clear();
-        remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
-    private TabContext getActiveContext() {
-        if (tabsManager == null || tabsManager.getActiveTab() == null) return null;
-        return tabContexts.get(tabsManager.getActiveTab());
+    @Override
+    protected void onStateChanged(InstanceState newState) {
+        ScreenManager.getInstance().execute(() -> {
+            TabContext ctx = getActiveContext();
+            ServerContextInfo info = contextInfos.get(ctx);
+            if (ctx != null && !ctx.views.isEmpty()) onViewChanged(ctx, ctx.views.get(ctx.selectedViewIndex));
+            if (info != null && info.playersContainer != null) info.playersContainer.rebuildPlayerWidgets();
+            if (ctx != null && ctx.instance != null) ctx.instance.getMSMPManager().handleInstanceStateChange(newState);
+        });
+    }
+
+    private ServerContextInfo getCurrentInfo() {
+        TabContext ctx = getActiveContext();
+        return ctx == null ? null : contextInfos.get(ctx);
+    }
+
+    @Override
+    public List<String> getLeftLines() {
+        List<String> info = new ArrayList<>();
+        TabContext ctx = getActiveContext();
+        if (ctx == null) { info.add("No Active Context"); return info; }
+        ServerContextInfo sInfo = contextInfos.get(ctx);
+
+        if (sInfo.isLocalTerminalMode) {
+            info.add("Mode: Local Terminal");
+            info.add("Term ID: " + sInfo.localTerminalId);
+        } else if (ctx.instance != null) {
+            info.add("Mode: Instance (" + ctx.instance.getName() + ")");
+            info.add("State: " + ctx.instance.getState());
+            MSMPManager msmp = ctx.instance.getMSMPManager();
+            info.add("MSMP: " + (msmp.isConnected ? "Connected" : "Disconnected"));
+            if (ctx.instance.getBackend() != null) info.add("Backend: " + ctx.instance.getBackendConfig().type);
+            else info.add("Backend: None (Local)");
+        }
+        return info;
+    }
+
+    @Override
+    public List<String> getRightLines() {
+        List<String> info = new ArrayList<>();
+        TabContext ctx = getActiveContext();
+        if (ctx != null && ctx.instance != null) {
+            PlayerManagerController pmc = PlayerManagerController.getOrCreate(ctx.instance);
+            LuckPermsService lp = pmc.getLuckPermsService();
+            if (lp != null) info.add("LuckPerms: " + (lp.isEnabled() ? "Enabled" : "Disabled"));
+            info.add("View: " + ctx.selectedViewIndex);
+        }
+        return info;
     }
 }
