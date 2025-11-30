@@ -87,9 +87,9 @@ public class ServerExtraSettingsController {
                     @Override
                     public void tick() {
                         super.tick();
-                        if (isResizing && !rows.isEmpty() && !rows.getFirst().widgets.isEmpty()) {
-                            Widget w = rows.getFirst().widgets.getFirst();
-                            int newEditorHeight = this.getHeight() - 16 - 6 * 2 - (rows.getFirst().id.isEmpty() ? 0 : 12) - 8;
+                        if (isResizing && !rows.isEmpty() && !rows.get(0).widgets.isEmpty()) {
+                            Widget w = rows.get(0).widgets.get(0);
+                            int newEditorHeight = this.getHeight() - 16 - 6 * 2 - (rows.get(0).id.isEmpty() ? 0 : 12) - 8;
                             int newEditorWidth = this.getWidth() - 6 * 2;
                             if (w.getWidth() != newEditorWidth) w.setWidth(newEditorWidth);
                             if (w.getHeight() != newEditorHeight) w.setHeight(newEditorHeight);

@@ -39,7 +39,11 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     private static final Map<BufferedImage, OmniTextureHandle> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
 
     private static final OmniRenderPipeline INVERTED_PIPELINE = OmniRenderPipelines
-        .builderWithDefaultShader(ResourceLocation.fromNamespaceAndPath("rescreen", "inverted_rect"),
+        //#if MC >= 1.21.1
+        //$$ .builderWithDefaultShader(ResourceLocation.fromNamespaceAndPath("rescreen", "inverted_rect"),
+        //#else
+        .builderWithDefaultShader(new ResourceLocation("rescreen", "inverted_rect"),
+        //#endif
             DefaultVertexFormats.POSITION_COLOR, DrawMode.QUADS).setColorLogic(OmniRenderPipeline.ColorLogic.OR_REVERSE)
         .setBlendState(OmniBlendState.DISABLED).build();
 

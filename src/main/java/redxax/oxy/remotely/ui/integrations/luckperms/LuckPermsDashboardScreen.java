@@ -308,7 +308,7 @@ public class LuckPermsDashboardScreen extends ReScreen {
                     order.add(sel);
                     List<String> newOptions = allGroups.stream().filter(g -> !order.contains(g)).sorted().toList();
                     String keep = addDd.getSelectedItem();
-                    addDd.setItems(newOptions, newOptions.contains(keep) ? keep : (newOptions.isEmpty() ? null : newOptions.getFirst()));
+                    addDd.setItems(newOptions, newOptions.contains(keep) ? keep : (newOptions.isEmpty() ? null : newOptions.get(0)));
                     Runnable r = rebuild.get();
                     if (r != null) r.run();
                 }
