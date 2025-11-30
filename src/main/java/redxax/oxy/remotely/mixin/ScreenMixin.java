@@ -5,7 +5,9 @@ import dev.deftu.omnicore.api.client.render.OmniRenderingContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.KeyEvent;
+//#if MC >= 1.21.9
+//$$ import net.minecraft.client.input.KeyEvent;
+//#endif
 import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -74,7 +76,7 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
 
     @Unique
     private void remotely$handleInput(int mouseX, int mouseY) {
-        long handle = Minecraft.getInstance().getWindow().handle();
+        long handle = Minecraft.getInstance().getWindow().getWindow();
         boolean mouseDown = GLFW.glfwGetMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
 
         if (mouseDown && !remotely$wasMouseDown) {
@@ -90,25 +92,37 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
         remotely$wasMouseDown = mouseDown;
     }
 
-    @Inject(method = "keyPressed", at = @At("HEAD"))
-    private void keyPressed(KeyEvent keyEvent, CallbackInfoReturnable<Boolean> cir) {
-        boolean ctrl = (keyEvent.modifiers() & GLFW.GLFW_MOD_CONTROL) != 0;
-        boolean shift = (keyEvent.modifiers() & GLFW.GLFW_MOD_SHIFT) != 0;
-        boolean alt = (keyEvent.modifiers() & GLFW.GLFW_MOD_ALT) != 0;
+    @Unique
+    private void remotely$handleDebugKeys(int key, int modifiers) {
+        boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
+        boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
+        boolean alt = (modifiers & GLFW.GLFW_MOD_ALT) != 0;
         boolean all = alt && shift && ctrl;
-        if (keyEvent.key() == GLFW.GLFW_KEY_D && all) {
+
+        if (key == GLFW.GLFW_KEY_D && all) {
             enableDebugTools = !enableDebugTools;
             new Notification("Toggled Debug Tools To " + enableDebugTools, Notification.Type.INFO);
         }
         if (!enableDebugTools) return;
-        if (keyEvent.key() == GLFW.GLFW_KEY_T && ctrl) {
+        if (key == GLFW.GLFW_KEY_T && ctrl) {
             ScreenManager.getInstance().setScreen(new WidgetsTestingScreen());
         }
-        if (keyEvent.key() == GLFW.GLFW_KEY_C && ctrl) {
+        if (key == GLFW.GLFW_KEY_C && ctrl) {
             ScreenManager.getInstance().setScreen(new ContainerTestingScreen());
         }
-        if (keyEvent.key() == GLFW.GLFW_KEY_P && all) {
+        if (key == GLFW.GLFW_KEY_P && all) {
             ReverseProxyManager.listActivePorts();
         }
     }
+
+    @Inject(method = "keyPressed", at = @At("HEAD"))
+    //#if MC >= 1.21.9
+    //$$ private void keyPressed(KeyEvent keyEvent, CallbackInfoReturnable<Boolean> cir) {
+    //$$     remotely$handleDebugKeys(keyEvent.key(), keyEvent.modifiers());
+    //$$ }
+    //#else
+    private void keyPressed(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
+        remotely$handleDebugKeys(keyCode, modifiers);
+    }
+    //#endif
 }

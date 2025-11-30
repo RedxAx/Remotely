@@ -53,7 +53,7 @@ dependencies {
     implementation("com.github.javakeyring:java-keyring:1.0.4")
     implementation("com.vladsch.flexmark:flexmark-all:0.64.8")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
-    implementation("org.slf4j:slf4j-simple:2.0.9")
+//    implementation("org.slf4j:slf4j-simple:2.0.9")
 
     implementation("org.jetbrains.pty4j:pty4j:0.13.10-1")
     implementation("org.jetbrains.jediterm:jediterm-core:3.54")

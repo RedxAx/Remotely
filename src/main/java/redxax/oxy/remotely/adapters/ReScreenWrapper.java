@@ -31,7 +31,11 @@ public class ReScreenWrapper extends OmniScreen {
     public void onInitialize(int width, int height) {
         super.onInitialize(width, height);
         lastFrameTime = System.nanoTime();
-        long handle = Minecraft.getInstance().getWindow().handle();
+        //#if MC >= 1.21.9
+        //$$ long handle = Minecraft.getInstance().getWindow().handle();
+        //#else
+        long handle = Minecraft.getInstance().getWindow().getWindow();
+        //#endif
         sm.setWindowHandle(handle);
         try {
             Field f = restudio.rescreen.Main.class.getDeclaredField("window");

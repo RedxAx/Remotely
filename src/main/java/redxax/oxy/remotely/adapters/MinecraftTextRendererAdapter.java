@@ -2,7 +2,9 @@ package redxax.oxy.remotely.adapters;
 
 import dev.deftu.omnicore.api.client.render.OmniTextRenderer;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.FontDescription;
+//#if MC >= 1.21.9
+//$$ import net.minecraft.network.chat.FontDescription;
+//#endif
 import net.minecraft.network.chat.Style;
 import net.minecraft.resources.ResourceLocation;
 import restudio.rescreen.platform.IDrawContext;
@@ -42,7 +44,13 @@ public class MinecraftTextRendererAdapter implements ITextRenderer {
     @Override
     public int getWidth(String text, Object font) {
         if (font instanceof ResourceLocation rl) {
-            return OmniTextRenderer.width(Component.literal(text).setStyle(Style.EMPTY.withFont(new FontDescription.Resource(rl))));
+            return OmniTextRenderer.width(Component.literal(text).setStyle(Style.EMPTY.withFont(
+                //#if MC >= 1.21.9
+                //$$ new FontDescription.Resource(rl)
+                //#else
+                rl
+                //#endif
+            )));
         }
         return getWidth(text);
     }
