@@ -40,7 +40,11 @@ public class MinecraftApplicationHost implements ApplicationHost {
 
     @Override
     public Object getFontIdentifier(String namespace, String path) {
-        return ResourceLocation.fromNamespaceAndPath(namespace, path);
+        //#if MC >= 1.21.1
+        //$$ return ResourceLocation.fromNamespaceAndPath(namespace, path);
+        //#else
+        return new ResourceLocation(namespace, path);
+        //#endif
     }
 
     @Override
