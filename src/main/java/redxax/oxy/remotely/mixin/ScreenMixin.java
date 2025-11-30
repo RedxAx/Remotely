@@ -3,7 +3,11 @@ package redxax.oxy.remotely.mixin;
 import dev.deftu.omnicore.api.client.render.ImmediateScreenRenderer;
 import dev.deftu.omnicore.api.client.render.OmniRenderingContext;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+//#if MC >= 1.20.1
+//$$ import net.minecraft.client.gui.GuiGraphics;
+//#else
+import com.mojang.blaze3d.vertex.PoseStack;
+//#endif
 import net.minecraft.client.gui.screens.Screen;
 //#if MC >= 1.21.9
 //$$ import net.minecraft.client.input.KeyEvent;
@@ -55,7 +59,11 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
     }
 
     @Inject(method = "render", at = @At("TAIL"))
-    private void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
+    //#if MC >= 1.20.1
+    //$$ private void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
+    //#else
+    private void render(PoseStack guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
+    //#endif
         restudio.rescreen.config.Config.tickTime();
         CursorUtils.tick();
         Config.globalCursorAnimatedColor = CursorUtils.blendColor();
