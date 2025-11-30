@@ -17,7 +17,9 @@ import dev.deftu.omnicore.api.client.textures.OmniTextures;
 import dev.deftu.omnicore.api.color.OmniColor;
 import dev.deftu.omnicore.api.color.OmniColors;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.FontDescription;
+//#if MC >= 1.21.9
+//$$ import net.minecraft.network.chat.FontDescription;
+//#endif
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 import net.minecraft.resources.ResourceLocation;
@@ -45,12 +47,10 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     private final OmniRenderingContext ctx;
     private final OmniPoseStack matrices;
-    private final float renderScale;
 
     public MinecraftDrawContextAdapter(@NotNull OmniRenderingContext ctx, float renderScale) {
         this.ctx = ctx;
         this.matrices = ctx.pose();
-        this.renderScale = renderScale;
     }
 
     public MinecraftDrawContextAdapter(@NotNull OmniRenderingContext ctx) {
@@ -174,7 +174,12 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
             if ((styledText.color >> 24 & 0xFF) == 0) return;
             MutableComponent renderText = Component.literal(styledText.text);
             if (styledText.font instanceof ResourceLocation rl) {
-                renderText.setStyle(Style.EMPTY.withFont(new FontDescription.Resource(rl)));
+                //#if MC >= 1.21.9
+                //$$ renderText.setStyle(Style.EMPTY.withFont(new FontDescription.Resource(rl)));
+                //#endif
+                //#if MC < 1.21.9
+                renderText.setStyle(Style.EMPTY.withFont(rl));
+                //#endif
             }
             OmniTextRenderer.render(ctx, renderText, (float) x, (float) y, fromArgb(styledText.color), shadow);
         } else {
