@@ -12,7 +12,8 @@
     "KeyboardMixin",
     "MinecraftClientMixin",
     "ScreenMixin",
-    "TitleScreenMixin"
+    "TitleScreenMixin",
+    "accessor.ScreenAccessor"
   ],
   "server": [
   ]
