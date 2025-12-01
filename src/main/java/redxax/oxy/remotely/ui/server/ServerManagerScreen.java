@@ -123,6 +123,7 @@ public class ServerManagerScreen extends ReScreen {
     }
 
     private void populateHostTabs() {
+        tabs().addTab("Local", activeContainer).setData(null);
         for (RemoteHost host : instanceManager.getRemoteHosts()) {
             Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
             DesktopLayout remoteLayout = new DesktopLayout();
@@ -130,7 +131,6 @@ public class ServerManagerScreen extends ReScreen {
             c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
             tabs().addTab(host.name, c).setData(host);
         }
-        tabs().addTab("Local", activeContainer).setData(null);
         int savedIndex = remotelyClient.getSavedTabIndex();
         tabs().setActiveTab(Math.min(savedIndex, tabs().getTabs().size() - 1));
         loadServersForCurrentTab();
