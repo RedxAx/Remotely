@@ -165,18 +165,18 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             info.terminalWidget.start();
             setupTerminalListeners(inst, info);
         }
-        ctx.addView(info.terminalWidget, "terminal.png", null);
+        ctx.addView(info.terminalWidget, "terminal.png", "Terminal", null);
 
         if (inst != null && inst.isServer()) {
             ResourceContainer res = new ResourceContainer(this, remotelyClient, inst, 5, 60, width - 10, height - 66);
             info.resourceContainer = res;
             List<AnimatedWidget> resTools = new ArrayList<>();
             resTools.add(res.getSelectorsRow());
-            ctx.addView(res, "resources.png", resTools);
+            ctx.addView(res, "resources.png", "Resources", resTools);
 
             PlayersContainer players = new PlayersContainer(this, inst, info.terminalWidget, 5, 60, width - 10, height - 66);
             info.playersContainer = players;
-            ctx.addView(players, "steve.png", null);
+            ctx.addView(players, "steve.png", "Players", null);
         }
 
         contextInfos.put(ctx, info);
