@@ -30,6 +30,7 @@ public class ServerGeneralSettingsController {
                 .description("The display name of the server instance.")
                 .bind(instance::getName, instance::setName)
                 .defaultValue("New Server")
+                .resettable(false)
                 .build());
 
         List<String> gameModes = Arrays.asList("Survival", "Creative", "Adventure", "Spectator");
