@@ -531,11 +531,11 @@ public class ServerManagerScreen extends ReScreen {
             remoteHostPasswordInput.setText("");
         }
 
-        remoteHostNameInput.setOnEnter(() -> remoteHostPopup.setFocusedWidget(remoteHostUserInput));
-        remoteHostUserInput.setOnEnter(() -> remoteHostPopup.setFocusedWidget(remoteHostIpInput));
-        remoteHostIpInput.setOnEnter(() -> remoteHostPopup.setFocusedWidget(remoteHostPortInput));
-        remoteHostPortInput.setOnEnter(() -> remoteHostPopup.setFocusedWidget(remoteHostPasswordInput));
-        remoteHostPasswordInput.setOnEnter(this::onConfirmRemoteHost);
+        remoteHostNameInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(remoteHostUserInput));
+        remoteHostUserInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(remoteHostIpInput));
+        remoteHostIpInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(remoteHostPortInput));
+        remoteHostPortInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(remoteHostPasswordInput));
+        remoteHostPasswordInput.addOnEnter((w) -> onConfirmRemoteHost());
 
         remoteHostPopup.setX((this.width - remoteHostPopup.getWidth()) / 2);
         remoteHostPopup.setY((this.height - remoteHostPopup.getHeight()) / 2);
