@@ -159,7 +159,12 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             exec = new LocalBackend(new BackendConfig("LOCAL", new HashMap<>()), null).getExecution();
         }
 
-        info.terminalWidget = TerminalWidget.getOrCreate(inst, exec, localId, 5, 60, width - 10, height - 66);
+        if (inst != null) {
+            info.terminalWidget = ServerTerminal.getOrCreate(inst, exec, 5, 60, width - 10, height - 66);
+        } else {
+            info.terminalWidget = TerminalWidget.getOrCreate(null, exec, localId, 5, 60, width - 10, height - 66);
+        }
+
         if (inst != null) {
             info.terminalWidget.addOutputListener(inst.getMSMPManager()::handleConsoleLine);
             info.terminalWidget.start();
@@ -184,7 +189,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         registerTab(tab, ctx);
 
         if (setActive) {
-            tabs().setActiveTab(tabs().getTabs().size() - 1);
+            tabs().setActiveTab(tab.getContainer());
         }
     }
 
@@ -306,7 +311,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             ServerContextInfo info = contextInfos.remove(ctx);
             if (ctx.instance != null) {
                 ctx.instance.removeStateListener(stateListener);
-                remotelyClient.getMultiTerminalTabs().remove(ctx.instance);
+                remotelyClient.getMultiTerminalTabs().removeIf(o -> (o instanceof Instance i && i.getInstanceId().equals(ctx.instance.getInstanceId())));
                 ctx.instance.getMSMPManager().disconnect();
             } else if (info.localTerminalId != null) {
                 remotelyClient.getMultiTerminalTabs().remove(info.localTerminalId);
@@ -318,8 +323,12 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             }
             if (info.resourceContainer != null) info.resourceContainer.detachSelectors();
         }
-        if (tabs().getTabs().isEmpty()) closeScreen();
-        else remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
+        if (tabs().getTabs().isEmpty()) {
+            remotelyClient.setActiveMultiTerminalTabIndex(-1);
+            closeScreen();
+        } else {
+            remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
+        }
     }
 
     private void onTabRenamed(TabsManager.Tab tab) {
@@ -351,14 +360,10 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     }
 
     public void addInstanceTab(Instance instanceToAdd) {
-        for (TabContext ctx : tabContexts.values()) {
-            if (ctx.instance != null && ctx.instance.getInstanceId().equals(instanceToAdd.getInstanceId())) {
-                for (Map.Entry<TabsManager.Tab, TabContext> entry : tabContexts.entrySet()) {
-                    if (entry.getValue() == ctx) {
-                        tabs().setActiveTab(tabs().getTabs().indexOf(entry.getKey()));
-                        return;
-                    }
-                }
+        for (Map.Entry<TabsManager.Tab, TabContext> entry : tabContexts.entrySet()) {
+            if (entry.getValue().instance != null && entry.getValue().instance.getInstanceId().equals(instanceToAdd.getInstanceId())) {
+                tabs().setActiveTab(entry.getValue().mainContainer);
+                return;
             }
         }
         createAndAddTab(instanceToAdd, true);
