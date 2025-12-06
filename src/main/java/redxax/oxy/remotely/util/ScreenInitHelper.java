@@ -18,14 +18,14 @@ public class ScreenInitHelper {
     public static void init(Screen screen, AbstractButton anchorButton) {
         if (anchorButton == null || !(screen instanceof ICustomWidgetHolder widgetHolder)) return;
 
-        //#if MC >= 1.19.2
-        //$$ int anchorX = anchorButton.getX();
-        //$$ int anchorY = anchorButton.getY();
-        //$$ int anchorHeight = anchorButton.getHeight();
-        //#else
-        int anchorX = anchorButton.x;
-        int anchorY = anchorButton.y;
+        //#if MC <= 1.19.4
+        int anchorX = anchorButton.getX();
+        int anchorY = anchorButton.getY();
         int anchorHeight = anchorButton.getHeight();
+        //#else
+        //$$ int anchorX = anchorButton.x;
+        //$$ int anchorY = anchorButton.y;
+        //$$ int anchorHeight = anchorButton.getHeight();
         //#endif
 
         switch (mainMenuStyle) {
@@ -39,20 +39,20 @@ public class ScreenInitHelper {
                 int excessWidth = totalWidth - 200;
                 largeButtonWidth -= excessWidth;
 
-                //#if MC >= 1.19.2
-                //$$ AbstractButton serverButton = Button.builder(Component.literal("Servers"), btn -> openServerManagerScreen(screen)).bounds(buttonX, buttonY, smallButtonWidth, 20).build();
-                //$$ ((ScreenAccessor) screen).remotely$addRenderableWidget(serverButton);
-                //$$ AbstractButton fileExplorerButton = Button.builder(Component.literal("File Explorer"), btn -> openFileExplorerScreen()).bounds(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20).build();
-                //$$ ((ScreenAccessor) screen).remotely$addRenderableWidget(fileExplorerButton);
-                //$$ AbstractButton terminalButton = Button.builder(Component.literal("Terminal"), btn -> openMultiTerminalScreen(screen)).bounds(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY, smallButtonWidth, 20).build();
-                //$$ ((ScreenAccessor) screen).remotely$addRenderableWidget(terminalButton);
-                //#else
-                AbstractButton serverButton = new Button(buttonX, buttonY, smallButtonWidth, 20, Component.literal("Servers"), btn -> openServerManagerScreen(screen));
+                //#if MC <= 1.19.4
+                AbstractButton serverButton = Button.builder(Component.literal("Servers"), btn -> openServerManagerScreen(screen)).bounds(buttonX, buttonY, smallButtonWidth, 20).build();
                 ((ScreenAccessor) screen).remotely$addRenderableWidget(serverButton);
-                AbstractButton fileExplorerButton = new Button(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20, Component.literal("File Explorer"), btn -> openFileExplorerScreen());
+                AbstractButton fileExplorerButton = Button.builder(Component.literal("File Explorer"), btn -> openFileExplorerScreen()).bounds(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20).build();
                 ((ScreenAccessor) screen).remotely$addRenderableWidget(fileExplorerButton);
-                AbstractButton terminalButton = new Button(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY, smallButtonWidth, 20, Component.literal("Terminal"), btn -> openMultiTerminalScreen(screen));
+                AbstractButton terminalButton = Button.builder(Component.literal("Terminal"), btn -> openMultiTerminalScreen(screen)).bounds(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY, smallButtonWidth, 20).build();
                 ((ScreenAccessor) screen).remotely$addRenderableWidget(terminalButton);
+                //#else
+                //$$ AbstractButton serverButton = new Button(buttonX, buttonY, smallButtonWidth, 20, Component.literal("Servers"), btn -> openServerManagerScreen(screen));
+                //$$ ((ScreenAccessor) screen).remotely$addRenderableWidget(serverButton);
+                //$$ AbstractButton fileExplorerButton = new Button(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20, Component.literal("File Explorer"), btn -> openFileExplorerScreen());
+                //$$ ((ScreenAccessor) screen).remotely$addRenderableWidget(fileExplorerButton);
+                //$$ AbstractButton terminalButton = new Button(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY, smallButtonWidth, 20, Component.literal("Terminal"), btn -> openMultiTerminalScreen(screen));
+                //$$ ((ScreenAccessor) screen).remotely$addRenderableWidget(terminalButton);
                 //#endif
             }
             case "Minimal" -> {

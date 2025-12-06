@@ -18,7 +18,7 @@ import dev.deftu.omnicore.api.color.OmniColor;
 import dev.deftu.omnicore.api.color.OmniColors;
 import net.minecraft.network.chat.Component;
 //#if MC >= 1.21.9
-//$$ import net.minecraft.network.chat.FontDescription;
+import net.minecraft.network.chat.FontDescription;
 //#endif
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
@@ -40,9 +40,9 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     private static final OmniRenderPipeline INVERTED_PIPELINE = OmniRenderPipelines
         //#if MC >= 1.21.1
-        //$$ .builderWithDefaultShader(ResourceLocation.fromNamespaceAndPath("rescreen", "inverted_rect"),
+         .builderWithDefaultShader(ResourceLocation.fromNamespaceAndPath("rescreen", "inverted_rect"),
         //#else
-        .builderWithDefaultShader(new ResourceLocation("rescreen", "inverted_rect"),
+        //$$.builderWithDefaultShader(new ResourceLocation("rescreen", "inverted_rect"),
         //#endif
             DefaultVertexFormats.POSITION_COLOR, DrawMode.QUADS).setColorLogic(OmniRenderPipeline.ColorLogic.OR_REVERSE)
         .setBlendState(OmniBlendState.DISABLED).build();
@@ -179,10 +179,10 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
             MutableComponent renderText = Component.literal(styledText.text);
             if (styledText.font instanceof ResourceLocation rl) {
                 //#if MC >= 1.21.9
-                //$$ renderText.setStyle(Style.EMPTY.withFont(new FontDescription.Resource(rl)));
+                renderText.setStyle(Style.EMPTY.withFont(new FontDescription.Resource(rl)));
                 //#endif
                 //#if MC < 1.21.9
-                renderText.setStyle(Style.EMPTY.withFont(rl));
+                //$$ renderText.setStyle(Style.EMPTY.withFont(rl));
                 //#endif
             }
             OmniTextRenderer.render(ctx, renderText, (float) x, (float) y, fromArgb(styledText.color), shadow);
