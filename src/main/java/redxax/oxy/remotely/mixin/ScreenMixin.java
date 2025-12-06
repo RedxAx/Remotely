@@ -4,13 +4,13 @@ import dev.deftu.omnicore.api.client.render.ImmediateScreenRenderer;
 import dev.deftu.omnicore.api.client.render.OmniRenderingContext;
 import net.minecraft.client.Minecraft;
 //#if MC >= 1.20.1
-//$$ import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphics;
 //#else
-import com.mojang.blaze3d.vertex.PoseStack;
+//$$ import com.mojang.blaze3d.vertex.PoseStack;
 //#endif
 import net.minecraft.client.gui.screens.Screen;
 //#if MC >= 1.21.9
-//$$ import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.KeyEvent;
 //#endif
 import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
@@ -60,9 +60,9 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
 
     @Inject(method = "render", at = @At("TAIL"))
     //#if MC >= 1.20.1
-    //$$ private void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
+    private void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
     //#else
-    private void render(PoseStack guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
+    //$$ private void render(PoseStack guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
     //#endif
         restudio.rescreen.config.Config.tickTime();
         CursorUtils.tick();
@@ -84,7 +84,7 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
 
     @Unique
     private void remotely$handleInput(int mouseX, int mouseY) {
-        long handle = Minecraft.getInstance().getWindow().getWindow();
+        long handle = Minecraft.getInstance().getWindow().handle();
         boolean mouseDown = GLFW.glfwGetMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
 
         if (mouseDown && !remotely$wasMouseDown) {
@@ -125,12 +125,12 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
 
     @Inject(method = "keyPressed", at = @At("HEAD"))
     //#if MC >= 1.21.9
-    //$$ private void keyPressed(KeyEvent keyEvent, CallbackInfoReturnable<Boolean> cir) {
-    //$$     remotely$handleDebugKeys(keyEvent.key(), keyEvent.modifiers());
-    //$$ }
+     private void keyPressed(KeyEvent keyEvent, CallbackInfoReturnable<Boolean> cir) {
+         remotely$handleDebugKeys(keyEvent.key(), keyEvent.modifiers());
+     }
     //#else
-    private void keyPressed(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
-        remotely$handleDebugKeys(keyCode, modifiers);
-    }
+    //$$ private void keyPressed(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
+    //$$     remotely$handleDebugKeys(keyCode, modifiers);
+    //$$ }
     //#endif
 }

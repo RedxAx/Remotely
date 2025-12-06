@@ -32,9 +32,9 @@ public class ReScreenWrapper extends OmniScreen {
         super.onInitialize(width, height);
         lastFrameTime = System.nanoTime();
         //#if MC >= 1.21.9
-        //$$ long handle = Minecraft.getInstance().getWindow().handle();
+        long handle = Minecraft.getInstance().getWindow().handle();
         //#else
-        long handle = Minecraft.getInstance().getWindow().getWindow();
+        //$$ long handle = Minecraft.getInstance().getWindow().getWindow();
         //#endif
         sm.setWindowHandle(handle);
         try {

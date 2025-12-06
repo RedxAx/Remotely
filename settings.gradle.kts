@@ -44,11 +44,11 @@ listOf(
 //    "1.16.5-forge",
 //    "1.16.5-fabric",
 
-    "1.17.1-forge",
-    "1.17.1-fabric",
-
-    "1.18.2-forge",
-    "1.18.2-fabric",
+//    "1.17.1-forge",
+//    "1.17.1-fabric",
+//
+//    "1.18.2-forge",
+//    "1.18.2-fabric",
 
     "1.19.2-forge",
     "1.19.2-fabric",
