@@ -8,6 +8,7 @@ import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.instance.InstanceState;
 import restudio.rebase.settings.controllers.VersionSettingsController;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.theme.ThemeManager;
@@ -34,6 +35,7 @@ public class ServerConfigurationScreen extends ReScreen {
     private final Instance originalInstance;
     private final Instance tempInstance;
     private final RemoteHost remoteHostContext;
+    private final RemotelyClient remotelyClient;
 
     public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient) {
         super();
@@ -41,6 +43,7 @@ public class ServerConfigurationScreen extends ReScreen {
         this.isEditMode = instance != null;
         this.originalInstance = instance;
         this.remoteHostContext = remoteHostContext;
+        this.remotelyClient = remotelyClient;
 
         if (isEditMode) {
             this.tempInstance = new Instance(instance, instance.getName());
@@ -185,49 +188,44 @@ public class ServerConfigurationScreen extends ReScreen {
                 createNewLocalServer();
             }
         }
-        client.setScreen(parent);
+
     }
 
     private void createNewLocalServer() {
-        Notification notification = new Notification.Builder().message("Creating Server...").autoSlideOut(false).image(Identifier.animatedIcon("loadingGreen.png")).animateImage(true).accent(ThemeManager.getAccent("calm")).build();
-
-        Rebase.get().getInstanceManager().createInstance(tempInstance, notification).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
+        ServerDetailsScreen details = new ServerDetailsScreen(this, remotelyClient);
+        client.setScreen(details);
+        tempInstance.setState(InstanceState.INSTALLING);
+        details.addInstanceTab(tempInstance);
+        Rebase.get().getInstanceManager().createInstanceWithLogger(tempInstance).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
             newInstance.getServerProperties().putAll(tempInstance.getServerProperties());
             newInstance.getSettings().putAll(tempInstance.getSettings());
             newInstance.saveServerProperties();
             newInstance.save();
-            notification.update().message(newInstance.getName() + " Created Successfully!").description("Click To Open").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true).image(null).action(() -> ServerManagerScreen.openServerScreen(newInstance.getPath()));
-            notification.loading = false;
-            notification.autoSlideOut = true;
+            newInstance.setState(InstanceState.STOPPED);
         })).exceptionally(ex -> {
             ScreenManager.getInstance().execute(() -> {
                 Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                notification.update().message("Server Creation Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null);
-                notification.loading = false;
-                notification.autoSlideOut = true;
+                tempInstance.getLogger().addLog("[Progress:0] Creation failed: " + cause.getMessage());
+                tempInstance.setState(InstanceState.CRASHED);
             });
             return null;
         });
     }
 
     private void createNewRemoteServer() {
-        Notification notification = new Notification("Creating remote server...", tempInstance.getName(), Notification.Type.INFO);
-        notification.autoSlideOut = false;
-        notification.loading = true;
-
-        Rebase.get().getInstanceManager().createRemoteInstance(tempInstance, remoteHostContext, notification).thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(remoteHostContext).handle((v, e) -> null).thenApply(v -> newInstance)).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
-            notification.change(newInstance.getName() + " Created Successfully!", "Remote server created.", Notification.Type.SUCCESS, null);
-            notification.loading = false;
-            notification.autoSlideOut = true;
-        })).exceptionally(ex -> {
-            ScreenManager.getInstance().execute(() -> {
-                Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                notification.change("Remote Server Creation Failed", cause.getMessage(), Notification.Type.ERROR, null);
-                notification.loading = false;
-                notification.autoSlideOut = true;
+        ServerDetailsScreen details = new ServerDetailsScreen(this, remotelyClient);
+        client.setScreen(details);
+        tempInstance.setState(InstanceState.INSTALLING);
+        details.addInstanceTab(tempInstance);
+        Rebase.get().getInstanceManager().createRemoteInstanceWithLogger(tempInstance, remoteHostContext).thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(remoteHostContext).handle((v, e) -> null).thenApply(v -> newInstance))
+            .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> newInstance.setState(InstanceState.STOPPED))).exceptionally(ex -> {
+                ScreenManager.getInstance().execute(() -> {
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    tempInstance.getLogger().addLog("[Progress:0] Remote creation failed: " + cause.getMessage());
+                    tempInstance.setState(InstanceState.CRASHED);
+                });
+                return null;
             });
-            return null;
-        });
     }
 
     private void editServer() {
