@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.ui.server;
 
+import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
@@ -15,6 +16,7 @@ import restudio.rebase.resource.ResourceType;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.util.RebaseLogger;
+import restudio.rebase.util.ssh.SSHManager;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -69,7 +71,7 @@ public class ServerManagerScreen extends ReScreen {
     public void init() {
         super.init();
         this.instanceManager = Rebase.get().getInstanceManager();
-        instanceManager.loadInstances();
+        reloadInstancesSmartly();
         loadIcons();
         createPopups();
 
@@ -99,6 +101,37 @@ public class ServerManagerScreen extends ReScreen {
 
         setActiveContainer(desktopContainer);
         populateHostTabs();
+    }
+
+    private void reloadInstancesSmartly() {
+        Map<String, SSHManager> activeSessions = new HashMap<>();
+        if (instanceManager != null) {
+            for (RemoteHost host : instanceManager.getRemoteHosts()) {
+                SSHManager mgr = host.getExistingSshManager();
+                if (mgr != null && mgr.isConnected()) {
+                    activeSessions.put(host.hostId, mgr);
+                }
+            }
+
+            instanceManager.loadInstances();
+
+            for (RemoteHost host : instanceManager.getRemoteHosts()) {
+                if (activeSessions.containsKey(host.hostId)) {
+                    SSHManager oldMgr = activeSessions.get(host.hostId);
+                    RemoteHost oldHost = oldMgr.getRemoteHost();
+
+                    if (Objects.equals(host.getIp(), oldHost.getIp()) && Objects.equals(host.getUser(), oldHost.getUser()) && host.getPort() == oldHost.getPort()) {
+                        oldMgr.updateHostReference(host);
+                        host.setSshManager(oldMgr);
+                    } else {
+                        try { oldMgr.disconnect(); } catch (Exception ignored) {}
+                    }
+                }
+            }
+        } else {
+            this.instanceManager = Rebase.get().getInstanceManager();
+            instanceManager.loadInstances();
+        }
     }
 
     private void loadIcons() {
@@ -630,7 +663,7 @@ public class ServerManagerScreen extends ReScreen {
     public void onDisplayed() {
         super.onDisplayed();
         playSound(Sound.SERVERMANAGER);
-        Rebase.get().getInstanceManager().loadInstances();
+        reloadInstancesSmartly();
         loadServersForCurrentTab();
     }
 
@@ -661,6 +694,15 @@ public class ServerManagerScreen extends ReScreen {
             context.fill(bx1, by1, bx2, by2, fill);
             context.fillBorder(bx1, by1, bx2, by2, 1, border);
         }
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == GLFW.GLFW_KEY_R) {
+            reloadInstancesSmartly();
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
