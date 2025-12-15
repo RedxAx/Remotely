@@ -40,7 +40,6 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         this.player = player;
         this.controller = controller;
         this.ClickableWhenInactive = true;
-        this.xOffset = 28;
 
         boolean serverRunning = controller.isServerRunning();
 
