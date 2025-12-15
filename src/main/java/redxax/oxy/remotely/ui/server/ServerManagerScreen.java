@@ -296,19 +296,25 @@ public class ServerManagerScreen extends ReScreen {
                 }
 
                 RemoteHost finalRh = rh;
-                ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
+                ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
+                    .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings")
+                    .addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getInstance(), Path.of(widget.getInstance().getPath()), remotelyDir, false)), "Open Server's Folder");
 
-                builder.addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings")
-                    .addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getInstance(), Path.of(widget.getInstance().getPath()), remotelyDir, false)), "Open Server's Folder")
-                    .addHeaderButton("map.png", () -> openWorldScreen(widget.getInstance()), "View World Map")
-                    .addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server")
+                if (rh == null) {
+                    builder.addHeaderButton("map.png", () -> openWorldScreen(widget.getInstance()), "View World Map");
+                }
+
+                builder.addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server")
                     .addHeaderButton("delete.png", () -> {
                         instanceForDeletion = widget.getInstance();
                         deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
                         deleteServerPopup.setY((this.height - deleteServerPopup.getHeight())/2);
                         deleteServerPopup.show();
                     }, "Show Deletion Options", ThemeManager.getAccent("danger"));
-                builder.addIconItem("Customize Icon", "shades.png", () -> customizeIcon(inst), "");
+
+                if (rh == null) {
+                    builder.addIconItem("Customize Icon", "shades.png", () -> customizeIcon(inst), "");
+                }
                 showContextMenu(widget.getX() + widget.getWidth() + 4, widget.getY() + 24, builder);
             }
         }
