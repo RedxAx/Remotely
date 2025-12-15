@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Matcher;
@@ -25,6 +26,7 @@ import java.util.stream.Collectors;
 public class StandardPlayerDataProvider implements IPlayerDataProvider {
 
     private final RebaseAPI api;
+    private final Instance instance;
     private final TerminalWidget terminalWidget;
     private final IPlayerHistoryCollector historyCollector;
     private final Gson gson = new Gson();
@@ -48,6 +50,7 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
     private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;]*[A-Za-z]");
 
     public StandardPlayerDataProvider(Instance instance, RebaseAPI api, TerminalWidget terminalWidget, IPlayerHistoryCollector historyCollector) {
+        this.instance = instance;
         this.api = api;
         this.terminalWidget = terminalWidget;
         this.historyCollector = historyCollector;
@@ -64,13 +67,13 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
     @Override
     public void initialize() {
         ensureRemotelyDirectory();
-        terminalWidget.addOutputListener(this::processConsoleLine);
+        instance.addLogListener(this::processLogLine);
         fullRefresh();
     }
 
     @Override
     public void shutdown() {
-        terminalWidget.removeOutputListener(this::processConsoleLine);
+        instance.removeLogListener(this::processLogLine);
         players.clear();
         updateListeners.clear();
     }
@@ -147,7 +150,7 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         DebugManager.getInstance().recordEvent(instanceId, "Player Action", "Standard", String.format("%s %s", action, target));
     }
 
-    private void processConsoleLine(String line) {
+    private void processLogLine(int lineNum, String line) {
         if (line == null) return;
         line = ANSI_PATTERN.matcher(line).replaceAll("").trim();
         if (line.isEmpty()) return;
@@ -173,7 +176,11 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         Matcher opMatcher = PLAYER_OP_PATTERN.matcher(line);
         if (opMatcher.matches()) {
             updatePlayerStatus(opMatcher.group(1), p -> p.isOp = true);
-            historyCollector.recordAccessChange(getPlayerUUID(opMatcher.group(1)), opMatcher.group(1), SessionEventType.OP_CHANGE, "op=true", System.currentTimeMillis());
+            if (historyCollector instanceof StandardPlayerHistoryProvider history) {
+                history.recordAccessChange(getPlayerUUID(opMatcher.group(1)), opMatcher.group(1), SessionEventType.OP_CHANGE, "op=true", System.currentTimeMillis(), lineNum);
+            } else {
+                historyCollector.recordAccessChange(getPlayerUUID(opMatcher.group(1)), opMatcher.group(1), SessionEventType.OP_CHANGE, "op=true", System.currentTimeMillis());
+            }
             logAction("Opped", opMatcher.group(1));
             return;
         }
@@ -181,7 +188,11 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         Matcher deopMatcher = PLAYER_DEOP_PATTERN.matcher(line);
         if (deopMatcher.matches()) {
             updatePlayerStatus(deopMatcher.group(1), p -> p.isOp = false);
-            historyCollector.recordAccessChange(getPlayerUUID(deopMatcher.group(1)), deopMatcher.group(1), SessionEventType.OP_CHANGE, "op=false", System.currentTimeMillis());
+            if (historyCollector instanceof StandardPlayerHistoryProvider history) {
+                history.recordAccessChange(getPlayerUUID(deopMatcher.group(1)), deopMatcher.group(1), SessionEventType.OP_CHANGE, "op=false", System.currentTimeMillis(), lineNum);
+            } else {
+                historyCollector.recordAccessChange(getPlayerUUID(deopMatcher.group(1)), deopMatcher.group(1), SessionEventType.OP_CHANGE, "op=false", System.currentTimeMillis());
+            }
             logAction("De-opped", deopMatcher.group(1));
             return;
         }
@@ -189,7 +200,11 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         Matcher banMatcher = PLAYER_BAN_PATTERN.matcher(line);
         if (banMatcher.matches()) {
             updatePlayerStatus(banMatcher.group(1), p -> p.isBanned = true);
-            historyCollector.recordAccessChange(getPlayerUUID(banMatcher.group(1)), banMatcher.group(1), SessionEventType.BAN, "reason=" + banMatcher.group(2), System.currentTimeMillis());
+            if (historyCollector instanceof StandardPlayerHistoryProvider history) {
+                history.recordAccessChange(getPlayerUUID(banMatcher.group(1)), banMatcher.group(1), SessionEventType.BAN, "reason=" + banMatcher.group(2), System.currentTimeMillis(), lineNum);
+            } else {
+                historyCollector.recordAccessChange(getPlayerUUID(banMatcher.group(1)), banMatcher.group(1), SessionEventType.BAN, "reason=" + banMatcher.group(2), System.currentTimeMillis());
+            }
             logAction("Banned", banMatcher.group(1));
             return;
         }
@@ -200,7 +215,11 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
                 p.isBanned = false;
                 p.isIpBanned = false;
             });
-            historyCollector.recordAccessChange(getPlayerUUID(unbanMatcher.group(1)), unbanMatcher.group(1), SessionEventType.UNBAN, "", System.currentTimeMillis());
+            if (historyCollector instanceof StandardPlayerHistoryProvider history) {
+                history.recordAccessChange(getPlayerUUID(unbanMatcher.group(1)), unbanMatcher.group(1), SessionEventType.UNBAN, "", System.currentTimeMillis(), lineNum);
+            } else {
+                historyCollector.recordAccessChange(getPlayerUUID(unbanMatcher.group(1)), unbanMatcher.group(1), SessionEventType.UNBAN, "", System.currentTimeMillis());
+            }
             logAction("Unbanned", unbanMatcher.group(1));
         }
     }
@@ -244,7 +263,7 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
                 notifyListeners();
                 DebugManager.getInstance().recordEvent(instanceId, "Player", "Standard", "Join: " + name);
             } else {
-                terminalWidget.executeCommand("uuid " + name);
+                if (terminalWidget != null) terminalWidget.executeCommand("uuid " + name);
             }
         }
     }

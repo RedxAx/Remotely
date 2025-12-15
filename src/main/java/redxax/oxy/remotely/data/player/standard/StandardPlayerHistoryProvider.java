@@ -24,8 +24,10 @@ import java.util.regex.Pattern;
 public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IPlayerHistoryCollector {
     private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
     private final RebaseAPI api;
+    private final Instance instance;
     private final TerminalWidget terminalWidget;
     private final Path historyDir;
+    private final Path metaFile;
     private final Map<UUID, List<PlayerSession>> sessionsCache = new HashMap<>();
     private final Map<UUID, PlayerSession> activeSessions = new HashMap<>();
     private final List<PatternHandler> patternHandlers = new ArrayList<>();
@@ -33,6 +35,8 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
     private final Map<UUID, Map<String, Long>> lastCommandSeen = new HashMap<>();
     private final Map<UUID, Map<String, Long>> lastAccessSeen = new HashMap<>();
     private final String instanceId;
+    private int maxProcessedLine = -1;
+
     private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;]*[A-Za-z]");
 
     private static final Pattern COMMAND_ISSUED_PATTERN_1 = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+) issued server command: (.+)");
@@ -41,21 +45,29 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
     private record PatternHandler(Pattern pattern, PatternConsumer consumer) { }
 
     public interface PatternConsumer {
-        void accept(Matcher matcher, String line, long timestamp);
+        void accept(Matcher matcher, String line, long timestamp, int lineNum);
+    }
+
+    private static class HistoryMeta {
+        int lastProcessedLine = -1;
     }
 
     public StandardPlayerHistoryProvider(Instance instance, RebaseAPI api, TerminalWidget terminalWidget, Path instancePath, Function<String, UUID> nameResolver) {
+        this.instance = instance;
         this.api = api;
         this.terminalWidget = terminalWidget;
         this.historyDir = instancePath.resolve("Remotely").resolve("player-history");
+        this.metaFile = instancePath.resolve("Remotely").resolve("history-meta.json");
         this.nameResolver = nameResolver;
         this.instanceId = instance.getInstanceId();
     }
 
     public StandardPlayerHistoryProvider(RebaseAPI api, TerminalWidget terminalWidget, Path instancePath, Function<String, UUID> nameResolver) {
+        this.instance = null;
         this.api = api;
         this.terminalWidget = terminalWidget;
         this.historyDir = instancePath.resolve("Remotely").resolve("player-history");
+        this.metaFile = instancePath.resolve("Remotely").resolve("history-meta.json");
         this.nameResolver = nameResolver;
         this.instanceId = "unknown";
     }
@@ -63,26 +75,37 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
     @Override
     public void initialize() {
         ensureDir();
+        loadMeta();
         registerDefaultPatterns();
-        if (terminalWidget != null) {
-            terminalWidget.addOutputListener(this::onConsoleLine);
+        if (instance != null) {
+            instance.addLogListener(this::onLogLine);
+        } else if (terminalWidget != null) {
+            terminalWidget.addOutputListener(line -> onLogLine(-1, line));
         }
     }
 
     @Override
     public void shutdown() {
-        if (terminalWidget != null) {
-            terminalWidget.removeOutputListener(this::onConsoleLine);
+        if (instance != null) {
+            instance.removeLogListener(this::onLogLine);
         }
+
+        saveMeta();
     }
 
-    public void onConsoleLine(String line) {
+    public void onLogLine(int lineNum, String line) {
         if (line == null || line.isEmpty()) return;
+
+        if (lineNum != -1) {
+            if (lineNum <= maxProcessedLine) return;
+            maxProcessedLine = lineNum;
+        }
+
         line = ANSI_PATTERN.matcher(line).replaceAll("");
         long now = System.currentTimeMillis();
         for (PatternHandler ph : patternHandlers) {
             Matcher m = ph.pattern.matcher(line);
-            if (m.matches()) ph.consumer.accept(m, line, now);
+            if (m.matches()) ph.consumer.accept(m, line, now, lineNum);
         }
     }
 
@@ -112,6 +135,12 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
 
     @Override
     public void recordCommand(UUID uuid, String name, String command, long timestamp) {
+        recordCommand(uuid, name, command, timestamp, -1);
+    }
+
+    public void recordCommand(UUID uuid, String name, String command, long timestamp, int lineNum) {
+        if (lineNum != -1 && lineNum <= maxProcessedLine && maxProcessedLine > 0) return;
+
         Map<String, Long> seen = lastCommandSeen.computeIfAbsent(uuid, u -> new HashMap<>());
         Long lastTs = seen.get(command);
         if (lastTs != null && (timestamp - lastTs) < 500) return;
@@ -124,6 +153,12 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
 
     @Override
     public void recordAccessChange(UUID uuid, String name, SessionEventType type, String details, long timestamp) {
+        recordAccessChange(uuid, name, type, details, timestamp, -1);
+    }
+
+    public void recordAccessChange(UUID uuid, String name, SessionEventType type, String details, long timestamp, int lineNum) {
+        if (lineNum != -1 && lineNum <= maxProcessedLine && maxProcessedLine > 0) return;
+
         if(uuid == null) return;
         String key = (type == SessionEventType.BAN || type == SessionEventType.UNBAN || type == SessionEventType.KICK) ? type.name() : type.name() + "|" + String.valueOf(details);
         Map<String, Long> seen = lastAccessSeen.computeIfAbsent(uuid, u -> new HashMap<>());
@@ -136,10 +171,10 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
         DebugManager.getInstance().recordEvent(instanceId, "History", "Standard", "Access Change: " + name + " " + type + " (" + details + ")");
     }
 
-    public void recordCommandByName(String name, String command, long timestamp) {
+    public void recordCommandByName(String name, String command, long timestamp, int lineNum) {
         UUID uuid = resolve(name);
         if (uuid == null) return;
-        recordCommand(uuid, name, command, timestamp);
+        recordCommand(uuid, name, command, timestamp, lineNum);
     }
 
     @Override
@@ -169,12 +204,31 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
     }
 
     private void registerDefaultPatterns() {
-        registerPattern(COMMAND_ISSUED_PATTERN_1, (m, line, ts) -> recordCommandByName(m.group(1), m.group(2), ts));
-        registerPattern(COMMAND_ISSUED_PATTERN_2, (m, line, ts) -> recordCommandByName(m.group(1), m.group(2), ts));
+        registerPattern(COMMAND_ISSUED_PATTERN_1, (m, line, ts, ln) -> recordCommandByName(m.group(1), m.group(2), ts, ln));
+        registerPattern(COMMAND_ISSUED_PATTERN_2, (m, line, ts, ln) -> recordCommandByName(m.group(1), m.group(2), ts, ln));
     }
 
     private void ensureDir() {
         api.fileExists(historyDir).thenAccept(exists -> { if (!exists) api.createDirectory(historyDir); });
+    }
+
+    private void loadMeta() {
+        api.readFile(metaFile).thenAccept(content -> {
+            if (content != null && !content.isEmpty()) {
+                try {
+                    HistoryMeta meta = gson.fromJson(content, HistoryMeta.class);
+                    if (meta != null) this.maxProcessedLine = meta.lastProcessedLine;
+                } catch (Exception ignored) {}
+            }
+        });
+    }
+
+    private void saveMeta() {
+        if (maxProcessedLine > 0) {
+            HistoryMeta meta = new HistoryMeta();
+            meta.lastProcessedLine = maxProcessedLine;
+            api.writeFile(metaFile, gson.toJson(meta));
+        }
     }
 
     private Path fileFor(UUID uuid) {
@@ -198,5 +252,6 @@ public class StandardPlayerHistoryProvider implements IPlayerHistoryProvider, IP
         List<PlayerSession> list = sessionsCache.getOrDefault(uuid, new ArrayList<>());
         String json = new GsonBuilder().disableHtmlEscaping().setPrettyPrinting().create().toJson(list);
         api.writeFile(fileFor(uuid), json);
+        saveMeta();
     }
 }

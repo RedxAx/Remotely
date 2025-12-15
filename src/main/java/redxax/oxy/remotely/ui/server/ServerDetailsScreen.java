@@ -13,6 +13,7 @@ import restudio.rebase.api.unified.adapter.UnifiedExecutionProvider;
 import restudio.rebase.api.unified.internal.StandardOutputStateParser;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.ExecutionProvider;
+import restudio.rebase.backend.feature.LogStreamFeature;
 import restudio.rebase.backend.impl.LocalBackend;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
@@ -168,6 +169,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         if (inst != null) {
             info.terminalWidget.addOutputListener(inst.getMSMPManager()::handleConsoleLine);
             info.terminalWidget.start();
+            inst.attachTerminalListener(info.terminalWidget);
             setupTerminalListeners(inst, info);
         }
         ctx.addView(info.terminalWidget, "terminal.png", "Terminal", null);
@@ -195,7 +197,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
     private void setupTerminalListeners(Instance inst, ServerContextInfo info) {
         if (info.standardParser != null) {
-            info.terminalWidget.removeOutputListener(info.standardParser);
+            inst.removeLogListener(info.standardParser);
             info.standardParser = null;
         }
         boolean standardEnabled = Boolean.parseBoolean(inst.getSettings().getProperty("provider.standard.enabled", "true"));
@@ -203,8 +205,19 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
         if (standardEnabled && priority.contains("standard")) {
             StandardOutputStateParser parser = new StandardOutputStateParser(inst);
-            info.terminalWidget.addOutputListener(parser);
+            inst.addLogListener(parser);
             info.standardParser = parser;
+        }
+
+        if (inst.getBackend() != null) {
+            Optional<LogStreamFeature> logFeature = inst.getBackend().getFeature(LogStreamFeature.class);
+            if (logFeature.isPresent()) {
+                String logPath = inst.getPath() + "/logs/latest.log";
+                DebugManager.getInstance().recordEvent(inst.getInstanceId(), "LogStream", "ServerDetails", "Found LogStreamFeature, attaching...");
+                logFeature.get().streamLog(logPath, inst::onLogOutput);
+            } else {
+                DebugManager.getInstance().recordEvent(inst.getInstanceId(), "LogStream", "ServerDetails", "LogStreamFeature not available");
+            }
         }
     }
 
@@ -317,7 +330,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                 remotelyClient.getMultiTerminalTabs().remove(info.localTerminalId);
             }
             if (info.terminalWidget != null) {
-                if (info.standardParser != null) info.terminalWidget.removeOutputListener(info.standardParser);
+                if (info.standardParser != null) ctx.instance.removeLogListener(info.standardParser);
                 if (ctx.instance != null) TerminalWidget.shutdown(ctx.instance.getInstanceId());
                 else TerminalWidget.shutdownLocal(info.localTerminalId);
             }
