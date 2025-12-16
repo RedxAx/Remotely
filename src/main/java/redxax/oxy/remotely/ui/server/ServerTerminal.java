@@ -7,6 +7,7 @@ import restudio.rebase.instance.InstanceState;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.IconMessage;
 
 import java.util.function.Consumer;
@@ -17,16 +18,24 @@ public class ServerTerminal extends TerminalWidget {
     private final IconMessage stoppedMessage;
     private final IconMessage connectingMessage;
     private final IconMessage installingMessage;
+    private final IconMessage reconnectingMessage;
     private static final Pattern PROGRESS_TAG_PATTERN = Pattern.compile("\\[Progress:(\\d{1,3})]\\s*(.*)");
 
+    private boolean isReconnecting = false;
+    private String reconnectReason = "";
+    private int reconnectCountdown = 3;
+    private long lastTick = 0;
 
     public ServerTerminal(int x, int y, int width, int height, Instance instance, ExecutionProvider executionProvider) {
         super(x, y, width, height, instance, executionProvider);
         this.stoppedMessage = new IconMessage(0, 0, 64, 64, "Ready When You Are", "zz.png");
         this.connectingMessage = new IconMessage(0, 0, 64, 64, "Connecting...", "reverse.png");
         this.installingMessage = new IconMessage(0, 0, 64, 64, "Installing...\nPreparing", "remotely.png");
+        this.reconnectingMessage = new IconMessage(0, 0, 64, 64, "Connection Lost\nReconnecting...", "reverse.png");
         Consumer<String> logListener = this::onLogLine;
         if (getInstance() != null) getInstance().getLogger().addLogListener(logListener);
+
+        this.setOnConnectionLost(this::handleConnectionLost);
     }
 
     public static ServerTerminal getOrCreate(Instance instance, ExecutionProvider provider, int x, int y, int width, int height) {
@@ -46,12 +55,49 @@ public class ServerTerminal extends TerminalWidget {
         return widget;
     }
 
+    private void handleConnectionLost(String reason) {
+        if (getInstance() != null && getInstance().getBackend() instanceof LocalBackend) {
+            return;
+        }
+
+        ScreenManager.getInstance().execute(() -> {
+            if (!isReconnecting) {
+                isReconnecting = true;
+                reconnectReason = reason != null ? reason : "Unknown error";
+                reconnectCountdown = 3;
+                lastTick = System.currentTimeMillis();
+            }
+        });
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (isReconnecting) {
+            long now = System.currentTimeMillis();
+            if (now - lastTick >= 1000) {
+                lastTick = now;
+                reconnectCountdown--;
+                if (reconnectCountdown <= 0) {
+                    isReconnecting = false;
+                    stopProcess();
+                    startServerProcess();
+                } else {
+                    reconnectingMessage.setMessage("Connection Lost: " + reconnectReason + "\nReconnecting in " + reconnectCountdown + "s");
+                }
+            }
+        }
+    }
+
     @Override
     protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
         if (getInstance() != null && getInstance().getState() == InstanceState.INSTALLING) {
             installingMessage.setPosition(getX() + (getWidth() - installingMessage.getWidth()) / 2, getY() + (getHeight() - installingMessage.getHeight()) / 2 - 20);
             installingMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
-        } else if (!isTerminalReady() && !(getInstance().getBackend() instanceof LocalBackend)) {
+        } else if (isReconnecting) {
+            reconnectingMessage.setPosition(getX() + (getWidth() - reconnectingMessage.getWidth()) / 2, getY() + (getHeight() - reconnectingMessage.getHeight()) / 2);
+            reconnectingMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
+        } else if (!isTerminalReady() && !(getInstance() != null && getInstance().getBackend() instanceof LocalBackend)) {
             connectingMessage.setPosition(getX() + (getWidth() - connectingMessage.getWidth()) / 2, getY() + (getHeight() - connectingMessage.getHeight()) / 2);
             connectingMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
         } else {
