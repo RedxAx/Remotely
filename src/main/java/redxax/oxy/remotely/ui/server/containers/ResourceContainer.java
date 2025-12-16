@@ -18,12 +18,15 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
+import restudio.rescreen.util.FileWatcher;
 import restudio.rescreen.util.Notification;
 
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.*;
+import java.util.stream.Stream;
 
 public class ResourceContainer extends Container {
     public enum ContentSort {
@@ -61,6 +64,7 @@ public class ResourceContainer extends Container {
     private DropDownWidget<String> sortSelector;
     private DropDownWidget<String> filterSelector;
     private LoadingAnimationWidget loadingWidget;
+    private final List<FileWatcher> fileWatchers = new ArrayList<>();
 
     public ResourceContainer(ReScreen host, RemotelyClient client, Instance instance, int x, int y, int width, int height) {
         super(x, y, width, height);
@@ -71,6 +75,7 @@ public class ResourceContainer extends Container {
         if (instance != null && instance.getResourceGroups() != null) {
             resourceGroups = new HashMap<>(instance.getResourceGroups());
         }
+        startFileWatchers();
     }
 
     public void setInstance(Instance newInstance) {
@@ -81,6 +86,7 @@ public class ResourceContainer extends Container {
                 resourceGroups.putAll(newInstance.getResourceGroups());
             }
         }
+        startFileWatchers();
     }
 
     private void initializeSelectors() {
@@ -421,5 +427,26 @@ public class ResourceContainer extends Container {
         if (filter != null) currentFilter = filter;
         ensureSelectorsSynced();
         rebuildResourcesTab();
+    }
+
+    public void stopFileWatchers() {
+        fileWatchers.forEach(FileWatcher::stop);
+        fileWatchers.clear();
+    }
+
+    private void startFileWatchers() {
+        stopFileWatchers();
+        if (instance == null) return;
+        Path instancePath = Path.of(instance.getPath());
+
+        String modsEquivalent = "mods";
+        if (instance.isServer()) {
+            modsEquivalent = switch (instance.getModLoader()) {
+                case PAPER, SPIGOT, BUKKIT, PURPUR, LEAF, VELOCITY, WATERFALL, BUNGEECORD -> "plugins";
+                default -> "mods";
+            };
+        }
+
+        Stream.of(modsEquivalent, "resourcepacks", "shaderpacks", "datapacks").map(instancePath::resolve).forEach(path -> fileWatchers.add(FileWatcher.watch(path, p -> ScreenManager.getInstance().execute(this::loadResources))));
     }
 }
