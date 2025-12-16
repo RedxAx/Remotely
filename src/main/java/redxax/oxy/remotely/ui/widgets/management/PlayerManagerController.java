@@ -20,6 +20,7 @@ import restudio.rebase.backend.feature.PlayerManagementFeature;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.ui.widgets.TerminalWidget;
+import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.widgets.AnimatedButton;
@@ -49,6 +50,7 @@ public class PlayerManagerController {
     private LuckPermsService luckPermsService;
     private TerminalWidget terminalWidget;
     private boolean isInitialized = false;
+    private StandardPlayerDataProvider standardProviderRef;
 
     private PlayerManagerController(Instance instance) {
         this.instance = instance;
@@ -105,6 +107,9 @@ public class PlayerManagerController {
             standardHistory = new StandardPlayerHistoryProvider(instance, api, tw, Path.of(instance.getPath()), name -> resolveUuidFromCache(instance, name));
             standardProvider = new StandardPlayerDataProvider(instance, api, tw, standardHistory);
             standardAction = new StandardPlayerActionProvider(instance, api, tw);
+            this.standardProviderRef = standardProvider;
+        } else {
+            this.standardProviderRef = null;
         }
 
         compositeDataProvider.setBaseProvider(standardProvider);
@@ -162,6 +167,15 @@ public class PlayerManagerController {
         } else {
             this.compositeDataProvider.addUpdateListener(players -> ScreenManager.getInstance().execute(this::rebuildPlayerWidgets));
             ScreenManager.getInstance().execute(this::rebuildPlayerWidgets);
+        }
+    }
+
+    public void handleFileUpdate(String fileName, String content) {
+        if (standardProviderRef != null) {
+            DebugManager.getInstance().log("PlayerManager", "Delegating file update for " + fileName + " to StandardPlayerDataProvider");
+            standardProviderRef.updateFromContent(fileName, content);
+        } else {
+            DebugManager.getInstance().log("PlayerManager", "Received file update for " + fileName + " but no Standard Provider active");
         }
     }
 
@@ -389,12 +403,12 @@ public class PlayerManagerController {
             }
 
             if (!onlineSourceFound && baseProvider != null) {
-                 for (ManagedPlayer mp : baseProvider.getCachedPlayers().values()) {
-                     if (mp.isOnline) {
-                         ManagedPlayer target = mergedCache.get(mp.uuid);
-                         if (target != null) target.isOnline = true;
-                     }
-                 }
+                for (ManagedPlayer mp : baseProvider.getCachedPlayers().values()) {
+                    if (mp.isOnline) {
+                        ManagedPlayer target = mergedCache.get(mp.uuid);
+                        if (target != null) target.isOnline = true;
+                    }
+                }
             }
 
             List<ManagedPlayer> list = new ArrayList<>(mergedCache.values());

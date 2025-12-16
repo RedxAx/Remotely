@@ -16,7 +16,6 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Matcher;
@@ -48,6 +47,11 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
     private static final Pattern PLAYER_BAN_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?Banned (\\w+): (.*)");
     private static final Pattern PLAYER_UNBAN_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?Unbanned (\\w+)");
     private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;]*[A-Za-z]");
+
+    private List<PlayerLogEntry> cachedPlayerLog = new ArrayList<>();
+    private List<OpEntry> cachedOps = new ArrayList<>();
+    private List<BanEntry> cachedBans = new ArrayList<>();
+    private List<IpBanEntry> cachedIpBans = new ArrayList<>();
 
     public StandardPlayerDataProvider(Instance instance, RebaseAPI api, TerminalWidget terminalWidget, IPlayerHistoryCollector historyCollector) {
         this.instance = instance;
@@ -86,37 +90,65 @@ public class StandardPlayerDataProvider implements IPlayerDataProvider {
         CompletableFuture<List<IpBanEntry>> bannedIpsFuture = loadJsonFile(bannedIpsPath, new TypeToken<>() {});
 
         return CompletableFuture.allOf(playerLogFuture, opsFuture, bannedPlayersFuture, bannedIpsFuture).thenAccept(v -> {
-            List<PlayerLogEntry> playerLog = playerLogFuture.join();
-            Map<UUID, OpEntry> ops = opsFuture.join().stream().collect(Collectors.toMap(op -> UUID.fromString(op.uuid), Function.identity(), (a, b) -> a));
-            Map<UUID, BanEntry> bannedPlayersMap = bannedPlayersFuture.join().stream().collect(Collectors.toMap(ban -> UUID.fromString(ban.uuid), Function.identity(), (a, b) -> a));
-            Map<String, IpBanEntry> bannedIps = bannedIpsFuture.join().stream().collect(Collectors.toMap(ban -> ban.ip, Function.identity(), (a, b) -> a));
-
-            synchronized (players) {
-                Map<UUID, PlayerLogEntry> allKnownPlayers = new HashMap<>();
-                playerLog.forEach(p -> allKnownPlayers.put(p.uuid, p));
-                ops.values().forEach(p -> allKnownPlayers.computeIfAbsent(UUID.fromString(p.uuid), u -> new PlayerLogEntry(u, p.name)));
-                bannedPlayersMap.values().forEach(p -> allKnownPlayers.computeIfAbsent(UUID.fromString(p.uuid), u -> new PlayerLogEntry(u, p.name)));
-
-                allKnownPlayers.forEach((uuid, entry) -> {
-                    ManagedPlayer p = players.computeIfAbsent(uuid, u -> new ManagedPlayer(u, entry.name));
-                    p.lastSeen = entry.lastSeen;
-                });
-
-                players.values().forEach(p -> {
-                    p.isOp = ops.containsKey(p.uuid);
-                    if (p.isOp) p.opLevel = ops.get(p.uuid).level;
-                    p.isBanned = bannedPlayersMap.containsKey(p.uuid);
-                    if (p.isBanned) p.banInfo = bannedPlayersMap.get(p.uuid);
-                    if (p.isOnline && p.address != null) {
-                        String playerIp = p.address.split(":")[0].replace("/", "");
-                        p.isIpBanned = bannedIps.containsKey(playerIp);
-                        if (p.isIpBanned) p.ipBanInfo = bannedIps.get(playerIp);
-                    } else {
-                        p.isIpBanned = false;
-                    }
-                });
-            }
+            this.cachedPlayerLog = playerLogFuture.join();
+            this.cachedOps = opsFuture.join();
+            this.cachedBans = bannedPlayersFuture.join();
+            this.cachedIpBans = bannedIpsFuture.join();
+            rebuildPlayerCache();
         }).thenRun(this::notifyListeners);
+    }
+
+    public void updateFromContent(String fileName, String content) {
+        if (content == null || content.isEmpty()) return;
+        try {
+            if (fileName.endsWith("ops.json")) {
+                this.cachedOps = gson.fromJson(content, new TypeToken<List<OpEntry>>() {}.getType());
+            } else if (fileName.endsWith("banned-players.json")) {
+                this.cachedBans = gson.fromJson(content, new TypeToken<List<BanEntry>>() {}.getType());
+            } else if (fileName.endsWith("banned-ips.json")) {
+                this.cachedIpBans = gson.fromJson(content, new TypeToken<List<IpBanEntry>>() {}.getType());
+            }
+            if (this.cachedOps == null) this.cachedOps = new ArrayList<>();
+            if (this.cachedBans == null) this.cachedBans = new ArrayList<>();
+            if (this.cachedIpBans == null) this.cachedIpBans = new ArrayList<>();
+
+            rebuildPlayerCache();
+            notifyListeners();
+        } catch (Exception e) {
+            DebugManager.getInstance().log("StandardPlayerDataProvider", "Failed to parse streamed content for " + fileName + ": " + e.getMessage());
+        }
+    }
+
+    private void rebuildPlayerCache() {
+        Map<UUID, OpEntry> ops = cachedOps.stream().collect(Collectors.toMap(op -> UUID.fromString(op.uuid), Function.identity(), (a, b) -> a));
+        Map<UUID, BanEntry> bannedPlayersMap = cachedBans.stream().collect(Collectors.toMap(ban -> UUID.fromString(ban.uuid), Function.identity(), (a, b) -> a));
+        Map<String, IpBanEntry> bannedIps = cachedIpBans.stream().collect(Collectors.toMap(ban -> ban.ip, Function.identity(), (a, b) -> a));
+
+        synchronized (players) {
+            Map<UUID, PlayerLogEntry> allKnownPlayers = new HashMap<>();
+            cachedPlayerLog.forEach(p -> allKnownPlayers.put(p.uuid, p));
+            ops.values().forEach(p -> allKnownPlayers.computeIfAbsent(UUID.fromString(p.uuid), u -> new PlayerLogEntry(u, p.name)));
+            bannedPlayersMap.values().forEach(p -> allKnownPlayers.computeIfAbsent(UUID.fromString(p.uuid), u -> new PlayerLogEntry(u, p.name)));
+
+            allKnownPlayers.forEach((uuid, entry) -> {
+                ManagedPlayer p = players.computeIfAbsent(uuid, u -> new ManagedPlayer(u, entry.name));
+                p.lastSeen = entry.lastSeen;
+            });
+
+            players.values().forEach(p -> {
+                p.isOp = ops.containsKey(p.uuid);
+                if (p.isOp) p.opLevel = ops.get(p.uuid).level;
+                p.isBanned = bannedPlayersMap.containsKey(p.uuid);
+                if (p.isBanned) p.banInfo = bannedPlayersMap.get(p.uuid);
+                if (p.isOnline && p.address != null) {
+                    String playerIp = p.address.split(":")[0].replace("/", "");
+                    p.isIpBanned = bannedIps.containsKey(playerIp);
+                    if (p.isIpBanned) p.ipBanInfo = bannedIps.get(playerIp);
+                } else {
+                    p.isIpBanned = false;
+                }
+            });
+        }
     }
 
     @Override

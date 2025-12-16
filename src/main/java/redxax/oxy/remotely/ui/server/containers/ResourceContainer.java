@@ -265,7 +265,6 @@ public class ResourceContainer extends Container {
 
     public boolean hasCurrentResources() { return !currentResources.isEmpty(); }
 
-    // ResourceContainer.deleteResources
     public void deleteResources(List<InstanceResource> resourcesToDelete) {
         if (resourcesToDelete == null || resourcesToDelete.isEmpty()) return;
         if (instance == null) return;

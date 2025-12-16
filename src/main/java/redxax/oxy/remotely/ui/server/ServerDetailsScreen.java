@@ -13,7 +13,7 @@ import restudio.rebase.api.unified.adapter.UnifiedExecutionProvider;
 import restudio.rebase.api.unified.internal.StandardOutputStateParser;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.ExecutionProvider;
-import restudio.rebase.backend.feature.LogStreamFeature;
+import restudio.rebase.backend.feature.DataStreamFeature;
 import restudio.rebase.backend.impl.LocalBackend;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
@@ -42,6 +42,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import org.lwjgl.glfw.GLFW;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
@@ -56,6 +60,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         String localTerminalId;
         TerminalWidget terminalWidget;
         StandardOutputStateParser standardParser;
+        StreamDataParser streamDataParser;
         ResourceContainer resourceContainer;
         PlayersContainer playersContainer;
         boolean isLocalTerminalMode;
@@ -200,6 +205,11 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             inst.removeLogListener(info.standardParser);
             info.standardParser = null;
         }
+        if (info.streamDataParser != null) {
+            inst.removeLogListener(info.streamDataParser);
+            info.streamDataParser = null;
+        }
+
         boolean standardEnabled = Boolean.parseBoolean(inst.getSettings().getProperty("provider.standard.enabled", "true"));
         String priority = inst.getSettings().getProperty("provider.priority.lifecycle", "msmp,standard");
 
@@ -210,13 +220,23 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         }
 
         if (inst.getBackend() != null) {
-            Optional<LogStreamFeature> logFeature = inst.getBackend().getFeature(LogStreamFeature.class);
-            if (logFeature.isPresent()) {
+            Optional<DataStreamFeature> dataStreamFeature = inst.getBackend().getFeature(DataStreamFeature.class);
+            if (dataStreamFeature.isPresent()) {
+                StreamDataParser dataParser = new StreamDataParser(PlayerManagerController.getOrCreate(inst));
+                inst.addLogListener(dataParser);
+                info.streamDataParser = dataParser;
+
                 String logPath = inst.getPath() + "/logs/latest.log";
-                DebugManager.getInstance().recordEvent(inst.getInstanceId(), "LogStream", "ServerDetails", "Found LogStreamFeature, attaching...");
-                logFeature.get().streamLog(logPath, inst::onLogOutput);
+                String opsPath = inst.getPath() + "/ops.json";
+                String bannedPlayersPath = inst.getPath() + "/banned-players.json";
+                String bannedIpsPath = inst.getPath() + "/banned-ips.json";
+                String whitelistPath = inst.getPath() + "/whitelist.json";
+                List<String> preFiles = Arrays.asList(opsPath, bannedPlayersPath, bannedIpsPath, whitelistPath);
+
+                DebugManager.getInstance().recordEvent(inst.getInstanceId(), "DataStream", "ServerDetails", "Found DataStreamFeature, attaching...");
+                dataStreamFeature.get().streamData(logPath, preFiles, inst::onLogOutput);
             } else {
-                DebugManager.getInstance().recordEvent(inst.getInstanceId(), "LogStream", "ServerDetails", "LogStreamFeature not available");
+                DebugManager.getInstance().recordEvent(inst.getInstanceId(), "DataStream", "ServerDetails", "DataStreamFeature not available");
             }
         }
     }
@@ -559,5 +579,48 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             info.add("View: " + ctx.selectedViewIndex);
         }
         return info;
+    }
+
+    private static class StreamDataParser implements BiConsumer<Integer, String> {
+        private final PlayerManagerController controller;
+        private final Pattern startPattern = Pattern.compile("\\[FILE_START:(.+)]");
+        private final Pattern endPattern = Pattern.compile("\\[FILE_END:(.+)]");
+        private boolean isReading = false;
+        private String currentFile = null;
+        private StringBuilder buffer = new StringBuilder();
+
+        public StreamDataParser(PlayerManagerController controller) {
+            this.controller = controller;
+        }
+
+        @Override
+        public void accept(Integer integer, String line) {
+            if (line == null) return;
+            line = line.trim();
+
+            if (isReading) {
+                Matcher endMatcher = endPattern.matcher(line);
+                if (endMatcher.find()) {
+                    String fileName = endMatcher.group(1);
+                    if (fileName.equals(currentFile)) {
+                        DebugManager.getInstance().log("StreamDataParser", "Finished reading file: " + fileName);
+                        controller.handleFileUpdate(fileName, buffer.toString());
+                        isReading = false;
+                        currentFile = null;
+                        buffer.setLength(0);
+                    }
+                } else {
+                    buffer.append(line).append("\n");
+                }
+            } else {
+                Matcher startMatcher = startPattern.matcher(line);
+                if (startMatcher.find()) {
+                    currentFile = startMatcher.group(1);
+                    DebugManager.getInstance().log("StreamDataParser", "Started reading file: " + currentFile);
+                    isReading = true;
+                    buffer.setLength(0);
+                }
+            }
+        }
     }
 }
