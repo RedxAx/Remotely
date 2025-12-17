@@ -2,11 +2,13 @@ package redxax.oxy.remotely.ui.server;
 
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
-import restudio.rebase.api.unified.InstanceApi;
-import restudio.rebase.instance.InstanceState;
+import restudio.rebase.restudio.AuthStateListener;
+import restudio.rebase.restudio.ReStudio;
+import restudio.rebase.ui.screens.auth.ReStudioLoginScreen;
 import restudio.rebase.ui.worldmap.WorldMapScreen;
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
@@ -28,7 +30,6 @@ import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
-import restudio.rescreen.util.ImageUtils;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -40,10 +41,9 @@ import java.util.*;
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
-import static restudio.rescreen.render.Render.drawOuterBorder;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
-public class ServerManagerScreen extends ReScreen {
+public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private final RemotelyClient remotelyClient;
     private Instance instanceForDeletion;
     private PopupWidget addServerPopup;
@@ -57,6 +57,7 @@ public class ServerManagerScreen extends ReScreen {
     private AnimatedButton remoteHostConfirmButton;
     private AnimatedButton remoteHostDeleteButton;
     private final Object parent;
+    private IconButton userButton;
     int bx1 = 0, by1 = 0, bx2 = 0, by2 = 0;
 
     private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
@@ -75,16 +76,36 @@ public class ServerManagerScreen extends ReScreen {
         reloadInstancesSmartly();
         loadIcons();
         createPopups();
+        ReStudio.getInstance().addListener(this);
 
         int taskbarHeight = 28;
+        String displayName = ReStudio.getInstance().getDisplayName();
+        if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getEmail();
+        if (displayName == null) displayName = "Account";
+
+        userButton = new IconButton.Builder()
+            .imagePath("steve.png")
+            .label(displayName)
+            .onClick(this::showUserMenu)
+            .size(18, 18)
+            .autoWidthOnTextChange(true)
+            .build();
+
+        ReStudio.getInstance().loadAvatar().thenAccept(img -> ScreenManager.getInstance().execute(() -> {
+            if (img != null && userButton != null) {
+                userButton.setIcon(img);
+            }
+        }));
+
         header().position(HeaderBuilder.Position.BOTTOM).size(taskbarHeight)
             .addLeft("terminal.png", () -> remotelyClient.openMultiTerminal(this), "Terminal")
             .addLeft("explorer.png", this::openFileExplorer, "File Explorer")
             .addLeft("remotely.png", () -> client.setScreen(SettingsScreenFactory.createGlobalSettingsScreen( this,(RemotelyConfigManager) Rebase.get().getConfigManager())), "Settings")
+            .addLeft(userButton)
             .build();
 
         tabs().builder()
-            .position(width / 2, height - taskbarHeight + 4)
+            .position(width / 2, height - taskbarHeight + 5)
             .size(width / 2 - 5, 18)
             .rightToLeft(true)
             .allowAdd(true)
@@ -102,7 +123,34 @@ public class ServerManagerScreen extends ReScreen {
 
         setActiveContainer(desktopContainer);
         populateHostTabs();
+        updatePositions();
     }
+
+    private void showUserMenu() {
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this).addHeaderButton("close.png", () -> ReStudio.getInstance().logout(), "Log Out", ThemeManager.getAccent("danger"));
+        showContextMenu(userButton.getX(), height - 35, builder);
+    }
+
+    @Override
+    public void onLogin(String email) {
+        new Notification.Builder().message("Welcome back!").description("Email: " + (Config.showIp ? "" : "§k") + email).type(Notification.Type.SUCCESS).build();
+    }
+
+    @Override
+    public void onLogout() {
+        ScreenManager.getInstance().execute(() -> ScreenManager.getInstance().setScreen(new ReStudioLoginScreen(null, () -> ScreenManager.getInstance().setScreen(new ServerManagerScreen(null, RemotelyClient.INSTANCE)))));
+        new Notification.Builder().message("Bye Bye").type(Notification.Type.INFO).build();
+
+    }
+
+    @Override
+    public void onSessionExpired() {
+        ScreenManager.getInstance().execute(() -> {
+            new Notification("Session Expired", "Your session has expired. Please log in again.", Notification.Type.WARN);
+            onLogout();
+        });
+    }
+
 
     private void reloadInstancesSmartly() {
         Map<String, SSHManager> activeSessions = new HashMap<>();
@@ -635,6 +683,7 @@ public class ServerManagerScreen extends ReScreen {
 
     @Override
     public void removed() {
+        ReStudio.getInstance().removeListener(this);
         remotelyClient.saveTabIndex(tabs().getActiveTabIndex());
         super.removed();
     }
@@ -679,7 +728,7 @@ public class ServerManagerScreen extends ReScreen {
     @Override
     public void updatePositions() {
         super.updatePositions();
-        tabs().setPosition(width - tabs().getWidth(), height - 28 + 4);
+        tabs().setPosition(width - tabs().getWidth(), height - 28 + 5);
     }
 
     @Override
