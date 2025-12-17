@@ -17,6 +17,7 @@ import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.util.RebaseLogger;
 import restudio.rebase.util.ssh.SSHManager;
+import restudio.rescreen.Main;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -250,6 +251,7 @@ public class ServerManagerScreen extends ReScreen {
         }
 
         loadServersForCurrentTab();
+        Main.setTitle(tab.getName() + " Host - Remotely Server Manager");
     }
 
     private void onHostTabClosed(TabsManager.Tab tab) {
@@ -385,6 +387,7 @@ public class ServerManagerScreen extends ReScreen {
     public void openWorldScreen(Instance instance) {
         WorldMapScreen mapWidget = new WorldMapScreen(this, instance);
         client.setScreen(mapWidget);
+        Main.setTitle("Viewing " + instance.getName() + "'s Map - Remotely World Viewer");
     }
 
     private void createPopups() {
