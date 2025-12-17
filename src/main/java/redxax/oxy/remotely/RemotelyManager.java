@@ -14,6 +14,7 @@ import restudio.rebase.resource.InstanceResourceManager;
 import restudio.rebase.resource.ResourceMetadataManager;
 import restudio.rebase.resource.UpdateManager;
 import restudio.rebase.resource.provider.*;
+import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.util.PlaytimeManager;
 import restudio.rebase.instance.loaders.FabricHandler;
 import restudio.rebase.instance.loaders.ForgeHandler;
@@ -24,7 +25,6 @@ import restudio.rebase.instance.loaders.ModLoaderVersion;
 import restudio.rebase.minecraft.GameVersion;
 import restudio.rebase.backend.BackendFactory;
 import restudio.rebase.backend.BackendConfig;
-import restudio.rebase.backend.ServerBackend;
 import restudio.rebase.backend.impl.LocalBackend;
 import restudio.rebase.backend.impl.SshBackend;
 import com.google.gson.JsonArray;
@@ -61,7 +61,7 @@ public class RemotelyManager implements IRebaseManager {
     private final InstanceResourceManager instanceResourceManager;
     private final UpdateManager updateManager;
     private final List<IResourceProvider> resourceProviders;
-    private Path versionsDir;
+    private final Path versionsDir;
     private final Map<ModLoader, ModLoaderHandler> modLoaderHandlers = new HashMap<>();
     private final Map<String, GameVersion> allGameVersions = new ConcurrentHashMap<>();
     private static final String VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
@@ -262,6 +262,11 @@ public class RemotelyManager implements IRebaseManager {
     @Override
     public RebaseConfigManager getConfigManager() {
         return configManager;
+    }
+
+    @Override
+    public ReStudio getReStudio() {
+        return ReStudio.getInstance();
     }
 
     @Override
