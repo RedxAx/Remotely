@@ -130,6 +130,7 @@ tasks.register<Exec>("createInstaller") {
         "--win-menu",
         "--win-menu-group", "ReStudio",
         "--win-dir-chooser",
+        "--win-console",
         "--java-options", "-Dfile.encoding=UTF-8 -Xmx4G"
     )
 }
