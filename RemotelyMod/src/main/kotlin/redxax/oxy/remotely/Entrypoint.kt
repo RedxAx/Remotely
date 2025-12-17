@@ -27,7 +27,6 @@ import net.fabricmc.api.DedicatedServerModInitializer
 //#endif
 
 import redxax.oxy.remotely.host.MinecraftApplicationHost
-import redxax.oxy.remotely.RemotelyInit
 
 private const val ID = Constants.ID
 private const val VERSION = Constants.VERSION

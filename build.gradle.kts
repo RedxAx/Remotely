@@ -1,121 +1,135 @@
-import dev.deftu.gradle.utils.version.MinecraftVersions
-import dev.deftu.gradle.utils.includeOrShade
-
 plugins {
-    java
-    kotlin("jvm")
-    id("dev.deftu.gradle.multiversion") // Applies preprocessing for multiple versions of Minecraft and/or multiple mod loaders.
-    id("dev.deftu.gradle.tools") // Applies several configurations to things such as the Java version, project name/version, etc.
-    id("dev.deftu.gradle.tools.resources") // Applies resource processing so that we can replace tokens, such as our mod name/version, in our resources.
-    id("dev.deftu.gradle.tools.bloom") // Applies the Bloom plugin, which allows us to replace tokens in our source files, such as being able to use `@MOD_VERSION` in our source files.
-    id("dev.deftu.gradle.tools.shadow") // Applies the Shadow plugin, which allows us to shade our dependencies into our mod JAR. This is NOT recommended for Fabric mods, but we have an *additional* configuration for those!
-    id("dev.deftu.gradle.tools.minecraft.loom") // Applies the Loom plugin, which automagically configures Essential's Architectury Loom plugin for you.
-    id("dev.deftu.gradle.tools.minecraft.releases-v2") // Applies the Minecraft auto-releasing plugin, which allows you to automatically release your mod to CurseForge and Modrinth.
+    id("java-library")
+    id("application")
+    id("org.openjfx.javafxplugin") version "0.1.0"
 }
 
-toolkitMultiversion {
-    moveBuildsToRootProject.set(true)
-}
+group = "redxax.oxy"
+version = "2.0.0"
 
-toolkitLoomHelper {
-    useDevAuth("1.2.1")
-    useMixinExtras("0.5.0")
-
-    if (!mcData.isNeoForge) {
-        useMixinRefMap(modData.id)
-    }
-
-    if (mcData.isForge) {
-        useForgeMixin(modData.id)
-    }
-
-    if (mcData.isForgeLike && mcData.version >= MinecraftVersions.VERSION_1_16_5) {
-        useKotlinForForge()
-    }
+application {
+    mainClass.set("redxax.oxy.remotely.RemotelyInit")
 }
 
 repositories {
     mavenCentral()
-    maven("https://maven.neoforged.net/releases/")
-    maven("https://maven.terraformersmc.com/")
-    maven("https://maven.nucleoid.xyz/")
     maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
 }
 
 dependencies {
+    implementation(files("libs/ReScreen-1.0.jar"))
+    implementation(files("libs/Remodel-1.0.0.jar"))
+    implementation(files("libs/Rebase-1.0-SNAPSHOT.jar"))
 
-    implementation(files(rootProject.files("libs/ReScreen-1.0.jar")))
-    implementation(files(rootProject.files("libs/Remodel-1.0.0.jar")))
-    implementation(files(rootProject.files("libs/Rebase-1.0-SNAPSHOT.jar")))
-
+    implementation("com.google.code.gson:gson:2.10.1")
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
-    implementation("com.hierynomus:sshj:0.40.0")
-    implementation("com.github.javakeyring:java-keyring:1.0.4")
+    implementation("org.apache.commons:commons-compress:1.28.0")
     implementation("com.vladsch.flexmark:flexmark-all:0.64.8")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
-//    implementation("org.slf4j:slf4j-simple:2.0.9")
+    implementation("com.github.javakeyring:java-keyring:1.0.4")
+    implementation("com.hierynomus:sshj:0.40.0")
 
     implementation("org.jetbrains.pty4j:pty4j:0.13.10-1")
     implementation("org.jetbrains.jediterm:jediterm-core:3.54")
     implementation("org.jetbrains.jediterm:jediterm-pty:2.69")
 
-    includeOrShade(files(rootProject.files("libs/ReScreen-1.0.jar")))
-    includeOrShade(files(rootProject.files("libs/Remodel-1.0.0.jar")))
-    includeOrShade(files(rootProject.files("libs/Rebase-1.0-SNAPSHOT.jar")))
+    val lwjglVersion = "3.3.6"
+    implementation(platform("org.lwjgl:lwjgl-bom:$lwjglVersion"))
+    implementation("org.lwjgl:lwjgl")
+    implementation("org.lwjgl:lwjgl-opengl")
+    implementation("org.lwjgl:lwjgl-stb")
+    implementation("org.lwjgl:lwjgl-glfw")
+    implementation("org.joml:joml:1.10.7")
 
-    includeOrShade("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
-    includeOrShade("com.hierynomus:sshj:0.40.0")
-    includeOrShade("com.github.javakeyring:java-keyring:1.0.4")
-    includeOrShade("com.vladsch.flexmark:flexmark-all:0.64.8")
-    includeOrShade("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
-    includeOrShade("org.jetbrains.pty4j:pty4j:0.13.10-1")
-    includeOrShade("org.jetbrains.jediterm:jediterm-core:3.54")
-    includeOrShade("org.jetbrains.jediterm:jediterm-pty:2.69")
+    runtimeOnly("org.lwjgl:lwjgl::natives-windows")
+    runtimeOnly("org.lwjgl:lwjgl-opengl::natives-windows")
+    runtimeOnly("org.lwjgl:lwjgl-stb::natives-windows")
+    runtimeOnly("org.lwjgl:lwjgl-glfw::natives-windows")
 
-    // Add Textile and OmniCore
-    with(libs.textile.get()) {
-        implementation(this)
-        val modDep = modImplementation("${this.group}:${this.name}-$mcData:${this.version}")
-        if (mcData.isLegacyForge) {
-            includeOrShade(this)
-            modDep?.let { includeOrShade(it) }
-        }
-    }
+    val javafxVersion = "21.0.3"
+    implementation("org.openjfx:javafx-graphics:${javafxVersion}")
+    runtimeOnly("org.openjfx:javafx-graphics:${javafxVersion}:win")
+}
 
-    with(libs.omnicore.get()) {
-        val modDep = modImplementation("${this.group}:${this.name}-$mcData:${this.version}")
-        if (mcData.isLegacyForge) {
-            modDep?.let { includeOrShade(it) }
-        }
-    }
-
-    // Add (Legacy) Fabric API (these are both optional but are particularly useful).
-    if (mcData.isFabric) {
-        modImplementation("net.fabricmc:fabric-language-kotlin:${mcData.dependencies.fabric.fabricLanguageKotlinVersion}")
-
-        if (mcData.isLegacyFabric) {
-            // 1.8.9 - 1.13
-            modImplementation("net.legacyfabric.legacy-fabric-api:legacy-fabric-api:${mcData.dependencies.legacyFabric.legacyFabricApiVersion}")
-        } else {
-            // 1.16.5+
-            modImplementation("net.fabricmc.fabric-api:fabric-api:${mcData.dependencies.fabric.fabricApiVersion}")
-        }
-    }
-
-    // Add Kotlin and Mixin in Legacy Forge
-    if (mcData.version <= MinecraftVersions.VERSION_1_12_2) {
-        implementation(includeOrShade(kotlin("stdlib-jdk8"))!!)
-        implementation(includeOrShade("org.jetbrains.kotlin:kotlin-reflect:1.6.10")!!)
-
-        modImplementation(includeOrShade("org.spongepowered:mixin:0.7.11-SNAPSHOT")!!)
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
     }
 }
 
-tasks {
-    fatJar {
-        if (mcData.isLegacyForge) {
-            relocate("dev.deftu.textile", "${modData.group}.dependencies.textile")
-            relocate("dev.deftu.omnicore", "${modData.group}.dependencies.omnicore")
-        }
+tasks.jar {
+    manifest {
+        attributes["Main-Class"] = "redxax.oxy.remotely.RemotelyInit"
+        attributes["Class-Path"] = configurations.runtimeClasspath.get().joinToString(separator = " ") { it.name }
     }
+    archiveFileName.set("Remotely-App.jar")
+}
+
+tasks.register<Copy>("exportToMod") {
+    dependsOn(tasks.jar)
+    from(tasks.jar)
+    into(file("RemotelyMod/libs"))
+    doLast {
+        println("SUCCESS: App Jar copied to RemotelyMod/libs/Remotely-App.jar")
+    }
+}
+
+tasks.register<Exec>("createInstaller") {
+    dependsOn("clean", "jar")
+
+    val javaToolchains = project.extensions.getByType<JavaToolchainService>()
+    val javaLauncher = javaToolchains.launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }.get()
+
+    val jdkHome = javaLauncher.metadata.installationPath.asFile
+    val jpackagePath = File(jdkHome, "bin/jpackage.exe").absolutePath
+
+    val stagingDir = layout.buildDirectory.dir("staging").get().asFile.absolutePath
+    val inputDir = layout.buildDirectory.dir("libs").get().asFile.absolutePath
+    val outputDir = layout.buildDirectory.dir("dist").get().asFile.absolutePath
+    val jarName = "Remotely-App.jar"
+    val iconPath = "C:/Users/redxa/Downloads/Remotely.ico"
+    val cleanVersion = version.toString().split("-")[0]
+
+    doFirst {
+        println("--------------------------------------------------")
+        println("Using jpackage:  $jpackagePath")
+        println("--------------------------------------------------")
+
+        file(outputDir).deleteRecursively()
+        file(stagingDir).deleteRecursively()
+        file(stagingDir).mkdirs()
+
+        copy {
+            from(inputDir)
+            into(stagingDir)
+            include(jarName)
+        }
+
+        copy {
+            from(configurations.runtimeClasspath)
+            into(stagingDir)
+        }
+
+        println("Staging directory contents:")
+        file(stagingDir).listFiles()?.forEach { println(it.name) }
+    }
+
+    commandLine(
+        jpackagePath,
+        "--type", "exe",
+        "--dest", outputDir,
+        "--input", stagingDir,
+        "--name", "Remotely",
+        "--main-jar", jarName,
+        "--main-class", application.mainClass.get(),
+        "--app-version", cleanVersion,
+        "--icon", iconPath,
+        "--win-shortcut",
+        "--win-menu",
+        "--win-menu-group", "ReStudio",
+        "--win-dir-chooser",
+        "--java-options", "-Dfile.encoding=UTF-8 -Xmx4G"
+    )
 }

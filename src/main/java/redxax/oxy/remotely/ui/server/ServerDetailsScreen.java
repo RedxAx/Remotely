@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.RemotelyManager;
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
@@ -24,6 +25,7 @@ import restudio.rebase.msmp.MSMPManager;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
+import restudio.rescreen.Main;
 import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.debug.IDebugInfoProvider;
 import restudio.rescreen.platform.IDrawContext;
@@ -335,6 +337,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         if (!ctx.views.isEmpty()) {
             onViewChanged(ctx, ctx.views.get(idx));
         }
+        Main.setTitle(tab.getName() + " - Remotely Terminal");
     }
 
     private void onTabClosed(TabsManager.Tab tab) {

@@ -84,7 +84,11 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
 
     @Unique
     private void remotely$handleInput(int mouseX, int mouseY) {
+        //#if MC >= 1.21.6 || MC == 1.21.10
         long handle = Minecraft.getInstance().getWindow().handle();
+        //#else
+        //$$ long handle = Minecraft.getInstance().getWindow().getWindow();
+        //#endif
         boolean mouseDown = GLFW.glfwGetMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
 
         if (mouseDown && !remotely$wasMouseDown) {
