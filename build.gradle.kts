@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "redxax.oxy"
-version = "2.0.0"
+version = "2.0.0a"
 
 application {
     mainClass.set("redxax.oxy.remotely.RemotelyInit")
@@ -90,7 +90,7 @@ tasks.register<Exec>("createInstaller") {
     val outputDir = layout.buildDirectory.dir("dist").get().asFile.absolutePath
     val jarName = "Remotely-App.jar"
     val iconPath = "C:/Users/redxa/Downloads/Remotely.ico"
-    val cleanVersion = version.toString().split("-")[0]
+    val cleanVersion = version.toString().split("-")[0].replace(Regex("[^0-9.]"), "")
 
     doFirst {
         println("--------------------------------------------------")
@@ -130,7 +130,7 @@ tasks.register<Exec>("createInstaller") {
         "--win-menu",
         "--win-menu-group", "ReStudio",
         "--win-dir-chooser",
-        "--win-console",
+//        "--win-console",
         "--java-options", "-Dfile.encoding=UTF-8 -Xmx4G"
     )
 }

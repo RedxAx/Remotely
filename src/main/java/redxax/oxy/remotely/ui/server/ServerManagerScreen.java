@@ -9,6 +9,8 @@ import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
 import restudio.rebase.restudio.AuthStateListener;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.ui.screens.auth.ReStudioLoginScreen;
+import restudio.rebase.ui.screens.feedback.FeedbackBrowserScreen;
+import restudio.rebase.ui.screens.notification.InboxScreen;
 import restudio.rebase.ui.worldmap.WorldMapScreen;
 import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
@@ -79,7 +81,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         ReStudio.getInstance().addListener(this);
 
         int taskbarHeight = 28;
-        String displayName = ReStudio.getInstance().getDisplayName();
+        String displayName = ReStudio.getInstance().getFirstName();
         if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getEmail();
         if (displayName == null) displayName = "Account";
 
@@ -127,7 +129,11 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void showUserMenu() {
-        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this).addHeaderButton("close.png", () -> ReStudio.getInstance().logout(), "Log Out", ThemeManager.getAccent("danger"));
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
+            .addHeaderButton("chat.png", () -> ScreenManager.getInstance().setScreen(new InboxScreen(this)), "Inbox")
+            .addHeaderButton("report.png", () -> ScreenManager.getInstance().setScreen(new FeedbackBrowserScreen(this, "Remotely")), "Reports And Feedback")
+            .addHeaderButton("close.png", () -> ReStudio.getInstance().logout(), "Log Out", ThemeManager.getAccent("danger"));
+
         showContextMenu(userButton.getX(), height - 35, builder);
     }
 
@@ -484,9 +490,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void createDeleteServerPopup() {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Are You Sure?")
-            .size(260, 140)
-            .onClose(() -> deleteServerPopup.hide());
+        PopupWidget.Builder builder = new PopupWidget.Builder("Are You Sure?").size(260, 140).onClose(() -> deleteServerPopup.hide());
 
         AnimatedButton deleteTrashBtn = new AnimatedButton.Builder()
             .label(("Delete The Server"))

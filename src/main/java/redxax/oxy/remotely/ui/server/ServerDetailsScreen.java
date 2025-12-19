@@ -590,7 +590,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         private final Pattern endPattern = Pattern.compile("\\[FILE_END:(.+)]");
         private boolean isReading = false;
         private String currentFile = null;
-        private StringBuilder buffer = new StringBuilder();
+        private final StringBuilder buffer = new StringBuilder();
 
         public StreamDataParser(PlayerManagerController controller) {
             this.controller = controller;
