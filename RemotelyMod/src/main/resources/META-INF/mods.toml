@@ -7,7 +7,7 @@ license="Custom License"
 modId="${mod_id}"
 version="${mod_version}"
 displayName="${mod_name}"
-authors="RedxAx, DumpFridge"
+authors="RedxAx, DumbFridge"
 description="${mod_description}"
 logoFile="assets/remotely/Reemotely.png"
 
