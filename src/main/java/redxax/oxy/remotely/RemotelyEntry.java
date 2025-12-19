@@ -8,6 +8,7 @@ import restudio.rebase.ui.screens.auth.ReStudioLoginScreen;
 import restudio.rescreen.ReStudioEntry;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.util.Identifier;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 
@@ -29,7 +30,12 @@ public class RemotelyEntry extends ReStudioEntry {
 
     @Override
     public String getIconResourcePath() {
-        return "";
+        return "assets/restudio/logos/Reemotely.png";
+    }
+
+    @Override
+    public Identifier getIconIdentifier() {
+        return Identifier.of("restudio", "logos/Reemotely.png");
     }
 
     @Override
