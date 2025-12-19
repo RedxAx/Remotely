@@ -2,6 +2,7 @@ plugins {
     id("java-library")
     id("application")
     id("org.openjfx.javafxplugin") version "0.1.0"
+    id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
 group = "redxax.oxy"
@@ -45,6 +46,11 @@ dependencies {
     runtimeOnly("org.lwjgl:lwjgl-opengl::natives-windows")
     runtimeOnly("org.lwjgl:lwjgl-stb::natives-windows")
     runtimeOnly("org.lwjgl:lwjgl-glfw::natives-windows")
+
+    runtimeOnly("org.lwjgl:lwjgl::natives-linux")
+    runtimeOnly("org.lwjgl:lwjgl-opengl::natives-linux")
+    runtimeOnly("org.lwjgl:lwjgl-stb::natives-linux")
+    runtimeOnly("org.lwjgl:lwjgl-glfw::natives-linux")
 
     val javafxVersion = "21.0.3"
     implementation("org.openjfx:javafx-graphics:${javafxVersion}")
@@ -133,4 +139,11 @@ tasks.register<Exec>("createInstaller") {
 //        "--win-console",
         "--java-options", "-Dfile.encoding=UTF-8 -Xmx4G"
     )
+}
+
+tasks.shadowJar {
+    archiveFileName.set("Remotely-Fat.jar")
+    manifest {
+        attributes["Main-Class"] = "redxax.oxy.remotely.RemotelyInit"
+    }
 }
