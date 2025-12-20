@@ -419,15 +419,20 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                 context.instance.setState(InstanceState.STOPPED);
             }
         } else {
-            if (context.instance.getBackend() != null && "SSH".equalsIgnoreCase(context.instance.getBackendConfig().type)) {
+            BackendConfig bc = context.instance.getBackendConfig();
+            boolean isRestudio = bc != null && "RESTUDIO".equalsIgnoreCase(bc.type);
+            boolean isSsh = bc != null && "SSH".equalsIgnoreCase(bc.type);
+
+            if (isSsh || isRestudio) {
                 proceedWithServerStart(context, info);
                 return;
             }
+
             final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
             RebaseAPI legacy = RebaseApiFactory.get(context.instance);
             legacy.readFile(eulaPath).exceptionally(t -> "").thenAccept(content -> ScreenManager.getInstance().execute(() -> {
                 boolean eulaAccepted = content != null && content.contains("eula=true");
-                if (eulaAccepted || (content != null && content.isEmpty())) {
+                if (eulaAccepted) {
                     proceedWithServerStart(context, info);
                 } else {
                     showEulaPopup(context, info);
