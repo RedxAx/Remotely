@@ -1,17 +1,21 @@
 package redxax.oxy.remotely.adapters;
 
+import dev.deftu.omnicore.api.OmniResourceLocation;
 import dev.deftu.omnicore.api.client.image.OmniImage;
 import dev.deftu.omnicore.api.client.image.OmniImages;
 import dev.deftu.omnicore.api.client.render.DefaultVertexFormats;
 import dev.deftu.omnicore.api.client.render.DrawMode;
 import dev.deftu.omnicore.api.client.render.OmniRenderingContext;
+import dev.deftu.omnicore.api.client.render.OmniTextureUnit;
 import dev.deftu.omnicore.api.client.render.OmniTextRenderer;
+import dev.deftu.omnicore.api.client.render.ScissorBox;
 import dev.deftu.omnicore.api.client.render.pipeline.OmniRenderPipeline;
 import dev.deftu.omnicore.api.client.render.pipeline.OmniRenderPipelines;
 import dev.deftu.omnicore.api.client.render.state.OmniBlendState;
 import dev.deftu.omnicore.api.client.render.stack.OmniPoseStack;
 import dev.deftu.omnicore.api.client.render.vertex.OmniBufferBuilder;
 import dev.deftu.omnicore.api.client.render.vertex.OmniBufferBuilders;
+import dev.deftu.omnicore.api.client.render.vertex.UV;
 import dev.deftu.omnicore.api.client.textures.OmniTextureHandle;
 import dev.deftu.omnicore.api.client.textures.OmniTextures;
 import dev.deftu.omnicore.api.color.OmniColor;
@@ -38,12 +42,8 @@ import java.util.WeakHashMap;
 public class MinecraftDrawContextAdapter implements IDrawContext {
     private static final Map<BufferedImage, OmniTextureHandle> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
 
-    private static final OmniRenderPipeline INVERTED_PIPELINE = OmniRenderPipelines
-        //#if MC >= 1.21.1
-         .builderWithDefaultShader(ResourceLocation.fromNamespaceAndPath("rescreen", "inverted_rect"),
-        //#else
-        //$$.builderWithDefaultShader(new ResourceLocation("rescreen", "inverted_rect"),
-        //#endif
+    private static final OmniRenderPipeline INVERTED_PIPELINE = OmniRenderPipelines.builderWithDefaultShader(
+            OmniResourceLocation.createOrThrow("rescreen", "inverted_rect"),
             DefaultVertexFormats.POSITION_COLOR, DrawMode.QUADS).setColorLogic(OmniRenderPipeline.ColorLogic.OR_REVERSE)
         .setBlendState(OmniBlendState.DISABLED).build();
 
@@ -126,18 +126,34 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     @Override
     public void fill(int x1, int y1, int x2, int y2, int argb) {
         OmniColor color = fromArgb(argb);
-        ctx.renderGradientQuad((float) x1, (float) y1, x2 - x1, y2 - y1, color, color);
+        OmniBufferBuilder builder = OmniBufferBuilders.create(OmniRenderPipelines.POSITION_COLOR);
+        builder.quad(ctx.pose(), x1, y1, x2 - x1, y2 - y1, color);
+        builder.buildOrThrow().drawAndClose(OmniRenderPipelines.POSITION_COLOR, encoder -> {
+            ScissorBox scissor = ctx.getCurrentScissor();
+            if (scissor != null) {
+                encoder.enableScissor(scissor);
+            } else {
+                encoder.disableScissor();
+            }
+        });
     }
 
     @Override
     public void fillGradient(int i, int i1, int i2, int i3, int i4, int i5) {
-        ctx.renderGradientQuad((float) i, (float) i1, i2 - i, i3 - i1, fromArgb(i4), fromArgb(i5));
+        fillGradient(i, i1, i2, i3, i4, i5, false);
     }
 
     @Override
     public void fillGradient(int x1, int y1, int x2, int y2, int color1, int color2, boolean horizontal) {
+        OmniBufferBuilder builder = OmniBufferBuilders.create(OmniRenderPipelines.POSITION_COLOR);
+        OmniColor c1 = fromArgb(color1);
+        OmniColor c2 = fromArgb(color2);
+
         if (!horizontal) {
-            fillGradient(x1, y1, x2, y2, color1, color2);
+            builder.vertex(ctx.pose(), x2, y1, 0).color(c1).next();
+            builder.vertex(ctx.pose(), x1, y1, 0).color(c1).next();
+            builder.vertex(ctx.pose(), x1, y2, 0).color(c2).next();
+            builder.vertex(ctx.pose(), x2, y2, 0).color(c2).next();
         } else {
             float a1 = (float) (color1 >> 24 & 255);
             float r1 = (float) (color1 >> 16 & 255);
@@ -157,9 +173,18 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
                 int b = (int) (b1 * (1 - t) + b2 * t);
                 int interpolatedColor = (a << 24) | (r << 16) | (g << 8) | b;
                 OmniColor omniColor = fromArgb(interpolatedColor);
-                ctx.renderGradientQuad((float) (x1 + i), (float) y1, 1, y2 - y1, omniColor, omniColor);
+                builder.quad(ctx.pose(), x1 + i, y1, 1, y2 - y1, omniColor);
             }
         }
+
+        builder.buildOrThrow().drawAndClose(OmniRenderPipelines.POSITION_COLOR, encoder -> {
+            ScissorBox scissor = ctx.getCurrentScissor();
+            if (scissor != null) {
+                encoder.enableScissor(scissor);
+            } else {
+                encoder.disableScissor();
+            }
+        });
     }
 
     @Override public void fillRoundedRectWithBorders(int i, int i1, int i2, int i3, float v, int i4, int i5, int i6) {}
@@ -200,7 +225,19 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
         int dh = Math.max(1, (int) Math.ceil(height <= 0 ? handle.getHeight() : height));
         float du = 0.5f / Math.max(1, handle.getWidth());
         float dv = 0.5f / Math.max(1, handle.getHeight());
-        ctx.renderTextureRegion(OmniRenderPipelines.TEXTURED, handle.getLocation(), x, y, dw, dh, du, dv, 1f - du, 1f - dv, OmniColors.WHITE);
+
+        OmniBufferBuilder builder = OmniBufferBuilders.create(OmniRenderPipelines.TEXTURED);
+        builder.quad(ctx.pose(), x, y, dw, dh, OmniColors.WHITE, new UV(du, dv, 1f - du, 1f - dv));
+
+        builder.buildOrThrow().drawAndClose(OmniRenderPipelines.TEXTURED, encoder -> {
+            ScissorBox scissor = ctx.getCurrentScissor();
+            if (scissor != null) {
+                encoder.enableScissor(scissor);
+            } else {
+                encoder.disableScissor();
+            }
+            encoder.texture(OmniTextureUnit.TEXTURE0, handle.getId());
+        });
     }
 
     @Override
@@ -228,6 +265,13 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
         OmniBufferBuilder builder = OmniBufferBuilders.create(INVERTED_PIPELINE);
         builder.quad(ctx.pose(), minX, minY, w, h, SELECTION_COLOR);
-        builder.buildOrThrow().drawAndClose(INVERTED_PIPELINE);
+        builder.buildOrThrow().drawAndClose(INVERTED_PIPELINE, encoder -> {
+            ScissorBox scissor = ctx.getCurrentScissor();
+            if (scissor != null) {
+                encoder.enableScissor(scissor);
+            } else {
+                encoder.disableScissor();
+            }
+        });
     }
 }

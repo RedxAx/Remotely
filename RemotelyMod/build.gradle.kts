@@ -40,69 +40,72 @@ repositories {
     maven("https://maven.terraformersmc.com/")
     maven("https://maven.nucleoid.xyz/")
     maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
+
+    flatDir {
+        dirs(rootProject.file("libs"))
+    }
 }
 
 dependencies {
 
-    implementation(files(rootProject.files("libs/ReScreen-1.0.jar")))
-    implementation(files(rootProject.files("libs/Remodel-1.0.0.jar")))
-    implementation(files(rootProject.files("libs/Rebase-1.0-SNAPSHOT.jar")))
+    val remotely = "dev.restudio:Remotely-App:1.0"
+    val reScreen = "dev.restudio:ReScreen:1.0"
+    val remodel = "dev.restudio:Remodel:1.0.0"
+    val rebase = "dev.restudio:Rebase:1.0-SNAPSHOT"
+
+    implementation(remotely)
+    implementation(reScreen)
+    implementation(remodel)
+    implementation(rebase)
+
+    shade(remotely)
+    shade(reScreen)
+    shade(remodel)
+    shade(rebase)
 
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     implementation("com.hierynomus:sshj:0.40.0")
     implementation("com.github.javakeyring:java-keyring:1.0.4")
     implementation("com.vladsch.flexmark:flexmark-all:0.64.8")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
-//    implementation("org.slf4j:slf4j-simple:2.0.9")
 
     implementation("org.jetbrains.pty4j:pty4j:0.13.10-1")
     implementation("org.jetbrains.jediterm:jediterm-core:3.54")
     implementation("org.jetbrains.jediterm:jediterm-pty:2.69")
 
-    includeOrShade(files(rootProject.files("libs/ReScreen-1.0.jar")))
-    includeOrShade(files(rootProject.files("libs/Remodel-1.0.0.jar")))
-    includeOrShade(files(rootProject.files("libs/Rebase-1.0-SNAPSHOT.jar")))
+    shade("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
+    shade("com.hierynomus:sshj:0.40.0")
+    shade("com.github.javakeyring:java-keyring:1.0.4")
+    shade("com.vladsch.flexmark:flexmark-all:0.64.8")
+    shade("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
+    shade("org.jetbrains.pty4j:pty4j:0.13.10-1")
+    shade("org.jetbrains.jediterm:jediterm-core:3.54")
+    shade("org.jetbrains.jediterm:jediterm-pty:2.69")
 
-    includeOrShade("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
-    includeOrShade("com.hierynomus:sshj:0.40.0")
-    includeOrShade("com.github.javakeyring:java-keyring:1.0.4")
-    includeOrShade("com.vladsch.flexmark:flexmark-all:0.64.8")
-    includeOrShade("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
-    includeOrShade("org.jetbrains.pty4j:pty4j:0.13.10-1")
-    includeOrShade("org.jetbrains.jediterm:jediterm-core:3.54")
-    includeOrShade("org.jetbrains.jediterm:jediterm-pty:2.69")
-
-    // Add Textile and OmniCore
     with(libs.textile.get()) {
         implementation(this)
         val modDep = modImplementation("${this.group}:${this.name}-$mcData:${this.version}")
-        if (mcData.isLegacyForge) {
-            includeOrShade(this)
-            modDep?.let { includeOrShade(it) }
-        }
+
+        includeOrShade(this)
+        modDep?.let { includeOrShade(it) }
     }
 
     with(libs.omnicore.get()) {
         val modDep = modImplementation("${this.group}:${this.name}-$mcData:${this.version}")
-        if (mcData.isLegacyForge) {
-            modDep?.let { includeOrShade(it) }
-        }
+
+        modDep?.let { includeOrShade(it) }
     }
 
-    // Add (Legacy) Fabric API (these are both optional but are particularly useful).
     if (mcData.isFabric) {
         modImplementation("net.fabricmc:fabric-language-kotlin:${mcData.dependencies.fabric.fabricLanguageKotlinVersion}")
 
         if (mcData.isLegacyFabric) {
-            // 1.8.9 - 1.13
             modImplementation("net.legacyfabric.legacy-fabric-api:legacy-fabric-api:${mcData.dependencies.legacyFabric.legacyFabricApiVersion}")
         } else {
-            // 1.16.5+
             modImplementation("net.fabricmc.fabric-api:fabric-api:${mcData.dependencies.fabric.fabricApiVersion}")
         }
     }
 
-    // Add Kotlin and Mixin in Legacy Forge
     if (mcData.version <= MinecraftVersions.VERSION_1_12_2) {
         implementation(includeOrShade(kotlin("stdlib-jdk8"))!!)
         implementation(includeOrShade("org.jetbrains.kotlin:kotlin-reflect:1.6.10")!!)

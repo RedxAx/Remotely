@@ -75,11 +75,11 @@ listOf(
 //    "1.21.3-neoforge",
 //    "1.21.3-fabric",
 //
-//    "1.21.4-neoforge",
-//    "1.21.4-fabric",
-//
-//    "1.21.5-neoforge",
-//    "1.21.5-fabric",
+    "1.21.4-neoforge",
+    "1.21.4-fabric",
+
+    "1.21.5-neoforge",
+    "1.21.5-fabric",
 
     "1.21.6-neoforge",
     "1.21.6-fabric",
