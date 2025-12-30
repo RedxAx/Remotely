@@ -99,9 +99,8 @@ public class RemotelyClient {
         Screen currentScreen = host.getCurrentScreen();
         if (currentScreen instanceof ServerDetailsScreen screen) {
             screen.addInstanceTab(instance);
-        } else {
-            openMultiTerminal(parent);
         }
+        openMultiTerminal(parent);
     }
 
     public void openServerManager(Object parent) {

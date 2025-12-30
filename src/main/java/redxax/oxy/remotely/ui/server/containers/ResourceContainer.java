@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 public class ResourceContainer extends Container {
@@ -242,7 +243,9 @@ public class ResourceContainer extends Container {
         loadingWidget.setPosition(0, (getHeight() - 100) / 2);
         addWidget(loadingWidget);
         updateWidgetPositions();
-        Rebase.get().getResourceManager().getResources(instance).thenCompose(resources ->
+
+        CompletableFuture<List<InstanceResource>> resourcesFuture = Rebase.get().getResourceManager().getResources(instance);
+        resourcesFuture.thenCompose(resources ->
             Rebase.get().getUpdateManager().checkForUpdates(instance).thenApply(updates -> {
                 for (InstanceResource resource : resources) {
                     resource.availableUpdate = null;

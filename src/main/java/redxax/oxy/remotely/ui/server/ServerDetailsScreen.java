@@ -23,6 +23,7 @@ import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.msmp.MSMPManager;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
+import restudio.rebase.ui.screens.git.GitControlScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.Main;
@@ -80,6 +81,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         header().addRight("close.png", this::closeScreen, "Close");
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
+        header().addRight("git.png", this::openGitControl, "Version Control");
 
         startIconButton = new IconButton.Builder()
             .imagePath("start.png")
@@ -250,6 +252,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
         boolean isInstance = !info.isLocalTerminalMode;
         header().setButtonVisible("explorer.png", isInstance);
+        header().setButtonVisible("git.png", isInstance);
 
         if (startIconButton != null) {
             startIconButton.setVisible(isInstance);
@@ -513,6 +516,12 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             }
         }
         client.setScreen(new ServerConfigurationScreen(this, target, host, remotelyClient));
+    }
+
+    private void openGitControl() {
+        Instance target = ensureSidecar();
+        if (target == null) return;
+        client.setScreen(new GitControlScreen(this, target));
     }
 
     @Override

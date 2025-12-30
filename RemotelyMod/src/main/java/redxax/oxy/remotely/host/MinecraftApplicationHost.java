@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.host;
 
+import dev.deftu.omnicore.api.OmniResourceLocation;
 import dev.deftu.omnicore.api.client.screen.OmniScreens;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
@@ -37,11 +38,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
 
     @Override
     public Object getFontIdentifier(String namespace, String path) {
-        //#if MC >= 1.21.1
-        return ResourceLocation.fromNamespaceAndPath(namespace, path);
-        //#else
-        //$$ return new ResourceLocation(namespace, path);
-        //#endif
+        return OmniResourceLocation.createOrThrow(namespace, path);
     }
 
     @Override

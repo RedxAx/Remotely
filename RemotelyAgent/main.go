@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -60,12 +61,17 @@ type FetchItem struct {
 }
 
 type ModpackSpec struct {
-	TargetDir    string      `json:"targetDir"`
-	Files        []FetchItem `json:"files"`
-	OverridesTar string      `json:"overridesTar,omitempty"`
-	Concurrency  int         `json:"concurrency"`
-	Retries      int         `json:"retries"`
-	TimeoutSec   int         `json:"timeoutSec"`
+	TargetDir             string      `json:"targetDir"`
+	Files                 []FetchItem `json:"files"`
+	OverridesTar          string      `json:"overridesTar,omitempty"`
+	MrpackPath            string      `json:"mrpackPath,omitempty"`
+	CurseForgeZipPath     string      `json:"curseForgeZipPath,omitempty"`
+	PreconfiguredPackPath string      `json:"preconfiguredPackPath,omitempty"`
+	ServerJarPath         string      `json:"serverJarPath,omitempty"`
+	McVersion             string      `json:"mcVersion,omitempty"`
+	Concurrency           int         `json:"concurrency"`
+	Retries               int         `json:"retries"`
+	TimeoutSec            int         `json:"timeoutSec"`
 }
 
 func main() {
@@ -82,6 +88,12 @@ func main() {
 		cmdFetch(os.Args[2:])
 	case "modpack-install":
 		cmdModpackInstall(os.Args[2:])
+	case "extract-curseforge-manifest":
+		cmdExtractCurseforgeManifest(os.Args[2:])
+	case "check-zip-type":
+		cmdCheckZipType(os.Args[2:])
+	case "flatten-zip":
+		cmdFlattenZip(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -95,7 +107,11 @@ Usage:
   remotely-agent index --dir <instance_dir> --out <out_json> [--format json|ndjson] [--with-meta] [--with-fp] [--with-icons]
   remotely-agent fetch --manifest <manifest.json>
   remotely-agent modpack-install --spec <spec.json>
-`)
+  remotely-agent extract-curseforge-manifest --manifest <manifest.json>
+  remotely-agent check-zip-type --zip <zip_path>
+  remotely-agent flatten-zip --zip <zip_path> --target <target_dir>
+  remotely-agent install-curseforge-zip --zip <zip_path> --project-id <project_id> --file-id <file_id>
+ `)
 }
 
 func cmdIndex(args []string) {
@@ -232,6 +248,705 @@ func writeIndex(idx *RemoteIndex, outPath, format string) error {
 
 func atomicReplace(tmp, final string) error {
 	return os.Rename(tmp, final)
+}
+
+func cmdFetch(args []string) {
+	fs := flag.NewFlagSet("fetch", flag.ExitOnError)
+	manifestPath := fs.String("manifest", "", "Manifest JSON")
+	_ = fs.Parse(args)
+	if *manifestPath == "" {
+		fmt.Fprintln(os.Stderr, "fetch: --manifest is required")
+		os.Exit(2)
+	}
+	var mf FetchManifest
+	b, err := os.ReadFile(*manifestPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read manifest: %v\n", err)
+		os.Exit(1)
+	}
+	if err := json.Unmarshal(b, &mf); err != nil {
+		fmt.Fprintf(os.Stderr, "manifest json: %v\n", err)
+		os.Exit(1)
+	}
+	if mf.Concurrency <= 0 {
+		mf.Concurrency = 4
+	}
+	if mf.Retries < 0 {
+		mf.Retries = 2
+	}
+	if mf.TimeoutSec <= 0 {
+		mf.TimeoutSec = 120
+	}
+	err = fetchAll(mf)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fetch failed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Done")
+}
+
+func cmdModpackInstall(args []string) {
+	fs := flag.NewFlagSet("modpack-install", flag.ExitOnError)
+	specPath := fs.String("spec", "", "Spec JSON")
+	_ = fs.Parse(args)
+
+	if *specPath == "" {
+		fmt.Fprintln(os.Stderr, "modpack-install: --spec is required")
+		os.Exit(2)
+	}
+	var spec ModpackSpec
+	b, err := os.ReadFile(*specPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read spec: %v\n", err)
+		os.Exit(1)
+	}
+	if err := json.Unmarshal(b, &spec); err != nil {
+		fmt.Fprintf(os.Stderr, "spec json: %v\n", err)
+		os.Exit(1)
+	}
+	if spec.Concurrency <= 0 {
+		spec.Concurrency = 4
+	}
+	if spec.Retries < 0 {
+		spec.Retries = 2
+	}
+	if spec.TimeoutSec <= 0 {
+		spec.TimeoutSec = 180
+	}
+
+	if strings.TrimSpace(spec.MrpackPath) != "" {
+		if err := processMrpack(spec.MrpackPath, &spec); err != nil {
+			fmt.Fprintf(os.Stderr, "process mrpack failed: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	if strings.TrimSpace(spec.CurseForgeZipPath) != "" {
+		if err := processCurseForgeZip(spec.CurseForgeZipPath, &spec); err != nil {
+			fmt.Fprintf(os.Stderr, "process curseforge zip failed: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	if strings.TrimSpace(spec.PreconfiguredPackPath) != "" {
+		if err := processPreconfiguredPack(spec.PreconfiguredPackPath, &spec); err != nil {
+			fmt.Fprintf(os.Stderr, "process preconfigured pack failed: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	mf := FetchManifest{
+		Items:       spec.Files,
+		Concurrency: spec.Concurrency,
+		Retries:     spec.Retries,
+		TimeoutSec:  spec.TimeoutSec,
+	}
+	if err := fetchAll(mf); err != nil {
+		fmt.Fprintf(os.Stderr, "downloads failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if strings.TrimSpace(spec.OverridesTar) != "" {
+		if err := extractTarGz(spec.OverridesTar, spec.TargetDir); err != nil {
+			fmt.Fprintf(os.Stderr, "extract overrides failed: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	fmt.Println("Complete")
+}
+
+func cmdExtractCurseforgeManifest(args []string) {
+	fs := flag.NewFlagSet("extract-curseforge-manifest", flag.ExitOnError)
+	manifestPath := fs.String("manifest", "", "Manifest .zip file")
+	_ = fs.Parse(args)
+
+	if *manifestPath == "" {
+		fmt.Fprintln(os.Stderr, "extract-curseforge-manifest: --manifest is required")
+		os.Exit(2)
+	}
+
+	z, err := zip.OpenReader(*manifestPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open zip: %v\n", err)
+		os.Exit(1)
+	}
+	defer z.Close()
+
+	for _, f := range z.File {
+		if f.Name == "manifest.json" {
+			rc, err := f.Open()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to open manifest.json: %v\n", err)
+				os.Exit(1)
+			}
+			manifestData, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to read manifest.json: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println(string(manifestData))
+			return
+		}
+	}
+	fmt.Fprintln(os.Stderr, "manifest.json not found in zip")
+	os.Exit(1)
+}
+
+func cmdCheckZipType(args []string) {
+	fs := flag.NewFlagSet("check-zip-type", flag.ExitOnError)
+	zipPath := fs.String("zip", "", "Zip file to check")
+	_ = fs.Parse(args)
+
+	if *zipPath == "" {
+		fmt.Fprintln(os.Stderr, "check-zip-type: --zip is required")
+		os.Exit(2)
+	}
+
+	z, err := zip.OpenReader(*zipPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+	defer z.Close()
+
+	hasManifest := false
+	hasServerFiles := false
+
+	startScripts := []string{"run.sh", "install.sh", "start.sh", "run.bat", "install.bat", "start.bat"}
+	dirsToCheck := []string{"mods/", "config/", "libraries/", "serverpack/"}
+
+	for _, f := range z.File {
+		if f.Name == "manifest.json" {
+			hasManifest = true
+		}
+
+		for _, script := range startScripts {
+			if f.Name == script {
+				hasServerFiles = true
+			}
+		}
+
+		if f.Name == "server.jar" || strings.HasSuffix(f.Name, ".jar") {
+			if !strings.Contains(f.Name, "libraries/") && !strings.Contains(f.Name, "versions/") {
+				hasServerFiles = true
+			}
+		}
+
+		for _, dir := range dirsToCheck {
+			if strings.HasPrefix(f.Name, dir) {
+				hasServerFiles = true
+			}
+		}
+	}
+
+	if hasManifest {
+		fmt.Println("manifest")
+	} else if hasServerFiles {
+		fmt.Println("preconfigured")
+	} else {
+		fmt.Println("unknown")
+	}
+}
+
+func cmdFlattenZip(args []string) {
+	fs := flag.NewFlagSet("flatten-zip", flag.ExitOnError)
+	zipPath := fs.String("zip", "", "Zip file to extract and flatten")
+	targetDir := fs.String("target", "", "Target directory")
+	_ = fs.Parse(args)
+
+	if *zipPath == "" || *targetDir == "" {
+		fmt.Fprintln(os.Stderr, "flatten-zip: --zip and --target are required")
+		os.Exit(2)
+	}
+
+	z, err := zip.OpenReader(*zipPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open zip: %v\n", err)
+		os.Exit(1)
+	}
+	defer z.Close()
+
+	for _, f := range z.File {
+		cleanName := filepath.Clean(f.Name)
+		if cleanName == "." || cleanName == "" {
+			continue
+		}
+
+		destPath := filepath.Join(*targetDir, cleanName)
+
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(destPath, 0o755); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to create directory %s: %v\n", destPath, err)
+				os.Exit(1)
+			}
+		} else {
+			if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to create parent directory for %s: %v\n", destPath, err)
+				os.Exit(1)
+			}
+
+			rc, err := f.Open()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to open %s: %v\n", f.Name, err)
+				os.Exit(1)
+			}
+
+			outFile, err := os.Create(destPath)
+			if err != nil {
+				rc.Close()
+				fmt.Fprintf(os.Stderr, "failed to create %s: %v\n", destPath, err)
+				os.Exit(1)
+			}
+
+			if _, err := io.Copy(outFile, rc); err != nil {
+				outFile.Close()
+				rc.Close()
+				fmt.Fprintf(os.Stderr, "failed to write %s: %v\n", destPath, err)
+				os.Exit(1)
+			}
+
+			if err := outFile.Close(); err != nil {
+				rc.Close()
+				fmt.Fprintf(os.Stderr, "failed to close %s: %v\n", destPath, err)
+				os.Exit(1)
+			}
+			rc.Close()
+
+			if err := os.Chmod(destPath, f.Mode()); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to set permissions for %s: %v\n", destPath, err)
+			}
+		}
+	}
+
+	fmt.Println("OK")
+}
+
+func processCurseForgeZip(zipPath string, spec *ModpackSpec) error {
+	z, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer z.Close()
+
+	var overrideFiles []*zip.File
+	var serverJarFile *zip.File
+
+	for _, f := range z.File {
+		switch f.Name {
+		case "server.jar":
+			serverJarFile = f
+		default:
+			if strings.HasPrefix(f.Name, "overrides/") && f.Name != "overrides/" {
+				overrideFiles = append(overrideFiles, f)
+			}
+		}
+	}
+
+	if serverJarFile != nil {
+		serverJarDest := filepath.Join(spec.TargetDir, "server.jar")
+		if err := extractFileFromZip(z, serverJarFile, serverJarDest); err != nil {
+			return fmt.Errorf("extract server.jar: %w", err)
+		}
+		spec.ServerJarPath = serverJarDest
+	}
+
+	if len(overrideFiles) > 0 {
+		tmpOverrides := zipPath + ".overrides.tar.gz"
+		if err := createOverridesTarGz(overrideFiles, tmpOverrides); err != nil {
+			return err
+		}
+		spec.OverridesTar = tmpOverrides
+	}
+
+	return nil
+}
+
+func processPreconfiguredPack(zipPath string, spec *ModpackSpec) error {
+	return processFlattenPack(zipPath, spec.TargetDir, true)
+}
+
+func processFlattenPack(zipPath string, targetDir string, executeInstallScript bool) error {
+	z, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer z.Close()
+
+	for _, f := range z.File {
+		cleanName := filepath.Clean(f.Name)
+		if cleanName == "." || cleanName == "" {
+			continue
+		}
+
+		destPath := filepath.Join(targetDir, cleanName)
+
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(destPath, 0o755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", destPath, err)
+			}
+		} else {
+			if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+				return fmt.Errorf("failed to create parent directory for %s: %w", destPath, err)
+			}
+
+			rc, err := f.Open()
+			if err != nil {
+				return fmt.Errorf("failed to open %s: %w", f.Name, err)
+			}
+
+			outFile, err := os.Create(destPath)
+			if err != nil {
+				rc.Close()
+				return fmt.Errorf("failed to create %s: %w", destPath, err)
+			}
+
+			if _, err := io.Copy(outFile, rc); err != nil {
+				outFile.Close()
+				rc.Close()
+				return fmt.Errorf("failed to write %s: %w", destPath, err)
+			}
+
+			if err := outFile.Close(); err != nil {
+				rc.Close()
+				return fmt.Errorf("failed to close %s: %w", destPath, err)
+			}
+			rc.Close()
+
+			if err := os.Chmod(destPath, f.Mode()); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to set permissions for %s: %v\n", destPath, err)
+			}
+		}
+	}
+
+	startScripts := []string{"run.sh", "install.sh", "start.sh"}
+	var scriptsFound []string
+	for _, scriptName := range startScripts {
+		scriptPath := filepath.Join(targetDir, scriptName)
+		if _, err := os.Stat(scriptPath); err == nil {
+			scriptsFound = append(scriptsFound, scriptName)
+		}
+	}
+
+	for _, scriptName := range scriptsFound {
+		scriptPath := filepath.Join(targetDir, scriptName)
+		if executeInstallScript && scriptName == "install.sh" {
+			fmt.Fprintf(os.Stderr, "Running install script: %s\n", scriptName)
+			cmd := exec.Command("/bin/bash", scriptPath)
+			cmd.Dir = targetDir
+			if output, err := cmd.CombinedOutput(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: install script %s failed: %v\nOutput: %s\n", scriptName, err, string(output))
+			}
+		}
+		if strings.HasSuffix(scriptName, ".sh") {
+			if err := os.Chmod(scriptPath, 0o755); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to make %s executable: %v\n", scriptName, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func fetchAll(mf FetchManifest) error {
+	sem := make(chan struct{}, mf.Concurrency)
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(mf.Items))
+	client := &http.Client{Timeout: time.Duration(mf.TimeoutSec) * time.Second}
+	for _, it := range mf.Items {
+		it := it
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			var lastErr error
+			for attempt := 0; attempt <= mf.Retries; attempt++ {
+				if err := doFetchItem(client, it); err != nil {
+					lastErr = err
+					time.Sleep(time.Duration(300+attempt*200) * time.Millisecond)
+					continue
+				}
+				lastErr = nil
+				break
+			}
+			if lastErr != nil {
+				errCh <- fmt.Errorf("download %s -> %s: %w", it.URL, it.Dest, lastErr)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	if len(errCh) > 0 {
+		var sb strings.Builder
+		for e := range errCh {
+			sb.WriteString(e.Error())
+			sb.WriteByte('\n')
+		}
+		return fmt.Errorf(sb.String())
+	}
+	return nil
+}
+
+func doFetchItem(client *http.Client, it FetchItem) error {
+	if err := os.MkdirAll(filepath.Dir(it.Dest), 0o755); err != nil {
+		return err
+	}
+	tmp := it.Dest + ".tmp"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Get(it.URL)
+	if err != nil {
+		out.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if resp.StatusCode >= 400 {
+		out.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("http %d", resp.StatusCode)
+	}
+	_, err = io.Copy(out, resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		out.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		out.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if it.Sha1 != "" {
+		sum, err := sha1File(tmp)
+		if err != nil {
+			_ = os.Remove(tmp)
+			return err
+		}
+		if !strings.EqualFold(sum, it.Sha1) {
+			_ = os.Remove(tmp)
+			return fmt.Errorf("sha1 mismatch")
+		}
+	}
+	return os.Rename(tmp, it.Dest)
+}
+
+func processMrpack(mrpackPath string, spec *ModpackSpec) error {
+	z, err := zip.OpenReader(mrpackPath)
+	if err != nil {
+		return err
+	}
+	defer z.Close()
+
+	var manifestData []byte
+	var overridesFiles []*zip.File
+	var serverJarFile *zip.File
+	for _, f := range z.File {
+		switch f.Name {
+		case "modrinth.index.json":
+			rc, err := f.Open()
+			if err != nil {
+				return err
+			}
+			manifestData, err = io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				return err
+			}
+		case "server.jar":
+			serverJarFile = f
+		default:
+			if strings.HasPrefix(f.Name, "overrides/") && f.Name != "overrides/" {
+				overridesFiles = append(overridesFiles, f)
+			}
+		}
+	}
+
+	var manifest MrpackManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return err
+	}
+
+	if serverJarFile != nil {
+		serverJarDest := filepath.Join(spec.TargetDir, "server.jar")
+		if err := extractFileFromZip(z, serverJarFile, serverJarDest); err != nil {
+			return fmt.Errorf("extract server.jar: %w", err)
+		}
+		spec.ServerJarPath = serverJarDest
+	}
+
+	if manifest.Dependencies != nil {
+		if mcVer, ok := manifest.Dependencies["minecraft"]; ok {
+			spec.McVersion = mcVer
+		}
+	}
+
+	spec.Files = nil
+	for _, mf := range manifest.Files {
+		if mf.Downloads != nil && len(mf.Downloads) > 0 {
+			sha1 := ""
+			if mf.Hashes != nil {
+				sha1 = mf.Hashes["sha1"]
+			}
+			spec.Files = append(spec.Files, FetchItem{
+				URL:  mf.Downloads[0],
+				Dest: filepath.Join(spec.TargetDir, mf.Path),
+				Sha1: sha1,
+			})
+		}
+	}
+
+	if len(overridesFiles) > 0 {
+		tmpOverrides := mrpackPath + ".overrides.tar.gz"
+		if err := createOverridesTarGz(overridesFiles, tmpOverrides); err != nil {
+			return err
+		}
+		spec.OverridesTar = tmpOverrides
+	}
+
+	result, _ := json.MarshalIndent(spec, "", "  ")
+	fmt.Println(string(result))
+	return nil
+}
+
+type MrpackManifest struct {
+	Files []struct {
+		Path      string            `json:"path"`
+		Hashes    map[string]string `json:"hashes"`
+		Downloads []string          `json:"downloads"`
+	} `json:"files"`
+	Dependencies map[string]string `json:"dependencies"`
+}
+
+func extractFileFromZip(z *zip.ReadCloser, zf *zip.File, dest string) error {
+	rc, err := zf.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+
+	out, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, rc); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func createOverridesTarGz(files []*zip.File, outPath string) error {
+	f, err := os.Create(outPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	gzw := gzip.NewWriter(f)
+	defer gzw.Close()
+
+	tw := tar.NewWriter(gzw)
+	defer tw.Close()
+
+	for _, zf := range files {
+		name := strings.TrimPrefix(zf.Name, "overrides/")
+		name = filepath.Clean(name)
+		if name == "." || name == "" {
+			continue
+		}
+
+		header, err := tar.FileInfoHeader(zf.FileInfo(), name)
+		if err != nil {
+			return err
+		}
+		header.Name = name
+
+		if err := tw.WriteHeader(header); err != nil {
+			return err
+		}
+
+		rc, err := zf.Open()
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(tw, rc)
+		rc.Close()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func extractTarGz(tarGzPath, destDir string) error {
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return err
+	}
+	f, err := os.Open(tarGzPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(destDir, hdr.Name)
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			out, err := os.Create(target)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				out.Close()
+				return err
+			}
+			if err := out.Sync(); err != nil {
+				return err
+			}
+			if err := out.Close(); err != nil {
+				return err
+			}
+		default:
+
+		}
+	}
+	return nil
 }
 
 func sha1File(p string) (string, error) {
@@ -478,232 +1193,4 @@ func readPackMeta(path string, item *RemoteResource, withIcons bool) {
 			}
 		}
 	}
-}
-
-func cmdFetch(args []string) {
-	fs := flag.NewFlagSet("fetch", flag.ExitOnError)
-	manifestPath := fs.String("manifest", "", "Manifest JSON")
-	_ = fs.Parse(args)
-	if *manifestPath == "" {
-		fmt.Fprintln(os.Stderr, "fetch: --manifest is required")
-		os.Exit(2)
-	}
-	var mf FetchManifest
-	b, err := os.ReadFile(*manifestPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "read manifest: %v\n", err)
-		os.Exit(1)
-	}
-	if err := json.Unmarshal(b, &mf); err != nil {
-		fmt.Fprintf(os.Stderr, "manifest json: %v\n", err)
-		os.Exit(1)
-	}
-	if mf.Concurrency <= 0 {
-		mf.Concurrency = 4
-	}
-	if mf.Retries < 0 {
-		mf.Retries = 2
-	}
-	if mf.TimeoutSec <= 0 {
-		mf.TimeoutSec = 120
-	}
-	err = fetchAll(mf)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "fetch failed: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Println("Done")
-}
-
-func fetchAll(mf FetchManifest) error {
-	sem := make(chan struct{}, mf.Concurrency)
-	var wg sync.WaitGroup
-	errCh := make(chan error, len(mf.Items))
-	client := &http.Client{Timeout: time.Duration(mf.TimeoutSec) * time.Second}
-	for _, it := range mf.Items {
-		it := it
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			var lastErr error
-			for attempt := 0; attempt <= mf.Retries; attempt++ {
-				if err := doFetchItem(client, it); err != nil {
-					lastErr = err
-					time.Sleep(time.Duration(300+attempt*200) * time.Millisecond)
-					continue
-				}
-				lastErr = nil
-				break
-			}
-			if lastErr != nil {
-				errCh <- fmt.Errorf("download %s -> %s: %w", it.URL, it.Dest, lastErr)
-			}
-		}()
-	}
-	wg.Wait()
-	close(errCh)
-	if len(errCh) > 0 {
-		var sb strings.Builder
-		for e := range errCh {
-			sb.WriteString(e.Error())
-			sb.WriteByte('\n')
-		}
-		return fmt.Errorf(sb.String())
-	}
-	return nil
-}
-
-func doFetchItem(client *http.Client, it FetchItem) error {
-	if err := os.MkdirAll(filepath.Dir(it.Dest), 0o755); err != nil {
-		return err
-	}
-	tmp := it.Dest + ".tmp"
-	out, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-	resp, err := client.Get(it.URL)
-	if err != nil {
-		out.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if resp.StatusCode >= 400 {
-		out.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("http %d", resp.StatusCode)
-	}
-	_, err = io.Copy(out, resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		out.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := out.Sync(); err != nil {
-		out.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := out.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	if it.Sha1 != "" {
-		sum, err := sha1File(tmp)
-		if err != nil {
-			_ = os.Remove(tmp)
-			return err
-		}
-		if !strings.EqualFold(sum, it.Sha1) {
-			_ = os.Remove(tmp)
-			return fmt.Errorf("sha1 mismatch")
-		}
-	}
-	return os.Rename(tmp, it.Dest)
-}
-
-func cmdModpackInstall(args []string) {
-	fs := flag.NewFlagSet("modpack-install", flag.ExitOnError)
-	specPath := fs.String("spec", "", "Spec JSON")
-	_ = fs.Parse(args)
-	if *specPath == "" {
-		fmt.Fprintln(os.Stderr, "modpack-install: --spec is required")
-		os.Exit(2)
-	}
-	var spec ModpackSpec
-	b, err := os.ReadFile(*specPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "read spec: %v\n", err)
-		os.Exit(1)
-	}
-	if err := json.Unmarshal(b, &spec); err != nil {
-		fmt.Fprintf(os.Stderr, "spec json: %v\n", err)
-		os.Exit(1)
-	}
-	if spec.Concurrency <= 0 {
-		spec.Concurrency = 4
-	}
-	if spec.Retries < 0 {
-		spec.Retries = 2
-	}
-	if spec.TimeoutSec <= 0 {
-		spec.TimeoutSec = 180
-	}
-
-	mf := FetchManifest{
-		Items:       spec.Files,
-		Concurrency: spec.Concurrency,
-		Retries:     spec.Retries,
-		TimeoutSec:  spec.TimeoutSec,
-	}
-	if err := fetchAll(mf); err != nil {
-		fmt.Fprintf(os.Stderr, "downloads failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	if strings.TrimSpace(spec.OverridesTar) != "" {
-		if err := extractTarGz(spec.OverridesTar, spec.TargetDir); err != nil {
-			fmt.Fprintf(os.Stderr, "extract overrides failed: %v\n", err)
-			os.Exit(1)
-		}
-	}
-	fmt.Println("Complete")
-}
-
-func extractTarGz(tarGzPath, destDir string) error {
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return err
-	}
-	f, err := os.Open(tarGzPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	gzr, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer gzr.Close()
-	tr := tar.NewReader(gzr)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(destDir, hdr.Name)
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			out, err := os.Create(target)
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(out, tr); err != nil {
-				out.Close()
-				return err
-			}
-			if err := out.Sync(); err != nil {
-				out.Close()
-				return err
-			}
-			if err := out.Close(); err != nil {
-				return err
-			}
-		default:
-
-		}
-	}
-	return nil
 }

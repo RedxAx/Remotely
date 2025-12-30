@@ -18,7 +18,7 @@ public class ScreenInitHelper {
     public static void init(Screen screen, AbstractButton anchorButton) {
         if (anchorButton == null || !(screen instanceof ICustomWidgetHolder widgetHolder)) return;
 
-        //#if MC <= 1.19.4
+        //#if MC >= 1.19.4
         int anchorX = anchorButton.getX();
         int anchorY = anchorButton.getY();
         int anchorHeight = anchorButton.getHeight();
@@ -39,7 +39,7 @@ public class ScreenInitHelper {
                 int excessWidth = totalWidth - 200;
                 largeButtonWidth -= excessWidth;
 
-                //#if MC <= 1.19.4
+                //#if MC >= 1.19.4
                 AbstractButton serverButton = Button.builder(Component.literal("Servers"), btn -> openServerManagerScreen(screen)).bounds(buttonX, buttonY, smallButtonWidth, 20).build();
                 ((ScreenAccessor) screen).remotely$addRenderableWidget(serverButton);
                 AbstractButton fileExplorerButton = Button.builder(Component.literal("File Explorer"), btn -> openFileExplorerScreen()).bounds(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20).build();

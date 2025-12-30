@@ -1,7 +1,6 @@
 plugins {
     id("java-library")
     id("application")
-    id("org.openjfx.javafxplugin") version "0.1.0"
     id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
@@ -25,7 +24,15 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     implementation("org.apache.commons:commons-compress:1.28.0")
-    implementation("com.vladsch.flexmark:flexmark-all:0.64.8")
+
+    implementation("com.vladsch.flexmark:flexmark:0.64.8")
+    implementation("com.vladsch.flexmark:flexmark-ext-autolink:0.64.8")
+    implementation("com.vladsch.flexmark:flexmark-ext-gfm-strikethrough:0.64.8")
+    implementation("com.vladsch.flexmark:flexmark-ext-gfm-tasklist:0.64.8")
+    implementation("com.vladsch.flexmark:flexmark-ext-ins:0.64.8")
+    implementation("com.vladsch.flexmark:flexmark-ext-tables:0.64.8")
+    implementation("org.jsoup:jsoup:1.15.4")
+
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     implementation("com.github.javakeyring:java-keyring:1.0.4")
     implementation("com.hierynomus:sshj:0.40.0")
@@ -40,7 +47,7 @@ dependencies {
     implementation("org.lwjgl:lwjgl-opengl")
     implementation("org.lwjgl:lwjgl-stb")
     implementation("org.lwjgl:lwjgl-glfw")
-    implementation("org.joml:joml:1.10.7")
+    implementation("org.joml:joml:1.9.25")
 
     runtimeOnly("org.lwjgl:lwjgl::natives-windows")
     runtimeOnly("org.lwjgl:lwjgl-opengl::natives-windows")
@@ -51,10 +58,6 @@ dependencies {
     runtimeOnly("org.lwjgl:lwjgl-opengl::natives-linux")
     runtimeOnly("org.lwjgl:lwjgl-stb::natives-linux")
     runtimeOnly("org.lwjgl:lwjgl-glfw::natives-linux")
-
-    val javafxVersion = "21.0.3"
-    implementation("org.openjfx:javafx-graphics:${javafxVersion}")
-    runtimeOnly("org.openjfx:javafx-graphics:${javafxVersion}:win")
 }
 
 java {
