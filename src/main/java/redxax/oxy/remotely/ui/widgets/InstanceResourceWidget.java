@@ -16,6 +16,7 @@ import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
@@ -25,13 +26,16 @@ import restudio.rescreen.util.Sound;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static restudio.rescreen.config.Config.*;
 import static restudio.rescreen.render.TextRenderer.tr;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
-public class InstanceResourceWidget extends AnimatedWidget {
+public class InstanceResourceWidget extends MountableButtonWidget {
     private final Instance instance;
     private final InstanceResource resource;
     private final Runnable refreshCallback;
@@ -51,7 +55,7 @@ public class InstanceResourceWidget extends AnimatedWidget {
     public boolean includedInUpdate = true;
 
     public InstanceResourceWidget(ReScreen parentScreen, Instance instance, InstanceResource resource, Runnable refreshCallback) {
-        super(0, 0, 100, 50, resource.getName());
+        super(resource.getName(), null, null, new CopyOnWriteArrayList<>(), null);
         this.parentScreen = parentScreen;
         this.instance = instance;
         this.resource = resource;
@@ -87,6 +91,9 @@ public class InstanceResourceWidget extends AnimatedWidget {
                 .visible(resource.availableUpdate != null)
                 .entranceAnimation(false)
                 .build();
+
+        addMountedWidget(this.updateButton);
+        addMountedWidget(this.toggleButton);
         ensureImage();
     }
 
@@ -95,8 +102,12 @@ public class InstanceResourceWidget extends AnimatedWidget {
         if (mode == RenderingMode.COMPACT_UPDATE) {
             setHeight(18);
             this.toggleButton.setValue(this.includedInUpdate);
+            this.toggleButton.setSize(16, 8);
+            this.updateButton.setVisible(false);
         } else {
             this.toggleButton.setValue(resource.isEnabled());
+            this.toggleButton.setSize(0, 0);
+            this.updateButton.setVisible(resource.availableUpdate != null);
         }
     }
 
@@ -171,6 +182,24 @@ public class InstanceResourceWidget extends AnimatedWidget {
         } else {
             drawNormalContent(ctx, mouseX, mouseY);
         }
+
+        if (renderingMode == RenderingMode.COMPACT_UPDATE) {
+            int toggleX = getX() + getWidth() - toggleButton.getWidth() - 5;
+            toggleButton.setPosition(toggleX, getY() + (getHeight() - toggleButton.getHeight()) / 2);
+            toggleButton.render(ctx, mouseX, mouseY, deltaTime);
+        } else {
+            int currentX = getX() + getWidth() - 5;
+
+            currentX -= toggleButton.getWidth();
+            toggleButton.setPosition(currentX, getY() + (getHeight() - toggleButton.getHeight()) / 2);
+            toggleButton.render(ctx, mouseX, mouseY, deltaTime);
+
+            if (updateButton.visible) {
+                currentX -= (updateButton.getWidth() + 5);
+                updateButton.setPosition(currentX, getY() + (getHeight() - updateButton.getHeight()) / 2);
+                updateButton.render(ctx, mouseX, mouseY, deltaTime);
+            }
+        }
     }
 
     private void drawCompactUpdateContent(IDrawContext ctx, int mouseX, int mouseY) {
@@ -194,10 +223,6 @@ public class InstanceResourceWidget extends AnimatedWidget {
             ctx.drawText(" | " + desc, textX + nameWidth + 2, getY() + (getHeight() - ITextRenderer.fontHeight) / 2 + 1, descColor, hovered);
         }
         ctx.disableScissor();
-
-        toggleButton.setSize(16, 8);
-        toggleButton.setPosition(getX() + getWidth() - toggleButton.getWidth() - 5, getY() + (getHeight() - toggleButton.getHeight()) / 2);
-        toggleButton.render(ctx, mouseX, mouseY, deltaTime);
     }
 
     private void drawNormalContent(IDrawContext ctx, int mouseX, int mouseY) {
@@ -223,17 +248,6 @@ public class InstanceResourceWidget extends AnimatedWidget {
             ctx.drawText(details, textX, getY() + 18, borderColor, shadow);
             ctx.disableScissor();
         }
-
-        int currentX = getX() + getWidth() - 5;
-        currentX -= (toggleButton.getWidth());
-        toggleButton.setPosition(currentX, getY() + 5);
-        toggleButton.render(ctx, mouseX, mouseY, deltaTime);
-
-        if (updateButton.visible) {
-            currentX -= (updateButton.getWidth() + 5);
-            updateButton.setPosition(currentX, getY() + 5);
-            updateButton.render(ctx, mouseX, mouseY, deltaTime);
-        }
     }
 
     private void onDoubleClick(int button) {
@@ -256,14 +270,6 @@ public class InstanceResourceWidget extends AnimatedWidget {
 
     @Override
     public void onClick(double mouseX, double mouseY, int button) {
-        if (toggleButton.isHovered()) {
-            toggleButton.onClick(mouseX, mouseY, button);
-            return;
-        }
-        if (renderingMode == RenderingMode.COMPACT_UPDATE) {
-            return;
-        }
-
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastClickTime < 300) {
             onDoubleClick(button);
@@ -271,12 +277,6 @@ public class InstanceResourceWidget extends AnimatedWidget {
             return;
         }
         lastClickTime = currentTime;
-
-        if (button == 0) {
-            if (updateButton.visible && updateButton.isHovered()) {
-                updateButton.onClick(mouseX, mouseY, button);
-            }
-        }
     }
 
     public InstanceResource getResource() {
