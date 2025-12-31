@@ -170,8 +170,10 @@ public class ServerConfigurationScreen extends ReScreen {
             }
         }
 
-        ServerExtraSettingsController extraController = new ServerExtraSettingsController(tempInstance, extraFiles);
-        settingsByTab.put("Extra Files", extraController::getSettings);
+        if (!isEditMode) {
+            ServerExtraSettingsController extraController = new ServerExtraSettingsController(tempInstance, extraFiles);
+            settingsByTab.put("Extra Files", extraController::getSettings);
+        }
 
         Runnable combinedCleanup = () -> cleanupActions.forEach(Runnable::run);
 

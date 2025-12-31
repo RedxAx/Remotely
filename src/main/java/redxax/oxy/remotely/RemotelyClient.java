@@ -109,7 +109,12 @@ public class RemotelyClient {
 
     public void openFileExplorer(Object parent, Path path) {
         Screen reScreenParent = parent instanceof Screen ? (Screen) parent : null;
-        host.setScreen(new FileExplorerScreen(reScreenParent, null, path, Path.of(remotelyDir.toString(), "data"), false));
+        host.setScreen(new FileExplorerScreen(reScreenParent, null, path, Path.of(remotelyDir.toString(), "data"), false) {
+            @Override
+            public void close() {
+                host.openParentScreen(this, parent);
+            }
+        });
     }
 
     public void shutdownAllTerminals() {
