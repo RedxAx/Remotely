@@ -55,21 +55,6 @@ public class RemotelyClient {
         loadSnippets();
 
         os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
-        if (os.contains("win")) {
-            Thread t = new Thread(() -> {
-                try {
-                    String bgPath = System.getProperty("user.home") + "/AppData/Roaming/Microsoft/Windows/Themes/TranscodedWallpaper";
-                    File file = new File(bgPath);
-                    if (file.exists() && file.canRead()) {
-                        restudio.rescreen.config.Config.windowsBackground = javax.imageio.ImageIO.read(file);
-                    }
-                } catch (Exception e) {
-                    devPrint("Failed to load Windows background: " + e.getMessage());
-                }
-            }, "Remotely-Wallpaper-Loader");
-            t.setDaemon(true);
-            t.start();
-        }
 
         FontRegistry.MONO_FONT = host.getFontIdentifier("remotely", "mono");
     }
