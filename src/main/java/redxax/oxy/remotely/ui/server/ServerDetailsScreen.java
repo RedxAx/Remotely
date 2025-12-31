@@ -56,6 +56,7 @@ import static redxax.oxy.remotely.config.Config.remotelyDir;
 public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.InstanceDetailsScreen implements IDebugInfoProvider {
 
     private final RemotelyClient remotelyClient;
+    private final Object parent;
     private IconButton startIconButton;
     private Instance sidecarInstance;
 
@@ -73,7 +74,17 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
         super(parent instanceof Screen ? (Screen) parent : null, null);
+        this.parent = parent;
         this.remotelyClient = client;
+    }
+
+    @Override
+    public void close() {
+        remotelyClient.getHost().openParentScreen(this, parent);
+    }
+
+    public void closeScreen() {
+        close();
     }
 
     @Override

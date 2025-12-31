@@ -9,8 +9,6 @@ import redxax.oxy.remotely.adapters.ICustomWidgetHolder;
 import redxax.oxy.remotely.mixin.accessor.ScreenAccessor;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.ui.screens.auth.ReStudioLoginScreen;
-import restudio.rebase.ui.screens.resources.AuthorScreen;
-import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 
@@ -46,14 +44,14 @@ public class ScreenInitHelper {
                 //#if MC >= 1.19.4
                 AbstractButton serverButton = Button.builder(Component.literal("Servers"), btn -> openServerManagerScreen(screen)).bounds(buttonX, buttonY, smallButtonWidth, 20).build();
                 ((ScreenAccessor) screen).remotely$addRenderableWidget(serverButton);
-                AbstractButton fileExplorerButton = Button.builder(Component.literal("File Explorer"), btn -> openFileExplorerScreen()).bounds(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20).build();
+                AbstractButton fileExplorerButton = Button.builder(Component.literal("File Explorer"), btn -> openFileExplorerScreen(screen)).bounds(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20).build();
                 ((ScreenAccessor) screen).remotely$addRenderableWidget(fileExplorerButton);
                 AbstractButton terminalButton = Button.builder(Component.literal("Terminal"), btn -> openMultiTerminalScreen(screen)).bounds(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY, smallButtonWidth, 20).build();
                 ((ScreenAccessor) screen).remotely$addRenderableWidget(terminalButton);
                 //#else
                 //$$ AbstractButton serverButton = new Button(buttonX, buttonY, smallButtonWidth, 20, Component.literal("Servers"), btn -> openServerManagerScreen(screen));
                 //$$ ((ScreenAccessor) screen).remotely$addRenderableWidget(serverButton);
-                //$$ AbstractButton fileExplorerButton = new Button(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20, Component.literal("File Explorer"), btn -> openFileExplorerScreen());
+                //$$ AbstractButton fileExplorerButton = new Button(buttonX + smallButtonWidth + gap, buttonY, largeButtonWidth, 20, Component.literal("File Explorer"), btn -> openFileExplorerScreen(screen));
                 //$$ ((ScreenAccessor) screen).remotely$addRenderableWidget(fileExplorerButton);
                 //$$ AbstractButton terminalButton = new Button(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY, smallButtonWidth, 20, Component.literal("Terminal"), btn -> openMultiTerminalScreen(screen));
                 //$$ ((ScreenAccessor) screen).remotely$addRenderableWidget(terminalButton);
@@ -73,7 +71,7 @@ public class ScreenInitHelper {
                 terminalBtn.setPosition(startX + (buttonSize + spacing), buttonY);
                 widgetHolder.remotely$addWidget(terminalBtn);
 
-                SquareButtonWidget explorerBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("explorer.png").onClick(ScreenInitHelper::openFileExplorerScreen).build();
+                SquareButtonWidget explorerBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("explorer.png").onClick(() -> openFileExplorerScreen(screen)).build();
                 explorerBtn.setPosition(startX + 2 * (buttonSize + spacing), buttonY);
                 widgetHolder.remotely$addWidget(explorerBtn);
             }
@@ -91,7 +89,7 @@ public class ScreenInitHelper {
                 serverBtn.setPosition(buttonX, buttonY);
                 widgetHolder.remotely$addWidget(serverBtn);
 
-                AnimatedButton explorerBtn = new AnimatedButton.Builder().entranceAnimation(false).label("File Explorer").onClick(ScreenInitHelper::openFileExplorerScreen).size(largeButtonWidth, 18).build();
+                AnimatedButton explorerBtn = new AnimatedButton.Builder().entranceAnimation(false).label("File Explorer").onClick(() -> openFileExplorerScreen(screen)).size(largeButtonWidth, 18).build();
                 explorerBtn.setPosition(buttonX + smallButtonWidth + gap, buttonY);
                 widgetHolder.remotely$addWidget(explorerBtn);
 
@@ -114,7 +112,7 @@ public class ScreenInitHelper {
         RemotelyClient.INSTANCE.openMultiTerminal(screen);
     }
 
-    private static void openFileExplorerScreen() {
-        RemotelyClient.INSTANCE.openFileExplorer(null, remotelyDir);
+    private static void openFileExplorerScreen(Screen screen) {
+        RemotelyClient.INSTANCE.openFileExplorer(screen, remotelyDir);
     }
 }
