@@ -55,4 +55,15 @@ public class ReScreenApplicationHost implements ApplicationHost {
     public void setClipboard(String text) {
         glfwSetClipboardString(Main.window, text);
     }
+
+
+    @Override
+    public String getGameUserName() {
+        return null;
+    }
+
+    @Override
+    public String getGameUUID() {
+        return null;
+    }
 }

@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.ui.server;
 
+import com.google.gson.Gson;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.ui.settings.controllers.*;
 import restudio.rebase.Rebase;
@@ -201,6 +202,7 @@ public class ServerConfigurationScreen extends ReScreen {
             newInstance.getSettings().putAll(tempInstance.getSettings());
             newInstance.saveServerProperties();
             newInstance.save();
+            handleOpMe(newInstance);
             newInstance.setState(InstanceState.STOPPED);
         })).exceptionally(ex -> {
             ScreenManager.getInstance().execute(() -> {
@@ -218,7 +220,10 @@ public class ServerConfigurationScreen extends ReScreen {
         tempInstance.setState(InstanceState.INSTALLING);
         details.addInstanceTab(tempInstance);
         Rebase.get().getInstanceManager().createRemoteInstanceWithLogger(tempInstance, remoteHostContext).thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(remoteHostContext).handle((v, e) -> null).thenApply(v -> newInstance))
-            .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> newInstance.setState(InstanceState.STOPPED))).exceptionally(ex -> {
+            .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
+                handleOpMe(newInstance);
+                newInstance.setState(InstanceState.STOPPED);
+            })).exceptionally(ex -> {
                 ScreenManager.getInstance().execute(() -> {
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                     tempInstance.getLogger().addLog("[Progress:0] Remote creation failed: " + cause.getMessage());
@@ -305,5 +310,27 @@ public class ServerConfigurationScreen extends ReScreen {
 
     public void close() {
         client.setScreen(parent);
+    }
+
+    private void handleOpMe(Instance instance) {
+        if (Boolean.parseBoolean(instance.getSettings().getProperty("op-me", "false"))) {
+            Gson gson = new Gson();
+
+            Map<String, Object> op = new HashMap<>();
+            op.put("uuid", RemotelyClient.INSTANCE.getHost().getGameUUID());
+            op.put("name", RemotelyClient.INSTANCE.getHost().getGameUserName());
+            op.put("level", 4);
+            op.put("bypassesPlayerLimit", false);
+
+            List<Map<String, Object>> ops = List.of(op);
+            String json = gson.toJson(ops);
+
+            Path opsFile = Path.of(instance.getPath(), "ops.json");
+            RebaseAPI api = RebaseApiFactory.get(instance);
+            api.writeFile(opsFile, json).exceptionally(e -> {
+                System.err.println("Failed to write ops.json: " + e.getMessage());
+                return null;
+            }).join();
+        }
     }
 }

@@ -8,6 +8,10 @@ public interface ApplicationHost {
     void ensureTextRenderer();
     Object getFontIdentifier(String namespace, String path);
     void openParentScreen(Screen currentScreen, Object parent);
-    String getGameVersion();
     void setClipboard(String text);
+
+
+    String getGameVersion();
+    String getGameUserName();
+    String getGameUUID();
 }

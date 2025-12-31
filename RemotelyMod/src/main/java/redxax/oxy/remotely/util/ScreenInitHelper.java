@@ -7,6 +7,10 @@ import net.minecraft.network.chat.Component;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.adapters.ICustomWidgetHolder;
 import redxax.oxy.remotely.mixin.accessor.ScreenAccessor;
+import restudio.rebase.restudio.ReStudio;
+import restudio.rebase.ui.screens.auth.ReStudioLoginScreen;
+import restudio.rebase.ui.screens.resources.AuthorScreen;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 
@@ -99,6 +103,10 @@ public class ScreenInitHelper {
     }
 
     private static void openServerManagerScreen(Screen screen) {
+        if (!ReStudio.getInstance().isAuthenticated()) {
+            RemotelyClient.INSTANCE.getHost().setScreen(new ReStudioLoginScreen(null, () -> openServerManagerScreen(screen)));
+            return;
+        }
         RemotelyClient.INSTANCE.openServerManager(screen);
     }
 
