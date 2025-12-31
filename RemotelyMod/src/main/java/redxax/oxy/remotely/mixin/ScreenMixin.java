@@ -39,9 +39,6 @@ import static redxax.oxy.remotely.config.Config.enableDebugTools;
 @Mixin(value = Screen.class)
 public abstract class ScreenMixin implements ICustomWidgetHolder {
 
-    @Shadow public int width;
-    @Shadow public int height;
-
     @Unique
     private final List<Widget> remotely$customWidgets = new ArrayList<>();
 
