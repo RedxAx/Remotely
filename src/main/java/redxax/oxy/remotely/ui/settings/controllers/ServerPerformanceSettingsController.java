@@ -22,7 +22,7 @@ public class ServerPerformanceSettingsController {
         performance.addOption(ConfigOption.<Integer>builder("View Distance")
                 .description("The radius of chunks sent to the client.")
                 .range(2, 32)
-                .bind(() -> Integer.parseInt(props.getProperty("view-distance", "8")),
+                .bind(() -> Integer.parseInt(props.getProperty("view-distance", "10")),
                       val -> props.setProperty("view-distance", String.valueOf(val)))
                 .defaultValue(10)
                 .build());
@@ -30,7 +30,7 @@ public class ServerPerformanceSettingsController {
         performance.addOption(ConfigOption.<Integer>builder("Simulation Distance")
                 .description("The radius of chunks where entities/physics update.")
                 .range(2, 32)
-                .bind(() -> Integer.parseInt(props.getProperty("simulation-distance", "8")),
+                .bind(() -> Integer.parseInt(props.getProperty("simulation-distance", "10")),
                       val -> props.setProperty("simulation-distance", String.valueOf(val)))
                 .defaultValue(10)
                 .build());
