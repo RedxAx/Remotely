@@ -1,12 +1,11 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
+import redxax.oxy.remotely.RemotelyClient;
 import restudio.rebase.instance.Instance;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.options.ConfigOption;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Properties;
+import java.util.*;
 
 public class ServerGeneralSettingsController {
     private final Instance instance;
@@ -50,6 +49,17 @@ public class ServerGeneralSettingsController {
                       val -> props.setProperty("difficulty", val.toLowerCase()))
                 .defaultValue("Normal")
                 .build());
+
+        if (RemotelyClient.INSTANCE.getHost().getGameUserName() != null) {
+            general.addOption(ConfigOption.<Boolean>builder("OP Me")
+                .description("Set You (" + RemotelyClient.INSTANCE.getHost().getGameUserName() + ") As OP On This Server.")
+                .bind(() -> Boolean.parseBoolean(instance.getSettings().getProperty("op-me", "false")),
+                    val -> instance.getSettings().setProperty("op-me", String.valueOf(val)))
+                .defaultValue(true)
+                .resettable(false)
+                .build()
+            );
+        }
 
         general.addOption(ConfigOption.<Boolean>builder("PvP")
                 .description("Enable Player vs Player combat.")

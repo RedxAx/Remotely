@@ -3,7 +3,6 @@ package redxax.oxy.remotely.host;
 import dev.deftu.omnicore.api.OmniResourceLocation;
 import dev.deftu.omnicore.api.client.screen.OmniScreens;
 import net.minecraft.client.Minecraft;
-import net.minecraft.resources.ResourceLocation;
 import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
 import redxax.oxy.remotely.adapters.ReScreenWrapper;
 import restudio.rescreen.ui.core.Screen;
@@ -60,5 +59,16 @@ public class MinecraftApplicationHost implements ApplicationHost {
     @Override
     public void setClipboard(String text) {
         Minecraft.getInstance().keyboardHandler.setClipboard(text);
+    }
+
+
+    @Override
+    public String getGameUserName() {
+        return mc.getUser().getName();
+    }
+
+    @Override
+    public String getGameUUID() {
+        return mc.getUser().getProfileId().toString();
     }
 }
