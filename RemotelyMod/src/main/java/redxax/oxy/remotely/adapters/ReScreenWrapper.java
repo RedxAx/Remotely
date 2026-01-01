@@ -67,8 +67,7 @@ public class ReScreenWrapper extends OmniScreen {
         if (mcScale == 0 || reScale == 0) return;
         float renderScale = reScale / mcScale;
         float mouseScale = mcScale / reScale;
-        MinecraftDrawContextAdapter libCtx = new MinecraftDrawContextAdapter(ctx, renderScale);
-        libCtx.renderScale = renderScale;
+        MinecraftDrawContextAdapter libCtx = new MinecraftDrawContextAdapter(ctx);
 
         float finalDelta = deltaSeconds;
         ImmediateScreenRenderer.render(ctx, () -> {
