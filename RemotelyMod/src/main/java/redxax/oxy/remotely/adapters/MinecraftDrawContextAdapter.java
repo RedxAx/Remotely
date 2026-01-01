@@ -51,10 +51,12 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     private final OmniRenderingContext ctx;
     private final OmniPoseStack matrices;
+    public float renderScale;
 
     public MinecraftDrawContextAdapter(@NotNull OmniRenderingContext ctx, float renderScale) {
         this.ctx = ctx;
         this.matrices = ctx.pose();
+        this.renderScale = renderScale;
     }
 
     public MinecraftDrawContextAdapter(@NotNull OmniRenderingContext ctx) {
@@ -110,12 +112,16 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void enableScissor(float x1, float y1, float x2, float y2) {
-        ctx.pushScissor((int) x1, (int) y1, (int) (x2 - x1), (int) (y2 - y1));
+        int sx = (int) (x1 * renderScale);
+        int sy = (int) (y1 * renderScale);
+        int sw = (int) ((x2 - x1) * renderScale);
+        int sh = (int) ((y2 - y1) * renderScale);
+        ctx.pushScissor(sx, sy, sw, sh);
     }
 
     @Override
     public boolean scissorsContains(int i, int i1) {
-        return ctx.doesScissorContain(i, i1);
+        return ctx.doesScissorContain((int) (i * renderScale), (int) (i1 * renderScale));
     }
 
     @Override
@@ -192,15 +198,37 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void drawText(String text, int x, int y, int color, boolean shadow) {
-        OmniTextRenderer.render(ctx, text, (float) x, (float) y, fromArgb(color), shadow);
+
+        ScissorBox scissor = ctx.getCurrentScissor();
+        boolean manualScissor = ctx.getGraphics() != null && scissor != null;
+
+        if (manualScissor) {
+            ctx.getGraphics().enableScissor(scissor.getX(), scissor.getY(), scissor.getX() + scissor.getWidth(), scissor.getY() + scissor.getHeight());
+        }
+
+        ctx.renderText(text, (float) x, (float) y, fromArgb(color), shadow);
+
+        if (manualScissor) {
+            ctx.getGraphics().disableScissor();
+        }
     }
 
     @Override
     public void drawStyledText(Object text, int x, int y, int color, boolean shadow) {
+        ScissorBox scissor = ctx.getCurrentScissor();
+        boolean manualScissor = ctx.getGraphics() != null && scissor != null;
+
+        if (manualScissor) {
+            ctx.getGraphics().enableScissor(scissor.getX(), scissor.getY(), scissor.getX() + scissor.getWidth(), scissor.getY() + scissor.getHeight());
+        }
+
         if (text instanceof Component mcText) {
-            OmniTextRenderer.render(ctx, mcText, (float) x, (float) y, fromArgb(color == 0 ? 0xFFFFFFFF : color), shadow);
+            ctx.renderText(mcText, (float) x, (float) y, fromArgb(color == 0 ? 0xFFFFFFFF : color), shadow);
         } else if (text instanceof StyledText styledText) {
-            if ((styledText.color >> 24 & 0xFF) == 0) return;
+            if ((styledText.color >> 24 & 0xFF) == 0) {
+                if (manualScissor) ctx.getGraphics().disableScissor();
+                return;
+            }
             MutableComponent renderText = Component.literal(styledText.text);
             if (styledText.font instanceof ResourceLocation rl) {
                 //#if MC >= 1.21.9
@@ -210,9 +238,13 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
                 //$$ renderText.setStyle(Style.EMPTY.withFont(rl));
                 //#endif
             }
-            OmniTextRenderer.render(ctx, renderText, (float) x, (float) y, fromArgb(styledText.color), shadow);
+            ctx.renderText(renderText, (float) x, (float) y, fromArgb(styledText.color), shadow);
         } else {
-            drawText(String.valueOf(text), x, y, color, shadow);
+            ctx.renderText(String.valueOf(text), (float) x, (float) y, fromArgb(color), shadow);
+        }
+
+        if (manualScissor) {
+            ctx.getGraphics().disableScissor();
         }
     }
 

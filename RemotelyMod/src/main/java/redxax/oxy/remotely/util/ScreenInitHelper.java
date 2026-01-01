@@ -58,10 +58,10 @@ public class ScreenInitHelper {
                 //#endif
             }
             case "Minimal" -> {
-                int spacing = 8;
+                int spacing = 4;
                 int buttonSize = 18;
                 int startX = anchorX + 1;
-                int buttonY = anchorY + anchorHeight + buttonSize;
+                int buttonY = anchorY + anchorHeight + 4;
 
                 SquareButtonWidget serverBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("manager.png").onClick(() -> openServerManagerScreen(screen)).build();
                 serverBtn.setPosition(startX, buttonY);
