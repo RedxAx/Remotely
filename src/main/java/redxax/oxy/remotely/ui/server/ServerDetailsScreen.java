@@ -15,9 +15,12 @@ import restudio.rebase.api.unified.internal.StandardOutputStateParser;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.ExecutionProvider;
 import restudio.rebase.backend.feature.DataStreamFeature;
+import restudio.rebase.backend.feature.ServerHealthFeature;
 import restudio.rebase.backend.impl.LocalBackend;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.instance.InstanceFactory;
+import restudio.rebase.instance.InstanceRepairer;
 import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
@@ -40,6 +43,7 @@ import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.util.Notification;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -367,7 +371,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                 remotelyClient.getMultiTerminalTabs().remove(info.localTerminalId);
             }
             if (info.terminalWidget != null) {
-                if (info.standardParser != null) ctx.instance.removeLogListener(info.standardParser);
+                if (info.standardParser != null && ctx.instance != null) ctx.instance.removeLogListener(info.standardParser);
                 if (ctx.instance != null) TerminalWidget.shutdown(ctx.instance.getInstanceId());
                 else TerminalWidget.shutdownLocal(info.localTerminalId);
             }
@@ -433,26 +437,67 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                 context.instance.setState(InstanceState.STOPPED);
             }
         } else {
-            BackendConfig bc = context.instance.getBackendConfig();
-            boolean isRestudio = bc != null && "RESTUDIO".equalsIgnoreCase(bc.type);
-            boolean isSsh = bc != null && "SSH".equalsIgnoreCase(bc.type);
-
-            if (isSsh || isRestudio) {
-                proceedWithServerStart(context, info);
-                return;
-            }
-
-            final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
-            RebaseAPI legacy = RebaseApiFactory.get(context.instance);
-            legacy.readFile(eulaPath).exceptionally(t -> "").thenAccept(content -> ScreenManager.getInstance().execute(() -> {
-                boolean eulaAccepted = content != null && content.contains("eula=true");
-                if (eulaAccepted) {
-                    proceedWithServerStart(context, info);
-                } else {
-                    showEulaPopup(context, info);
+            api.health().check().thenAccept(status -> ScreenManager.getInstance().execute(() -> {
+                if (!status.hasServerJar()) {
+                    showFixPopup("Server JAR Missing", "The server.jar file was not found.", "Download JAR", () -> {
+                         Notification dlNotif = new Notification.Builder().message("Starting Download...").type(Notification.Type.INFO).loading(true).build();
+                         new InstanceFactory().downloadMissingServerJar(context.instance, dlNotif).thenRun(() -> ScreenManager.getInstance().execute(() -> {
+                             dlNotif.update().message("Download Complete").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true);
+                             launchOrStopInstance();
+                         })).exceptionally(e -> {
+                             ScreenManager.getInstance().execute(() -> dlNotif.update().message("Download Failed").description(e.getMessage()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true));
+                             return null;
+                         });
+                    });
+                    return;
                 }
-            }));
+
+                if (!status.hasStartScript()) {
+                    showFixPopup("Start Script Missing", "The startup script (start.sh/start.bat) is missing.", "Create Script", () -> {
+                        InstanceRepairer.createStartScript(context.instance).thenRun(() -> {
+                            ScreenManager.getInstance().execute(() -> new Notification("Script Created", Notification.Type.SUCCESS));
+                        });
+                    });
+                    return;
+                }
+
+                if (!status.eulaAccepted()) {
+                    showEulaPopup(context, info);
+                    return;
+                }
+
+                proceedWithServerStart(context, info);
+            })).exceptionally(e -> {
+                ScreenManager.getInstance().execute(() -> new Notification("Health Check Failed", e.getMessage(), Notification.Type.ERROR));
+                return null;
+            });
         }
+    }
+
+    private void showFixPopup(String title, String desc, String buttonText, Runnable action) {
+        PopupWidget.Builder builder = new PopupWidget.Builder(title).size(300, 100).setResizable(false);
+        AnimatedButton textWidget = new AnimatedButton.Builder().label(desc).active(false).flat(true).build();
+        builder.addRow("", true, 20, textWidget);
+
+        AnimatedButton actionBtn = new AnimatedButton.Builder()
+            .label(buttonText)
+            .accentType(ThemeManager.getAccent("nice"))
+            .onClick(() -> {
+                action.run();
+                builder.getWidget().setVisible(false);
+            })
+            .build();
+
+        builder.addRow("", true, 30, actionBtn);
+        PopupWidget popup = builder.build();
+
+        actionBtn.setAction(() -> {
+            action.run();
+            popup.hide();
+        });
+
+        addDrawableChild(popup);
+        popup.show();
     }
 
     private void proceedWithServerStart(TabContext context, ServerContextInfo info) {
