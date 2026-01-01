@@ -21,9 +21,10 @@ public class ReScreenApplicationHost implements ApplicationHost {
         return sm.getCurrentScreen();
     }
 
-    @Override
+@Override
     public void ensureTextRenderer() {
         if (RemotelyClient.tr != null) return;
+        TextRenderer.ensureLwjglRenderer();
         RemotelyClient.tr = TextRenderer.getTr();
     }
 

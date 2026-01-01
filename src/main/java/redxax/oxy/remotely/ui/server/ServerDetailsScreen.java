@@ -24,7 +24,6 @@ import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.msmp.MSMPManager;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
-import restudio.rebase.ui.screens.git.GitControlScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.Main;
@@ -94,7 +93,6 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         header().addRight("close.png", this::closeScreen, "Close");
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
-        header().addRight("git.png", this::openGitControl, "Version Control");
 
         startIconButton = new IconButton.Builder()
             .imagePath("start.png")
@@ -265,7 +263,6 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
         boolean isInstance = !info.isLocalTerminalMode;
         header().setButtonVisible("explorer.png", isInstance);
-        header().setButtonVisible("git.png", isInstance);
 
         if (startIconButton != null) {
             startIconButton.setVisible(isInstance);
@@ -438,14 +435,14 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             api.health().check().thenAccept(status -> ScreenManager.getInstance().execute(() -> {
                 if (!status.hasServerJar()) {
                     showFixPopup("Server JAR Missing", "The server.jar file was not found.", "Download JAR", () -> {
-                         Notification dlNotif = new Notification.Builder().message("Starting Download...").type(Notification.Type.INFO).loading(true).build();
-                         new InstanceFactory().downloadMissingServerJar(context.instance, dlNotif).thenRun(() -> ScreenManager.getInstance().execute(() -> {
-                             dlNotif.update().message("Download Complete").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true);
-                             launchOrStopInstance();
-                         })).exceptionally(e -> {
-                             ScreenManager.getInstance().execute(() -> dlNotif.update().message("Download Failed").description(e.getMessage()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true));
-                             return null;
-                         });
+                        Notification dlNotif = new Notification.Builder().message("Starting Download...").type(Notification.Type.INFO).loading(true).build();
+                        new InstanceFactory().downloadMissingServerJar(context.instance, dlNotif).thenRun(() -> ScreenManager.getInstance().execute(() -> {
+                            dlNotif.update().message("Download Complete").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true);
+                            launchOrStopInstance();
+                        })).exceptionally(e -> {
+                            ScreenManager.getInstance().execute(() -> dlNotif.update().message("Download Failed").description(e.getMessage()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true));
+                            return null;
+                        });
                     });
                     return;
                 }
@@ -566,12 +563,6 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             }
         }
         client.setScreen(new ServerConfigurationScreen(this, target, host, remotelyClient));
-    }
-
-    private void openGitControl() {
-        Instance target = ensureSidecar();
-        if (target == null) return;
-        client.setScreen(new GitControlScreen(this, target));
     }
 
     @Override
