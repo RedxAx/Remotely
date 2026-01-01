@@ -1,7 +1,6 @@
 package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.RemotelyManager;
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
@@ -15,7 +14,6 @@ import restudio.rebase.api.unified.internal.StandardOutputStateParser;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.ExecutionProvider;
 import restudio.rebase.backend.feature.DataStreamFeature;
-import restudio.rebase.backend.feature.ServerHealthFeature;
 import restudio.rebase.backend.impl.LocalBackend;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
@@ -453,11 +451,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                 }
 
                 if (!status.hasStartScript()) {
-                    showFixPopup("Start Script Missing", "The startup script (start.sh/start.bat) is missing.", "Create Script", () -> {
-                        InstanceRepairer.createStartScript(context.instance).thenRun(() -> {
-                            ScreenManager.getInstance().execute(() -> new Notification("Script Created", Notification.Type.SUCCESS));
-                        });
-                    });
+                    showFixPopup("Start Script Missing", "The startup script (start.sh/start.bat) is missing.", "Create Script", () -> InstanceRepairer.createStartScript(context.instance).thenRun(() -> ScreenManager.getInstance().execute(() -> new Notification("Script Created", Notification.Type.SUCCESS))));
                     return;
                 }
 
