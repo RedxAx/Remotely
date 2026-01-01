@@ -7,7 +7,6 @@ import dev.deftu.omnicore.api.client.render.DefaultVertexFormats;
 import dev.deftu.omnicore.api.client.render.DrawMode;
 import dev.deftu.omnicore.api.client.render.OmniRenderingContext;
 import dev.deftu.omnicore.api.client.render.OmniTextureUnit;
-import dev.deftu.omnicore.api.client.render.OmniTextRenderer;
 import dev.deftu.omnicore.api.client.render.ScissorBox;
 import dev.deftu.omnicore.api.client.render.pipeline.OmniRenderPipeline;
 import dev.deftu.omnicore.api.client.render.pipeline.OmniRenderPipelines;
@@ -51,20 +50,10 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     private final OmniRenderingContext ctx;
     private final OmniPoseStack matrices;
-    public float renderScale;
-
-    public MinecraftDrawContextAdapter(@NotNull OmniRenderingContext ctx, float renderScale) {
-        this.ctx = ctx;
-        this.matrices = ctx.pose();
-        this.renderScale = renderScale;
-    }
 
     public MinecraftDrawContextAdapter(@NotNull OmniRenderingContext ctx) {
-        this(ctx, 1.0f);
-    }
-
-    public OmniRenderingContext getOmniContext() {
-        return ctx;
+        this.ctx = ctx;
+        this.matrices = ctx.pose();
     }
 
     private OmniColor fromArgb(int argb) {
@@ -112,16 +101,12 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void enableScissor(float x1, float y1, float x2, float y2) {
-        int sx = (int) (x1 * renderScale);
-        int sy = (int) (y1 * renderScale);
-        int sw = (int) ((x2 - x1) * renderScale);
-        int sh = (int) ((y2 - y1) * renderScale);
-        ctx.pushScissor(sx, sy, sw, sh);
+        ctx.pushScissor((int) x1, (int) y1, (int) (x2 - x1), (int) (y2 - y1));
     }
 
     @Override
     public boolean scissorsContains(int i, int i1) {
-        return ctx.doesScissorContain((int) (i * renderScale), (int) (i1 * renderScale));
+        return ctx.doesScissorContain(i, i1);
     }
 
     @Override
