@@ -430,6 +430,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             if ("LOCAL".equalsIgnoreCase(t)) {
                 info.terminalWidget.stopProcess();
                 context.instance.setState(InstanceState.STOPPED);
+                TerminalWidget.shutdown(context.instance.getInstanceId());
             }
         } else {
             api.health().check().thenAccept(status -> ScreenManager.getInstance().execute(() -> {
@@ -492,6 +493,35 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     }
 
     private void proceedWithServerStart(TabContext context, ServerContextInfo info) {
+        String backendType = context.instance.getBackendConfig() != null ? context.instance.getBackendConfig().type : "LOCAL";
+        if ("LOCAL".equalsIgnoreCase(backendType)) {
+            if (info.terminalWidget != null) {
+                info.terminalWidget.shutdown();
+                TerminalWidget.shutdown(context.instance.getInstanceId());
+                context.mainContainer.removeWidget(info.terminalWidget);
+            }
+
+            ExecutionProvider exec = new UnifiedExecutionProvider(InstanceApi.of(context.instance).console());
+            info.terminalWidget = ServerTerminal.getOrCreate(context.instance, exec, 5, 60, width - 10, height - 66);
+            info.terminalWidget.addOutputListener(context.instance.getMSMPManager()::handleConsoleLine);
+            info.terminalWidget.setForceDirectLaunch(true);
+            info.terminalWidget.start();
+            context.instance.attachTerminalListener(info.terminalWidget);
+
+            for (int i = 0; i < context.views.size(); i++) {
+                ViewEntry entry = context.views.get(i);
+                if (entry.hint().equals("Terminal")) {
+                    context.views.set(i, new ViewEntry(info.terminalWidget, entry.icon(), entry.hint(), entry.toolbarWidgets()));
+                    if (context.selectedViewIndex == i) {
+                        context.mainContainer.addWidget(info.terminalWidget);
+                    }
+                    break;
+                }
+            }
+            context.instance.setState(InstanceState.STARTING);
+            return;
+        }
+
         InstanceApi api = InstanceApi.of(context.instance);
         context.instance.setState(InstanceState.STARTING);
         api.console().startServer().thenAccept(command -> ScreenManager.getInstance().execute(() -> {
