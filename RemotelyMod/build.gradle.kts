@@ -1,16 +1,19 @@
+import dev.deftu.gradle.utils.ModLoader
 import dev.deftu.gradle.utils.version.MinecraftVersions
 import dev.deftu.gradle.utils.includeOrShade
+import org.gradle.jvm.tasks.Jar
+import java.util.Properties
 
 plugins {
     java
     kotlin("jvm")
-    id("dev.deftu.gradle.multiversion") // Applies preprocessing for multiple versions of Minecraft and/or multiple mod loaders.
-    id("dev.deftu.gradle.tools") // Applies several configurations to things such as the Java version, project name/version, etc.
-    id("dev.deftu.gradle.tools.resources") // Applies resource processing so that we can replace tokens, such as our mod name/version, in our resources.
-    id("dev.deftu.gradle.tools.bloom") // Applies the Bloom plugin, which allows us to replace tokens in our source files, such as being able to use `@MOD_VERSION` in our source files.
-    id("dev.deftu.gradle.tools.shadow") // Applies the Shadow plugin, which allows us to shade our dependencies into our mod JAR. This is NOT recommended for Fabric mods, but we have an *additional* configuration for those!
-    id("dev.deftu.gradle.tools.minecraft.loom") // Applies the Loom plugin, which automagically configures Essential's Architectury Loom plugin for you.
-    id("dev.deftu.gradle.tools.minecraft.releases-v2") // Applies the Minecraft auto-releasing plugin, which allows you to automatically release your mod to CurseForge and Modrinth.
+    id("dev.deftu.gradle.multiversion")
+    id("dev.deftu.gradle.tools")
+    id("dev.deftu.gradle.tools.resources")
+    id("dev.deftu.gradle.tools.bloom")
+    id("dev.deftu.gradle.tools.shadow")
+    id("dev.deftu.gradle.tools.minecraft.loom")
+    id("com.hypherionmc.modutils.modpublisher") version "2.1.8"
 }
 
 toolkitMultiversion {
@@ -36,10 +39,12 @@ toolkitLoomHelper {
 
 repositories {
     mavenCentral()
+    gradlePluginPortal()
     maven("https://maven.neoforged.net/releases/")
     maven("https://maven.terraformersmc.com/")
     maven("https://maven.nucleoid.xyz/")
     maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
+    maven("https://maven.firstdark.dev/releases")
 
     flatDir {
         dirs(rootProject.file("libs"))
@@ -120,5 +125,71 @@ tasks {
             relocate("dev.deftu.textile", "${modData.group}.dependencies.textile")
             relocate("dev.deftu.omnicore", "${modData.group}.dependencies.omnicore")
         }
+    }
+
+    configureEach {
+        val taskName = name.lowercase()
+        if (taskName.contains("publish") && (taskName.contains("modrinth") || taskName.contains("curse") || taskName.contains("github"))) {
+            mustRunAfter(project.tasks.named("build"))
+        }
+    }
+}
+
+
+publisher {
+
+    apiKeys {
+        val properties = Properties().apply {
+            val envFile = rootProject.file("env.properties")
+            if (envFile.exists()) {
+                envFile.inputStream().use { fis ->
+                    load(fis)
+                }
+            }
+        }
+
+        val modrinthToken = properties.getProperty("MODRINTH_TOKEN", System.getenv("MODRINTH_TOKEN"))
+        val curseToken = properties.getProperty("CURSEFORGE_TOKEN", System.getenv("CURSEFORGE_TOKEN"))
+
+        fun configurePublishing(token: String?, serviceName: String, config: (String) -> Unit) {
+            if (token != null) {
+                config(token)
+                if (token.isNotBlank()) {
+                    println("$serviceName publishing enabled.")
+                } else {
+                    println("$serviceName publishing disabled. No API key found (blank).")
+                }
+            } else {
+                println("$serviceName publishing disabled. No API key found (null)")
+            }
+        }
+
+        configurePublishing(modrinthToken, "Modrinth") { modrinth(it) }
+        configurePublishing(curseToken, "CurseForge") { curseforge(it) }
+
+        curseID.set("1224352")
+        modrinthID.set("remotely")
+
+        projectVersion.set(modData.version)
+
+        displayName.set("Remotely ${modData.version} (${if (mcData.isFabric) "Fabric" else "NeoForge"} ${mcData.version})")
+
+        gameVersions.set(listOf(mcData.version.toString()))
+
+        val currentLoader = when {
+            mcData.isFabric -> "fabric"
+            mcData.isNeoForge -> "neoforge"
+            else -> "forge"
+        }
+        loaders.set(listOf(currentLoader))
+
+        versionType.set("beta")
+
+        val targetTask = tasks.named<Jar>("remapJar")
+
+        artifact.set(targetTask.flatMap { it.archiveFile })
+
+        changelog.set("First Beta Release of Remotely 2.0.0!")
+        disableEmptyJarCheck.set(true)
     }
 }

@@ -5,15 +5,14 @@
   "name": "${mod_name}",
   "description": "${mod_description}",
   "authors": [
-    "RedxAx",
-    "DumbFridge"
+    "RedxAx"
   ],
   "contact": {
     "issues": "https://github.com/RedxAx/Remotely/issues",
     "sources": "https://github.com/RedxAx/Remotely"
   },
   "license": "Custom License",
-  "icon": "assets/remotely/Reemotely.png",
+  "icon": "assets/Remotely.png",
   "environment": "*",
   "entrypoints": {
     "main": [

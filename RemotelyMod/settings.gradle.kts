@@ -9,6 +9,7 @@ pluginManagement {
         maven("https://maven.minecraftforge.net")
         maven("https://repo.essential.gg/repository/maven-public")
         maven("https://jitpack.io/")
+        maven("https://maven.firstdark.dev/releases/")
 
         // Snapshots
         maven("https://maven.deftu.dev/snapshots")
@@ -23,6 +24,7 @@ pluginManagement {
     plugins {
         kotlin("jvm") version("2.2.10")
         id("dev.deftu.gradle.multiversion-root") version("2.69.0")
+        id("com.hypherionmc.modutils.modpublisher") version "2.1.8"
     }
 }
 

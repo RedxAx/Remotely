@@ -5,7 +5,7 @@
         "version": "${mod_version}",
         "mcversion": "${mc_version}",
         "description": "${mod_description}",
-        "authorList": ["RedxAx", "DumbFridge"],
+        "authorList": ["RedxAx"],
         "dependencies": ["textile", "omnicore"]
     }
 ]
