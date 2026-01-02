@@ -10,9 +10,9 @@ config = "mixins.${mod_id}.json"
 modId="${mod_id}"
 version="${mod_version}"
 displayName="${mod_name}"
-authors="RedxAx, DumbFridge"
+authors="RedxAx"
 description="${mod_description}"
-logoFile="assets/remotely/Reemotely.png"
+logoFile="assets/Remotely.png"
 
 [[dependencies.${mod_id}]]
 modId="neoforge"

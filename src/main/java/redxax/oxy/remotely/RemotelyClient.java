@@ -21,7 +21,6 @@ import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
-import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
 public class RemotelyClient {
 
