@@ -3,6 +3,7 @@ package redxax.oxy.remotely.ui.server;
 import com.google.gson.Gson;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.ui.settings.controllers.*;
+import redxax.oxy.remotely.ui.settings.controllers.ServerBackupSettingsController;
 import restudio.rebase.Rebase;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
@@ -140,6 +141,12 @@ public class ServerConfigurationScreen extends ReScreen {
 
         ServerPerformanceSettingsController performanceController = new ServerPerformanceSettingsController(tempInstance);
         settingsByTab.put("Performance", performanceController::getSettings);
+
+        if (isEditMode) {
+            redxax.oxy.remotely.ui.settings.controllers.ServerBackupSettingsController backupController = 
+                new redxax.oxy.remotely.ui.settings.controllers.ServerBackupSettingsController(this, originalInstance);
+            settingsByTab.put("Backups", backupController::getSettings);
+        }
 
         boolean msmpCompatible = VersionUtil.isMSMPCompatible(tempInstance.getVersionId());
 
