@@ -24,7 +24,7 @@ side="BOTH"
 [[dependencies.${mod_id}]]
 modId="minecraft"
 mandatory=true
-versionRange="[${minor_mc_version}]"
+versionRange="[${minor_mc_version},)"
 ordering="NONE"
 side="BOTH"
 
