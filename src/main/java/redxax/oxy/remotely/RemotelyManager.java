@@ -12,8 +12,10 @@ import restudio.rebase.preset.OptionsPresetManager;
 import restudio.rebase.preset.ResourceListManager;
 import restudio.rebase.resource.InstanceResourceManager;
 import restudio.rebase.resource.ResourceMetadataManager;
+import restudio.rebase.resource.ResourceStateManager;
 import restudio.rebase.resource.UpdateManager;
 import restudio.rebase.resource.provider.*;
+
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.util.PlaytimeManager;
 import restudio.rebase.instance.loaders.FabricHandler;
@@ -58,7 +60,9 @@ public class RemotelyManager implements IRebaseManager {
     private final PlaytimeManager playtimeManager;
     private final ResourceListManager resourceListManager;
     private final ResourceMetadataManager resourceMetadataManager;
+    private final restudio.rebase.resource.ResourceStateManager resourceStateManager;
     private final InstanceResourceManager instanceResourceManager;
+
     private final UpdateManager updateManager;
     private final List<IResourceProvider> resourceProviders;
     private final Path versionsDir;
@@ -79,6 +83,8 @@ public class RemotelyManager implements IRebaseManager {
         this.playtimeManager = new PlaytimeManager(applicationDir);
         this.resourceListManager = new ResourceListManager(applicationDir);
         this.resourceMetadataManager = new ResourceMetadataManager(applicationDir);
+        this.resourceStateManager = new restudio.rebase.resource.ResourceStateManager();
+
 
         this.resourceProviders = List.of(
                 new ModrinthProvider(),
@@ -87,7 +93,7 @@ public class RemotelyManager implements IRebaseManager {
                 new SpigetProvider()
         );
 
-        this.instanceResourceManager = new InstanceResourceManager(resourceMetadataManager, cacheManager, resourceProviders);
+        this.instanceResourceManager = new InstanceResourceManager(resourceMetadataManager, cacheManager, resourceProviders, resourceStateManager);
         this.updateManager = new UpdateManager(applicationDir);
         this.versionsDir = applicationDir.resolve("versions");
         try { Files.createDirectories(this.versionsDir); } catch (IOException ignored) {}
@@ -203,6 +209,12 @@ public class RemotelyManager implements IRebaseManager {
     public InstanceResourceManager getResourceManager() {
         return instanceResourceManager;
     }
+
+    @Override
+    public restudio.rebase.resource.ResourceStateManager getResourceStateManager() {
+        return resourceStateManager;
+    }
+
 
     @Override
     public UpdateManager getUpdateManager() {
