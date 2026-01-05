@@ -28,16 +28,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static restudio.rescreen.config.Config.*;
 import static restudio.rescreen.render.TextRenderer.tr;
+import static restudio.rescreen.theme.ThemeManager.getAnimatedColor;
+import static restudio.rescreen.theme.ThemeManager.getAnimatedValue;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class InstanceResourceWidget extends MountableButtonWidget {
     private final Instance instance;
-    private final InstanceResource resource;
+    private InstanceResource resource;
     private final Runnable refreshCallback;
     private final ReScreen parentScreen;
     private final ToggleWidget toggleButton;
@@ -105,9 +108,7 @@ public class InstanceResourceWidget extends MountableButtonWidget {
             this.toggleButton.setSize(16, 8);
             this.updateButton.setVisible(false);
         } else {
-            this.toggleButton.setValue(resource.isEnabled());
-            this.toggleButton.setSize(0, 0);
-            this.updateButton.setVisible(resource.availableUpdate != null);
+            refreshFromResource();
         }
     }
 
@@ -139,20 +140,40 @@ public class InstanceResourceWidget extends MountableButtonWidget {
     }
 
     private void showUpdateDialog() {
-        if (resource.availableUpdate == null) return;
+        if (resource.getProjectId() == null || resource.getProviderName() == null) {
+            new Notification("Cannot Check Update", "Resource has no project ID", Notification.Type.WARN);
+            return;
+        }
 
+        Rebase.get().getUpdateManager().checkSingleResourceUpdate(instance, resource).thenAcceptAsync(updateOpt -> {
+            if (updateOpt.isEmpty()) {
+                resource.availableUpdate = null;
+                refresh();
+                return;
+            }
+
+            resource.availableUpdate = updateOpt.get();
+            refresh();
+            showUpdatePopup(updateOpt.get());
+        }, ScreenManager.getInstance()::execute).exceptionally(ex -> {
+            new Notification("Check Failed", ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage(), Notification.Type.ERROR);
+            return null;
+        });
+    }
+
+    private void showUpdatePopup(restudio.rebase.resource.provider.OnlineResourceVersion newVersion) {
         PopupWidget.Builder builder = new PopupWidget.Builder("Update " + resource.getName()).size(400, 300).setResizable(true);
 
-        String info = String.format("Current: %s\nNew: %s", resource.getVersion(), resource.availableUpdate.versionNumber);
+        String info = String.format("Current: %s\nNew: %s", resource.getVersion(), newVersion.versionNumber);
         builder.addMarkdown("Version Info", info, 35);
-        builder.addMarkdown("Changelog", resource.availableUpdate.changelog != null ? resource.availableUpdate.changelog : "No changelog provided.", 150);
+        builder.addMarkdown("Changelog", newVersion.changelog != null ? newVersion.changelog : "No changelog provided.", 150);
 
         DownloadProgressWidget progress = new DownloadProgressWidget(0, 0, 200, 18);
         progress.setVisible(false);
         ToggleWidget backupToggle = new ToggleWidget.Builder().toggled(updateBackup).onChange(() -> updateBackup = !updateBackup).build();
         SquareButtonWidget updateBtn = new SquareButtonWidget.Builder().imagePath("download.png").onClick(() -> {
             progress.setVisible(true);
-            Rebase.get().getUpdateManager().performUpdate(instance, resource, resource.availableUpdate, (current, total) -> {
+            Rebase.get().getUpdateManager().performUpdate(instance, resource, newVersion, (current, total) -> {
                 if (total > 0) {
                     progress.updateProgress(String.format("Downloading... %d/%d KB", current / 1024, total / 1024), (int) (current * 100 / total));
                 }
@@ -168,7 +189,7 @@ public class InstanceResourceWidget extends MountableButtonWidget {
 
         builder.addRow("Backup?", false, 18, backupToggle);
         builder.addRow("Update", false, 18, updateBtn);
-        builder.addRow("Progress", true, 20, progress);
+        builder.addRow("Progress", false, false, 20, progress);
 
         PopupWidget popup = builder.build();
         ScreenManager.getInstance().getCurrentScreen().addDrawableChild(popup);
@@ -269,6 +290,12 @@ public class InstanceResourceWidget extends MountableButtonWidget {
     }
 
     @Override
+    public void tick() {
+        super.tick();
+        refreshFromResource();
+    }
+
+    @Override
     public void onClick(double mouseX, double mouseY, int button) {
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastClickTime < 300) {
@@ -281,5 +308,21 @@ public class InstanceResourceWidget extends MountableButtonWidget {
 
     public InstanceResource getResource() {
         return resource;
+    }
+
+    public void setResource(InstanceResource resource) {
+        this.resource = resource;
+        this.setMessage(resource.getName());
+    }
+
+    public void refresh() {
+        refreshFromResource();
+    }
+
+    private void refreshFromResource() {
+        boolean enabled = resource.isEnabled();
+        boolean hasUpdate = resource.availableUpdate != null;
+        this.toggleButton.setValue(enabled);
+        this.updateButton.setVisible(hasUpdate);
     }
 }

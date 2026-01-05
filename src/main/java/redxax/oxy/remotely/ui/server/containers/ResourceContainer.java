@@ -8,6 +8,8 @@ import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.preset.ResourceList;
 import restudio.rebase.resource.InstanceResource;
+import restudio.rebase.resource.ResourceEvent;
+import restudio.rebase.resource.ResourceViewModel;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.resource.UpdateInfo;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
@@ -22,11 +24,12 @@ import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.WatchServiceManager;
 
 import java.nio.file.Path;
+import java.nio.file.StandardWatchEventKinds;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 public class ResourceContainer extends Container {
@@ -57,26 +60,166 @@ public class ResourceContainer extends Container {
 
     private final ReScreen host;
     private Instance instance;
-    private List<InstanceResource> currentResources = new ArrayList<>();
+    private ResourceViewModel viewModel;
     private Map<String, List<String>> resourceGroups = new HashMap<>();
+
     private ContentSort currentSort = ContentSort.NAME_AZ;
     private ContentFilter currentFilter = ContentFilter.ALL;
     private RowWidget selectorsRow;
     private DropDownWidget<String> sortSelector;
     private DropDownWidget<String> filterSelector;
-    private LoadingAnimationWidget loadingWidget;
     private final List<Path> watchedPaths = new ArrayList<>();
 
     public ResourceContainer(ReScreen host, RemotelyClient client, Instance instance, int x, int y, int width, int height) {
         super(x, y, width, height);
         this.host = host;
         this.instance = instance;
+        this.viewModel = new ResourceViewModel(instance);
         layout(new ManagedLayout()).columns(1).padding(2).enableSelecting(true).setRelativeScissor(- 1, - 1, - 1, - 3);
         initializeSelectors();
-        if (instance != null && instance.getResourceGroups() != null) {
-            resourceGroups = new HashMap<>(instance.getResourceGroups());
+        if (instance != null) {
+            if (instance.getResourceGroups() != null) {
+                resourceGroups = new HashMap<>(instance.getResourceGroups());
+            }
+            Rebase.get().getResourceStateManager().addListener(instance, this::onResourceEvent);
         }
         startFileWatchers();
+    }
+
+    private void onResourceEvent(ResourceEvent event) {
+        ScreenManager.getInstance().execute(() -> {
+            switch (event.type()) {
+                case ADDED:
+                    viewModel.addResource(event.resource());
+                    addResourceWidgetIncremental(event.resource());
+                    break;
+                case REMOVED:
+                    viewModel.removeResource(event.resource().getFileName());
+                    removeResourceWidgetIncremental(event.resource());
+                    break;
+                case MODIFIED:
+                case UPDATED:
+                    viewModel.updateResource(event.resource());
+                    updateWidgetInPlace(event.resource());
+                    break;
+                case LOAD_STARTED:
+                    viewModel.setGlobalLoadState(ResourceViewModel.LoadState.LOADING, null);
+                    break;
+                case LOAD_COMPLETED:
+                    viewModel.setGlobalLoadState(ResourceViewModel.LoadState.LOADED, null);
+                    if (event.resources() != null) {
+                        viewModel.addResources(event.resources());
+                        refreshExistingWidgets(event.resources());
+                    }
+                    if (getWidgets().isEmpty()) {
+                        loadResourcesFromModel();
+                    }
+                    break;
+                case LOAD_FAILED:
+                    viewModel.setGlobalLoadState(ResourceViewModel.LoadState.ERROR, "Failed to load");
+                    break;
+            }
+        });
+    }
+
+    private void addResourceWidgetIncremental(InstanceResource resource) {
+        if (!matchesFilter(resource)) return;
+        InstanceResourceWidget widget = new InstanceResourceWidget(host, instance, resource, this::loadResources);
+        widget.setHeight(30);
+
+        List<InstanceResource> sorted = viewModel.getLoadedResources().stream().filter(this::matchesFilter).sorted(getResourceComparator()).toList();
+
+        int index = sorted.indexOf(resource);
+        if (index != -1) {
+            insertWidget(widget, index);
+        }
+    }
+
+    private void removeResourceWidgetIncremental(InstanceResource resource) {
+        for (AnimatedWidget w : getWidgets()) {
+            if (w instanceof InstanceResourceWidget irw) {
+                if (irw.getResource().getFileName().equals(resource.getFileName())) {
+                    removeWidgetAnimated(irw);
+                    break;
+                }
+            }
+        }
+    }
+
+    private void updateWidgetInPlace(InstanceResource resource) {
+        for (AnimatedWidget w : getWidgets()) {
+            if (w instanceof InstanceResourceWidget irw) {
+                if (irw.getResource().getFileName().equals(resource.getFileName())) {
+                    irw.setResource(resource);
+                    irw.refresh();
+                    break;
+                }
+            }
+        }
+    }
+
+    private void refreshExistingWidgets(List<InstanceResource> updatedResources) {
+        for (AnimatedWidget w : getWidgets()) {
+            if (w instanceof InstanceResourceWidget irw) {
+                updatedResources.stream()
+                    .filter(r -> r.getFileName().equals(irw.getResource().getFileName()))
+                    .findFirst()
+                    .ifPresent(irw::setResource);
+                irw.refresh();
+            }
+        }
+    }
+
+    private boolean matchesFilter(InstanceResource r) {
+        if (currentFilter == ContentFilter.ALL) return true;
+        return switch (currentFilter) {
+            case MODS -> r.getType() == ResourceType.MOD;
+            case RESOURCE_PACKS -> r.getType() == ResourcePackType();
+            case SHADER_PACKS -> r.getType() == ResourceType.SHADER_PACK;
+            case DATA_PACKS -> r.getType() == ResourceType.DATA_PACK;
+            case UPDATE_AVAILABLE -> r.availableUpdate != null;
+            case DISABLED -> !r.isEnabled();
+            default -> true;
+        };
+    }
+
+    private ResourceType ResourcePackType() {
+        return ResourceType.RESOURCE_PACK;
+    }
+
+    private void checkForUpdates() {
+        Rebase.get().getUpdateManager().checkForUpdates(instance).thenAcceptAsync(updates -> {
+            for (AnimatedWidget w : getWidgets()) {
+                if (w instanceof InstanceResourceWidget irw) {
+                    InstanceResource r = irw.getResource();
+                    if (r.getProjectId() != null && updates.containsKey(r.getProjectId())) {
+                        r.availableUpdate = updates.get(r.getProjectId());
+                        irw.refresh();
+                    }
+                }
+            }
+        }, ScreenManager.getInstance()::execute);
+    }
+
+    private Comparator<InstanceResource> getResourceComparator() {
+        return (r1, r2) -> {
+            int result = switch (currentSort) {
+                case NAME_AZ -> r1.getName().compareToIgnoreCase(r2.getName());
+                case NAME_ZA -> r2.getName().compareToIgnoreCase(r1.getName());
+                case AUTHOR -> String.join(", ", r1.getAuthors()).compareToIgnoreCase(String.join(", ", r2.getAuthors()));
+                case TYPE -> r1.getType().getDisplayName().compareTo(r2.getType().getDisplayName());
+                case ENABLED -> Boolean.compare(r2.isEnabled(), r1.isEnabled());
+                case UPDATE_AVAILABLE -> Boolean.compare(r2.availableUpdate != null, r1.availableUpdate != null);
+            };
+            if (result == 0 && currentSort != ContentSort.NAME_AZ) {
+                return r1.getName().compareToIgnoreCase(r2.getName());
+            }
+            return result;
+        };
+    }
+
+    private void loadResourcesFromModel() {
+        rebuildResourcesTab();
     }
 
     public void setInstance(Instance newInstance) {
@@ -160,6 +303,7 @@ public class ResourceContainer extends Container {
     public void rebuildResourcesTab() {
         if (instance == null) return;
         clearWidgets();
+        List<InstanceResource> currentResources = viewModel.getLoadedResources();
         if (currentResources.isEmpty()) {
             addWidget(new AnimatedButton.Builder().label("No resources found.").active(false).build());
             updateWidgetPositions();
@@ -232,47 +376,8 @@ public class ResourceContainer extends Container {
 
     public void loadResources() {
         if (instance == null) return;
-        clearWidgets();
-        if (loadingWidget == null) loadingWidget = new LoadingAnimationWidget(0, 0, 0, 0);
-        List<InstanceResource> cached = Rebase.get().getResourceManager().getCachedResourcesSync(instance);
-        if (!cached.isEmpty()) {
-            currentResources = cached;
-            rebuildResourcesTab();
-        }
-        loadingWidget.setSize(getEffectiveWidth(), 100);
-        loadingWidget.setPosition(0, (getHeight() - 100) / 2);
-        addWidget(loadingWidget);
-        updateWidgetPositions();
-
-        CompletableFuture<List<InstanceResource>> resourcesFuture = Rebase.get().getResourceManager().getResources(instance);
-        resourcesFuture.thenCompose(resources ->
-            Rebase.get().getUpdateManager().checkForUpdates(instance).thenApply(updates -> {
-                for (InstanceResource resource : resources) {
-                    resource.availableUpdate = null;
-                    if (resource.getFileHash() != null && updates.containsKey(resource.getFileHash())) {
-                        resource.availableUpdate = updates.get(resource.getFileHash());
-                    }
-                }
-                return resources;
-            })
-        ).thenAccept(loadedResources -> ScreenManager.getInstance().execute(() -> {
-            currentResources = loadedResources;
-            rebuildResourcesTab();
-            removeWidget(loadingWidget);
-            updateWidgetPositions();
-        })).exceptionally(e -> {
-            ScreenManager.getInstance().execute(() -> {
-                clearWidgets();
-                addWidget(new AnimatedButton.Builder().label("Failed to load resources.").active(false).build());
-                updateWidgetPositions();
-            });
-            return null;
-        });
+        Rebase.get().getResourceManager().getResources(instance);
     }
-
-    public List<InstanceResource> getCurrentResources() { return currentResources; }
-
-    public boolean hasCurrentResources() { return !currentResources.isEmpty(); }
 
     public void deleteResources(List<InstanceResource> resourcesToDelete) {
         if (resourcesToDelete == null || resourcesToDelete.isEmpty()) return;
@@ -280,7 +385,6 @@ public class ResourceContainer extends Container {
         List<Path> paths = resourcesToDelete.stream().map(InstanceResource::getPath).toList();
         InstanceApi.of(instance).files().delete(paths).thenRun(() -> ScreenManager.getInstance().execute(() -> {
             List<String> deletedFileNames = resourcesToDelete.stream().map(InstanceResource::getFileName).toList();
-            currentResources.removeAll(resourcesToDelete);
             boolean changed = false;
             if (resourceGroups != null) {
                 for (List<String> groupFiles : resourceGroups.values()) {
@@ -296,7 +400,6 @@ public class ResourceContainer extends Container {
                 instance.setResourceGroups(resourceGroups);
                 instance.save();
             }
-            loadResources();
         })).exceptionally(e -> {
             ScreenManager.getInstance().execute(() -> new Notification("Failed To Delete: ", e.getMessage(), Notification.Type.ERROR));
             return null;
@@ -306,10 +409,70 @@ public class ResourceContainer extends Container {
     public void showUpdateAllDialog() {
         if (instance == null) return;
         List<InstanceResource> updatableResources = getCurrentResources().stream().filter(r -> r.availableUpdate != null).toList();
+
         if (updatableResources.isEmpty()) {
-            new Notification("No Updates Available", "All your resources are up to date.", Notification.Type.INFO);
-            return;
+            showCheckUpdatesDialog();
+        } else {
+            showUpdateDialog(updatableResources);
         }
+    }
+
+    private Notification checkingNotification;
+
+    private void showCheckUpdatesDialog() {
+        if (checkingNotification != null) return;
+
+        checkingNotification = new Notification.Builder()
+                .message("Checking for Updates")
+                .description("Checking all installed resources...")
+                .type(Notification.Type.INFO)
+                .loading(true)
+                .autoSlideOut(false)
+                .build();
+
+        Rebase.get().getUpdateManager().checkForUpdates(instance, (current, total) -> {
+            InstanceResource currentResource = getCurrentResources().get(Math.min(current - 1, getCurrentResources().size() - 1));
+            String resourceName = currentResource != null ? currentResource.getName() : "Unknown";
+            String progress = String.format("(%d/%d) %d%%", current, total, total > 0 ? (int) ((current * 100.0) / total) : 0);
+            checkingNotification.update().message("Checking " + resourceName).description(progress);
+        }).thenAcceptAsync(updates -> {
+            getCurrentResources().forEach(r -> {
+                if (r.getProjectId() != null && updates.containsKey(r.getProjectId())) {
+                    r.availableUpdate = updates.get(r.getProjectId());
+                }
+            });
+            loadResources();
+            checkingNotification.update()
+                    .message("Update Check Complete")
+                    .description(getUpdateCountDescription(updates))
+                    .loading(false)
+                    .type(updates.isEmpty() ? Notification.Type.INFO : Notification.Type.SUCCESS)
+                    .autoSlideOut(true);
+            checkingNotification = null;
+            List<InstanceResource> availableUpdates = getCurrentResources().stream().filter(r -> r.availableUpdate != null).toList();
+            if (!availableUpdates.isEmpty()) {
+                showUpdateDialog(availableUpdates);
+            }
+        }, restudio.rescreen.ui.core.ScreenManager.getInstance()::execute).whenComplete((v, ex) -> {
+            if (ex != null) {
+                checkingNotification.update()
+                        .message("Check Failed")
+                        .description(ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage())
+                        .type(Notification.Type.ERROR)
+                        .loading(false)
+                        .autoSlideOut(true);
+                checkingNotification = null;
+            }
+        });
+    }
+
+    private String getUpdateCountDescription(Map<String, restudio.rebase.resource.provider.OnlineResourceVersion> updates) {
+        int count = updates.size();
+        if (count == 0) return "No updates available";
+        return count + " resource" + (count == 1 ? "" : "s") + " have updates available";
+    }
+
+    private void showUpdateDialog(List<InstanceResource> updatableResources) {
         PopupWidget.Builder builder = new PopupWidget.Builder("Update All Resources").size(400, 200).setResizable(true);
         List<InstanceResourceWidget> resourceWidgets = new ArrayList<>();
         for (InstanceResource resource : updatableResources) {
@@ -440,7 +603,7 @@ public class ResourceContainer extends Container {
         watchedPaths.clear();
     }
 
-    private void startFileWatchers() {
+    public void startFileWatchers() {
         stopFileWatchers();
         if (instance == null) return;
         Path instancePath = Path.of(instance.getPath());
@@ -457,8 +620,22 @@ public class ResourceContainer extends Container {
         Stream.of(modsEquivalent, "resourcepacks", "shaderpacks", "datapacks")
             .map(instancePath::resolve)
             .forEach(path -> {
-                manager.registerWithDebounce(path, () -> ScreenManager.getInstance().execute(this::loadResources), 300);
+                manager.registerIncrementalWithDebounce(path, events -> {
+                    for (WatchServiceManager.FileChangeEvent event : events) {
+                        Path p = event.path();
+                        if (event.kind() == StandardWatchEventKinds.ENTRY_DELETE) {
+                            viewModel.getLoadedResources().stream().filter(r -> r.getPath().equals(p)).findFirst().ifPresent(r -> {
+                                Rebase.get().getResourceManager().handleResourceRemoved(instance, r);
+                                Rebase.get().getResourceStateManager().notifyRemoved(instance, r);
+                            });
+                        } else {
+                            Rebase.get().getResourceManager().loadResource(instance, p);
+                        }
+                    }
+                }, 300);
                 watchedPaths.add(path);
             });
     }
+
+    public List<InstanceResource> getCurrentResources() { return viewModel.getLoadedResources(); }
 }
