@@ -69,6 +69,15 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         ResourceContainer resourceContainer;
         PlayersContainer playersContainer;
         boolean isLocalTerminalMode;
+        void cleanup() {
+            if (resourceContainer != null) {
+                resourceContainer.stopFileWatchers();
+                resourceContainer.detachSelectors();
+            }
+            if (playersContainer != null) {
+                playersContainer.fullRefresh();
+            }
+        }
     }
 
     private final Map<TabContext, ServerContextInfo> contextInfos = new HashMap<>();
@@ -358,19 +367,19 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         TabContext ctx = tabContexts.remove(tab);
         if (ctx != null) {
             ServerContextInfo info = contextInfos.remove(ctx);
+            if (info != null) info.cleanup();
             if (ctx.instance != null) {
                 ctx.instance.removeStateListener(stateListener);
                 remotelyClient.getMultiTerminalTabs().removeIf(o -> (o instanceof Instance i && i.getInstanceId().equals(ctx.instance.getInstanceId())));
                 ctx.instance.getMSMPManager().disconnect();
-            } else if (info.localTerminalId != null) {
+            } else if (info != null && info.localTerminalId != null) {
                 remotelyClient.getMultiTerminalTabs().remove(info.localTerminalId);
             }
-            if (info.terminalWidget != null) {
+            if (info != null && info.terminalWidget != null) {
                 if (info.standardParser != null && ctx.instance != null) ctx.instance.removeLogListener(info.standardParser);
                 if (ctx.instance != null) TerminalWidget.shutdown(ctx.instance.getInstanceId());
                 else TerminalWidget.shutdownLocal(info.localTerminalId);
             }
-            if (info.resourceContainer != null) info.resourceContainer.detachSelectors();
         }
         if (tabs().getTabs().isEmpty()) {
             remotelyClient.setActiveMultiTerminalTabIndex(-1);
@@ -667,6 +676,17 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             info.add("View: " + ctx.selectedViewIndex);
         }
         return info;
+    }
+
+    @Override
+    public void removed() {
+        super.removed();
+        for (ServerContextInfo info : contextInfos.values()) {
+            if (info != null) info.cleanup();
+        }
+        if (instance != null) {
+            instance.removeStateListener(stateListener);
+        }
     }
 
     private static class StreamDataParser implements BiConsumer<Integer, String> {

@@ -18,8 +18,8 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
-import restudio.rescreen.util.FileWatcher;
 import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.WatchServiceManager;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -65,7 +65,7 @@ public class ResourceContainer extends Container {
     private DropDownWidget<String> sortSelector;
     private DropDownWidget<String> filterSelector;
     private LoadingAnimationWidget loadingWidget;
-    private final List<FileWatcher> fileWatchers = new ArrayList<>();
+    private final List<Path> watchedPaths = new ArrayList<>();
 
     public ResourceContainer(ReScreen host, RemotelyClient client, Instance instance, int x, int y, int width, int height) {
         super(x, y, width, height);
@@ -433,8 +433,11 @@ public class ResourceContainer extends Container {
     }
 
     public void stopFileWatchers() {
-        fileWatchers.forEach(FileWatcher::stop);
-        fileWatchers.clear();
+        WatchServiceManager manager = WatchServiceManager.getInstance();
+        for (Path path : watchedPaths) {
+            manager.unregisterAll(path);
+        }
+        watchedPaths.clear();
     }
 
     private void startFileWatchers() {
@@ -450,6 +453,12 @@ public class ResourceContainer extends Container {
             };
         }
 
-        Stream.of(modsEquivalent, "resourcepacks", "shaderpacks", "datapacks").map(instancePath::resolve).forEach(path -> fileWatchers.add(FileWatcher.watch(path, p -> ScreenManager.getInstance().execute(this::loadResources))));
+        WatchServiceManager manager = WatchServiceManager.getInstance();
+        Stream.of(modsEquivalent, "resourcepacks", "shaderpacks", "datapacks")
+            .map(instancePath::resolve)
+            .forEach(path -> {
+                manager.registerWithDebounce(path, () -> ScreenManager.getInstance().execute(this::loadResources), 300);
+                watchedPaths.add(path);
+            });
     }
 }
