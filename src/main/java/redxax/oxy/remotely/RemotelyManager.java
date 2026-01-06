@@ -1,6 +1,7 @@
 package redxax.oxy.remotely;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
+import restudio.rebase.update.ApplicationUpdateManager;
 import restudio.rebase.IRebaseManager;
 import restudio.rebase.account.AccountManager;
 import restudio.rebase.backup.BackupManager;
@@ -17,6 +18,7 @@ import restudio.rebase.resource.UpdateManager;
 import restudio.rebase.resource.provider.*;
 
 import restudio.rebase.restudio.ReStudio;
+import restudio.rebase.update.UpdateAvailablePopup;
 import restudio.rebase.util.PlaytimeManager;
 import restudio.rebase.instance.loaders.FabricHandler;
 import restudio.rebase.instance.loaders.ForgeHandler;
@@ -64,6 +66,7 @@ public class RemotelyManager implements IRebaseManager {
     private final InstanceResourceManager instanceResourceManager;
 
     private final UpdateManager updateManager;
+    private final ApplicationUpdateManager applicationUpdateManager;
     private final List<IResourceProvider> resourceProviders;
     private final Path versionsDir;
     private final Map<ModLoader, ModLoaderHandler> modLoaderHandlers = new HashMap<>();
@@ -84,6 +87,7 @@ public class RemotelyManager implements IRebaseManager {
         this.resourceListManager = new ResourceListManager(applicationDir);
         this.resourceMetadataManager = new ResourceMetadataManager(applicationDir);
         this.resourceStateManager = new restudio.rebase.resource.ResourceStateManager();
+        this.applicationUpdateManager = new ApplicationUpdateManager(applicationDir, this);
 
 
         this.resourceProviders = List.of(
@@ -107,6 +111,10 @@ public class RemotelyManager implements IRebaseManager {
         javaManager.refreshRuntimes();
         BackendFactory.register("LOCAL", (cfg, inst) -> new LocalBackend(cfg != null ? cfg : new BackendConfig("LOCAL", new java.util.HashMap<>()), inst));
         BackendFactory.register("SSH", SshBackend::new);
+
+        if (configManager.isUpdateCheckOnStartup()) {
+            applicationUpdateManager.checkForUpdates().thenAccept(updateOpt -> updateOpt.ifPresent(releaseInfo -> restudio.rescreen.ui.core.ScreenManager.getInstance().execute(() -> UpdateAvailablePopup.show(releaseInfo, applicationUpdateManager))));
+        }
     }
 
     private CompletableFuture<JsonObject> loadRemoteManifest() {
@@ -269,6 +277,11 @@ public class RemotelyManager implements IRebaseManager {
     @Override
     public JavaManager getJavaManager() {
         return javaManager;
+    }
+
+    @Override
+    public ApplicationUpdateManager getApplicationUpdateManager() {
+        return applicationUpdateManager;
     }
 
     @Override
