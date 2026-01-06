@@ -69,6 +69,7 @@ java {
 tasks.jar {
     manifest {
         attributes["Main-Class"] = "redxax.oxy.remotely.RemotelyInit"
+        attributes["Implementation-Version"] = project.version.toString()
         attributes["Class-Path"] = configurations.runtimeClasspath.get().joinToString(separator = " ") { it.name }
     }
     archiveFileName.set("Remotely-App.jar")
@@ -148,5 +149,6 @@ tasks.shadowJar {
     archiveFileName.set("Remotely-Fat.jar")
     manifest {
         attributes["Main-Class"] = "redxax.oxy.remotely.RemotelyInit"
+        attributes["Implementation-Version"] = project.version.toString()
     }
 }
