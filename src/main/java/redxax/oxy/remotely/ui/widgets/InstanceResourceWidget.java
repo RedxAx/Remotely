@@ -296,6 +296,22 @@ public class InstanceResourceWidget extends MountableButtonWidget {
     }
 
     @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (renderingMode == RenderingMode.COMPACT_UPDATE && toggleButton.isVisible()) {
+            int toggleX = getX() + getWidth() - toggleButton.getWidth() - 5;
+            int toggleY = getY() + (getHeight() - toggleButton.getHeight()) / 2;
+            
+            toggleButton.setPosition(toggleX, toggleY);
+            
+            if (mouseX >= toggleX && mouseX <= toggleX + toggleButton.getWidth() &&
+                mouseY >= toggleY && mouseY <= toggleY + toggleButton.getHeight()) {
+                return toggleButton.mouseClicked(mouseX, mouseY, button);
+            }
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
     public void onClick(double mouseX, double mouseY, int button) {
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastClickTime < 300) {
@@ -322,7 +338,11 @@ public class InstanceResourceWidget extends MountableButtonWidget {
     private void refreshFromResource() {
         boolean enabled = resource.isEnabled();
         boolean hasUpdate = resource.availableUpdate != null;
-        this.toggleButton.setValue(enabled);
+        
+        if (renderingMode == RenderingMode.NORMAL) {
+            this.toggleButton.setValue(enabled);
+        }
+        
         this.updateButton.setVisible(hasUpdate);
     }
 }
