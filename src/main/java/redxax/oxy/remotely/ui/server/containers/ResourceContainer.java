@@ -124,6 +124,20 @@ public class ResourceContainer extends Container {
 
     private void addResourceWidgetIncremental(InstanceResource resource) {
         if (!matchesFilter(resource)) return;
+
+        String baseFileName = resource.getFileName().replace(".disabled", "");
+
+        for (AnimatedWidget w : getWidgets()) {
+            if (w instanceof InstanceResourceWidget irw) {
+                String existingBase = irw.getResource().getFileName().replace(".disabled", "");
+                if (existingBase.equals(baseFileName)) {
+                    irw.setResource(resource);
+                    irw.refresh();
+                    return;
+                }
+            }
+        }
+
         InstanceResourceWidget widget = new InstanceResourceWidget(host, instance, resource, this::loadResources);
         widget.setHeight(30);
 
@@ -136,9 +150,19 @@ public class ResourceContainer extends Container {
     }
 
     private void removeResourceWidgetIncremental(InstanceResource resource) {
+        String baseFileName = resource.getFileName().replace(".disabled", "");
+
         for (AnimatedWidget w : getWidgets()) {
             if (w instanceof InstanceResourceWidget irw) {
-                if (irw.getResource().getFileName().equals(resource.getFileName())) {
+                String existingBase = irw.getResource().getFileName().replace(".disabled", "");
+                if (existingBase.equals(baseFileName)) {
+                    boolean stillExists = viewModel.getLoadedResources().stream()
+                            .anyMatch(r -> r.getFileName().replace(".disabled", "").equals(baseFileName));
+                    if (stillExists) {
+                        irw.setResource(resource);
+                        irw.refresh();
+                        return;
+                    }
                     removeWidgetAnimated(irw);
                     break;
                 }
