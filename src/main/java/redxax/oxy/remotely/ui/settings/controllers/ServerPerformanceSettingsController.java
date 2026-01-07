@@ -17,7 +17,6 @@ public class ServerPerformanceSettingsController {
     public List<Setting> getSettings() {
         Setting.Builder performance = new Setting.Builder("Performance Settings");
         Properties props = instance.getServerProperties();
-        Properties settings = instance.getSettings();
 
         performance.addOption(ConfigOption.<Integer>builder("View Distance")
                 .description("The radius of chunks sent to the client.")
@@ -33,20 +32,6 @@ public class ServerPerformanceSettingsController {
                 .bind(() -> Integer.parseInt(props.getProperty("simulation-distance", "10")),
                       val -> props.setProperty("simulation-distance", String.valueOf(val)))
                 .defaultValue(10)
-                .build());
-
-        performance.addOption(ConfigOption.<String>builder("Allocated Memory")
-                .description("Java heap size (e.g., 4G, 2048M).")
-                .bind(() -> settings.getProperty("memory", "4G"),
-                      val -> settings.setProperty("memory", val))
-                .defaultValue("4G")
-                .build());
-
-        performance.addOption(ConfigOption.<Boolean>builder("Use Aikar's Flags")
-                .description("Apply optimized JVM flags for better performance.")
-                .bind(() -> Boolean.parseBoolean(settings.getProperty("aikars_flags", "true")),
-                      val -> settings.setProperty("aikars_flags", String.valueOf(val)))
-                .defaultValue(true)
                 .build());
 
         return List.of(performance.build());
