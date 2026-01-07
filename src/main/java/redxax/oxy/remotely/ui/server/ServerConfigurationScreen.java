@@ -10,7 +10,9 @@ import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.instance.InstanceRepairer;
 import restudio.rebase.instance.InstanceState;
+import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.settings.controllers.VersionSettingsController;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.theme.ThemeManager;
@@ -142,9 +144,11 @@ public class ServerConfigurationScreen extends ReScreen {
         ServerPerformanceSettingsController performanceController = new ServerPerformanceSettingsController(tempInstance);
         settingsByTab.put("Performance", performanceController::getSettings);
 
+        ServerJvmSettingsController javaController = new ServerJvmSettingsController(tempInstance, (redxax.oxy.remotely.config.RemotelyConfigManager) Rebase.get().getConfigManager());
+        settingsByTab.put("Java", javaController::getSettings);
+
         if (isEditMode) {
-            redxax.oxy.remotely.ui.settings.controllers.ServerBackupSettingsController backupController = 
-                new redxax.oxy.remotely.ui.settings.controllers.ServerBackupSettingsController(this, originalInstance);
+            ServerBackupSettingsController backupController = new ServerBackupSettingsController(this, originalInstance);
             settingsByTab.put("Backups", backupController::getSettings);
         }
 
@@ -245,7 +249,7 @@ public class ServerConfigurationScreen extends ReScreen {
     private void editServer() {
         originalInstance.setName(tempInstance.getName());
 
-        restudio.rebase.instance.loaders.ModLoader oldLoader = originalInstance.getModLoader();
+        ModLoader oldLoader = originalInstance.getModLoader();
         String oldVersion = originalInstance.getVersionId();
 
         originalInstance.setModLoader(tempInstance.getModLoader());
@@ -256,6 +260,8 @@ public class ServerConfigurationScreen extends ReScreen {
 
         originalInstance.save();
         originalInstance.saveServerProperties();
+
+        InstanceRepairer.createStartScript(originalInstance).join();
 
         boolean versionChanged = oldLoader != originalInstance.getModLoader() || (oldVersion == null ? originalInstance.getVersionId() != null : !oldVersion.equals(originalInstance.getVersionId()));
         boolean isRemote = originalInstance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(originalInstance.getBackendConfig().type);
