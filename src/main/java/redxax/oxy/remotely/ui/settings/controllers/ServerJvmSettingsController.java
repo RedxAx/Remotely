@@ -1,7 +1,6 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
 import com.sun.management.OperatingSystemMXBean;
-import redxax.oxy.remotely.config.RemotelyConfigManager;
 import restudio.rebase.Rebase;
 import restudio.rebase.backend.ServerBackend;
 import restudio.rebase.java.JavaManager;
@@ -15,6 +14,7 @@ import restudio.rescreen.util.Notification;
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
@@ -22,15 +22,14 @@ import java.util.regex.Pattern;
 
 public class ServerJvmSettingsController {
     private final restudio.rebase.instance.Instance instance;
-    private final RemotelyConfigManager configManager;
     private final JavaManager javaManager;
     private static final int MIN_RAM_MB = 512;
     private final int maxSystemRamMb;
     private final boolean isRemote;
+    private Map<String, String> remoteVariables;
 
-    public ServerJvmSettingsController(restudio.rebase.instance.Instance instance, RemotelyConfigManager configManager) {
+    public ServerJvmSettingsController(restudio.rebase.instance.Instance instance) {
         this.instance = instance;
-        this.configManager = configManager;
         this.javaManager = Rebase.get().getJavaManager();
 
         ServerBackend backend = instance.getBackend();
@@ -40,86 +39,107 @@ public class ServerJvmSettingsController {
         this.maxSystemRamMb = (int) (osBean.getTotalMemorySize() / 1024 / 1024);
     }
 
+    public void bindToRemoteVariables(Map<String, String> vars) {
+        this.remoteVariables = vars;
+    }
+
     public List<Setting> getSettings() {
         Setting.Builder builder = new Setting.Builder("Java Configuration");
 
-        String currentJvmArgs = getJvmArgs();
-        String currentJavaPath = parseJavaPath(currentJvmArgs);
-        String remoteJavaPath = parseRemoteJavaPath(currentJvmArgs);
-
-        if (isRemote) {
-            TextInputWidget remoteJavaInput = new TextInputWidget.Builder()
-                    .text(remoteJavaPath != null ? remoteJavaPath : "java")
-                    .placeholder("Remote Java Path (e.g., /usr/lib/jvm/java-21-openjdk/bin/java)")
-                    .onChange(text -> updateJvmArgs(null, parseRam(getJvmArgs()), parseAdditionalArgs(getJvmArgs()), text))
+        if (remoteVariables != null) {
+            TextInputWidget jarFile = new TextInputWidget.Builder()
+                    .text(remoteVariables.getOrDefault("SERVER_JARFILE", "server.jar"))
+                    .onChange(t -> remoteVariables.put("SERVER_JARFILE", t))
                     .size(500, 20)
                     .build();
-            builder.addRow("Remote Java Path", true, 20, remoteJavaInput);
-        } else {
-            List<JavaRuntime> runtimes = new ArrayList<>();
-            JavaRuntime defaultRuntime = new JavaRuntime("Auto-detect (Default)", null, false);
-            runtimes.add(defaultRuntime);
-            runtimes.addAll(javaManager.getRuntimes());
+            builder.addRow("Server Jar File", true, 20, jarFile);
 
-            JavaRuntime selectedRuntime = runtimes.stream()
-                    .filter(r -> Objects.equals(r.getPath(), currentJavaPath))
-                    .findFirst()
-                    .orElse(defaultRuntime);
-
-            DropDownWidget<JavaRuntime> javaDropdown = new DropDownWidget.Builder<>(runtimes)
-                    .displayFunction(JavaRuntime::getName)
-                    .selectedItem(selectedRuntime)
-                    .onSelectionChanged(runtime -> {
-                        updateJvmArgs(runtime.getPath(), parseRam(getJvmArgs()), parseAdditionalArgs(getJvmArgs()), null);
-                        checkCompatibility(runtime);
-                    })
-                    .size(300, 20)
+            TextInputWidget maxRam = new TextInputWidget.Builder()
+                    .text(remoteVariables.getOrDefault("MAXIMUM_RAM", "90"))
+                    .onChange(t -> remoteVariables.put("MAXIMUM_RAM", t))
+                    .size(60, 20)
                     .build();
-            builder.addRow("Java Runtime", true, 20, javaDropdown);
+            builder.addRow("Max RAM (%)", true, 20, maxRam);
+
+        } else {
+            String currentJvmArgs = getJvmArgs();
+            String currentJavaPath = parseJavaPath(currentJvmArgs);
+            String remoteJavaPath = parseRemoteJavaPath(currentJvmArgs);
+
+            if (isRemote) {
+                TextInputWidget remoteJavaInput = new TextInputWidget.Builder()
+                        .text(remoteJavaPath != null ? remoteJavaPath : "java")
+                        .placeholder("Remote Java Path (e.g., /usr/lib/jvm/java-21-openjdk/bin/java)")
+                        .onChange(text -> updateJvmArgs(null, parseRam(getJvmArgs()), parseAdditionalArgs(getJvmArgs()), text))
+                        .size(500, 20)
+                        .build();
+                builder.addRow("Remote Java Path", true, 20, remoteJavaInput);
+            } else {
+                List<JavaRuntime> runtimes = new ArrayList<>();
+                JavaRuntime defaultRuntime = new JavaRuntime("Auto-detect (Default)", null, false);
+                runtimes.add(defaultRuntime);
+                runtimes.addAll(javaManager.getRuntimes());
+
+                JavaRuntime selectedRuntime = runtimes.stream()
+                        .filter(r -> Objects.equals(r.getPath(), currentJavaPath))
+                        .findFirst()
+                        .orElse(defaultRuntime);
+
+                DropDownWidget<JavaRuntime> javaDropdown = new DropDownWidget.Builder<>(runtimes)
+                        .displayFunction(JavaRuntime::getName)
+                        .selectedItem(selectedRuntime)
+                        .onSelectionChanged(runtime -> {
+                            updateJvmArgs(runtime.getPath(), parseRam(getJvmArgs()), parseAdditionalArgs(getJvmArgs()), null);
+                            checkCompatibility(runtime);
+                        })
+                        .size(300, 20)
+                        .build();
+                builder.addRow("Java Runtime", true, 20, javaDropdown);
+            }
+
+            int currentRamMb = parseRam(currentJvmArgs);
+            String additionalArgs = parseAdditionalArgs(currentJvmArgs);
+
+            AtomicReference<DoubleSliderWidget> ramSliderRef = new AtomicReference<>();
+            AtomicReference<TextInputWidget> ramInputRef = new AtomicReference<>();
+
+            double sliderValue = Math.max(0, (double) (currentRamMb - MIN_RAM_MB) / (maxSystemRamMb - MIN_RAM_MB));
+
+            DoubleSliderWidget ramSlider = new DoubleSliderWidget.Builder()
+                    .value(sliderValue)
+                    .onChange(() -> {
+                        int newRam = MIN_RAM_MB + (int) (ramSliderRef.get().getValue() * (maxSystemRamMb - MIN_RAM_MB));
+                        newRam = (newRam / 256) * 256;
+                        ramInputRef.get().setText(String.valueOf(newRam));
+                        updateJvmArgs(isRemote ? null : parseJavaPath(getJvmArgs()), newRam, parseAdditionalArgs(getJvmArgs()), isRemote ? parseRemoteJavaPath(getJvmArgs()) : null);
+                    })
+                    .size(230, 20)
+                    .build();
+            ramSliderRef.set(ramSlider);
+
+            TextInputWidget ramInput = new TextInputWidget.Builder()
+                    .text(String.valueOf(currentRamMb))
+                    .size(60, 20)
+                    .onChange(text -> {
+                        try {
+                            int newRam = Integer.parseInt(text);
+                            if (newRam >= MIN_RAM_MB && newRam <= maxSystemRamMb) {
+                                ramSliderRef.get().setValue((double) (newRam - MIN_RAM_MB) / (maxSystemRamMb - MIN_RAM_MB));
+                                updateJvmArgs(isRemote ? null : parseJavaPath(getJvmArgs()), newRam, parseAdditionalArgs(getJvmArgs()), isRemote ? parseRemoteJavaPath(getJvmArgs()) : null);
+                            }
+                        } catch (NumberFormatException ignored) {}
+                    })
+                    .build();
+            ramInputRef.set(ramInput);
+
+            builder.addRow("Memory (MB)", true, 20, ramSlider, ramInput);
+
+            TextInputWidget jvmArgsInput = new TextInputWidget.Builder()
+                    .text(additionalArgs)
+                    .onChange(text -> updateJvmArgs(isRemote ? null : parseJavaPath(getJvmArgs()), parseRam(getJvmArgs()), text, isRemote ? parseRemoteJavaPath(getJvmArgs()) : null))
+                    .build();
+            builder.addRow("Additional JVM Arguments", true, 20, jvmArgsInput);
         }
-
-        int currentRamMb = parseRam(currentJvmArgs);
-        String additionalArgs = parseAdditionalArgs(currentJvmArgs);
-
-        AtomicReference<DoubleSliderWidget> ramSliderRef = new AtomicReference<>();
-        AtomicReference<TextInputWidget> ramInputRef = new AtomicReference<>();
-
-        double sliderValue = Math.max(0, (double) (currentRamMb - MIN_RAM_MB) / (maxSystemRamMb - MIN_RAM_MB));
-
-        DoubleSliderWidget ramSlider = new DoubleSliderWidget.Builder()
-                .value(sliderValue)
-                .onChange(() -> {
-                    int newRam = MIN_RAM_MB + (int) (ramSliderRef.get().getValue() * (maxSystemRamMb - MIN_RAM_MB));
-                    newRam = (newRam / 256) * 256;
-                    ramInputRef.get().setText(String.valueOf(newRam));
-                    updateJvmArgs(isRemote ? null : parseJavaPath(getJvmArgs()), newRam, parseAdditionalArgs(getJvmArgs()), isRemote ? parseRemoteJavaPath(getJvmArgs()) : null);
-                })
-                .size(230, 20)
-                .build();
-        ramSliderRef.set(ramSlider);
-
-        TextInputWidget ramInput = new TextInputWidget.Builder()
-                .text(String.valueOf(currentRamMb))
-                .size(60, 20)
-                .onChange(text -> {
-                    try {
-                        int newRam = Integer.parseInt(text);
-                        if (newRam >= MIN_RAM_MB && newRam <= maxSystemRamMb) {
-                            ramSliderRef.get().setValue((double) (newRam - MIN_RAM_MB) / (maxSystemRamMb - MIN_RAM_MB));
-                            updateJvmArgs(isRemote ? null : parseJavaPath(getJvmArgs()), newRam, parseAdditionalArgs(getJvmArgs()), isRemote ? parseRemoteJavaPath(getJvmArgs()) : null);
-                        }
-                    } catch (NumberFormatException ignored) {}
-                })
-                .build();
-        ramInputRef.set(ramInput);
-
-        builder.addRow("Memory (MB)", true, 20, ramSlider, ramInput);
-
-        TextInputWidget jvmArgsInput = new TextInputWidget.Builder()
-                .text(additionalArgs)
-                .onChange(text -> updateJvmArgs(isRemote ? null : parseJavaPath(getJvmArgs()), parseRam(getJvmArgs()), text, isRemote ? parseRemoteJavaPath(getJvmArgs()) : null))
-                .build();
-        builder.addRow("Additional JVM Arguments", true, 20, jvmArgsInput);
 
         return List.of(builder.build());
     }
