@@ -13,6 +13,7 @@ import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceRepairer;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.settings.controllers.VersionSettingsController;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.theme.ThemeManager;
@@ -33,6 +34,7 @@ import java.util.function.Supplier;
 
 import static restudio.rescreen.util.SoundUtils.playSound;
 
+@SuppressWarnings("unchecked")
 public class ServerConfigurationScreen extends ReScreen {
     private final Screen parent;
     private final boolean isEditMode;
@@ -40,6 +42,10 @@ public class ServerConfigurationScreen extends ReScreen {
     private final Instance tempInstance;
     private final RemoteHost remoteHostContext;
     private final RemotelyClient remotelyClient;
+
+    private final Map<String, String> remoteVariables = new HashMap<>();
+    private final boolean isReStudioBackend;
+    private String serverIdentifier;
 
     public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient) {
         super();
@@ -52,6 +58,8 @@ public class ServerConfigurationScreen extends ReScreen {
         if (isEditMode) {
             this.tempInstance = new Instance(instance, instance.getName());
             boolean isRemote = instance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
+            this.isReStudioBackend = instance.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type);
+            this.serverIdentifier = isReStudioBackend ? instance.getBackendConfig().credentials.get("identifier") : null;
 
             if (isRemote || remoteHostContext != null) {
                 if (remoteHostContext != null) {
@@ -67,6 +75,7 @@ public class ServerConfigurationScreen extends ReScreen {
             }
         } else {
             this.tempInstance = new Instance("New Server", remotelyClient.getHost().getGameVersion(), "");
+            this.isReStudioBackend = false;
             if (remoteHostContext != null) {
                 Map<String, String> creds = new HashMap<>();
                 creds.put("host", remoteHostContext.getIp());
@@ -88,6 +97,7 @@ public class ServerConfigurationScreen extends ReScreen {
         CompletableFuture<Void> propertiesFuture;
         CompletableFuture<Void> settingsFuture;
         CompletableFuture<List<String>> filesFuture;
+        CompletableFuture<Void> remoteConfigFuture;
 
         boolean isRemote = tempInstance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(tempInstance.getBackendConfig().type);
 
@@ -99,17 +109,36 @@ public class ServerConfigurationScreen extends ReScreen {
                 propertiesFuture = CompletableFuture.runAsync(tempInstance::loadServerProperties);
                 settingsFuture = CompletableFuture.completedFuture(null);
             }
-            filesFuture = RebaseApiFactory.get(tempInstance).listDirectory(Path.of(tempInstance.getPath()))
-                .thenApply(entries -> entries.stream().map(RebaseAPI.FileEntry::toString).toList())
-                .exceptionally(e -> new ArrayList<>());
+            filesFuture = RebaseApiFactory.get(tempInstance).listDirectory(Path.of(tempInstance.getPath())).thenApply(entries -> entries.stream().map(RebaseAPI.FileEntry::toString).toList()).exceptionally(e -> new ArrayList<>());
+
+            if (isReStudioBackend) {
+                remoteConfigFuture = ReStudio.getInstance().getApi().getServerStartupConfig(serverIdentifier).thenAccept(data -> {
+                    if (data.containsKey("data")) {
+                        List<Map<String, Object>> vars = (List<Map<String, Object>>) data.get("data");
+                        for (Map<String, Object> varWrapper : vars) {
+                            Map<String, Object> attr = (Map<String, Object>) varWrapper.get("attributes");
+                            String key = (String) attr.get("env_variable");
+                            String val = (String) attr.get("server_value");
+                            remoteVariables.put(key, val);
+                        }
+                    }
+                }).exceptionally(e -> {
+                    System.err.println("Failed to fetch startup config: " + e.getMessage());
+                    return null;
+                });
+            } else {
+                remoteConfigFuture = CompletableFuture.completedFuture(null);
+            }
+
         } else {
             tempInstance.loadServerProperties();
             propertiesFuture = CompletableFuture.completedFuture(null);
             settingsFuture = CompletableFuture.completedFuture(null);
             filesFuture = CompletableFuture.completedFuture(new ArrayList<>());
+            remoteConfigFuture = CompletableFuture.completedFuture(null);
         }
 
-        CompletableFuture.allOf(propertiesFuture, settingsFuture, filesFuture).thenRun(() -> {
+        CompletableFuture.allOf(propertiesFuture, settingsFuture, filesFuture, remoteConfigFuture).thenRun(() -> {
             List<String> files = filesFuture.join();
             ScreenManager.getInstance().execute(() -> setupSettingsUI(files));
         }).exceptionally(e -> {
@@ -125,7 +154,14 @@ public class ServerConfigurationScreen extends ReScreen {
         Map<String, Supplier<List<Setting>>> settingsByTab = new LinkedHashMap<>();
         List<Runnable> cleanupActions = new ArrayList<>();
 
-        VersionSettingsController versionController = new VersionSettingsController(tempInstance);
+        VersionSettingsController versionController;
+        if (isReStudioBackend) {
+            versionController = new VersionSettingsController(tempInstance);
+            versionController.bindToRemoteVariables(remoteVariables);
+        } else {
+            versionController = new VersionSettingsController(tempInstance);
+        }
+
         ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance);
 
         settingsByTab.put("General", () -> {
@@ -134,6 +170,11 @@ public class ServerConfigurationScreen extends ReScreen {
             settings.addAll(versionController.getSettings());
             return settings;
         });
+
+        if (isReStudioBackend) {
+            ServerEggSettingsController eggController = new ServerEggSettingsController(remoteVariables, true);
+            settingsByTab.put("Installer", eggController::getSettings);
+        }
 
         ServerAdvancedSettingsController advancedController = new ServerAdvancedSettingsController(tempInstance);
         settingsByTab.put("Advanced", advancedController::getSettings);
@@ -144,7 +185,10 @@ public class ServerConfigurationScreen extends ReScreen {
         ServerPerformanceSettingsController performanceController = new ServerPerformanceSettingsController(tempInstance);
         settingsByTab.put("Performance", performanceController::getSettings);
 
-        ServerJvmSettingsController javaController = new ServerJvmSettingsController(tempInstance, (redxax.oxy.remotely.config.RemotelyConfigManager) Rebase.get().getConfigManager());
+        ServerJvmSettingsController javaController = new ServerJvmSettingsController(tempInstance);
+        if (isReStudioBackend) {
+            javaController.bindToRemoteVariables(remoteVariables);
+        }
         settingsByTab.put("Java", javaController::getSettings);
 
         if (isEditMode) {
@@ -263,13 +307,17 @@ public class ServerConfigurationScreen extends ReScreen {
 
         InstanceRepairer.createStartScript(originalInstance).join();
 
+        if (isReStudioBackend) {
+            saveRemoteVariables();
+        }
+
         boolean versionChanged = oldLoader != originalInstance.getModLoader() || (oldVersion == null ? originalInstance.getVersionId() != null : !oldVersion.equals(originalInstance.getVersionId()));
         boolean isRemote = originalInstance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(originalInstance.getBackendConfig().type);
 
         if (versionChanged) {
             Notification notification = new Notification.Builder().message("Applying Version Changes...").autoSlideOut(false).image(Identifier.animatedIcon("loadingGreen.png")).animateImage(true).accent(ThemeManager.getAccent("calm")).build();
 
-            if (isRemote) {
+            if (isRemote && !isReStudioBackend) {
                 RemoteHost host = remoteHostContext;
                 if(host == null) {
                     for(RemoteHost h : Rebase.get().getInstanceManager().getRemoteHosts()) {
@@ -298,7 +346,7 @@ public class ServerConfigurationScreen extends ReScreen {
                 } else {
                     notification.update().message("Update Failed").description("Could not resolve remote host context").type(Notification.Type.ERROR);
                 }
-            } else {
+            } else if (!isReStudioBackend) {
                 Rebase.get().getInstanceManager().createInstance(originalInstance, notification).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
                     notification.update().message("Server Updated Successfully!").description("Version changes applied.").type(Notification.Type.SUCCESS).loading(false).image(null);
                     notification.loading = false;
@@ -312,10 +360,27 @@ public class ServerConfigurationScreen extends ReScreen {
                     });
                     return null;
                 });
+            } else {
+                notification.update().message("Server Configuration Saved").description("Settings updated on panel.").type(Notification.Type.SUCCESS).loading(false).image(null).autoSlideOut(true);
             }
         } else {
             new Notification(originalInstance.getName() + " Edited Successfully!", Notification.Type.SUCCESS);
         }
+    }
+
+    private void saveRemoteVariables() {
+        if (!isReStudioBackend || remoteVariables.isEmpty()) return;
+
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+
+        for (Map.Entry<String, String> entry : remoteVariables.entrySet()) {
+            futures.add(ReStudio.getInstance().getApi().updateServerStartupVariable(serverIdentifier, entry.getKey(), entry.getValue()));
+        }
+
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).exceptionally(e -> {
+            ScreenManager.getInstance().execute(() -> new Notification("Save Warning", "Some startup variables failed to update.", Notification.Type.WARN));
+            return null;
+        });
     }
 
     @Override
