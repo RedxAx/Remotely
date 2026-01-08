@@ -439,10 +439,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 RemoteHost finalRh = rh;
                 ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
 
-                if (!isRestudio) {
-                    builder.addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings");
-                }
-
+                builder.addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings");
                 builder.addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getInstance(), Path.of(widget.getInstance().getPath()), remotelyDir, false)), "Open Server's Folder");
 
                 if (rh == null && !isRestudio) {
