@@ -347,7 +347,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     creds.put("host", csv.sftpIp);
                     creds.put("port", String.valueOf(csv.sftpPort));
                     creds.put("user", csv.sftpUser);
-                    creds.put("password", sftpSecret);
+                    creds.put("password", sftpSecret != null ? sftpSecret : "");
 
                     BackendConfig config = new BackendConfig("RESTUDIO", creds);
 
