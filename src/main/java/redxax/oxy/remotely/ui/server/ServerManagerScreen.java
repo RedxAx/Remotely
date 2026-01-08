@@ -8,6 +8,7 @@ import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.instance.InstanceState;
+import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.restudio.AuthStateListener;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.restudio.api.models.ServerModels;
@@ -42,6 +43,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
@@ -67,7 +69,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
     private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
     private InstanceManager instanceManager;
-    private final List<Instance> restudioInstances = new ArrayList<>();
+    private final List<Instance> restudioInstances = new CopyOnWriteArrayList<>();
 
     public ServerManagerScreen(Object parent, RemotelyClient remotelyClient) {
         super();
@@ -359,8 +361,20 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                         inst.setState(InstanceState.STOPPED);
                     }
 
+                    if (csv.loader != null) {
+                        try {
+                            inst.setModLoader(ModLoader.valueOf(csv.loader));
+                        } catch (IllegalArgumentException ignored) {
+                            inst.setModLoader(ModLoader.VANILLA);
+                        }
+                    }
+                    if (csv.version != null) {
+                        inst.setVersionId(csv.version);
+                    }
+
                     restudioInstances.add(inst);
                 }
+
                 return null;
             })
         ).whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
