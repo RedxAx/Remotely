@@ -346,7 +346,13 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                     }
                 }
                 if (info.playersContainer != null) info.playersContainer.fullRefresh();
-            }));
+            })).exceptionally(e -> {
+                ScreenManager.getInstance().execute(() -> {
+                    new Notification("Config Load Failed", e.getMessage(), Notification.Type.ERROR);
+                    setupTerminalListeners(ctx.instance, info);
+                });
+                return null;
+            });
 
             if (VersionUtil.isMSMPCompatible(ctx.instance.getVersionId())) {
                 ctx.instance.getMSMPManager().handleInstanceStateChange(ctx.instance.getState());
