@@ -1,7 +1,5 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
-import redxax.oxy.remotely.backup.ServerBackupInfo;
-import redxax.oxy.remotely.backup.ServerBackupType;
 import restudio.rebase.Rebase;
 import restudio.rebase.backup.BackupInfo;
 import restudio.rebase.instance.Instance;
@@ -22,7 +20,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
