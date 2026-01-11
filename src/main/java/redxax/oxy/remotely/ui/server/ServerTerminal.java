@@ -22,8 +22,6 @@ public class ServerTerminal extends TerminalWidget {
     private static final Pattern PROGRESS_TAG_PATTERN = Pattern.compile("\\[Progress:(\\d{1,3})]\\s*(.*)");
 
     private boolean isReconnecting = false;
-    // explicitDisconnect indicates a "soft" disconnect was detected (e.g. "Server is offline"),
-    // used to prevent the "Connecting..." flicker before the connection loss handler runs.
     private volatile boolean explicitDisconnect = false;
     private boolean forceStoppedView = false;
     private String reconnectReason = "";
@@ -135,7 +133,6 @@ public class ServerTerminal extends TerminalWidget {
             reconnectingMessage.setPosition(getX() + (getWidth() - reconnectingMessage.getWidth()) / 2, getY() + (getHeight() - reconnectingMessage.getHeight()) / 2);
             reconnectingMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
         } else if (!isTerminalReady() && !explicitDisconnect && !forceStoppedView && !(getInstance() != null && getInstance().getBackend() instanceof LocalBackend)) {
-            // Only show "Connecting..." if we are not in an explicit disconnect state and not forced to stopped view.
             connectingMessage.setPosition(getX() + (getWidth() - connectingMessage.getWidth()) / 2, getY() + (getHeight() - connectingMessage.getHeight()) / 2);
             connectingMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
         } else {

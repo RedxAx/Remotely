@@ -640,7 +640,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             TabContext ctx = getActiveContext();
             ServerContextInfo info = contextInfos.get(ctx);
             if (ctx != null && !ctx.views.isEmpty()) onViewChanged(ctx, ctx.views.get(ctx.selectedViewIndex));
-            if (info != null && info.playersContainer != null) info.playersContainer.rebuildPlayerWidgets();
+            if (info != null && info.playersContainer != null) info.playersContainer.fullRefresh();
             if (ctx != null && ctx.instance != null) ctx.instance.getMSMPManager().handleInstanceStateChange(newState);
         });
     }

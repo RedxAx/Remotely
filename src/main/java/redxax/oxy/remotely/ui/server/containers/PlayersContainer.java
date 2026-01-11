@@ -1,8 +1,9 @@
 package redxax.oxy.remotely.ui.server.containers;
 
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.remotely.data.managed.ManagedPlayer;
 import redxax.oxy.remotely.data.managed.PlayerAction;
+import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
+import redxax.oxy.remotely.ui.widgets.management.BanPlayerPopup;
 import redxax.oxy.remotely.ui.widgets.management.PlayerEntryWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.instance.Instance;
@@ -12,6 +13,11 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
 
 public class PlayersContainer extends Container {
     private final ReScreen host;
@@ -35,12 +41,52 @@ public class PlayersContainer extends Container {
         controller.setUiBindings(this, terminalWidget);
     }
 
-    public void rebuildPlayerWidgets() {
-        if (controller != null) controller.rebuildPlayerWidgets();
-    }
-
     public void fullRefresh() {
         if (controller != null) controller.fullRefresh();
+    }
+
+    public void syncUi(List<UnifiedPlayer> snapshot) {
+        if (snapshot == null) return;
+        List<UnifiedPlayer> processingList = new ArrayList<>(snapshot);
+        List<AnimatedWidget> toRemove = new ArrayList<>();
+
+        for (AnimatedWidget w : getWidgets()) {
+            if (w instanceof PlayerEntryWidget pew) {
+                UnifiedPlayer existing = pew.getPlayer();
+                UnifiedPlayer match = processingList.stream()
+                        .filter(p -> p.getUuid().equals(existing.getUuid()))
+                        .findFirst().orElse(null);
+
+                if (match != null) {
+                    pew.update(match);
+                    processingList.remove(match);
+                } else {
+                    toRemove.add(pew);
+                }
+            } else {
+                if (!snapshot.isEmpty()) toRemove.add(w);
+            }
+        }
+
+        for (AnimatedWidget w : toRemove) {
+            this.removeWidget(w);
+        }
+
+        for (UnifiedPlayer p : processingList) {
+            this.addWidget(new PlayerEntryWidget(p, controller));
+        }
+
+        this.sortWidgets((w1, w2) -> {
+            if (w1 instanceof PlayerEntryWidget p1 && w2 instanceof PlayerEntryWidget p2) {
+                UnifiedPlayer u1 = p1.getPlayer();
+                UnifiedPlayer u2 = p2.getPlayer();
+                if (u1.isOnline() != u2.isOnline()) return u1.isOnline() ? -1 : 1;
+                return u1.getName().compareToIgnoreCase(u2.getName());
+            }
+            return 0;
+        });
+
+        this.updateWidgetPositions();
     }
 
     @Override
@@ -80,7 +126,7 @@ public class PlayersContainer extends Container {
     private void showPlayersContextMenu(double mouseX, double mouseY) {
         java.util.List<AnimatedWidget> selected = getSelectedWidgets();
         if (selected.isEmpty()) return;
-        java.util.List<ManagedPlayer> players = new java.util.ArrayList<>();
+        List<UnifiedPlayer> players = new ArrayList<>();
         for (AnimatedWidget w : selected) {
             if (w instanceof PlayerEntryWidget pew) {
                 players.add(pew.getPlayer());
@@ -95,7 +141,7 @@ public class PlayersContainer extends Container {
 
         builder.addItem("LuckPerms Dashboard", controller::openLuckPermsDashboard, "Open full editor");
 
-        java.util.List<PlayerAction> actions = controller.getPlayerActions();
+        List<PlayerAction> actions = controller.getPlayerActions();
         if (actions != null) {
             for (PlayerAction action : actions) {
                 builder.addHeaderButton(action.icon, () -> showCustomActionMultiPopup(action, players), action.name);
@@ -104,20 +150,20 @@ public class PlayersContainer extends Container {
         host.showContextMenu((int) mouseX, (int) mouseY, builder);
     }
 
-    private void kickSelected(java.util.List<ManagedPlayer> players) {
-        for (ManagedPlayer p : players) controller.kickPlayer(p, "Kicked by operator");
+    private void kickSelected(List<UnifiedPlayer> players) {
+        for (UnifiedPlayer p : players) controller.kickPlayer(p, "Kicked by operator");
     }
 
-    private void unbanSelected(java.util.List<ManagedPlayer> players) {
-        for (ManagedPlayer p : players) controller.unbanPlayer(p);
+    private void unbanSelected(List<UnifiedPlayer> players) {
+        for (UnifiedPlayer p : players) controller.unbanPlayer(p);
     }
 
-    private void toggleOpSelected(java.util.List<ManagedPlayer> players) {
-        for (ManagedPlayer p : players) controller.toggleOp(p);
+    private void toggleOpSelected(List<UnifiedPlayer> players) {
+        for (UnifiedPlayer p : players) controller.toggleOp(p);
     }
 
-    private java.util.List<String> findCustomVariables(String command) {
-        java.util.List<String> variables = new java.util.ArrayList<>();
+    private List<String> findCustomVariables(String command) {
+        List<String> variables = new ArrayList<>();
         java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\$([a-zA-Z0-9_]+)");
         java.util.regex.Matcher matcher = pattern.matcher(command);
         while (matcher.find()) {
@@ -126,13 +172,13 @@ public class PlayersContainer extends Container {
                 variables.add(var);
             }
         }
-        return new java.util.ArrayList<>(variables);
+        return new ArrayList<>(variables);
     }
 
-    private void showCustomActionMultiPopup(PlayerAction action, java.util.List<ManagedPlayer> players) {
-        java.util.List<String> variables = findCustomVariables(action.command);
+    private void showCustomActionMultiPopup(PlayerAction action, List<UnifiedPlayer> players) {
+        List<String> variables = findCustomVariables(action.command);
         if (variables.isEmpty()) {
-            for (ManagedPlayer p : players) controller.runCustomCommand(p, action.command);
+            for (UnifiedPlayer p : players) controller.runCustomCommand(p, action.command);
             return;
         }
         PopupWidget.Builder builder = new PopupWidget.Builder("Execute: " + action.name)
@@ -145,7 +191,7 @@ public class PlayersContainer extends Container {
                 template = template.replace("$" + entry.getKey(), value);
             }
             final String command = template;
-            for (ManagedPlayer p : players) controller.runCustomCommand(p, command);
+            for (UnifiedPlayer p : players) controller.runCustomCommand(p, command);
             builder.getWidget().setVisible(false);
         };
         for (String var : variables) {
@@ -168,7 +214,7 @@ public class PlayersContainer extends Container {
         popup.show();
     }
 
-    private void showBanMultiPopup(java.util.List<ManagedPlayer> players) {
+    private void showBanMultiPopup(List<UnifiedPlayer> players) {
         PopupWidget.Builder builder = new PopupWidget.Builder("Ban Selected")
             .size(320, 120).setAntiOutOfBound(true).setResizable(true);
         TextInputWidget reason = new TextInputWidget.Builder().placeholder("Reason").size(280, 18).build();
@@ -178,7 +224,7 @@ public class PlayersContainer extends Container {
         builder.addTitleButton(() -> {
             String r = reason.getText().trim();
             boolean ip = ipBan.getValue();
-            for (ManagedPlayer p : players) controller.banPlayer(p, r.isEmpty() ? "Banned by operator" : r, ip);
+            for (UnifiedPlayer p : players) controller.banPlayer(p, r.isEmpty() ? "Banned by operator" : r, ip);
             builder.getWidget().setVisible(false);
         }, "Ban", ThemeManager.getAccent("danger"));
         PopupWidget popup = builder.build();
