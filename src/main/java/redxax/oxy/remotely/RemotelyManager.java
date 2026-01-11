@@ -1,6 +1,7 @@
 package redxax.oxy.remotely;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
+import restudio.rebase.backend.impl.ReStudioBackend;
 import restudio.rebase.update.ApplicationUpdateManager;
 import restudio.rebase.IRebaseManager;
 import restudio.rebase.account.AccountManager;
@@ -13,7 +14,6 @@ import restudio.rebase.preset.OptionsPresetManager;
 import restudio.rebase.preset.ResourceListManager;
 import restudio.rebase.resource.InstanceResourceManager;
 import restudio.rebase.resource.ResourceMetadataManager;
-import restudio.rebase.resource.ResourceStateManager;
 import restudio.rebase.resource.UpdateManager;
 import restudio.rebase.resource.provider.*;
 
@@ -111,6 +111,7 @@ public class RemotelyManager implements IRebaseManager {
         javaManager.refreshRuntimes();
         BackendFactory.register("LOCAL", (cfg, inst) -> new LocalBackend(cfg != null ? cfg : new BackendConfig("LOCAL", new java.util.HashMap<>()), inst));
         BackendFactory.register("SSH", SshBackend::new);
+        BackendFactory.register("RESTUDIO", ReStudioBackend::new);
 
         if (configManager.isUpdateCheckOnStartup()) {
             applicationUpdateManager.checkForUpdates().thenAccept(updateOpt -> updateOpt.ifPresent(releaseInfo -> restudio.rescreen.ui.core.ScreenManager.getInstance().execute(() -> UpdateAvailablePopup.show(releaseInfo, applicationUpdateManager))));

@@ -6,8 +6,12 @@ import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
+import restudio.rebase.backend.BackendConfig;
+import restudio.rebase.instance.InstanceState;
+import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.restudio.AuthStateListener;
 import restudio.rebase.restudio.ReStudio;
+import restudio.rebase.restudio.api.models.ServerModels;
 import restudio.rebase.ui.screens.auth.ReStudioLoginScreen;
 import restudio.rebase.ui.screens.feedback.FeedbackBrowserScreen;
 import restudio.rebase.ui.screens.notification.InboxScreen;
@@ -39,6 +43,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
@@ -64,6 +69,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
     private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
     private InstanceManager instanceManager;
+    private final List<Instance> restudioInstances = new CopyOnWriteArrayList<>();
 
     public ServerManagerScreen(Object parent, RemotelyClient remotelyClient) {
         super();
@@ -212,6 +218,14 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
     private void populateHostTabs() {
         tabs().addTab("Local", activeContainer).setData(null);
+
+        if (ReStudio.getInstance().isAuthenticated()) {
+            Container c = createContainer("desktop_restudio", 0, 0, width, height - 35);
+            DesktopLayout remoteLayout = new DesktopLayout();
+            c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
+            tabs().addTab("ReStudio", c).setData("RESTUDIO_MARKER");
+        }
+
         for (RemoteHost host : instanceManager.getRemoteHosts()) {
             Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
             DesktopLayout remoteLayout = new DesktopLayout();
@@ -228,14 +242,20 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         if (activeContainer == null) return;
         activeContainer.clearWidgets();
 
-        List<Instance> instances = new ArrayList<>(getCurrentServers());
+        List<Instance> instances;
+        Object tabData = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
+
+        if ("RESTUDIO_MARKER".equals(tabData)) {
+            instances = new ArrayList<>(restudioInstances);
+        } else {
+            instances = new ArrayList<>(getCurrentServers());
+        }
 
         String context = "local";
-        if (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null) {
-            Object data = tabs().getActiveTab().getData();
-            if (data instanceof RemoteHost host) {
-                context = "remote." + host.name;
-            }
+        if (tabData instanceof RemoteHost host) {
+            context = "remote." + host.name;
+        } else if ("RESTUDIO_MARKER".equals(tabData)) {
+            context = "remote.restudio";
         }
 
         RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
@@ -257,7 +277,10 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         for (Instance server : instances) {
             addServerWidget(server, false);
         }
-        addServerWidget(null, true);
+        if (!"RESTUDIO_MARKER".equals(tabData)) {
+            addServerWidget(null, true);
+        }
+
         activeContainer.updateWidgetPositions();
     }
 
@@ -272,6 +295,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         String context = "local";
         if (host != null) {
             context = "remote." + host.name;
+        } else if (tabs().getActiveTab() != null && "RESTUDIO_MARKER".equals(tabs().getActiveTab().getData())) {
+            context = "remote.restudio";
         }
 
         RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
@@ -302,14 +327,68 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 instanceManager.fetchRemoteInstances(host)
                     .whenComplete((v, e) -> ScreenManager.getInstance().execute(this::loadServersForCurrentTab));
             }
+        } else if ("RESTUDIO_MARKER".equals(data)) {
+            fetchReStudioServers();
         }
 
         loadServersForCurrentTab();
         Main.setTitle(tab.getName() + " Host - Remotely Server Manager");
     }
 
+    private void fetchReStudioServers() {
+        if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getAccent("calm"));
+
+        ReStudio.getInstance().getApi().getSftpPassword().thenCompose(sftpSecret ->
+            ReStudio.getInstance().getApi().getServers().thenApply(servers -> {
+                restudioInstances.clear();
+                for (ServerModels.ClientServerView csv : servers) {
+                    Map<String, String> creds = new HashMap<>();
+                    creds.put("identifier", csv.identifier);
+                    creds.put("host", csv.sftpIp);
+                    creds.put("port", String.valueOf(csv.sftpPort));
+                    creds.put("user", csv.sftpUser);
+                    creds.put("password", sftpSecret != null ? sftpSecret : "");
+
+                    BackendConfig config = new BackendConfig("RESTUDIO", creds);
+
+                    Instance inst = new Instance(csv.name, "unknown", "");
+                    inst.setBackendConfig(config);
+                    inst.setServer(true);
+                    if (csv.isInstalling) {
+                        inst.setState(InstanceState.INSTALLING);
+                    }
+                    if (csv.isSuspended) {
+                        inst.setState(InstanceState.STOPPED);
+                    }
+
+                    if (csv.loader != null) {
+                        try {
+                            inst.setModLoader(ModLoader.valueOf(csv.loader));
+                        } catch (IllegalArgumentException ignored) {
+                            inst.setModLoader(ModLoader.VANILLA);
+                        }
+                    }
+                    if (csv.version != null) {
+                        inst.setVersionId(csv.version);
+                    }
+
+                    restudioInstances.add(inst);
+                }
+
+                return null;
+            })
+        ).whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
+            if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getDefaultAccent());
+            if (e != null) {
+                new Notification("Error fetching ReStudio servers", e.getMessage(), Notification.Type.ERROR);
+                if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getAccent("danger"));
+            } else {
+                loadServersForCurrentTab();
+            }
+        }));
+    }
+
     private void onHostTabClosed(TabsManager.Tab tab) {
-        System.out.println("Requesting deletion of remote host");
         if (tab != null && tab.getData() instanceof RemoteHost host) {
             ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this).addIconItem("Confirm Deletion", "delete.png", () -> {
                 instanceManager.removeRemoteHost(host);
@@ -342,33 +421,41 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
                 Instance inst = widget.getInstance();
                 RemoteHost rh = null;
-                if(inst.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(inst.getBackendConfig().type)) {
-                    for(RemoteHost h : instanceManager.getRemoteHosts()) {
-                        if(inst.getBackendConfig().credentials.getOrDefault("host", "").equals(h.getIp())) {
-                            rh = h;
-                            break;
+                boolean isRestudio = false;
+
+                if (inst.getBackendConfig() != null) {
+                    if ("RESTUDIO".equalsIgnoreCase(inst.getBackendConfig().type)) {
+                        isRestudio = true;
+                    } else if (!"LOCAL".equalsIgnoreCase(inst.getBackendConfig().type)) {
+                        for(RemoteHost h : instanceManager.getRemoteHosts()) {
+                            if(inst.getBackendConfig().credentials.getOrDefault("host", "").equals(h.getIp())) {
+                                rh = h;
+                                break;
+                            }
                         }
                     }
                 }
 
                 RemoteHost finalRh = rh;
-                ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
-                    .addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings")
-                    .addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getInstance(), Path.of(widget.getInstance().getPath()), remotelyDir, false)), "Open Server's Folder");
+                ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
 
-                if (rh == null) {
+                builder.addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings");
+                builder.addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getInstance(), Path.of(widget.getInstance().getPath()), remotelyDir, false)), "Open Server's Folder");
+
+                if (rh == null && !isRestudio) {
                     builder.addHeaderButton("map.png", () -> openWorldScreen(widget.getInstance()), "View World Map");
                 }
 
-                builder.addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server")
-                    .addHeaderButton("delete.png", () -> {
+                if (!isRestudio) {
+                    builder.addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server").addHeaderButton("delete.png", () -> {
                         instanceForDeletion = widget.getInstance();
                         deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
                         deleteServerPopup.setY((this.height - deleteServerPopup.getHeight())/2);
                         deleteServerPopup.show();
                     }, "Show Deletion Options", ThemeManager.getAccent("danger"));
+                }
 
-                if (rh == null) {
+                if (rh == null && !isRestudio) {
                     builder.addIconItem("Customize Icon", "shades.png", () -> customizeIcon(inst), "");
                 }
                 showContextMenu(widget.getX() + widget.getWidth() + 4, widget.getY() + 24, builder);
@@ -423,11 +510,10 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         if (active == null) {
             return instanceManager.getLocalInstances();
         }
-        int idx = tabs().getActiveTabIndex();
-        if (idx <= 0) {
-            return instanceManager.getLocalInstances();
-        }
         Object data = active.getData();
+        if ("RESTUDIO_MARKER".equals(data)) {
+            return restudioInstances;
+        }
         if (!(data instanceof RemoteHost host)) {
             return instanceManager.getLocalInstances();
         }
@@ -572,8 +658,9 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
     private void openRemoteHostPopup(boolean isEditing) {
         int activeTabIndex = tabs().getActiveTabIndex();
-        if (isEditing && activeTabIndex > 0 && tabs().getActiveTab() != null) {
-            RemoteHost host = (RemoteHost) tabs().getTabs().get(activeTabIndex).getData();
+        Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
+
+        if (isEditing && activeTabIndex > 0 && data instanceof RemoteHost host) {
             remoteHostConfirmButton.setMessage(("Save"));
             remoteHostDeleteButton.visible = true;
 
@@ -646,8 +733,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void onDeleteRemoteHost() {
-        if (tabs().getActiveTabIndex() > 0) {
-            RemoteHost hostToRemove = (RemoteHost) tabs().getActiveTab().getData();
+        if (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab().getData() instanceof RemoteHost hostToRemove) {
             instanceManager.removeRemoteHost(hostToRemove);
             tabs().removeTab(tabs().getActiveTabIndex());
             tabs().setActiveTab(0);
@@ -681,7 +767,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void openModpackInstallation() {
-        RemoteHost currentHost = (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null) ? (RemoteHost) tabs().getActiveTab().getData() : null;
+        RemoteHost currentHost = (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null && tabs().getActiveTab().getData() instanceof RemoteHost) ? (RemoteHost) tabs().getActiveTab().getData() : null;
         client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, currentHost));
     }
 

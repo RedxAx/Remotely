@@ -22,9 +22,14 @@ public class ServerTerminal extends TerminalWidget {
     private static final Pattern PROGRESS_TAG_PATTERN = Pattern.compile("\\[Progress:(\\d{1,3})]\\s*(.*)");
 
     private boolean isReconnecting = false;
+    private volatile boolean explicitDisconnect = false;
+    private boolean forceStoppedView = false;
     private String reconnectReason = "";
     private int reconnectCountdown = 3;
     private long lastTick = 0;
+
+    private final Consumer<InstanceState> stateListener;
+    private final Consumer<String> logListener;
 
     public ServerTerminal(int x, int y, int width, int height, Instance instance, ExecutionProvider executionProvider) {
         super(x, y, width, height, instance, executionProvider);
@@ -32,9 +37,16 @@ public class ServerTerminal extends TerminalWidget {
         this.connectingMessage = new IconMessage(0, 0, 64, 64, "Connecting...", "reverse.png");
         this.installingMessage = new IconMessage(0, 0, 64, 64, "Installing...\nPreparing", "remotely.png");
         this.reconnectingMessage = new IconMessage(0, 0, 64, 64, "Connection Lost\nReconnecting...", "reverse.png");
-        Consumer<String> logListener = this::onLogLine;
-        if (getInstance() != null) getInstance().getLogger().addLogListener(logListener);
 
+        this.logListener = this::onLogLine;
+        this.stateListener = this::onStateChange;
+
+        if (getInstance() != null) {
+            getInstance().getLogger().addLogListener(logListener);
+            getInstance().addStateListener(stateListener);
+        }
+
+        this.addOutputListener(this::onTerminalOutput);
         this.setOnConnectionLost(this::handleConnectionLost);
     }
 
@@ -61,6 +73,17 @@ public class ServerTerminal extends TerminalWidget {
         }
 
         ScreenManager.getInstance().execute(() -> {
+            if (explicitDisconnect) {
+                explicitDisconnect = false;
+                isReconnecting = false;
+                forceStoppedView = true;
+                if (getInstance() != null) {
+                    getInstance().setState(InstanceState.STOPPED);
+                }
+                stopProcess();
+                return;
+            }
+
             if (!isReconnecting) {
                 isReconnecting = true;
                 reconnectReason = reason != null ? reason : "Unknown error";
@@ -68,6 +91,18 @@ public class ServerTerminal extends TerminalWidget {
                 lastTick = System.currentTimeMillis();
             }
         });
+    }
+
+    private void onStateChange(InstanceState newState) {
+        if (newState == InstanceState.STARTING || newState == InstanceState.RUNNING) {
+            ScreenManager.getInstance().execute(() -> {
+                forceStoppedView = false;
+                explicitDisconnect = false;
+                if (!isTerminalReady() && !isReconnecting) {
+                    startServerProcess();
+                }
+            });
+        }
     }
 
     @Override
@@ -97,7 +132,7 @@ public class ServerTerminal extends TerminalWidget {
         } else if (isReconnecting) {
             reconnectingMessage.setPosition(getX() + (getWidth() - reconnectingMessage.getWidth()) / 2, getY() + (getHeight() - reconnectingMessage.getHeight()) / 2);
             reconnectingMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
-        } else if (!isTerminalReady() && !(getInstance() != null && getInstance().getBackend() instanceof LocalBackend)) {
+        } else if (!isTerminalReady() && !explicitDisconnect && !forceStoppedView && !(getInstance() != null && getInstance().getBackend() instanceof LocalBackend)) {
             connectingMessage.setPosition(getX() + (getWidth() - connectingMessage.getWidth()) / 2, getY() + (getHeight() - connectingMessage.getHeight()) / 2);
             connectingMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
         } else {
@@ -109,7 +144,7 @@ public class ServerTerminal extends TerminalWidget {
 
             boolean hasContent = getHistoryLinesCount() > 0 || getCursorY() > 4;
 
-            if (isStopped && !hasContent) {
+            if (isStopped && (!hasContent || forceStoppedView)) {
                 stoppedMessage.setPosition(getX() + (getWidth() - stoppedMessage.getWidth()) / 2, getY() + (getHeight() - stoppedMessage.getHeight()) / 2);
                 stoppedMessage.render(ctx, mouseX, mouseY, Config.deltaTime);
             } else {
@@ -118,7 +153,15 @@ public class ServerTerminal extends TerminalWidget {
         }
     }
 
+    private void onTerminalOutput(String msg) {
+        if (msg == null) return;
+        if (msg.contains("Server is offline.")) {
+            explicitDisconnect = true;
+        }
+    }
+
     private void onLogLine(String msg) {
+        if (msg == null) return;
         Matcher m = PROGRESS_TAG_PATTERN.matcher(msg);
         if (m.find()) {
             try {
