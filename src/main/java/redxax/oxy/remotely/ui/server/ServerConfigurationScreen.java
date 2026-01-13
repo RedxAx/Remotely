@@ -309,9 +309,13 @@ public class ServerConfigurationScreen extends ReScreen {
         originalInstance.getServerProperties().putAll(tempInstance.getServerProperties());
 
         originalInstance.save();
-        originalInstance.saveServerProperties();
+        if (!isReStudioBackend) {
+            originalInstance.saveServerProperties();
+        }
 
-        InstanceRepairer.createStartScript(originalInstance).join();
+        if (!isReStudioBackend) {
+            InstanceRepairer.createStartScript(originalInstance).join();
+        }
 
         if (isReStudioBackend) {
             saveRemoteVariables();
@@ -403,7 +407,7 @@ public class ServerConfigurationScreen extends ReScreen {
                 .message("Server Reinstall Required")
                 .description("Changes to " + String.join(", ", reinstallTriggeringChanges) + " will trigger a server reinstall.")
                 .type(Notification.Type.WARN)
-                .autoSlideOut(false)
+                .autoSlideOut(true)
                 .build();
         }
 

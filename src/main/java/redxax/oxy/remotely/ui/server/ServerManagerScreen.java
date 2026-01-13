@@ -145,7 +145,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
     @Override
     public void onLogin(String email) {
-        new Notification.Builder().message("Welcome back!").description("Email: " + (Config.showIp ? "" : "§k") + email).type(Notification.Type.SUCCESS).build();
+        new Notification.Builder().message("Welcome back!").description("Email: " + (!Config.obfuscate ? "" : "§k") + email).type(Notification.Type.SUCCESS).build();
     }
 
     @Override

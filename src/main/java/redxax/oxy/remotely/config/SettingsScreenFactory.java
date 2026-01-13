@@ -5,7 +5,7 @@ import restudio.rebase.settings.controllers.*;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.SettingsScreen;
-import restudio.rescreen.ui.settings.options.ConfigOption;
+import restudio.rescreen.ui.settings.controllers.DevelopmentSettingsController;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -48,19 +48,7 @@ public class SettingsScreenFactory {
         settingsByTab.put("Presets", presetSettings::getSettings);
 
         DevelopmentSettingsController devController = new DevelopmentSettingsController(configManager);
-        settingsByTab.put("Development", () -> {
-            List<Setting> devSettings = new ArrayList<>(devController.getSettings());
-
-            Setting.Builder extraBuilder = new Setting.Builder("Network Display");
-            extraBuilder.addOption(ConfigOption.<Boolean>builder("Show IP Address")
-                .description("Don't Obfuscate IP Addresses (§kBurger§r).")
-                .bind(configManager::getShowIp, configManager::setShowIp)
-                .defaultValue(true)
-                .build());
-            devSettings.add(extraBuilder.build());
-
-            return devSettings;
-        });
+        settingsByTab.put("Development", devController::getSettings);
 
         return new SettingsScreen(parent, "Remotely Settings", settingsByTab, () -> {
             if (configManager != null) configManager.save();
