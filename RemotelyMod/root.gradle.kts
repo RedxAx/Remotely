@@ -5,19 +5,19 @@ plugins {
 preprocess {
     strictExtraMappings.set(true)
 
-    "1.21.10-neoforge"(1_21_10, "srg") {
+//    "1.21.10-neoforge"(1_21_10, "srg") {
         "1.21.10-fabric"(1_21_10, "srg") {
             "1.21.9-fabric"(1_21_09, "srg") {
-                "1.21.9-neoforge"(1_21_09, "srg") {
-                    "1.21.8-neoforge"(1_21_08, "srg") {
+//                "1.21.9-neoforge"(1_21_09, "srg") {
+//                    "1.21.8-neoforge"(1_21_08, "srg") {
                         "1.21.8-fabric"(1_21_08, "srg") {
                             "1.21.7-fabric"(1_21_07, "srg") {
-                                "1.21.7-neoforge"(1_21_07, "srg") {
-                                    "1.21.6-neoforge"(1_21_06, "srg") {
+//                                "1.21.7-neoforge"(1_21_07, "srg") {
+//                                    "1.21.6-neoforge"(1_21_06, "srg") {
                                         "1.21.6-fabric"(1_21_06, "srg") {
                                             "1.21.5-fabric"(1_21_05, "srg") {
-                                                "1.21.5-neoforge"(1_21_05, "srg") {
-                                                    "1.21.4-neoforge"(1_21_04, "srg") {
+//                                                "1.21.5-neoforge"(1_21_05, "srg") {
+//                                                    "1.21.4-neoforge"(1_21_04, "srg") {
                                                         "1.21.4-fabric"(1_21_04, "srg") {
 //                                                            "1.21.3-fabric"(1_21_03, "srg") {
 //                                                                "1.21.3-neoforge"(1_21_03, "srg") {
@@ -73,17 +73,17 @@ preprocess {
 //                                                                }
 //                                                            }
                                                         }
-                                                    }
-                                                }
+//                                                    }
+//                                                }
                                             }
                                         }
-                                    }
-                                }
+//                                    }
+//                                }
                             }
                         }
-                    }
-                }
+//                    }
+//                }
             }
         }
-    }
+//    }
 }
