@@ -44,8 +44,13 @@ public class ServerConfigurationScreen extends ReScreen {
     private final RemotelyClient remotelyClient;
 
     private final Map<String, String> remoteVariables = new HashMap<>();
+    private final Map<String, String> originalRemoteVariables = new HashMap<>();
     private final boolean isReStudioBackend;
     private String serverIdentifier;
+
+    private static final Set<String> REINSTALL_TRIGGERING_VARS = Set.of(
+        "VERSION", "SOFTWARE", "BUILD", "MODPACK_SOURCE", "DOWNLOAD_URL", "AUTOMATIC_UPDATING"
+    );
 
     public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient) {
         super();
@@ -120,6 +125,7 @@ public class ServerConfigurationScreen extends ReScreen {
                             String key = (String) attr.get("env_variable");
                             String val = (String) attr.get("server_value");
                             remoteVariables.put(key, val);
+                            originalRemoteVariables.put(key, val);
                         }
                     }
                 }).exceptionally(e -> {
@@ -371,10 +377,34 @@ public class ServerConfigurationScreen extends ReScreen {
     private void saveRemoteVariables() {
         if (!isReStudioBackend || remoteVariables.isEmpty()) return;
 
+        Set<String> reinstallTriggeringChanges = new HashSet<>();
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
         for (Map.Entry<String, String> entry : remoteVariables.entrySet()) {
-            futures.add(ReStudio.getInstance().getApi().updateServerStartupVariable(serverIdentifier, entry.getKey(), entry.getValue()));
+            String key = entry.getKey();
+            String newValue = entry.getValue();
+            String oldValue = originalRemoteVariables.get(key);
+
+            if (!newValue.equals(oldValue)) {
+                futures.add(ReStudio.getInstance().getApi().updateServerStartupVariable(serverIdentifier, key, newValue));
+
+                if (REINSTALL_TRIGGERING_VARS.contains(key)) {
+                    reinstallTriggeringChanges.add(key);
+                }
+            }
+        }
+
+        if (futures.isEmpty()) {
+            return;
+        }
+
+        if (!reinstallTriggeringChanges.isEmpty()) {
+            new Notification.Builder()
+                .message("Server Reinstall Required")
+                .description("Changes to " + String.join(", ", reinstallTriggeringChanges) + " will trigger a server reinstall.")
+                .type(Notification.Type.WARN)
+                .autoSlideOut(false)
+                .build();
         }
 
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).exceptionally(e -> {
