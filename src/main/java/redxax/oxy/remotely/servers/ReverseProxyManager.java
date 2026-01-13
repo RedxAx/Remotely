@@ -24,9 +24,7 @@ public class ReverseProxyManager {
     private record ProxySession(SSHClient client, int allocatedRemotePort) {}
 
     public static void reverse(int localPort, Runnable onComplete) {
-        Notification notification = new Notification("Reversing " + localPort + "...", Notification.Type.INFO);
-        notification.autoSlideOut = false;
-        notification.loading = true;
+        Notification notification = new Notification.Builder().message("Reversing " + localPort + "...").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
 
         if (activeSessions.containsKey(localPort)) {
             ProxySession existing = activeSessions.get(localPort);
