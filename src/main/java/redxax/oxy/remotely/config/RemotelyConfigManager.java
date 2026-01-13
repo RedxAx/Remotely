@@ -28,7 +28,7 @@ public class RemotelyConfigManager extends RebaseConfigManager {
         Config.mainMenuStyle = getMainMenuStyle();
         Config.redesignMainMenu = getRedesignMainMenu();
         Config.scanServers = getScanServers();
-        Config.showIp = getShowIp();
+        Config.obfuscate = getObfuscate();
     }
 
     public boolean getWallpaper() { return Boolean.parseBoolean(properties.getProperty("remotely.wallpaper", "false")); }
@@ -61,8 +61,8 @@ public class RemotelyConfigManager extends RebaseConfigManager {
     public boolean getScanServers() { return Boolean.parseBoolean(properties.getProperty("remotely.scanServers", "true")); }
     public void setScanServers(boolean value) { properties.setProperty("remotely.scanServers", String.valueOf(value)); save(); apply(); }
 
-    public boolean getShowIp() { return Boolean.parseBoolean(properties.getProperty("remotely.showIp", "true")); }
-    public void setShowIp(boolean value) { properties.setProperty("remotely.showIp", String.valueOf(value)); save(); apply(); }
+    public boolean getObfuscate() { return Boolean.parseBoolean(properties.getProperty("remotely.showIp", "true")); }
+    public void setObfuscate(boolean value) { properties.setProperty("remotely.showIp", String.valueOf(value)); save(); apply(); }
 
     public List<String> getInstanceOrder(String context) {
         String val = properties.getProperty("remotely.order." + context, "");
