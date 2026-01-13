@@ -65,13 +65,6 @@ public class ServerEggSettingsController {
                 .defaultValue("None")
                 .build());
 
-        advanced.addOption(ConfigOption.<Boolean>builder("Override Startup")
-                .description("Override startup command to support variables.")
-                .bind(() -> "1".equals(remoteVariables.getOrDefault("OVERRIDE_STARTUP", "1")),
-                      val -> remoteVariables.put("OVERRIDE_STARTUP", val ? "1" : "0"))
-                .defaultValue(true)
-                .build());
-
         advanced.addOption(ConfigOption.<Boolean>builder("Auto Update")
                 .description("Automatically update server software on restart.")
                 .bind(() -> "1".equals(remoteVariables.getOrDefault("AUTOMATIC_UPDATING", "0")),
