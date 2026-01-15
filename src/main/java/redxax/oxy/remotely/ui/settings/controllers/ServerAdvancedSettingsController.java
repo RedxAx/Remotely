@@ -9,9 +9,11 @@ import java.util.Properties;
 
 public class ServerAdvancedSettingsController {
     private final Instance instance;
+    private final boolean isReStudioCreation;
 
-    public ServerAdvancedSettingsController(Instance instance) {
+    public ServerAdvancedSettingsController(Instance instance, boolean isReStudioCreation) {
         this.instance = instance;
+        this.isReStudioCreation = isReStudioCreation;
     }
 
     public List<Setting> getSettings() {
@@ -48,12 +50,15 @@ public class ServerAdvancedSettingsController {
                 .defaultValue(16)
                 .build());
 
-        advanced.addOption(ConfigOption.<String>builder("Server Port")
+        if (!isReStudioCreation) {
+            advanced.addOption(ConfigOption.<String>builder("Server Port")
                 .description("The port the server listens on.")
                 .bind(() -> props.getProperty("server-port", "25565"),
-                      val -> props.setProperty("server-port", val))
+                    val -> props.setProperty("server-port", val))
                 .defaultValue("25565")
                 .build());
+        }
+
 
         advanced.addOption(ConfigOption.<Boolean>builder("Online Mode")
                 .description("Verify player accounts with Mojang servers.")

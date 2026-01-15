@@ -27,11 +27,14 @@ import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
+import java.io.IOException;
+import java.io.StringWriter;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
+import static restudio.rescreen.util.BrowserUtils.openBrowser;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 @SuppressWarnings("unchecked")
@@ -42,23 +45,30 @@ public class ServerConfigurationScreen extends ReScreen {
     private final Instance tempInstance;
     private final RemoteHost remoteHostContext;
     private final RemotelyClient remotelyClient;
+    private final boolean isReStudioCreation;
 
     private final Map<String, String> remoteVariables = new HashMap<>();
     private final Map<String, String> originalRemoteVariables = new HashMap<>();
     private final boolean isReStudioBackend;
     private String serverIdentifier;
+    private ServerPlanSettingsController planController;
 
     private static final Set<String> REINSTALL_TRIGGERING_VARS = Set.of(
         "VERSION", "SOFTWARE", "BUILD", "MODPACK_SOURCE", "DOWNLOAD_URL", "AUTOMATIC_UPDATING"
     );
 
     public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient) {
+        this(parent, instance, remoteHostContext, remotelyClient, false);
+    }
+
+    public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient, boolean isReStudioCreation) {
         super();
         this.parent = parent;
         this.isEditMode = instance != null;
         this.originalInstance = instance;
         this.remoteHostContext = remoteHostContext;
         this.remotelyClient = remotelyClient;
+        this.isReStudioCreation = isReStudioCreation;
 
         if (isEditMode) {
             this.tempInstance = new Instance(instance, instance.getName());
@@ -141,6 +151,13 @@ public class ServerConfigurationScreen extends ReScreen {
             propertiesFuture = CompletableFuture.completedFuture(null);
             settingsFuture = CompletableFuture.completedFuture(null);
             filesFuture = CompletableFuture.completedFuture(new ArrayList<>());
+
+            if (isReStudioCreation) {
+                remoteVariables.put("SOFTWARE", "PAPER");
+                remoteVariables.put("VERSION", "latest");
+                remoteVariables.put("BUILD", "latest");
+            }
+
             remoteConfigFuture = CompletableFuture.completedFuture(null);
         }
 
@@ -161,7 +178,7 @@ public class ServerConfigurationScreen extends ReScreen {
         List<Runnable> cleanupActions = new ArrayList<>();
 
         VersionSettingsController versionController;
-        if (isReStudioBackend) {
+        if (isReStudioBackend || isReStudioCreation) {
             versionController = new VersionSettingsController(tempInstance);
             versionController.bindToRemoteVariables(remoteVariables);
         } else {
@@ -170,19 +187,21 @@ public class ServerConfigurationScreen extends ReScreen {
 
         ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance);
 
+        if (isReStudioCreation) {
+            planController = new ServerPlanSettingsController();
+        }
+
         settingsByTab.put("General", () -> {
             List<Setting> settings = new ArrayList<>();
+            if (planController != null) {
+                settings.addAll(planController.getSettings());
+            }
             settings.addAll(generalController.getSettings());
             settings.addAll(versionController.getSettings());
             return settings;
         });
 
-        if (isReStudioBackend) {
-            ServerEggSettingsController eggController = new ServerEggSettingsController(remoteVariables, true);
-            settingsByTab.put("Installer", eggController::getSettings);
-        }
-
-        ServerAdvancedSettingsController advancedController = new ServerAdvancedSettingsController(tempInstance);
+        ServerAdvancedSettingsController advancedController = new ServerAdvancedSettingsController(tempInstance, isReStudioCreation);
         settingsByTab.put("Advanced", advancedController::getSettings);
 
         ServerFeatureSettingsController featureController = new ServerFeatureSettingsController(tempInstance);
@@ -192,7 +211,7 @@ public class ServerConfigurationScreen extends ReScreen {
         settingsByTab.put("Performance", performanceController::getSettings);
 
         ServerJvmSettingsController javaController = new ServerJvmSettingsController(tempInstance);
-        if (isReStudioBackend) {
+        if (isReStudioBackend || isReStudioCreation) {
             javaController.bindToRemoteVariables(remoteVariables);
         }
         settingsByTab.put("Java", javaController::getSettings);
@@ -231,19 +250,26 @@ public class ServerConfigurationScreen extends ReScreen {
             }
         }
 
-        if (!isEditMode) {
+        if (!isEditMode && !isReStudioCreation) {
             ServerExtraSettingsController extraController = new ServerExtraSettingsController(tempInstance, extraFiles);
             settingsByTab.put("Extra Files", extraController::getSettings);
         }
 
         Runnable combinedCleanup = () -> cleanupActions.forEach(Runnable::run);
 
-        SettingsScreen settingsScreen = new SettingsScreen(parent, isEditMode ? "Edit " + originalInstance.getName() : "Create New Server", settingsByTab, this::saveConfiguration, combinedCleanup);
+        String title = isEditMode ? "Edit " + originalInstance.getName() : "Create New Server";
+        if (isReStudioCreation) {
+            title = "Order New Server";
+        }
+
+        SettingsScreen settingsScreen = new SettingsScreen(parent, title, settingsByTab, this::saveConfiguration, combinedCleanup);
         client.setScreen(settingsScreen);
     }
 
     private void saveConfiguration() {
-        if (isEditMode) {
+        if (isReStudioCreation) {
+            createReStudioServer();
+        } else if (isEditMode) {
             editServer();
         } else {
             if (remoteHostContext != null) {
@@ -252,7 +278,33 @@ public class ServerConfigurationScreen extends ReScreen {
                 createNewLocalServer();
             }
         }
+    }
 
+    private void createReStudioServer() {
+        if (planController == null) return;
+        String planName = planController.getSelectedPlanName();
+        if (planName == null) {
+            new Notification("Error", "Please select a plan.", Notification.Type.ERROR);
+            return;
+        }
+
+        Map<String, String> fileConfigs = new HashMap<>();
+        try (StringWriter writer = new StringWriter()) {
+            tempInstance.getServerProperties().store(writer, "Minecraft server properties");
+            tempInstance.getServerProperties().remove("server-port");
+            fileConfigs.put("server.properties", writer.toString());
+        } catch (IOException e) {
+            new Notification("Error", "Failed to prepare server properties: " + e.getMessage(), Notification.Type.ERROR);
+            return;
+        }
+
+        ReStudio.getInstance().getApi().createCheckoutSession(tempInstance.getName(), planName, null, remoteVariables, fileConfigs).thenAccept(url -> {
+            openBrowser(url);
+            ScreenManager.getInstance().execute(this::close);
+        }).exceptionally(e -> {
+            ScreenManager.getInstance().execute(() -> new Notification("Checkout Error", e.getMessage(), Notification.Type.ERROR));
+            return null;
+        });
     }
 
     private void createNewLocalServer() {
