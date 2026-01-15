@@ -277,9 +277,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         for (Instance server : instances) {
             addServerWidget(server, false);
         }
-        if (!"RESTUDIO_MARKER".equals(tabData)) {
-            addServerWidget(null, true);
-        }
+        addServerWidget(null, true);
 
         activeContainer.updateWidgetPositions();
     }
@@ -544,8 +542,13 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         AnimatedButton createBtn = new AnimatedButton.Builder()
             .label(("Server Creation"))
             .onClick(() -> {
-                RemoteHost currentHost = (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null) ? (RemoteHost) tabs().getActiveTab().getData() : null;
-                client.setScreen(new ServerConfigurationScreen(this, null, currentHost, remotelyClient));
+                Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
+                if ("RESTUDIO_MARKER".equals(data)) {
+                     client.setScreen(new ServerConfigurationScreen(this, null, null, remotelyClient, true));
+                } else {
+                    RemoteHost currentHost = (data instanceof RemoteHost) ? (RemoteHost) data : null;
+                    client.setScreen(new ServerConfigurationScreen(this, null, currentHost, remotelyClient));
+                }
                 addServerPopup.hide();
             })
             .build();
@@ -767,8 +770,13 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void openModpackInstallation() {
-        RemoteHost currentHost = (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null && tabs().getActiveTab().getData() instanceof RemoteHost) ? (RemoteHost) tabs().getActiveTab().getData() : null;
-        client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, currentHost));
+        Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
+        if ("RESTUDIO_MARKER".equals(data)) {
+            client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, null));
+        } else {
+            RemoteHost currentHost = (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null && data instanceof RemoteHost) ? (RemoteHost) data : null;
+            client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, currentHost));
+        }
     }
 
     @Override
