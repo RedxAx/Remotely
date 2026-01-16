@@ -71,6 +71,7 @@ dependencies {
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     implementation("com.hierynomus:sshj:0.40.0")
     implementation("com.github.javakeyring:java-keyring:1.0.4")
+    implementation("net.java.dev.jna:jna-platform:5.13.0")
     implementation("com.vladsch.flexmark:flexmark-all:0.64.8")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
 
@@ -81,6 +82,7 @@ dependencies {
     shade("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     shade("com.hierynomus:sshj:0.40.0")
     shade("com.github.javakeyring:java-keyring:1.0.4")
+    shade("net.java.dev.jna:jna-platform:5.13.0")
     shade("com.vladsch.flexmark:flexmark-all:0.64.8")
     shade("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     shade("org.jetbrains.pty4j:pty4j:0.13.10-1")

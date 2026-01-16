@@ -35,6 +35,7 @@ dependencies {
 
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     implementation("com.github.javakeyring:java-keyring:1.0.4")
+    implementation("net.java.dev.jna:jna-platform:5.13.0")
     implementation("com.hierynomus:sshj:0.40.0")
 
     implementation("org.jetbrains.pty4j:pty4j:0.13.10-1")
