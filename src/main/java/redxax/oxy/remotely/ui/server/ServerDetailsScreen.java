@@ -14,6 +14,7 @@ import restudio.rebase.api.unified.internal.StandardOutputStateParser;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.ExecutionProvider;
 import restudio.rebase.backend.feature.DataStreamFeature;
+import restudio.rebase.backend.feature.ResourceUsageFeature;
 import restudio.rebase.backend.impl.LocalBackend;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
@@ -59,6 +60,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     private final RemotelyClient remotelyClient;
     private final Object parent;
     private IconButton startIconButton;
+    private ServerInfoWidget serverInfoWidget;
     private Instance sidecarInstance;
 
     private static class ServerContextInfo {
@@ -103,6 +105,8 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
 
+        serverInfoWidget = new ServerInfoWidget(null);
+
         startIconButton = new IconButton.Builder()
             .imagePath("start.png")
             .onClick(this::launchOrStopInstance)
@@ -135,6 +139,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                 info.resourceContainer.showUpdateAllDialog();
             }
         }, "Update All Resources");
+        header().addLeft(serverInfoWidget);
 
         header().build();
     }
@@ -273,6 +278,12 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         boolean isInstance = !info.isLocalTerminalMode;
         header().setButtonVisible("explorer.png", isInstance);
 
+        if (serverInfoWidget != null) {
+            serverInfoWidget.setInstance(context.instance);
+            boolean isTerminal = activeView != null && "Terminal".equals(activeView.hint());
+            serverInfoWidget.setVisible(isTerminal);
+        }
+
         if (startIconButton != null) {
             startIconButton.setVisible(isInstance);
             if (isInstance) {
@@ -303,8 +314,9 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             header().setButtonVisible("resources.png", showResources);
 
             boolean isReversed = ReverseProxyManager.isPortForwarded(context.instance);
-            header().setButtonVisible("reverse.png", !isReversed);
-            header().setButtonVisible("closeReverse.png", isReversed);
+            boolean isLocal = context.instance.getBackend() instanceof LocalBackend;
+            header().setButtonVisible("reverse.png", !isReversed && isLocal);
+            header().setButtonVisible("closeReverse.png", isReversed && isLocal);
 
             boolean isResView = activeView != null && activeView.widget() instanceof ResourceContainer;
             header().setButtonVisible("download.png", isResView);
