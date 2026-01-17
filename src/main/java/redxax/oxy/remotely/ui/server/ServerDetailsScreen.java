@@ -471,12 +471,12 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                             ScreenManager.getInstance().execute(() -> dlNotif.update().message("Download Failed").description(e.getMessage()).type(Notification.Type.ERROR).loading(false).autoSlideOut(true));
                             return null;
                         });
-                    });
+                    }, () -> proceedWithServerStart(context, info));
                     return;
                 }
 
                 if (!status.hasStartScript()) {
-                    showFixPopup("Start Script Missing", "The startup script (start.sh/start.bat) is missing.", "Create Script", () -> InstanceRepairer.createStartScript(context.instance).thenRun(() -> ScreenManager.getInstance().execute(() -> new Notification("Script Created", Notification.Type.SUCCESS))));
+                    showFixPopup("Start Script Missing", "The startup script (start.sh/start.bat) is missing.", "Create Script", () -> InstanceRepairer.createStartScript(context.instance).thenRun(() -> ScreenManager.getInstance().execute(() -> new Notification("Script Created", Notification.Type.SUCCESS))), () -> proceedWithServerStart(context, info));
                     return;
                 }
 
@@ -493,25 +493,31 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         }
     }
 
-    private void showFixPopup(String title, String desc, String buttonText, Runnable action) {
-        PopupWidget.Builder builder = new PopupWidget.Builder(title).size(300, 100).setResizable(false);
+    private void showFixPopup(String title, String desc, String buttonText, Runnable action, Runnable onIgnore) {
+        PopupWidget.Builder builder = new PopupWidget.Builder(title).size(300, 70).setResizable(false);
         AnimatedButton textWidget = new AnimatedButton.Builder().label(desc).active(false).flat(true).build();
         builder.addRow("", true, 20, textWidget);
 
         AnimatedButton actionBtn = new AnimatedButton.Builder()
             .label(buttonText)
             .accentType(ThemeManager.getAccent("nice"))
-            .onClick(() -> {
-                action.run();
-                builder.getWidget().setVisible(false);
-            })
             .build();
 
-        builder.addRow("", true, 30, actionBtn);
+        AnimatedButton ignoreBtn = new AnimatedButton.Builder()
+            .label("Launch Anyway")
+            .accentType(ThemeManager.getAccent("danger"))
+            .build();
+
+        builder.addRow("", true, 30, actionBtn, ignoreBtn);
         PopupWidget popup = builder.build();
 
         actionBtn.setAction(() -> {
             action.run();
+            popup.hide();
+        });
+
+        ignoreBtn.setAction(() -> {
+            if (onIgnore != null) onIgnore.run();
             popup.hide();
         });
 
@@ -563,7 +569,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     }
 
     private void showEulaPopup(TabContext context, TerminalSession info) {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Mojang EULA Agreement").size(327, 120).setResizable(false);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Mojang EULA Agreement").size(327, 145).setResizable(false);
         AnimatedButton textWidget = new AnimatedButton.Builder().label("Before You Start, Please Agree To The EULA.").active(false).flat(true).build();
         builder.addRow("", true, 20, textWidget);
         builder.addMarkdown("", "By Click The Agree Button Below, You Agree To The [Minecraft EULA](https://www.minecraft.net/en-us/eula).", 20);
@@ -579,6 +585,19 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                     proceedWithServerStart(context, info);
                 }));
             }).build());
+
+        AnimatedButton ignoreBtn = new AnimatedButton.Builder()
+            .label("Launch Anyway")
+            .accentType(ThemeManager.getAccent("danger"))
+            .build();
+
+        ignoreBtn.setAction(() -> {
+            popup.hide();
+            proceedWithServerStart(context, info);
+        });
+
+        builder.addRow("", true, 20, ignoreBtn);
+
         addDrawableChild(popup);
         popup.show();
     }
