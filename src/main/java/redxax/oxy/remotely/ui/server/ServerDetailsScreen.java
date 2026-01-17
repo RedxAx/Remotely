@@ -334,6 +334,12 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
     @Override
     protected void onTabSelected(TabsManager.Tab tab) {
+        for (TerminalSession session : contextInfos.values()) {
+            if (session.getResourceContainer() != null) {
+                session.getResourceContainer().setSelectorsVisible(false);
+            }
+        }
+
         if (sidecarInstance != null && sidecarInstance.getBackend() != null) {
             sidecarInstance.getBackend().disconnect();
             sidecarInstance = null;
