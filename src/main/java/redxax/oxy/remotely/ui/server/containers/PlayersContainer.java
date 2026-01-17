@@ -3,7 +3,6 @@ package redxax.oxy.remotely.ui.server.containers;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.data.managed.PlayerAction;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
-import redxax.oxy.remotely.ui.widgets.management.BanPlayerPopup;
 import redxax.oxy.remotely.ui.widgets.management.PlayerEntryWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.instance.Instance;
@@ -15,20 +14,16 @@ import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 
 public class PlayersContainer extends Container {
-    private final ReScreen host;
-    private Instance instance;
+    private ReScreen host;
     private final TerminalWidget terminalWidget;
     private PlayerManagerController controller;
 
     public PlayersContainer(ReScreen host, Instance instance, TerminalWidget terminalWidget, int x, int y, int width, int height) {
         super(x, y, width, height);
         this.host = host;
-        this.instance = instance;
         this.terminalWidget = terminalWidget;
         this.layout(new ManagedLayout()).columns(1).padding(2).enableSelecting(true).setRelativeScissor(- 1, - 1, - 1, - 3);
         controller = PlayerManagerController.getOrCreate(instance);
@@ -36,9 +31,12 @@ public class PlayersContainer extends Container {
     }
 
     public void setInstance(Instance newInstance) {
-        this.instance = newInstance;
         controller = PlayerManagerController.getOrCreate(newInstance);
         controller.setUiBindings(this, terminalWidget);
+    }
+
+    public void setHost(ReScreen host) {
+        this.host = host;
     }
 
     public void fullRefresh() {
