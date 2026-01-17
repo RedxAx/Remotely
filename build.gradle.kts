@@ -22,7 +22,7 @@ dependencies {
     implementation(files("libs/Rebase-1.0-SNAPSHOT.jar"))
 
     implementation("com.google.code.gson:gson:2.10.1")
-    implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
+    implementation("com.twelvemonkeys.imageio:imageio-webp:3.13.0")
     implementation("org.apache.commons:commons-compress:1.28.0")
 
     implementation("com.vladsch.flexmark:flexmark:0.64.8")
