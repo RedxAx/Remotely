@@ -1,7 +1,6 @@
 package redxax.oxy.remotely.ui.server.containers;
 
 import org.lwjgl.glfw.GLFW;
-import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
 import restudio.rebase.Rebase;
 import restudio.rebase.api.unified.InstanceApi;
@@ -28,7 +27,6 @@ import java.nio.file.StandardWatchEventKinds;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.*;
 import java.util.stream.Stream;
 
@@ -58,9 +56,9 @@ public class ResourceContainer extends Container {
         @Override public String toString() { return displayName; }
     }
 
-    private final ReScreen host;
+    private ReScreen host;
     private Instance instance;
-    private ResourceViewModel viewModel;
+    private final ResourceViewModel viewModel;
     private Map<String, List<String>> resourceGroups = new HashMap<>();
 
     private ContentSort currentSort = ContentSort.NAME_AZ;
@@ -70,7 +68,7 @@ public class ResourceContainer extends Container {
     private DropDownWidget<String> filterSelector;
     private final List<Path> watchedPaths = new ArrayList<>();
 
-    public ResourceContainer(ReScreen host, RemotelyClient client, Instance instance, int x, int y, int width, int height) {
+    public ResourceContainer(ReScreen host, Instance instance, int x, int y, int width, int height) {
         super(x, y, width, height);
         this.host = host;
         this.instance = instance;
@@ -255,6 +253,10 @@ public class ResourceContainer extends Container {
             }
         }
         startFileWatchers();
+    }
+
+    public void setHost(ReScreen host) {
+        this.host = host;
     }
 
     private void initializeSelectors() {

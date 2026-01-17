@@ -2,6 +2,7 @@ package redxax.oxy.remotely;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.host.ApplicationHost;
+import redxax.oxy.remotely.session.TerminalSessionManager;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
 import redxax.oxy.remotely.ui.server.ServerDetailsScreen;
 import restudio.rebase.Rebase;
@@ -31,6 +32,7 @@ public class RemotelyClient {
     public static ITextRenderer tr;
     private final List<Object> multiTerminalTabs = new CopyOnWriteArrayList<>();
     private int activeMultiTerminalTabIndex = 0;
+    private final TerminalSessionManager sessionManager = new TerminalSessionManager();
 
     public RemotelyClient(ApplicationHost host) {
         this.host = host;
@@ -102,6 +104,7 @@ public class RemotelyClient {
     }
 
     public void shutdownAllTerminals() {
+        sessionManager.shutdownAll();
         TerminalWidget.shutdownAll();
         saveSnippets();
     }
@@ -155,6 +158,10 @@ public class RemotelyClient {
 
     public ApplicationHost getHost() {
         return host;
+    }
+
+    public TerminalSessionManager getSessionManager() {
+        return sessionManager;
     }
 
 }

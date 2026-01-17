@@ -815,11 +815,16 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         };
     }
 
+    private long lastReloadTime = 0;
+
     @Override
     public void onDisplayed() {
         super.onDisplayed();
         playSound(Sound.SERVERMANAGER);
-        reloadInstancesSmartly();
+        if (System.currentTimeMillis() - lastReloadTime > 5000) {
+             reloadInstancesSmartly();
+             lastReloadTime = System.currentTimeMillis();
+        }
         loadServersForCurrentTab();
     }
 

@@ -3,6 +3,7 @@ package redxax.oxy.remotely.ui.server;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
+import redxax.oxy.remotely.session.TerminalSession;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
 import redxax.oxy.remotely.ui.server.containers.ResourceContainer;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
@@ -14,7 +15,6 @@ import restudio.rebase.api.unified.internal.StandardOutputStateParser;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.ExecutionProvider;
 import restudio.rebase.backend.feature.DataStreamFeature;
-import restudio.rebase.backend.feature.ResourceUsageFeature;
 import restudio.rebase.backend.impl.LocalBackend;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
@@ -63,26 +63,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     private ServerInfoWidget serverInfoWidget;
     private Instance sidecarInstance;
 
-    private static class ServerContextInfo {
-        String localTerminalId;
-        TerminalWidget terminalWidget;
-        StandardOutputStateParser standardParser;
-        StreamDataParser streamDataParser;
-        ResourceContainer resourceContainer;
-        PlayersContainer playersContainer;
-        boolean isLocalTerminalMode;
-        void cleanup() {
-            if (resourceContainer != null) {
-                resourceContainer.stopFileWatchers();
-                resourceContainer.detachSelectors();
-            }
-            if (playersContainer != null) {
-                playersContainer.fullRefresh();
-            }
-        }
-    }
-
-    private final Map<TabContext, ServerContextInfo> contextInfos = new HashMap<>();
+    private final Map<TabContext, TerminalSession> contextInfos = new HashMap<>();
 
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
         super(parent instanceof Screen ? (Screen) parent : null, null);
@@ -120,9 +101,9 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         header().addLeft(startIconButton);
 
         header().addLeft("resources.png", () -> {
-            ServerContextInfo info = getCurrentInfo();
-            if (info != null && !info.isLocalTerminalMode && info.resourceContainer != null) {
-                info.resourceContainer.openInstanceResources();
+            TerminalSession info = getCurrentInfo();
+            if (info != null && !info.isLocalTerminalMode() && info.getResourceContainer() != null) {
+                info.getResourceContainer().openInstanceResources();
             }
         }, "Resources");
 
@@ -134,9 +115,9 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         header().addLeft("reverse.png", reverseAction, "Open Server To The Public");
         header().addLeft("closeReverse.png", reverseAction, "Close Reverse Proxy");
         header().addLeft("download.png", () -> {
-            ServerContextInfo info = getCurrentInfo();
-            if (info != null && !info.isLocalTerminalMode && info.resourceContainer != null) {
-                info.resourceContainer.showUpdateAllDialog();
+            TerminalSession info = getCurrentInfo();
+            if (info != null && !info.isLocalTerminalMode() && info.getResourceContainer() != null) {
+                info.getResourceContainer().showUpdateAllDialog();
             }
         }, "Update All Resources");
         header().addLeft(serverInfoWidget);
@@ -173,7 +154,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         String localId = (tabInfo instanceof String) ? (String) tabInfo : null;
         String name = inst != null ? inst.getName() : "Terminal";
         if (inst == null && localId == null) {
-            long count = contextInfos.values().stream().filter(i -> i.isLocalTerminalMode).count() + 1;
+            long count = contextInfos.values().stream().filter(TerminalSession::isLocalTerminalMode).count() + 1;
             name = "Terminal " + count;
         }
 
@@ -183,41 +164,58 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         TabContext ctx = new TabContext(inst, tabInfo);
         ctx.mainContainer = main;
 
-        ServerContextInfo info = new ServerContextInfo();
-        info.isLocalTerminalMode = (inst == null);
-        info.localTerminalId = localId;
+        TerminalSession info = remotelyClient.getSessionManager().getSession(tabInfo);
+        if (info == null) {
+             info = remotelyClient.getSessionManager().createSession(tabInfo, inst, localId);
 
-        ExecutionProvider exec;
-        if (inst != null) {
-            exec = new UnifiedExecutionProvider(InstanceApi.of(inst).console());
+             ExecutionProvider exec;
+             if (inst != null) {
+                 exec = new UnifiedExecutionProvider(InstanceApi.of(inst).console());
+             } else {
+                 exec = new LocalBackend(new BackendConfig("LOCAL", new HashMap<>()), null).getExecution();
+             }
+
+             TerminalWidget terminal;
+             if (inst != null) {
+                 terminal = ServerTerminal.getOrCreate(inst, exec, 5, 60, width - 10, height - 66);
+             } else {
+                 terminal = TerminalWidget.getOrCreate(null, exec, localId, 5, 60, width - 10, height - 66);
+             }
+             info.setTerminalWidget(terminal);
+
+             if (inst != null) {
+                 terminal.addOutputListener(inst.getMSMPManager()::handleConsoleLine);
+                 terminal.start();
+                 inst.attachTerminalListener(terminal);
+                 setupTerminalListeners(inst, info);
+             }
+
+             if (inst != null && inst.isServer()) {
+                 ResourceContainer res = new ResourceContainer(this, inst, 5, 60, width - 10, height - 66);
+                 info.setResourceContainer(res);
+
+                 PlayersContainer players = new PlayersContainer(this, inst, terminal, 5, 60, width - 10, height - 66);
+                 info.setPlayersContainer(players);
+             }
         } else {
-            exec = new LocalBackend(new BackendConfig("LOCAL", new HashMap<>()), null).getExecution();
+            if (info.getResourceContainer() != null) info.getResourceContainer().setHost(this);
+            if (info.getPlayersContainer() != null) info.getPlayersContainer().setHost(this);
         }
 
-        if (inst != null) {
-            info.terminalWidget = ServerTerminal.getOrCreate(inst, exec, 5, 60, width - 10, height - 66);
-        } else {
-            info.terminalWidget = TerminalWidget.getOrCreate(null, exec, localId, 5, 60, width - 10, height - 66);
-        }
-
-        if (inst != null) {
-            info.terminalWidget.addOutputListener(inst.getMSMPManager()::handleConsoleLine);
-            info.terminalWidget.start();
-            inst.attachTerminalListener(info.terminalWidget);
-            setupTerminalListeners(inst, info);
-        }
-        ctx.addView(info.terminalWidget, "terminal.png", "Terminal", null);
+        ctx.addView(info.getTerminalWidget(), "terminal.png", "Terminal", null);
 
         if (inst != null && inst.isServer()) {
-            ResourceContainer res = new ResourceContainer(this, remotelyClient, inst, 5, 60, width - 10, height - 66);
-            info.resourceContainer = res;
-            List<AnimatedWidget> resTools = new ArrayList<>();
-            resTools.add(res.getSelectorsRow());
-            ctx.addView(res, "resources.png", "Resources", resTools);
+            ResourceContainer res = info.getResourceContainer();
+            if (res != null) {
+                List<AnimatedWidget> resTools = new ArrayList<>();
+                resTools.add(res.getSelectorsRow());
+                ctx.addView(res, "resources.png", "Resources", resTools);
+            }
 
-            PlayersContainer players = new PlayersContainer(this, inst, info.terminalWidget, 5, 60, width - 10, height - 66);
-            info.playersContainer = players;
-            ctx.addView(players, "steve.png", "Players", null);
+            PlayersContainer players = info.getPlayersContainer();
+            if (players != null) {
+                ctx.addView(players, "steve.png", "Players", null);
+            }
         }
 
         contextInfos.put(ctx, info);
@@ -229,14 +227,14 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         }
     }
 
-    private void setupTerminalListeners(Instance inst, ServerContextInfo info) {
-        if (info.standardParser != null) {
-            inst.removeLogListener(info.standardParser);
-            info.standardParser = null;
+    private void setupTerminalListeners(Instance inst, TerminalSession info) {
+        if (info.getStandardParser() != null) {
+            inst.removeLogListener(info.getStandardParser());
+            info.setStandardParser(null);
         }
-        if (info.streamDataParser != null) {
-            inst.removeLogListener(info.streamDataParser);
-            info.streamDataParser = null;
+        if (info.getStreamDataParser() != null) {
+            inst.removeLogListener(info.getStreamDataParser());
+            info.setStreamDataParser(null);
         }
 
         boolean standardEnabled = Boolean.parseBoolean(inst.getSettings().getProperty("provider.standard.enabled", "true"));
@@ -245,7 +243,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         if (standardEnabled && priority.contains("standard")) {
             StandardOutputStateParser parser = new StandardOutputStateParser(inst);
             inst.addLogListener(parser);
-            info.standardParser = parser;
+            info.setStandardParser(parser);
         }
 
         if (inst.getBackend() != null) {
@@ -253,7 +251,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             if (dataStreamFeature.isPresent()) {
                 StreamDataParser dataParser = new StreamDataParser(PlayerManagerController.getOrCreate(inst));
                 inst.addLogListener(dataParser);
-                info.streamDataParser = dataParser;
+                info.setStreamDataParser(dataParser);
 
                 String logPath = inst.getPath() + "/logs/latest.log";
                 String opsPath = inst.getPath() + "/ops.json";
@@ -272,10 +270,10 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
     @Override
     protected void onViewChanged(TabContext context, ViewEntry activeView) {
-        ServerContextInfo info = contextInfos.get(context);
+        TerminalSession info = contextInfos.get(context);
         if (info == null) return;
 
-        boolean isInstance = !info.isLocalTerminalMode;
+        boolean isInstance = !info.isLocalTerminalMode();
         header().setButtonVisible("explorer.png", isInstance);
 
         if (serverInfoWidget != null) {
@@ -320,15 +318,17 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
             boolean isResView = activeView != null && activeView.widget() instanceof ResourceContainer;
             header().setButtonVisible("download.png", isResView);
-            if (info.resourceContainer != null) {
-                info.resourceContainer.setSelectorsVisible(isResView);
-                if (isResView) info.resourceContainer.ensureSelectorsSynced();
+            if (info.getResourceContainer() != null) {
+                info.getResourceContainer().setSelectorsVisible(isResView);
+                if (isResView) info.getResourceContainer().ensureSelectorsSynced();
             }
+            serverInfoWidget.setVisible(true);
         } else {
             header().setButtonVisible("resources.png", false);
             header().setButtonVisible("reverse.png", false);
             header().setButtonVisible("closeReverse.png", false);
             header().setButtonVisible("download.png", false);
+            serverInfoWidget.setVisible(false);
         }
     }
 
@@ -343,10 +343,10 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
         TabContext ctx = getActiveContext();
         if (ctx == null) return;
-        ServerContextInfo info = contextInfos.get(ctx);
+        TerminalSession info = contextInfos.get(ctx);
 
-        if (info.isLocalTerminalMode) {
-            DebugManager.getInstance().setViewContext(info.localTerminalId);
+        if (info.isLocalTerminalMode()) {
+            DebugManager.getInstance().setViewContext(info.getLocalTerminalId());
         } else {
             DebugManager.getInstance().setViewContext(ctx.instance.getInstanceId());
             ctx.instance.reloadSettingsFromBackend().thenRun(() -> ScreenManager.getInstance().execute(() -> {
@@ -357,7 +357,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                         ctx.instance.getMSMPManager().connect();
                     }
                 }
-                if (info.playersContainer != null) info.playersContainer.fullRefresh();
+                if (info.getPlayersContainer() != null) info.getPlayersContainer().fullRefresh();
             })).exceptionally(e -> {
                 ScreenManager.getInstance().execute(() -> {
                     new Notification("Config Load Failed", e.getMessage(), Notification.Type.ERROR);
@@ -369,7 +369,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             if (VersionUtil.isMSMPCompatible(ctx.instance.getVersionId())) {
                 ctx.instance.getMSMPManager().handleInstanceStateChange(ctx.instance.getState());
             }
-            if (info.resourceContainer != null) info.resourceContainer.loadResources();
+            if (info.getResourceContainer() != null) info.getResourceContainer().loadResources();
         }
 
         remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
@@ -384,20 +384,20 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         getGroupManager().onTabClosed(tab);
         TabContext ctx = tabContexts.remove(tab);
         if (ctx != null) {
-            ServerContextInfo info = contextInfos.remove(ctx);
-            if (info != null) info.cleanup();
+            TerminalSession info = contextInfos.remove(ctx);
+
+            if (info != null) {
+                remotelyClient.getSessionManager().destroySession(info.getTabId());
+            }
+
             if (ctx.instance != null) {
                 ctx.instance.removeStateListener(stateListener);
                 remotelyClient.getMultiTerminalTabs().removeIf(o -> (o instanceof Instance i && i.equals(ctx.instance)));
                 ctx.instance.getMSMPManager().disconnect();
-            } else if (info != null && info.localTerminalId != null) {
-                remotelyClient.getMultiTerminalTabs().remove(info.localTerminalId);
+            } else if (info != null && info.getLocalTerminalId() != null) {
+                remotelyClient.getMultiTerminalTabs().remove(info.getLocalTerminalId());
             }
-            if (info != null && info.terminalWidget != null) {
-                if (info.standardParser != null && ctx.instance != null) ctx.instance.removeLogListener(info.standardParser);
-                if (ctx.instance != null) TerminalWidget.shutdown(ctx.instance.getInstanceId());
-                else TerminalWidget.shutdownLocal(info.localTerminalId);
-            }
+
         }
         if (tabs().getTabs().isEmpty()) {
             remotelyClient.setActiveMultiTerminalTabIndex(-1);
@@ -419,9 +419,9 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         List<Object> newInstanceOrder = new ArrayList<>();
         for (TabsManager.Tab tab : newOrder) {
             TabContext context = tabContexts.get(tab);
-            ServerContextInfo info = contextInfos.get(context);
+            TerminalSession info = contextInfos.get(context);
             if (context != null && info != null) {
-                newInstanceOrder.add(info.isLocalTerminalMode ? info.localTerminalId : context.instance);
+                newInstanceOrder.add(info.isLocalTerminalMode() ? info.getLocalTerminalId() : context.instance);
             }
         }
         remotelyClient.getMultiTerminalTabs().clear();
@@ -447,15 +447,15 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
     private void launchOrStopInstance() {
         TabContext context = getActiveContext();
-        ServerContextInfo info = contextInfos.get(context);
-        if (context == null || info.isLocalTerminalMode) return;
+        TerminalSession info = contextInfos.get(context);
+        if (context == null || info.isLocalTerminalMode()) return;
 
         InstanceApi api = InstanceApi.of(context.instance);
         if (context.instance.getState() == InstanceState.RUNNING || context.instance.getState() == InstanceState.STARTING) {
             api.console().stopServer();
             String t = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
             if ("LOCAL".equalsIgnoreCase(t)) {
-                info.terminalWidget.stopProcess();
+                info.getTerminalWidget().stopProcess();
                 context.instance.setState(InstanceState.STOPPED);
                 TerminalWidget.shutdown(context.instance.getInstanceId());
             }
@@ -519,28 +519,30 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         popup.show();
     }
 
-    private void proceedWithServerStart(TabContext context, ServerContextInfo info) {
+    private void proceedWithServerStart(TabContext context, TerminalSession info) {
         String backendType = context.instance.getBackendConfig() != null ? context.instance.getBackendConfig().type : "LOCAL";
         if ("LOCAL".equalsIgnoreCase(backendType)) {
-            if (info.terminalWidget != null) {
-                info.terminalWidget.shutdown();
+            if (info.getTerminalWidget() != null) {
+                info.getTerminalWidget().shutdown();
                 TerminalWidget.shutdown(context.instance.getInstanceId());
-                context.mainContainer.removeWidget(info.terminalWidget);
+                context.mainContainer.removeWidget(info.getTerminalWidget());
             }
 
             ExecutionProvider exec = new UnifiedExecutionProvider(InstanceApi.of(context.instance).console());
-            info.terminalWidget = ServerTerminal.getOrCreate(context.instance, exec, 5, 60, width - 10, height - 66);
-            info.terminalWidget.addOutputListener(context.instance.getMSMPManager()::handleConsoleLine);
-            info.terminalWidget.setForceDirectLaunch(true);
-            info.terminalWidget.start();
-            context.instance.attachTerminalListener(info.terminalWidget);
+            TerminalWidget tw = ServerTerminal.getOrCreate(context.instance, exec, 5, 60, width - 10, height - 66);
+            info.setTerminalWidget(tw);
+
+            tw.addOutputListener(context.instance.getMSMPManager()::handleConsoleLine);
+            tw.setForceDirectLaunch(true);
+            tw.start();
+            context.instance.attachTerminalListener(tw);
 
             for (int i = 0; i < context.views.size(); i++) {
                 ViewEntry entry = context.views.get(i);
                 if (entry.hint().equals("Terminal")) {
-                    context.views.set(i, new ViewEntry(info.terminalWidget, entry.icon(), entry.hint(), entry.toolbarWidgets()));
+                    context.views.set(i, new ViewEntry(tw, entry.icon(), entry.hint(), entry.toolbarWidgets()));
                     if (context.selectedViewIndex == i) {
-                        context.mainContainer.addWidget(info.terminalWidget);
+                        context.mainContainer.addWidget(tw);
                     }
                     break;
                 }
@@ -552,15 +554,15 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         InstanceApi api = InstanceApi.of(context.instance);
         context.instance.setState(InstanceState.STARTING);
         api.console().startServer().thenAccept(command -> ScreenManager.getInstance().execute(() -> {
-            if (command != null && !command.isEmpty()) info.terminalWidget.executeCommand(command);
+            if (command != null && !command.isEmpty()) info.getTerminalWidget().executeCommand(command);
             else {
                 String type = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
-                if ("LOCAL".equalsIgnoreCase(type)) info.terminalWidget.startServerProcess();
+                if ("LOCAL".equalsIgnoreCase(type)) info.getTerminalWidget().startServerProcess();
             }
         }));
     }
 
-    private void showEulaPopup(TabContext context, ServerContextInfo info) {
+    private void showEulaPopup(TabContext context, TerminalSession info) {
         PopupWidget.Builder builder = new PopupWidget.Builder("Mojang EULA Agreement").size(327, 120).setResizable(false);
         AnimatedButton textWidget = new AnimatedButton.Builder().label("Before You Start, Please Agree To The EULA.").active(false).flat(true).build();
         builder.addRow("", true, 20, textWidget);
@@ -630,8 +632,8 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_R) {
-            ServerContextInfo info = getCurrentInfo();
-            if (info != null && info.resourceContainer != null) info.resourceContainer.loadResources();
+            TerminalSession info = getCurrentInfo();
+            if (info != null && info.getResourceContainer() != null) info.getResourceContainer().loadResources();
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_GRAVE_ACCENT && hasControlDown()) {
@@ -650,14 +652,14 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     protected void onStateChanged(InstanceState newState) {
         ScreenManager.getInstance().execute(() -> {
             TabContext ctx = getActiveContext();
-            ServerContextInfo info = contextInfos.get(ctx);
+            TerminalSession info = contextInfos.get(ctx);
             if (ctx != null && !ctx.views.isEmpty()) onViewChanged(ctx, ctx.views.get(ctx.selectedViewIndex));
-            if (info != null && info.playersContainer != null) info.playersContainer.fullRefresh();
+            if (info != null && info.getPlayersContainer() != null) info.getPlayersContainer().fullRefresh();
             if (ctx != null && ctx.instance != null) ctx.instance.getMSMPManager().handleInstanceStateChange(newState);
         });
     }
 
-    private ServerContextInfo getCurrentInfo() {
+    private TerminalSession getCurrentInfo() {
         TabContext ctx = getActiveContext();
         return ctx == null ? null : contextInfos.get(ctx);
     }
@@ -667,11 +669,11 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         List<String> info = new ArrayList<>();
         TabContext ctx = getActiveContext();
         if (ctx == null) { info.add("No Active Context"); return info; }
-        ServerContextInfo sInfo = contextInfos.get(ctx);
+        TerminalSession sInfo = contextInfos.get(ctx);
 
-        if (sInfo.isLocalTerminalMode) {
+        if (sInfo.isLocalTerminalMode()) {
             info.add("Mode: Local Terminal");
-            info.add("Term ID: " + sInfo.localTerminalId);
+            info.add("Term ID: " + sInfo.getLocalTerminalId());
         } else if (ctx.instance != null) {
             info.add("Mode: Instance (" + ctx.instance.getName() + ")");
             info.add("State: " + ctx.instance.getState());
@@ -699,9 +701,6 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     @Override
     public void removed() {
         super.removed();
-        for (ServerContextInfo info : contextInfos.values()) {
-            if (info != null) info.cleanup();
-        }
         if (instance != null) {
             instance.removeStateListener(stateListener);
         }
