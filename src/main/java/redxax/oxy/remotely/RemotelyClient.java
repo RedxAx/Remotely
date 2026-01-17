@@ -67,14 +67,14 @@ public class RemotelyClient {
     }
 
     public void openInstanceInTerminal(Object parent, Instance instance) {
-        boolean found = multiTerminalTabs.stream().anyMatch(o -> o instanceof Instance i && i.getInstanceId().equals(instance.getInstanceId()));
+        boolean found = multiTerminalTabs.stream().anyMatch(o -> o instanceof Instance i && i.equals(instance));
         if (!found) {
             multiTerminalTabs.add(instance);
         }
 
         for (int i = 0; i < multiTerminalTabs.size(); i++) {
             Object o = multiTerminalTabs.get(i);
-            if (o instanceof Instance inst && inst.getInstanceId().equals(instance.getInstanceId())) {
+            if (o instanceof Instance inst && inst.equals(instance)) {
                 activeMultiTerminalTabIndex = i;
                 break;
             }
