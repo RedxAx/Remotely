@@ -4,10 +4,8 @@ import restudio.rebase.backend.feature.ServerInfoFeature;
 import restudio.rebase.instance.Instance;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.core.ScreenManager;
+ import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Notification;
-
-import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
 
 public class ServerInfoWidget extends IconButton {
     private Instance instance;
@@ -39,9 +37,8 @@ public class ServerInfoWidget extends IconButton {
                     address = info.getDisplayString();
                     setOnClick(() -> {
                         try {
-                            StringSelection selection = new StringSelection(address);
-                            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, selection);
-                            new Notification.Builder().autoSlideOut(true).dismissAfterSeconds(1).type(Notification.Type.SUCCESS).message("IP Copied!");
+                            FileUtils.setClipboard(address);
+                            ScreenManager.getInstance().execute(() -> new Notification.Builder().message("IP Copied!").autoSlideOut(true).dismissAfterSeconds(1).type(Notification.Type.SUCCESS));
                         } catch (Exception ignored) {}
                     });
                 })),
