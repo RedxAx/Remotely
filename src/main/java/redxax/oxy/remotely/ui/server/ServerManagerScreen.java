@@ -37,16 +37,12 @@ import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
-import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.io.File;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
-import static redxax.oxy.remotely.util.DevUtil.devPrint;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
@@ -70,11 +66,13 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
     private InstanceManager instanceManager;
     private final List<Instance> restudioInstances = new CopyOnWriteArrayList<>();
+    private final ServerIconManager iconManager;
 
     public ServerManagerScreen(Object parent, RemotelyClient remotelyClient) {
         super();
         this.parent = parent;
         this.remotelyClient = remotelyClient;
+        this.iconManager = new ServerIconManager(remotelyDir);
     }
 
     @Override
@@ -85,6 +83,22 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         loadIcons();
         createPopups();
         ReStudio.getInstance().addListener(this);
+
+        Map<String, BufferedImage> defaultIcons = new HashMap<>();
+        defaultIcons.put("vanilla", vanilla);
+        defaultIcons.put("fabric", fabric);
+        defaultIcons.put("forge", forge);
+        defaultIcons.put("neoforge", neoforge);
+        defaultIcons.put("paper", paper);
+        defaultIcons.put("purpur", purpur);
+        defaultIcons.put("quilt", quilt);
+        defaultIcons.put("spigot", spigot);
+        defaultIcons.put("bukkit", bukkit);
+        defaultIcons.put("leaf", leaf);
+        defaultIcons.put("velocity", velocity);
+        defaultIcons.put("waterfall", waterfall);
+        defaultIcons.put("unknown", unknown);
+        iconManager.setDefaultIcons(defaultIcons);
 
         int taskbarHeight = 28;
         String displayName = ReStudio.getInstance().getFirstName();
@@ -175,6 +189,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             }
 
             instanceManager.loadInstances();
+            iconManager.clearAllRemoteTracking();
 
             for (RemoteHost host : instanceManager.getRemoteHosts()) {
                 if (activeSessions.containsKey(host.hostId)) {
@@ -192,6 +207,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         } else {
             this.instanceManager = Rebase.get().getInstanceManager();
             instanceManager.loadInstances();
+            iconManager.clearAllRemoteTracking();
         }
     }
 
@@ -278,6 +294,13 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             addServerWidget(server, false);
         }
         addServerWidget(null, true);
+
+        for (Instance server : instances) {
+            BackendConfig backendConfig = server.getBackendConfig();
+            if (backendConfig != null && !"LOCAL".equalsIgnoreCase(backendConfig.type)) {
+                iconManager.loadRemoteIconAsync(server, this::loadServersForCurrentTab);
+            }
+        }
 
         activeContainer.updateWidgetPositions();
     }
@@ -453,9 +476,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     }, "Show Deletion Options", ThemeManager.getAccent("danger"));
                 }
 
-                if (rh == null && !isRestudio) {
-                    builder.addIconItem("Customize Icon", "shades.png", () -> customizeIcon(inst), "");
-                }
+                builder.addIconItem("Customize Icon", "shades.png", () -> customizeIcon(inst, finalRh), "");
                 showContextMenu(widget.getX() + widget.getWidth() + 4, widget.getY() + 24, builder);
             }
         }
@@ -471,13 +492,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         }
     }
 
-    private void customizeIcon(Instance instance) {
-        List<BufferedImage> images = new ArrayList<>();
-        for (int i = 1; i <= 9; i++) {
-            try {
-                images.add(restudio.rescreen.util.ImageUtils.loadIcon("ic_" + i + ".png"));
-            } catch (Exception ignored) {}
-        }
+    private void customizeIcon(Instance instance, RemoteHost remoteHost) {
+        List<BufferedImage> images = iconManager.loadIconAssets();
 
         if (images.isEmpty()) {
             new Notification("Error", "No icon assets found.", Notification.Type.ERROR);
@@ -486,19 +502,13 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
         List<Integer> tints = Arrays.asList(0xFFFFFF, 0xFF6F61, 0x6FCF97, 0x6CC4F1, 0xFFC800, 0x9B51E0, 0xDF3E23, 0xd6f264, 0x7FFBFF);
         IconCustomizerWidget popup = new IconCustomizerWidget("Icon Customizer", images, tints, result -> {
-            try {
-                File outputFile = new File(instance.getPath(), "icon.png");
-                ImageIO.write(result, "png", outputFile);
-                loadServersForCurrentTab();
-                new Notification("Icon Updated", "Custom icon set.", Notification.Type.SUCCESS);
-            } catch (IOException e) {
-                new Notification("Error", "Failed to save icon.", Notification.Type.ERROR);
-            }
+            iconManager.customizeIcon(instance, remoteHost, result, this::loadServersForCurrentTab);
         });
 
         addDrawableChild(popup);
         popup.show();
     }
+
 
     private List<Instance> getCurrentServers() {
         if (tabsManager == null) {
@@ -787,32 +797,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private BufferedImage getServerIcon(Instance server) {
-        try {
-            boolean isRemote = server.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(server.getBackendConfig().type);
-            if (!isRemote) {
-                File iconFile = new File(server.getPath(), "icon.png");
-                if (iconFile.exists() && iconFile.isFile()) {
-                    return ImageIO.read(iconFile);
-                }
-            }
-        } catch (IOException e) {
-            devPrint("Failed to load server icon: " + e.getMessage());
-        }
-        return switch (server.getModLoader().name().toLowerCase(Locale.ROOT)) {
-            case "vanilla" -> vanilla;
-            case "fabric" -> fabric;
-            case "forge" -> forge;
-            case "neoforge" -> neoforge;
-            case "paper" -> paper;
-            case "purpur" -> purpur;
-            case "quilt" -> quilt;
-            case "spigot" -> spigot;
-            case "bukkit" -> bukkit;
-            case "leaf" -> leaf;
-            case "velocity" -> velocity;
-            case "waterfall" -> waterfall;
-            default -> unknown;
-        };
+        return iconManager.getIcon(server);
     }
 
     private long lastReloadTime = 0;
