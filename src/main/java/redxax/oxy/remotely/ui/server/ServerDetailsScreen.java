@@ -16,6 +16,7 @@ import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.ExecutionProvider;
 import restudio.rebase.backend.feature.DataStreamFeature;
 import restudio.rebase.backend.impl.LocalBackend;
+import restudio.rebase.backend.impl.ReStudioBackend;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceFactory;
@@ -24,6 +25,7 @@ import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.msmp.MSMPManager;
+import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
@@ -416,7 +418,16 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     private void onTabRenamed(TabsManager.Tab tab) {
         TabContext context = tabContexts.get(tab);
         if (context != null && context.instance != null) {
-            context.instance.setName(tab.getName());
+            String newName = tab.getName();
+            context.instance.setName(newName);
+            
+            if (context.instance.getBackend() instanceof restudio.rebase.backend.impl.ReStudioBackend) {
+                restudio.rebase.backend.impl.ReStudioBackend reStudioBackend = 
+                    (restudio.rebase.backend.impl.ReStudioBackend) context.instance.getBackend();
+                String serverId = reStudioBackend.getServerId();
+                restudio.rebase.restudio.ReStudio.getInstance().getApi().renameServer(serverId, newName).exceptionally(e -> null);
+            }
+            
             context.instance.save();
         }
     }

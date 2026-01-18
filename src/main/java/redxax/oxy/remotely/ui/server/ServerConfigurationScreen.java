@@ -349,7 +349,12 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     private void editServer() {
-        originalInstance.setName(tempInstance.getName());
+        String newName = tempInstance.getName();
+        originalInstance.setName(newName);
+
+        if (isReStudioBackend && serverIdentifier != null) {
+            ReStudio.getInstance().getApi().renameServer(serverIdentifier, newName).exceptionally(e -> null);
+        }
 
         ModLoader oldLoader = originalInstance.getModLoader();
         String oldVersion = originalInstance.getVersionId();
