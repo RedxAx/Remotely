@@ -5,6 +5,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
+import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.instance.InstanceState;
@@ -467,6 +468,23 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     builder.addHeaderButton("map.png", () -> openWorldScreen(widget.getInstance()), "View World Map");
                 }
 
+                final String serverId;
+                final ServerModels.ClientServerView serverView;
+
+                if (rh != null) {
+                    serverId = rh.hostId;
+                    serverView = null;
+                } else if (inst.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(inst.getBackendConfig().type)) {
+                    serverId = inst.getBackendConfig().credentials.get("identifier");
+                    serverView = getReStudioServerView(inst.getName());
+                } else {
+                    serverId = inst.getInstanceId();
+                    serverView = null;
+                }
+
+                builder.addHeaderButton("code.png", () -> openFlowManagerForServer(serverId, serverView), "Flow Manager");
+                builder.addHeaderButton("gui.png", () -> openGuiDesignerForServer(serverId, serverView), "GUI Designer");
+
                 if (!isRestudio) {
                     builder.addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server").addHeaderButton("delete.png", () -> {
                         instanceForDeletion = widget.getInstance();
@@ -490,6 +508,14 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         } else {
             new Notification("Duplication Failed", "Could not duplicate server.", Notification.Type.ERROR);
         }
+    }
+
+    private ServerModels.ClientServerView getReStudioServerView(String serverName) {
+        var servers = ReStudio.getInstance().getApi().getServers().join();
+        return servers.stream()
+            .filter(s -> serverName.equals(s.name))
+            .findFirst()
+            .orElse(null);
     }
 
     private void customizeIcon(Instance instance, RemoteHost remoteHost) {
@@ -764,6 +790,36 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 RemotelyClient.INSTANCE.openInstanceInTerminal(ScreenManager.currentScreen, info);
                 return;
             }
+        }
+    }
+
+    public void openFlowManagerForServer(String serverId, ServerModels.ClientServerView server) {
+        FlowManager flowManager = remotelyClient.getFlowManager();
+        if (flowManager != null) {
+            if (server == null) {
+                new Notification.Builder().message("Flow Manager only works with ReStudio servers").type(Notification.Type.WARN).build();
+                return;
+            }
+            if (server.identifier == null) {
+                new Notification.Builder().message("Server identifier not found - ReSync may not be properly configured").type(Notification.Type.ERROR).build();
+                return;
+            }
+            flowManager.openFlowManager(server.identifier, server);
+        } else {
+            new Notification.Builder().message("Flow Manager not available").type(Notification.Type.WARN).build();
+        }
+    }
+
+    public void openGuiDesignerForServer(String serverId, ServerModels.ClientServerView server) {
+        FlowManager flowManager = remotelyClient.getFlowManager();
+        if (flowManager != null) {
+            if (server == null) {
+                new Notification.Builder().message("GUI Designer only works with ReStudio servers").type(Notification.Type.WARN).build();
+                return;
+            }
+            flowManager.openGuiDesigner(serverId, server);
+        } else {
+            new Notification.Builder().message("Flow Manager not available").type(Notification.Type.WARN).build();
         }
     }
 

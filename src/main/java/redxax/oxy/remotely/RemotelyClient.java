@@ -14,6 +14,10 @@ import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.text.FontRegistry;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
+import restudio.rebase.restudio.api.ReStudioApiClient;
+import restudio.rebase.restudio.ReStudio;
+import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.flow.registry.NodeRegistry;
 
 import java.io.File;
 import java.io.IOException;
@@ -33,6 +37,7 @@ public class RemotelyClient {
     private final List<Object> multiTerminalTabs = new CopyOnWriteArrayList<>();
     private int activeMultiTerminalTabIndex = 0;
     private final TerminalSessionManager sessionManager = new TerminalSessionManager();
+    private FlowManager flowManager;
 
     public RemotelyClient(ApplicationHost host) {
         this.host = host;
@@ -52,12 +57,26 @@ public class RemotelyClient {
         }
 
         ThemeManager.init();
-        System.out.println("Remotely mod initialized on the client.");
+        new NodeRegistry();
+        System.out.println("Remotely mod initialized on client.");
         loadSnippets();
 
         os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
 
         FontRegistry.MONO_FONT = host.getFontIdentifier("remotely", "mono");
+
+        if (Rebase.get() != null && ReStudio.getInstance() != null) {
+            try {
+                java.lang.reflect.Field apiClientField = ReStudio.class.getDeclaredField("apiClient");
+                apiClientField.setAccessible(true);
+                ReStudioApiClient apiClient = (ReStudioApiClient) apiClientField.get(ReStudio.getInstance());
+                if (apiClient != null) {
+                    flowManager = new FlowManager(this, apiClient);
+                }
+            } catch (Exception e) {
+                System.err.println("Failed to initialize FlowManager: " + e.getMessage());
+            }
+        }
     }
 
     public void openMultiTerminal(Object parent) {
@@ -162,6 +181,10 @@ public class RemotelyClient {
 
     public TerminalSessionManager getSessionManager() {
         return sessionManager;
+    }
+
+    public FlowManager getFlowManager() {
+        return flowManager;
     }
 
 }
