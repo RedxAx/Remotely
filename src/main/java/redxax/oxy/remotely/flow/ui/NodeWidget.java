@@ -85,6 +85,11 @@ public class NodeWidget extends AnimatedWidget {
         }
     }
 
+    public void refreshInputWidgets() {
+        inputWidgets.clear();
+        createInputWidgets();
+    }
+
     private boolean isLiteralType(FlowType type) {
         return type == FlowType.STRING || type == FlowType.NUMBER || type == FlowType.BOOLEAN || type == FlowType.ANY;
     }
