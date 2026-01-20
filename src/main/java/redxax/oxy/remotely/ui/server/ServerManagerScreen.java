@@ -463,7 +463,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 builder.addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings");
                 builder.addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getInstance(), Path.of(widget.getInstance().getPath()), remotelyDir, false)), "Open Server's Folder");
 
-                if (rh == null && !isRestudio) {
+                if (rh == null) {
                     builder.addHeaderButton("map.png", () -> openWorldScreen(widget.getInstance()), "View World Map");
                 }
 
@@ -501,9 +501,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         }
 
         List<Integer> tints = Arrays.asList(0xFFFFFF, 0xFF6F61, 0x6FCF97, 0x6CC4F1, 0xFFC800, 0x9B51E0, 0xDF3E23, 0xd6f264, 0x7FFBFF);
-        IconCustomizerWidget popup = new IconCustomizerWidget("Icon Customizer", images, tints, result -> {
-            iconManager.customizeIcon(instance, remoteHost, result, this::loadServersForCurrentTab);
-        });
+        IconCustomizerWidget popup = new IconCustomizerWidget("Icon Customizer", images, tints, result -> iconManager.customizeIcon(instance, remoteHost, result, this::loadServersForCurrentTab));
 
         addDrawableChild(popup);
         popup.show();
