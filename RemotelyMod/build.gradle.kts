@@ -74,6 +74,7 @@ dependencies {
     implementation("net.java.dev.jna:jna-platform:5.13.0")
     implementation("com.vladsch.flexmark:flexmark-all:0.64.8")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
+    implementation("org.java-websocket:Java-WebSocket:1.5.7")
 
     implementation("org.jetbrains.pty4j:pty4j:0.13.10-1")
     implementation("org.jetbrains.jediterm:jediterm-core:3.54")
@@ -85,6 +86,7 @@ dependencies {
     shade("net.java.dev.jna:jna-platform:5.13.0")
     shade("com.vladsch.flexmark:flexmark-all:0.64.8")
     shade("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
+    shade("org.java-websocket:Java-WebSocket:1.5.7")
     shade("org.jetbrains.pty4j:pty4j:0.13.10-1")
     shade("org.jetbrains.jediterm:jediterm-core:3.54")
     shade("org.jetbrains.jediterm:jediterm-pty:2.69")
