@@ -7,6 +7,8 @@ import redxax.oxy.remotely.flow.data.FlowType;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.ITextRenderer;
+import restudio.rescreen.render.Render;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -18,6 +20,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static restudio.rescreen.config.Config.shadow;
+import static restudio.rescreen.render.TextRenderer.tr;
+
 public class NodeWidget extends AnimatedWidget {
     private final FlowNode node;
     private final FlowGraph graph;
@@ -26,25 +31,26 @@ public class NodeWidget extends AnimatedWidget {
     private final List<NodeDefinition.PinDefinition> outputs = new ArrayList<>();
     private final NodeDefinition definition;
     private final Map<String, TextInputWidget> inputWidgets = new HashMap<>();
-    private final boolean variableNode;
-    private static final int PIN_SIZE = 8;
-    private static final int PIN_SPACING = 20;
-    private static final int HEADER_HEIGHT = 25;
-    private static final int INPUT_WIDGET_WIDTH = 60;
+    private static final int TITLE_HEIGHT = 16;
+    private static final int PADDING = 6;
+    private static final int ROW_HEIGHT = 18;
+    private static final int ROW_SPACING = 6;
+    private static final int PIN_BUTTON_SIZE = 10;
+    private static final int PIN_TEXT_GAP = 4;
+    private static final int INPUT_FIELD_GAP = 6;
+    private static final int INPUT_WIDGET_WIDTH = 90;
     private static final int INPUT_WIDGET_HEIGHT = 16;
-    private static final int DEFAULT_WIDTH = 150;
-    private static final int VARIABLE_WIDTH = 100;
-    private static final int VARIABLE_HEIGHT = 40;
-    private static final int PIN_OUTSET = 4;
+    private static final int COLUMN_GAP = 12;
+    private static final int DEFAULT_WIDTH = 170;
 
     public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId) {
         super(x, y, DEFAULT_WIDTH, 100, "");
-        this.animateElevation = false;
         this.node = node;
         this.graph = graph;
         this.nodeId = nodeId;
         this.definition = NodeRegistry.getInstance() != null ? NodeRegistry.getInstance().getDefinition(node.getType()) : null;
-        this.variableNode = definition != null && definition.getCategory() == NodeDefinition.NodeCategory.VARIABLE;
+        this.enableHoverColors = false;
+        this.animateElevation = false;
 
         if (definition != null) {
             inputs.addAll(definition.getInputs());
@@ -75,7 +81,8 @@ public class NodeWidget extends AnimatedWidget {
 
                 TextInputWidget widget = new TextInputWidget.Builder()
                     .text(currentValue)
-                    .placeholder(input.getName())
+                    .placeholder("")
+                    .forcePlaceholder(false)
                     .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
                     .onChange(this::saveInputValue)
                     .build();
@@ -88,6 +95,7 @@ public class NodeWidget extends AnimatedWidget {
     public void refreshInputWidgets() {
         inputWidgets.clear();
         createInputWidgets();
+        updateSize();
     }
 
     private boolean isLiteralType(FlowType type) {
@@ -120,89 +128,59 @@ public class NodeWidget extends AnimatedWidget {
 
     @Override
     protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
-        if (variableNode) {
-            drawVariableNode(ctx);
-        } else {
-            drawStandardNode(ctx, mouseX, mouseY);
-        }
-    }
-
-    private void drawVariableNode(IDrawContext ctx) {
-        int accent = ThemeManager.getAccent("nice").getAccentColor();
-        int pinColor = ThemeManager.getColor(ThemeColor.innerBorder);
-        int textColor = ThemeManager.getColor(ThemeColor.text);
-
-        ctx.fill(getX() + 1, getY() + 1, getX() + 4, getY() + getHeight() - 1, accent);
-
-        String name = definition != null ? definition.getDisplayName() : node.getType();
-        String shortened = name.length() > 10 ? name.substring(0, 10) + ".." : name;
-        ctx.drawText(shortened, getX() + 8, getY() + (getHeight() - 8) / 2, textColor, true);
-
-        for (NodeDefinition.PinDefinition input : inputs) {
-            double[] bounds = getPinBounds(input.getName(), true);
-            if (bounds != null) {
-                int color = getPinColor(input.getDataType());
-                ctx.fill((int) bounds[0], (int) bounds[1], (int) (bounds[0] + bounds[2]), (int) (bounds[1] + bounds[3]), color);
-            }
-        }
-
-        for (NodeDefinition.PinDefinition output : outputs) {
-            double[] bounds = getPinBounds(output.getName(), false);
-            if (bounds != null) {
-                int color = getPinColor(output.getDataType());
-                ctx.fill((int) bounds[0], (int) bounds[1], (int) (bounds[0] + bounds[2]), (int) (bounds[1] + bounds[3]), color);
-            }
-        }
-    }
-
-    private void drawStandardNode(IDrawContext ctx, int mouseX, int mouseY) {
-        int headerAccent = ThemeManager.getAccent("calm").getAccentColor();
+        int headerBg = ThemeManager.getColor(ThemeColor.inClickableBackground);
         int headerText = ThemeManager.getColor(ThemeColor.text);
         int labelText = ThemeManager.getColor(ThemeColor.textDark);
+        int borderColor = ThemeManager.getColor(ThemeColor.innerBorder);
 
-        ctx.fill(getX() + 1, getY() + 1, getX() + getWidth() - 1, getY() + HEADER_HEIGHT, headerAccent);
-
-        ctx.drawText(definition != null ? definition.getDisplayName() : node.getType(),
-                  getX() + 6, getY() + 5, headerText, true);
+        ctx.fill(getX(), getY(), getX() + getWidth(), getY() + TITLE_HEIGHT, headerBg);
+        Render.drawInnerBorder(ctx, getX(), getY(), getWidth(), TITLE_HEIGHT, borderColor);
+        ctx.drawText(definition != null ? definition.getDisplayName() : node.getType(), getX() + 4, getY() + 4, headerText, shadow);
 
         updateInputWidgetPositions();
 
-        int yOffset = HEADER_HEIGHT + 5;
+        int rightColumnWidth = getRightColumnWidth();
+        int rightColumnStart = getX() + getWidth() - PADDING - rightColumnWidth;
 
-        for (NodeDefinition.PinDefinition input : inputs) {
-            int pinX = getX() - PIN_OUTSET - PIN_SIZE;
-            ctx.fill(pinX, getY() + yOffset,
-                     pinX + PIN_SIZE, getY() + yOffset + PIN_SIZE,
-                     getPinColor(input.getDataType()));
+        for (int i = 0; i < inputs.size(); i++) {
+            NodeDefinition.PinDefinition input = inputs.get(i);
+            int rowY = getRowStartY() + i * (ROW_HEIGHT + ROW_SPACING);
+            int pinY = rowY + (ROW_HEIGHT - PIN_BUTTON_SIZE) / 2;
+            int pinX = getX() + PADDING;
+            drawPinButton(ctx, pinX, pinY, getPinColor(input.getDataType()));
+
+            int textY = rowY + (ROW_HEIGHT - ITextRenderer.fontHeight) / 2 + 1;
+            ctx.drawText(input.getName(), pinX + PIN_BUTTON_SIZE + PIN_TEXT_GAP, textY, labelText, shadow);
 
             TextInputWidget inputWidget = inputWidgets.get(input.getName());
             if (inputWidget != null) {
                 inputWidget.render(ctx, mouseX, mouseY, 0);
-            } else {
-                ctx.drawText(input.getName(), getX() + 12, getY() + yOffset, labelText, true);
             }
-            yOffset += PIN_SPACING;
         }
 
-        yOffset = HEADER_HEIGHT + 5;
-        for (NodeDefinition.PinDefinition output : outputs) {
-            int textWidth = 8 * output.getName().length();
-            ctx.drawText(output.getName(), getX() + getWidth() - 14 - textWidth, getY() + yOffset, labelText, true);
-            int pinX = getX() + getWidth() + PIN_OUTSET;
-            ctx.fill(pinX, getY() + yOffset, pinX + PIN_SIZE, getY() + yOffset + PIN_SIZE, getPinColor(output.getDataType()));
-            yOffset += PIN_SPACING;
+        for (int i = 0; i < outputs.size(); i++) {
+            NodeDefinition.PinDefinition output = outputs.get(i);
+            int rowY = getRowStartY() + i * (ROW_HEIGHT + ROW_SPACING);
+            int pinY = rowY + (ROW_HEIGHT - PIN_BUTTON_SIZE) / 2;
+            int pinX = rightColumnStart + rightColumnWidth - PIN_BUTTON_SIZE;
+            int labelWidth = tr.getWidth(output.getName());
+            int textY = rowY + (ROW_HEIGHT - ITextRenderer.fontHeight) / 2 + 1;
+            int labelX = pinX - PIN_TEXT_GAP - labelWidth;
+
+            ctx.drawText(output.getName(), labelX, textY, labelText, shadow);
+            drawPinButton(ctx, pinX, pinY, getPinColor(output.getDataType()));
         }
     }
 
     private void updateSize() {
-        int pinCount = Math.max(inputs.size(), outputs.size());
-        if (variableNode) {
-            setWidth(VARIABLE_WIDTH);
-            setHeight(VARIABLE_HEIGHT);
-        } else {
-            setWidth(DEFAULT_WIDTH);
-            setHeight(HEADER_HEIGHT + pinCount * PIN_SPACING);
-        }
+        int rowCount = Math.max(inputs.size(), outputs.size());
+        int leftColumnWidth = getLeftColumnWidth();
+        int rightColumnWidth = getRightColumnWidth();
+        int contentWidth = leftColumnWidth + rightColumnWidth + (leftColumnWidth > 0 && rightColumnWidth > 0 ? COLUMN_GAP : 0);
+        int contentHeight = rowCount > 0 ? (rowCount * ROW_HEIGHT + (rowCount - 1) * ROW_SPACING) : 0;
+
+        setWidth(Math.max(DEFAULT_WIDTH, PADDING * 2 + contentWidth));
+        setHeight(TITLE_HEIGHT + PADDING * 2 + contentHeight);
     }
 
     public double[] getPinBounds(String pinName, boolean isInput) {
@@ -218,14 +196,10 @@ public class NodeWidget extends AnimatedWidget {
 
         if (index == -1) return null;
 
-        int yOffset;
-        if (variableNode && Math.max(inputs.size(), outputs.size()) <= 1) {
-            yOffset = (getHeight() - PIN_SIZE) / 2;
-        } else {
-            yOffset = HEADER_HEIGHT + 5 + index * PIN_SPACING;
-        }
-        int pinX = isInput ? getX() - PIN_OUTSET - PIN_SIZE : getX() + getWidth() + PIN_OUTSET;
-        return new double[]{pinX, getY() + yOffset, PIN_SIZE, PIN_SIZE};
+        int rowY = getRowStartY() + index * (ROW_HEIGHT + ROW_SPACING);
+        int pinY = rowY + (ROW_HEIGHT - PIN_BUTTON_SIZE) / 2;
+        int pinX = isInput ? getX() + PADDING : getX() + getWidth() - PADDING - PIN_BUTTON_SIZE;
+        return new double[]{pinX, pinY, PIN_BUTTON_SIZE, PIN_BUTTON_SIZE};
     }
 
     public boolean isMouseOverPin(int wx, int wy) {
@@ -310,16 +284,70 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private void updateInputWidgetPositions() {
-        int yOffset = HEADER_HEIGHT + 5;
-        for (NodeDefinition.PinDefinition input : inputs) {
+        int leftColumnWidth = getLeftColumnWidth();
+        int leftColumnEnd = getX() + PADDING + leftColumnWidth;
+
+        for (int i = 0; i < inputs.size(); i++) {
+            NodeDefinition.PinDefinition input = inputs.get(i);
             TextInputWidget inputWidget = inputWidgets.get(input.getName());
             if (inputWidget != null) {
-                int widgetX = getX() + 12;
-                int widgetY = getY() + yOffset;
+                int rowY = getRowStartY() + i * (ROW_HEIGHT + ROW_SPACING);
+                int widgetY = rowY + (ROW_HEIGHT - INPUT_WIDGET_HEIGHT) / 2;
+                int widgetX = leftColumnEnd - INPUT_WIDGET_WIDTH;
                 inputWidget.setPosition(widgetX, widgetY);
+                inputWidget.setWidth(INPUT_WIDGET_WIDTH);
+                inputWidget.setHeight(INPUT_WIDGET_HEIGHT);
             }
-            yOffset += PIN_SPACING;
         }
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        borderColor = ThemeManager.getColor(ThemeColor.innerBorder);
+        outerBorderColor = ThemeManager.getColor(ThemeColor.globalOuterBorder);
+        bgColor = ThemeManager.getColor(ThemeColor.innerBackground);
+    }
+
+    @Override
+    protected void drawBackground(IDrawContext ctx) {
+        ctx.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), ThemeManager.getColor(ThemeColor.innerBackground));
+    }
+
+    private int getLeftColumnWidth() {
+        int width = 0;
+        for (NodeDefinition.PinDefinition input : inputs) {
+            int labelWidth = tr.getWidth(input.getName());
+            int rowWidth = PIN_BUTTON_SIZE + PIN_TEXT_GAP + labelWidth;
+            if (inputWidgets.containsKey(input.getName())) {
+                rowWidth += INPUT_FIELD_GAP + INPUT_WIDGET_WIDTH;
+            }
+            width = Math.max(width, rowWidth);
+        }
+        return width;
+    }
+
+    private int getRightColumnWidth() {
+        int width = 0;
+        for (NodeDefinition.PinDefinition output : outputs) {
+            int labelWidth = tr.getWidth(output.getName());
+            int rowWidth = labelWidth + PIN_TEXT_GAP + PIN_BUTTON_SIZE;
+            width = Math.max(width, rowWidth);
+        }
+        return width;
+    }
+
+    private int getRowStartY() {
+        return getY() + TITLE_HEIGHT + PADDING;
+    }
+
+    private void drawPinButton(IDrawContext ctx, int x, int y, int color) {
+        int background = ThemeManager.getColor(ThemeColor.inClickableBackground);
+        int border = ThemeManager.getColor(ThemeColor.innerBorder);
+        ctx.fill(x, y, x + PIN_BUTTON_SIZE, y + PIN_BUTTON_SIZE, background);
+        Render.drawInnerBorder(ctx, x, y, PIN_BUTTON_SIZE, PIN_BUTTON_SIZE, border);
+        int inset = 2;
+        ctx.fill(x + inset, y + inset, x + PIN_BUTTON_SIZE - inset, y + PIN_BUTTON_SIZE - inset, color);
     }
 
     private void saveInputValue() {
