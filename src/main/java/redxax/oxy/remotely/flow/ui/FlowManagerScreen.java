@@ -10,14 +10,20 @@ import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
+import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
-import restudio.rescreen.ui.rescreen.layout.RestrictedLayout;
+import restudio.rescreen.ui.rescreen.TabsManager;
+import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.AnimatedButton;
-import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
+import restudio.rescreen.ui.widgets.IconButton;
+import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.RowWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
+import restudio.rescreen.util.Notification;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -26,110 +32,92 @@ import java.util.Map;
 import java.util.UUID;
 
 public class FlowManagerScreen extends ReScreen {
-    private static final int HEADER_HEIGHT = 32;
-    private static final int PANEL_PADDING = 8;
-    private static final int SIDEBAR_WIDTH = 170;
-
     private final String serverId;
     private final ClientServerView server;
     private final FlowManager flowManager;
+    private final Screen parent;
 
-    private Container sidebar;
-    private Container content;
-    private Tab activeTab = Tab.BLUEPRINTS;
-
-    private int lastWidth;
-    private int lastHeight;
+    private TabsManager tabsManager;
+    private Container blueprintsContainer;
+    private Container bindingsContainer;
+    private Container guisContainer;
 
     private DropDownWidget<String> commandFlowSelect;
     private DropDownWidget<String> eventFlowSelect;
     private DropDownWidget<String> eventTypeSelect;
     private TextInputWidget commandAliasInput;
 
-    private enum Tab {
-        BLUEPRINTS,
-        BINDINGS,
-        GUIS
-    }
-
-    public FlowManagerScreen(String serverId, ClientServerView server) {
+    public FlowManagerScreen(String serverId, ClientServerView server, Screen parent) {
         super();
         this.serverId = serverId;
         this.server = server;
         this.flowManager = RemotelyClient.INSTANCE.getFlowManager();
+        this.parent = parent;
     }
 
     @Override
     public void init() {
         super.init();
-        buildLayout();
-        rebuildContent();
+
+        IconButton closeButton = new IconButton.Builder()
+            .imagePath("close.png")
+            .size(18, 18)
+            .onClick(this::close)
+            .build();
+        closeButton.setPosition(width - 25, 8);
+        headerBuilder.addRight(closeButton);
+
+        tabsManager = new TabsManager(this).builder()
+            .position(5, 35).size(width - 10, 18)
+            .allowAdd(false)
+            .allowClose(false)
+            .allowReorder(false)
+            .onTabSelected(this::onTabSelected)
+            .build();
+        addDrawableChild(tabsManager);
+
+        int contentY = 60;
+        int contentHeight = height - contentY - 10;
+
+        blueprintsContainer = createContainer("blueprints", 5, contentY, width - 10, contentHeight);
+        blueprintsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
+
+        bindingsContainer = createContainer("bindings", 5, contentY, width - 10, contentHeight);
+        bindingsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
+
+        guisContainer = createContainer("guis", 5, contentY, width - 10, contentHeight);
+        guisContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
+
+        tabsManager.addTab("Blueprints", blueprintsContainer);
+        tabsManager.addTab("Bindings", bindingsContainer);
+        tabsManager.addTab("GUIs", guisContainer);
+
+        rebuildBlueprints();
+        rebuildBindings();
+        rebuildGuis();
+
+        tabsManager.setActiveTab(0);
     }
 
-    @Override
-    public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
-        updateLayout();
-        super.render(context, mouseX, mouseY, delta);
-    }
-
-    private void buildLayout() {
-        sidebar = createContainer("flow_manager_sidebar", PANEL_PADDING, HEADER_HEIGHT, SIDEBAR_WIDTH, height - HEADER_HEIGHT - PANEL_PADDING);
-        sidebar.columns(1).padding(6).layout(new RestrictedLayout()).enableSelecting(false).scrolling(false);
-
-        content = createContainer("flow_manager_content", SIDEBAR_WIDTH + PANEL_PADDING * 2, HEADER_HEIGHT,
-            width - SIDEBAR_WIDTH - PANEL_PADDING * 3, height - HEADER_HEIGHT - PANEL_PADDING);
-        content.columns(1).padding(6).layout(new RestrictedLayout()).enableSelecting(false).scrolling(true);
-
-        addDrawableChild(sidebar);
-        addDrawableChild(content);
-
-        sidebar.addWidget(new TabButton("Blueprints", Tab.BLUEPRINTS));
-        sidebar.addWidget(new TabButton("Bindings", Tab.BINDINGS));
-        sidebar.addWidget(new TabButton("GUIs", Tab.GUIS));
-
-        lastWidth = width;
-        lastHeight = height;
-    }
-
-    private void updateLayout() {
-        if (width == lastWidth && height == lastHeight) {
-            return;
-        }
-        lastWidth = width;
-        lastHeight = height;
-
-        sidebar.setPosition(PANEL_PADDING, HEADER_HEIGHT);
-        sidebar.size(SIDEBAR_WIDTH, height - HEADER_HEIGHT - PANEL_PADDING);
-
-        int contentX = SIDEBAR_WIDTH + PANEL_PADDING * 2;
-        content.setPosition(contentX, HEADER_HEIGHT);
-        content.size(width - contentX - PANEL_PADDING, height - HEADER_HEIGHT - PANEL_PADDING);
-        content.updateWidgetPositions();
-    }
-
-    private void rebuildContent() {
-        content.clearWidgets();
-        if (flowManager == null) {
-            return;
-        }
-
-        switch (activeTab) {
-            case BLUEPRINTS -> buildFlowList();
-            case BINDINGS -> buildBindings();
-            case GUIS -> buildGuiList();
+    private void onTabSelected(TabsManager.Tab tab) {
+        if (tab.getContainer() == blueprintsContainer) {
+            rebuildBlueprints();
+        } else if (tab.getContainer() == bindingsContainer) {
+            rebuildBindings();
+        } else if (tab.getContainer() == guisContainer) {
+            rebuildGuis();
         }
     }
 
-    private void buildFlowList() {
+    private void rebuildBlueprints() {
+        blueprintsContainer.clearWidgets();
+
         AnimatedButton createButton = new AnimatedButton.Builder()
             .label("New Flow")
             .size(120, 22)
-            .onClick(() -> {
-                FlowGraph graph = flowManager.createFlow(serverId);
-                flowManager.openFlowEditor(serverId, server, graph.getId().toString());
-            })
+            .onClick(this::showCreateFlowPopup)
             .build();
-        content.addWidget(createButton);
+        blueprintsContainer.addWidget(createButton);
 
         Map<String, FlowGraph> flows = flowManager.getFlowsForServer(serverId);
         List<String> flowIds = new ArrayList<>(flows.keySet());
@@ -157,22 +145,156 @@ public class FlowManagerScreen extends ReScreen {
                 .accentType(ThemeManager.getAccent("danger"))
                 .onClick(() -> {
                     flowManager.deleteFlow(serverId, flowId);
-                    rebuildContent();
+                    rebuildBlueprints();
                 })
                 .build();
 
             RowWidget row = new RowWidget.Builder()
-                .size(Math.max(200, content.getWidth() - 20), 22)
+                .size(Math.max(200, blueprintsContainer.getWidth() - 20), 22)
                 .addWidget(nameInput)
                 .addWidget(openButton)
                 .addWidget(deleteButton)
                 .build();
 
-            content.addWidget(row);
+            blueprintsContainer.addWidget(row);
         }
     }
 
-    private void buildGuiList() {
+    private void showCreateFlowPopup() {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Create New Flow").setResizable(false);
+
+        TextInputWidget idInput = new TextInputWidget.Builder()
+            .placeholder("Flow ID (e.g. openLootBox)")
+            .size(200, 22)
+            .build();
+
+        builder.addRow("ID", true, 22, idInput);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+
+        AnimatedButton createBtn = new AnimatedButton.Builder()
+            .label("Create")
+            .accentType(ThemeManager.getAccent("nice"))
+            .onClick(() -> {
+                String id = idInput.getText();
+                if (id != null && id.matches("^[a-zA-Z0-9_]+$")) {
+                    if (flowManager.getFlowsForServer(serverId).containsKey(id)) {
+                         new Notification("Error", "Flow ID already exists", Notification.Type.ERROR);
+                         return;
+                    }
+                    FlowGraph graph = flowManager.createFlow(serverId, id);
+                    if (popupRef[0] != null) popupRef[0].hide();
+                    flowManager.openFlowEditor(serverId, server, graph.getId());
+                } else {
+                     new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
+                }
+            })
+            .build();
+
+         builder.addRow("", true, 20, createBtn);
+
+         popupRef[0] = builder.build();
+         addDrawableChild(popupRef[0]);
+         popupRef[0].show();
+    }
+
+    private void rebuildBindings() {
+        bindingsContainer.clearWidgets();
+
+        List<String> flowOptions = new ArrayList<>(flowManager.getFlowsForServer(serverId).keySet());
+        if (flowOptions.isEmpty()) {
+            bindingsContainer.addWidget(new SectionLabel("No flows available. Create a flow first."));
+            return;
+        }
+
+        commandAliasInput = new TextInputWidget.Builder()
+            .text("/command")
+            .placeholder("Command alias")
+            .size(140, 22)
+            .build();
+
+        commandFlowSelect = new DropDownWidget.Builder<>(flowOptions)
+            .size(140, 22)
+            .build();
+
+        AnimatedButton createCommandButton = new AnimatedButton.Builder()
+            .label("New Command")
+            .size(110, 22)
+            .onClick(this::createCommandBinding)
+            .build();
+
+        RowWidget commandRow = new RowWidget.Builder()
+            .size(Math.max(200, bindingsContainer.getWidth() - 20), 22)
+            .addWidget(commandAliasInput)
+            .addWidget(commandFlowSelect)
+            .addWidget(createCommandButton)
+            .build();
+
+        bindingsContainer.addWidget(new SectionLabel("Commands"));
+        bindingsContainer.addWidget(commandRow);
+
+        eventTypeSelect = new DropDownWidget.Builder<>(getEventOptions())
+            .size(160, 22)
+            .build();
+
+        eventFlowSelect = new DropDownWidget.Builder<>(flowOptions)
+            .size(140, 22)
+            .build();
+
+        AnimatedButton createEventButton = new AnimatedButton.Builder()
+            .label("New Event")
+            .size(110, 22)
+            .onClick(this::createEventBinding)
+            .build();
+
+        RowWidget eventRow = new RowWidget.Builder()
+            .size(Math.max(200, bindingsContainer.getWidth() - 20), 22)
+            .addWidget(eventTypeSelect)
+            .addWidget(eventFlowSelect)
+            .addWidget(createEventButton)
+            .build();
+
+        bindingsContainer.addWidget(new SectionLabel("Events"));
+        bindingsContainer.addWidget(eventRow);
+
+        bindingsContainer.addWidget(new SectionLabel("Active Bindings"));
+
+        List<TriggerBinding> bindings = new ArrayList<>(flowManager.getBindings(serverId));
+        bindings.sort(Comparator.comparing(TriggerBinding::getType).thenComparing(TriggerBinding::getContext));
+        for (TriggerBinding binding : bindings) {
+            RowWidget bindingRow = buildBindingRow(binding);
+            bindingsContainer.addWidget(bindingRow);
+        }
+    }
+
+    private RowWidget buildBindingRow(TriggerBinding binding) {
+        TextInputWidget bindingInfo = new TextInputWidget.Builder()
+            .text(binding.getType() + ": " + binding.getContext() + " -> " + binding.getFlowId())
+            .placeholder("Binding")
+            .size(200, 22)
+            .active(false)
+            .build();
+
+        AnimatedButton deleteButton = new AnimatedButton.Builder()
+            .label("Remove")
+            .size(80, 22)
+            .accentType(ThemeManager.getAccent("danger"))
+            .onClick(() -> {
+                flowManager.removeBinding(serverId, binding.getId());
+                rebuildBindings();
+            })
+            .build();
+
+        return new RowWidget.Builder()
+            .size(Math.max(200, bindingsContainer.getWidth() - 20), 22)
+            .addWidget(bindingInfo)
+            .addWidget(deleteButton)
+            .build();
+    }
+
+    private void rebuildGuis() {
+        guisContainer.clearWidgets();
+
         AnimatedButton createButton = new AnimatedButton.Builder()
             .label("New GUI")
             .size(120, 22)
@@ -182,7 +304,7 @@ public class FlowManagerScreen extends ReScreen {
                 flowManager.openGuiDesigner(serverId, server, gui.getId());
             })
             .build();
-        content.addWidget(createButton);
+        guisContainer.addWidget(createButton);
 
         Map<String, GuiDefinition> guis = flowManager.getGuisForServer(serverId);
         List<String> guiIds = new ArrayList<>(guis.keySet());
@@ -216,111 +338,19 @@ public class FlowManagerScreen extends ReScreen {
                 .accentType(ThemeManager.getAccent("danger"))
                 .onClick(() -> {
                     flowManager.deleteGui(serverId, guiId);
-                    rebuildContent();
+                    rebuildGuis();
                 })
                 .build();
 
             RowWidget row = new RowWidget.Builder()
-                .size(Math.max(200, content.getWidth() - 20), 22)
+                .size(Math.max(200, guisContainer.getWidth() - 20), 22)
                 .addWidget(nameInput)
                 .addWidget(openButton)
                 .addWidget(deleteButton)
                 .build();
 
-            content.addWidget(row);
+            guisContainer.addWidget(row);
         }
-    }
-
-    private void buildBindings() {
-        List<String> flowOptions = new ArrayList<>(flowManager.getFlowsForServer(serverId).keySet());
-        if (flowOptions.isEmpty()) {
-            FlowGraph graph = flowManager.createFlow(serverId);
-            flowOptions.add(graph.getId().toString());
-        }
-
-        commandAliasInput = new TextInputWidget.Builder()
-            .text("/command")
-            .placeholder("Command alias")
-            .size(140, 22)
-            .build();
-
-        commandFlowSelect = new DropDownWidget.Builder<>(flowOptions)
-            .size(140, 22)
-            .build();
-
-        AnimatedButton createCommandButton = new AnimatedButton.Builder()
-            .label("New Command")
-            .size(110, 22)
-            .onClick(() -> createCommandBinding())
-            .build();
-
-        RowWidget commandRow = new RowWidget.Builder()
-            .size(Math.max(200, content.getWidth() - 20), 22)
-            .addWidget(commandAliasInput)
-            .addWidget(commandFlowSelect)
-            .addWidget(createCommandButton)
-            .build();
-
-        content.addWidget(new SectionLabel("Commands"));
-        content.addWidget(commandRow);
-
-        eventTypeSelect = new DropDownWidget.Builder<>(getEventOptions())
-            .size(160, 22)
-            .build();
-
-        eventFlowSelect = new DropDownWidget.Builder<>(flowOptions)
-            .size(140, 22)
-            .build();
-
-        AnimatedButton createEventButton = new AnimatedButton.Builder()
-            .label("New Event")
-            .size(110, 22)
-            .onClick(this::createEventBinding)
-            .build();
-
-        RowWidget eventRow = new RowWidget.Builder()
-            .size(Math.max(200, content.getWidth() - 20), 22)
-            .addWidget(eventTypeSelect)
-            .addWidget(eventFlowSelect)
-            .addWidget(createEventButton)
-            .build();
-
-        content.addWidget(new SectionLabel("Events"));
-        content.addWidget(eventRow);
-
-        content.addWidget(new SectionLabel("Active Bindings"));
-
-        List<TriggerBinding> bindings = new ArrayList<>(flowManager.getBindings(serverId));
-        bindings.sort(Comparator.comparing(TriggerBinding::getType).thenComparing(TriggerBinding::getContext));
-        for (TriggerBinding binding : bindings) {
-            RowWidget bindingRow = buildBindingRow(binding);
-            content.addWidget(bindingRow);
-        }
-    }
-
-    private RowWidget buildBindingRow(TriggerBinding binding) {
-        TextInputWidget bindingInfo = new TextInputWidget.Builder()
-            .text(binding.getType() + ": " + binding.getContext() + " -> " + binding.getFlowId())
-            .placeholder("Binding")
-            .size(200, 22)
-            .active(false)
-            .build();
-
-        AnimatedButton deleteButton = new AnimatedButton.Builder()
-            .label("Remove")
-            .size(80, 22)
-            .accentType(ThemeManager.getAccent("danger"))
-            .onClick(() -> {
-                flowManager.removeBinding(serverId, binding.getId());
-                rebuildContent();
-            })
-            .build();
-
-        return new RowWidget.Builder()
-            .size(Math.max(200, content.getWidth() - 20), 22)
-            .addWidget(bindingInfo)
-            .addWidget(deleteButton)
-            .build();
     }
 
     private void createCommandBinding() {
@@ -332,7 +362,7 @@ public class FlowManagerScreen extends ReScreen {
 
         TriggerBinding binding = new TriggerBinding(UUID.randomUUID().toString(), flowId, TriggerType.COMMAND, alias);
         flowManager.addBinding(serverId, binding);
-        rebuildContent();
+        rebuildBindings();
     }
 
     private void createEventBinding() {
@@ -344,7 +374,7 @@ public class FlowManagerScreen extends ReScreen {
 
         TriggerBinding binding = new TriggerBinding(UUID.randomUUID().toString(), flowId, TriggerType.EVENT, eventType);
         flowManager.addBinding(serverId, binding);
-        rebuildContent();
+        rebuildBindings();
     }
 
     private List<String> getEventOptions() {
@@ -359,31 +389,20 @@ public class FlowManagerScreen extends ReScreen {
         return events;
     }
 
-    private class TabButton extends AnimatedButton {
-        private final Tab tab;
-
-        private TabButton(String label, Tab tab) {
-            super(0, 0, SIDEBAR_WIDTH - 10, 24, label);
-            this.tab = tab;
-            this.animateElevation = false;
-        }
-
-        @Override
-        public void onClick(double mouseX, double mouseY, int button) {
-            if (button != 0) {
-                return;
-            }
-            activeTab = tab;
-            rebuildContent();
-        }
-    }
-
     public void refresh() {
-        rebuildContent();
+        if (tabsManager != null) {
+             onTabSelected(tabsManager.getActiveTab());
+        }
     }
 
     public String getServerId() {
         return serverId;
+    }
+
+    @Override
+    public void close() {
+        super.close();
+        ScreenManager.getInstance().setScreen(parent);
     }
 
     private static class SectionLabel extends AnimatedWidget {
