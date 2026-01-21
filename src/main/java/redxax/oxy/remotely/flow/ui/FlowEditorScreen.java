@@ -9,14 +9,16 @@ import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import org.lwjgl.glfw.GLFW;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.UiHost;
+import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.InfiniteScreen;
+import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.Widget;
+import restudio.rescreen.ui.rescreen.*;
+import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Notification;
-import restudio.rescreen.ui.widgets.IconButton;
-import restudio.rescreen.ui.widgets.ContextMenuWidget;
-import restudio.rescreen.ui.widgets.TextInputWidget;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,15 +26,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Collections;
 import java.util.UUID;
 
-public class FlowEditorScreen extends InfiniteScreen {
+public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     private final FlowGraph graph;
     private final String serverId;
+    private static Screen parent;
     private final Map<String, NodeWidget> widgetCache = new HashMap<>();
-    private IconButton saveButton;
-    private IconButton backButton;
-    private static final float WIRE_THICKNESS = 2.0f;
     private static final float WIRE_HIT_RADIUS = 6.0f;
     private static final int SELECTION_BORDER_PADDING = 2;
     private final Set<String> selectedNodeIds = new HashSet<>();
@@ -44,14 +45,49 @@ public class FlowEditorScreen extends InfiniteScreen {
     private double selectionEndX = 0;
     private double selectionEndY = 0;
 
+    private SidePanel paletteSidePanel;
+    private PopupWidget eventsPopup;
+    private PopupWidget actionsPopup;
+    private PopupWidget logicPopup;
+    private PopupWidget dataPopup;
+
+    private IconButton headerBackground;
+    private final List<IconButton> headerButtons = new ArrayList<>();
+
+    private int initialWidth;
+    private int initialHeight;
+
+    private static class DragState {
+        String sourceNodeId;
+        String sourcePin;
+        boolean isDragging;
+    }
+    private final DragState dragState;
+    private NodeWidget dragPinWidget;
+    private ContextMenuWidget nodeContextMenu;
+    private NodeWidget focusedNode;
+
+    private String pendingSourceNodeId;
+    private String pendingSourcePin;
+
+    private double dragMouseX = 0;
+    private double dragMouseY = 0;
+
     public FlowEditorScreen(FlowGraph graph) {
         this(graph, null);
     }
 
     public FlowEditorScreen(FlowGraph graph, String serverId) {
+        this(graph, serverId, null);
+    }
+
+    public FlowEditorScreen(FlowGraph graph, String serverId, Screen parent) {
         super();
         this.graph = graph;
         this.serverId = serverId;
+        if (!(parent instanceof FlowEditorScreen)) {
+            FlowEditorScreen.parent = parent;
+        }
         this.dragState = new DragState();
         this.dragPinWidget = null;
         this.nodeContextMenu = null;
@@ -61,55 +97,251 @@ public class FlowEditorScreen extends InfiniteScreen {
             addWorldWidget(widget);
             widgetCache.put(entry.getKey(), widget);
         }
-
-        createSaveButton();
-        createBackButton();
     }
 
-    private void createSaveButton() {
-        saveButton = new IconButton.Builder()
-            .label("Save Flow")
-            .pos(10, 10)
-            .size(100, 20)
-            .onClick(() -> onSave())
-            .build();
-        addDrawableChild(saveButton);
+    @Override
+    public void init() {
+        super.init();
+        this.initialWidth = width;
+        this.initialHeight = height;
+
+        headerBackground = new IconButton.Builder().pos(10, 10).size(1, 28).build();
+        headerBackground.active = false;
+        addHudWidget(headerBackground);
+
+        createPaletteSidePanel();
+        createHeaderButtons();
+        layoutHeaderButtons();
     }
 
-    private void createBackButton() {
-        backButton = new IconButton.Builder()
-            .label("Back")
-            .pos(10, 35)
-            .size(60, 20)
-            .onClick(() -> close())
-            .build();
-        addDrawableChild(backButton);
-    }
+    private void createPaletteSidePanel() {
+        paletteSidePanel = new SidePanel(this, "palettePanel", this::updatePositions).width(220).y(54).height(height - 55).show();
+        paletteSidePanel.container().layout(new ManagedLayout()).columns(1).padding(5);
 
-    private void onSave() {
-        syncNodePositions();
-        FlowManager flowManager = FlowManager.getInstance();
-        if (flowManager != null && serverId != null) {
-            flowManager.saveFlow(serverId, graph);
+        eventsPopup = new PopupWidget.Builder("Events").enableCollapseOnClose(true).build();
+        actionsPopup = new PopupWidget.Builder("Actions").enableCollapseOnClose(true).build();
+        logicPopup = new PopupWidget.Builder("Logic").enableCollapseOnClose(true).build();
+        dataPopup = new PopupWidget.Builder("Data").enableCollapseOnClose(true).build();
+
+        paletteSidePanel.addWidget(eventsPopup);
+        paletteSidePanel.addWidget(actionsPopup);
+        paletteSidePanel.addWidget(logicPopup);
+        paletteSidePanel.addWidget(dataPopup);
+
+        if (NodeRegistry.getInstance() != null) {
+            populateCategoryPopups();
+        } else {
+            populateFallbackPopups();
         }
     }
 
-    private static class DragState {
-        String sourceNodeId;
-        String sourcePin;
-        boolean isDragging;
+    private void populateCategoryPopups() {
+        Map<String, List<String>> categories = new HashMap<>();
+        categories.put("Events", new ArrayList<>());
+        categories.put("Actions", new ArrayList<>());
+        categories.put("Logic", new ArrayList<>());
+        categories.put("Data", new ArrayList<>());
+
+        for (NodeDefinition def : NodeRegistry.getInstance().getAllDefinitions().values()) {
+            String category;
+            if (def.getId().startsWith("event:")) {
+                category = "Events";
+            } else {
+                switch (def.getCategory()) {
+                    case ACTION -> category = "Actions";
+                    case LOGIC -> category = "Logic";
+                    case DATA -> category = "Data";
+                    default -> category = "Actions";
+                }
+            }
+
+            categories.getOrDefault(category, new ArrayList<>()).add(def.getId());
+        }
+
+        for (Map.Entry<String, List<String>> entry : categories.entrySet()) {
+            PopupWidget targetPopup = getCategoryPopup(entry.getKey());
+            if (targetPopup != null) {
+                targetPopup.clearRows();
+                for (String nodeId : entry.getValue()) {
+                    String displayName = NodeRegistry.getInstance().getDefinition(nodeId).getDisplayName();
+                    IconButton btn = new IconButton.Builder()
+                        .label(displayName)
+                        .onClick(() -> addNodeAtCenter(nodeId))
+                        .build();
+                    targetPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+                }
+            }
+        }
     }
-    private DragState dragState;
-    private NodeWidget dragPinWidget;
-    private ContextMenuWidget nodeContextMenu;
-    private NodeWidget focusedNode;
 
-    private String pendingSourceNodeId;
-    private String pendingSourcePin;
-    private FlowType pendingSourceType;
+    private void populateFallbackPopups() {
+        eventsPopup.clearRows();
+        actionsPopup.clearRows();
+        logicPopup.clearRows();
+        dataPopup.clearRows();
 
-    private double dragMouseX = 0;
-    private double dragMouseY = 0;
+        String[] eventNodes = {"event:join", "event:quit", "event:chat", "event:death", "event:block_break", "event:block_place", "event:sneak"};
+        for (String nodeId : eventNodes) {
+            IconButton btn = new IconButton.Builder()
+                .label(nodeId.replace("event:", "").toUpperCase())
+                .onClick(() -> addNodeAtCenter(nodeId))
+                .build();
+            eventsPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+        }
+
+        String[] actionNodes = {"log", "player_message", "give_item", "cancel_event", "player_kick", "player_teleport"};
+        for (String nodeId : actionNodes) {
+            IconButton btn = new IconButton.Builder()
+                .label(nodeId.toUpperCase())
+                .onClick(() -> addNodeAtCenter(nodeId))
+                .build();
+            actionsPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+        }
+
+        String[] logicNodes = {"if", "equals", "not_equals", "contains", "compare"};
+        for (String nodeId : logicNodes) {
+            IconButton btn = new IconButton.Builder()
+                .label(nodeId.toUpperCase())
+                .onClick(() -> addNodeAtCenter(nodeId))
+                .build();
+            logicPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+        }
+
+        String[] dataNodes = {"number", "string", "boolean", "get_variable", "set_variable", "get_location"};
+        for (String nodeId : dataNodes) {
+            IconButton btn = new IconButton.Builder()
+                .label(nodeId.toUpperCase())
+                .onClick(() -> addNodeAtCenter(nodeId))
+                .build();
+            dataPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+        }
+    }
+
+    private PopupWidget getCategoryPopup(String category) {
+        return switch (category) {
+            case "Events" -> eventsPopup;
+            case "Actions" -> actionsPopup;
+            case "Logic" -> logicPopup;
+            case "Data" -> dataPopup;
+            default -> actionsPopup;
+        };
+    }
+
+    private void addNodeAtCenter(String type) {
+        double[] center = screenToWorld(width / 2.0, height / 2.0);
+        int x = (int) (center[0] - 50);
+        int y = (int) (center[1] - 20);
+        addNode(x, y, type, null);
+    }
+
+    private void createHeaderButtons() {
+        IconButton backButton = new IconButton.Builder().size(18, 18).imagePath("close.png")
+                .onClick(() -> {
+                    if (parent != null) {
+                        client.setScreen(parent);
+                    } else {
+                        close();
+                    }
+                })
+                .build();
+        headerButtons.add(backButton);
+
+        IconButton saveButton = new IconButton.Builder()
+            .size(18, 18)
+            .imagePath("save.png")
+            .onClick(this::onSave)
+            .build();
+        headerButtons.add(saveButton);
+        addDrawableChild(saveButton, backButton);
+    }
+
+    private void layoutHeaderButtons() {
+        int padding = 5;
+        int totalWidth = 0;
+
+        for (IconButton button : headerButtons) {
+            totalWidth += button.getWidth();
+        }
+        totalWidth += Math.max(0, headerButtons.size() - 1) * padding;
+
+        headerBackground.setWidth(totalWidth + (padding * 2));
+        headerBackground.setHeight(30);
+        headerBackground.setPosition(width - headerBackground.getWidth() - 10, 10);
+
+        int startY = headerBackground.getY();
+        int currentX = headerBackground.getX() + headerBackground.getWidth() - padding;
+        for (IconButton button : headerButtons) {
+            currentX -= button.getWidth();
+            button.setPosition(currentX, startY + (headerBackground.getHeight() - button.getHeight()) / 2);
+            currentX -= padding;
+        }
+    }
+
+    @Override
+    public void updatePositions() {
+        super.updatePositions();
+        if (paletteSidePanel != null && paletteSidePanel.isVisible()) {
+            paletteSidePanel.height(height - 55).y(54).update();
+        }
+        if (headerBackground != null) {
+            layoutHeaderButtons();
+        }
+    }
+
+    @Override
+    public void close() {
+        if (parent != null) {
+            client.setScreen(parent);
+        }
+    }
+
+    @Override
+    public void renderHandler(IDrawContext context, int mouseX, int mouseY, float delta) {
+        updateTransforms(delta);
+
+        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
+        int undistortedMouseX = (int) undistortedCoords[0];
+        int undistortedMouseY = (int) undistortedCoords[1];
+
+        if (dragState.isDragging) {
+            dragMouseX = undistortedMouseX;
+            dragMouseY = undistortedMouseY;
+        }
+
+        renderBackground(context, mouseX, mouseY, delta);
+
+        context.getMatrices().push();
+        context.getMatrices().translate(getWidth() / 2.0f, getHeight() / 2.0f, 0);
+        context.getMatrices().scale(zoomLevel, zoomLevel, 1.0f);
+        context.getMatrices().translate(-getWidth() / 2.0f + panX, -getHeight() / 2.0f + panY, 0);
+
+        double[] worldMouse = screenToWorld(undistortedMouseX, undistortedMouseY);
+        int worldMouseX = (int) worldMouse[0];
+        int worldMouseY = (int) worldMouse[1];
+
+        renderWires(context);
+
+        for (Widget widget : worldWidgets) {
+            widget.render(context, worldMouseX, worldMouseY, delta);
+        }
+        renderSelectionHighlights(context);
+        context.getMatrices().pop();
+
+        renderSelectionBox(context);
+
+        for (Widget widget : hudWidgets) {
+            widget.render(context, mouseX, mouseY, delta);
+        }
+
+        if (paletteSidePanel != null) {
+            paletteSidePanel.update();
+            paletteSidePanel.renderHeader(context);
+        }
+
+        for (Notification notification : Notification.getActiveNotifications()) {
+            notification.render(context, mouseX, mouseY, delta);
+        }
+    }
 
     private void renderWires(IDrawContext context) {
         if (graph.getConnections() == null) return;
@@ -166,6 +398,10 @@ public class FlowEditorScreen extends InfiniteScreen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (paletteSidePanel != null && paletteSidePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+
         double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
         dragMouseX = undistortedCoords[0];
         dragMouseY = undistortedCoords[1];
@@ -186,15 +422,13 @@ public class FlowEditorScreen extends InfiniteScreen {
 
     private void drawBezier(IDrawContext context, float startX, float startY, float endX, float endY, int color) {
         float c1x = startX + 50 * zoomLevel;
-        float c1y = startY;
         float c2x = endX - 50 * zoomLevel;
-        float c2y = endY;
 
         float step = 0.05f;
 
         for (float t = 0; t <= 1; t += step) {
             double x = Math.pow(1-t, 3)*startX + 3*Math.pow(1-t, 2)*t*c1x + 3*(1-t)*Math.pow(t, 2)*c2x + Math.pow(t, 3)*endX;
-            double y = Math.pow(1-t, 3)*startY + 3*Math.pow(1-t, 2)*t*c1y + 3*(1-t)*Math.pow(t, 2)*c2y + Math.pow(t, 3)*endY;
+            double y = Math.pow(1-t, 3)*startY + 3*Math.pow(1-t, 2)*t* startY + 3*(1-t)*Math.pow(t, 2)* endY + Math.pow(t, 3)*endY;
 
             context.fill((int)x - 1, (int)y - 1, (int)x + 2, (int)y + 2, color);
         }
@@ -202,6 +436,10 @@ public class FlowEditorScreen extends InfiniteScreen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (paletteSidePanel != null && paletteSidePanel.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+
         double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
         double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
         int wx = (int)worldMouse[0];
@@ -275,7 +513,39 @@ public class FlowEditorScreen extends InfiniteScreen {
         dragPinWidget = widget;
         pendingSourceNodeId = null;
         pendingSourcePin = null;
-        pendingSourceType = null;
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (paletteSidePanel != null && paletteSidePanel.mouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+
+        if (isSelecting && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
+            selectionEndX = undistortedCoords[0];
+            selectionEndY = undistortedCoords[1];
+            updateSelectionFromBox();
+            isSelecting = false;
+            return true;
+        }
+
+        if (dragState.isDragging) {
+            double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
+            double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
+            tryCompleteWire(worldMouse[0], worldMouse[1]);
+
+            dragState.isDragging = false;
+            dragState.sourceNodeId = null;
+            dragState.sourcePin = null;
+            return true;
+        }
+
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && draggedWidget instanceof NodeWidget) {
+            syncNodePosition((NodeWidget) draggedWidget);
+        }
+
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
@@ -391,15 +661,13 @@ public class FlowEditorScreen extends InfiniteScreen {
             return true;
         }
 
-        showAddNodeMenu(wx, wy);
-        return true;
+        return false;
     }
 
     private NodeWidget findNodeAt(int wx, int wy) {
         for (int i = worldWidgets.size() - 1; i >= 0; i--) {
             Widget widget = worldWidgets.get(i);
-            if (widget instanceof NodeWidget) {
-                NodeWidget nodeWidget = (NodeWidget) widget;
+            if (widget instanceof NodeWidget nodeWidget) {
                 if (nodeWidget.isMouseOver(wx, wy)) {
                     return nodeWidget;
                 }
@@ -535,176 +803,6 @@ public class FlowEditorScreen extends InfiniteScreen {
         context.fillBorder(x1, y1, x2, y2, 1, border);
     }
 
-    private boolean disconnectPin(NodeWidget widget, String pinName, int wx, int wy) {
-        String nodeId = findNodeId(widget);
-        if (nodeId == null || graph.getConnections() == null) {
-            return false;
-        }
-
-        double[] inputBounds = widget.getPinBounds(pinName, true);
-        if (isInside(wx, wy, inputBounds)) {
-            boolean removed = graph.getConnections().removeIf(conn ->
-                nodeId.equals(conn.getTargetNodeId()) && pinName.equals(conn.getTargetPin())
-            );
-            if (removed) {
-                refreshInputWidgets(nodeId);
-            }
-            return removed;
-        }
-
-        double[] outputBounds = widget.getPinBounds(pinName, false);
-        if (isInside(wx, wy, outputBounds)) {
-            Set<String> affectedTargets = new HashSet<>();
-            boolean removed = graph.getConnections().removeIf(conn -> {
-                boolean match = nodeId.equals(conn.getSourceNodeId()) && pinName.equals(conn.getSourcePin());
-                if (match) {
-                    affectedTargets.add(conn.getTargetNodeId());
-                }
-                return match;
-            });
-            for (String targetId : affectedTargets) {
-                refreshInputWidgets(targetId);
-            }
-            return removed;
-        }
-
-        return false;
-    }
-
-    private FlowConnection findConnectionAt(double worldX, double worldY) {
-        if (graph.getConnections() == null) {
-            return null;
-        }
-        double hitRadius = WIRE_HIT_RADIUS / Math.max(zoomLevel, 0.1f);
-        double hitRadiusSq = hitRadius * hitRadius;
-
-        for (FlowConnection conn : graph.getConnections()) {
-            NodeWidget source = widgetCache.get(conn.getSourceNodeId());
-            NodeWidget target = widgetCache.get(conn.getTargetNodeId());
-            if (source == null || target == null) {
-                continue;
-            }
-            double[] start = source.getPinBounds(conn.getSourcePin(), false);
-            double[] end = target.getPinBounds(conn.getTargetPin(), true);
-            if (start == null || end == null) {
-                continue;
-            }
-            float startX = (float) (start[0] + start[2] / 2);
-            float startY = (float) (start[1] + start[3] / 2);
-            float endX = (float) (end[0] + end[2] / 2);
-            float endY = (float) (end[1] + end[3] / 2);
-
-            float c1x = startX + 50 * zoomLevel;
-            float c1y = startY;
-            float c2x = endX - 50 * zoomLevel;
-            float c2y = endY;
-
-            float step = 0.05f;
-            for (float t = 0; t <= 1; t += step) {
-                double x = Math.pow(1 - t, 3) * startX + 3 * Math.pow(1 - t, 2) * t * c1x
-                    + 3 * (1 - t) * Math.pow(t, 2) * c2x + Math.pow(t, 3) * endX;
-                double y = Math.pow(1 - t, 3) * startY + 3 * Math.pow(1 - t, 2) * t * c1y
-                    + 3 * (1 - t) * Math.pow(t, 2) * c2y + Math.pow(t, 3) * endY;
-
-                double dx = worldX - x;
-                double dy = worldY - y;
-                if (dx * dx + dy * dy <= hitRadiusSq) {
-                    return conn;
-                }
-            }
-        }
-        return null;
-    }
-
-    private void removeConnection(FlowConnection conn) {
-        if (conn == null || graph.getConnections() == null) {
-            return;
-        }
-        if (graph.getConnections().remove(conn)) {
-            refreshInputWidgets(conn.getTargetNodeId());
-        }
-    }
-
-    private boolean isInside(int x, int y, double[] bounds) {
-        if (bounds == null) {
-            return false;
-        }
-        return x >= bounds[0] && x <= bounds[0] + bounds[2]
-            && y >= bounds[1] && y <= bounds[1] + bounds[3];
-    }
-
-    @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (isSelecting && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
-            selectionEndX = undistortedCoords[0];
-            selectionEndY = undistortedCoords[1];
-            updateSelectionFromBox();
-            isSelecting = false;
-            return true;
-        }
-
-        if (dragState.isDragging) {
-            double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
-            double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
-            tryCompleteWire(worldMouse[0], worldMouse[1]);
-
-            dragState.isDragging = false;
-            dragState.sourceNodeId = null;
-            dragState.sourcePin = null;
-            return true;
-        }
-
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && draggedWidget instanceof NodeWidget) {
-            syncNodePosition((NodeWidget) draggedWidget);
-        }
-
-        return super.mouseReleased(mouseX, mouseY, button);
-    }
-
-    @Override
-    public void renderHandler(IDrawContext context, int mouseX, int mouseY, float delta) {
-        updateTransforms(delta);
-
-        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
-        int undistortedMouseX = (int) undistortedCoords[0];
-        int undistortedMouseY = (int) undistortedCoords[1];
-
-        if (dragState.isDragging) {
-            dragMouseX = undistortedMouseX;
-            dragMouseY = undistortedMouseY;
-        }
-
-        renderBackground(context, mouseX, mouseY, delta);
-
-        context.getMatrices().push();
-        context.getMatrices().translate(getWidth() / 2.0f, getHeight() / 2.0f, 0);
-        context.getMatrices().scale(zoomLevel, zoomLevel, 1.0f);
-        context.getMatrices().translate(-getWidth() / 2.0f + panX, -getHeight() / 2.0f + panY, 0);
-
-        double[] worldMouse = screenToWorld(undistortedMouseX, undistortedMouseY);
-        int worldMouseX = (int) worldMouse[0];
-        int worldMouseY = (int) worldMouse[1];
-
-        renderWires(context);
-
-        for (Widget widget : worldWidgets) {
-            widget.render(context, worldMouseX, worldMouseY, delta);
-        }
-        renderSelectionHighlights(context);
-        context.getMatrices().pop();
-
-        renderSelectionBox(context);
-
-        for (Widget widget : hudWidgets) {
-            widget.render(context, mouseX, mouseY, delta);
-        }
-
-        for (Notification notification : Notification.getActiveNotifications()) {
-            notification.render(context, mouseX, mouseY, delta);
-        }
-    }
-
     private boolean canConnect(NodeWidget sourceWidget, String sourcePin, NodeWidget targetWidget, String targetPin) {
         FlowType sourceType = sourceWidget.getPinType(sourcePin, false);
         FlowType targetType = targetWidget.getPinType(targetPin, true);
@@ -736,8 +834,7 @@ public class FlowEditorScreen extends InfiniteScreen {
         boolean connected = false;
 
         for (Widget widget : worldWidgets) {
-            if (widget instanceof NodeWidget) {
-                NodeWidget targetWidget = (NodeWidget) widget;
+            if (widget instanceof NodeWidget targetWidget) {
                 if (targetWidget != dragPinWidget) {
                     String targetPin = targetWidget.getPinAtPosition(wx, wy);
                     if (targetPin != null) {
@@ -753,7 +850,6 @@ public class FlowEditorScreen extends InfiniteScreen {
                             );
 
                             removeExistingInputConnection(targetNodeId, targetPin);
-
                             graph.getConnections().add(newConnection);
                             refreshInputWidgets(targetNodeId);
                             connected = true;
@@ -769,7 +865,6 @@ public class FlowEditorScreen extends InfiniteScreen {
             if (sourceType != null && sourceType != FlowType.EXECUTION) {
                 pendingSourceNodeId = dragState.sourceNodeId;
                 pendingSourcePin = dragState.sourcePin;
-                pendingSourceType = sourceType;
                 showAddNodeMenu(wx, wy, sourceType);
             }
         }
@@ -793,10 +888,6 @@ public class FlowEditorScreen extends InfiniteScreen {
             }
         }
         return null;
-    }
-
-    private void showAddNodeMenu(int x, int y) {
-        showAddNodeMenu(x, y, null);
     }
 
     private void showAddNodeMenu(int x, int y, FlowType sourceType) {
@@ -869,6 +960,148 @@ public class FlowEditorScreen extends InfiniteScreen {
 
         pendingSourceNodeId = null;
         pendingSourcePin = null;
-        pendingSourceType = null;
     }
+
+    private void onSave() {
+        syncNodePositions();
+        FlowManager flowManager = FlowManager.getInstance();
+        if (flowManager != null && serverId != null) {
+            flowManager.saveFlow(serverId, graph);
+        }
+    }
+
+    private boolean disconnectPin(NodeWidget widget, String pinName, int wx, int wy) {
+        String nodeId = findNodeId(widget);
+        if (nodeId == null || graph.getConnections() == null) {
+            return false;
+        }
+
+        double[] inputBounds = widget.getPinBounds(pinName, true);
+        if (isInside(wx, wy, inputBounds)) {
+            boolean removed = graph.getConnections().removeIf(conn ->
+                nodeId.equals(conn.getTargetNodeId()) && pinName.equals(conn.getTargetPin())
+            );
+            if (removed) {
+                refreshInputWidgets(nodeId);
+            }
+            return removed;
+        }
+
+        double[] outputBounds = widget.getPinBounds(pinName, false);
+        if (isInside(wx, wy, outputBounds)) {
+            Set<String> affectedTargets = new HashSet<>();
+            boolean removed = graph.getConnections().removeIf(conn -> {
+                boolean match = nodeId.equals(conn.getSourceNodeId()) && pinName.equals(conn.getSourcePin());
+                if (match) {
+                    affectedTargets.add(conn.getTargetNodeId());
+                }
+                return match;
+            });
+            for (String targetId : affectedTargets) {
+                refreshInputWidgets(targetId);
+            }
+            return removed;
+        }
+
+        return false;
+    }
+
+    private FlowConnection findConnectionAt(double worldX, double worldY) {
+        if (graph.getConnections() == null) {
+            return null;
+        }
+        double hitRadius = WIRE_HIT_RADIUS / Math.max(zoomLevel, 0.1f);
+        double hitRadiusSq = hitRadius * hitRadius;
+
+        for (FlowConnection conn : graph.getConnections()) {
+            NodeWidget source = widgetCache.get(conn.getSourceNodeId());
+            NodeWidget target = widgetCache.get(conn.getTargetNodeId());
+            if (source == null || target == null) {
+                continue;
+            }
+            double[] start = source.getPinBounds(conn.getSourcePin(), false);
+            double[] end = target.getPinBounds(conn.getTargetPin(), true);
+            if (start == null || end == null) {
+                continue;
+            }
+            float startX = (float) (start[0] + start[2] / 2);
+            float startY = (float) (start[1] + start[3] / 2);
+            float endX = (float) (end[0] + end[2] / 2);
+            float endY = (float) (end[1] + end[3] / 2);
+
+            float c1x = startX + 50 * zoomLevel;
+            float c2x = endX - 50 * zoomLevel;
+
+            float step = 0.05f;
+            for (float t = 0; t <= 1; t += step) {
+                double x = Math.pow(1 - t, 3) * startX + 3 * Math.pow(1 - t, 2) * t * c1x + 3 * (1 - t) * Math.pow(t, 2) * c2x + Math.pow(t, 3) * endX;
+                double y = Math.pow(1 - t, 3) * startY + 3 * Math.pow(1 - t, 2) * t * startY + 3 * (1 - t) * Math.pow(t, 2) * endY + Math.pow(t, 3) * endY;
+
+                double dx = worldX - x;
+                double dy = worldY - y;
+                if (dx * dx + dy * dy <= hitRadiusSq) {
+                    return conn;
+                }
+            }
+        }
+        return null;
+    }
+
+    private void removeConnection(FlowConnection conn) {
+        if (conn == null || graph.getConnections() == null) {
+            return;
+        }
+        if (graph.getConnections().remove(conn)) {
+            refreshInputWidgets(conn.getTargetNodeId());
+        }
+    }
+
+    private boolean isInside(int x, int y, double[] bounds) {
+        if (bounds == null) {
+            return false;
+        }
+        return x >= bounds[0] && x <= bounds[0] + bounds[2]
+            && y >= bounds[1] && y <= bounds[1] + bounds[3];
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (paletteSidePanel != null && paletteSidePanel.isVisible() && paletteSidePanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+    }
+
+    @Override
+    public void resize(int width, int height) {
+        super.resize(width, height);
+        if (headerBackground != null) {
+            layoutHeaderButtons();
+        }
+    }
+
+    @Override
+    public <T extends Widget> T addDrawableChild(T widget) {
+        super.addDrawableChild(widget);
+        return widget;
+    }
+
+    @Override
+    public int getInitialWidth() {
+        return initialWidth;
+    }
+
+    @Override
+    public int getInitialHeight() {
+        return initialHeight;
+    }
+
+
+    @Override
+    public Screen asScreen() {
+        return this;
+    }
+
+    @Override public void updateRenderOrder(List<AnimatedWidget> list) {}
+    @Override public void setHitBottom(boolean hitBottom) {}
 }

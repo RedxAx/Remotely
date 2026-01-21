@@ -347,7 +347,7 @@ public class ReSyncFlowClient {
             if (flowId != null && pendingOpenFlows.remove(flowId)) {
                 ScreenManager.getInstance().execute(() -> {
                     if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-                        RemotelyClient.INSTANCE.getHost().setScreen(new FlowEditorScreen(graph, serverId));
+                        RemotelyClient.INSTANCE.getHost().setScreen(new FlowEditorScreen(graph, serverId, ScreenManager.getInstance().getCurrentScreen()));
                     }
                 });
             }

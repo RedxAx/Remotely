@@ -2,7 +2,6 @@ package redxax.oxy.remotely.data.flow;
 
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.flow.data.FlowGraph;
-import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.GuiElement;
 import redxax.oxy.remotely.flow.data.Visual;
@@ -60,13 +59,13 @@ public class FlowManager {
         String key = actualServerId + ":" + flowId;
         FlowGraph graph = draftFlows.get(key);
         if (graph != null) {
-            client.getHost().setScreen(new FlowEditorScreen(graph, actualServerId));
+            client.getHost().setScreen(new FlowEditorScreen(graph, actualServerId, ScreenManager.getInstance().getCurrentScreen()));
             return;
         }
 
-        if (flowClient != null && serverFlowIds.contains(key)) {
+        if (serverFlowIds.contains(key)) {
             flowClient.requestFlow(flowId, true);
-            client.getHost().setScreen(new FlowEditorScreen(new FlowGraph(), actualServerId));
+            client.getHost().setScreen(new FlowEditorScreen(new FlowGraph(), actualServerId, ScreenManager.getInstance().getCurrentScreen()));
             return;
         }
 
@@ -79,7 +78,7 @@ public class FlowManager {
         String actualKey = actualServerId + ":" + actualFlowId;
         draftFlows.put(actualKey, newGraph);
         flowNames.putIfAbsent(actualKey, actualFlowId);
-        client.getHost().setScreen(new FlowEditorScreen(newGraph, actualServerId));
+        client.getHost().setScreen(new FlowEditorScreen(newGraph, actualServerId, ScreenManager.getInstance().getCurrentScreen()));
     }
 
     public void openGuiDesigner(String serverId, ClientServerView server) {
@@ -264,9 +263,7 @@ public class FlowManager {
     public void refreshFlowsFromServer(String serverId) {
         clearServerCache(serverId);
         ReSyncFlowClient client = ensureFlowClient(serverId);
-        if (client != null) {
-            client.requestFlowList();
-        }
+        client.requestFlowList();
         refreshFlowManagerScreen(serverId);
     }
 
@@ -282,7 +279,7 @@ public class FlowManager {
         }
 
         ReSyncFlowClient client = ensureFlowClient(serverId);
-        if (client != null && flowIds != null) {
+        if (flowIds != null) {
             for (String flowId : flowIds) {
                 client.requestFlow(flowId, false);
             }
@@ -305,9 +302,7 @@ public class FlowManager {
 
     private void sendTriggerUpdate(String serverId, java.util.List<redxax.oxy.remotely.flow.data.TriggerBinding> bindings) {
         ReSyncFlowClient client = ensureFlowClient(serverId);
-        if (client != null) {
-            client.sendTriggerUpdate(bindings);
-        }
+        client.sendTriggerUpdate(bindings);
     }
 
     private ReSyncFlowClient ensureFlowClient(String serverId) {
