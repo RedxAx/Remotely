@@ -43,7 +43,7 @@ public class FlowManager {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
         ensureFlowClient(actualServerId);
         refreshFlowsFromServer(actualServerId);
-        client.getHost().setScreen(new FlowManagerScreen(actualServerId, server));
+        client.getHost().setScreen(new FlowManagerScreen(actualServerId, server, ScreenManager.getInstance().getCurrentScreen()));
     }
 
     public void openFlowEditor(String serverId, ClientServerView server) {
@@ -70,11 +70,10 @@ public class FlowManager {
         }
 
         FlowGraph newGraph = createDefaultFlow();
-        java.util.UUID parsedId = parseUuid(flowId);
-        if (parsedId != null) {
-            newGraph.setId(parsedId);
+        if (flowId != null) {
+            newGraph.setId(flowId);
         }
-        String actualFlowId = newGraph.getId().toString();
+        String actualFlowId = newGraph.getId();
         String actualKey = actualServerId + ":" + actualFlowId;
         draftFlows.put(actualKey, newGraph);
         flowNames.putIfAbsent(actualKey, actualFlowId);
@@ -212,10 +211,17 @@ public class FlowManager {
     }
 
     public FlowGraph createFlow(String serverId) {
+        return createFlow(serverId, null);
+    }
+
+    public FlowGraph createFlow(String serverId, String flowId) {
         FlowGraph graph = createDefaultFlow();
+        if (flowId != null) {
+            graph.setId(flowId);
+        }
         String key = serverId + ":" + graph.getId();
         draftFlows.put(key, graph);
-        flowNames.putIfAbsent(key, graph.getId().toString());
+        flowNames.putIfAbsent(key, graph.getId());
         return graph;
     }
 
