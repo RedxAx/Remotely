@@ -387,6 +387,10 @@ public class NodeWidget extends AnimatedWidget {
                 inputWidget.setPosition(widgetX, widgetY);
                 inputWidget.setWidth(widgetWidth);
                 inputWidget.setHeight(widgetHeight);
+                inputWidget.setPriority(inputs.size() - i);
+                if (inputWidget instanceof AnimatedWidget) {
+                    ((AnimatedWidget) inputWidget).setLayer(inputs.size() - i);
+                }
             }
         }
     }
