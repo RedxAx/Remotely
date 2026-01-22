@@ -705,7 +705,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             remoteHostUserInput.setText(host.user);
             remoteHostIpInput.setText(host.ip);
             remoteHostPortInput.setText(String.valueOf(host.port));
-            remoteHostPasswordInput.setText(host.getPassword());
+            remoteHostPasswordInput.setText(host.getPassword() != null ? host.getPassword() : "");
         } else {
             remoteHostConfirmButton.setMessage(("Test & Add"));
             remoteHostDeleteButton.visible = false;

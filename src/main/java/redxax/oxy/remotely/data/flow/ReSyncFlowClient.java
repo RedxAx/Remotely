@@ -7,8 +7,13 @@ import com.google.gson.Gson;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowSerializer;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
+import redxax.oxy.remotely.flow.cache.NodeRegistryCache;
+import redxax.oxy.remotely.flow.registry.NodeRegistry;
+import redxax.oxy.remotely.flow.sync.NodeRegistryRequest;
+import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.util.Notification;
 import restudio.rebase.restudio.api.ReStudioApiClient;
 
@@ -20,6 +25,10 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.DataFormatException;
@@ -46,10 +55,17 @@ public class ReSyncFlowClient {
     private final Gson gson = new Gson();
     private final Queue<Runnable> pendingSends = new ConcurrentLinkedQueue<>();
     private final Set<String> pendingOpenFlows = ConcurrentHashMap.newKeySet();
+    private final NodeRegistryCache nodeRegistryCache = NodeRegistryCache.getInstance();
+    private final ScheduledExecutorService nodeRegistryScheduler = Executors.newSingleThreadScheduledExecutor();
+    private ScheduledFuture<?> nodeRegistryTimeout;
+    private volatile boolean nodeRegistrySynced = false;
+    private volatile boolean usingCachedRegistry = false;
+    private static final int NODE_REGISTRY_TIMEOUT_SECONDS = 5;
 
     public ReSyncFlowClient(String serverId, ReStudioApiClient apiClient) {
         this.serverId = serverId;
         this.apiClient = apiClient;
+        loadCachedRegistry();
     }
 
     public void setErrorListener(ErrorListener listener) {
@@ -61,6 +77,7 @@ public class ReSyncFlowClient {
             return CompletableFuture.completedFuture(null);
         }
         connecting.set(true);
+        nodeRegistrySynced = false;
         System.out.println("[ReSyncFlow] Attempting to connect to serverId=" + serverId);
 
         return apiClient.getReSyncConfig(serverId).thenCompose(config -> {
@@ -146,6 +163,8 @@ public class ReSyncFlowClient {
                 public void onClose(int code, String reason, boolean remote) {
                     authenticated.set(false);
                     connecting.set(false);
+                    nodeRegistrySynced = false;
+                    cancelNodeRegistryTimeout();
                     System.out.println("[ReSyncFlow] WebSocket closed - Code: " + code + ", Reason: " + reason + ", Remote: " + remote);
                 }
 
@@ -283,6 +302,7 @@ public class ReSyncFlowClient {
         authenticated.set(true);
         connecting.set(false);
         System.out.println("[ReSyncFlow] Handshake complete, client authenticated");
+        requestNodeRegistry();
         flushPendingSends();
     }
 
@@ -326,6 +346,12 @@ public class ReSyncFlowClient {
                 break;
             case 0x0A:
                 handleFlowList(buffer);
+                break;
+            case 0x0B:
+                handleNodeRegistrySnapshot(buffer, true);
+                break;
+            case 0x0D:
+                handleNodeRegistrySnapshot(buffer, false);
                 break;
         }
     }
@@ -428,6 +454,93 @@ public class ReSyncFlowClient {
         if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
             RemotelyClient.INSTANCE.getFlowManager().applyServerFlowList(serverId, flowIds);
         }
+    }
+
+    private void handleNodeRegistrySnapshot(ByteBuffer buffer, boolean fullSync) {
+        byte[] jsonBytes = new byte[buffer.remaining()];
+        buffer.get(jsonBytes);
+        String json = new String(jsonBytes, StandardCharsets.UTF_8);
+        try {
+            NodeRegistrySnapshot snapshot = gson.fromJson(json, NodeRegistrySnapshot.class);
+            if (snapshot == null) {
+                return;
+            }
+            snapshot.setFullSync(fullSync || snapshot.isFullSync());
+            NodeRegistry registry = NodeRegistry.getInstance();
+            if (registry != null) {
+                registry.applySnapshot(serverId, snapshot);
+            }
+            nodeRegistryCache.applySnapshot(serverId, snapshot);
+            nodeRegistrySynced = true;
+            usingCachedRegistry = false;
+            cancelNodeRegistryTimeout();
+            notifyNodeRegistryUpdated();
+        } catch (Exception e) {
+            System.err.println("[ReSyncFlow] Failed to parse node registry snapshot: " + e.getMessage());
+        }
+    }
+
+    public void requestNodeRegistry() {
+        if (!isConnected()) {
+            pendingSends.add(this::requestNodeRegistry);
+            ensureConnected();
+            return;
+        }
+        NodeRegistryRequest request = new NodeRegistryRequest();
+        request.setPluginChecksums(nodeRegistryCache.getPluginChecksums(serverId));
+        String json = gson.toJson(request);
+        byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
+        buffer.put((byte) 0x0C);
+        buffer.put(jsonBytes);
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+        scheduleNodeRegistryTimeout();
+    }
+
+    private void loadCachedRegistry() {
+        NodeRegistrySnapshot cached = nodeRegistryCache.getSnapshot(serverId);
+        if (cached == null) {
+            return;
+        }
+        NodeRegistry registry = NodeRegistry.getInstance();
+        if (registry != null) {
+            registry.applySnapshot(serverId, cached);
+        }
+        usingCachedRegistry = true;
+    }
+
+    private void notifyNodeRegistryUpdated() {
+        ScreenManager.getInstance().execute(() -> {
+            Screen current = ScreenManager.getInstance().getCurrentScreen();
+            if (current instanceof FlowEditorScreen screen && serverId.equals(screen.getServerId())) {
+                screen.refreshNodeRegistry();
+            }
+        });
+    }
+
+    private void scheduleNodeRegistryTimeout() {
+        cancelNodeRegistryTimeout();
+        if (!usingCachedRegistry) {
+            return;
+        }
+        nodeRegistryTimeout = nodeRegistryScheduler.schedule(() -> {
+            if (!nodeRegistrySynced && usingCachedRegistry) {
+                showCachedRegistryNotice();
+            }
+        }, NODE_REGISTRY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    private void cancelNodeRegistryTimeout() {
+        if (nodeRegistryTimeout != null) {
+            nodeRegistryTimeout.cancel(false);
+            nodeRegistryTimeout = null;
+        }
+    }
+
+    private void showCachedRegistryNotice() {
+        ScreenManager.getInstance().execute(() ->
+            new Notification("Flow Nodes", "Using cached node definitions for " + serverId, Notification.Type.WARN)
+        );
     }
 
     private void sendFlowRequest(String flowId) {
@@ -547,6 +660,8 @@ public class ReSyncFlowClient {
         }
         authenticated.set(false);
         connecting.set(false);
+        cancelNodeRegistryTimeout();
+        nodeRegistryScheduler.shutdownNow();
     }
 
     private boolean isConnected() {
