@@ -19,6 +19,41 @@ public class NodeRegistry {
     }
 
     private void registerStandardNodes() {
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.MathNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.LogicNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.StringNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.TextFormattingNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.FlowControlNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.BlockNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.RegionNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.WorldStateNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.PlayerEventNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.EntityEventNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.WorldEventNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.PlayerActionNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.PlayerInventoryNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.PlayerMessagingNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.EntitySpawnNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.EntityControlNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.InventoryNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.ItemCreationNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.MenuNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.VariableNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.FileNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.JsonNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.TimeNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.RandomNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.ConversionNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.DebugNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.SystemNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.SystemEventNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.CustomEventNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.SoundNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.ParticleNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.TitleNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.EconomyNodes());
+        new CategoryNodeLoader(this).registerCategory(new redxax.oxy.remotely.flow.nodes.PermissionNodes());
+
         register(new NodeDefinition.Builder("event:click", "On Click", NodeDefinition.NodeCategory.EVENT)
             .output("next", NodeDefinition.PinType.FLOW, FlowType.EXECUTION)
             .build());
@@ -134,6 +169,7 @@ public class NodeRegistry {
         register(new NodeDefinition.Builder("get_variable", "Get Variable", NodeDefinition.NodeCategory.VARIABLE)
             .input("name", NodeDefinition.PinType.DATA, FlowType.STRING)
             .output("value", NodeDefinition.PinType.DATA, FlowType.ANY)
+            .hidden()
             .build());
 
         register(new NodeDefinition.Builder("set_variable", "Set Variable", NodeDefinition.NodeCategory.VARIABLE)
@@ -141,6 +177,7 @@ public class NodeRegistry {
             .input("name", NodeDefinition.PinType.DATA, FlowType.STRING)
             .input("value", NodeDefinition.PinType.DATA, FlowType.ANY)
             .output("flow", NodeDefinition.PinType.FLOW, FlowType.EXECUTION)
+            .hidden()
             .build());
 
         register(new NodeDefinition.Builder("call_function", "Call Function", NodeDefinition.NodeCategory.FUNCTION)
