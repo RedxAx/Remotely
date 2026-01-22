@@ -113,10 +113,10 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             new Notification("Toggled Debug Tools To " + enableDebugTools, Notification.Type.INFO);
         }
         if (!enableDebugTools) return;
-        if (key == GLFW.GLFW_KEY_T && ctrl) {
+        if (key == GLFW.GLFW_KEY_T && all) {
             ScreenManager.getInstance().setScreen(new WidgetsTestingScreen());
         }
-        if (key == GLFW.GLFW_KEY_C && ctrl) {
+        if (key == GLFW.GLFW_KEY_C && all) {
             ScreenManager.getInstance().setScreen(new ContainerTestingScreen());
         }
         if (key == GLFW.GLFW_KEY_P && all) {

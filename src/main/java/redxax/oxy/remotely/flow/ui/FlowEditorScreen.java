@@ -21,12 +21,13 @@ import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Notification;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.Collections;
 import java.util.UUID;
 
 public class FlowEditorScreen extends InfiniteScreen implements UiHost {
@@ -35,6 +36,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     private static Screen parent;
     private final Map<String, NodeWidget> widgetCache = new HashMap<>();
     private static final float WIRE_HIT_RADIUS = 6.0f;
+    private static final int WIRE_OUT_OFFSET = 26;
+    private static final int WIRE_LANE_SPACING = 6;
     private static final int SELECTION_BORDER_PADDING = 2;
     private final Set<String> selectedNodeIds = new HashSet<>();
     private final Set<String> selectionBase = new HashSet<>();
@@ -46,10 +49,26 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     private double selectionEndY = 0;
 
     private SidePanel paletteSidePanel;
-    private PopupWidget eventsPopup;
-    private PopupWidget actionsPopup;
-    private PopupWidget logicPopup;
-    private PopupWidget dataPopup;
+    private final Map<NodeDefinition.NodeCategory, PopupWidget> categoryPopups = new HashMap<>();
+    private static final List<NodeDefinition.NodeCategory> CATEGORY_ORDER = List.of(
+        NodeDefinition.NodeCategory.EVENT,
+        NodeDefinition.NodeCategory.ACTION,
+        NodeDefinition.NodeCategory.LOGIC,
+        NodeDefinition.NodeCategory.DATA,
+        NodeDefinition.NodeCategory.VARIABLE,
+        NodeDefinition.NodeCategory.FUNCTION,
+        NodeDefinition.NodeCategory.ENTITY,
+        NodeDefinition.NodeCategory.WORLD,
+        NodeDefinition.NodeCategory.INVENTORY,
+        NodeDefinition.NodeCategory.SCOREBOARD,
+        NodeDefinition.NodeCategory.ECONOMY,
+        NodeDefinition.NodeCategory.PERMISSION,
+        NodeDefinition.NodeCategory.VISUAL,
+        NodeDefinition.NodeCategory.UTILITY,
+        NodeDefinition.NodeCategory.DATABASE,
+        NodeDefinition.NodeCategory.HTTP,
+        NodeDefinition.NodeCategory.DISCORD
+    );
 
     private IconButton headerBackground;
     private final List<IconButton> headerButtons = new ArrayList<>();
@@ -64,7 +83,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
     private final DragState dragState;
     private NodeWidget dragPinWidget;
-    private ContextMenuWidget nodeContextMenu;
+    private ItemSelectorWidget nodeItemSelector;
     private NodeWidget focusedNode;
 
     private String pendingSourceNodeId;
@@ -90,10 +109,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
         this.dragState = new DragState();
         this.dragPinWidget = null;
-        this.nodeContextMenu = null;
+        this.nodeItemSelector = null;
 
         for (var entry : graph.getNodes().entrySet()) {
-            NodeWidget widget = new NodeWidget((int)entry.getValue().getX(), (int)entry.getValue().getY(), entry.getValue(), graph, entry.getKey());
+            String nodeId = entry.getKey();
+            NodeWidget widget = new NodeWidget((int)entry.getValue().getX(), (int)entry.getValue().getY(), entry.getValue(), graph, nodeId, () -> deleteNode(nodeId));
             addWorldWidget(widget);
             widgetCache.put(entry.getKey(), widget);
         }
@@ -115,18 +135,15 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private void createPaletteSidePanel() {
-        paletteSidePanel = new SidePanel(this, "palettePanel", this::updatePositions).width(220).y(54).height(height - 55).show();
+        paletteSidePanel = new SidePanel(this, "palettePanel", this::updatePositions).width(120).y(54).height(height - 65).show();
         paletteSidePanel.container().layout(new ManagedLayout()).columns(1).padding(5);
 
-        eventsPopup = new PopupWidget.Builder("Events").enableCollapseOnClose(true).build();
-        actionsPopup = new PopupWidget.Builder("Actions").enableCollapseOnClose(true).build();
-        logicPopup = new PopupWidget.Builder("Logic").enableCollapseOnClose(true).build();
-        dataPopup = new PopupWidget.Builder("Data").enableCollapseOnClose(true).build();
-
-        paletteSidePanel.addWidget(eventsPopup);
-        paletteSidePanel.addWidget(actionsPopup);
-        paletteSidePanel.addWidget(logicPopup);
-        paletteSidePanel.addWidget(dataPopup);
+        categoryPopups.clear();
+        for (NodeDefinition.NodeCategory category : CATEGORY_ORDER) {
+            PopupWidget popup = new PopupWidget.Builder(getCategoryLabel(category)).enableCollapseOnClose(true).build();
+            categoryPopups.put(category, popup);
+            paletteSidePanel.addWidget(popup);
+        }
 
         if (NodeRegistry.getInstance() != null) {
             populateCategoryPopups();
@@ -136,49 +153,62 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private void populateCategoryPopups() {
-        Map<String, List<String>> categories = new HashMap<>();
-        categories.put("Events", new ArrayList<>());
-        categories.put("Actions", new ArrayList<>());
-        categories.put("Logic", new ArrayList<>());
-        categories.put("Data", new ArrayList<>());
-
-        for (NodeDefinition def : NodeRegistry.getInstance().getAllDefinitions().values()) {
-            String category;
-            if (def.getId().startsWith("event:")) {
-                category = "Events";
-            } else {
-                switch (def.getCategory()) {
-                    case ACTION -> category = "Actions";
-                    case LOGIC -> category = "Logic";
-                    case DATA -> category = "Data";
-                    default -> category = "Actions";
-                }
-            }
-
-            categories.getOrDefault(category, new ArrayList<>()).add(def.getId());
+        Map<NodeDefinition.NodeCategory, List<NodeDefinition>> categories = new HashMap<>();
+        for (NodeDefinition.NodeCategory category : CATEGORY_ORDER) {
+            categories.put(category, new ArrayList<>());
         }
 
-        for (Map.Entry<String, List<String>> entry : categories.entrySet()) {
-            PopupWidget targetPopup = getCategoryPopup(entry.getKey());
-            if (targetPopup != null) {
-                targetPopup.clearRows();
-                for (String nodeId : entry.getValue()) {
-                    String displayName = NodeRegistry.getInstance().getDefinition(nodeId).getDisplayName();
-                    IconButton btn = new IconButton.Builder()
-                        .label(displayName)
-                        .onClick(() -> addNodeAtCenter(nodeId))
-                        .build();
-                    targetPopup.addRow("", Collections.singletonList(btn), 20, true, false);
-                }
+        for (NodeDefinition def : NodeRegistry.getInstance().getAllDefinitions().values()) {
+            if (def.isHidden()) {
+                continue;
+            }
+            NodeDefinition.NodeCategory category = def.getCategory();
+            if (def.getId().startsWith("event:")) {
+                category = NodeDefinition.NodeCategory.EVENT;
+            }
+            categories.computeIfAbsent(category, ignored -> new ArrayList<>()).add(def);
+        }
+
+        Comparator<NodeDefinition> comparator = Comparator
+            .comparingInt(NodeDefinition::getPriority)
+            .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER);
+
+        for (NodeDefinition.NodeCategory category : CATEGORY_ORDER) {
+            PopupWidget targetPopup = getCategoryPopup(category);
+            if (targetPopup == null) {
+                continue;
+            }
+            targetPopup.clearRows();
+            List<NodeDefinition> nodes = categories.getOrDefault(category, new ArrayList<>());
+            nodes.sort(comparator);
+            for (NodeDefinition def : nodes) {
+                IconButton btn = new IconButton.Builder()
+                    .label(def.getDisplayName())
+                    .onClick(() -> addNodeAtCenter(def.getId()))
+                    .build();
+                targetPopup.addRow("", Collections.singletonList(btn), 20, true, false);
             }
         }
     }
 
     private void populateFallbackPopups() {
-        eventsPopup.clearRows();
-        actionsPopup.clearRows();
-        logicPopup.clearRows();
-        dataPopup.clearRows();
+        PopupWidget eventsPopup = getCategoryPopup(NodeDefinition.NodeCategory.EVENT);
+        PopupWidget actionsPopup = getCategoryPopup(NodeDefinition.NodeCategory.ACTION);
+        PopupWidget logicPopup = getCategoryPopup(NodeDefinition.NodeCategory.LOGIC);
+        PopupWidget dataPopup = getCategoryPopup(NodeDefinition.NodeCategory.DATA);
+
+        if (eventsPopup != null) {
+            eventsPopup.clearRows();
+        }
+        if (actionsPopup != null) {
+            actionsPopup.clearRows();
+        }
+        if (logicPopup != null) {
+            logicPopup.clearRows();
+        }
+        if (dataPopup != null) {
+            dataPopup.clearRows();
+        }
 
         String[] eventNodes = {"event:join", "event:quit", "event:chat", "event:death", "event:block_break", "event:block_place", "event:sneak"};
         for (String nodeId : eventNodes) {
@@ -186,7 +216,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 .label(nodeId.replace("event:", "").toUpperCase())
                 .onClick(() -> addNodeAtCenter(nodeId))
                 .build();
-            eventsPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+            if (eventsPopup != null) {
+                eventsPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+            }
         }
 
         String[] actionNodes = {"log", "player_message", "give_item", "cancel_event", "player_kick", "player_teleport"};
@@ -195,7 +227,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 .label(nodeId.toUpperCase())
                 .onClick(() -> addNodeAtCenter(nodeId))
                 .build();
-            actionsPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+            if (actionsPopup != null) {
+                actionsPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+            }
         }
 
         String[] logicNodes = {"if", "equals", "not_equals", "contains", "compare"};
@@ -204,7 +238,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 .label(nodeId.toUpperCase())
                 .onClick(() -> addNodeAtCenter(nodeId))
                 .build();
-            logicPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+            if (logicPopup != null) {
+                logicPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+            }
         }
 
         String[] dataNodes = {"number", "string", "boolean", "get_variable", "set_variable", "get_location"};
@@ -213,17 +249,35 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 .label(nodeId.toUpperCase())
                 .onClick(() -> addNodeAtCenter(nodeId))
                 .build();
-            dataPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+            if (dataPopup != null) {
+                dataPopup.addRow("", Collections.singletonList(btn), 20, true, false);
+            }
         }
     }
 
-    private PopupWidget getCategoryPopup(String category) {
+    private PopupWidget getCategoryPopup(NodeDefinition.NodeCategory category) {
+        return categoryPopups.get(category);
+    }
+
+    private String getCategoryLabel(NodeDefinition.NodeCategory category) {
         return switch (category) {
-            case "Events" -> eventsPopup;
-            case "Actions" -> actionsPopup;
-            case "Logic" -> logicPopup;
-            case "Data" -> dataPopup;
-            default -> actionsPopup;
+            case EVENT -> "Events";
+            case ACTION -> "Actions";
+            case LOGIC -> "Logic";
+            case DATA -> "Data";
+            case VARIABLE -> "Variables";
+            case FUNCTION -> "Functions";
+            case ENTITY -> "Entities";
+            case WORLD -> "World";
+            case INVENTORY -> "Inventory";
+            case SCOREBOARD -> "Scoreboard";
+            case ECONOMY -> "Economy";
+            case PERMISSION -> "Permissions";
+            case VISUAL -> "Visual";
+            case UTILITY -> "Utility";
+            case DATABASE -> "Database";
+            case HTTP -> "HTTP";
+            case DISCORD -> "Discord";
         };
     }
 
@@ -281,7 +335,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     public void updatePositions() {
         super.updatePositions();
         if (paletteSidePanel != null && paletteSidePanel.isVisible()) {
-            paletteSidePanel.height(height - 55).y(54).update();
+            paletteSidePanel.height(height - 65).y(54).update();
         }
         if (headerBackground != null) {
             layoutHeaderButtons();
@@ -362,7 +416,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
                     FlowType sourceType = source.getPinType(conn.getSourcePin(), false);
                     int wireColor = (sourceType != null) ? sourceType.getColor() : ThemeManager.getColor(ThemeColor.innerBorder);
-                    drawBezier(context, startX, startY, endX, endY, wireColor);
+                    int laneOffset = getWireLaneOffset(conn);
+                    drawWire(context, startX, startY, endX, endY, wireColor, laneOffset);
                 }
             }
         }
@@ -382,8 +437,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             if (sourcePinWorld != null) {
                 double[] mouseWorld = screenToWorld(dragMouseX, dragMouseY);
                 int dragWireColor = (sourceType != null) ? sourceType.getColor() : (ThemeManager.getColor(ThemeColor.innerBorder) & 0x00FFFFFF) | 0x88000000;
-                drawBezier(context, (float)sourcePinWorld[0], (float)sourcePinWorld[1],
-                          (float)mouseWorld[0], (float)mouseWorld[1], dragWireColor);
+                drawWire(context, (float)sourcePinWorld[0], (float)sourcePinWorld[1], (float)mouseWorld[0], (float)mouseWorld[1], dragWireColor, 0);
             }
         }
     }
@@ -420,18 +474,64 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
     }
 
-    private void drawBezier(IDrawContext context, float startX, float startY, float endX, float endY, int color) {
-        float c1x = startX + 50 * zoomLevel;
-        float c2x = endX - 50 * zoomLevel;
+    private void drawWire(IDrawContext context, float startX, float startY, float endX, float endY, int color, int laneOffset) {
+        int alpha = (color >> 24) & 0xFF;
+        int borderBase = ThemeManager.getColor(ThemeColor.innerBorder);
+        int borderColor = (borderBase & 0x00FFFFFF) | (alpha << 24);
 
-        float step = 0.05f;
+        int x1 = Math.round(startX);
+        int y1 = Math.round(startY);
+        int x2 = Math.round(endX);
+        int y2 = Math.round(endY);
+        int outX = x1 + WIRE_OUT_OFFSET + laneOffset;
+        int inX = x2 - WIRE_OUT_OFFSET - laneOffset;
+        int midY = Math.round((startY + endY) / 2f) + laneOffset;
 
-        for (float t = 0; t <= 1; t += step) {
-            double x = Math.pow(1-t, 3)*startX + 3*Math.pow(1-t, 2)*t*c1x + 3*(1-t)*Math.pow(t, 2)*c2x + Math.pow(t, 3)*endX;
-            double y = Math.pow(1-t, 3)*startY + 3*Math.pow(1-t, 2)*t* startY + 3*(1-t)*Math.pow(t, 2)* endY + Math.pow(t, 3)*endY;
+        drawSegmentBorder(context, x1, y1, outX, y1, borderColor);
+        drawSegmentBorder(context, outX, y1, outX, midY, borderColor);
+        drawSegmentBorder(context, outX, midY, inX, midY, borderColor);
+        drawSegmentBorder(context, inX, midY, inX, y2, borderColor);
+        drawSegmentBorder(context, inX, y2, x2, y2, borderColor);
 
-            context.fill((int)x - 1, (int)y - 1, (int)x + 2, (int)y + 2, color);
+        drawSegmentFill(context, x1, y1, outX, y1, color);
+        drawSegmentFill(context, outX, y1, outX, midY, color);
+        drawSegmentFill(context, outX, midY, inX, midY, color);
+        drawSegmentFill(context, inX, midY, inX, y2, color);
+        drawSegmentFill(context, inX, y2, x2, y2, color);
+    }
+
+    private void drawSegmentBorder(IDrawContext context, int x1, int y1, int x2, int y2, int color) {
+        drawSegment(context, x1, y1, x2, y2, color, 5);
+    }
+
+    private void drawSegmentFill(IDrawContext context, int x1, int y1, int x2, int y2, int color) {
+        drawSegment(context, x1, y1, x2, y2, color, 3);
+    }
+
+    private void drawSegment(IDrawContext context, int x1, int y1, int x2, int y2, int color, int thickness) {
+        int half = thickness / 2;
+
+        if (x1 == x2) {
+            int minY = Math.min(y1, y2);
+            int maxY = Math.max(y1, y2);
+            context.fill(x1 - half, minY - half, x1 + half + 1, maxY + half + 1, color);
+            return;
         }
+
+        if (y1 == y2) {
+            int minX = Math.min(x1, x2);
+            int maxX = Math.max(x1, x2);
+            context.fill(minX - half, y1 - half, maxX + half + 1, y1 + half + 1, color);
+            return;
+        }
+
+        context.fill(x1 - half, y1 - half, x1 + half + 1, y1 + half + 1, color);
+    }
+
+    private int getWireLaneOffset(FlowConnection conn) {
+        String key = conn.getSourceNodeId() + ":" + conn.getSourcePin() + ">" + conn.getTargetNodeId() + ":" + conn.getTargetPin();
+        int lane = Math.floorMod(key.hashCode(), 5) - 2;
+        return lane * WIRE_LANE_SPACING;
     }
 
     @Override
@@ -446,7 +546,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         int wy = (int)worldMouse[1];
 
         if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            if (handleRightClick(wx, wy, (int) undistortedCoords[0], (int) undistortedCoords[1])) {
+            if (handleRightClick(wx, wy, (int)mouseX, (int)mouseY)) {
                 return true;
             }
             return true;
@@ -471,10 +571,14 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 }
             }
 
-            TextInputWidget inputWidget = widget.getInputWidgetAt(wx, wy);
+            Widget inputWidget = widget.getInputWidgetAt(wx, wy);
             if (inputWidget != null) {
                 inputWidget.mouseClicked(wx, wy, button);
-                setFocusedWidget(inputWidget);
+                if (inputWidget instanceof TextInputWidget) {
+                    setFocusedWidget(inputWidget);
+                } else {
+                    setFocusedWidget(null);
+                }
                 focusedNode = widget;
                 selectNode(widget, hasShiftDown() || hasControlDown());
                 return true;
@@ -657,11 +761,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 return true;
             }
             selectNode(widget, hasShiftDown() || hasControlDown());
-            showNodeMenu(widget, screenX, screenY);
             return true;
         }
 
-        return false;
+        showAllNodesMenu(screenX, screenY);
+        return true;
     }
 
     private NodeWidget findNodeAt(int wx, int wy) {
@@ -676,21 +780,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         return null;
     }
 
-    private void showNodeMenu(NodeWidget widget, int x, int y) {
-        if (nodeContextMenu != null) {
-            remove(nodeContextMenu);
-            nodeContextMenu = null;
-        }
-        String nodeId = findNodeId(widget);
-        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
-        builder.addItem("Delete Node", () -> deleteNode(nodeId), "Delete this node");
-        if (selectedNodeIds.size() > 1) {
-            builder.addItem("Delete Selected", this::deleteSelectedNodes, "Delete selected nodes");
-        }
-        nodeContextMenu = builder.build();
-        addDrawableChild(nodeContextMenu);
-        nodeContextMenu.show(x, y);
-    }
 
     private void selectNode(NodeWidget widget, boolean toggle) {
         String nodeId = findNodeId(widget);
@@ -891,15 +980,20 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private void showAddNodeMenu(int x, int y, FlowType sourceType) {
-        if (nodeContextMenu != null) {
-            remove(nodeContextMenu);
-            nodeContextMenu = null;
+        if (nodeItemSelector != null) {
+            remove(nodeItemSelector);
+            nodeItemSelector = null;
         }
 
-        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
+        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this);
 
         if (NodeRegistry.getInstance() != null) {
-            for (NodeDefinition def : NodeRegistry.getInstance().getAllDefinitions().values()) {
+            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions().values());
+            definitions.removeIf(NodeDefinition::isHidden);
+            definitions.sort(Comparator
+                .comparingInt(NodeDefinition::getPriority)
+                .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
+            for (NodeDefinition def : definitions) {
                 String compatiblePin = null;
                 if (sourceType != null) {
                     compatiblePin = findCompatibleInput(def, sourceType);
@@ -909,19 +1003,18 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 }
                 String pinName = compatiblePin;
                 builder.addItem(def.getDisplayName(),
-                    () -> addNode(x, y, def.getId(), pinName),
-                    def.getCategory().toString().toLowerCase());
+                    () -> addNode(x, y, def.getId(), pinName));
             }
         } else {
-            builder.addItem("Log", () -> addNode(x, y, "log"), "Log To Console");
-            builder.addItem("Player Message", () -> addNode(x, y, "player_message"), "Send Message To Player");
-            builder.addItem("If", () -> addNode(x, y, "if"), "Conditional Branching");
-            builder.addItem("Give Item", () -> addNode(x, y, "give_item"), "Give Item To Player");
+            builder.addItem("Log", () -> addNode(x, y, "log"));
+            builder.addItem("Player Message", () -> addNode(x, y, "player_message"));
+            builder.addItem("If", () -> addNode(x, y, "if"));
+            builder.addItem("Give Item", () -> addNode(x, y, "give_item"));
         }
 
-        nodeContextMenu = builder.build();
-        addDrawableChild(nodeContextMenu);
-        nodeContextMenu.show(x, y);
+        nodeItemSelector = builder.build();
+        addDrawableChild(nodeItemSelector);
+        nodeItemSelector.show(x, y);
     }
 
     private String findCompatibleInput(NodeDefinition definition, FlowType sourceType) {
@@ -933,6 +1026,35 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         return null;
     }
 
+    private void showAllNodesMenu(int screenX, int screenY) {
+        if (nodeItemSelector != null) {
+            remove(nodeItemSelector);
+            nodeItemSelector = null;
+        }
+
+        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this);
+
+        if (NodeRegistry.getInstance() != null) {
+            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions().values());
+            definitions.removeIf(NodeDefinition::isHidden);
+            definitions.sort(Comparator
+                .comparingInt(NodeDefinition::getPriority)
+                .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
+            for (NodeDefinition def : definitions) {
+                builder.addItem(def.getDisplayName(), () -> addNodeAtCenter(def.getId()));
+            }
+        } else {
+            builder.addItem("Log", () -> addNodeAtCenter("log"));
+            builder.addItem("Player Message", () -> addNodeAtCenter("player_message"));
+            builder.addItem("If", () -> addNodeAtCenter("if"));
+            builder.addItem("Give Item", () -> addNodeAtCenter("give_item"));
+        }
+
+        nodeItemSelector = builder.build();
+        addDrawableChild(nodeItemSelector);
+        nodeItemSelector.show(screenX, screenY);
+    }
+
     private void addNode(int x, int y, String type) {
         addNode(x, y, type, null);
     }
@@ -942,7 +1064,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         FlowNode node = new FlowNode(type, x, y, new HashMap<>());
         graph.getNodes().put(id, node);
 
-        NodeWidget widget = new NodeWidget(x, y, node, graph, id);
+        NodeWidget widget = new NodeWidget(x, y, node, graph, id, () -> deleteNode(id));
         widgetCache.put(id, widget);
         addWorldWidget(widget);
 
@@ -1078,6 +1200,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         if (headerBackground != null) {
             layoutHeaderButtons();
         }
+        updatePositions();
     }
 
     @Override
