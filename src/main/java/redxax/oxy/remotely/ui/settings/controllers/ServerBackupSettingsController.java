@@ -5,6 +5,7 @@ import restudio.rebase.backup.BackupInfo;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.settings.controllers.ReStudioBackupSettingsController;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -36,6 +37,13 @@ public class ServerBackupSettingsController {
     }
 
     public List<Setting> getSettings() {
+        boolean isReStudioBackend = instance.getBackendConfig() != null &&
+                "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type);
+
+        if (isReStudioBackend) {
+            return new ReStudioBackupSettingsController(parentScreen, instance).getSettings();
+        }
+
         Setting.Builder builder = new Setting.Builder("Server Backups");
 
         AnimatedButton createBackupButton = new AnimatedButton.Builder()
@@ -49,7 +57,6 @@ public class ServerBackupSettingsController {
         Rebase.get().getBackupManager().loadBackups();
         List<BackupInfo> allBackups = Rebase.get().getBackupManager().getAllBackups();
         List<BackupInfo> serverBackups = allBackups.stream().filter(b -> b.getInstanceId() != null && b.getInstanceId().equals(instance.getInstanceId())).sorted(Comparator.comparing(BackupInfo::getCreationTimestamp).reversed()).toList();
-
         for (BackupInfo backup : serverBackups) {
             builder.addRow("", true, false, 30, createBackupWidget(backup));
         }

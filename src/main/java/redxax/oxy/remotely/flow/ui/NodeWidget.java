@@ -31,6 +31,7 @@ public class NodeWidget extends AnimatedWidget {
     private final FlowNode node;
     private final FlowGraph graph;
     private final String nodeId;
+    private final String serverId;
     private final List<NodeDefinition.PinDefinition> inputs = new ArrayList<>();
     private final List<NodeDefinition.PinDefinition> outputs = new ArrayList<>();
     private final NodeDefinition definition;
@@ -56,15 +57,20 @@ public class NodeWidget extends AnimatedWidget {
     private static final int CLOSE_BUTTON_HEIGHT = 8;
 
     public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId) {
-        this(x, y, node, graph, nodeId, null);
+        this(x, y, node, graph, nodeId, null, null);
     }
 
-    public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId, Runnable onClose) {
+    public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId, String serverId) {
+        this(x, y, node, graph, nodeId, serverId, null);
+    }
+
+    public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId, String serverId, Runnable onClose) {
         super(x, y, DEFAULT_WIDTH, 100, "");
         this.node = node;
         this.graph = graph;
         this.nodeId = nodeId;
-        this.definition = NodeRegistry.getInstance() != null ? NodeRegistry.getInstance().getDefinition(node.getType()) : null;
+        this.serverId = serverId;
+        this.definition = NodeRegistry.getInstance() != null ? NodeRegistry.getInstance().getDefinition(serverId, node.getType()) : null;
         this.enableHoverColors = false;
         this.animateElevation = false;
         this.onClose = onClose;

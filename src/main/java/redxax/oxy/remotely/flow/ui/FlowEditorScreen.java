@@ -113,10 +113,28 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         for (var entry : graph.getNodes().entrySet()) {
             String nodeId = entry.getKey();
-            NodeWidget widget = new NodeWidget((int)entry.getValue().getX(), (int)entry.getValue().getY(), entry.getValue(), graph, nodeId, () -> deleteNode(nodeId));
+            NodeWidget widget = new NodeWidget((int)entry.getValue().getX(), (int)entry.getValue().getY(), entry.getValue(), graph, nodeId, serverId, () -> deleteNode(nodeId));
             addWorldWidget(widget);
             widgetCache.put(entry.getKey(), widget);
         }
+    }
+
+    public String getServerId() {
+        return serverId;
+    }
+
+    public void refreshNodeRegistry() {
+        for (NodeWidget widget : widgetCache.values()) {
+            removeWorldWidget(widget);
+        }
+        widgetCache.clear();
+        for (var entry : graph.getNodes().entrySet()) {
+            String nodeId = entry.getKey();
+            NodeWidget widget = new NodeWidget((int)entry.getValue().getX(), (int)entry.getValue().getY(), entry.getValue(), graph, nodeId, serverId, () -> deleteNode(nodeId));
+            addWorldWidget(widget);
+            widgetCache.put(entry.getKey(), widget);
+        }
+        refreshPalette();
     }
 
     @Override
@@ -134,6 +152,17 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         layoutHeaderButtons();
     }
 
+    private void refreshPalette() {
+        if (paletteSidePanel == null) {
+            return;
+        }
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
+            populateCategoryPopups();
+        } else {
+            populateFallbackPopups();
+        }
+    }
+
     private void createPaletteSidePanel() {
         paletteSidePanel = new SidePanel(this, "palettePanel", this::updatePositions).width(120).y(54).height(height - 65).show();
         paletteSidePanel.container().layout(new ManagedLayout()).columns(1).padding(5);
@@ -145,7 +174,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             paletteSidePanel.addWidget(popup);
         }
 
-        if (NodeRegistry.getInstance() != null) {
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
             populateCategoryPopups();
         } else {
             populateFallbackPopups();
@@ -158,7 +187,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             categories.put(category, new ArrayList<>());
         }
 
-        for (NodeDefinition def : NodeRegistry.getInstance().getAllDefinitions().values()) {
+        for (NodeDefinition def : NodeRegistry.getInstance().getAllDefinitions(serverId).values()) {
             if (def.isHidden()) {
                 continue;
             }
@@ -208,50 +237,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
         if (dataPopup != null) {
             dataPopup.clearRows();
-        }
-
-        String[] eventNodes = {"event:join", "event:quit", "event:chat", "event:death", "event:block_break", "event:block_place", "event:sneak"};
-        for (String nodeId : eventNodes) {
-            IconButton btn = new IconButton.Builder()
-                .label(nodeId.replace("event:", "").toUpperCase())
-                .onClick(() -> addNodeAtCenter(nodeId))
-                .build();
-            if (eventsPopup != null) {
-                eventsPopup.addRow("", Collections.singletonList(btn), 20, true, false);
-            }
-        }
-
-        String[] actionNodes = {"log", "player_message", "give_item", "cancel_event", "player_kick", "player_teleport"};
-        for (String nodeId : actionNodes) {
-            IconButton btn = new IconButton.Builder()
-                .label(nodeId.toUpperCase())
-                .onClick(() -> addNodeAtCenter(nodeId))
-                .build();
-            if (actionsPopup != null) {
-                actionsPopup.addRow("", Collections.singletonList(btn), 20, true, false);
-            }
-        }
-
-        String[] logicNodes = {"if", "equals", "not_equals", "contains", "compare"};
-        for (String nodeId : logicNodes) {
-            IconButton btn = new IconButton.Builder()
-                .label(nodeId.toUpperCase())
-                .onClick(() -> addNodeAtCenter(nodeId))
-                .build();
-            if (logicPopup != null) {
-                logicPopup.addRow("", Collections.singletonList(btn), 20, true, false);
-            }
-        }
-
-        String[] dataNodes = {"number", "string", "boolean", "get_variable", "set_variable", "get_location"};
-        for (String nodeId : dataNodes) {
-            IconButton btn = new IconButton.Builder()
-                .label(nodeId.toUpperCase())
-                .onClick(() -> addNodeAtCenter(nodeId))
-                .build();
-            if (dataPopup != null) {
-                dataPopup.addRow("", Collections.singletonList(btn), 20, true, false);
-            }
         }
     }
 
@@ -987,8 +972,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this);
 
-        if (NodeRegistry.getInstance() != null) {
-            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions().values());
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
+            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(serverId).values());
             definitions.removeIf(NodeDefinition::isHidden);
             definitions.sort(Comparator
                 .comparingInt(NodeDefinition::getPriority)
@@ -1005,11 +990,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 builder.addItem(def.getDisplayName(),
                     () -> addNode(x, y, def.getId(), pinName));
             }
-        } else {
-            builder.addItem("Log", () -> addNode(x, y, "log"));
-            builder.addItem("Player Message", () -> addNode(x, y, "player_message"));
-            builder.addItem("If", () -> addNode(x, y, "if"));
-            builder.addItem("Give Item", () -> addNode(x, y, "give_item"));
         }
 
         nodeItemSelector = builder.build();
@@ -1034,8 +1014,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this);
 
-        if (NodeRegistry.getInstance() != null) {
-            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions().values());
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
+            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(serverId).values());
             definitions.removeIf(NodeDefinition::isHidden);
             definitions.sort(Comparator
                 .comparingInt(NodeDefinition::getPriority)
@@ -1043,11 +1023,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             for (NodeDefinition def : definitions) {
                 builder.addItem(def.getDisplayName(), () -> addNodeAtCenter(def.getId()));
             }
-        } else {
-            builder.addItem("Log", () -> addNodeAtCenter("log"));
-            builder.addItem("Player Message", () -> addNodeAtCenter("player_message"));
-            builder.addItem("If", () -> addNodeAtCenter("if"));
-            builder.addItem("Give Item", () -> addNodeAtCenter("give_item"));
         }
 
         nodeItemSelector = builder.build();
@@ -1064,7 +1039,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         FlowNode node = new FlowNode(type, x, y, new HashMap<>());
         graph.getNodes().put(id, node);
 
-        NodeWidget widget = new NodeWidget(x, y, node, graph, id, () -> deleteNode(id));
+        NodeWidget widget = new NodeWidget(x, y, node, graph, id, serverId, () -> deleteNode(id));
         widgetCache.put(id, widget);
         addWorldWidget(widget);
 

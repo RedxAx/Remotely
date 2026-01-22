@@ -124,6 +124,9 @@ public class FlowManager {
             flowClient.shutdown();
             flowClients.remove(serverId);
         }
+        if (redxax.oxy.remotely.flow.registry.NodeRegistry.getInstance() != null) {
+            redxax.oxy.remotely.flow.registry.NodeRegistry.getInstance().clearServer(serverId);
+        }
         clearServerCache(serverId);
     }
 
