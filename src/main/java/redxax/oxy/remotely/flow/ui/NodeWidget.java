@@ -73,6 +73,7 @@ public class NodeWidget extends AnimatedWidget {
         this.definition = NodeRegistry.getInstance() != null ? NodeRegistry.getInstance().getDefinition(serverId, node.getType()) : null;
         this.enableHoverColors = false;
         this.animateElevation = false;
+        this.entranceAnimationEnabled = false;
         this.onClose = onClose;
         this.closeButton = new AnimatedButton.Builder()
             .onClick(() -> {
@@ -82,6 +83,7 @@ public class NodeWidget extends AnimatedWidget {
             })
             .accentType(ThemeManager.getAccent("danger"))
             .animateElevation(false)
+            .entranceAnimation(false)
             .size(CLOSE_BUTTON_WIDTH, CLOSE_BUTTON_HEIGHT)
             .hint("Delete Node")
             .build();
@@ -123,6 +125,7 @@ public class NodeWidget extends AnimatedWidget {
                         .selectedItem(selected)
                         .onSelectionChanged(value -> saveInputValue())
                         .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
+                        .entranceAnimation(false)
                         .build();
                     inputWidgets.put(input.getName(), widget);
                 } else if (input.getDataType() == FlowType.BOOLEAN) {
@@ -130,6 +133,7 @@ public class NodeWidget extends AnimatedWidget {
                     ToggleWidget widget = new ToggleWidget.Builder()
                         .toggled(toggled)
                         .onChange(this::saveInputValue)
+                        .entranceAnimation(false)
                         .build();
                     widget.setSize(TOGGLE_WIDGET_WIDTH, TOGGLE_WIDGET_HEIGHT);
                     inputWidgets.put(input.getName(), widget);
@@ -141,6 +145,7 @@ public class NodeWidget extends AnimatedWidget {
                         .forcePlaceholder(false)
                         .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
                         .onChange(this::saveInputValue)
+                        .entranceAnimation(false)
                         .build();
                     inputWidgets.put(input.getName(), widget);
                 }
