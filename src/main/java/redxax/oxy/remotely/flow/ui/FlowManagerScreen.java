@@ -6,6 +6,8 @@ import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.data.TriggerType;
+import redxax.oxy.remotely.flow.registry.NodeDefinition;
+import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeColor;
@@ -379,13 +381,15 @@ public class FlowManagerScreen extends ReScreen {
 
     private List<String> getEventOptions() {
         List<String> events = new ArrayList<>();
-        events.add("join");
-        events.add("quit");
-        events.add("chat");
-        events.add("sneak");
-        events.add("death");
-        events.add("block_break");
-        events.add("block_place");
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
+            Map<String, NodeDefinition> definitions = NodeRegistry.getInstance().getAllDefinitions(serverId);
+            for (NodeDefinition def : definitions.values()) {
+                if (def != null && def.getId() != null && def.getId().startsWith("event:")) {
+                    events.add(def.getId().substring(6));
+                }
+            }
+        }
+        events.sort(String.CASE_INSENSITIVE_ORDER);
         return events;
     }
 
