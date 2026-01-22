@@ -92,6 +92,67 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     private double dragMouseX = 0;
     private double dragMouseY = 0;
 
+    private static class ClipboardData {
+        final List<CopiedNode> nodes = new ArrayList<>();
+        final List<CopiedConnection> connections = new ArrayList<>();
+    }
+
+    private static class CopiedNode {
+        final String type;
+        final double relativeX;
+        final double relativeY;
+        final Map<String, Object> inputValues;
+
+        CopiedNode(String type, double relativeX, double relativeY, Map<String, Object> inputValues) {
+            this.type = type;
+            this.relativeX = relativeX;
+            this.relativeY = relativeY;
+            this.inputValues = new HashMap<>(inputValues);
+        }
+    }
+
+    private static class CopiedConnection {
+        final int sourceIndex;
+        final String sourcePin;
+        final int targetIndex;
+        final String targetPin;
+
+        CopiedConnection(int sourceIndex, String sourcePin, int targetIndex, String targetPin) {
+            this.sourceIndex = sourceIndex;
+            this.sourcePin = sourcePin;
+            this.targetIndex = targetIndex;
+            this.targetPin = targetPin;
+        }
+    }
+
+    private final ClipboardData clipboard = new ClipboardData();
+
+    private static class GraphSnapshot {
+        final Map<String, FlowNode> nodes;
+        final List<FlowConnection> connections;
+        final Set<String> selectedIds;
+
+        GraphSnapshot(Map<String, FlowNode> nodes, List<FlowConnection> connections, Set<String> selectedIds) {
+            this.nodes = new HashMap<>();
+            for (Map.Entry<String, FlowNode> entry : nodes.entrySet()) {
+                FlowNode node = entry.getValue();
+                this.nodes.put(entry.getKey(), new FlowNode(
+                    node.getType(),
+                    node.getX(),
+                    node.getY(),
+                    new HashMap<>(node.getInputValues())
+                ));
+            }
+            this.connections = new ArrayList<>(connections);
+            this.selectedIds = new HashSet<>(selectedIds);
+        }
+    }
+
+    private final List<GraphSnapshot> undoStack = new ArrayList<>();
+    private final List<GraphSnapshot> redoStack = new ArrayList<>();
+    private static final int MAX_UNDO_SIZE = 50;
+    private boolean isUndoing = false;
+
     public FlowEditorScreen(FlowGraph graph) {
         this(graph, null);
     }
@@ -170,6 +231,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         categoryPopups.clear();
         for (NodeDefinition.NodeCategory category : CATEGORY_ORDER) {
             PopupWidget popup = new PopupWidget.Builder(getCategoryLabel(category)).enableCollapseOnClose(true).build();
+            popup.collapse(true);
             categoryPopups.put(category, popup);
             paletteSidePanel.addWidget(popup);
         }
@@ -622,7 +684,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         if (dragState.isDragging) {
             double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
             double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
-            tryCompleteWire(worldMouse[0], worldMouse[1]);
+            tryCompleteWire(worldMouse[0], worldMouse[1], undistortedCoords[0], undistortedCoords[1]);
 
             dragState.isDragging = false;
             dragState.sourceNodeId = null;
@@ -631,6 +693,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
 
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && draggedWidget instanceof NodeWidget) {
+            captureSnapshot();
             syncNodePosition((NodeWidget) draggedWidget);
         }
 
@@ -642,14 +705,61 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)
             && !(getFocusedWidget() instanceof TextInputWidget)) {
             if (!selectedNodeIds.isEmpty()) {
+                captureSnapshot();
                 deleteSelectedNodes();
                 return true;
             }
             if (focusedNode != null) {
+                captureSnapshot();
                 deleteNode(findNodeId(focusedNode));
                 return true;
             }
         }
+
+        boolean hasControl = hasControlDown();
+        boolean hasShift = hasShiftDown();
+
+        if (hasControl && !(getFocusedWidget() instanceof TextInputWidget)) {
+            if (keyCode == GLFW.GLFW_KEY_C) {
+                if (!selectedNodeIds.isEmpty()) {
+                    copyNodes();
+                    return true;
+                }
+            }
+            if (keyCode == GLFW.GLFW_KEY_V) {
+                if (!clipboard.nodes.isEmpty()) {
+                    captureSnapshot();
+                    pasteNodes();
+                    return true;
+                }
+            }
+            if (keyCode == GLFW.GLFW_KEY_X) {
+                if (!selectedNodeIds.isEmpty()) {
+                    cutNodes();
+                    return true;
+                }
+            }
+            if (keyCode == GLFW.GLFW_KEY_D) {
+                if (!selectedNodeIds.isEmpty()) {
+                    captureSnapshot();
+                    duplicateNodes();
+                    return true;
+                }
+            }
+            if (keyCode == GLFW.GLFW_KEY_Z) {
+                if (hasShift) {
+                    redo();
+                } else {
+                    undo();
+                }
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_Y) {
+                redo();
+                return true;
+            }
+        }
+
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
@@ -901,7 +1011,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         return sourceType.isCompatibleWith(targetType);
     }
 
-    private void tryCompleteWire(double worldMouseX, double worldMouseY) {
+    private void tryCompleteWire(double worldMouseX, double worldMouseY, double screenMouseX, double screenMouseY) {
         int wx = (int) worldMouseX;
         int wy = (int) worldMouseY;
 
@@ -926,6 +1036,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                             removeExistingInputConnection(targetNodeId, targetPin);
                             graph.getConnections().add(newConnection);
                             refreshInputWidgets(targetNodeId);
+                            captureSnapshot();
                             connected = true;
                             break;
                         }
@@ -939,7 +1050,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             if (sourceType != null && sourceType != FlowType.EXECUTION) {
                 pendingSourceNodeId = dragState.sourceNodeId;
                 pendingSourcePin = dragState.sourcePin;
-                showAddNodeMenu(wx, wy, sourceType);
+                showAddNodeMenu((int) screenMouseX, (int) screenMouseY, sourceType);
             }
         }
     }
@@ -970,6 +1081,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             nodeItemSelector = null;
         }
 
+        clearSelection();
+
+        double[] worldPos = screenToWorld(x, y);
+        int worldX = (int) worldPos[0];
+        int worldY = (int) worldPos[1];
+
         ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this);
 
         if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
@@ -987,8 +1104,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                     }
                 }
                 String pinName = compatiblePin;
+                int finalWorldX = worldX;
+                int finalWorldY = worldY;
                 builder.addItem(def.getDisplayName(),
-                    () -> addNode(x, y, def.getId(), pinName));
+                    () -> {
+                        captureSnapshot();
+                        addNode(finalWorldX, finalWorldY, def.getId(), pinName);
+                    });
             }
         }
 
@@ -1012,6 +1134,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             nodeItemSelector = null;
         }
 
+        clearSelection();
+
         ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this);
 
         if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
@@ -1021,7 +1145,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 .comparingInt(NodeDefinition::getPriority)
                 .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
             for (NodeDefinition def : definitions) {
-                builder.addItem(def.getDisplayName(), () -> addNodeAtCenter(def.getId()));
+                builder.addItem(def.getDisplayName(),
+                    () -> {
+                        captureSnapshot();
+                        addNodeAtCenter(def.getId());
+                    });
             }
         }
 
@@ -1079,6 +1207,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 nodeId.equals(conn.getTargetNodeId()) && pinName.equals(conn.getTargetPin())
             );
             if (removed) {
+                captureSnapshot();
                 refreshInputWidgets(nodeId);
             }
             return removed;
@@ -1094,8 +1223,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 }
                 return match;
             });
-            for (String targetId : affectedTargets) {
-                refreshInputWidgets(targetId);
+            if (removed) {
+                captureSnapshot();
+                for (String targetId : affectedTargets) {
+                    refreshInputWidgets(targetId);
+                }
             }
             return removed;
         }
@@ -1149,7 +1281,195 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             return;
         }
         if (graph.getConnections().remove(conn)) {
+            captureSnapshot();
             refreshInputWidgets(conn.getTargetNodeId());
+        }
+    }
+
+    private void copyNodes() {
+        clipboard.nodes.clear();
+        clipboard.connections.clear();
+
+        if (selectedNodeIds.isEmpty()) {
+            return;
+        }
+
+        double minX = Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE;
+
+        for (String nodeId : selectedNodeIds) {
+            FlowNode node = graph.getNodes().get(nodeId);
+            if (node != null) {
+                minX = Math.min(minX, node.getX());
+                minY = Math.min(minY, node.getY());
+            }
+        }
+
+        Map<String, Integer> nodeIdToIndex = new HashMap<>();
+        int index = 0;
+        for (String nodeId : selectedNodeIds) {
+            FlowNode node = graph.getNodes().get(nodeId);
+            if (node != null) {
+                nodeIdToIndex.put(nodeId, index++);
+                clipboard.nodes.add(new CopiedNode(
+                    node.getType(),
+                    node.getX() - minX,
+                    node.getY() - minY,
+                    node.getInputValues()
+                ));
+            }
+        }
+
+        if (graph.getConnections() != null) {
+            for (FlowConnection conn : graph.getConnections()) {
+                if (selectedNodeIds.contains(conn.getSourceNodeId()) && selectedNodeIds.contains(conn.getTargetNodeId())) {
+                    Integer sourceIdx = nodeIdToIndex.get(conn.getSourceNodeId());
+                    Integer targetIdx = nodeIdToIndex.get(conn.getTargetNodeId());
+                    if (sourceIdx != null && targetIdx != null) {
+                        clipboard.connections.add(new CopiedConnection(
+                            sourceIdx,
+                            conn.getSourcePin(),
+                            targetIdx,
+                            conn.getTargetPin()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    private void pasteNodes() {
+        if (clipboard.nodes.isEmpty()) {
+            return;
+        }
+
+        double[] screenCenter = screenToWorld(width / 2.0, height / 2.0);
+        double[] mouseScreen = new double[] { dragMouseX, dragMouseY };
+        double[] mouseWorld = screenToWorld(mouseScreen[0], mouseScreen[1]);
+
+        double pasteX = mouseWorld[0];
+        double pasteY = mouseWorld[1];
+
+        clearSelection();
+
+        Map<Integer, String> indexToNewNodeId = new HashMap<>();
+        List<String> newSelectedIds = new ArrayList<>();
+
+        for (int i = 0; i < clipboard.nodes.size(); i++) {
+            CopiedNode copied = clipboard.nodes.get(i);
+            double x = pasteX + copied.relativeX;
+            double y = pasteY + copied.relativeY;
+
+            String newId = UUID.randomUUID().toString();
+            FlowNode newNode = new FlowNode(copied.type, x, y, new HashMap<>(copied.inputValues));
+            graph.getNodes().put(newId, newNode);
+
+            NodeWidget widget = new NodeWidget((int) x, (int) y, newNode, graph, newId, serverId, () -> deleteNode(newId));
+            addWorldWidget(widget);
+            widgetCache.put(newId, widget);
+
+            indexToNewNodeId.put(i, newId);
+            newSelectedIds.add(newId);
+        }
+
+        for (CopiedConnection conn : clipboard.connections) {
+            String sourceId = indexToNewNodeId.get(conn.sourceIndex);
+            String targetId = indexToNewNodeId.get(conn.targetIndex);
+            if (sourceId != null && targetId != null) {
+                FlowConnection newConnection = new FlowConnection(
+                    sourceId,
+                    conn.sourcePin,
+                    targetId,
+                    conn.targetPin
+                );
+                removeExistingInputConnection(targetId, conn.targetPin);
+                graph.getConnections().add(newConnection);
+                refreshInputWidgets(targetId);
+            }
+        }
+
+        for (String id : newSelectedIds) {
+            selectedNodeIds.add(id);
+        }
+    }
+
+    private void cutNodes() {
+        copyNodes();
+        deleteSelectedNodes();
+    }
+
+    private void duplicateNodes() {
+        copyNodes();
+        pasteNodes();
+    }
+
+    private void captureSnapshot() {
+        if (isUndoing) return;
+        undoStack.add(new GraphSnapshot(graph.getNodes(), graph.getConnections(), selectedNodeIds));
+        if (undoStack.size() > MAX_UNDO_SIZE) {
+            undoStack.remove(0);
+        }
+        redoStack.clear();
+    }
+
+    private void undo() {
+        if (undoStack.isEmpty()) return;
+
+        isUndoing = true;
+
+        GraphSnapshot redoSnapshot = new GraphSnapshot(graph.getNodes(), graph.getConnections(), selectedNodeIds);
+        redoStack.add(redoSnapshot);
+        if (redoStack.size() > MAX_UNDO_SIZE) {
+            redoStack.remove(0);
+        }
+
+        GraphSnapshot snapshot = undoStack.remove(undoStack.size() - 1);
+        restoreSnapshot(snapshot);
+
+        isUndoing = false;
+    }
+
+    private void redo() {
+        if (redoStack.isEmpty()) return;
+
+        isUndoing = true;
+
+        GraphSnapshot undoSnapshot = new GraphSnapshot(graph.getNodes(), graph.getConnections(), selectedNodeIds);
+        undoStack.add(undoSnapshot);
+        if (undoStack.size() > MAX_UNDO_SIZE) {
+            undoStack.remove(0);
+        }
+
+        GraphSnapshot snapshot = redoStack.remove(redoStack.size() - 1);
+        restoreSnapshot(snapshot);
+
+        isUndoing = false;
+    }
+
+    private void restoreSnapshot(GraphSnapshot snapshot) {
+        for (NodeWidget widget : widgetCache.values()) {
+            removeWorldWidget(widget);
+        }
+        widgetCache.clear();
+
+        selectedNodeIds.clear();
+        selectedNodeIds.addAll(snapshot.selectedIds);
+
+        graph.getNodes().clear();
+        for (Map.Entry<String, FlowNode> entry : snapshot.nodes.entrySet()) {
+            String nodeId = entry.getKey();
+            FlowNode node = entry.getValue();
+            graph.getNodes().put(nodeId, node);
+            NodeWidget widget = new NodeWidget((int)node.getX(), (int)node.getY(), node, graph, nodeId, serverId, () -> deleteNode(nodeId));
+            addWorldWidget(widget);
+            widgetCache.put(nodeId, widget);
+        }
+
+        graph.getConnections().clear();
+        graph.getConnections().addAll(snapshot.connections);
+
+        for (String nodeId : snapshot.nodes.keySet()) {
+            refreshInputWidgets(nodeId);
         }
     }
 
