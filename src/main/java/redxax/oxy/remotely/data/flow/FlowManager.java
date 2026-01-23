@@ -10,6 +10,7 @@ import redxax.oxy.remotely.flow.ui.FlowManagerScreen;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import restudio.rebase.restudio.api.ReStudioApiClient;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
+import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 
 import java.util.Map;
@@ -22,12 +23,20 @@ public class FlowManager {
     private final ReStudioApiClient apiClient;
     private final Map<String, ReSyncFlowClient> flowClients = new ConcurrentHashMap<>();
     private final Map<String, GuiDefinition> guiCache = new ConcurrentHashMap<>();
+    private final Map<String, GuiDefinition> draftGuis = new ConcurrentHashMap<>();
     private final Map<String, FlowGraph> flowCache = new ConcurrentHashMap<>();
     private final Map<String, FlowGraph> draftFlows = new ConcurrentHashMap<>();
     private final Map<String, String> flowNames = new ConcurrentHashMap<>();
     private final Map<String, String> guiNames = new ConcurrentHashMap<>();
+    private final Map<String, Object> pendingGuiParents = new ConcurrentHashMap<>();
     private final Map<String, java.util.List<redxax.oxy.remotely.flow.data.TriggerBinding>> triggerBindings = new ConcurrentHashMap<>();
     private final java.util.Set<String> serverFlowIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Set<String> serverGuiIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private volatile boolean overlayEditable;
+    private volatile String overlayServerId;
+    private volatile String overlayGuiId;
+    private volatile String overlayFlowId;
+    private final java.util.concurrent.atomic.AtomicInteger overlayRevision = new java.util.concurrent.atomic.AtomicInteger();
 
     public FlowManager(RemotelyClient client, ReStudioApiClient apiClient) {
         this.client = client;
@@ -43,6 +52,7 @@ public class FlowManager {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
         ensureFlowClient(actualServerId);
         refreshFlowsFromServer(actualServerId);
+        refreshGuisFromServer(actualServerId);
         client.getHost().setScreen(new FlowManagerScreen(actualServerId, server, ScreenManager.getInstance().getCurrentScreen()));
     }
 
@@ -85,15 +95,25 @@ public class FlowManager {
     }
 
     public void openGuiDesigner(String serverId, ClientServerView server, String guiId) {
+        openGuiDesigner(serverId, server, guiId, null);
+    }
+
+    public void openGuiDesigner(String serverId, ClientServerView server, String guiId, Object parentOverride) {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
-        GuiDefinition gui = guiCache.get(actualServerId + ":" + guiId);
+        String key = actualServerId + ":" + guiId;
+        GuiDefinition gui = guiCache.get(key);
         if (gui == null) {
-            gui = createDefaultGui(guiId);
-            guiCache.put(actualServerId + ":" + guiId, gui);
-            guiNames.putIfAbsent(actualServerId + ":" + guiId, gui.getTitle());
+            gui = draftGuis.get(key);
+        }
+        Object parent = parentOverride != null ? parentOverride : ScreenManager.getInstance().getCurrentScreen();
+        if (gui == null) {
+            pendingGuiParents.put(key, parent);
+            ReSyncFlowClient flowClient = ensureFlowClient(actualServerId);
+            flowClient.requestGui(guiId, false);
+            return;
         }
 
-        client.getHost().setScreen(new GuiDesignerScreen(gui, actualServerId));
+        client.getHost().setScreen(new GuiDesignerScreen(gui, actualServerId, parent));
     }
 
     public void saveFlow(String serverId, FlowGraph graph) {
@@ -131,11 +151,24 @@ public class FlowManager {
     }
 
     private void clearServerCache(String serverId) {
+        clearFlowCache(serverId);
+        clearGuiCache(serverId);
+    }
+
+    private void clearFlowCache(String serverId) {
         String prefix = serverId + ":";
         flowCache.keySet().removeIf(key -> key.startsWith(prefix));
         draftFlows.keySet().removeIf(key -> key.startsWith(prefix));
         serverFlowIds.removeIf(key -> key.startsWith(prefix));
         flowNames.keySet().removeIf(key -> key.startsWith(prefix));
+    }
+
+    private void clearGuiCache(String serverId) {
+        String prefix = serverId + ":";
+        guiCache.keySet().removeIf(key -> key.startsWith(prefix));
+        draftGuis.keySet().removeIf(key -> key.startsWith(prefix));
+        serverGuiIds.removeIf(key -> key.startsWith(prefix));
+        guiNames.keySet().removeIf(key -> key.startsWith(prefix));
     }
 
     private void refreshFlowManagerScreen(String serverId) {
@@ -194,6 +227,12 @@ public class FlowManager {
                 guis.put(guiId, entry.getValue());
             }
         }
+        for (var entry : draftGuis.entrySet()) {
+            if (entry.getKey().startsWith(prefix)) {
+                String guiId = entry.getKey().substring(prefix.length());
+                guis.putIfAbsent(guiId, entry.getValue());
+            }
+        }
         return guis;
     }
 
@@ -230,8 +269,9 @@ public class FlowManager {
 
     public GuiDefinition createGui(String serverId, String id) {
         GuiDefinition gui = createDefaultGui(id);
-        guiCache.put(serverId + ":" + id, gui);
-        guiNames.putIfAbsent(serverId + ":" + id, gui.getTitle());
+        String key = serverId + ":" + id;
+        draftGuis.put(key, gui);
+        guiNames.putIfAbsent(key, gui.getTitle());
         return gui;
     }
 
@@ -248,8 +288,16 @@ public class FlowManager {
     }
 
     public void deleteGui(String serverId, String guiId) {
-        guiCache.remove(serverId + ":" + guiId);
-        guiNames.remove(serverId + ":" + guiId);
+        String key = serverId + ":" + guiId;
+        guiCache.remove(key);
+        draftGuis.remove(key);
+        serverGuiIds.remove(key);
+        guiNames.remove(key);
+
+        ReSyncFlowClient client = flowClients.get(serverId);
+        if (client != null) {
+            client.sendGuiDelete(guiId);
+        }
     }
 
     public java.util.List<redxax.oxy.remotely.flow.data.TriggerBinding> getBindings(String serverId) {
@@ -269,15 +317,61 @@ public class FlowManager {
         refreshFlowManagerScreen(serverId);
     }
 
+    public void saveGui(String serverId, GuiDefinition gui) {
+        if (serverId == null || gui == null || gui.getId() == null) {
+            return;
+        }
+        String key = serverId + ":" + gui.getId();
+        guiCache.put(key, gui);
+        guiNames.putIfAbsent(key, gui.getTitle() != null ? gui.getTitle() : gui.getId());
+
+        ReSyncFlowClient flowClient = flowClients.get(serverId);
+        if (flowClient != null) {
+            flowClient.sendGuiSave(gui);
+        }
+    }
+
+    public void cacheGui(String serverId, GuiDefinition gui) {
+        if (gui == null || gui.getId() == null) {
+            return;
+        }
+        String key = serverId + ":" + gui.getId();
+        guiCache.put(key, gui);
+        guiNames.putIfAbsent(key, gui.getTitle() != null ? gui.getTitle() : gui.getId());
+        serverGuiIds.add(key);
+        draftGuis.remove(key);
+        refreshFlowManagerScreen(serverId);
+    }
+
+    public void markGuiSaved(String serverId, String guiId) {
+        if (serverId == null || guiId == null) {
+            return;
+        }
+        String key = serverId + ":" + guiId;
+        serverGuiIds.add(key);
+        GuiDefinition draft = draftGuis.remove(key);
+        if (draft != null) {
+            guiCache.put(key, draft);
+        }
+        refreshFlowManagerScreen(serverId);
+    }
+
     public void refreshFlowsFromServer(String serverId) {
-        clearServerCache(serverId);
+        clearFlowCache(serverId);
         ReSyncFlowClient client = ensureFlowClient(serverId);
         client.requestFlowList();
         refreshFlowManagerScreen(serverId);
     }
 
+    public void refreshGuisFromServer(String serverId) {
+        clearGuiCache(serverId);
+        ReSyncFlowClient client = ensureFlowClient(serverId);
+        client.requestGuiList();
+        refreshFlowManagerScreen(serverId);
+    }
+
     public void applyServerFlowList(String serverId, java.util.List<String> flowIds) {
-        clearServerCache(serverId);
+        clearFlowCache(serverId);
         String prefix = serverId + ":";
         if (flowIds != null) {
             for (String flowId : flowIds) {
@@ -291,6 +385,27 @@ public class FlowManager {
         if (flowIds != null) {
             for (String flowId : flowIds) {
                 client.requestFlow(flowId, false);
+            }
+        }
+
+        refreshFlowManagerScreen(serverId);
+    }
+
+    public void applyServerGuiList(String serverId, java.util.List<String> guiIds) {
+        clearGuiCache(serverId);
+        String prefix = serverId + ":";
+        if (guiIds != null) {
+            for (String guiId : guiIds) {
+                String key = prefix + guiId;
+                serverGuiIds.add(key);
+                guiNames.putIfAbsent(key, guiId);
+            }
+        }
+
+        ReSyncFlowClient client = ensureFlowClient(serverId);
+        if (guiIds != null) {
+            for (String guiId : guiIds) {
+                client.requestGui(guiId, false);
             }
         }
 
@@ -344,9 +459,62 @@ public class FlowManager {
         return graph.getId().toString();
     }
 
-    public void handleGuiStatePacket(String serverId, boolean editable, String flowId) {
-        if (editable) {
-            openFlowEditor(serverId, null);
+    public void handleGuiStatePacket(String serverId, boolean editable, String guiId, String flowId) {
+        if (!editable) {
+            clearOverlayState();
+            redxax.oxy.remotely.flow.ui.GuiEditOverlayState.clear();
+            return;
+        }
+        overlayEditable = true;
+        overlayServerId = serverId;
+        overlayGuiId = guiId;
+        overlayFlowId = flowId;
+        overlayRevision.incrementAndGet();
+        redxax.oxy.remotely.flow.ui.GuiEditOverlayState.update(serverId, guiId, flowId, true);
+        if (guiId != null && !guiId.isBlank()) {
+            ReSyncFlowClient flowClient = flowClients.get(serverId);
+            if (flowClient != null) {
+                flowClient.requestGui(guiId, false);
+            }
+        }
+    }
+
+    public boolean isOverlayEditable() {
+        return overlayEditable;
+    }
+
+    public String getOverlayServerId() {
+        return overlayServerId;
+    }
+
+    public String getOverlayGuiId() {
+        return overlayGuiId;
+    }
+
+    public String getOverlayFlowId() {
+        return overlayFlowId;
+    }
+
+    public int getOverlayRevision() {
+        return overlayRevision.get();
+    }
+
+    public void clearOverlayState() {
+        overlayEditable = false;
+        overlayServerId = null;
+        overlayGuiId = null;
+        overlayFlowId = null;
+        overlayRevision.incrementAndGet();
+    }
+
+    public void handleGuiDataReceived(String serverId, GuiDefinition gui) {
+        if (gui == null || gui.getId() == null || gui.getId().isBlank()) {
+            return;
+        }
+        String key = serverId + ":" + gui.getId();
+        Object parent = pendingGuiParents.remove(key);
+        if (parent != null) {
+            client.getHost().setScreen(new GuiDesignerScreen(gui, serverId, parent));
         }
     }
 }

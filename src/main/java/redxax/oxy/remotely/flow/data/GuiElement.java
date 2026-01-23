@@ -7,6 +7,7 @@ public class GuiElement {
     private List<Integer> slots;
     private Visual visual;
     private String flowId;
+    private String openGuiId;
 
     public GuiElement() {
         this.slots = new ArrayList<>();
@@ -43,6 +44,14 @@ public class GuiElement {
         this.flowId = flowId;
     }
 
+    public String getOpenGuiId() {
+        return openGuiId;
+    }
+
+    public void setOpenGuiId(String openGuiId) {
+        this.openGuiId = openGuiId;
+    }
+
     public GuiElement copy() {
         GuiElement copy = new GuiElement();
         if (this.slots != null) {
@@ -52,6 +61,7 @@ public class GuiElement {
             copy.setVisual(this.visual.copy());
         }
         copy.setFlowId(this.flowId);
+        copy.setOpenGuiId(this.openGuiId);
         return copy;
     }
 }

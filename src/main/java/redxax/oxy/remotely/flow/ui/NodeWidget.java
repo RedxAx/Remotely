@@ -36,8 +36,11 @@ public class NodeWidget extends AnimatedWidget {
     private final List<NodeDefinition.PinDefinition> outputs = new ArrayList<>();
     private final NodeDefinition definition;
     private final Map<String, Widget> inputWidgets = new HashMap<>();
+    private final List<NodeDefinition.PinDefinition> visibleOutputs = new ArrayList<>();
+    private final List<FlowBranch> flowBranches = new ArrayList<>();
     private final Runnable onClose;
     private final AnimatedButton closeButton;
+    private AnimatedButton addBranchButton;
     private static final int TITLE_HEIGHT = 16;
     private static final int PADDING = 6;
     private static final int ROW_HEIGHT = 18;
@@ -47,6 +50,7 @@ public class NodeWidget extends AnimatedWidget {
     private static final int INPUT_FIELD_GAP = 6;
     private static final int INPUT_WIDGET_WIDTH = 90;
     private static final int INPUT_WIDGET_HEIGHT = 16;
+    private static final int OUTPUT_WIDGET_WIDTH = 100;
     private static final int TOGGLE_WIDGET_WIDTH = 28;
     private static final int TOGGLE_WIDGET_HEIGHT = 12;
     private static final int COLUMN_GAP = 12;
@@ -55,6 +59,8 @@ public class NodeWidget extends AnimatedWidget {
     private static final int PIN_HIT_PADDING = 4;
     private static final int CLOSE_BUTTON_WIDTH = 12;
     private static final int CLOSE_BUTTON_HEIGHT = 8;
+    private static final String FLOW_BRANCHES_KEY = "__flow_branches";
+    private boolean updatingBranchSelection = false;
 
     public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId) {
         this(x, y, node, graph, nodeId, null, null);
@@ -93,6 +99,7 @@ public class NodeWidget extends AnimatedWidget {
             inputs.addAll(definition.getInputs());
             outputs.addAll(definition.getOutputs());
             createInputWidgets();
+            createOutputWidgets();
             updateSize();
         } else {
             createDefaultPins();
@@ -170,6 +177,7 @@ public class NodeWidget extends AnimatedWidget {
     public void refreshInputWidgets() {
         inputWidgets.clear();
         createInputWidgets();
+        createOutputWidgets();
         updateSize();
     }
 
@@ -191,6 +199,8 @@ public class NodeWidget extends AnimatedWidget {
         outputs.clear();
         inputs.add(new NodeDefinition.PinDefinition("in", NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, FlowType.ANY));
         outputs.add(new NodeDefinition.PinDefinition("out", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.OUTPUT, FlowType.EXECUTION));
+        visibleOutputs.clear();
+        visibleOutputs.addAll(outputs);
         updateSize();
     }
 
@@ -214,12 +224,13 @@ public class NodeWidget extends AnimatedWidget {
 
         if (closeButton.visible) {
             int closeX = getX() + getWidth() - PADDING - CLOSE_BUTTON_WIDTH;
-            int closeY = getY() + (TITLE_HEIGHT - CLOSE_BUTTON_HEIGHT) / 2;
+            int closeY = (getY() + (TITLE_HEIGHT - CLOSE_BUTTON_HEIGHT) / 2) - 1;
             closeButton.setPosition(closeX, closeY);
             closeButton.render(ctx, mouseX, mouseY, 0);
         }
 
         updateInputWidgetPositions();
+        updateOutputWidgetPositions();
 
         int rightColumnWidth = getRightColumnWidth();
         int rightColumnStart = getX() + getWidth() - PADDING - rightColumnWidth;
@@ -240,27 +251,38 @@ public class NodeWidget extends AnimatedWidget {
             }
         }
 
-        for (int i = 0; i < outputs.size(); i++) {
-            NodeDefinition.PinDefinition output = outputs.get(i);
+        for (int i = 0; i < visibleOutputs.size(); i++) {
+            NodeDefinition.PinDefinition output = visibleOutputs.get(i);
             int rowY = getRowStartY() + i * (ROW_HEIGHT + ROW_SPACING);
             int pinY = rowY + (ROW_HEIGHT - PIN_BUTTON_SIZE) / 2;
             int pinX = rightColumnStart + rightColumnWidth - PIN_BUTTON_SIZE;
-            int labelWidth = tr.getWidth(output.getName());
             int textY = rowY + (ROW_HEIGHT - ITextRenderer.fontHeight) / 2 + 1;
-            int labelX = pinX - PIN_TEXT_GAP - labelWidth;
-
-            ctx.drawText(output.getName(), labelX, textY, labelText, shadow);
+            DropDownWidget<String> branchWidget = getBranchWidget(output.getName());
+            if (branchWidget == null) {
+                int labelWidth = tr.getWidth(output.getName());
+                int labelX = pinX - PIN_TEXT_GAP - labelWidth;
+                ctx.drawText(output.getName(), labelX, textY, labelText, shadow);
+            } else {
+                branchWidget.render(ctx, mouseX, mouseY, 0);
+            }
             drawPinButton(ctx, pinX, pinY, getPinColor(output.getDataType()));
+        }
+
+        if (addBranchButton != null && addBranchButton.visible) {
+            addBranchButton.render(ctx, mouseX, mouseY, 0);
         }
     }
 
     private void updateSize() {
-        int rowCount = Math.max(inputs.size(), outputs.size());
+        int rowCount = Math.max(inputs.size(), visibleOutputs.size());
         int leftColumnWidth = getLeftColumnWidth();
         int rightColumnWidth = getRightColumnWidth();
         int contentWidth = leftColumnWidth + rightColumnWidth + (leftColumnWidth > 0 && rightColumnWidth > 0 ? COLUMN_GAP : 0);
         int contentHeight = rowCount > 0 ? (rowCount * ROW_HEIGHT + (rowCount - 1) * ROW_SPACING) : 0;
-        int minWidth = (inputs.isEmpty() || outputs.isEmpty()) ? SINGLE_COLUMN_MIN_WIDTH : DEFAULT_WIDTH;
+        if (addBranchButton != null && addBranchButton.visible) {
+            contentHeight += ROW_HEIGHT + ROW_SPACING;
+        }
+        int minWidth = (inputs.isEmpty() || visibleOutputs.isEmpty()) ? SINGLE_COLUMN_MIN_WIDTH : DEFAULT_WIDTH;
         int titleWidth = tr.getWidth(definition != null ? definition.getDisplayName() : node.getType()) + PADDING * 2;
         if (closeButton.visible) {
             titleWidth += CLOSE_BUTTON_WIDTH + PADDING;
@@ -271,7 +293,7 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     public double[] getPinBounds(String pinName, boolean isInput) {
-        List<NodeDefinition.PinDefinition> pins = isInput ? inputs : outputs;
+        List<NodeDefinition.PinDefinition> pins = isInput ? inputs : visibleOutputs;
         int index = -1;
 
         for (int i = 0; i < pins.size(); i++) {
@@ -293,6 +315,19 @@ public class NodeWidget extends AnimatedWidget {
         return getPinAtPosition(wx, wy) != null;
     }
 
+    public Widget getOutputWidgetAt(int wx, int wy) {
+        updateOutputWidgetPositions();
+        for (FlowBranch branch : flowBranches) {
+            if (branch.widget != null && branch.widget.isMouseOver(wx, wy)) {
+                return branch.widget;
+            }
+        }
+        if (addBranchButton != null && addBranchButton.visible && addBranchButton.isMouseOver(wx, wy)) {
+            return addBranchButton;
+        }
+        return null;
+    }
+
     public Widget getInputWidgetAt(int wx, int wy) {
         updateInputWidgetPositions();
         for (Widget widget : inputWidgets.values()) {
@@ -310,6 +345,15 @@ public class NodeWidget extends AnimatedWidget {
 
         if (closeButton.visible && closeButton.isMouseOver(wx, wy)) {
             closeButton.mouseClicked(mouseX, mouseY, button);
+            return true;
+        }
+
+        Widget outputWidget = getOutputWidgetAt(wx, wy);
+        if (outputWidget != null) {
+            outputWidget.mouseClicked(mouseX, mouseY, button);
+            if (outputWidget instanceof DropDownWidget<?> && ScreenManager.getInstance().getCurrentScreen() != null) {
+                ScreenManager.getInstance().getCurrentScreen().setFocusedWidget(outputWidget);
+            }
             return true;
         }
 
@@ -336,6 +380,14 @@ public class NodeWidget extends AnimatedWidget {
         for (Widget widget : inputWidgets.values()) {
             widget.mouseReleased(mouseX, mouseY, button);
         }
+        for (FlowBranch branch : flowBranches) {
+            if (branch.widget != null) {
+                branch.widget.mouseReleased(mouseX, mouseY, button);
+            }
+        }
+        if (addBranchButton != null && addBranchButton.visible) {
+            addBranchButton.mouseReleased(mouseX, mouseY, button);
+        }
         return super.mouseReleased(mouseX, mouseY, button);
     }
 
@@ -347,6 +399,29 @@ public class NodeWidget extends AnimatedWidget {
         }
         for (Widget widget : inputWidgets.values()) {
             if (widget != focusedWidget && widget.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+                return true;
+            }
+        }
+        for (FlowBranch branch : flowBranches) {
+            if (branch.widget != null && branch.widget.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+                return true;
+            }
+        }
+        if (addBranchButton != null && addBranchButton.visible && addBranchButton.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean mouseScrolled(int mouseX, int mouseY, double amount) {
+        for (FlowBranch branch : flowBranches) {
+            if (branch.widget != null && branch.widget.mouseScrolled(mouseX, mouseY, amount)) {
+                return true;
+            }
+        }
+        for (Widget widget : inputWidgets.values()) {
+            if (widget.mouseScrolled(mouseX, mouseY, amount)) {
                 return true;
             }
         }
@@ -399,8 +474,8 @@ public class NodeWidget extends AnimatedWidget {
                 inputWidget.setWidth(widgetWidth);
                 inputWidget.setHeight(widgetHeight);
                 inputWidget.setPriority(inputs.size() - i);
-                if (inputWidget instanceof AnimatedWidget) {
-                    ((AnimatedWidget) inputWidget).setLayer(inputs.size() - i);
+                if (inputWidget instanceof AnimatedWidget w) {
+                    w.setLayer(inputs.size() - i);
                 }
             }
         }
@@ -435,10 +510,19 @@ public class NodeWidget extends AnimatedWidget {
 
     private int getRightColumnWidth() {
         int width = 0;
-        for (NodeDefinition.PinDefinition output : outputs) {
-            int labelWidth = tr.getWidth(output.getName());
-            int rowWidth = labelWidth + PIN_TEXT_GAP + PIN_BUTTON_SIZE;
-            width = Math.max(width, rowWidth);
+        for (NodeDefinition.PinDefinition output : visibleOutputs) {
+            DropDownWidget<String> branchWidget = getBranchWidget(output.getName());
+            if (branchWidget != null) {
+                int rowWidth = getOutputWidgetWidth(branchWidget) + PIN_TEXT_GAP + PIN_BUTTON_SIZE;
+                width = Math.max(width, rowWidth);
+            } else {
+                int labelWidth = tr.getWidth(output.getName());
+                int rowWidth = labelWidth + PIN_TEXT_GAP + PIN_BUTTON_SIZE;
+                width = Math.max(width, rowWidth);
+            }
+        }
+        if (addBranchButton != null && addBranchButton.visible) {
+            width = Math.max(width, addBranchButton.getWidth());
         }
         return width;
     }
@@ -570,13 +654,259 @@ public class NodeWidget extends AnimatedWidget {
                 return input.getName();
             }
         }
-        for (NodeDefinition.PinDefinition output : outputs) {
+        for (NodeDefinition.PinDefinition output : visibleOutputs) {
             double[] bounds = getPinBounds(output.getName(), false);
             if (bounds != null && isInside(wx, wy, bounds)) {
                 return output.getName();
             }
         }
         return null;
+    }
+
+    private void createOutputWidgets() {
+        visibleOutputs.clear();
+        flowBranches.clear();
+
+        List<NodeDefinition.PinDefinition> flowOutputs = new ArrayList<>();
+        List<NodeDefinition.PinDefinition> otherOutputs = new ArrayList<>();
+        for (NodeDefinition.PinDefinition output : outputs) {
+            if (isFlowOutput(output)) {
+                flowOutputs.add(output);
+            } else {
+                otherOutputs.add(output);
+            }
+        }
+
+        if (flowOutputs.size() <= 2) {
+            visibleOutputs.addAll(outputs);
+            addBranchButton = null;
+            return;
+        }
+
+        List<String> selectedBranches = resolveFlowBranches(flowOutputs);
+        for (String branch : selectedBranches) {
+            NodeDefinition.PinDefinition pin = findOutputDefinition(branch);
+            if (pin != null) {
+                visibleOutputs.add(pin);
+                flowBranches.add(new FlowBranch(branch, buildBranchSelector(flowOutputs, branch)));
+            }
+        }
+
+        visibleOutputs.addAll(otherOutputs);
+        saveFlowBranches();
+        updateAddBranchButton(flowOutputs);
+    }
+
+    private boolean isFlowOutput(NodeDefinition.PinDefinition output) {
+        return output.getType() == NodeDefinition.PinType.FLOW && output.getDataType() == FlowType.EXECUTION;
+    }
+
+    private NodeDefinition.PinDefinition findOutputDefinition(String name) {
+        for (NodeDefinition.PinDefinition output : outputs) {
+            if (output.getName().equals(name)) {
+                return output;
+            }
+        }
+        return null;
+    }
+
+    private List<String> resolveFlowBranches(List<NodeDefinition.PinDefinition> flowOutputs) {
+        List<String> options = new ArrayList<>();
+        for (NodeDefinition.PinDefinition output : flowOutputs) {
+            options.add(output.getName());
+        }
+
+        List<String> selected = new ArrayList<>();
+        if (node.getInputValues() != null) {
+            Object stored = node.getInputValues().get(FLOW_BRANCHES_KEY);
+            if (stored instanceof List<?> list) {
+                for (Object entry : list) {
+                    if (entry instanceof String name && options.contains(name)) {
+                        if (!selected.contains(name)) {
+                            selected.add(name);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (graph != null && graph.getConnections() != null) {
+            for (FlowConnection conn : graph.getConnections()) {
+                if (nodeId.equals(conn.getSourceNodeId()) && options.contains(conn.getSourcePin())) {
+                    if (!selected.contains(conn.getSourcePin())) {
+                        selected.add(conn.getSourcePin());
+                    }
+                }
+            }
+        }
+
+        if (selected.isEmpty() && !options.isEmpty()) {
+            selected.add(options.getFirst());
+        }
+        return selected;
+    }
+
+    private DropDownWidget<String> buildBranchSelector(List<NodeDefinition.PinDefinition> flowOutputs, String selected) {
+        List<String> options = new ArrayList<>();
+        for (NodeDefinition.PinDefinition output : flowOutputs) {
+            options.add(output.getName());
+        }
+        return new DropDownWidget.Builder<>(options)
+            .selectedItem(selected)
+            .onSelectionChanged(value -> updateFlowBranchSelection(selected, value))
+            .size(OUTPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
+            .entranceAnimation(false)
+            .build();
+    }
+
+    private void updateFlowBranchSelection(String oldName, String newName) {
+        if (updatingBranchSelection || oldName == null || newName == null || oldName.equals(newName)) {
+            return;
+        }
+        FlowBranch targetBranch = null;
+        boolean conflict = false;
+        for (FlowBranch branch : flowBranches) {
+            if (branch.outputName.equals(oldName)) {
+                targetBranch = branch;
+            } else if (branch.outputName.equals(newName)) {
+                conflict = true;
+            }
+        }
+
+        if (conflict) {
+            updatingBranchSelection = true;
+            if (targetBranch != null && targetBranch.widget != null) {
+                targetBranch.widget.setSelectedItem(oldName);
+            }
+            updatingBranchSelection = false;
+            return;
+        }
+
+        if (targetBranch != null) {
+            targetBranch.outputName = newName;
+        }
+
+        if (graph != null && graph.getConnections() != null) {
+            for (FlowConnection conn : graph.getConnections()) {
+                if (nodeId.equals(conn.getSourceNodeId()) && oldName.equals(conn.getSourcePin())) {
+                    conn.setSourcePin(newName);
+                }
+            }
+        }
+
+        saveFlowBranches();
+        createOutputWidgets();
+        updateSize();
+    }
+
+    private void updateAddBranchButton(List<NodeDefinition.PinDefinition> flowOutputs) {
+        if (flowBranches.size() >= flowOutputs.size()) {
+            addBranchButton = null;
+            return;
+        }
+        if (addBranchButton == null) {
+            addBranchButton = new AnimatedButton.Builder()
+                .label("add flow branch")
+                .onClick(this::addFlowBranch)
+                .animateElevation(false)
+                .entranceAnimation(false)
+                .size(OUTPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
+                .build();
+        }
+        addBranchButton.visible = true;
+    }
+
+    private void addFlowBranch() {
+        List<String> options = new ArrayList<>();
+        for (NodeDefinition.PinDefinition output : outputs) {
+            if (isFlowOutput(output)) {
+                options.add(output.getName());
+            }
+        }
+        for (String option : options) {
+            boolean used = false;
+            for (FlowBranch branch : flowBranches) {
+                if (branch.outputName.equals(option)) {
+                    used = true;
+                    break;
+                }
+            }
+            if (!used) {
+                flowBranches.add(new FlowBranch(option, null));
+                break;
+            }
+        }
+        saveFlowBranches();
+        createOutputWidgets();
+        updateSize();
+    }
+
+    private void saveFlowBranches() {
+        if (node.getInputValues() == null) {
+            node.setInputValues(new HashMap<>());
+        }
+        List<String> branches = new ArrayList<>();
+        for (FlowBranch branch : flowBranches) {
+            branches.add(branch.outputName);
+        }
+        node.getInputValues().put(FLOW_BRANCHES_KEY, branches);
+    }
+
+    private void updateOutputWidgetPositions() {
+        int rightColumnWidth = getRightColumnWidth();
+        int buttonX = getX() + getWidth() - PADDING - rightColumnWidth;
+
+        for (int i = 0; i < visibleOutputs.size(); i++) {
+            NodeDefinition.PinDefinition output = visibleOutputs.get(i);
+            DropDownWidget<String> branchWidget = getBranchWidget(output.getName());
+            if (branchWidget != null) {
+                int rowY = getRowStartY() + i * (ROW_HEIGHT + ROW_SPACING);
+                int widgetWidth = getOutputWidgetWidth(branchWidget);
+                int widgetHeight = getOutputWidgetHeight(branchWidget);
+                int widgetY = rowY + (ROW_HEIGHT - widgetHeight) / 2;
+                int widgetX = buttonX + rightColumnWidth - PIN_BUTTON_SIZE - PIN_TEXT_GAP - widgetWidth;
+                branchWidget.setPosition(widgetX, widgetY);
+                branchWidget.setWidth(widgetWidth);
+                branchWidget.setHeight(widgetHeight);
+                branchWidget.setPriority(visibleOutputs.size() - i);
+                branchWidget.setLayer(visibleOutputs.size() - i);
+            }
+        }
+
+        if (addBranchButton != null && addBranchButton.visible) {
+            int rowCount = Math.max(inputs.size(), visibleOutputs.size());
+            int rowY = getRowStartY() + rowCount * (ROW_HEIGHT + ROW_SPACING);
+            addBranchButton.setPosition(buttonX, rowY);
+            addBranchButton.setWidth(Math.min(OUTPUT_WIDGET_WIDTH, rightColumnWidth));
+            addBranchButton.setHeight(INPUT_WIDGET_HEIGHT);
+        }
+    }
+
+    private int getOutputWidgetWidth(Widget widget) {
+        return OUTPUT_WIDGET_WIDTH;
+    }
+
+    private int getOutputWidgetHeight(Widget widget) {
+        return INPUT_WIDGET_HEIGHT;
+    }
+
+    private DropDownWidget<String> getBranchWidget(String outputName) {
+        for (FlowBranch branch : flowBranches) {
+            if (branch.outputName.equals(outputName)) {
+                return branch.widget;
+            }
+        }
+        return null;
+    }
+
+    private static class FlowBranch {
+        private String outputName;
+        private final DropDownWidget<String> widget;
+
+        private FlowBranch(String outputName, DropDownWidget<String> widget) {
+            this.outputName = outputName;
+            this.widget = widget;
+        }
     }
 
     private boolean isInside(int x, int y, double[] bounds) {

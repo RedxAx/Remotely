@@ -6,12 +6,14 @@ import redxax.oxy.remotely.RemotelyClient;
 import com.google.gson.Gson;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowSerializer;
+import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.cache.NodeRegistryCache;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.NodeRegistryRequest;
 import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
+import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.util.Notification;
@@ -55,12 +57,23 @@ public class ReSyncFlowClient {
     private final Gson gson = new Gson();
     private final Queue<Runnable> pendingSends = new ConcurrentLinkedQueue<>();
     private final Set<String> pendingOpenFlows = ConcurrentHashMap.newKeySet();
+    private final Set<String> pendingOpenGuis = ConcurrentHashMap.newKeySet();
     private final NodeRegistryCache nodeRegistryCache = NodeRegistryCache.getInstance();
     private final ScheduledExecutorService nodeRegistryScheduler = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> nodeRegistryTimeout;
     private volatile boolean nodeRegistrySynced = false;
     private volatile boolean usingCachedRegistry = false;
     private static final int NODE_REGISTRY_TIMEOUT_SECONDS = 5;
+    private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "ReSyncFlow-Heartbeat");
+        t.setDaemon(true);
+        return t;
+    });
+    private ScheduledFuture<?> heartbeatTask;
+    private ScheduledFuture<?> reconnectTask;
+    private static final int HEARTBEAT_INTERVAL_SECONDS = 20;
+    private static final int RECONNECT_DELAY_SECONDS = 3;
+    private volatile boolean shutdownRequested = false;
 
     public ReSyncFlowClient(String serverId, ReStudioApiClient apiClient) {
         this.serverId = serverId;
@@ -165,7 +178,9 @@ public class ReSyncFlowClient {
                     connecting.set(false);
                     nodeRegistrySynced = false;
                     cancelNodeRegistryTimeout();
+                    stopHeartbeat();
                     System.out.println("[ReSyncFlow] WebSocket closed - Code: " + code + ", Reason: " + reason + ", Remote: " + remote);
+                    scheduleReconnect();
                 }
 
                 @Override
@@ -173,6 +188,7 @@ public class ReSyncFlowClient {
                     System.err.println("[ReSyncFlow] WebSocket error: " + ex.getMessage());
                     ex.printStackTrace();
                     connecting.set(false);
+                    scheduleReconnect();
                 }
             };
             wsClient.set(client);
@@ -265,7 +281,6 @@ public class ReSyncFlowClient {
                     handleDataMessage(channel, payload, compressed);
                     break;
                 case 5:
-                    sendAck(sequence);
                     break;
                 case 7:
                     System.err.println("[ReSyncFlow] Processing error message");
@@ -302,6 +317,7 @@ public class ReSyncFlowClient {
         authenticated.set(true);
         connecting.set(false);
         System.out.println("[ReSyncFlow] Handshake complete, client authenticated");
+        startHeartbeat();
         requestNodeRegistry();
         flushPendingSends();
     }
@@ -347,6 +363,15 @@ public class ReSyncFlowClient {
             case 0x0A:
                 handleFlowList(buffer);
                 break;
+            case 0x12:
+                handleGuiData(buffer);
+                break;
+            case 0x15:
+                handleGuiList(buffer);
+                break;
+            case 0x17:
+                handleGuiSaveAck(buffer);
+                break;
             case 0x0B:
                 handleNodeRegistrySnapshot(buffer, true);
                 break;
@@ -380,15 +405,60 @@ public class ReSyncFlowClient {
         }
     }
 
+    private void handleGuiData(ByteBuffer buffer) {
+        byte[] jsonBytes = new byte[buffer.remaining()];
+        buffer.get(jsonBytes);
+        String json = new String(jsonBytes, StandardCharsets.UTF_8);
+        GuiDefinition gui = FlowSerializer.deserializeGui(json);
+
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+            RemotelyClient.INSTANCE.getFlowManager().cacheGui(serverId, gui);
+        }
+
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+            RemotelyClient.INSTANCE.getFlowManager().handleGuiDataReceived(serverId, gui);
+        }
+
+        if (gui != null && gui.getId() != null && pendingOpenGuis.remove(gui.getId())) {
+            ScreenManager.getInstance().execute(() -> {
+                if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
+                    RemotelyClient.INSTANCE.getHost().setScreen(new GuiDesignerScreen(gui, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                }
+            });
+        }
+    }
+
     private void handleGuiState(ByteBuffer buffer) {
         boolean editable = buffer.get() == 1;
-        if (editable && buffer.hasRemaining()) {
-            int idLen = buffer.getInt();
-            byte[] idBytes = new byte[idLen];
-            buffer.get(idBytes);
-            String flowId = new String(idBytes, StandardCharsets.UTF_8);
-
-            sendFlowRequest(flowId);
+        String guiId = null;
+        String flowId = null;
+        if (buffer.remaining() >= 4) {
+            int guiLen = buffer.getInt();
+            if (guiLen >= 0 && guiLen <= buffer.remaining()) {
+                if (guiLen > 0) {
+                    byte[] guiBytes = new byte[guiLen];
+                    buffer.get(guiBytes);
+                    guiId = new String(guiBytes, StandardCharsets.UTF_8);
+                }
+            }
+        }
+        if (buffer.remaining() >= 4) {
+            int flowLen = buffer.getInt();
+            if (flowLen >= 0 && flowLen <= buffer.remaining()) {
+                if (flowLen > 0) {
+                    byte[] flowBytes = new byte[flowLen];
+                    buffer.get(flowBytes);
+                    flowId = new String(flowBytes, StandardCharsets.UTF_8);
+                }
+            }
+        }
+        if (editable) {
+            redxax.oxy.remotely.flow.ui.GuiEditOverlayState.update(serverId, guiId, flowId, true);
+        } else {
+            redxax.oxy.remotely.flow.ui.GuiEditOverlayState.clear();
+        }
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+            RemotelyClient.INSTANCE.getFlowManager().handleGuiStatePacket(serverId, editable, guiId, flowId);
         }
     }
 
@@ -432,6 +502,27 @@ public class ReSyncFlowClient {
         }
     }
 
+    private void handleGuiSaveAck(ByteBuffer buffer) {
+        if (buffer.remaining() < 4) {
+            return;
+        }
+        int idLen = buffer.getInt();
+        if (idLen < 0 || idLen > buffer.remaining()) {
+            return;
+        }
+        byte[] idBytes = new byte[idLen];
+        buffer.get(idBytes);
+        String guiId = new String(idBytes, StandardCharsets.UTF_8);
+
+        ScreenManager.getInstance().execute(() ->
+            new Notification("GUI Saved", "ID: " + guiId, Notification.Type.SUCCESS)
+        );
+
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+            RemotelyClient.INSTANCE.getFlowManager().markGuiSaved(serverId, guiId);
+        }
+    }
+
     private void handleFlowList(ByteBuffer buffer) {
         if (buffer.remaining() < 4) {
             return;
@@ -453,6 +544,30 @@ public class ReSyncFlowClient {
 
         if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
             RemotelyClient.INSTANCE.getFlowManager().applyServerFlowList(serverId, flowIds);
+        }
+    }
+
+    private void handleGuiList(ByteBuffer buffer) {
+        if (buffer.remaining() < 4) {
+            return;
+        }
+        int count = buffer.getInt();
+        java.util.List<String> guiIds = new java.util.ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            if (buffer.remaining() < 4) {
+                break;
+            }
+            int len = buffer.getInt();
+            if (len < 0 || len > buffer.remaining()) {
+                break;
+            }
+            byte[] idBytes = new byte[len];
+            buffer.get(idBytes);
+            guiIds.add(new String(idBytes, StandardCharsets.UTF_8));
+        }
+
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+            RemotelyClient.INSTANCE.getFlowManager().applyServerGuiList(serverId, guiIds);
         }
     }
 
@@ -551,6 +666,14 @@ public class ReSyncFlowClient {
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
 
+    private void sendGuiRequest(String guiId) {
+        byte[] idBytes = guiId.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
+        buffer.put((byte) 0x11);
+        buffer.put(idBytes);
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    }
+
     public void requestFlow(String flowId) {
         requestFlow(flowId, true);
     }
@@ -581,6 +704,36 @@ public class ReSyncFlowClient {
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
 
+    public void requestGui(String guiId) {
+        requestGui(guiId, true);
+    }
+
+    public void requestGui(String guiId, boolean openWhenReceived) {
+        if (guiId == null || guiId.isEmpty()) {
+            return;
+        }
+        if (openWhenReceived) {
+            pendingOpenGuis.add(guiId);
+        }
+        if (!isConnected()) {
+            pendingSends.add(() -> sendGuiRequest(guiId));
+            ensureConnected();
+            return;
+        }
+        sendGuiRequest(guiId);
+    }
+
+    public void requestGuiList() {
+        if (!isConnected()) {
+            pendingSends.add(this::requestGuiList);
+            ensureConnected();
+            return;
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(1);
+        buffer.put((byte) 0x14);
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    }
+
     public void sendFlowSave(FlowGraph graph) {
         if (graph == null) {
             return;
@@ -603,6 +756,27 @@ public class ReSyncFlowClient {
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
 
+    public void sendGuiSave(GuiDefinition gui) {
+        if (gui == null) {
+            return;
+        }
+        if (!isConnected()) {
+            System.err.println("[ReSyncFlow] WebSocket not connected - queueing GUI save");
+            pendingSends.add(() -> sendGuiSave(gui));
+            ensureConnected();
+            return;
+        }
+
+        String json = FlowSerializer.serializeGui(gui);
+        byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
+
+        ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
+        buffer.put((byte) 0x13);
+        buffer.put(jsonBytes);
+
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    }
+
     public void sendFlowDelete(String flowId) {
         if (flowId == null || flowId.isEmpty()) {
             return;
@@ -615,6 +789,22 @@ public class ReSyncFlowClient {
         byte[] idBytes = flowId.getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
         buffer.put((byte) 0x08);
+        buffer.put(idBytes);
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    }
+
+    public void sendGuiDelete(String guiId) {
+        if (guiId == null || guiId.isEmpty()) {
+            return;
+        }
+        if (!isConnected()) {
+            pendingSends.add(() -> sendGuiDelete(guiId));
+            ensureConnected();
+            return;
+        }
+        byte[] idBytes = guiId.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
+        buffer.put((byte) 0x16);
         buffer.put(idBytes);
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
@@ -641,6 +831,45 @@ public class ReSyncFlowClient {
         sendFrame(6, buffer.array(), FLOW_CHANNEL_ID);
     }
 
+    private void startHeartbeat() {
+        stopHeartbeat();
+        if (shutdownRequested) {
+            return;
+        }
+        heartbeatTask = heartbeatScheduler.scheduleAtFixedRate(() -> {
+            if (shutdownRequested) {
+                return;
+            }
+            if (!isConnected()) {
+                return;
+            }
+            sendHeartbeat();
+        }, HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_INTERVAL_SECONDS, TimeUnit.SECONDS);
+    }
+
+    private void stopHeartbeat() {
+        if (heartbeatTask != null) {
+            heartbeatTask.cancel(false);
+            heartbeatTask = null;
+        }
+    }
+
+    private void sendHeartbeat() {
+        ByteBuffer buffer = ByteBuffer.allocate(8);
+        buffer.putLong(System.currentTimeMillis());
+        sendFrame(5, buffer.array(), CONTROL_CHANNEL_ID);
+    }
+
+    private void scheduleReconnect() {
+        if (shutdownRequested) {
+            return;
+        }
+        if (reconnectTask != null && !reconnectTask.isDone()) {
+            return;
+        }
+        reconnectTask = heartbeatScheduler.schedule(this::ensureConnected, RECONNECT_DELAY_SECONDS, TimeUnit.SECONDS);
+    }
+
     private void handleError(byte[] payload) {
         ByteBuffer buffer = ByteBuffer.wrap(payload);
         int errorCode = buffer.getInt();
@@ -654,6 +883,8 @@ public class ReSyncFlowClient {
 
     public void shutdown() {
         System.out.println("[ReSyncFlow] Shutting down WebSocket connection");
+        shutdownRequested = true;
+        stopHeartbeat();
         WebSocketClient client = wsClient.getAndSet(null);
         if (client != null) {
             client.close();
@@ -662,6 +893,7 @@ public class ReSyncFlowClient {
         connecting.set(false);
         cancelNodeRegistryTimeout();
         nodeRegistryScheduler.shutdownNow();
+        heartbeatScheduler.shutdownNow();
     }
 
     private boolean isConnected() {
