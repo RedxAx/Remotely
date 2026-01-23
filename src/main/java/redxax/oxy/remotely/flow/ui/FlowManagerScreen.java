@@ -300,11 +300,7 @@ public class FlowManagerScreen extends ReScreen {
         AnimatedButton createButton = new AnimatedButton.Builder()
             .label("New GUI")
             .size(120, 22)
-            .onClick(() -> {
-                String guiId = "gui_" + UUID.randomUUID().toString().substring(0, 8);
-                GuiDefinition gui = flowManager.createGui(serverId, guiId);
-                flowManager.openGuiDesigner(serverId, server, gui.getId());
-            })
+            .onClick(this::showCreateGuiPopup)
             .build();
         guisContainer.addWidget(createButton);
 
@@ -353,6 +349,46 @@ public class FlowManagerScreen extends ReScreen {
 
             guisContainer.addWidget(row);
         }
+    }
+
+    private void showCreateGuiPopup() {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Create New GUI").setResizable(false);
+
+        TextInputWidget idInput = new TextInputWidget.Builder()
+            .placeholder("GUI ID (e.g. main_menu)")
+            .size(200, 22)
+            .build();
+
+        builder.addRow("ID", true, 22, idInput);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+
+        AnimatedButton createBtn = new AnimatedButton.Builder()
+            .label("Create")
+            .accentType(ThemeManager.getAccent("nice"))
+            .onClick(() -> {
+                String id = idInput.getText();
+                if (id != null && id.matches("^[a-zA-Z0-9_]+$")) {
+                    if (flowManager.getGuisForServer(serverId).containsKey(id)) {
+                        new Notification("Error", "GUI ID already exists", Notification.Type.ERROR);
+                        return;
+                    }
+                    GuiDefinition gui = flowManager.createGui(serverId, id);
+                    if (popupRef[0] != null) {
+                        popupRef[0].hide();
+                    }
+                    flowManager.openGuiDesigner(serverId, server, gui.getId());
+                } else {
+                    new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
+                }
+            })
+            .build();
+
+        builder.addRow("", true, 20, createBtn);
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
     }
 
     private void createCommandBinding() {

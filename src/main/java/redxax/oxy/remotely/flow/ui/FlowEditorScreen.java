@@ -506,6 +506,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
         dragMouseX = undistortedCoords[0];
         dragMouseY = undistortedCoords[1];
+        double[] worldMouse = screenToWorld(dragMouseX, dragMouseY);
+        int wx = (int) worldMouse[0];
+        int wy = (int) worldMouse[1];
 
         if (isSelecting && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             selectionEndX = undistortedCoords[0];
@@ -516,6 +519,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         if (dragState.isDragging) {
             return true;
+        }
+
+        for (int i = worldWidgets.size() - 1; i >= 0; i--) {
+            NodeWidget widget = (NodeWidget) worldWidgets.get(i);
+            if (widget.mouseDragged(wx, wy, button, deltaX, deltaY)) {
+                return true;
+            }
         }
 
         return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
@@ -602,6 +612,20 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         for (int i = worldWidgets.size() - 1; i >= 0; i--) {
             NodeWidget widget = (NodeWidget) worldWidgets.get(i);
 
+            Widget outputWidget = widget.getOutputWidgetAt(wx, wy);
+            if (outputWidget != null) {
+                outputWidget.mouseClicked(wx, wy, button);
+                if (outputWidget instanceof DropDownWidget<?>) {
+                    setFocusedWidget(outputWidget);
+                } else {
+                    setFocusedWidget(null);
+                }
+                focusedNode = widget;
+                bringToFront(widget);
+                selectNode(widget, hasShiftDown() || hasControlDown());
+                return true;
+            }
+
             if (widget.isMouseOverPin(wx, wy)) {
                 String pinName = widget.getPinAtPosition(wx, wy);
                 if (pinName != null) {
@@ -627,6 +651,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                     setFocusedWidget(null);
                 }
                 focusedNode = widget;
+                bringToFront(widget);
                 selectNode(widget, hasShiftDown() || hasControlDown());
                 return true;
             }
@@ -639,6 +664,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                     dragOffsetX = wx - widget.getX();
                     dragOffsetY = wy - widget.getY();
                 }
+                bringToFront(widget);
                 selectNode(widget, hasShiftDown() || hasControlDown());
                 widget.mouseClicked(wx, wy, button);
                 return true;
@@ -672,8 +698,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             return true;
         }
 
+        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
+        double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
+        int wx = (int) worldMouse[0];
+        int wy = (int) worldMouse[1];
+
         if (isSelecting && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
             selectionEndX = undistortedCoords[0];
             selectionEndY = undistortedCoords[1];
             updateSelectionFromBox();
@@ -682,8 +712,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
 
         if (dragState.isDragging) {
-            double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
-            double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
             tryCompleteWire(worldMouse[0], worldMouse[1], undistortedCoords[0], undistortedCoords[1]);
 
             dragState.isDragging = false;
@@ -695,6 +723,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && draggedWidget instanceof NodeWidget) {
             captureSnapshot();
             syncNodePosition((NodeWidget) draggedWidget);
+        }
+
+        for (int i = worldWidgets.size() - 1; i >= 0; i--) {
+            NodeWidget widget = (NodeWidget) worldWidgets.get(i);
+            if (widget.mouseReleased(wx, wy, button)) {
+                return true;
+            }
         }
 
         return super.mouseReleased(mouseX, mouseY, button);
@@ -1053,6 +1088,15 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 showAddNodeMenu((int) screenMouseX, (int) screenMouseY, sourceType);
             }
         }
+    }
+
+
+    private void bringToFront(NodeWidget widget) {
+        if (widget == null) {
+            return;
+        }
+        worldWidgets.remove(widget);
+        worldWidgets.add(widget);
     }
 
     private void removeExistingInputConnection(String nodeId, String pinName) {
@@ -1485,6 +1529,16 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (paletteSidePanel != null && paletteSidePanel.isVisible() && paletteSidePanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
             return true;
+        }
+        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
+        double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
+        int wx = (int) worldMouse[0];
+        int wy = (int) worldMouse[1];
+        for (int i = worldWidgets.size() - 1; i >= 0; i--) {
+            NodeWidget widget = (NodeWidget) worldWidgets.get(i);
+            if (widget.mouseScrolled(wx, wy, verticalAmount)) {
+                return true;
+            }
         }
         return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }

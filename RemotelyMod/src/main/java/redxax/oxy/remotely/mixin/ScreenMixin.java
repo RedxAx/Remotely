@@ -3,6 +3,7 @@ package redxax.oxy.remotely.mixin;
 import dev.deftu.omnicore.api.client.render.ImmediateScreenRenderer;
 import dev.deftu.omnicore.api.client.render.OmniRenderingContext;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 //#if MC >= 1.20.1
 import net.minecraft.client.gui.GuiGraphics;
 //#else
@@ -23,12 +24,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import redxax.oxy.remotely.adapters.ICustomWidgetHolder;
 import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
 import redxax.oxy.remotely.config.Config;
+import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.ui.tests.ContainerTestingScreen;
 import redxax.oxy.remotely.ui.tests.WidgetsTestingScreen;
 import redxax.oxy.remotely.util.CursorUtils;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
+import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.util.Notification;
 
 import java.util.ArrayList;
@@ -39,11 +42,38 @@ import static redxax.oxy.remotely.config.Config.enableDebugTools;
 @Mixin(value = Screen.class)
 public abstract class ScreenMixin implements ICustomWidgetHolder {
 
+    @Shadow
+    public int width;
+
+    @Shadow
+    public int height;
+
     @Unique
     private final List<Widget> remotely$customWidgets = new ArrayList<>();
 
     @Unique
     private boolean remotely$wasMouseDown = false;
+
+    @Unique
+    private IconButton remotely$editOverlayButton;
+
+    @Unique
+    private int remotely$editOverlayRevision = -1;
+
+    @Unique
+    private boolean remotely$overlayEditable;
+
+    @Unique
+    private String remotely$overlayServerId;
+
+    @Unique
+    private String remotely$overlayGuiId;
+
+    @Unique
+    private String remotely$overlayFlowId;
+
+    @Unique
+    private int remotely$overlayStateRevision = -1;
 
     @Override
     public void remotely$addWidget(Widget widget) {
@@ -64,6 +94,8 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
         restudio.rescreen.config.Config.tickTime();
         CursorUtils.tick();
         Config.globalCursorAnimatedColor = CursorUtils.blendColor();
+
+        remotely$updateEditOverlay();
 
         if (!remotely$customWidgets.isEmpty()) {
             remotely$handleInput(mouseX, mouseY);
@@ -99,6 +131,138 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             }
         }
         remotely$wasMouseDown = mouseDown;
+    }
+
+    @Unique
+    private void remotely$updateEditOverlay() {
+        boolean hasState = remotely$refreshOverlayState();
+        boolean show = hasState
+            && remotely$overlayEditable
+            && remotely$overlayGuiId != null
+            && !remotely$overlayGuiId.isBlank()
+            && ((Object) this) instanceof AbstractContainerScreen;
+
+        if (!show) {
+            if (remotely$editOverlayButton != null) {
+                remotely$clearWidgets();
+                remotely$editOverlayButton = null;
+                remotely$editOverlayRevision = -1;
+            }
+            return;
+        }
+
+        if (remotely$editOverlayButton == null || remotely$editOverlayRevision != remotely$overlayStateRevision) {
+            remotely$clearWidgets();
+            remotely$editOverlayButton = new IconButton.Builder()
+                .imagePath("edit.png")
+                .size(18, 18)
+                .iconSize(16)
+                .onClick(() -> {
+                    if (RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getFlowManager() == null) {
+                        return;
+                    }
+                    if (!remotely$refreshOverlayState() || remotely$overlayGuiId == null || remotely$overlayGuiId.isBlank()) {
+                        return;
+                    }
+                    try {
+                        boolean invoked = false;
+                        for (java.lang.reflect.Method method : RemotelyClient.INSTANCE.getFlowManager().getClass().getMethods()) {
+                            if ("openGuiDesigner".equals(method.getName()) && method.getParameterCount() == 4) {
+                                method.invoke(RemotelyClient.INSTANCE.getFlowManager(), remotely$overlayServerId, null, remotely$overlayGuiId, this);
+                                invoked = true;
+                                break;
+                            }
+                        }
+                        if (!invoked) {
+                            RemotelyClient.INSTANCE.getFlowManager().openGuiDesigner(remotely$overlayServerId, null, remotely$overlayGuiId);
+                        }
+                    } catch (Exception ignored) {
+                    }
+                })
+                .build();
+            remotely$editOverlayButton.entranceAnimationEnabled = false;
+            remotely$addWidget(remotely$editOverlayButton);
+            remotely$editOverlayRevision = remotely$overlayStateRevision;
+        }
+
+        int[] containerBounds = remotely$getContainerBounds();
+        int x;
+        int y;
+        if (containerBounds != null) {
+            x = containerBounds[0] + containerBounds[2] + 6;
+            y = containerBounds[1];
+            if (x + 18 > width - 2) {
+                x = Math.max(6, width - 24);
+            }
+            y = Math.max(6, y);
+        } else {
+            x = Math.max(6, width - 24);
+            y = 6;
+        }
+        remotely$editOverlayButton.setPosition(x, y);
+        remotely$editOverlayButton.setWidth(18);
+        remotely$editOverlayButton.setHeight(18);
+    }
+
+    @Unique
+    private boolean remotely$refreshOverlayState() {
+        if (RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getFlowManager() == null) {
+            return remotely$refreshOverlayStateFallback();
+        }
+        Object manager = RemotelyClient.INSTANCE.getFlowManager();
+        try {
+            Class<?> cls = manager.getClass();
+            remotely$overlayEditable = (boolean) cls.getMethod("isOverlayEditable").invoke(manager);
+            remotely$overlayServerId = (String) cls.getMethod("getOverlayServerId").invoke(manager);
+            remotely$overlayGuiId = (String) cls.getMethod("getOverlayGuiId").invoke(manager);
+            remotely$overlayFlowId = (String) cls.getMethod("getOverlayFlowId").invoke(manager);
+            remotely$overlayStateRevision = (int) cls.getMethod("getOverlayRevision").invoke(manager);
+            return true;
+        } catch (Exception ignored) {
+            return remotely$refreshOverlayStateFallback();
+        }
+    }
+
+    @Unique
+    private boolean remotely$refreshOverlayStateFallback() {
+        try {
+            Class<?> stateClass = Class.forName("redxax.oxy.remotely.flow.ui.GuiEditOverlayState");
+            Object snapshot = stateClass.getMethod("snapshot").invoke(null);
+            if (snapshot == null) {
+                return false;
+            }
+            Class<?> snapClass = snapshot.getClass();
+            remotely$overlayEditable = (boolean) snapClass.getMethod("editable").invoke(snapshot);
+            remotely$overlayServerId = (String) snapClass.getMethod("serverId").invoke(snapshot);
+            remotely$overlayGuiId = (String) snapClass.getMethod("guiId").invoke(snapshot);
+            remotely$overlayFlowId = (String) snapClass.getMethod("flowId").invoke(snapshot);
+            remotely$overlayStateRevision = (int) snapClass.getMethod("revision").invoke(snapshot);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    @Unique
+    private int[] remotely$getContainerBounds() {
+        if (!((Object) this instanceof AbstractContainerScreen)) {
+            return null;
+        }
+        try {
+            Class<?> cls = AbstractContainerScreen.class;
+            java.lang.reflect.Field leftField = cls.getDeclaredField("leftPos");
+            java.lang.reflect.Field topField = cls.getDeclaredField("topPos");
+            java.lang.reflect.Field widthField = cls.getDeclaredField("imageWidth");
+            leftField.setAccessible(true);
+            topField.setAccessible(true);
+            widthField.setAccessible(true);
+            int leftPos = (int) leftField.get(this);
+            int topPos = (int) topField.get(this);
+            int imageWidth = (int) widthField.get(this);
+            return new int[] { leftPos, topPos, imageWidth };
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     @Unique

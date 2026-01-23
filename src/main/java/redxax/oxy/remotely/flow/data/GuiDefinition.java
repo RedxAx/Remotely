@@ -7,6 +7,7 @@ public class GuiDefinition {
     private String id;
     private String title;
     private int rows;
+    private boolean extendToPlayerInventory;
     private List<GuiElement> elements;
 
     public GuiDefinition() {
@@ -28,6 +29,9 @@ public class GuiDefinition {
 
     public int getRows() { return rows; }
     public void setRows(int rows) { this.rows = rows; }
+
+    public boolean isExtendToPlayerInventory() { return extendToPlayerInventory; }
+    public void setExtendToPlayerInventory(boolean extendToPlayerInventory) { this.extendToPlayerInventory = extendToPlayerInventory; }
 
     public List<GuiElement> getElements() { return elements; }
     public void setElements(List<GuiElement> elements) { this.elements = elements; }
