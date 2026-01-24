@@ -273,17 +273,17 @@ public class GuiDesignerScreen extends ReScreen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (selectedElement != null && (keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)) {
-            if (!(getFocusedWidget() instanceof TextInputWidget)
-                && !(getFocusedWidget() instanceof TextAreaWidget)
-                && !(getFocusedWidget() instanceof ItemSelectorWidget)) {
-                removeElement(selectedElement);
-                return true;
-            }
-        }
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             requestClose();
             return true;
+        }
+        if (selectedElement != null && (keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)) {
+            if (!isAnyPopupOpen()) {
+                if (!(getFocusedWidget() instanceof TextInputWidget) && !(getFocusedWidget() instanceof TextAreaWidget) && !(getFocusedWidget() instanceof ItemSelectorWidget)) {
+                    removeElement(selectedElement);
+                    return true;
+                }
+            }
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
@@ -1290,5 +1290,17 @@ public class GuiDesignerScreen extends ReScreen {
 
     private interface SlotClickHandler {
         void onClick(int slot, int button);
+    }
+
+    private boolean isAnyPopupOpen() {
+        if (widgets == null) {
+            return false;
+        }
+        for (Object child : widgets) {
+            if (child instanceof PopupWidget popup && popup.isVisible()) {
+                return true;
+            }
+        }
+        return false;
     }
 }
