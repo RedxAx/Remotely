@@ -300,6 +300,133 @@ public class FlowManager {
         }
     }
 
+    public boolean renameFlow(String serverId, String flowId, String newFlowId) {
+        if (serverId == null || flowId == null || newFlowId == null) {
+            return false;
+        }
+        String trimmedId = newFlowId.trim();
+        if (trimmedId.isEmpty()) {
+            return false;
+        }
+        String oldKey = serverId + ":" + flowId;
+        String newKey = serverId + ":" + trimmedId;
+        if (oldKey.equals(newKey)) {
+            return false;
+        }
+        if (flowCache.containsKey(newKey) || draftFlows.containsKey(newKey) || serverFlowIds.contains(newKey)) {
+            return false;
+        }
+
+        FlowGraph graph = flowCache.get(oldKey);
+        boolean wasDraft = false;
+        if (graph == null) {
+            graph = draftFlows.get(oldKey);
+            wasDraft = true;
+        }
+        if (graph == null) {
+            return false;
+        }
+
+        boolean wasServer = serverFlowIds.contains(oldKey);
+        graph.setId(trimmedId);
+
+        flowCache.remove(oldKey);
+        draftFlows.remove(oldKey);
+
+        if (wasDraft && !wasServer) {
+            draftFlows.put(newKey, graph);
+        } else {
+            flowCache.put(newKey, graph);
+        }
+
+        serverFlowIds.remove(oldKey);
+        if (wasServer) {
+            serverFlowIds.add(newKey);
+        }
+
+        String displayName = flowNames.remove(oldKey);
+        if (displayName == null || displayName.isBlank() || displayName.equals(flowId)) {
+            displayName = trimmedId;
+        }
+        flowNames.put(newKey, displayName);
+
+        ReSyncFlowClient client = ensureFlowClient(serverId);
+        if (client != null) {
+            client.sendFlowSave(graph);
+            if (wasServer) {
+                client.sendFlowDelete(flowId);
+            }
+        }
+
+        refreshFlowManagerScreen(serverId);
+        return true;
+    }
+
+    public boolean renameGui(String serverId, String guiId, String newGuiId) {
+        if (serverId == null || guiId == null || newGuiId == null) {
+            return false;
+        }
+        String trimmedId = newGuiId.trim();
+        if (trimmedId.isEmpty()) {
+            return false;
+        }
+        String oldKey = serverId + ":" + guiId;
+        String newKey = serverId + ":" + trimmedId;
+        if (oldKey.equals(newKey)) {
+            return false;
+        }
+        if (guiCache.containsKey(newKey) || draftGuis.containsKey(newKey) || serverGuiIds.contains(newKey)) {
+            return false;
+        }
+
+        GuiDefinition gui = guiCache.get(oldKey);
+        boolean wasDraft = false;
+        if (gui == null) {
+            gui = draftGuis.get(oldKey);
+            wasDraft = true;
+        }
+        if (gui == null) {
+            return false;
+        }
+
+        boolean wasServer = serverGuiIds.contains(oldKey);
+        gui.setId(trimmedId);
+        if (gui.getTitle() == null || gui.getTitle().isBlank() || gui.getTitle().equals(guiId)) {
+            gui.setTitle(trimmedId);
+        }
+
+        guiCache.remove(oldKey);
+        draftGuis.remove(oldKey);
+
+        if (wasDraft && !wasServer) {
+            draftGuis.put(newKey, gui);
+        } else {
+            guiCache.put(newKey, gui);
+        }
+
+        serverGuiIds.remove(oldKey);
+        if (wasServer) {
+            serverGuiIds.add(newKey);
+        }
+
+        String displayName = guiNames.remove(oldKey);
+        if (displayName == null || displayName.isBlank() || displayName.equals(guiId)) {
+            displayName = gui.getTitle() != null && !gui.getTitle().isBlank() ? gui.getTitle() : trimmedId;
+        }
+        guiNames.put(newKey, displayName);
+
+        ReSyncFlowClient client = ensureFlowClient(serverId);
+        if (client != null) {
+            client.sendGuiSave(gui);
+            if (wasServer) {
+                client.sendGuiDelete(guiId);
+            }
+        }
+
+        refreshFlowManagerScreen(serverId);
+        return true;
+    }
+
     public java.util.List<redxax.oxy.remotely.flow.data.TriggerBinding> getBindings(String serverId) {
         return triggerBindings.computeIfAbsent(serverId, id -> new java.util.ArrayList<>());
     }
