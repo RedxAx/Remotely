@@ -45,6 +45,6 @@ public abstract class TitleScreenMixin extends net.minecraft.client.gui.screens.
             return;
         }
 
-        ScreenInitHelper.init(this, optionsButton);
+        ScreenInitHelper.init(this, optionsButton, true);
     }
 }
