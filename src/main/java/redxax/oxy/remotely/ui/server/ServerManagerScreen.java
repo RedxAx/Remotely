@@ -482,9 +482,9 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     serverView = null;
                 }
 
-                builder.addHeaderButton("code.png", () -> openFlowManagerForServer(serverId, serverView), "Flow Manager");
-                builder.addHeaderButton("gui.png", () -> openGuiDesignerForServer(serverId, serverView), "GUI Designer");
-
+                if (isRestudio) {
+                    builder.addHeaderButton("merge.png", () -> openFlowManagerForServer(serverId, serverView), "Flow Manager");
+                }
                 if (!isRestudio) {
                     builder.addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server").addHeaderButton("delete.png", () -> {
                         instanceForDeletion = widget.getInstance();
