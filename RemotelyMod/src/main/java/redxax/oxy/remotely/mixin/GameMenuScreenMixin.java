@@ -40,6 +40,6 @@ public abstract class GameMenuScreenMixin extends net.minecraft.client.gui.scree
 
         if (optionsButton == null) return;
 
-        ScreenInitHelper.init(this, optionsButton);
+        ScreenInitHelper.init(this, optionsButton, false);
     }
 }

@@ -18,6 +18,10 @@ import static redxax.oxy.remotely.config.Config.remotelyDir;
 public class ScreenInitHelper {
 
     public static void init(Screen screen, AbstractButton anchorButton) {
+        init(screen, anchorButton, false);
+    }
+
+    public static void init(Screen screen, AbstractButton anchorButton, boolean isTitleScreen) {
         if (anchorButton == null || !(screen instanceof ICustomWidgetHolder widgetHolder)) return;
 
         //#if MC >= 1.19.4
@@ -61,7 +65,8 @@ public class ScreenInitHelper {
                 int spacing = 4;
                 int buttonSize = 18;
                 int startX = anchorX + 1;
-                int buttonY = anchorY + anchorHeight + 4;
+                int extraSpacing = isTitleScreen ? 12 : 0;
+                int buttonY = anchorY + anchorHeight + extraSpacing + 4;
 
                 SquareButtonWidget serverBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("manager.png").onClick(() -> openServerManagerScreen(screen)).build();
                 serverBtn.setPosition(startX, buttonY);
