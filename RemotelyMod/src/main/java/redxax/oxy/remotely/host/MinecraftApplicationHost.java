@@ -5,10 +5,26 @@ import dev.deftu.omnicore.api.client.screen.OmniScreens;
 import net.minecraft.client.Minecraft;
 import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
 import redxax.oxy.remotely.adapters.ReScreenWrapper;
+import restudio.rescreen.platform.ClipboardHandler;
 import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.core.ScreenManager;
 
 public class MinecraftApplicationHost implements ApplicationHost {
     private final Minecraft mc = Minecraft.getInstance();
+
+    public MinecraftApplicationHost() {
+        ScreenManager.getInstance().setClipboardHandler(new ClipboardHandler() {
+            @Override
+            public void setClipboard(String text) {
+                mc.keyboardHandler.setClipboard(text);
+            }
+
+            @Override
+            public String getClipboard() {
+                return mc.keyboardHandler.getClipboard();
+            }
+        });
+    }
 
     @Override
     public void setScreen(Screen screen) {
@@ -60,7 +76,6 @@ public class MinecraftApplicationHost implements ApplicationHost {
     public void setClipboard(String text) {
         Minecraft.getInstance().keyboardHandler.setClipboard(text);
     }
-
 
     @Override
     public String getGameUserName() {

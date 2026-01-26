@@ -57,7 +57,6 @@ public class ReScreenApplicationHost implements ApplicationHost {
         glfwSetClipboardString(Main.window, text);
     }
 
-
     @Override
     public String getGameUserName() {
         return null;
