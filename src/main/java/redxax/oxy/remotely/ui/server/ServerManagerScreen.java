@@ -240,7 +240,9 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             Container c = createContainer("desktop_restudio", 0, 0, width, height - 35);
             DesktopLayout remoteLayout = new DesktopLayout();
             c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
-            tabs().addTab("ReStudio", c).setData("RESTUDIO_MARKER");
+            if (ReStudio.getInstance().isAuthenticated() && ReStudio.getInstance().getFirstName().equalsIgnoreCase("RedxAx")) {
+                tabs().addTab("ReStudio", c).setData("RESTUDIO_MARKER");
+            }
         }
 
         for (RemoteHost host : instanceManager.getRemoteHosts()) {
@@ -900,6 +902,10 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_R) {
             reloadInstancesSmartly();
+            return true;
+        }
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE && RemotelyClient.INSTANCE.getHost().getGameVersion() == null) {
+            close();
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
