@@ -1,6 +1,7 @@
 import dev.deftu.gradle.utils.ModLoader
 import dev.deftu.gradle.utils.version.MinecraftVersions
 import dev.deftu.gradle.utils.includeOrShade
+import net.fabricmc.loom.task.RemapJarTask
 import org.gradle.jvm.tasks.Jar
 import java.util.Properties
 
@@ -21,7 +22,7 @@ toolkitMultiversion {
 }
 
 toolkitLoomHelper {
-    useDevAuth("1.2.1")
+    useDevAuth("1.2.2")
     useMixinExtras("0.5.0")
 
     if (!mcData.isNeoForge) {

@@ -42,12 +42,6 @@ import static redxax.oxy.remotely.config.Config.enableDebugTools;
 @Mixin(value = Screen.class)
 public abstract class ScreenMixin implements ICustomWidgetHolder {
 
-    @Shadow
-    public int width;
-
-    @Shadow
-    public int height;
-
     @Unique
     private final List<Widget> remotely$customWidgets = new ArrayList<>();
 
@@ -188,18 +182,18 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
         int[] containerBounds = remotely$getContainerBounds();
         int x;
         int y;
-        if (containerBounds != null) {
-            x = containerBounds[0] + containerBounds[2] + 6;
-            y = containerBounds[1];
-            if (x + 18 > width - 2) {
-                x = Math.max(6, width - 24);
-            }
-            y = Math.max(6, y);
-        } else {
-            x = Math.max(6, width - 24);
-            y = 6;
-        }
-        remotely$editOverlayButton.setPosition(x, y);
+//        if (containerBounds != null) {
+//            x = containerBounds[0] + containerBounds[2] + 6;
+//            y = containerBounds[1];
+//            if (x + 18 > width - 2) {
+//                x = Math.max(6, width - 24);
+//            }
+//            y = Math.max(6, y);
+//        } else {
+//            x = Math.max(6, width - 24);
+//            y = 6;
+//        }
+//        remotely$editOverlayButton.setPosition(x, y);
         remotely$editOverlayButton.setWidth(18);
         remotely$editOverlayButton.setHeight(18);
     }

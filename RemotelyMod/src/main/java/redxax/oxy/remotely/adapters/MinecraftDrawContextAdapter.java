@@ -25,12 +25,16 @@ import net.minecraft.network.chat.FontDescription;
 //#endif
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
-import net.minecraft.resources.ResourceLocation;
+//#if MC >= 1.21.11
+import net.minecraft.resources.Identifier;
+//#endif
+//#if MC < 1.21.11
+//$$ import net.minecraft.resources.ResourceLocation;
+//#endif
 import org.jetbrains.annotations.NotNull;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.IMatrixStack;
 import restudio.rescreen.text.StyledText;
-import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.ResourceManager;
 
 import java.awt.image.BufferedImage;
@@ -215,7 +219,12 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
                 return;
             }
             MutableComponent renderText = Component.literal(styledText.text);
-            if (styledText.font instanceof ResourceLocation rl) {
+            //#if MC >= 1.21.11
+            if (styledText.font instanceof Identifier rl) {
+            //#endif
+            //#if MC < 1.21.11
+            //$$ if (styledText.font instanceof ResourceLocation rl) {
+            //#endif
                 //#if MC >= 1.21.9
                 renderText.setStyle(Style.EMPTY.withFont(new FontDescription.Resource(rl)));
                 //#endif
@@ -263,12 +272,12 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     }
 
     @Override
-    public void drawBufferedImage(Identifier identifier, float v, float v1, float v2, float v3) {
+    public void drawBufferedImage(restudio.rescreen.util.Identifier identifier, float v, float v1, float v2, float v3) {
         drawBufferedImage(ResourceManager.getInstance().getImage(identifier), v, v1, v2, v3);
     }
 
     @Override
-    public void drawPixelArt(Identifier identifier, float x, float y, float width, float height) {
+    public void drawPixelArt(restudio.rescreen.util.Identifier identifier, float x, float y, float width, float height) {
         drawBufferedImage(identifier, x, y, width, height);
     }
 

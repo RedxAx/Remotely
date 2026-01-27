@@ -6,7 +6,12 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.FontDescription;
 //#endif
 import net.minecraft.network.chat.Style;
-import net.minecraft.resources.ResourceLocation;
+//#if MC >= 1.21.11
+import net.minecraft.resources.Identifier;
+//#endif
+//#if MC < 1.21.11
+//$$ import net.minecraft.resources.ResourceLocation;
+//#endif
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
 
@@ -43,7 +48,12 @@ public class MinecraftTextRendererAdapter implements ITextRenderer {
 
     @Override
     public int getWidth(String text, Object font) {
-        if (font instanceof ResourceLocation rl) {
+        //#if MC >= 1.21.11
+        if (font instanceof Identifier rl) {
+        //#endif
+        //#if MC < 1.21.11
+        //$$ if (font instanceof ResourceLocation rl) {
+        //#endif
             return OmniTextRenderer.width(Component.literal(text).setStyle(Style.EMPTY.withFont(
                 //#if MC >= 1.21.9
                 new FontDescription.Resource(rl)
