@@ -72,6 +72,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     private IconButton headerBackground;
     private final List<IconButton> headerButtons = new ArrayList<>();
+    private boolean initialized;
 
     private int initialWidth;
     private int initialHeight;
@@ -204,13 +205,19 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         this.initialWidth = width;
         this.initialHeight = height;
 
-        headerBackground = new IconButton.Builder().pos(10, 10).size(1, 28).build();
-        headerBackground.active = false;
-        addHudWidget(headerBackground);
+        if (!initialized) {
+            headerBackground = new IconButton.Builder().pos(10, 10).size(1, 28).build();
+            headerBackground.active = false;
+            addHudWidget(headerBackground);
 
-        createPaletteSidePanel();
-        createHeaderButtons();
-        layoutHeaderButtons();
+            createPaletteSidePanel();
+            createHeaderButtons();
+            initialized = true;
+        }
+
+        if (headerBackground != null) {
+            layoutHeaderButtons();
+        }
     }
 
     private void refreshPalette() {
@@ -1101,6 +1108,14 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     private void removeExistingInputConnection(String nodeId, String pinName) {
         if (graph.getConnections() == null) return;
+
+        NodeWidget targetWidget = widgetCache.get(nodeId);
+        if (targetWidget != null) {
+            NodeDefinition.PinType pinType = targetWidget.getPinKind(pinName, true);
+            if (pinType == NodeDefinition.PinType.FLOW) {
+                return;
+            }
+        }
 
         boolean removed = graph.getConnections().removeIf(conn ->
             conn.getTargetNodeId().equals(nodeId) && conn.getTargetPin().equals(pinName)
