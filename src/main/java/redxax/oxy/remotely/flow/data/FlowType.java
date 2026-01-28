@@ -34,6 +34,9 @@ public enum FlowType {
         if (this == ANY || other == ANY) {
             return true;
         }
+        if ((this == PLAYER && other == ENTITY) || (this == ENTITY && other == PLAYER)) {
+            return true;
+        }
         return this == other;
     }
 
