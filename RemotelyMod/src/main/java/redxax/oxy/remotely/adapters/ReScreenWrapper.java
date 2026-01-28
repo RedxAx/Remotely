@@ -8,23 +8,28 @@ import dev.deftu.omnicore.api.client.render.OmniRenderingContext;
 import dev.deftu.omnicore.api.client.render.OmniResolution;
 import dev.deftu.omnicore.api.client.screen.KeyPressEvent;
 import dev.deftu.omnicore.api.client.screen.OmniScreen;
+import dev.deftu.omnicore.api.client.screen.OmniScreens;
 import dev.deftu.textile.Text;
 import net.minecraft.client.Minecraft;
 import org.jetbrains.annotations.NotNull;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.config.Config;
+import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 
 import java.lang.reflect.Field;
 
 public class ReScreenWrapper extends OmniScreen {
-    private final restudio.rescreen.ui.core.Screen libScreen;
+    private static Screen suspendedScreen;
+    private static boolean skipCloseCleanup;
+    private final Screen libScreen;
     private final ScreenManager sm = ScreenManager.getInstance();
     private long lastFrameTime = 0;
 
-    public ReScreenWrapper(restudio.rescreen.ui.core.Screen libScreen) {
+    public ReScreenWrapper(Screen libScreen) {
         super(Text.literal("ReScreen Wrapper " + libScreen.getClass().getSimpleName()));
         this.libScreen = libScreen;
+        suspendedScreen = libScreen;
     }
 
     @Override
@@ -127,14 +132,32 @@ public class ReScreenWrapper extends OmniScreen {
     @Override
     public void onScreenClose() {
         super.onScreenClose();
-        restudio.rescreen.ui.core.Screen current = sm.getCurrentScreen();
+        if (skipCloseCleanup) {
+            skipCloseCleanup = false;
+            return;
+        }
+        Screen current = sm.getCurrentScreen();
         if (current != null) current.removed();
         sm.setScreen(null);
+        suspendedScreen = null;
     }
 
     public void onDisplayed() {}
 
-    public restudio.rescreen.ui.core.Screen getScreen() {
+    public Screen getScreen() {
         return libScreen;
+    }
+
+    public static boolean toggleScreen() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.screen instanceof ReScreenWrapper wrapper) {
+            suspendedScreen = wrapper.getScreen();
+            skipCloseCleanup = true;
+            mc.setScreen(null);
+            return true;
+        }
+        if (suspendedScreen == null) return false;
+        OmniScreens.setCurrentScreen(new ReScreenWrapper(suspendedScreen));
+        return true;
     }
 }
