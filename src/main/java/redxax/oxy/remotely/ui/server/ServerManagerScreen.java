@@ -644,31 +644,26 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void createRemoteHostPopup() {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Remote Host")
+        PopupWidget.Builder builder = new PopupWidget.Builder("Connect Remote Host")
             .onClose(this::closeRemoteHostPopup)
             .size(360, 250)
             .setResizable(true)
             .setMinSize(360, 250);
 
-        remoteHostNameInput = new TextInputWidget.Builder().build();
-        builder.addRow("Host Name:", true, 20, remoteHostNameInput);
+        remoteHostNameInput = new TextInputWidget.Builder().size(18, 18).build();
+        builder.addRow("Host Name:", true, 18, remoteHostNameInput);
 
-        remoteHostUserInput = new TextInputWidget.Builder().text("root").build();
-        builder.addRow("User Name:", true, 20, remoteHostUserInput);
+        remoteHostUserInput = new TextInputWidget.Builder().size(18, 18).text("root").build();
+        builder.addRow("User Name:", true, 18, remoteHostUserInput);
 
-        remoteHostIpInput = new TextInputWidget.Builder().build();
-        builder.addRow("IP | Domain:", true, 20, remoteHostIpInput);
+        remoteHostIpInput = new TextInputWidget.Builder().size(18, 18).build();
+        builder.addRow("IP | Domain:", true, 18, remoteHostIpInput);
 
-        remoteHostPortInput = new TextInputWidget.Builder().text("22").build();
-        builder.addRow("Port:", true, 20, remoteHostPortInput);
+        remoteHostPortInput = new TextInputWidget.Builder().size(18, 18).text("22").build();
+        builder.addRow("Port:", true, 18, remoteHostPortInput);
 
-        remoteHostPasswordInput = new TextInputWidget.Builder().build();
-        builder.addRow("Password:", true, 20, remoteHostPasswordInput);
-
-        remoteHostConfirmButton = new AnimatedButton.Builder().label(("Test & Add")).onClick(this::onConfirmRemoteHost).build();
-        AnimatedButton cancelButton = new AnimatedButton.Builder().label(("Cancel")).onClick(this::closeRemoteHostPopup).build();
-        remoteHostDeleteButton = new AnimatedButton.Builder().label(("Delete")).onClick(this::onDeleteRemoteHost).accentType(ThemeManager.getAccent("danger")).build();
-        builder.addRow("", false, 20, remoteHostConfirmButton, cancelButton, remoteHostDeleteButton);
+        remoteHostPasswordInput = new TextInputWidget.Builder().size(18, 18).build();
+        builder.addRow("Password:", true, 18, remoteHostPasswordInput);
 
         remoteHostPopup = builder.build();
         remoteHostPopup.hide();
@@ -699,23 +694,48 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         int activeTabIndex = tabs().getActiveTabIndex();
         Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
 
-        if (isEditing && activeTabIndex > 0 && data instanceof RemoteHost host) {
-            remoteHostConfirmButton.setMessage(("Save"));
-            remoteHostDeleteButton.visible = true;
+        remoteHostPopup.clearRows();
 
-            remoteHostNameInput.setText(host.name);
-            remoteHostUserInput.setText(host.user);
-            remoteHostIpInput.setText(host.ip);
-            remoteHostPortInput.setText(String.valueOf(host.port));
-            remoteHostPasswordInput.setText(host.getPassword() != null ? host.getPassword() : "");
+        String nameText = "";
+        String userText = "root";
+        String ipText = "";
+        String portText = "22";
+        String passwordText = "";
+
+        AnimatedButton cancelButton;
+
+        if (isEditing && activeTabIndex > 0 && data instanceof RemoteHost host) {
+            nameText = host.name;
+            userText = host.user;
+            ipText = host.ip;
+            portText = String.valueOf(host.port);
+            passwordText = host.getPassword() != null ? host.getPassword() : "";
+
+            remoteHostConfirmButton = new AnimatedButton.Builder().label(("Save")).size(18, 18).accentType(ThemeManager.getAccent("nice")).onClick(this::onConfirmRemoteHost).build();
+            cancelButton = new AnimatedButton.Builder().label(("Cancel")).size(18, 18).onClick(this::closeRemoteHostPopup).build();
+            remoteHostDeleteButton = new AnimatedButton.Builder().label(("Delete")).size(18, 18).onClick(this::onDeleteRemoteHost).accentType(ThemeManager.getAccent("danger")).build();
         } else {
-            remoteHostConfirmButton.setMessage(("Test & Add"));
-            remoteHostDeleteButton.visible = false;
-            remoteHostNameInput.setText("");
-            remoteHostUserInput.setText("root");
-            remoteHostIpInput.setText("");
-            remoteHostPortInput.setText("22");
-            remoteHostPasswordInput.setText("");
+            remoteHostConfirmButton = new AnimatedButton.Builder().label(("Test & Add")).size(18, 18).accentType(ThemeManager.getAccent("nice")).onClick(this::onConfirmRemoteHost).build();
+            cancelButton = new AnimatedButton.Builder().label(("Cancel")).size(18, 18).onClick(this::closeRemoteHostPopup).build();
+            remoteHostDeleteButton = null;
+        }
+
+        remoteHostNameInput.setText(nameText);
+        remoteHostUserInput.setText(userText);
+        remoteHostIpInput.setText(ipText);
+        remoteHostPortInput.setText(portText);
+        remoteHostPasswordInput.setText(passwordText);
+
+        remoteHostPopup.addRow("Host Name:", Collections.singletonList(remoteHostNameInput), 18, true, false);
+        remoteHostPopup.addRow("User Name:", Collections.singletonList(remoteHostUserInput), 18, true, false);
+        remoteHostPopup.addRow("IP | Domain:", Collections.singletonList(remoteHostIpInput), 18, true, false);
+        remoteHostPopup.addRow("Port:", Collections.singletonList(remoteHostPortInput), 18, true, false);
+        remoteHostPopup.addRow("Password:", Collections.singletonList(remoteHostPasswordInput), 18, true, false);
+
+        if (isEditing && activeTabIndex > 0 && data instanceof RemoteHost) {
+            remoteHostPopup.addRow("", Arrays.asList(remoteHostConfirmButton, cancelButton, remoteHostDeleteButton), 18, true, false);
+        } else {
+            remoteHostPopup.addRow("", Arrays.asList(remoteHostConfirmButton, cancelButton), 18, true, false);
         }
 
         remoteHostNameInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(remoteHostUserInput));
