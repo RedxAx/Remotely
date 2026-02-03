@@ -270,6 +270,14 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             instances = new ArrayList<>(getCurrentServers());
         }
 
+        instances.removeIf(Instance::isHidden);
+
+        if ("RESTUDIO_MARKER".equals(tabData)) {
+            RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
+            List<String> hiddenRestudio = config.getHiddenRestudioServers();
+            instances.removeIf(inst -> hiddenRestudio.contains(inst.getName()));
+        }
+
         String context = "local";
         if (tabData instanceof RemoteHost host) {
             context = "remote." + host.name;
@@ -634,10 +642,12 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void createDeleteServerPopup() {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Are You Sure?").size(260, 140).onClose(() -> deleteServerPopup.hide());
+        PopupWidget.Builder builder = new PopupWidget.Builder("Are You Sure?").size(124, 140).onClose(() -> deleteServerPopup.hide());
 
-        AnimatedButton deleteTrashBtn = new AnimatedButton.Builder()
+        IconButton deleteTrashBtn = new IconButton.Builder()
             .label(("Delete The Server"))
+            .imagePath("delete.png")
+            .accentType(ThemeManager.getAccent("danger"))
             .onClick(() -> {
                 playSound(Sound.DELETE);
                 instanceManager.removeInstance(instanceForDeletion);
@@ -646,16 +656,28 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             })
             .build();
 
-        AnimatedButton cancelBtn = new AnimatedButton.Builder()
-            .label(("Cancel"))
+        IconButton remove = new IconButton.Builder()
+            .label(("Hide From List"))
+            .imagePath("hide.png")
             .onClick(() -> {
                 playSound(Sound.CLICK);
+                if (instanceForDeletion != null) {
+                    BackendConfig backend = instanceForDeletion.getBackendConfig();
+                    if (backend != null && "RESTUDIO".equalsIgnoreCase(backend.type)) {
+                        RemotelyConfigManager config = (RemotelyConfigManager) Rebase.get().getConfigManager();
+                        config.hideRestudioServer(instanceForDeletion.getName());
+                    } else {
+                        instanceForDeletion.setHidden(true);
+                        instanceForDeletion.save();
+                    }
+                    loadServersForCurrentTab();
+                }
                 deleteServerPopup.hide();
             })
             .build();
 
-        builder.addRow("", true, 27, deleteTrashBtn);
-        builder.addRow("", true, 27, cancelBtn);
+        builder.addRow("", true, 20, deleteTrashBtn);
+        builder.addRow("", true, 20, remove);
 
         deleteServerPopup = builder.build();
         deleteServerPopup.hide();
@@ -948,6 +970,10 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    public List<Instance> getRestudioInstances() {
+        return restudioInstances;
     }
 
     @Override
