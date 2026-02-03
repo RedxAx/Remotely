@@ -3,6 +3,7 @@ package redxax.oxy.remotely.ui.server.containers;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
 import restudio.rebase.Rebase;
+import restudio.rescreen.config.Config;
 import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.preset.ResourceList;
@@ -28,9 +29,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 public class ResourceContainer extends Container {
+    private boolean hasLoaded = false;
+    private boolean isLoading = false;
+
     public enum ContentSort {
         NAME_AZ("Name (A-Z)"),
         NAME_ZA("Name (Z-A)"),
@@ -136,7 +141,7 @@ public class ResourceContainer extends Container {
             }
         }
 
-        InstanceResourceWidget widget = new InstanceResourceWidget(host, instance, resource, this::loadResources);
+        InstanceResourceWidget widget = new InstanceResourceWidget(host, instance, resource, () -> loadResources());
         widget.setHeight(30);
 
         List<InstanceResource> sorted = viewModel.getLoadedResources().stream().filter(this::matchesFilter).sorted(getResourceComparator()).toList();
@@ -363,7 +368,7 @@ public class ResourceContainer extends Container {
                 List<InstanceResourceWidget> groupMemberWidgets = new ArrayList<>();
                 for (String resourceFile : resourceFiles) {
                     filteredResources.stream().filter(r -> r.getFileName().equals(resourceFile)).findFirst().ifPresent(resource -> {
-                        InstanceResourceWidget widget = new InstanceResourceWidget(host, instance, resource, this::loadResources);
+                        InstanceResourceWidget widget = new InstanceResourceWidget(host, instance, resource, () -> loadResources());
                         widget.setHeight(30);
                         widget.selectable = false;
                         groupMemberWidgets.add(widget);
@@ -388,7 +393,7 @@ public class ResourceContainer extends Container {
         List<InstanceResourceWidget> ungroupedWidgets = new ArrayList<>();
         for (InstanceResource resource : filteredResources) {
             if (!groupedResourceFiles.contains(resource.getFileName())) {
-                InstanceResourceWidget widget = new InstanceResourceWidget(host, instance, resource, this::loadResources);
+                InstanceResourceWidget widget = new InstanceResourceWidget(host, instance, resource, () -> loadResources());
                 widget.setHeight(30);
                 ungroupedWidgets.add(widget);
             }
@@ -400,9 +405,31 @@ public class ResourceContainer extends Container {
         updateWidgetPositions();
     }
 
-    public void loadResources() {
-        if (instance == null) return;
-        Rebase.get().getResourceManager().getResources(instance);
+    public CompletableFuture<List<InstanceResource>> loadResources() {
+        return loadResources(false);
+    }
+
+    public CompletableFuture<List<InstanceResource>> loadResources(boolean force) {
+        if (instance == null) return CompletableFuture.completedFuture(List.of());
+        if (isLoading) return CompletableFuture.completedFuture(List.of());
+        if (hasLoaded && !force) return CompletableFuture.completedFuture(List.of());
+
+        isLoading = true;
+        Config.loading = true;
+
+        return Rebase.get().getResourceManager().getResources(instance).whenComplete((resources, e) -> ScreenManager.getInstance().execute(() -> {
+            isLoading = false;
+            Config.loading = false;
+            if (e != null) {
+                new Notification("Failed to load resources", e.getMessage(), Notification.Type.ERROR);
+            } else {
+                hasLoaded = true;
+            }
+        }));
+    }
+
+    public void resetLoadingState() {
+        Config.loading = false;
     }
 
     public void deleteResources(List<InstanceResource> resourcesToDelete) {
@@ -502,7 +529,7 @@ public class ResourceContainer extends Container {
         PopupWidget.Builder builder = new PopupWidget.Builder("Update All Resources").size(400, 200).setResizable(true);
         List<InstanceResourceWidget> resourceWidgets = new ArrayList<>();
         for (InstanceResource resource : updatableResources) {
-            InstanceResourceWidget widget = new InstanceResourceWidget(host, instance, resource, this::loadResources);
+            InstanceResourceWidget widget = new InstanceResourceWidget(host, instance, resource, () -> loadResources());
             widget.setRenderingMode(InstanceResourceWidget.RenderingMode.COMPACT_UPDATE);
             resourceWidgets.add(widget);
             builder.addRow("", true, false, 18, widget);
@@ -517,12 +544,12 @@ public class ResourceContainer extends Container {
                 return;
             }
             progress.setVisible(true);
-            Rebase.get().getUpdateManager().performBulkUpdate(instance, selectedUpdates, progress::updateProgress, this::loadResources, backupToggle.getValue(), 7).whenComplete((v, ex) -> ScreenManager.getInstance().execute(() -> {
+Rebase.get().getUpdateManager().performBulkUpdate(instance, selectedUpdates, progress::updateProgress, () -> loadResources().thenRun(() -> {}), backupToggle.getValue(), 7).whenComplete((v, ex) -> ScreenManager.getInstance().execute(() -> {
                 builder.getWidget().setVisible(false);
                 if (ex != null) {
                     new Notification("Update Failed", ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage(), Notification.Type.ERROR);
                 }
-                loadResources();
+                loadResources().thenRun(() -> {});
             }));
         }, "Download Selected", ThemeManager.getAccent("nice"));
         builder.addRow("Backup?", false, 18, backupToggle);

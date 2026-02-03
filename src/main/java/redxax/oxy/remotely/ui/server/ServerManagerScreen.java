@@ -293,15 +293,27 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             });
         }
 
+        List<DesktopIconWidget> serverWidgets = new ArrayList<>();
         for (Instance server : instances) {
-            addServerWidget(server, false);
+            DesktopIconWidget widget = addServerWidget(server, false);
+            serverWidgets.add(widget);
         }
         addServerWidget(null, true);
 
-        for (Instance server : instances) {
+        for (int i = 0; i < instances.size(); i++) {
+            Instance server = instances.get(i);
+            DesktopIconWidget widget = serverWidgets.get(i);
+            iconManager.loadIconAsync(server, icon -> {
+                widget.setIcon(icon);
+            });
+
             BackendConfig backendConfig = server.getBackendConfig();
             if (backendConfig != null && !"LOCAL".equalsIgnoreCase(backendConfig.type)) {
-                iconManager.loadRemoteIconAsync(server, this::loadServersForCurrentTab);
+                iconManager.loadRemoteIconAsync(server, () -> {
+                    iconManager.loadIconAsync(server, icon -> {
+                        widget.setIcon(icon);
+                    });
+                });
             }
         }
 
@@ -327,9 +339,10 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         config.setInstanceOrder(context, newOrderIds);
     }
 
-    private void addServerWidget(Instance info, boolean isCreate) {
+    private DesktopIconWidget addServerWidget(Instance info, boolean isCreate) {
         DesktopIconWidget widget = new DesktopIconWidget.Builder(info, isCreate, isCreate ? serverIcon : getServerIcon(info)).onClick(this::onDesktopIconClick).build();
         activeContainer.addWidget(widget);
+        return widget;
     }
 
     private void onHostTabSelected(TabsManager.Tab tab) {
@@ -580,7 +593,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             .onClick(() -> {
                 Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
                 if ("RESTUDIO_MARKER".equals(data)) {
-                     client.setScreen(new ServerConfigurationScreen(this, null, null, remotelyClient, true));
+                    client.setScreen(new ServerConfigurationScreen(this, null, null, remotelyClient, true));
                 } else {
                     RemoteHost currentHost = (data instanceof RemoteHost) ? (RemoteHost) data : null;
                     client.setScreen(new ServerConfigurationScreen(this, null, currentHost, remotelyClient));
@@ -883,8 +896,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         super.onDisplayed();
         playSound(Sound.SERVERMANAGER);
         if (System.currentTimeMillis() - lastReloadTime > 5000) {
-             reloadInstancesSmartly();
-             lastReloadTime = System.currentTimeMillis();
+            reloadInstancesSmartly();
+            lastReloadTime = System.currentTimeMillis();
         }
         loadServersForCurrentTab();
     }

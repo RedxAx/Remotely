@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 import static redxax.oxy.remotely.util.DevUtil.devPrint;
 
@@ -36,21 +37,30 @@ public class ServerIconManager {
     }
 
     public BufferedImage getIcon(Instance instance) {
-        try {
-            BufferedImage cachedIcon = loadFromCache(instance);
-            if (cachedIcon != null) {
-                return cachedIcon;
-            }
-
-            BufferedImage instanceIcon = loadFromInstance(instance);
-            if (instanceIcon != null) {
-                return instanceIcon;
-            }
-        } catch (Exception e) {
-            devPrint("Failed to load icon: " + e.getMessage());
-        }
-
         return getDefaultIcon(instance);
+    }
+
+    public void loadIconAsync(Instance instance, Consumer<BufferedImage> onLoaded) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                BufferedImage cachedIcon = loadFromCache(instance);
+                if (cachedIcon != null) {
+                    ScreenManager.getInstance().execute(() -> onLoaded.accept(cachedIcon));
+                    return;
+                }
+
+                BufferedImage instanceIcon = loadFromInstance(instance);
+                if (instanceIcon != null) {
+                    ScreenManager.getInstance().execute(() -> onLoaded.accept(instanceIcon));
+                    return;
+                }
+
+                ScreenManager.getInstance().execute(() -> onLoaded.accept(getDefaultIcon(instance)));
+            } catch (Exception e) {
+                devPrint("Failed to load icon: " + e.getMessage());
+                ScreenManager.getInstance().execute(() -> onLoaded.accept(getDefaultIcon(instance)));
+            }
+        });
     }
 
     public void loadRemoteIconAsync(Instance instance, Runnable onComplete) {
