@@ -74,4 +74,29 @@ public class RemotelyConfigManager extends RebaseConfigManager {
         properties.setProperty("remotely.order." + context, String.join(",", order));
         save();
     }
+
+    public List<String> getHiddenRestudioServers() {
+        String val = properties.getProperty("remotely.hidden.restudio", "");
+        if (val.isEmpty()) return new ArrayList<>();
+        return new ArrayList<>(Arrays.asList(val.split(",")));
+    }
+
+    public void setHiddenRestudioServers(List<String> serverIds) {
+        properties.setProperty("remotely.hidden.restudio", String.join(",", serverIds));
+        save();
+    }
+
+    public void hideRestudioServer(String serverId) {
+        List<String> hidden = getHiddenRestudioServers();
+        if (!hidden.contains(serverId)) {
+            hidden.add(serverId);
+            setHiddenRestudioServers(hidden);
+        }
+    }
+
+    public void unhideRestudioServer(String serverId) {
+        List<String> hidden = getHiddenRestudioServers();
+        hidden.remove(serverId);
+        setHiddenRestudioServers(hidden);
+    }
 }
