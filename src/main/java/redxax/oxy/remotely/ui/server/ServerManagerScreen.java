@@ -899,10 +899,10 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private void openModpackInstallation() {
         Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
         if ("RESTUDIO_MARKER".equals(data)) {
-            client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, null));
+            client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, (restudio.rebase.hosting.RemoteHost) null, true));
         } else {
             RemoteHost currentHost = (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null && data instanceof RemoteHost) ? (RemoteHost) data : null;
-            client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, currentHost));
+            client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, currentHost, false));
         }
     }
 

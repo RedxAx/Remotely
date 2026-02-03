@@ -32,8 +32,7 @@ public class ServerInfoWidget extends IconButton {
 
     private void loadInfo() {
         if (instance != null && instance.getBackend() != null) {
-            instance.getBackend().getFeature(ServerInfoFeature.class).ifPresentOrElse(
-                feature -> feature.getConnectionInfo().thenAccept(info -> ScreenManager.getInstance().execute(() -> {
+            instance.getBackend().getFeature(ServerInfoFeature.class).ifPresentOrElse(feature -> feature.getConnectionInfo().thenAccept(info -> ScreenManager.getInstance().execute(() -> {
                     address = info.getDisplayString();
                     setOnClick(() -> {
                         try {
