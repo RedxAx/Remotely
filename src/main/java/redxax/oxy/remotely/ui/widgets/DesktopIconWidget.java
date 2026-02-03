@@ -15,7 +15,7 @@ import static redxax.oxy.remotely.RemotelyClient.tr;
 
 public class DesktopIconWidget extends AnimatedWidget {
     private final Instance serverInfo;
-    private final BufferedImage icon;
+    private BufferedImage icon;
     private final boolean isCreateButton;
 
     private BiConsumer<DesktopIconWidget, Integer> onClick;
@@ -103,5 +103,9 @@ public class DesktopIconWidget extends AnimatedWidget {
 
     public boolean isCreateButton() {
         return isCreateButton;
+    }
+
+    public void setIcon(BufferedImage icon) {
+        this.icon = icon;
     }
 }
