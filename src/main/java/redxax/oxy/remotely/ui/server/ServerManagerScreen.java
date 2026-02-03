@@ -588,8 +588,10 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             .size(260, 140)
             .onClose(() -> addServerPopup.hide());
 
-        AnimatedButton createBtn = new AnimatedButton.Builder()
-            .label(("Server Creation"))
+        IconButton createBtn = new IconButton.Builder()
+            .label(("Create And Customize An Empty Server"))
+            .imagePath("create.png")
+            .accentType(ThemeManager.getAccent("nice"))
             .onClick(() -> {
                 Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
                 if ("RESTUDIO_MARKER".equals(data)) {
@@ -602,25 +604,29 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             })
             .build();
 
-        AnimatedButton importBtn = new AnimatedButton.Builder()
-            .label(("Server Import"))
-            .onClick(() -> {
-                addServerPopup.hide();
-                openImportFileExplorer();
-            })
-            .build();
-
-        AnimatedButton modpackBtn = new AnimatedButton.Builder()
-            .label(("Modpack Installation"))
+        IconButton modpackBtn = new IconButton.Builder()
+            .label(("Browse For Online Modpacks"))
+            .imagePath("download.png")
+            .accentType(ThemeManager.getAccent("calm"))
+            .enableGradient(true)
             .onClick(() -> {
                 addServerPopup.hide();
                 openModpackInstallation();
             })
             .build();
 
+        IconButton importBtn = new IconButton.Builder()
+            .label(("Import Existing Server"))
+            .imagePath("explorer.png")
+            .onClick(() -> {
+                addServerPopup.hide();
+                openImportFileExplorer();
+            })
+            .build();
+
         builder.addRow("", true, 27, createBtn);
-        builder.addRow("", true, 27, importBtn);
         builder.addRow("", true, 27, modpackBtn);
+        builder.addRow("", true, 27, importBtn);
 
         addServerPopup = builder.build();
         addServerPopup.hide();
