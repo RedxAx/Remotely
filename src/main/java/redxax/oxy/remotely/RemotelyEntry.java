@@ -5,6 +5,7 @@ import redxax.oxy.remotely.ui.server.ServerManagerScreen;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.ui.screens.auth.ReStudioLoginScreen;
 import restudio.rescreen.ReStudioEntry;
+import restudio.rescreen.config.Config;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Identifier;
 
@@ -32,10 +33,26 @@ public class RemotelyEntry extends ReStudioEntry {
 
     @Override
     protected void setupScreens() {
+        ScreenManager screenManager = ScreenManager.getInstance();
+        ServerManagerScreen superScreen = new ServerManagerScreen(null, RemotelyClient.INSTANCE);
+
+        if (Config.desktopMode && !ReStudio.getInstance().isAuthenticated()) {
+            screenManager.clearDesktopWindows();
+            screenManager.setScreen(new ReStudioLoginScreen(null, () -> {
+                screenManager.setDesktopSuperScreen(superScreen);
+                screenManager.setScreen(superScreen);
+            }));
+            return;
+        } else if (Config.desktopMode) {
+            screenManager.setDesktopSuperScreen(superScreen);
+            screenManager.setScreen(superScreen);
+            return;
+        }
+
         if (ReStudio.getInstance().isAuthenticated()) {
-            ScreenManager.getInstance().setScreen(new ServerManagerScreen(null, RemotelyClient.INSTANCE));
+            screenManager.setScreen(superScreen);
         } else {
-            ScreenManager.getInstance().setScreen(new ReStudioLoginScreen(ScreenManager.currentScreen, () -> ScreenManager.getInstance().setScreen(new ServerManagerScreen(null, RemotelyClient.INSTANCE))));
+            screenManager.setScreen(new ReStudioLoginScreen(ScreenManager.currentScreen, () -> screenManager.setScreen(superScreen)));
         }
     }
 }
