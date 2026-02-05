@@ -311,16 +311,12 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         for (int i = 0; i < instances.size(); i++) {
             Instance server = instances.get(i);
             DesktopIconWidget widget = serverWidgets.get(i);
-            iconManager.loadIconAsync(server, icon -> {
-                widget.setIcon(icon);
-            });
+            iconManager.loadIconAsync(server, widget::setIcon);
 
             BackendConfig backendConfig = server.getBackendConfig();
             if (backendConfig != null && !"LOCAL".equalsIgnoreCase(backendConfig.type)) {
                 iconManager.loadRemoteIconAsync(server, () -> {
-                    iconManager.loadIconAsync(server, icon -> {
-                        widget.setIcon(icon);
-                    });
+                    iconManager.loadIconAsync(server, widget::setIcon);
                 });
             }
         }

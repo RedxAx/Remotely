@@ -15,6 +15,8 @@ import restudio.rebase.api.unified.internal.StandardOutputStateParser;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.ExecutionProvider;
 import restudio.rebase.backend.feature.DataStreamFeature;
+import restudio.rebase.backend.feature.ResourceUsageFeature;
+import restudio.rebase.backend.feature.ServerInfoFeature;
 import restudio.rebase.backend.impl.LocalBackend;
 import restudio.rebase.backend.impl.ReStudioBackend;
 import restudio.rebase.hosting.RemoteHost;
@@ -38,18 +40,24 @@ import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
+import restudio.rescreen.ui.rescreen.StatusBarBuilder;
+import restudio.rescreen.ui.rescreen.TabStatusContext;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Notification;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -63,15 +71,28 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     private final RemotelyClient remotelyClient;
     private final Object parent;
     private IconButton startIconButton;
-    private ServerInfoWidget serverInfoWidget;
     private Instance sidecarInstance;
 
     private final Map<TabContext, TerminalSession> contextInfos = new HashMap<>();
+    private ScheduledExecutorService statusScheduler;
 
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
         super(parent instanceof Screen ? (Screen) parent : null, null);
         this.parent = parent;
         this.remotelyClient = client;
+    }
+
+    @Override
+    public void init() {
+        if (statusScheduler != null) {
+            statusScheduler.shutdownNow();
+            statusScheduler = null;
+        }
+        statusContexts.clear();
+        super.init();
+        statusBar().size(14).visible(false).build();
+        applyStatusBarForActiveTab();
+        startStatusScheduler();
     }
 
     @Override
@@ -88,8 +109,6 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         header().addRight("close.png", this::closeScreen, "Close");
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
-
-        serverInfoWidget = new ServerInfoWidget(null);
 
         startIconButton = new IconButton.Builder()
             .imagePath("start.png")
@@ -123,7 +142,6 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                 info.getResourceContainer().showUpdateAllDialog();
             }
         }, "Update All Resources");
-        header().addLeft(serverInfoWidget);
 
         header().build();
     }
@@ -161,10 +179,11 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             name = "Terminal " + count;
         }
 
-        Container main = createContainer("root", 5, 60, width - 10, height - 65);
+        int statusPad = inst != null ? 15 : 0;
+        Container main = createContainer("root", 5, 60, width - 10, height - 65 - statusPad);
         main.layout(new ManagedLayout()).backgroundDrawing(false).disableScissorRegion(false).verticalSpacing(14).padding(0).setRelativeScissor(-1, -1, -1, -3);
 
-        TabContext ctx = new TabContext(inst, tabInfo);
+        TabContext ctx = inst != null ? new ServerTabStatusContext(inst, tabInfo) : new TabContext(null, tabInfo);
         ctx.mainContainer = main;
 
         TerminalSession info = remotelyClient.getSessionManager().getSession(tabInfo);
@@ -180,7 +199,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
             TerminalWidget terminal;
             if (inst != null) {
-                terminal = ServerTerminal.getOrCreate(inst, exec, 5, 60, width - 10, height - 66);
+                terminal = ServerTerminal.getOrCreate(inst, exec, 5, 60, width - 10, height - 66 - statusPad);
             } else {
                 terminal = TerminalWidget.getOrCreate(null, exec, localId, 5, 60, width - 10, height - 66);
             }
@@ -204,10 +223,10 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
             }
 
             if (inst != null && inst.isServer()) {
-                ResourceContainer res = new ResourceContainer(this, inst, 5, 60, width - 10, height - 66);
+                ResourceContainer res = new ResourceContainer(this, inst, 5, 60, width - 10, height - 66 - statusPad);
                 info.setResourceContainer(res);
 
-                PlayersContainer players = new PlayersContainer(this, inst, terminal, 5, 60, width - 10, height - 66);
+                PlayersContainer players = new PlayersContainer(this, inst, terminal, 5, 60, width - 10, height - 66 - statusPad);
                 info.setPlayersContainer(players);
             }
         } else {
@@ -234,6 +253,9 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         contextInfos.put(ctx, info);
         TabsManager.Tab tab = tabs().addTab(name, main);
         registerTab(tab, ctx);
+        if (ctx instanceof TabStatusContext statusContext) {
+            registerStatusContext(tab, statusContext);
+        }
 
         if (setActive) {
             tabs().setActiveTab(tab.getContainer());
@@ -289,12 +311,6 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         boolean isInstance = !info.isLocalTerminalMode();
         header().setButtonVisible("explorer.png", isInstance);
 
-        if (serverInfoWidget != null) {
-            serverInfoWidget.setInstance(context.instance);
-            boolean isTerminal = activeView != null && "Terminal".equals(activeView.hint());
-            serverInfoWidget.setVisible(isTerminal);
-        }
-
         if (startIconButton != null) {
             startIconButton.setVisible(isInstance);
             if (isInstance) {
@@ -340,13 +356,11 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
                     info.getResourceContainer().resetLoadingState();
                 }
             }
-            serverInfoWidget.setVisible(true);
         } else {
             header().setButtonVisible("resources.png", false);
             header().setButtonVisible("reverse.png", false);
             header().setButtonVisible("closeReverse.png", false);
             header().setButtonVisible("download.png", false);
-            serverInfoWidget.setVisible(false);
         }
     }
 
@@ -364,6 +378,7 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         }
 
         super.onTabSelected(tab);
+        applyStatusBarForActiveTab();
 
         TabContext ctx = getActiveContext();
         if (ctx == null) return;
@@ -687,6 +702,39 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     }
 
     @Override
+    public void updatePositions() {
+        super.updatePositions();
+
+        for (TabContext c : tabContexts.values()) {
+            if (c == null || c.mainContainer == null) continue;
+            int pad = c.instance != null ? 15 : 0;
+            c.mainContainer.setWidth(width - 10);
+            c.mainContainer.setHeight(height - 65 - pad);
+            if (!getGroupManager().isManaged(c.mainContainer)) {
+                c.mainContainer.updateWidgetPositions();
+            }
+        }
+
+        TabContext ctx = getActiveContext();
+        if (ctx == null) return;
+
+        int pad = ctx.instance != null ? 15 : 0;
+        if (ctx.selectedViewIndex < ctx.views.size()) {
+            ViewEntry view = ctx.views.get(ctx.selectedViewIndex);
+            int newW = width - 10;
+            int newH = height - 65 - pad;
+            if (view.widget() instanceof Container c) {
+                c.setWidth(newW);
+                c.setHeight(newH);
+                c.updateWidgetPositions();
+            } else if (view.widget() instanceof AnimatedWidget w) {
+                w.setWidth(newW);
+                w.setHeight(newH);
+            }
+        }
+    }
+
+    @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_R) {
             TerminalSession info = getCurrentInfo();
@@ -719,6 +767,287 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     private TerminalSession getCurrentInfo() {
         TabContext ctx = getActiveContext();
         return ctx == null ? null : contextInfos.get(ctx);
+    }
+
+    private void startStatusScheduler() {
+        if (statusScheduler != null) return;
+        statusScheduler = new ScheduledThreadPoolExecutor(1, r -> {
+            Thread t = new Thread(r, "Remotely-StatusBar-Resources");
+            t.setDaemon(true);
+            return t;
+        });
+        statusScheduler.scheduleAtFixedRate(() -> ScreenManager.getInstance().execute(this::refreshActiveStatusBarResources), 0, 1, TimeUnit.SECONDS);
+    }
+
+    private void applyStatusBarForActiveTab() {
+        TabContext ctx = getActiveContext();
+        boolean show = ctx instanceof ServerTabStatusContext;
+
+        if (statusBarBuilder != null) {
+            statusBarBuilder.visible(show);
+            if (!show) {
+                statusBarBuilder.clear();
+                statusBarBuilder.build();
+            }
+        }
+
+        if (show) {
+            updateActiveStatusBar();
+        }
+    }
+
+    private void refreshActiveStatusBarResources() {
+        TabContext ctx = getActiveContext();
+        if (!(ctx instanceof ServerTabStatusContext statusCtx)) return;
+
+        long nowMs = System.currentTimeMillis();
+        statusCtx.refreshConnectionInfo(nowMs);
+        if (!statusCtx.tryStartRequest(nowMs)) return;
+
+        if (ctx.instance == null || ctx.instance.getBackend() == null) {
+            statusCtx.finishRequest();
+            statusCtx.update(null);
+            return;
+        }
+
+        ctx.instance.getBackend().getFeature(ResourceUsageFeature.class).ifPresentOrElse(feature -> {
+            String backendType = ctx.instance.getBackendConfig().type;
+            String extra = "";
+            if (ctx.instance.getBackend() instanceof ReStudioBackend reStudioBackend) {
+                extra = " " + reStudioBackend.getResourcesDebugSummary();
+            }
+            DebugManager.getInstance().log(ctx.instance.getInstanceId(), "ResourcePoll", "Start " + backendType + extra);
+            feature.getResources().thenAccept(usage -> ScreenManager.getInstance().execute(() -> {
+                TabContext active = getActiveContext();
+                if (active == ctx) {
+                    statusCtx.update(usage);
+                }
+                statusCtx.finishRequest();
+                if (usage != null) {
+                    DebugManager.getInstance().log(ctx.instance.getInstanceId(), "ResourcePoll",
+                            "Done Mem=" + usage.memoryBytes() + " Cpu=" + usage.cpuPercent() + " Uptime=" + usage.uptimeMs());
+                } else {
+                    DebugManager.getInstance().log(ctx.instance.getInstanceId(), "ResourcePoll", "Done Null");
+                }
+            })).exceptionally(e -> {
+                ScreenManager.getInstance().execute(() -> {
+                    statusCtx.finishRequest();
+                    statusCtx.update(null);
+                    DebugManager.getInstance().log(ctx.instance.getInstanceId(), "ResourcePoll", "Error " + e.getClass().getSimpleName());
+                });
+                return null;
+            });
+        }, () -> {
+            statusCtx.finishRequest();
+            statusCtx.update(null);
+            DebugManager.getInstance().log(ctx.instance.getInstanceId(), "ResourcePoll", "No Feature");
+        });
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes <= 0) return "-";
+        double b = bytes;
+        String[] units = {"B", "KB", "MB", "GB", "TB"};
+        int idx = 0;
+        while (b >= 1024 && idx < units.length - 1) {
+            b /= 1024;
+            idx++;
+        }
+        if (idx <= 1) return String.format(Locale.ROOT, "%.0f%s", b, units[idx]);
+        return String.format(Locale.ROOT, "%.1f%s", b, units[idx]);
+    }
+
+    private static String formatUptime(long uptimeMs) {
+        if (uptimeMs <= 0) return "-";
+        long totalSeconds = uptimeMs / 1000;
+        long days = totalSeconds / 86400;
+        long hours = (totalSeconds % 86400) / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
+
+        if (days > 0) return days + "d " + hours + "h";
+        if (hours > 0) return hours + "h " + minutes + "m";
+        if (minutes > 0) return minutes + "m " + seconds + "s";
+        return seconds + "s";
+    }
+
+    private static final class ServerTabStatusContext extends TabContext implements TabStatusContext {
+        private static final long CONNECTION_REFRESH_MS = 30000;
+        private static final long COPIED_DISPLAY_MS = 2000;
+
+        private IconButton connectionWidget;
+        private IconButton uptimeWidget;
+        private IconButton cpuWidget;
+        private IconButton ramWidget;
+        private String connectionInfo = "Loading...";
+        private long copiedUntilMs;
+        private long copyActionToken;
+        private boolean connectionRequestInFlight;
+        private long lastConnectionRequestAtMs;
+        private boolean requestInFlight;
+        private long lastRequestAtMs;
+
+        private ServerTabStatusContext(Instance instance, Object id) {
+            super(instance, id);
+        }
+
+        @Override
+        public String getContextId() {
+            if (instance != null && instance.getInstanceId() != null) return instance.getInstanceId();
+            return id != null ? id.toString() : "";
+        }
+
+        @Override
+        public void setupStatusBar(StatusBarBuilder builder) {
+            if (connectionWidget == null) {
+                connectionWidget = new IconButton.Builder()
+                    .imagePath("clipboard")
+                    .label(connectionInfo)
+                    .hint("Click To Copy")
+                    .autoWidthOnTextChange(true)
+                    .size(0, 14)
+                    .iconSize(12).iconPadding(2)
+                    .transparent(true).animateElevation(false).entranceAnimation(false).elevateOnFocused(false)
+                    .build();
+            }
+            updateConnectionWidget();
+
+            if (uptimeWidget == null) {
+                uptimeWidget = new IconButton.Builder()
+                        .label("Uptime: -")
+                        .autoWidthOnTextChange(true).transparent(true).animateElevation(false).entranceAnimation(false)
+                        .build();
+            }
+            if (cpuWidget == null) {
+                cpuWidget = new IconButton.Builder()
+                        .label("Cpu: -")
+                        .autoWidthOnTextChange(true).transparent(true).animateElevation(false).entranceAnimation(false)
+                        .build();
+            }
+            if (ramWidget == null) {
+                ramWidget = new IconButton.Builder()
+                        .label("Ram: -")
+                        .autoWidthOnTextChange(true).transparent(true).animateElevation(false).entranceAnimation(false)
+                        .build();
+            }
+
+            builder.addLeft(connectionWidget);
+            builder.addRight(uptimeWidget);
+            builder.addRight(cpuWidget);
+            builder.addRight(ramWidget);
+        }
+
+        private void refreshConnectionInfo(long nowMs) {
+            if (connectionRequestInFlight) {
+                if (nowMs - lastConnectionRequestAtMs > 5000) {
+                    connectionRequestInFlight = false;
+                } else {
+                    return;
+                }
+            }
+            if (nowMs - lastConnectionRequestAtMs < CONNECTION_REFRESH_MS) return;
+            lastConnectionRequestAtMs = nowMs;
+            connectionRequestInFlight = true;
+
+            if (instance == null || instance.getBackend() == null) {
+                connectionRequestInFlight = false;
+                updateConnectionInfo("Unknown");
+                return;
+            }
+
+            instance.getBackend().getFeature(ServerInfoFeature.class).ifPresentOrElse(feature -> feature.getConnectionInfo()
+                    .thenAccept(info -> ScreenManager.getInstance().execute(() -> {
+                        connectionRequestInFlight = false;
+                        updateConnectionInfo(info == null ? "Unknown" : info.getDisplayString());
+                    }))
+                    .exceptionally(e -> {
+                        ScreenManager.getInstance().execute(() -> {
+                            connectionRequestInFlight = false;
+                            updateConnectionInfo("Unknown");
+                        });
+                        return null;
+                    }),
+                () -> ScreenManager.getInstance().execute(() -> {
+                    connectionRequestInFlight = false;
+                    updateConnectionInfo("Unknown");
+                })
+            );
+        }
+
+        private void updateConnectionInfo(String value) {
+            connectionInfo = value == null || value.isBlank() ? "Unknown" : value;
+            updateConnectionWidget();
+        }
+
+        private void updateConnectionWidget() {
+            if (connectionWidget == null) return;
+            long nowMs = System.currentTimeMillis();
+            boolean showCopied = nowMs < copiedUntilMs;
+            connectionWidget.setMessage(showCopied ? "Copied" : connectionInfo);
+            connectionWidget.setIcon(showCopied ? "checkmark.png" : "clipboard.png");
+            if ("Unknown".equals(connectionInfo) || "Loading...".equals(connectionInfo)) {
+                connectionWidget.setOnClick(null);
+            } else {
+                connectionWidget.setOnClick(() -> {
+                    try {
+                        FileUtils.setClipboard(connectionInfo);
+                        copiedUntilMs = System.currentTimeMillis() + COPIED_DISPLAY_MS;
+                        long token = ++copyActionToken;
+                        updateConnectionWidget();
+                        CompletableFuture.runAsync(
+                            () -> ScreenManager.getInstance().execute(() -> {
+                                if (copyActionToken != token) return;
+                                copiedUntilMs = 0;
+                                updateConnectionWidget();
+                            }),
+                            CompletableFuture.delayedExecutor(COPIED_DISPLAY_MS, TimeUnit.MILLISECONDS)
+                        );
+                        ScreenManager.getInstance().execute(() -> new Notification.Builder()
+                            .message("IP Copied!")
+                            .autoSlideOut(true)
+                            .dismissAfterSeconds(1)
+                            .type(Notification.Type.SUCCESS)
+                        );
+                    } catch (Exception ignored) {}
+                });
+            }
+        }
+
+        private boolean tryStartRequest(long nowMs) {
+            if (requestInFlight) {
+                if (nowMs - lastRequestAtMs > 5000) {
+                    requestInFlight = false;
+                } else {
+                    return false;
+                }
+            }
+            if (nowMs - lastRequestAtMs < 1000) return false;
+            requestInFlight = true;
+            lastRequestAtMs = nowMs;
+            return true;
+        }
+
+        private void finishRequest() {
+            requestInFlight = false;
+        }
+
+        private void update(ResourceUsageFeature.ResourceUsage usage) {
+            if (usage == null) {
+                uptimeWidget.setMessage("");
+                cpuWidget.setMessage("");
+                ramWidget.setMessage("");
+                return;
+            }
+
+            uptimeWidget.setMessage("Uptime: " + formatUptime(usage.uptimeMs()));
+            cpuWidget.setMessage("CPU: " + String.format(Locale.ROOT, "%.0f%%", usage.cpuPercent()));
+
+            if (usage.memoryLimitBytes() > 0) {
+                ramWidget.setMessage("RAM: " + formatBytes(usage.memoryBytes()) + "/" + formatBytes(usage.memoryLimitBytes()));
+            } else {
+                ramWidget.setMessage("RAM: " + formatBytes(usage.memoryBytes()));
+            }
+        }
     }
 
     @Override
@@ -758,6 +1087,10 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     @Override
     public void removed() {
         super.removed();
+        if (statusScheduler != null) {
+            statusScheduler.shutdownNow();
+            statusScheduler = null;
+        }
         if (instance != null) {
             instance.removeStateListener(stateListener);
         }
