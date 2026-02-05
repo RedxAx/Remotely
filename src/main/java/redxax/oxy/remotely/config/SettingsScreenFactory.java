@@ -6,6 +6,7 @@ import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.SettingsScreen;
 import restudio.rescreen.ui.settings.controllers.DevelopmentSettingsController;
+import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -52,6 +53,19 @@ public class SettingsScreenFactory {
 
         return new SettingsScreen(parent, "Remotely Settings", settingsByTab, () -> {
             if (configManager != null) configManager.save();
-        }, null);
+        }, null) {
+            public String getDesktopAppId() {
+                return "global-settings";
+            }
+
+            public String getDesktopAppTitle() {
+                return "Settings";
+            }
+
+            @Override
+            public DesktopWindowBehavior getDesktopWindowBehavior() {
+                return DesktopWindowBehaviorProvider.DesktopWindowBehavior.SINGLETON;
+            }
+        };
     }
 }

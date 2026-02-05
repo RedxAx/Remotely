@@ -29,6 +29,7 @@ import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.msmp.MSMPManager;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
+import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.Main;
@@ -39,6 +40,7 @@ import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.StatusBarBuilder;
 import restudio.rescreen.ui.rescreen.TabStatusContext;
@@ -65,11 +67,13 @@ import java.util.regex.Pattern;
 import org.lwjgl.glfw.GLFW;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
+import static restudio.rescreen.config.Config.desktopMode;
 
-public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.InstanceDetailsScreen implements IDebugInfoProvider {
+public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebugInfoProvider, DesktopWindowBehaviorProvider {
 
     private final RemotelyClient remotelyClient;
     private final Object parent;
+    private final Instance initialInstanceToOpen;
     private IconButton startIconButton;
     private Instance sidecarInstance;
 
@@ -77,9 +81,14 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
     private ScheduledExecutorService statusScheduler;
 
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
+        this(parent, client, null);
+    }
+
+    public ServerDetailsScreen(Object parent, RemotelyClient client, Instance initialInstanceToOpen) {
         super(parent instanceof Screen ? (Screen) parent : null, null);
         this.parent = parent;
         this.remotelyClient = client;
+        this.initialInstanceToOpen = initialInstanceToOpen;
     }
 
     @Override
@@ -93,6 +102,33 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
         statusBar().size(14).visible(false).build();
         applyStatusBarForActiveTab();
         startStatusScheduler();
+        if (initialInstanceToOpen != null) {
+            addInstanceTab(initialInstanceToOpen);
+        }
+    }
+
+    public String getDesktopAppId() {
+        return "server-details";
+    }
+
+    public String getDesktopAppTitle() {
+        return "Terminal";
+    }
+
+    @Override
+    public DesktopWindowBehavior getDesktopWindowBehavior() {
+        return DesktopWindowBehavior.MERGE_INTO_EXISTING;
+    }
+
+    @Override
+    public boolean mergeIntoExistingDesktopWindow(Screen existingScreen) {
+        if (!(existingScreen instanceof ServerDetailsScreen existing)) {
+            return false;
+        }
+        if (initialInstanceToOpen != null) {
+            existing.addInstanceTab(initialInstanceToOpen);
+        }
+        return true;
     }
 
     @Override
@@ -106,7 +142,9 @@ public class ServerDetailsScreen extends restudio.rebase.ui.screens.instance.Ins
 
     @Override
     protected void setupHeader() {
-        header().addRight("close.png", this::closeScreen, "Close");
+        if (!desktopMode) {
+            header().addRight("close.png", this::closeScreen, "Close");
+        }
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
 

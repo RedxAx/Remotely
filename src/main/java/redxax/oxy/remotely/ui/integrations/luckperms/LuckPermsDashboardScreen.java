@@ -21,6 +21,8 @@ import java.util.regex.Matcher;
 import java.util.concurrent.CompletableFuture;
 import java.util.*;
 import java.awt.image.BufferedImage;
+
+import static restudio.rescreen.config.Config.desktopMode;
 import static restudio.rescreen.config.Config.loading;
 
 public class LuckPermsDashboardScreen extends ReScreen {
@@ -47,7 +49,10 @@ public class LuckPermsDashboardScreen extends ReScreen {
     public void init() {
         super.init();
         header().reset();
-        header().addRight("close.png", this::close, "").addRight("reload.png", this::refreshData, "Force Refresh Data").setSearchMode(new SearchMode(true), true).build();
+        if (!desktopMode) {
+            header().addRight("close.png", this::close, "");
+        }
+        header().addRight("reload.png", this::refreshData, "Force Refresh Data").setSearchMode(new SearchMode(true), true).build();
         sidebar = createContainer("lp_sidebar", 5, 35, 160, height - 40);
         sidebar.layout(new ManagedLayout()).verticalSpacing(4).padding(4);
         contentArea = createContainer("lp_content", 170, 35, width - 175, height - 40);
