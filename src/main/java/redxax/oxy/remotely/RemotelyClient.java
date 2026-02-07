@@ -111,6 +111,18 @@ public class RemotelyClient {
     public void openFileExplorer(Object parent, Path path) {
         Screen reScreenParent = parent instanceof Screen ? (Screen) parent : null;
         host.setScreen(new FileExplorerScreen(reScreenParent, null, path, Path.of(remotelyDir.toString(), "data"), false) {
+            public String getDesktopAppId() {
+                return "file-explorer";
+            }
+
+            public String getDesktopAppTitle() {
+                return "File Explorer";
+            }
+
+            public String getDesktopAppIconPath() {
+                return "explorer.png";
+            }
+
             @Override
             public void close() {
                 host.openParentScreen(this, parent);

@@ -127,6 +127,18 @@ public class GuiDesignerScreen extends ReScreen {
         ensureGuiDefaults();
     }
 
+    public String getDesktopAppId() {
+        return "gui-designer";
+    }
+
+    public String getDesktopAppTitle() {
+        return "GUI Designer";
+    }
+
+    public String getDesktopAppIconPath() {
+        return "change.png";
+    }
+
     @Override
     public void init() {
         super.init();

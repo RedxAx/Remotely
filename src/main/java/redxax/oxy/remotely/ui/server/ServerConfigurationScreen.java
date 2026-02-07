@@ -102,6 +102,18 @@ public class ServerConfigurationScreen extends ReScreen {
         }
     }
 
+    public String getDesktopAppId() {
+        return "server-configuration";
+    }
+
+    public String getDesktopAppTitle() {
+        return "Server Configuration";
+    }
+
+    public String getDesktopAppIconPath() {
+        return "change.png";
+    }
+
     @Override
     public void init() {
         super.init();

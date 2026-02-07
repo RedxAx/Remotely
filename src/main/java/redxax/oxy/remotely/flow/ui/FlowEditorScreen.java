@@ -185,6 +185,18 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         return serverId;
     }
 
+    public String getDesktopAppId() {
+        return "flow-editor";
+    }
+
+    public String getDesktopAppTitle() {
+        return "Flow Editor";
+    }
+
+    public String getDesktopAppIconPath() {
+        return "change.png";
+    }
+
     public void refreshNodeRegistry() {
         for (NodeWidget widget : widgetCache.values()) {
             removeWorldWidget(widget);
