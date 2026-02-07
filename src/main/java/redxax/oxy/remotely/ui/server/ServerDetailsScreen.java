@@ -115,6 +115,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         return "Terminal";
     }
 
+    public String getDesktopAppIconPath() {
+        return "terminal.png";
+    }
+
     @Override
     public DesktopWindowBehavior getDesktopWindowBehavior() {
         return DesktopWindowBehavior.MERGE_INTO_EXISTING;
@@ -543,12 +547,21 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         InstanceApi api = InstanceApi.of(context.instance);
         if (context.instance.getState() == InstanceState.RUNNING || context.instance.getState() == InstanceState.STARTING) {
+            if (info.getTerminalWidget() instanceof ServerTerminal st) {
+                st.notifyStopRequested();
+            }
             api.console().stopServer();
             String t = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
             if ("LOCAL".equalsIgnoreCase(t)) {
                 info.getTerminalWidget().stopProcess();
                 context.instance.setState(InstanceState.STOPPED);
                 TerminalWidget.shutdown(context.instance.getInstanceId());
+            }
+            if (!"LOCAL".equalsIgnoreCase(t)) {
+                if (info.getTerminalWidget() != null) {
+                    info.getTerminalWidget().stopProcess();
+                }
+                context.instance.setState(InstanceState.STOPPED);
             }
         } else {
             api.health().check().thenAccept(status -> ScreenManager.getInstance().execute(() -> {
@@ -650,6 +663,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         InstanceApi api = InstanceApi.of(context.instance);
         context.instance.setState(InstanceState.STARTING);
+        if (info.getTerminalWidget() instanceof ServerTerminal st) {
+            st.notifyStartRequested();
+        }
         api.console().startServer().thenAccept(command -> ScreenManager.getInstance().execute(() -> {
             if (command != null && !command.isEmpty()) info.getTerminalWidget().executeCommand(command);
             else {
@@ -715,7 +731,19 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private void exploreInstanceFiles() {
         Instance target = ensureSidecar();
         if (target == null) return;
-        client.setScreen((new FileExplorerScreen(this, target, Paths.get(target.getPath()), Path.of(remotelyDir.toString(), "data"), false)));
+        client.setScreen(new FileExplorerScreen(this, target, Paths.get(target.getPath()), Path.of(remotelyDir.toString(), "data"), false) {
+            public String getDesktopAppId() {
+                return "file-explorer";
+            }
+
+            public String getDesktopAppTitle() {
+                return "File Explorer";
+            }
+
+            public String getDesktopAppIconPath() {
+                return "explorer.png";
+            }
+        });
     }
 
     public void openInstanceSettings() {

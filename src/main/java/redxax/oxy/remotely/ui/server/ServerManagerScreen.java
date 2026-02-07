@@ -30,6 +30,7 @@ import restudio.rescreen.Main;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.desktop.DesktopTaskbarHelper;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.TabsManager;
@@ -62,6 +63,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private AnimatedButton remoteHostDeleteButton;
     private final Object parent;
     private IconButton userButton;
+    private DesktopTaskbarHelper taskbarHelper;
     int bx1 = 0, by1 = 0, bx2 = 0, by2 = 0;
 
     private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
@@ -74,6 +76,18 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         this.parent = parent;
         this.remotelyClient = remotelyClient;
         this.iconManager = new ServerIconManager(remotelyDir);
+    }
+
+    public String getDesktopAppId() {
+        return "server-manager";
+    }
+
+    public String getDesktopAppTitle() {
+        return "Server Manager";
+    }
+
+    public String getDesktopAppIconPath() {
+        return "remotely.png";
     }
 
     @Override
@@ -120,12 +134,46 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             }
         }));
 
+        IconButton terminalButton = new IconButton.Builder()
+            .imagePath("terminal.png")
+            .hint("Terminal")
+            .onClick(() -> remotelyClient.openMultiTerminal(this))
+            .size(18, 18)
+            .autoWidthOnTextChange(true)
+            .build();
+
+        IconButton fileExplorerButton = new IconButton.Builder()
+            .imagePath("explorer.png")
+            .hint("File Explorer")
+            .onClick(this::openFileExplorer)
+            .size(18, 18)
+            .autoWidthOnTextChange(true)
+            .build();
+
+        IconButton settingsButton = new IconButton.Builder()
+            .imagePath("remotely.png")
+            .hint("Settings")
+            .onClick(() -> client.setScreen(SettingsScreenFactory.createGlobalSettingsScreen(this, (RemotelyConfigManager) Rebase.get().getConfigManager())))
+            .size(18, 18)
+            .autoWidthOnTextChange(true)
+            .build();
+
         header().position(HeaderBuilder.Position.BOTTOM).size(taskbarHeight)
-            .addLeft("terminal.png", () -> remotelyClient.openMultiTerminal(this), "Terminal")
-            .addLeft("explorer.png", this::openFileExplorer, "File Explorer")
-            .addLeft("remotely.png", () -> client.setScreen(SettingsScreenFactory.createGlobalSettingsScreen( this,(RemotelyConfigManager) Rebase.get().getConfigManager())), "Settings")
+            .addLeft(terminalButton)
+            .addLeft(fileExplorerButton)
+            .addLeft(settingsButton)
             .addLeft(userButton)
             .build();
+
+        if (restudio.rescreen.config.Config.desktopMode) {
+            taskbarHelper = new DesktopTaskbarHelper(this, header(), header().leftButtons.size(), () -> width / 2);
+            taskbarHelper.pinApp("server-details", terminalButton, () -> remotelyClient.openMultiTerminal(this), "Terminal");
+            taskbarHelper.pinApp("file-explorer", fileExplorerButton, this::openFileExplorer, "File Explorer");
+            taskbarHelper.pinApp("global-settings", settingsButton, () -> client.setScreen(SettingsScreenFactory.createGlobalSettingsScreen(this, (RemotelyConfigManager) Rebase.get().getConfigManager())), "Settings");
+            taskbarHelper.attach();
+        } else {
+            taskbarHelper = null;
+        }
 
         tabs().builder()
             .position(width / 2, height - taskbarHeight + 5)
@@ -380,8 +428,9 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getAccent("calm"));
 
         ReStudio.getInstance().getApi().getSftpPassword().thenCompose(sftpSecret ->
-            ReStudio.getInstance().getApi().getServers().thenApply(servers -> {
+            ReStudio.getInstance().getApi().getServers().thenCompose(servers -> {
                 restudioInstances.clear();
+                List<java.util.concurrent.CompletableFuture<Void>> futures = new ArrayList<>();
                 for (ServerModels.ClientServerView csv : servers) {
                     Map<String, String> creds = new HashMap<>();
                     creds.put("identifier", csv.identifier);
@@ -389,6 +438,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     creds.put("port", String.valueOf(csv.sftpPort));
                     creds.put("user", csv.sftpUser);
                     creds.put("password", sftpSecret != null ? sftpSecret : "");
+                    creds.put("installing", String.valueOf(csv.isInstalling));
+                    creds.put("suspended", String.valueOf(csv.isSuspended));
 
                     BackendConfig config = new BackendConfig("RESTUDIO", creds);
 
@@ -414,9 +465,34 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     }
 
                     restudioInstances.add(inst);
+
+                    if (!csv.isInstalling && !csv.isSuspended) {
+                        futures.add(ReStudio.getInstance().getApi().getServerResources(csv.identifier).thenAccept(stats -> {
+                            if (stats == null) return;
+                            ScreenManager.getInstance().execute(() -> {
+                                if (inst.getState() == InstanceState.INSTALLING) return;
+                                if (csv.isSuspended || stats.isSuspended) {
+                                    inst.setState(InstanceState.STOPPED);
+                                    creds.put("suspended", "true");
+                                    return;
+                                }
+                                String cs = stats.currentState != null ? stats.currentState.trim().toLowerCase() : "";
+                                if ("running".equals(cs)) {
+                                    inst.setState(InstanceState.RUNNING);
+                                } else if ("starting".equals(cs)) {
+                                    inst.setState(InstanceState.STARTING);
+                                } else if ("offline".equals(cs)) {
+                                    inst.setState(InstanceState.STOPPED);
+                                }
+                            });
+                        }).exceptionally(ex -> null));
+                    }
                 }
 
-                return null;
+                if (futures.isEmpty()) {
+                    return java.util.concurrent.CompletableFuture.completedFuture(null);
+                }
+                return java.util.concurrent.CompletableFuture.allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0]));
             })
         ).whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
             if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getDefaultAccent());
@@ -481,7 +557,19 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
 
                 builder.addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings");
-                builder.addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getInstance(), Path.of(widget.getInstance().getPath()), remotelyDir, false)), "Open Server's Folder");
+                builder.addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getInstance(), Path.of(widget.getInstance().getPath()), remotelyDir, false) {
+                    public String getDesktopAppId() {
+                        return "file-explorer";
+                    }
+
+                    public String getDesktopAppTitle() {
+                        return "File Explorer";
+                    }
+
+                    public String getDesktopAppIconPath() {
+                        return "explorer.png";
+                    }
+                }), "Open Server's Folder");
 
                 if (rh == null) {
                     builder.addHeaderButton("map.png", () -> openWorldScreen(widget.getInstance()), "View World Map");
@@ -572,7 +660,19 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void openFileExplorer() {
-        client.setScreen(new FileExplorerScreen(this, null, remotelyDir, remotelyDir, false));
+        client.setScreen(new FileExplorerScreen(this, null, remotelyDir, remotelyDir, false) {
+            public String getDesktopAppId() {
+                return "file-explorer";
+            }
+
+            public String getDesktopAppTitle() {
+                return "File Explorer";
+            }
+
+            public String getDesktopAppIconPath() {
+                return "explorer.png";
+            }
+        });
     }
 
     public void openWorldScreen(Instance instance) {
@@ -889,7 +989,19 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void openImportFileExplorer() {
-        client.setScreen(new FileExplorerScreen(this, null, remotelyDir, remotelyDir, true));
+        client.setScreen(new FileExplorerScreen(this, null, remotelyDir, remotelyDir, true) {
+            public String getDesktopAppId() {
+                return "file-explorer";
+            }
+
+            public String getDesktopAppTitle() {
+                return "File Explorer";
+            }
+
+            public String getDesktopAppIconPath() {
+                return "explorer.png";
+            }
+        });
     }
 
     private void openModpackInstallation() {
@@ -906,6 +1018,10 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     public void removed() {
         ReStudio.getInstance().removeListener(this);
         remotelyClient.saveTabIndex(tabs().getActiveTabIndex());
+        if (taskbarHelper != null) {
+            taskbarHelper.detach();
+            taskbarHelper = null;
+        }
         super.removed();
     }
 
