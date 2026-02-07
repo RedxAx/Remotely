@@ -45,6 +45,18 @@ public class LuckPermsDashboardScreen extends ReScreen {
         this.service = service;
     }
 
+    public String getDesktopAppId() {
+        return "luckperms-dashboard";
+    }
+
+    public String getDesktopAppTitle() {
+        return "LuckPerms";
+    }
+
+    public String getDesktopAppIconPath() {
+        return "change.png";
+    }
+
     @Override
     public void init() {
         super.init();

@@ -43,6 +43,18 @@ public class FlowManagerScreen extends ReScreen {
         this.parent = parent;
     }
 
+    public String getDesktopAppId() {
+        return "flow-manager";
+    }
+
+    public String getDesktopAppTitle() {
+        return "Flow Manager";
+    }
+
+    public String getDesktopAppIconPath() {
+        return "change.png";
+    }
+
     @Override
     public void init() {
         super.init();

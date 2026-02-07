@@ -62,6 +62,10 @@ public class SettingsScreenFactory {
                 return "Settings";
             }
 
+            public String getDesktopAppIconPath() {
+                return "remotely.png";
+            }
+
             @Override
             public DesktopWindowBehavior getDesktopWindowBehavior() {
                 return DesktopWindowBehaviorProvider.DesktopWindowBehavior.SINGLETON;
