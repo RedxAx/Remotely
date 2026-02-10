@@ -1,7 +1,5 @@
 [versions]
 textile = "1.0.0-beta.17"
-omnicore = "1.0.0-beta.41"
 
 [libraries]
 textile = { group = "dev.deftu", name = "textile", version.ref = "textile" }
-omnicore = { group = "dev.deftu", name = "omnicore", version.ref = "omnicore" }

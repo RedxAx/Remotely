@@ -31,10 +31,3 @@ mandatory=true
 versionRange="*"
 ordering="NONE"
 side="BOTH"
-
-[[dependencies.${mod_id}]]
-modId="omnicore"
-mandatory=true
-versionRange="*"
-ordering="NONE"
-side="BOTH"
