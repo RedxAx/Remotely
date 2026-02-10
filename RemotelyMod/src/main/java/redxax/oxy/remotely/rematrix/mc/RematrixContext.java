@@ -13,6 +13,7 @@ import net.minecraft.client.Minecraft;
 //#if MC >= 1.20.1
 import net.minecraft.client.gui.GuiGraphics;
 //#endif
+import net.minecraft.client.renderer.GameRenderer;
 //#if MC >= 1.21.5
 import net.minecraft.client.renderer.RenderPipelines;
 //#endif
@@ -41,6 +42,9 @@ import net.minecraft.resources.Identifier;
 //$$ import net.minecraft.client.gui.GuiComponent;
 //#endif
 import org.jetbrains.annotations.NotNull;
+import org.joml.Matrix4f;
+import org.joml.Quaternionf;
+import org.lwjgl.opengl.GL11;
 import redxax.oxy.remotely.rematrix.*;
 import redxax.oxy.remotely.rematrix.ReContext;
 import restudio.rescreen.text.StyledText;
@@ -130,6 +134,11 @@ public final class RematrixContext implements ReContext {
     //#endif
 
     public void drawText(String text, int x, int y, int color, boolean shadow) {
+        //#if MC < 1.21.6
+        if (((color >>> 24) & 0xFF) <= 4) {
+            return;
+        }
+        //#endif
         //#if MC >= 1.20.1
         withScissor(() -> {
             if (shadow) {
@@ -150,6 +159,11 @@ public final class RematrixContext implements ReContext {
 
     public void drawStyledText(Object text, int x, int y, int color, boolean shadow) {
         if (text instanceof Component component) {
+            //#if MC < 1.21.6
+            if (((color >>> 24) & 0xFF) <= 4) {
+                return;
+            }
+            //#endif
             //#if MC >= 1.20.1
             withScissor(() -> {
                 if (shadow) {
@@ -169,9 +183,16 @@ public final class RematrixContext implements ReContext {
             return;
         }
         if (text instanceof StyledText styledText) {
-            if ((styledText.color >> 24 & 0xFF) == 0) {
+            //#if MC < 1.21.6
+            if (((styledText.color >>> 24) & 0xFF) <= 4) {
                 return;
             }
+            //#endif
+            //#if MC >= 1.21.6
+            if (((styledText.color >>> 24) & 0xFF) == 0) {
+                return;
+            }
+            //#endif
             MutableComponent renderText = Component.literal(styledText.text);
             //#if MC >= 1.21.11
             if (styledText.font instanceof Identifier rl) {
