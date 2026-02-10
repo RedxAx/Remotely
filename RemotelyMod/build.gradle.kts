@@ -7,7 +7,6 @@ import java.util.Properties
 
 plugins {
     java
-    kotlin("jvm")
     id("dev.deftu.gradle.multiversion")
     id("dev.deftu.gradle.tools")
     id("dev.deftu.gradle.tools.resources")
@@ -33,9 +32,6 @@ toolkitLoomHelper {
         useForgeMixin(modData.id)
     }
 
-    if (mcData.isForgeLike && mcData.version >= MinecraftVersions.VERSION_1_16_5) {
-        useKotlinForForge()
-    }
 }
 
 repositories {
@@ -100,15 +96,8 @@ dependencies {
         modDep?.let { includeOrShade(it) }
     }
 
-    with(libs.omnicore.get()) {
-        val modDep = modImplementation("${this.group}:${this.name}-$mcData:${this.version}")
-
-        modDep?.let { includeOrShade(it) }
-    }
 
     if (mcData.isFabric) {
-        modImplementation("net.fabricmc:fabric-language-kotlin:${mcData.dependencies.fabric.fabricLanguageKotlinVersion}")
-
         if (mcData.isLegacyFabric) {
             modImplementation("net.legacyfabric.legacy-fabric-api:legacy-fabric-api:${mcData.dependencies.legacyFabric.legacyFabricApiVersion}")
         } else {
@@ -117,9 +106,6 @@ dependencies {
     }
 
     if (mcData.version <= MinecraftVersions.VERSION_1_12_2) {
-        implementation(includeOrShade(kotlin("stdlib-jdk8"))!!)
-        implementation(includeOrShade("org.jetbrains.kotlin:kotlin-reflect:1.6.10")!!)
-
         modImplementation(includeOrShade("org.spongepowered:mixin:0.7.11-SNAPSHOT")!!)
     }
 }
@@ -128,7 +114,6 @@ tasks {
     fatJar {
         if (mcData.isLegacyForge) {
             relocate("dev.deftu.textile", "${modData.group}.dependencies.textile")
-            relocate("dev.deftu.omnicore", "${modData.group}.dependencies.omnicore")
         }
     }
 
@@ -311,6 +296,6 @@ publisher {
             """.trimIndent()
         )
 
-        modrinthDepends.required.set(listOf("fabric-api", "fabric-language-kotlin"))
+        modrinthDepends.required.set(listOf("fabric-api"))
     }
 }

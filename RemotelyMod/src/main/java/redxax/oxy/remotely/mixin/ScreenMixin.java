@@ -1,7 +1,5 @@
 package redxax.oxy.remotely.mixin;
 
-import dev.deftu.omnicore.api.client.render.ImmediateScreenRenderer;
-import dev.deftu.omnicore.api.client.render.OmniRenderingContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 //#if MC >= 1.20.1
@@ -15,7 +13,6 @@ import net.minecraft.client.input.KeyEvent;
 //#endif
 import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -29,6 +26,7 @@ import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.ui.tests.ContainerTestingScreen;
 import redxax.oxy.remotely.ui.tests.WidgetsTestingScreen;
 import redxax.oxy.remotely.util.CursorUtils;
+import redxax.oxy.remotely.rematrix.mc.RematrixMcContext;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.widgets.IconButton;
@@ -94,14 +92,16 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
         if (!remotely$customWidgets.isEmpty()) {
             remotely$handleInput(mouseX, mouseY);
 
-            OmniRenderingContext ctx = OmniRenderingContext.from(guiGraphics);
-            ImmediateScreenRenderer.initialize();
-            ImmediateScreenRenderer.render(ctx, () -> {
-                MinecraftDrawContextAdapter adapter = new MinecraftDrawContextAdapter(ctx);
-                for (Widget widget : remotely$customWidgets) {
-                    widget.render(adapter, mouseX, mouseY, f);
-                }
-            });
+            //#if MC >= 1.20.1
+            RematrixMcContext ctx = new RematrixMcContext(guiGraphics);
+            //#endif
+            //#if MC < 1.20.1
+            //$$ RematrixMcContext ctx = new RematrixMcContext(guiGraphics);
+            //#endif
+            MinecraftDrawContextAdapter adapter = new MinecraftDrawContextAdapter(ctx);
+            for (Widget widget : remotely$customWidgets) {
+                widget.render(adapter, mouseX, mouseY, f);
+            }
         }
     }
 

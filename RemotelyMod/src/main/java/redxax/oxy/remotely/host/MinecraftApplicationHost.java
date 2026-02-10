@@ -1,13 +1,20 @@
 package redxax.oxy.remotely.host;
 
-import dev.deftu.omnicore.api.OmniResourceLocation;
-import dev.deftu.omnicore.api.client.screen.OmniScreens;
 import net.minecraft.client.Minecraft;
+//#if MC >= 1.21.11
+import net.minecraft.resources.Identifier;
+//#endif
+//#if MC < 1.21.11
+//$$ import net.minecraft.resources.ResourceLocation;
+//#endif
 import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
 import redxax.oxy.remotely.adapters.ReScreenWrapper;
+import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.ClipboardHandler;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
+
+import java.lang.reflect.Field;
 
 public class MinecraftApplicationHost implements ApplicationHost {
     private final Minecraft mc = Minecraft.getInstance();
@@ -32,13 +39,29 @@ public class MinecraftApplicationHost implements ApplicationHost {
             mc.setScreen(null);
             return;
         }
-        OmniScreens.setCurrentScreen(new ReScreenWrapper(screen));
+        if (Config.desktopMode) {
+            ScreenManager sm = ScreenManager.getInstance();
+            long handle = Minecraft.getInstance().getWindow().handle();
+            sm.setWindowHandle(handle);
+            try {
+                Field f = restudio.rescreen.Main.class.getDeclaredField("window");
+                f.setAccessible(true);
+                f.setLong(null, handle);
+            } catch (Throwable ignored) {}
+            if (sm.getDesktopSuperScreen() == null || screen.shouldForceSuperScreen()) {
+                sm.setDesktopSuperScreen(screen);
+            }
+            if (mc.screen instanceof ReScreenWrapper) {
+                sm.setScreen(screen);
+                return;
+            }
+        }
+        mc.setScreen(new ReScreenWrapper(screen));
     }
 
     @Override
     public Screen getCurrentScreen() {
-        var omni = OmniScreens.getCurrentScreen();
-        if (omni instanceof ReScreenWrapper wrapper) {
+        if (mc.screen instanceof ReScreenWrapper wrapper) {
             return wrapper.getScreen();
         }
         return null;
@@ -53,7 +76,12 @@ public class MinecraftApplicationHost implements ApplicationHost {
 
     @Override
     public Object getFontIdentifier(String namespace, String path) {
-        return OmniResourceLocation.createOrThrow(namespace, path);
+        //#if MC >= 1.21.11
+        return Identifier.fromNamespaceAndPath(namespace, path);
+        //#endif
+        //#if MC < 1.21.11
+        //$$ return ResourceLocation.fromNamespaceAndPath(namespace, path);
+        //#endif
     }
 
     @Override

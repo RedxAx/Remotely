@@ -16,10 +16,7 @@
   "environment": "*",
   "entrypoints": {
     "main": [
-      {
-        "adapter": "kotlin",
-        "value": "redxax.oxy.remotely.Entrypoint"
-      }
+      "redxax.oxy.remotely.Entrypoint"
     ]
   },
   "mixins": [
@@ -27,7 +24,6 @@
   ],
   "depends": {
     "minecraft": "~${minor_mc_version}",
-    "fabricloader": ">=0.17.2",
-    "fabric-language-kotlin": "*"
+    "fabricloader": ">=0.17.2"
   }
 }
