@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.rematrix;
 
-public interface RematrixScissorStack {
+public interface ReScissorStack {
     void pushState();
     void popState();
     void clear();

@@ -1,11 +1,11 @@
 package redxax.oxy.remotely.rematrix;
 
-public final class RematrixTextureHandle {
+public final class ReTextureHandle {
     private final Object id;
     private final int width;
     private final int height;
 
-    public RematrixTextureHandle(Object id, int width, int height) {
+    public ReTextureHandle(Object id, int width, int height) {
         this.id = id;
         this.width = width;
         this.height = height;

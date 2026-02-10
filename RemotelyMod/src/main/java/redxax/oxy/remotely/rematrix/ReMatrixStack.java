@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.rematrix;
 
-public interface RematrixMatrixStack {
+public interface ReMatrixStack {
     void push();
     void pop();
     void translate(float x, float y, float z);

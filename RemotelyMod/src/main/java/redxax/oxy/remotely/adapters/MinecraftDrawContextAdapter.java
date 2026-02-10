@@ -2,16 +2,16 @@ package redxax.oxy.remotely.adapters;
 
 import java.awt.image.BufferedImage;
 import org.jetbrains.annotations.NotNull;
-import redxax.oxy.remotely.rematrix.RematrixContext;
-import redxax.oxy.remotely.rematrix.mc.RematrixMcContext;
+import redxax.oxy.remotely.rematrix.ReContext;
+import redxax.oxy.remotely.rematrix.mc.RematrixContext;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.IMatrixStack;
 import restudio.rescreen.util.ResourceManager;
 
 public class MinecraftDrawContextAdapter implements IDrawContext {
-    private final RematrixContext ctx;
+    private final ReContext ctx;
 
-    public MinecraftDrawContextAdapter(@NotNull RematrixContext ctx) {
+    public MinecraftDrawContextAdapter(@NotNull ReContext ctx) {
         this.ctx = ctx;
     }
 
@@ -48,7 +48,7 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void fill(int x1, int y1, int x2, int y2, int argb) {
-        if (ctx instanceof RematrixMcContext mc) {
+        if (ctx instanceof RematrixContext mc) {
             mc.fill(x1, y1, x2, y2, argb);
         }
     }
@@ -60,7 +60,7 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void fillGradient(int x1, int y1, int x2, int y2, int color1, int color2, boolean horizontal) {
-        if (ctx instanceof RematrixMcContext mc) {
+        if (ctx instanceof RematrixContext mc) {
             mc.fillGradient(x1, y1, x2, y2, color1, color2, horizontal);
         }
     }
@@ -70,21 +70,21 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void drawText(String text, int x, int y, int color, boolean shadow) {
-        if (ctx instanceof RematrixMcContext mc) {
+        if (ctx instanceof RematrixContext mc) {
             mc.drawText(text, x, y, color, shadow);
         }
     }
 
     @Override
     public void drawStyledText(Object text, int x, int y, int color, boolean shadow) {
-        if (ctx instanceof RematrixMcContext mc) {
+        if (ctx instanceof RematrixContext mc) {
             mc.drawStyledText(text, x, y, color, shadow);
         }
     }
 
     @Override
     public void drawBufferedImage(BufferedImage image, float x, float y, float width, float height) {
-        if (ctx instanceof RematrixMcContext mc) {
+        if (ctx instanceof RematrixContext mc) {
             mc.drawBufferedImage(image, x, y, width, height);
         }
     }
@@ -106,7 +106,7 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
 
     @Override
     public void drawInvertedRect(float x1, float y1, float x2, float y2) {
-        if (ctx instanceof RematrixMcContext mc) {
+        if (ctx instanceof RematrixContext mc) {
             mc.drawInvertedRect(x1, y1, x2, y2);
         }
     }

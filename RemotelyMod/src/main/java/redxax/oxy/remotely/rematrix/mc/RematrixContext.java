@@ -13,7 +13,6 @@ import net.minecraft.client.Minecraft;
 //#if MC >= 1.20.1
 import net.minecraft.client.gui.GuiGraphics;
 //#endif
-import net.minecraft.client.renderer.GameRenderer;
 //#if MC >= 1.21.5
 import net.minecraft.client.renderer.RenderPipelines;
 //#endif
@@ -42,19 +41,12 @@ import net.minecraft.resources.Identifier;
 //$$ import net.minecraft.client.gui.GuiComponent;
 //#endif
 import org.jetbrains.annotations.NotNull;
-import org.joml.Matrix4f;
-import org.joml.Quaternionf;
-import org.lwjgl.opengl.GL11;
-import redxax.oxy.remotely.rematrix.RematrixContext;
-import redxax.oxy.remotely.rematrix.RematrixMatrixStack;
-import redxax.oxy.remotely.rematrix.RematrixScissorStack;
-import redxax.oxy.remotely.rematrix.RematrixTextBridge;
-import redxax.oxy.remotely.rematrix.RematrixTextureCache;
-import redxax.oxy.remotely.rematrix.RematrixTextureHandle;
+import redxax.oxy.remotely.rematrix.*;
+import redxax.oxy.remotely.rematrix.ReContext;
 import restudio.rescreen.text.StyledText;
 
-public final class RematrixMcContext implements RematrixContext {
-    private static final Map<BufferedImage, RematrixTextureHandle> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
+public final class RematrixContext implements ReContext {
+    private static final Map<BufferedImage, ReTextureHandle> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
     private static final int SELECTION_COLOR = 0xFF0000FF;
 
     //#if MC >= 1.20.1
@@ -64,13 +56,13 @@ public final class RematrixMcContext implements RematrixContext {
     //$$ private final PoseStack graphics;
     //#endif
     private final float scissorScale;
-    private final RematrixMatrixStack matrices;
-    private final RematrixScissorStack scissors;
-    private final RematrixTextureCache textures;
-    private final RematrixTextBridge textBridge;
+    private final ReMatrixStack matrices;
+    private final ReScissorStack scissors;
+    private final ReTextureCache textures;
+    private final ReTextBridge textBridge;
 
     //#if MC >= 1.20.1
-    public RematrixMcContext(@NotNull GuiGraphics graphics) {
+    public RematrixContext(@NotNull GuiGraphics graphics) {
         this(graphics, 1.0f);
     }
     //#endif
@@ -81,7 +73,7 @@ public final class RematrixMcContext implements RematrixContext {
     //#endif
 
     //#if MC >= 1.20.1
-    public RematrixMcContext(@NotNull GuiGraphics graphics, float scissorScale) {
+    public RematrixContext(@NotNull GuiGraphics graphics, float scissorScale) {
         this.graphics = graphics;
         this.scissorScale = scissorScale > 0f ? scissorScale : 1f;
         this.matrices = new McMatrixStack(graphics.pose());
@@ -102,22 +94,22 @@ public final class RematrixMcContext implements RematrixContext {
     //#endif
 
     @Override
-    public RematrixMatrixStack matrices() {
+    public ReMatrixStack matrices() {
         return matrices;
     }
 
     @Override
-    public RematrixScissorStack scissors() {
+    public ReScissorStack scissors() {
         return scissors;
     }
 
     @Override
-    public RematrixTextureCache textures() {
+    public ReTextureCache textures() {
         return textures;
     }
 
     @Override
-    public RematrixTextBridge text() {
+    public ReTextBridge text() {
         return textBridge;
     }
 
@@ -259,7 +251,7 @@ public final class RematrixMcContext implements RematrixContext {
 
     public void drawBufferedImage(BufferedImage image, float x, float y, float width, float height) {
         if (image == null) return;
-        RematrixTextureHandle handle = textures.getTexture(image);
+        ReTextureHandle handle = textures.getTexture(image);
         if (handle == null) return;
         int dw = Math.max(1, (int) Math.ceil(width <= 0 ? handle.getWidth() : width));
         int dh = Math.max(1, (int) Math.ceil(height <= 0 ? handle.getHeight() : height));
@@ -342,7 +334,7 @@ public final class RematrixMcContext implements RematrixContext {
         //#endif
     }
 
-    private static final class McMatrixStack implements RematrixMatrixStack {
+    private static final class McMatrixStack implements ReMatrixStack {
         //#if MC >= 1.21.6
         private final org.joml.Matrix3x2fStack pose;
 
@@ -420,7 +412,7 @@ public final class RematrixMcContext implements RematrixContext {
         }
     }
 
-    private final class McScissorStack implements RematrixScissorStack {
+    private final class McScissorStack implements ReScissorStack {
         private final Deque<float[]> stack = new ArrayDeque<>();
         private final Deque<List<float[]>> stateStack = new ArrayDeque<>();
 
@@ -502,13 +494,13 @@ public final class RematrixMcContext implements RematrixContext {
         }
     }
 
-    private final class McTextureCache implements RematrixTextureCache {
+    private final class McTextureCache implements ReTextureCache {
         @Override
-        public RematrixTextureHandle getTexture(BufferedImage image) {
-            RematrixTextureHandle existing = TEXTURE_CACHE.get(image);
+        public ReTextureHandle getTexture(BufferedImage image) {
+            ReTextureHandle existing = TEXTURE_CACHE.get(image);
             if (existing != null) return existing;
             synchronized (TEXTURE_CACHE) {
-                RematrixTextureHandle again = TEXTURE_CACHE.get(image);
+                ReTextureHandle again = TEXTURE_CACHE.get(image);
                 if (again != null) return again;
                 int width = image.getWidth();
                 int height = image.getHeight();
@@ -547,7 +539,7 @@ public final class RematrixMcContext implements RematrixContext {
                 //$$ ResourceLocation id = new ResourceLocation("rematrix", "img_" + System.identityHashCode(image));
                 //$$ textureManager.register(id, dynamicTexture);
                 //#endif
-                RematrixTextureHandle handle = new RematrixTextureHandle(id, width, height);
+                ReTextureHandle handle = new ReTextureHandle(id, width, height);
                 TEXTURE_CACHE.put(image, handle);
                 return handle;
             }
@@ -559,7 +551,7 @@ public final class RematrixMcContext implements RematrixContext {
         }
     }
 
-    private final class McTextBridge implements RematrixTextBridge {
+    private final class McTextBridge implements ReTextBridge {
         @Override
         public int getWidth(String text) {
             return Minecraft.getInstance().font.width(text);
