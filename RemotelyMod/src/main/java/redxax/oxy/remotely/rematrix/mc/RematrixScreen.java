@@ -81,16 +81,27 @@ public class RematrixScreen extends Screen {
         var pose = guiGraphics.pose();
         pose.pushMatrix();
         pose.scale(renderScale, renderScale);
-        //#else
-        //$$ guiGraphics.pose().pushMatrix();
-        //$$ guiGraphics.pose().scale(renderScale, renderScale);
+        //#endif
+        //#if MC >= 1.20.1 && MC < 1.21.6
+        //$$ var pose = guiGraphics.pose();
+        //$$ pose.pushPose();
+        //$$ pose.scale(renderScale, renderScale, 1f);
+        //#endif
+        //#if MC >= 1.21.6 && MC < 1.21.9
+        //$$ var pose = guiGraphics.pose();
+        //$$ pose.pushMatrix();
+        //$$ pose.scale(renderScale, renderScale);
         //#endif
         sm.render(libCtx, (int) (mouseX * mouseScale), (int) (mouseY * mouseScale), deltaSeconds);
         sm.processTasks();
         //#if MC >= 1.21.9
         pose.popMatrix();
-        //#else
-        //$$ guiGraphics.pose().popMatrix();
+        //#endif
+        //#if MC >= 1.20.1 && MC < 1.21.6
+        //$$ pose.popPose();
+        //#endif
+        //#if MC >= 1.21.6 && MC < 1.21.9
+        //$$ pose.popMatrix();
         //#endif
     }
     //#endif
