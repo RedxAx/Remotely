@@ -14,7 +14,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 //#endif
 import net.minecraft.client.renderer.GameRenderer;
+//#if MC >= 1.21.5
 import net.minecraft.client.renderer.RenderPipelines;
+//#endif
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.renderer.texture.TextureManager;
 import net.minecraft.network.chat.Component;
@@ -267,8 +269,14 @@ public final class RematrixMcContext implements RematrixContext {
         //#if MC >= 1.21.6 && MC < 1.21.9
         //$$ withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
         //#endif
-        //#if MC >= 1.20.1 && MC < 1.21.6
+        //#if MC >= 1.21.5 && MC < 1.21.6
         //$$ withScissor(() -> graphics.blit(RenderType::guiTextured, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
+        //#endif
+        //#if MC >= 1.21.4 && MC < 1.21.5
+        //$$ withScissor(() -> graphics.blit(RenderType::guiTextured, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
+        //#endif
+        //#if MC >= 1.20.1 && MC < 1.21.4
+        //$$ withScissor(() -> graphics.blit((ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), dw, dh, 0f, 0f, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
         //#endif
         //#if MC < 1.20.1
         //$$ RenderSystem.enableBlend();
@@ -509,10 +517,23 @@ public final class RematrixMcContext implements RematrixContext {
                     for (int x = 0; x < width; x++) {
                         int argb = image.getRGB(x, y);
                         int abgr = (argb & 0xFF00FF00) | ((argb & 0x00FF0000) >> 16) | ((argb & 0x000000FF) << 16);
+                        //#if MC >= 1.21.5
                         nativeImage.setPixelABGR(x, y, abgr);
+                        //#endif
+                        //#if MC >= 1.21.4 && MC < 1.21.5
+                        //$$ nativeImage.setPixel(x, y, argb);
+                        //#endif
+                        //#if MC < 1.21.4
+                        //$$ nativeImage.setPixelRGBA(x, y, abgr);
+                        //#endif
                     }
                 }
+                //#if MC >= 1.21.5
                 DynamicTexture dynamicTexture = new DynamicTexture(() -> "rematrix", nativeImage);
+                //#endif
+                //#if MC < 1.21.5
+                //$$ DynamicTexture dynamicTexture = new DynamicTexture(nativeImage);
+                //#endif
                 TextureManager textureManager = Minecraft.getInstance().getTextureManager();
                 //#if MC >= 1.21.11
                 Identifier id = Identifier.fromNamespaceAndPath("rematrix", "img_" + System.identityHashCode(image));
