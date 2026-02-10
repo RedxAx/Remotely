@@ -76,7 +76,7 @@ public class RematrixScreen extends Screen {
         float renderScale = reScale / mcScale;
         float mouseScale = mcScale / reScale;
 
-        RematrixMcContext ctx = new RematrixMcContext(guiGraphics, renderScale);
+        RematrixContext ctx = new RematrixContext(guiGraphics, renderScale);
         MinecraftDrawContextAdapter libCtx = new MinecraftDrawContextAdapter(ctx);
 
 

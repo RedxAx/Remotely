@@ -22,11 +22,11 @@ import redxax.oxy.remotely.adapters.ICustomWidgetHolder;
 import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.rematrix.mc.RematrixContext;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.ui.tests.ContainerTestingScreen;
 import redxax.oxy.remotely.ui.tests.WidgetsTestingScreen;
 import redxax.oxy.remotely.util.CursorUtils;
-import redxax.oxy.remotely.rematrix.mc.RematrixMcContext;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.widgets.IconButton;
@@ -93,7 +93,7 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             remotely$handleInput(mouseX, mouseY);
 
             //#if MC >= 1.20.1
-            RematrixMcContext ctx = new RematrixMcContext(guiGraphics);
+            RematrixContext ctx = new RematrixContext(guiGraphics);
             //#endif
             //#if MC < 1.20.1
             //$$ RematrixMcContext ctx = new RematrixMcContext(guiGraphics);
