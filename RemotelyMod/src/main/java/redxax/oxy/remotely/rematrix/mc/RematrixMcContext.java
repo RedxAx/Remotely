@@ -23,6 +23,12 @@ import net.minecraft.network.chat.Style;
 //#if MC >= 1.21.9
 import net.minecraft.network.chat.FontDescription;
 //#endif
+//#if MC < 1.21.6
+//$$ import net.minecraft.client.renderer.RenderType;
+//#endif
+//#if MC < 1.21.6
+//$$ import com.mojang.blaze3d.vertex.PoseStack;
+//#endif
 //#if MC >= 1.21.11
 import net.minecraft.resources.Identifier;
 //#endif
@@ -31,8 +37,6 @@ import net.minecraft.resources.Identifier;
 //#endif
 //#if MC < 1.20.1
 //$$ import com.mojang.blaze3d.vertex.PoseStack;
-//#endif
-//#if MC < 1.20.1
 //$$ import net.minecraft.client.gui.GuiComponent;
 //#endif
 import org.jetbrains.annotations.NotNull;
@@ -260,8 +264,11 @@ public final class RematrixMcContext implements RematrixContext {
         //#if MC >= 1.21.9
         withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, (Identifier) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
         //#endif
-        //#if MC >= 1.20.1 && MC < 1.21.9
+        //#if MC >= 1.21.6 && MC < 1.21.9
         //$$ withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
+        //#endif
+        //#if MC >= 1.20.1 && MC < 1.21.6
+        //$$ withScissor(() -> graphics.blit(RenderType::guiTextured, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
         //#endif
         //#if MC < 1.20.1
         //$$ RenderSystem.enableBlend();
@@ -294,8 +301,14 @@ public final class RematrixMcContext implements RematrixContext {
         //#if MC >= 1.21.11
         withScissor(() -> graphics.textHighlight((int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY), true));
         //#endif
-        //#if MC < 1.21.11
+        //#if MC >= 1.21.8 && MC < 1.21.11
         //$$ withScissor(() -> graphics.textHighlight((int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY)));
+        //#endif
+        //#if MC >= 1.21.6 && MC < 1.21.8
+        //$$ withScissor(() -> graphics.fill(RenderPipelines.GUI_TEXT_HIGHLIGHT, (int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY), SELECTION_COLOR));
+        //#endif
+        //#if MC < 1.21.6
+        //$$ withScissor(() -> graphics.fill(RenderType.guiTextHighlight(), (int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY), SELECTION_COLOR));
         //#endif
         //#if MC < 1.20.1
         //$$ float alpha = ((SELECTION_COLOR >> 24) & 0xFF) / 255.0f;
@@ -322,7 +335,7 @@ public final class RematrixMcContext implements RematrixContext {
     }
 
     private static final class McMatrixStack implements RematrixMatrixStack {
-        //#if MC >= 1.20.1
+        //#if MC >= 1.21.6
         private final org.joml.Matrix3x2fStack pose;
 
         private McMatrixStack(org.joml.Matrix3x2fStack pose) {
@@ -330,7 +343,7 @@ public final class RematrixMcContext implements RematrixContext {
         }
         //#endif
 
-        //#if MC < 1.20.1
+        //#if MC < 1.21.6
         //$$ private final PoseStack pose;
         //$$
         //$$ private McMatrixStack(PoseStack pose) {
@@ -340,60 +353,60 @@ public final class RematrixMcContext implements RematrixContext {
 
         @Override
         public void push() {
-            //#if MC >= 1.20.1
+            //#if MC >= 1.21.6
             pose.pushMatrix();
             //#endif
-            //#if MC < 1.20.1
+            //#if MC < 1.21.6
             //$$ pose.pushPose();
             //#endif
         }
 
         @Override
         public void pop() {
-            //#if MC >= 1.20.1
+            //#if MC >= 1.21.6
             pose.popMatrix();
             //#endif
-            //#if MC < 1.20.1
+            //#if MC < 1.21.6
             //$$ pose.popPose();
             //#endif
         }
 
         @Override
         public void translate(float x, float y, float z) {
-            //#if MC >= 1.20.1
+            //#if MC >= 1.21.6
             pose.translate(x, y);
             //#endif
-            //#if MC < 1.20.1
+            //#if MC < 1.21.6
             //$$ pose.translate(x, y, z);
             //#endif
         }
 
         @Override
         public void scale(float x, float y, float z) {
-            //#if MC >= 1.20.1
+            //#if MC >= 1.21.6
             pose.scale(x, y);
             //#endif
-            //#if MC < 1.20.1
+            //#if MC < 1.21.6
             //$$ pose.scale(x, y, z);
             //#endif
         }
 
         @Override
         public void rotate(float angle, float x, float y, float z) {
-            //#if MC >= 1.20.1
+            //#if MC >= 1.21.6
             pose.rotate(angle);
             //#endif
-            //#if MC < 1.20.1
+            //#if MC < 1.21.6
             //$$ pose.mulPose(new Quaternionf().fromAxisAngleDeg(x, y, z, angle));
             //#endif
         }
 
         @Override
         public void multiply(float angle) {
-            //#if MC >= 1.20.1
+            //#if MC >= 1.21.6
             pose.rotate(angle);
             //#endif
-            //#if MC < 1.20.1
+            //#if MC < 1.21.6
             //$$ pose.mulPose(new Quaternionf().fromAxisAngleDeg(0f, 0f, 1f, angle));
             //#endif
         }
@@ -589,14 +602,14 @@ public final class RematrixMcContext implements RematrixContext {
         int iy = (int) Math.floor(y1);
         int iw = Math.max(0, (int) Math.ceil(x2 - x1));
         int ih = Math.max(0, (int) Math.ceil(y2 - y1));
-        //#if MC >= 1.20.1
+        //#if MC >= 1.21.6
         var pose = graphics.pose();
         pose.pushMatrix();
         pose.identity();
         graphics.enableScissor(ix, iy, ix + iw, iy + ih);
         pose.popMatrix();
         //#endif
-        //#if MC < 1.20.1
+        //#if MC < 1.21.6
         //$$ graphics.pose().pushPose();
         //$$ graphics.pose().last().pose().identity();
         //$$ graphics.enableScissor(ix, iy, ix + iw, iy + ih);
