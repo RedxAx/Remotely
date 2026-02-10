@@ -123,6 +123,31 @@ tasks {
             mustRunAfter(project.tasks.named("build"))
         }
     }
+
+    register("runAllFabric") {
+        group = "run"
+        description = "Launches runClient for all *-fabric versions in parallel."
+        doLast {
+            val fabricProjects = rootProject.subprojects.filter { it.name.endsWith("-fabric") }
+            if (fabricProjects.isEmpty()) return@doLast
+            val gradleCmd = if (System.getProperty("os.name").lowercase().contains("win")) {
+                rootProject.file("gradlew.bat").absolutePath
+            } else {
+                rootProject.file("gradlew").absolutePath
+            }
+            val processes = fabricProjects.map { project ->
+                ProcessBuilder(gradleCmd, "${project.path}:runClient")
+                    .directory(rootProject.projectDir)
+                    .inheritIO()
+                    .start()
+            }
+            val exitCodes = processes.map { it.waitFor() }
+            val failed = exitCodes.withIndex().filter { it.value != 0 }
+            if (failed.isNotEmpty()) {
+                throw GradleException("runAllFabric failed for ${failed.size} project(s)")
+            }
+        }
+    }
 }
 
 

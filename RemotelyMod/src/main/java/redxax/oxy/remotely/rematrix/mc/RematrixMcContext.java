@@ -539,8 +539,12 @@ public final class RematrixMcContext implements RematrixContext {
                 Identifier id = Identifier.fromNamespaceAndPath("rematrix", "img_" + System.identityHashCode(image));
                 textureManager.register(id, dynamicTexture);
                 //#endif
-                //#if MC < 1.21.11
+                //#if MC < 1.21.11 && MC >= 1.21.1
                 //$$ ResourceLocation id = ResourceLocation.fromNamespaceAndPath("rematrix", "img_" + System.identityHashCode(image));
+                //$$ textureManager.register(id, dynamicTexture);
+                //#endif
+                //#if MC < 1.21.1
+                //$$ ResourceLocation id = new ResourceLocation("rematrix", "img_" + System.identityHashCode(image));
                 //$$ textureManager.register(id, dynamicTexture);
                 //#endif
                 RematrixTextureHandle handle = new RematrixTextureHandle(id, width, height);

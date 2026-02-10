@@ -79,8 +79,11 @@ public class MinecraftApplicationHost implements ApplicationHost {
         //#if MC >= 1.21.11
         return Identifier.fromNamespaceAndPath(namespace, path);
         //#endif
-        //#if MC < 1.21.11
+        //#if MC < 1.21.11 && MC >= 1.21.1
         //$$ return ResourceLocation.fromNamespaceAndPath(namespace, path);
+        //#endif
+        //#if MC < 1.21.1
+        //$$ return new ResourceLocation(namespace, path);
         //#endif
     }
 

@@ -59,7 +59,7 @@ listOf(
 //    "1.19.4-fabric",
 //
 //    "1.20.1-forge",
-//    "1.20.1-fabric",
+    "1.20.1-fabric",
 //
 //    "1.20.4-forge",
 //    "1.20.4-neoforge",
