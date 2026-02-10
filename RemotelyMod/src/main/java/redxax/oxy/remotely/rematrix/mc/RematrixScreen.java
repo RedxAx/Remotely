@@ -55,6 +55,9 @@ public class RematrixScreen extends Screen {
     //#if MC >= 1.20.1
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float tickDelta) {
+        //#if MC >= 1.20.1 && MC < 1.20.6
+        //$$ this.renderBackground(guiGraphics);
+        //#endif
         super.render(guiGraphics, mouseX, mouseY, tickDelta);
 
         long now = System.nanoTime();
