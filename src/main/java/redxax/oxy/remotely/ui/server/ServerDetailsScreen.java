@@ -79,6 +79,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     private final Map<TabContext, TerminalSession> contextInfos = new HashMap<>();
     private ScheduledExecutorService statusScheduler;
+    private final List<Object> windowTabs = new ArrayList<>();
+    private int windowActiveTabIndex = -1;
 
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
         this(parent, client, null);
@@ -200,15 +202,39 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             .onTabRenamed(this::onTabRenamed)
             .build();
 
-        for (Object tabInfo : remotelyClient.getMultiTerminalTabs()) {
+        List<Object> tabStore = getTabStore();
+        if (tabStore.isEmpty()) {
+            tabStore.add(UUID.randomUUID().toString());
+        }
+        for (Object tabInfo : tabStore) {
             createAndAddTab(tabInfo, false);
         }
 
-        int activeIndex = remotelyClient.getActiveMultiTerminalTabIndex();
+        int activeIndex = getSavedTabIndex();
         if (activeIndex >= 0 && activeIndex < tabs().getTabs().size()) {
             tabs().setActiveTab(activeIndex);
         } else if (!tabs().getTabs().isEmpty()) {
             tabs().setActiveTab(0);
+        }
+    }
+
+    private boolean useWindowTabs() {
+        return desktopMode && isDesktopWindow();
+    }
+
+    private List<Object> getTabStore() {
+        return useWindowTabs() ? windowTabs : remotelyClient.getMultiTerminalTabs();
+    }
+
+    private int getSavedTabIndex() {
+        return useWindowTabs() ? windowActiveTabIndex : remotelyClient.getActiveMultiTerminalTabIndex();
+    }
+
+    private void setSavedTabIndex(int index) {
+        if (useWindowTabs()) {
+            windowActiveTabIndex = index;
+        } else {
+            remotelyClient.setActiveMultiTerminalTabIndex(index);
         }
     }
 
@@ -458,7 +484,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         }
 
-        remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
+        setSavedTabIndex(tabs().getActiveTabIndex());
         int idx = ctx.selectedViewIndex < ctx.views.size() ? ctx.selectedViewIndex : 0;
         if (!ctx.views.isEmpty()) {
             onViewChanged(ctx, ctx.views.get(idx));
@@ -478,18 +504,18 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
             if (ctx.instance != null) {
                 ctx.instance.removeStateListener(stateListener);
-                remotelyClient.getMultiTerminalTabs().removeIf(o -> (o instanceof Instance i && i.equals(ctx.instance)));
+                getTabStore().removeIf(o -> (o instanceof Instance i && i.equals(ctx.instance)));
                 ctx.instance.getMSMPManager().disconnect();
             } else if (info != null && info.getLocalTerminalId() != null) {
-                remotelyClient.getMultiTerminalTabs().remove(info.getLocalTerminalId());
+                getTabStore().remove(info.getLocalTerminalId());
             }
 
         }
         if (tabs().getTabs().isEmpty()) {
-            remotelyClient.setActiveMultiTerminalTabIndex(-1);
+            setSavedTabIndex(-1);
             closeScreen();
         } else {
-            remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
+            setSavedTabIndex(tabs().getActiveTabIndex());
         }
     }
 
@@ -519,14 +545,15 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 newInstanceOrder.add(info.isLocalTerminalMode() ? info.getLocalTerminalId() : context.instance);
             }
         }
-        remotelyClient.getMultiTerminalTabs().clear();
-        remotelyClient.getMultiTerminalTabs().addAll(newInstanceOrder);
-        remotelyClient.setActiveMultiTerminalTabIndex(tabs().getActiveTabIndex());
+        List<Object> tabStore = getTabStore();
+        tabStore.clear();
+        tabStore.addAll(newInstanceOrder);
+        setSavedTabIndex(tabs().getActiveTabIndex());
     }
 
     private void addNewTerminalTab() {
         String newId = UUID.randomUUID().toString();
-        remotelyClient.getMultiTerminalTabs().add(newId);
+        getTabStore().add(newId);
         createAndAddTab(newId, true);
     }
 
@@ -536,6 +563,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 tabs().setActiveTab(entry.getValue().mainContainer);
                 return;
             }
+        }
+        List<Object> tabStore = getTabStore();
+        if (!tabStore.contains(instanceToAdd)) {
+            tabStore.add(instanceToAdd);
         }
         createAndAddTab(instanceToAdd, true);
     }
