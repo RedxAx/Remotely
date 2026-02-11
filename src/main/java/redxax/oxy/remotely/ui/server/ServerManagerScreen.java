@@ -121,7 +121,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         iconManager.setDefaultIcons(defaultIcons);
 
         int taskbarHeight = 28;
-        String displayName = ReStudio.getInstance().getFirstName();
+        String displayName = ReStudio.getInstance().getDisplayName();
+        if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getUsername();
         if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getEmail();
         if (displayName == null) displayName = "Account";
 
@@ -206,7 +207,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
             .addHeaderButton("chat.png", () -> ScreenManager.getInstance().setScreen(new InboxScreen(this)), "Inbox")
             .addHeaderButton("report.png", () -> ScreenManager.getInstance().setScreen(new FeedbackBrowserScreen(this, "Remotely")), "Reports And Feedback")
-            .addHeaderButton("close.png", () -> ReStudio.getInstance().logout(), "Log Out", ThemeManager.getAccent("danger"));
+            .addHeaderButton("close.png", () -> ReStudio.getInstance().logoutFromWorkOs(), "Log Out", ThemeManager.getAccent("danger"));
 
         showContextMenu(userButton.getX(), height - 35, builder);
     }
@@ -293,7 +294,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             Container c = createContainer("desktop_restudio", 0, 0, width, height - 35);
             DesktopLayout remoteLayout = new DesktopLayout();
             c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
-            if (ReStudio.getInstance().isAuthenticated() && ReStudio.getInstance().getFirstName().equalsIgnoreCase("RedxAx")) {
+            if (ReStudio.getInstance().isAuthenticated() && ReStudio.getInstance().getUsername() != null && ReStudio.getInstance().getUsername().equalsIgnoreCase("RedxAx")) {
                 tabs().addTab("ReStudio", c).setData("RESTUDIO_MARKER");
             }
         }

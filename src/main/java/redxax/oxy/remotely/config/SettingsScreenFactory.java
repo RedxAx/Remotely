@@ -48,6 +48,9 @@ public class SettingsScreenFactory {
         PresetSettingsController presetSettings = new PresetSettingsController(parent);
         settingsByTab.put("Presets", presetSettings::getSettings);
 
+        ReStudioAccountSettingsController accountSettings = new ReStudioAccountSettingsController();
+        settingsByTab.put("Account", accountSettings::getSettings);
+
         DevelopmentSettingsController devController = new DevelopmentSettingsController(configManager);
         settingsByTab.put("Development", devController::getSettings);
 
