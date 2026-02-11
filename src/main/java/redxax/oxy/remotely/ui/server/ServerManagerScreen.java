@@ -40,6 +40,7 @@ import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
 import java.awt.image.BufferedImage;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -59,12 +60,20 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private TextInputWidget remoteHostIpInput;
     private TextInputWidget remoteHostPortInput;
     private TextInputWidget remoteHostPasswordInput;
+    private TextInputWidget remoteHostKeyPathInput;
+    private TextInputWidget remoteHostKeyPassphraseInput;
+    private TabSwitchWidget remoteHostAuthModeSwitch;
     private AnimatedButton remoteHostConfirmButton;
     private AnimatedButton remoteHostDeleteButton;
     private final Object parent;
     private IconButton userButton;
     private DesktopTaskbarHelper taskbarHelper;
     int bx1 = 0, by1 = 0, bx2 = 0, by2 = 0;
+
+    private static final String ROW_REMOTE_HOST_PASSWORD = "remoteHostPassword";
+    private static final String ROW_REMOTE_HOST_AUTH_MODE = "remoteHostAuthMode";
+    private static final String ROW_REMOTE_HOST_KEY_PATH = "remoteHostKeyPath";
+    private static final String ROW_REMOTE_HOST_PASSPHRASE = "remoteHostPassphrase";
 
     private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
     private InstanceManager instanceManager;
@@ -794,19 +803,28 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             .setMinSize(360, 250);
 
         remoteHostNameInput = new TextInputWidget.Builder().size(18, 18).build();
-        builder.addRow("Host Name:", true, 18, remoteHostNameInput);
+        builder.addRow("Host Name", true, 18, remoteHostNameInput);
 
         remoteHostUserInput = new TextInputWidget.Builder().size(18, 18).text("root").build();
-        builder.addRow("User Name:", true, 18, remoteHostUserInput);
+        builder.addRow("User Name", true, 18, remoteHostUserInput);
 
         remoteHostIpInput = new TextInputWidget.Builder().size(18, 18).build();
-        builder.addRow("IP | Domain:", true, 18, remoteHostIpInput);
+        builder.addRow("IP Or Domain", true, 18, remoteHostIpInput);
 
         remoteHostPortInput = new TextInputWidget.Builder().size(18, 18).text("22").build();
-        builder.addRow("Port:", true, 18, remoteHostPortInput);
+        builder.addRow("Port", true, 18, remoteHostPortInput);
 
         remoteHostPasswordInput = new TextInputWidget.Builder().size(18, 18).build();
-        builder.addRow("Password:", true, 18, remoteHostPasswordInput);
+        builder.addRow(ROW_REMOTE_HOST_PASSWORD, "Password", true, 18, remoteHostPasswordInput);
+
+        remoteHostAuthModeSwitch = new TabSwitchWidget.Builder().options(List.of("Password", "SSH Key")).currentIndex(0).build();
+        builder.addRow(ROW_REMOTE_HOST_AUTH_MODE, "Auth Mode", true, 18, remoteHostAuthModeSwitch);
+
+        remoteHostKeyPathInput = new TextInputWidget.Builder().size(18, 18).placeholder("Leave Empty For Auto Discovery").build();
+        builder.addRow(ROW_REMOTE_HOST_KEY_PATH, "Key Path", true, 18, remoteHostKeyPathInput);
+
+        remoteHostKeyPassphraseInput = new TextInputWidget.Builder().size(18, 18).build();
+        builder.addRow(ROW_REMOTE_HOST_PASSPHRASE, "Passphrase", true, 18, remoteHostKeyPassphraseInput);
 
         remoteHostPopup = builder.build();
         remoteHostPopup.hide();
@@ -817,14 +835,57 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         new Thread(() -> {
             try {
                 if (hostInfo.getSshManager().connect()) {
-                    ScreenManager.getInstance().execute(onSuccess);
+                    ScreenManager.getInstance().execute(() -> {
+                        if (onSuccess != null) {
+                            onSuccess.run();
+                        }
+                    });
                 } else {
-                    throw new Exception("Connection failed silently.");
+                    throw new Exception("Connection failed.");
                 }
             } catch (Exception e) {
                 RebaseLogger.log("Failed to connect to remote host " + hostInfo.name + ": " + e.getMessage());
                 ScreenManager.getInstance().execute(() -> {
-                    new Notification("Connection Failed", e.getMessage(), Notification.Type.ERROR);
+                    if (onFailure != null) {
+                        onFailure.run();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private void testRemoteHostAsync(RemoteHost hostInfo, Notification notification, Runnable onSuccess, Runnable onFailure) {
+        new Thread(() -> {
+            try {
+                if (hostInfo.getSshManager().connect()) {
+                    ScreenManager.getInstance().execute(() -> {
+                        notification.update()
+                            .description("Connecting... 100%")
+                            .commit();
+                        notification.update()
+                            .message("Host Ready")
+                            .description("Connection ok")
+                            .type(Notification.Type.SUCCESS)
+                            .loading(false)
+                            .autoSlideOut(true)
+                            .commit();
+                        if (onSuccess != null) {
+                            onSuccess.run();
+                        }
+                    });
+                } else {
+                    throw new Exception("Connection failed.");
+                }
+            } catch (Exception e) {
+                RebaseLogger.log("Failed to connect to remote host " + hostInfo.name + ": " + e.getMessage());
+                ScreenManager.getInstance().execute(() -> {
+                    notification.update()
+                        .message("Error While Testing Host")
+                        .description(e.getMessage() != null ? e.getMessage() : "Connection failed.")
+                        .type(Notification.Type.ERROR)
+                        .loading(false)
+                        .autoSlideOut(true)
+                        .commit();
                     if (onFailure != null) {
                         onFailure.run();
                     }
@@ -863,17 +924,30 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             remoteHostDeleteButton = null;
         }
 
+        String authModeText = "PASSWORD";
+        String keyPathText = "";
+        if (isEditing && activeTabIndex > 0 && data instanceof RemoteHost host) {
+            authModeText = host.getAuthMode();
+            keyPathText = host.getKeyPath() != null ? host.getKeyPath() : "";
+        }
+
         remoteHostNameInput.setText(nameText);
         remoteHostUserInput.setText(userText);
         remoteHostIpInput.setText(ipText);
         remoteHostPortInput.setText(portText);
         remoteHostPasswordInput.setText(passwordText);
+        remoteHostAuthModeSwitch.setCurrentIndex("KEY".equalsIgnoreCase(authModeText) ? 1 : 0);
+        remoteHostKeyPathInput.setText(keyPathText);
+        remoteHostKeyPassphraseInput.setText("");
 
-        remoteHostPopup.addRow("Host Name:", Collections.singletonList(remoteHostNameInput), 18, true, false);
-        remoteHostPopup.addRow("User Name:", Collections.singletonList(remoteHostUserInput), 18, true, false);
-        remoteHostPopup.addRow("IP | Domain:", Collections.singletonList(remoteHostIpInput), 18, true, false);
-        remoteHostPopup.addRow("Port:", Collections.singletonList(remoteHostPortInput), 18, true, false);
-        remoteHostPopup.addRow("Password:", Collections.singletonList(remoteHostPasswordInput), 18, true, false);
+        remoteHostPopup.addRow("Host Name", Collections.singletonList(remoteHostNameInput), 18, true, false);
+        remoteHostPopup.addRow("User Name", Collections.singletonList(remoteHostUserInput), 18, true, false);
+        remoteHostPopup.addRow("IP Or Domain", Collections.singletonList(remoteHostIpInput), 18, true, false);
+        remoteHostPopup.addRow("Port", Collections.singletonList(remoteHostPortInput), 18, true, false);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_AUTH_MODE, "Auth Mode", Collections.singletonList(remoteHostAuthModeSwitch), 18, true, false);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_PASSWORD, "Password", Collections.singletonList(remoteHostPasswordInput), 18, true, false);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_KEY_PATH, "Key Path", Collections.singletonList(remoteHostKeyPathInput), 18, true, false);
+        remoteHostPopup.addRow(ROW_REMOTE_HOST_PASSPHRASE, "Passphrase", Collections.singletonList(remoteHostKeyPassphraseInput), 18, true, false);
 
         if (isEditing && activeTabIndex > 0 && data instanceof RemoteHost) {
             remoteHostPopup.addRow("", Arrays.asList(remoteHostConfirmButton, cancelButton, remoteHostDeleteButton), 18, true, false);
@@ -881,11 +955,22 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             remoteHostPopup.addRow("", Arrays.asList(remoteHostConfirmButton, cancelButton), 18, true, false);
         }
 
+        remoteHostAuthModeSwitch.setOnChange(this::updateRemoteHostAdvancedVisibility);
+        updateRemoteHostAdvancedVisibility();
+
         remoteHostNameInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(remoteHostUserInput));
         remoteHostUserInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(remoteHostIpInput));
         remoteHostIpInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(remoteHostPortInput));
         remoteHostPortInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(remoteHostPasswordInput));
-        remoteHostPasswordInput.addOnEnter((w) -> onConfirmRemoteHost());
+        remoteHostPasswordInput.addOnEnter((w) -> {
+            if (remoteHostAuthModeSwitch.getCurrentIndex() == 1) {
+                remoteHostPopup.setFocusedWidget(remoteHostKeyPathInput);
+            } else {
+                onConfirmRemoteHost();
+            }
+        });
+        remoteHostKeyPathInput.addOnEnter((w) -> remoteHostPopup.setFocusedWidget(remoteHostKeyPassphraseInput));
+        remoteHostKeyPassphraseInput.addOnEnter((w) -> onConfirmRemoteHost());
 
         remoteHostPopup.setX((this.width - remoteHostPopup.getWidth()) / 2);
         remoteHostPopup.setY((this.height - remoteHostPopup.getHeight()) / 2);
@@ -895,9 +980,11 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private void onConfirmRemoteHost() {
         RemoteHost host;
         boolean isEditing = tabs().getActiveTabIndex() > 0 && "Save".equals(remoteHostConfirmButton.getMessage());
+        String existingKeyPath = null;
 
         if (isEditing && tabs().getActiveTab() != null) {
             host = (RemoteHost) tabs().getActiveTab().getData();
+            existingKeyPath = host.getKeyPath();
         } else {
             host = new RemoteHost();
         }
@@ -911,7 +998,39 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             new Notification("Error", "Port must be a valid number.", Notification.Type.ERROR);
             return;
         }
-        host.setPassword(remoteHostPasswordInput.getText());
+        String authMode = remoteHostAuthModeSwitch.getCurrentIndex() == 1 ? "KEY" : "PASSWORD";
+        host.setAuthMode(authMode);
+        if ("KEY".equalsIgnoreCase(authMode)) {
+            String keyPath = remoteHostKeyPathInput.getText();
+            if (keyPath == null || keyPath.isBlank()) {
+                keyPath = host.getEffectiveKeyPath();
+            }
+            if (keyPath == null || keyPath.isBlank()) {
+                new Notification("Error", "Key Path not set.", Notification.Type.ERROR);
+                return;
+            }
+            try {
+                if (!Files.exists(Path.of(keyPath))) {
+                    new Notification("Error", "Key Path not found.", Notification.Type.ERROR);
+                    return;
+                }
+            } catch (Exception ignored) {
+                new Notification("Error", "Invalid Key Path.", Notification.Type.ERROR);
+                return;
+            }
+            host.setKeyPath(keyPath);
+            String passphraseInput = remoteHostKeyPassphraseInput.getText();
+            boolean keyPathChanged = isEditing && !Objects.equals(existingKeyPath, keyPath);
+            if (passphraseInput != null && !passphraseInput.isBlank()) {
+                host.setKeyPassphrase(passphraseInput);
+            } else if (!isEditing || keyPathChanged) {
+                host.setKeyPassphrase("");
+            }
+        } else {
+            host.setPassword(remoteHostPasswordInput.getText());
+            host.setKeyPath("");
+            host.setKeyPassphrase("");
+        }
 
         if (host.name.isEmpty() || host.ip.isEmpty()) {
             new Notification("Error", "Host Name and IP cannot be empty.", Notification.Type.ERROR);
@@ -922,16 +1041,53 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             instanceManager.updateRemoteHost(host);
             tabs().getActiveTab().setName(host.name);
         } else {
-            instanceManager.addRemoteHost(host);
-            Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
-            DesktopLayout remoteLayout = new DesktopLayout();
-            remoteLayout.setOnReorder(() -> saveServerOrder(c, host));
-            c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
-            tabs().addTab(host.name, c).setData(host);
-            tabs().setActiveTab(tabs().getTabs().size() - 1);
+            Notification notification = new Notification.Builder()
+                .message("Testing Host")
+                .description("Connecting... 0%")
+                .type(Notification.Type.INFO)
+                .loading(true)
+                .autoSlideOut(false)
+                .build();
+            testRemoteHostAsync(host, notification, () -> {
+                instanceManager.addRemoteHost(host);
+                Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
+                DesktopLayout remoteLayout = new DesktopLayout();
+                remoteLayout.setOnReorder(() -> saveServerOrder(c, host));
+                c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
+                tabs().addTab(host.name, c).setData(host);
+                tabs().setActiveTab(tabs().getTabs().size() - 1);
+                closeRemoteHostPopup();
+            }, null);
+            return;
         }
 
         closeRemoteHostPopup();
+    }
+
+    private void updateRemoteHostAdvancedVisibility() {
+        boolean useKey = remoteHostAuthModeSwitch != null && remoteHostAuthModeSwitch.getCurrentIndex() == 1;
+        if (remoteHostPopup != null) {
+            remoteHostPopup.setRowVisibility(ROW_REMOTE_HOST_PASSWORD, !useKey);
+            remoteHostPopup.setRowVisibility(ROW_REMOTE_HOST_AUTH_MODE, true);
+            remoteHostPopup.setRowVisibility(ROW_REMOTE_HOST_KEY_PATH, useKey);
+            remoteHostPopup.setRowVisibility(ROW_REMOTE_HOST_PASSPHRASE, useKey);
+        }
+        if (remoteHostPasswordInput != null) {
+            remoteHostPasswordInput.setActive(!useKey);
+            remoteHostPasswordInput.setVisible(!useKey);
+        }
+        if (remoteHostKeyPathInput != null) {
+            remoteHostKeyPathInput.setActive(useKey);
+            remoteHostKeyPathInput.setVisible(useKey);
+        }
+        if (remoteHostKeyPassphraseInput != null) {
+            remoteHostKeyPassphraseInput.setActive(useKey);
+            remoteHostKeyPassphraseInput.setVisible(useKey);
+        }
+        if (remoteHostAuthModeSwitch != null) {
+            remoteHostAuthModeSwitch.setActive(true);
+            remoteHostAuthModeSwitch.setVisible(true);
+        }
     }
 
     private void onDeleteRemoteHost() {

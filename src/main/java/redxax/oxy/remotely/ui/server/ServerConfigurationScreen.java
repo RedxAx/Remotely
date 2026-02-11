@@ -83,6 +83,14 @@ public class ServerConfigurationScreen extends ReScreen {
                     creds.put("port", String.valueOf(remoteHostContext.getPort()));
                     creds.put("user", remoteHostContext.getUser());
                     creds.put("password", remoteHostContext.getPassword());
+                    creds.put("authMode", remoteHostContext.getAuthMode());
+                    if (remoteHostContext.getKeyPath() != null && !remoteHostContext.getKeyPath().isBlank()) {
+                        creds.put("keyPath", remoteHostContext.getKeyPath());
+                    }
+                    String passphrase = remoteHostContext.getKeyPassphrase();
+                    if (passphrase != null && !passphrase.isBlank()) {
+                        creds.put("keyPassphrase", passphrase);
+                    }
                     this.tempInstance.setBackendConfig(new BackendConfig("SSH", creds));
                 } else {
                     this.tempInstance.setBackendConfig(instance.getBackendConfig());
@@ -97,6 +105,14 @@ public class ServerConfigurationScreen extends ReScreen {
                 creds.put("port", String.valueOf(remoteHostContext.getPort()));
                 creds.put("user", remoteHostContext.getUser());
                 creds.put("password", remoteHostContext.getPassword());
+                creds.put("authMode", remoteHostContext.getAuthMode());
+                if (remoteHostContext.getKeyPath() != null && !remoteHostContext.getKeyPath().isBlank()) {
+                    creds.put("keyPath", remoteHostContext.getKeyPath());
+                }
+                String passphrase = remoteHostContext.getKeyPassphrase();
+                if (passphrase != null && !passphrase.isBlank()) {
+                    creds.put("keyPassphrase", passphrase);
+                }
                 this.tempInstance.setBackendConfig(new BackendConfig("SSH", creds));
             }
         }
