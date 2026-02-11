@@ -14,6 +14,7 @@ import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.text.FontRegistry;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rebase.restudio.api.ReStudioApiClient;
 import restudio.rebase.restudio.ReStudio;
 import redxax.oxy.remotely.data.flow.FlowManager;
@@ -57,6 +58,7 @@ public class RemotelyClient {
         }
 
         ThemeManager.init();
+        ScreenManager.getInstance().setDesktopSuperScreenSupplier(() -> new ServerManagerScreen(null, this));
         new NodeRegistry();
         System.out.println("Remotely mod initialized on client.");
         loadSnippets();

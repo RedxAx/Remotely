@@ -37,18 +37,9 @@ public class RemotelyEntry extends ReStudioEntry {
         ServerManagerScreen superScreen = new ServerManagerScreen(null, RemotelyClient.INSTANCE);
 
         if (Config.desktopMode && !ReStudio.getInstance().isAuthenticated()) {
-            screenManager.clearDesktopWindows();
-            screenManager.setScreen(new ReStudioLoginScreen(null, () -> {
-                screenManager.setDesktopSuperScreen(superScreen);
-                screenManager.setScreen(superScreen);
-            }));
-            return;
-        } else if (Config.desktopMode) {
-            screenManager.setDesktopSuperScreen(superScreen);
-            screenManager.setScreen(superScreen);
+            screenManager.setScreen(new ReStudioLoginScreen(null, () -> screenManager.setScreen(superScreen)));
             return;
         }
-
         if (ReStudio.getInstance().isAuthenticated()) {
             screenManager.setScreen(superScreen);
         } else {
