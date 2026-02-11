@@ -2,7 +2,6 @@ package redxax.oxy.remotely.ui.server;
 
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.data.flow.FlowManager;
@@ -27,6 +26,7 @@ import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.util.RebaseLogger;
 import restudio.rebase.util.ssh.SSHManager;
 import restudio.rescreen.Main;
+import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -88,6 +88,11 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
     public String getDesktopAppIconPath() {
         return "remotely.png";
+    }
+
+    @Override
+    public boolean shouldForceSuperScreen() {
+        return Config.desktopMode;
     }
 
     @Override

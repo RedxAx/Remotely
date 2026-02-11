@@ -46,9 +46,6 @@ public class RematrixScreen extends Screen {
         float mcScale = (float) Minecraft.getInstance().getWindow().getGuiScale();
         float persistedScale = Config.configManager != null ? Config.configManager.getGuiScale() : mcScale;
         sm.setGuiScale(persistedScale);
-        if (Config.desktopMode && (sm.getDesktopSuperScreen() == null || libScreen.shouldForceSuperScreen())) {
-            sm.setDesktopSuperScreen(libScreen);
-        }
         sm.setScreen(libScreen);
     }
 

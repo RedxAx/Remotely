@@ -48,9 +48,6 @@ public class MinecraftApplicationHost implements ApplicationHost {
                 f.setAccessible(true);
                 f.setLong(null, handle);
             } catch (Throwable ignored) {}
-            if (sm.getDesktopSuperScreen() == null || screen.shouldForceSuperScreen()) {
-                sm.setDesktopSuperScreen(screen);
-            }
             if (mc.screen instanceof ReScreenWrapper) {
                 sm.setScreen(screen);
                 return;
