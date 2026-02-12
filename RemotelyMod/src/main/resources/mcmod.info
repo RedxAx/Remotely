@@ -6,6 +6,5 @@
         "mcversion": "${mc_version}",
         "description": "${mod_description}",
         "authorList": ["RedxAx"],
-        "dependencies": ["textile"]
     }
 ]

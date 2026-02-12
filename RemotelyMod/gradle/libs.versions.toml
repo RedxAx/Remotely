@@ -1,5 +1,3 @@
 [versions]
-textile = "1.0.0-beta.17"
 
 [libraries]
-textile = { group = "dev.deftu", name = "textile", version.ref = "textile" }
