@@ -29,7 +29,7 @@ public class ServerClientSettingsController {
         Setting.Builder servers = new Setting.Builder("Servers");
 
         servers.addOption(ConfigOption.<Boolean>builder("Scan For Servers")
-                .description("Automatically scan local network for Remotely instances.")
+                .description("Scan Your Remotely Instances.")
                 .bind(configManager::getScanServers, configManager::setScanServers)
                 .defaultValue(true)
                 .build());

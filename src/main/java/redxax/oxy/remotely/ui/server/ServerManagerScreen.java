@@ -7,6 +7,7 @@ import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
 import restudio.rebase.backend.BackendConfig;
+import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.restudio.AuthStateListener;
@@ -1151,6 +1152,43 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void openImportFileExplorer() {
+        Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
+        if (data instanceof RemoteHost host) {
+            Map<String, String> creds = new HashMap<>();
+            creds.put("host", host.getIp());
+            creds.put("port", String.valueOf(host.getPort()));
+            creds.put("user", host.getUser());
+            creds.put("authMode", host.getAuthMode());
+            creds.put("hostId", host.hostId);
+            String password = host.getPassword();
+            if (password != null && !password.isBlank()) {
+                creds.put("password", password);
+            }
+            if (host.getKeyPath() != null && !host.getKeyPath().isBlank()) {
+                creds.put("keyPath", host.getKeyPath());
+            }
+            BackendConfig config = new BackendConfig("SSH", creds);
+            Instance dummy = new Instance(host.name, "", "/");
+            dummy.setBackendConfig(config);
+            FileSystemProvider provider = dummy.getBackend().getFileSystem();
+            String home = provider.getMetadata("homeDir");
+            if (home == null || home.isBlank()) home = "/";
+            Path homePath = Path.of(home);
+            client.setScreen(new FileExplorerScreen(this, null, homePath, remotelyDir, true, provider) {
+                public String getDesktopAppId() {
+                    return "file-explorer";
+                }
+
+                public String getDesktopAppTitle() {
+                    return "File Explorer";
+                }
+
+                public String getDesktopAppIconPath() {
+                    return "explorer.png";
+                }
+            });
+            return;
+        }
         client.setScreen(new FileExplorerScreen(this, null, remotelyDir, remotelyDir, true) {
             public String getDesktopAppId() {
                 return "file-explorer";
