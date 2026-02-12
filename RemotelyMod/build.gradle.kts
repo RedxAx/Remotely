@@ -193,117 +193,88 @@ publisher {
         changelog.set(
             """
                 ### Remotely Changes:
-                - Fix: ESC Not Handled For MC.
-                - Fix: Used ClipboardHandler For MC.
-                - Fix: Incorrect Button Positioning In TitleScreen.
-                - Chore: Small Changes.
-                - Feat: Server Tab Renames For Non-LocalBackend Servers.
-                - Feat: Customize Icon For Non-LocalBackend Servers
-                - Fix: Filters Widget Aren't Sticking To Their Tabs.
-                - Feat: Launch Anyway Buttons.
-                - ReCode: Server Sessions Logic.
-                - Fix: Opening Non-Local Servers Doesn't Select Already Opened Ones.
-                - Feat: More UX Features.
-                - Feat: Server Ordering.
-                - Chore: Moved Development Settings To ReScreen.
-                - Feat: Completely Rewrote PlayerManagement.
-                - Fix: ServerTerminal States.
-                - Fix: Edit Button Now Visible In ServerManager.
-                - Feat: Full Config Support For ReStudio.Host.
-                - Feat: Integrated Java Management Into Remotely.
-                - Fix: Update All Popup Toggles Don't Work.
-                - Fix: Resource Duplicate On Toggle.
-                - Feat: Integrated Auto-Updater.
-                - Feat: 100x Faster Resource Loading.
-                - Fix: Used New WatcherServiceManager.
-                - Feat: Smart Server Backup Manager.
+                - Fix: Remote Server Importing Opening.
+                - Chore: Removed Unused Debs & Cleanup.
+                - Fix: ServerDetailsScreen Opening Behavior In Desktop Mode.
+                - Fix: Minimal Button Position On TitleScreen.
+                - Adapt/Feat: SSH-Keys Support | Better Connection Feedback.
+                - Adapt: Rebase User System Overhaul.
+                - Feat: ServerDetailsScreen Isolated Tabs For Desktop Mode.
+                - Fix: Desktop Screen Opening Fixes.
+                - Fix: Black/White Text When Should Be Invisible (HotFix).
+                - Chore: Class Names Refactor For Rematrix.
+                - Feat(Rematrix): 1.20.1 Support.
+                - Feat(Rematrix): 1.21.[1, 4] Support.
+                - Feat(Rematrix): 1.21.[8, 6, 5] Support.
+                - ReWrite/Feat: Rematrix Init.
+                - Fix: Proper ReStudio Host Status Management.
+                - Adapt: ReScreen's Desktop Apps API.
+                - Adapt: ReScreen Desktop Mode Changes.
+                - Chore: Updated License To Remove Ambiguity.
+                - Feat: Status Bar For Resource Tracking & Server Info.
+                - Feat(Huge): Desktop Mode.
+                - Adapt: ReStudio Modpack Installation.
+                - Feat: Hide/Unhide Servers.
+                - Visual: Updated The Server Creation Popup Look.
+                - Fix: Asyncing Stuff To Prevent Many Freezes.
+                - Fix: Remote Host Popup Improvements.
+                - Fix: Some FlowEditor Bugs.
+                - Feat: `ALT+X` To Toggle Game/Remotely.
 
                 ### Rebase Changes:
-                - Fix: TextAreaWidget Didn't Handle Copy Correctly.
-                - Feat: FileExplorer Remembers Any Remote Host.
-                - Fix: `.tmp` Appearing As Resources.
-                - Fix: Inaccurate Update Checking.
-                - Fix: Set-To-Parent Breaks The ResourceBrowserScreen.
-                - Fix: Right-Clicking On Files Doesn't Show Context Menu.
-                - Feat: Resize Gallery & Auth Screen Handling.
-                - Feat: File Transfer Progress Reporting & More.
-                - Feat(Editor): Numbered Lines & Line Highlight.
-                - Feat: Server Rename Endpoint.
-                - Feat: Edit Paths In Tabs.
-                - Fix: Static Ports That Might Be Bound Already.
-                - Fix: Proper Resource Cache Handling.
-                - Feat: Proper Handling Of "latest".
-                - Feat: Reliable `equal()` And `hashCode` Impl.
-                - Feat: Server Info Feature.
-                - Fix: CredentialsManager, I Hate Windows.
-                - Fix: CredentialsManager, FR THIS TIME.
-                - Fix: CredentialsManager Not Resetting Corrupted Values.
-                - Visual: Overhauled Update Popup.
-                - Feat: TerminalWidget Respect Obfuscation Option.
-                - Fix: Some Memory Improvements.
-                - Fix: More `server.jar` Checks.
-                - Feat: Proper New Versions Suppot (YY.x.x)
-                - Fix: Role Doesn't Get Saved.
-                - Fix: Importing Theme Named "default" No Longer Override.
-                - Fix: Searching Resources Have Duplicates.
-                - Fix: Disable TextScissors In IconButton For Comment Widget..
-                - Fix: Comments Doesn't Update When Posting One.
-                - Feat: Server Versions Controlling & More.
-                - Fix: Much More Reliable CredentialsManager.
-                - Feat: Import Server Type/Version.
-                - Fix: SshBackend Mistake.
-                - Feat: Added Java 25 To Java Manager.
-                - Feat: Java Management For Servers.
-                - Fix: Reliable `server.jar` Detection.
-                - Fix: Folders Being Counted As Resources.
-                - Feat: Auto-Updater.
-                - WIP: 100x Faster Resource Loading.
-                - Fix: Feedback Flow And UX.
-                - Fix: Used Universal `openBrowser()`.
-                - Feat: Way Smarter JRE Management.
-                - Feat: Significant Backups Improvements.
-                - Fix: Modrinth Images Now Load Raw Image.
-                - Fix: Authentication Doesn't Provide Project.
-                - fix: FileExplorer Navigation Loop.
-                - Fix: Terminal Init Flow.
+                - Fix: Dynamic Width For StatusBar In FileEditorScreen.
+                - Fix: Incorrect Tab Opening For Importing.
+                - Fix: External Path Getting Deleted On Scan.
+                - Fix: Importing Remote Servers Goes To Local.
+                - Fix: Critical Resource Downloading Issues.
+                - Fix: Small Changes To Settings.
+                - Fix: Tab Closing Behavior In Desktop Mode.
+                - Feat: SSH-Keys Support.
+                - Feat: Overhauled User System.
+                - Feat: Isolated Tabs For Desktop Mode.
+                - Feat: Many PixelArtEditor Improvements.
+                - Feat: Dynamic Context Menu Actions.
+                - Feat: Pixel Art Editor.
+                - Fix: ReStudio Servers Status Stuff.
+                - Feat: FileEditor Status Bar Impl.
+                - Adapt: ReScreen's Desktop Apps API.
+                - Adapt: ReScreen's Desktop Mode.
+                - Fix: Modpack Installation Is Now Reliable.
+                - Feat: ResourceUsageFeature Full Implementation.
+                - Feat(Huge): Desktop Mode.
+                - Feat: Status Bar For FileExplorer.
+                - Feat/Fix: ResourceInstallationService And ReStudio Modpack Handling.
+                - Feat: Hide Flag For Instances.
+                - Feat: Made TextArea Line Highlight Toggleable.
+                - Fix: Duplicate Posting Possibility.
+                - Feat: Replaced Binary Agent With Shell Script.
+                - Feat: Terminal Optimizations.
+                - Feat: Folia Support.
+                - Fix: "New Issue" Button Disappear When Set-To-Parent.
+                - Fix: Start Script For Servers.
 
                 ### ReScreen Changes:
-                - Feat: ClipboardHandler (Platform Agnostic).
-                - Fix: GalleryContainer Doesn't React To Resizing.
-                - Feat: ReScreen State `preserveStateOnDisplay` Option.
-                - Feat: More ItemSelectorWidget Features.
-                - Feat: New Smart ItemSelectorWidget.
-                - Feat: Notification Handling For InfiniteScreen.
-                - Feat: More API For TabsManager.
-                - Fix: Double Notification Spawning.
-                - Fix: AutoSetWidth Will Ignore Icons In `IconButton`.
-                - Feat: Imported DevelopmentSettingsController.
-                - Fix: Critical Memory Leaks.
-                - Fix: DropDownWidget Visual Bugs.
-                - Fix: Theme Switching Issues.
-                - Fix: Text Can Overflow In IconButtons.
-                - Fix: 2 Widgets Visible When Renaming Tabs.
-                - Feat: ClipboardHandler (Platform Agnostic).
-                - Fix: GalleryContainer Doesn't React To Resizing.
-                - Feat: ReScreen State `preserveStateOnDisplay` Option.
-                - Feat: More ItemSelectorWidget Features.
-                - Feat: New Smart ItemSelectorWidget.
-                - Feat: Notification Handling For InfiniteScreen.
-                - Feat: More API For TabsManager.
-                - Fix: Double Notification Spawning.
-                - Fix: AutoSetWidth Will Ignore Icons In `IconButton`.
-                - Feat: Imported DevelopmentSettingsController.
-                - Fix: Critical Memory Leaks.
-                - Fix: DropDownWidget Visual Bugs.
-                - Fix: Theme Switching Issues.
-                - Fix: Text Can Overflow In IconButtons.
-                - Fix: 2 Widgets Visible When Renaming Tabs.
-                - Fix: WatchServiceManager Improvements.
-                - Feat: Containers Ability To Insert Widgets Smoothly.
-                - Feat: New WatchServiceManager (Files).
-                - Feat: BrowsingUtils.
-                - Fix: Popups Now Use zLayer & Priority.
-                - Feat: GalleryContainer Flexible Image Loading.
+                - Feat: Width Bounds For StatusBarBuilder.
+                - Fix: Entrance Delay Calculation For Desktop Mode.
+                - Feat: More ScreenWindowWidget UX Improvements.
+                - Fix: Scissors Now Animated With Elevation In IconButton.
+                - Fix: Thumbnails For Minimized Windows.
+                - Fix: Tab Grouping Behaviors.
+                - Fix: Incorrect TabsManager Width In Desktop Mode.
+                - Feat: Native pickImageFileAsync.
+                - Fix: Screens Rescales When Applying Settings.
+                - Fix: More Polishments For Desktop Mode.
+                - Feat: Defensive Layering For Desktop Mode.
+                - Feat: Smoooooooooooooooooth Desktop Mode.
+                - Fix: More Desktop Mode Polishments.
+                - Feat: Desktop Mode Overhaul.
+                - Feat/Fixes: More Desktop Mode Features & Improvements.
+                - Visual: Small Adjustments.
+                - Feat(Huge): Desktop Mode.
+                - Fix: All Custom MouseCursor Issues.
+                - Feat: New `BreadcrumbWidget`.
+                - Feat: StatusBar API For ReScreen.
+                - Feat: Text Batching.
             """.trimIndent()
         )
 
