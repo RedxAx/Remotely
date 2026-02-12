@@ -88,14 +88,6 @@ dependencies {
     shade("org.jetbrains.jediterm:jediterm-core:3.54")
     shade("org.jetbrains.jediterm:jediterm-pty:2.69")
 
-    with(libs.textile.get()) {
-        implementation(this)
-        val modDep = modImplementation("${this.group}:${this.name}-$mcData:${this.version}")
-
-        includeOrShade(this)
-        modDep?.let { includeOrShade(it) }
-    }
-
 
     if (mcData.isFabric) {
         if (mcData.isLegacyFabric) {
@@ -111,12 +103,6 @@ dependencies {
 }
 
 tasks {
-    fatJar {
-        if (mcData.isLegacyForge) {
-            relocate("dev.deftu.textile", "${modData.group}.dependencies.textile")
-        }
-    }
-
     configureEach {
         val taskName = name.lowercase()
         if (taskName.contains("publish") && (taskName.contains("modrinth") || taskName.contains("curse") || taskName.contains("github"))) {
