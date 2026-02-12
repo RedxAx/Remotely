@@ -139,6 +139,13 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     @Override
     public void close() {
+        if (desktopMode && isDesktopWindow()) {
+            var overlay = ScreenManager.getInstance().getDesktopWindowsOverlay();
+            if (overlay != null) {
+                overlay.requestCloseWindowForScreen(this);
+                return;
+            }
+        }
         remotelyClient.getHost().openParentScreen(this, parent);
     }
 
@@ -204,7 +211,11 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         List<Object> tabStore = getTabStore();
         if (tabStore.isEmpty()) {
-            tabStore.add(UUID.randomUUID().toString());
+            if (initialInstanceToOpen != null) {
+                tabStore.add(initialInstanceToOpen);
+            } else {
+                tabStore.add(UUID.randomUUID().toString());
+            }
         }
         for (Object tabInfo : tabStore) {
             createAndAddTab(tabInfo, false);
@@ -326,7 +337,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
 
         if (setActive) {
-            tabs().setActiveTab(tab.getContainer());
+            tabs().setActiveTab(tabs().getTabs().size() - 1);
         }
     }
 
