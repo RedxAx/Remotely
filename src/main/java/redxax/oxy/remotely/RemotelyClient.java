@@ -58,6 +58,7 @@ public class RemotelyClient {
         }
 
         ThemeManager.init();
+        host.ensureTextRenderer();
         ScreenManager.getInstance().setDesktopSuperScreenSupplier(() -> new ServerManagerScreen(null, this));
         new NodeRegistry();
         System.out.println("Remotely mod initialized on client.");
