@@ -17,11 +17,14 @@ import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.settings.controllers.VersionSettingsController;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.theme.ThemeManager;
+import restudio.rescreen.config.Config;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.screens.DesktopWindowsOverlay;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.SettingsScreen;
+import restudio.rescreen.ui.widgets.ScreenWindowWidget;
 import restudio.rescreen.ui.widgets.LoadingAnimationWidget;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
@@ -291,6 +294,18 @@ public class ServerConfigurationScreen extends ReScreen {
         }
 
         SettingsScreen settingsScreen = new SettingsScreen(parent, title, settingsByTab, this::saveConfiguration, combinedCleanup);
+        if (Config.desktopMode) {
+            DesktopWindowsOverlay overlay = ScreenManager.getInstance().getDesktopWindowsOverlay();
+            if (overlay != null) {
+                for (ScreenWindowWidget window : overlay.getWindows()) {
+                    if (window.getScreen() == this) {
+                        window.setScreen(settingsScreen);
+                        overlay.bringToFront(window);
+                        return;
+                    }
+                }
+            }
+        }
         client.setScreen(settingsScreen);
     }
 
