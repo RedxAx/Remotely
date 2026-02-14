@@ -341,7 +341,9 @@ public class ServerConfigurationScreen extends ReScreen {
             return;
         }
 
-        ReStudio.getInstance().getApi().createCheckoutSession(tempInstance.getName(), planName, null, remoteVariables, fileConfigs).thenAccept(url -> {
+        String subdomain = planController.getSubdomain();
+
+        ReStudio.getInstance().getApi().createCheckoutSession(tempInstance.getName(), planName, null, remoteVariables, fileConfigs, subdomain).thenAccept(url -> {
             openBrowser(url);
             ScreenManager.getInstance().execute(this::close);
         }).exceptionally(e -> {

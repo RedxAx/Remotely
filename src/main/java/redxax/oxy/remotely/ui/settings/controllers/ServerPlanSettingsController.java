@@ -7,6 +7,8 @@ import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
 
+import restudio.rescreen.ui.widgets.TextInputWidget;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -17,6 +19,7 @@ public class ServerPlanSettingsController {
     private final AtomicReference<ServerModels.Plan> selectedPlan = new AtomicReference<>();
     private final List<ServerModels.Plan> availablePlans = new ArrayList<>();
     private DropDownWidget<ServerModels.Plan> planDropdown;
+    private TextInputWidget subdomainInput;
 
     public ServerPlanSettingsController() {
     }
@@ -36,6 +39,18 @@ public class ServerPlanSettingsController {
                 .build();
 
         builder.addRow("", true, 30, planWidget);
+
+        subdomainInput = new TextInputWidget.Builder()
+                .placeholder("Optional (e.g. myserver)")
+                .size(300, 20)
+                .build();
+
+        MountableButtonWidget subdomainWidget = new MountableButtonWidget.Builder("Custom Subdomain")
+                .description("Set a custom subdomain (e.g. myserver.restudiomc.net).")
+                .addWidget(subdomainInput)
+                .build();
+
+        builder.addRow("", true, 30, subdomainWidget);
 
         loadPlans();
 
@@ -62,6 +77,10 @@ public class ServerPlanSettingsController {
     public String getSelectedPlanName() {
         ServerModels.Plan plan = selectedPlan.get();
         return plan != null ? plan.name : null;
+    }
+
+    public String getSubdomain() {
+        return subdomainInput != null ? subdomainInput.getText() : null;
     }
 
     private String formatPrice(long cents) {
