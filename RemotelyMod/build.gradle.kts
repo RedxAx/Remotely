@@ -175,7 +175,17 @@ publisher {
 
         displayName.set("Remotely ${modData.version} (${if (mcData.isFabric) "Fabric" else "NeoForge"} ${mcData.version})")
 
-        gameVersions.set(listOf(mcData.version.toString()))
+        val publishGameVersions = mapOf(
+            "1.21.11" to listOf("1.21.11"),
+            "1.21.10" to listOf("1.21.10", "1.21.9"),
+            "1.21.8" to listOf("1.21.8", "1.21.7", "1.21.6"),
+            "1.21.6" to listOf("1.21.8", "1.21.7", "1.21.6"),
+            "1.21.5" to listOf("1.21.5"),
+            "1.21.4" to listOf("1.21.4", "1.21.3", "1.21.2"),
+            "1.21.1" to listOf("1.21.1", "1.21"),
+            "1.20.1" to listOf("1.20.1", "1.20")
+        )
+        gameVersions.set(publishGameVersions[mcData.version.toString()] ?: listOf(mcData.version.toString()))
 
         val currentLoader = when {
             mcData.isFabric -> "fabric"
