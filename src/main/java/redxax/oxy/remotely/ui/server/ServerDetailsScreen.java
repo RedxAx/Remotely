@@ -1083,7 +1083,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
 
         private void updateConnectionInfo(String value) {
-            connectionInfo = value == null || value.isBlank() ? "Unknown" : value;
+            connectionInfo = value == null || value.isBlank() ? "Unknown" : value.endsWith(":25565") ? value.substring(0, value.length() - 6) : value;
             updateConnectionWidget();
         }
 
