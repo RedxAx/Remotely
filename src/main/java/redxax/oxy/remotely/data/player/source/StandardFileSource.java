@@ -1,7 +1,10 @@
 package redxax.oxy.remotely.data.player.source;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import com.google.gson.stream.JsonReader;
+import java.io.StringReader;
 import redxax.oxy.remotely.data.managed.BanEntry;
 import redxax.oxy.remotely.data.managed.IpBanEntry;
 import redxax.oxy.remotely.data.managed.OpEntry;
@@ -21,7 +24,7 @@ import java.util.concurrent.CompletableFuture;
 public class StandardFileSource implements IPlayerSource {
     private final RebaseAPI api;
     private PlayerService service;
-    private final Gson gson = new Gson();
+    private final Gson gson = new GsonBuilder().setLenient().create();
     private boolean enabled = false;
 
     private final Path opsPath;
@@ -73,17 +76,24 @@ public class StandardFileSource implements IPlayerSource {
     public void updateFromContent(String fileName, String content) {
         if (!enabled || content == null || content.isEmpty()) return;
         try {
+            JsonReader reader = new JsonReader(new StringReader(content));
+            reader.setLenient(true);
+            
             if (fileName.endsWith("ops.json")) {
-                List<OpEntry> ops = gson.fromJson(content, new TypeToken<List<OpEntry>>() {}.getType());
+                List<OpEntry> ops = gson.fromJson(reader, new TypeToken<List<OpEntry>>() {}.getType());
                 processOps(ops);
             } else if (fileName.endsWith("banned-players.json")) {
-                List<BanEntry> bans = gson.fromJson(content, new TypeToken<List<BanEntry>>() {}.getType());
+                List<BanEntry> bans = gson.fromJson(reader, new TypeToken<List<BanEntry>>() {}.getType());
                 processBans(bans);
             } else if (fileName.endsWith("banned-ips.json")) {
-                List<IpBanEntry> ipBans = gson.fromJson(content, new TypeToken<List<IpBanEntry>>() {}.getType());
+                List<IpBanEntry> ipBans = gson.fromJson(reader, new TypeToken<List<IpBanEntry>>() {}.getType());
                 processIpBans(ipBans);
             }
         } catch (Exception e) {
+            System.err.println("JSON Parse Error in " + fileName + ": " + e.getMessage());
+            if (content != null) {
+                System.err.println("Content Preview: " + (content.length() > 500 ? content.substring(0, 500) + "..." : content));
+            }
             e.printStackTrace();
         }
     }
