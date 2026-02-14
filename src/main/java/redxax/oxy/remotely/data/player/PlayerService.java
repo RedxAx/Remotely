@@ -7,7 +7,11 @@ import restudio.rescreen.debug.DebugManager;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
@@ -16,6 +20,10 @@ public class PlayerService {
     private final List<IPlayerSource> sources = new CopyOnWriteArrayList<>();
     private final List<IActionExecutor> executors = new CopyOnWriteArrayList<>();
     private final List<Consumer<List<UnifiedPlayer>>> listeners = new CopyOnWriteArrayList<>();
+    private final Map<String, PendingOnline> pendingOnlineByName = new ConcurrentHashMap<>();
+
+    private record PendingOnline(String ip, long lastSeen, String source, int priority) {
+    }
 
     public void registerSource(IPlayerSource source) {
         sources.add(source);
@@ -54,9 +62,73 @@ public class PlayerService {
             
             if (update.shouldClearIp()) player.updateIp(null, src, prio);
             else if (update.getIp() != null) player.updateIp(update.getIp(), src, prio);
+
+            String name = update.getName() != null ? update.getName() : player.getName();
+            applyPendingOnline(player, name);
         }
         
         notifyListeners();
+    }
+
+    public void shutdown() {
+        for (IPlayerSource source : sources) {
+            source.disable();
+        }
+        sources.clear();
+        executors.clear();
+        listeners.clear();
+        pendingOnlineByName.clear();
+    }
+
+    public UUID resolveUuid(String name) {
+        if (name == null || name.isBlank()) return null;
+        for (UnifiedPlayer p : registry.getAll()) {
+            String n = p.getName();
+            if (n != null && n.equalsIgnoreCase(name)) return p.getUuid();
+        }
+        return null;
+    }
+
+    public void markOnlineByName(String name, String ip, long lastSeen, String source, int priority) {
+        if (name == null || name.isBlank()) return;
+        UUID uuid = resolveUuid(name);
+        if (uuid != null) {
+            PlayerUpdateBatch batch = new PlayerUpdateBatch(source, priority);
+            PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, name);
+            update.setOnline(true);
+            if (ip != null && !ip.isBlank()) update.setIp(ip);
+            if (lastSeen > 0) update.setLastSeen(lastSeen);
+            batch.add(update);
+            submitUpdate(batch);
+            return;
+        }
+        pendingOnlineByName.put(name.toLowerCase(Locale.ROOT), new PendingOnline(ip, lastSeen, source, priority));
+    }
+
+    public void clearPendingOnline(String name) {
+        if (name == null || name.isBlank()) return;
+        pendingOnlineByName.remove(name.toLowerCase(Locale.ROOT));
+    }
+
+    private void applyPendingOnline(UnifiedPlayer player, String name) {
+        if (name == null || name.isBlank()) return;
+        PendingOnline pending = pendingOnlineByName.remove(name.toLowerCase(Locale.ROOT));
+        if (pending == null) return;
+        if (pending.lastSeen > 0) player.updateLastSeen(pending.lastSeen, pending.source, pending.priority);
+        if (pending.ip != null && !pending.ip.isBlank()) player.updateIp(pending.ip, pending.source, pending.priority);
+        player.updateOnline(true, pending.source, pending.priority);
+    }
+
+    public void ensurePlayer(UUID uuid, String name, String source, int priority) {
+        if (uuid == null) return;
+        PlayerUpdateBatch batch = new PlayerUpdateBatch(source, priority);
+        PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, name);
+        batch.add(update);
+        submitUpdate(batch);
+    }
+
+    public void applyBatch(PlayerUpdateBatch batch) {
+        submitUpdate(batch);
     }
 
     public CompletableFuture<Void> executeAction(UnifiedPlayer player, String actionType, Object... args) {

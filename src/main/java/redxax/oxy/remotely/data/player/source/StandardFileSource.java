@@ -8,6 +8,8 @@ import java.io.StringReader;
 import redxax.oxy.remotely.data.managed.BanEntry;
 import redxax.oxy.remotely.data.managed.IpBanEntry;
 import redxax.oxy.remotely.data.managed.OpEntry;
+import redxax.oxy.remotely.data.managed.UserCacheEntry;
+import redxax.oxy.remotely.data.managed.WhitelistEntry;
 import redxax.oxy.remotely.data.player.PlayerService;
 import redxax.oxy.remotely.data.player.PlayerUpdateBatch;
 import redxax.oxy.remotely.data.player.model.BanInfo;
@@ -17,9 +19,12 @@ import restudio.rebase.instance.Instance;
 
 import java.lang.reflect.Type;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 public class StandardFileSource implements IPlayerSource {
     private final RebaseAPI api;
@@ -30,6 +35,8 @@ public class StandardFileSource implements IPlayerSource {
     private final Path opsPath;
     private final Path bannedPlayersPath;
     private final Path bannedIpsPath;
+    private final Path whitelistPath;
+    private final Path usercachePath;
 
     public StandardFileSource(Instance instance, RebaseAPI api) {
         this.api = api;
@@ -37,6 +44,8 @@ public class StandardFileSource implements IPlayerSource {
         this.opsPath = instancePath.resolve("ops.json");
         this.bannedPlayersPath = instancePath.resolve("banned-players.json");
         this.bannedIpsPath = instancePath.resolve("banned-ips.json");
+        this.whitelistPath = instancePath.resolve("whitelist.json");
+        this.usercachePath = instancePath.resolve("usercache.json");
     }
 
     @Override
@@ -71,6 +80,8 @@ public class StandardFileSource implements IPlayerSource {
         loadJsonFile(opsPath, new TypeToken<List<OpEntry>>() {}).thenAccept(this::processOps);
         loadJsonFile(bannedPlayersPath, new TypeToken<List<BanEntry>>() {}).thenAccept(this::processBans);
         loadJsonFile(bannedIpsPath, new TypeToken<List<IpBanEntry>>() {}).thenAccept(this::processIpBans);
+        loadJsonFile(whitelistPath, new TypeToken<List<WhitelistEntry>>() {}).thenAccept(this::processWhitelist);
+        loadJsonFile(usercachePath, new TypeToken<List<UserCacheEntry>>() {}).thenAccept(this::processUsercache);
     }
 
     public void updateFromContent(String fileName, String content) {
@@ -88,6 +99,12 @@ public class StandardFileSource implements IPlayerSource {
             } else if (fileName.endsWith("banned-ips.json")) {
                 List<IpBanEntry> ipBans = gson.fromJson(reader, new TypeToken<List<IpBanEntry>>() {}.getType());
                 processIpBans(ipBans);
+            } else if (fileName.endsWith("whitelist.json")) {
+                List<WhitelistEntry> whitelist = gson.fromJson(reader, new TypeToken<List<WhitelistEntry>>() {}.getType());
+                processWhitelist(whitelist);
+            } else if (fileName.endsWith("usercache.json")) {
+                List<UserCacheEntry> cache = gson.fromJson(reader, new TypeToken<List<UserCacheEntry>>() {}.getType());
+                processUsercache(cache);
             }
         } catch (Exception e) {
             System.err.println("JSON Parse Error in " + fileName + ": " + e.getMessage());
@@ -102,15 +119,23 @@ public class StandardFileSource implements IPlayerSource {
         if (ops == null || service == null) return;
         PlayerUpdateBatch batch = new PlayerUpdateBatch("files", getPriority());
         for (OpEntry op : ops) {
-            UUID uuid = UUID.fromString(op.uuid);
+            UUID uuid = safeUuid(op.uuid);
+            if (uuid == null) continue;
             PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, op.name);
             update.setOp(true);
             batch.add(update);
+            service.ensurePlayer(uuid, op.name, "files", getPriority());
         }
+
+        Set<String> opUuids = ops.stream()
+            .map(o -> o.uuid)
+            .filter(u -> u != null && !u.isBlank())
+            .map(String::toLowerCase)
+            .collect(Collectors.toSet());
 
         service.getRegistry().getAll().stream()
             .filter(UnifiedPlayer::isOp)
-            .filter(p -> ops.stream().noneMatch(o -> o.uuid.equalsIgnoreCase(p.getUuid().toString())))
+            .filter(p -> !opUuids.contains(p.getUuid().toString().toLowerCase()))
             .forEach(p -> {
                 PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(p.getUuid(), p.getName());
                 update.setOp(false);
@@ -124,16 +149,24 @@ public class StandardFileSource implements IPlayerSource {
         if (bans == null || service == null) return;
         PlayerUpdateBatch batch = new PlayerUpdateBatch("files", getPriority());
         for (BanEntry ban : bans) {
-            UUID uuid = UUID.fromString(ban.uuid);
+            UUID uuid = safeUuid(ban.uuid);
+            if (uuid == null) continue;
             PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, ban.name);
             BanInfo banInfo = new BanInfo(ban.uuid, ban.name, ban.created, ban.source, ban.expires, ban.reason);
             update.setBan(banInfo);
             batch.add(update);
+            service.ensurePlayer(uuid, ban.name, "files", getPriority());
         }
+
+        Set<String> bannedUuids = bans.stream()
+            .map(b -> b.uuid)
+            .filter(u -> u != null && !u.isBlank())
+            .map(String::toLowerCase)
+            .collect(Collectors.toSet());
 
         service.getRegistry().getAll().stream()
             .filter(p -> p.getBan().getValue() != null)
-            .filter(p -> bans.stream().noneMatch(b -> b.uuid.equalsIgnoreCase(p.getUuid().toString())))
+            .filter(p -> !bannedUuids.contains(p.getUuid().toString().toLowerCase()))
             .forEach(p -> {
                 PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(p.getUuid(), p.getName());
                 update.clearBan();
@@ -147,13 +180,63 @@ public class StandardFileSource implements IPlayerSource {
         if (ipBans == null || service == null) return;
         PlayerUpdateBatch batch = new PlayerUpdateBatch("files", getPriority());
 
-        List<String> bannedIps = ipBans.stream().map(b -> b.ip).toList();
+        Set<String> bannedIps = ipBans.stream()
+            .map(b -> b.ip)
+            .filter(ip -> ip != null && !ip.isBlank())
+            .collect(Collectors.toSet());
 
         service.getRegistry().getAll().stream()
             .filter(p -> p.getIp().getValue() != null)
             .forEach(p -> {
-                boolean isBanned = bannedIps.contains(p.getIp().getValue());
+                String ip = p.getIp().getValue();
+                if (ip == null || ip.isBlank()) return;
+                boolean isBanned = bannedIps.contains(ip);
+                if (isBanned) {
+                    PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(p.getUuid(), p.getName());
+                    BanInfo banInfo = new BanInfo(p.getUuid().toString(), p.getName(), "", "IP Ban", "", "IP banned");
+                    update.setBan(banInfo);
+                    batch.add(update);
+                }
             });
+
+        if (!batch.getUpdates().isEmpty()) {
+            service.submitUpdate(batch);
+        }
+    }
+
+    private void processWhitelist(List<WhitelistEntry> whitelist) {
+        if (whitelist == null || service == null) return;
+        for (WhitelistEntry entry : whitelist) {
+            UUID uuid = safeUuid(entry.uuid);
+            if (uuid != null) {
+                service.ensurePlayer(uuid, entry.name, "files", getPriority());
+            }
+        }
+    }
+
+    private void processUsercache(List<UserCacheEntry> cache) {
+        if (cache == null || service == null) return;
+        PlayerUpdateBatch batch = new PlayerUpdateBatch("files", getPriority());
+        Set<UUID> seen = new HashSet<>();
+        for (UserCacheEntry entry : cache) {
+            UUID uuid = safeUuid(entry.uuid);
+            if (uuid == null) continue;
+            if (!seen.add(uuid)) continue;
+            PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, entry.name);
+            batch.add(update);
+        }
+        if (!batch.getUpdates().isEmpty()) {
+            service.submitUpdate(batch);
+        }
+    }
+
+    private UUID safeUuid(String uuid) {
+        if (uuid == null || uuid.isBlank()) return null;
+        try {
+            return UUID.fromString(uuid);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private <T> CompletableFuture<List<T>> loadJsonFile(Path path, TypeToken<List<T>> typeToken) {

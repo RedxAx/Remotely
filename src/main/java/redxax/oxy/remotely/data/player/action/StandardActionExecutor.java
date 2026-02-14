@@ -25,12 +25,12 @@ public class StandardActionExecutor implements IActionExecutor {
     public CompletableFuture<Void> execute(UnifiedPlayer player, String actionType, Object... args) {
         if (terminal == null) {
             DebugManager.getInstance().log("StandardActionExecutor", "Terminal is null!");
-            return CompletableFuture.completedFuture(null);
+            return CompletableFuture.failedFuture(new IllegalStateException("Terminal unavailable"));
         }
         String name = player.getName();
         if (name == null && !actionType.equals("command")) {
             DebugManager.getInstance().log("StandardActionExecutor", "Player name is null!");
-            return CompletableFuture.completedFuture(null);
+            return CompletableFuture.failedFuture(new IllegalStateException("Player name unavailable"));
         }
 
         DebugManager.getInstance().log("StandardActionExecutor", "Executing " + actionType + " for " + name);

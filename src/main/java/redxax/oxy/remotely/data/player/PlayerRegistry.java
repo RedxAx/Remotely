@@ -16,6 +16,10 @@ public class PlayerRegistry {
         return players.computeIfAbsent(uuid, k -> new UnifiedPlayer(k, name));
     }
 
+    public UnifiedPlayer getOrCreate(UUID uuid) {
+        return players.computeIfAbsent(uuid, k -> new UnifiedPlayer(k, null));
+    }
+
     public UnifiedPlayer get(UUID uuid) {
         return players.get(uuid);
     }

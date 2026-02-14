@@ -364,7 +364,6 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             Optional<DataStreamFeature> dataStreamFeature = inst.getBackend().getFeature(DataStreamFeature.class);
             if (dataStreamFeature.isPresent()) {
                 StreamDataParser dataParser = new StreamDataParser(PlayerManagerController.getOrCreate(inst));
-                inst.addLogListener(dataParser);
                 info.setStreamDataParser(dataParser);
 
                 String logPath = inst.getPath() + "/logs/latest.log";
@@ -372,10 +371,11 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 String bannedPlayersPath = inst.getPath() + "/banned-players.json";
                 String bannedIpsPath = inst.getPath() + "/banned-ips.json";
                 String whitelistPath = inst.getPath() + "/whitelist.json";
-                List<String> preFiles = Arrays.asList(opsPath, bannedPlayersPath, bannedIpsPath, whitelistPath);
+                String usercachePath = inst.getPath() + "/usercache.json";
+                List<String> preFiles = Arrays.asList(opsPath, bannedPlayersPath, bannedIpsPath, whitelistPath, usercachePath);
 
                 DebugManager.getInstance().recordEvent(inst.getInstanceId(), "DataStream", "ServerDetails", "Found DataStreamFeature, attaching...");
-                dataStreamFeature.get().streamData(logPath, preFiles, inst::onLogOutput);
+                dataStreamFeature.get().streamData(logPath, preFiles, dataParser);
             } else {
                 DebugManager.getInstance().recordEvent(inst.getInstanceId(), "DataStream", "ServerDetails", "DataStreamFeature not available");
             }

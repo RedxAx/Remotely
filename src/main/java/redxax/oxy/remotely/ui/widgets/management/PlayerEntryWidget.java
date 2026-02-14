@@ -75,15 +75,15 @@ public class PlayerEntryWidget extends MountableButtonWidget {
             }
         }
 
-        buttons.add(banButton);
-        buttons.add(kickButton);
-        buttons.add(opButton);
+        if (banButton != null) buttons.add(banButton);
+        if (kickButton != null) buttons.add(kickButton);
+        if (opButton != null) buttons.add(opButton);
         mountedWidgets.addAll(buttons);
     }
 
     public void update(UnifiedPlayer newPlayerState) {
         this.player = newPlayerState;
-        this.name = player.getName();
+        this.name = player.getName() != null ? player.getName() : "Unknown";
         boolean serverRunning = controller.isServerRunning();
         updateButtonsState(serverRunning);
     }
@@ -93,40 +93,22 @@ public class PlayerEntryWidget extends MountableButtonWidget {
 
         boolean isBanned = player.getBan().getValue() != null;
         String banHint = isBanned ? "Unban Player" : "Ban Player";
-        if (banButton == null) {
-             banButton = new SquareButtonWidget.Builder().imagePath(isBanned ? "heart.png" : "close.png").size(18, 18).hint(banHint)
-                .accentType(isBanned ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")).onClick(() -> {
-                    if (player.getBan().getValue() != null) {
-                        controller.unbanPlayer(player);
-                    } else {
-                        new BanPlayerPopup(ScreenManager.getInstance().getCurrentScreen(), player, controller);
-                    }
-                }).build();
-        } else {
-             banButton = new SquareButtonWidget.Builder().imagePath(isBanned ? "heart.png" : "close.png").size(18, 18).hint(banHint)
-                .accentType(isBanned ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")).onClick(() -> {
-                    if (player.getBan().getValue() != null) {
-                        controller.unbanPlayer(player);
-                    } else {
-                        new BanPlayerPopup(ScreenManager.getInstance().getCurrentScreen(), player, controller);
-                    }
-                }).build();
-        }
+        banButton = new SquareButtonWidget.Builder().imagePath(isBanned ? "heart.png" : "close.png").size(18, 18).hint(banHint)
+            .accentType(isBanned ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")).onClick(() -> {
+                if (player.getBan().getValue() != null) {
+                    controller.unbanPlayer(player);
+                } else {
+                    new BanPlayerPopup(ScreenManager.getInstance().getCurrentScreen(), player, controller);
+                }
+            }).build();
         banButton.active = serverRunning;
 
         boolean isOp = player.isOp();
         String opHint = isOp ? "De-Op Player" : "Op Player";
-        if (opButton == null) {
-            opButton = new SquareButtonWidget.Builder()
-                .identifier(isOp ? deopIcon : opIcon).size(18, 18).hint(opHint)
-                .accentType(ThemeManager.getAccent("calm"))
-                .onClick(() -> controller.toggleOp(player)).build();
-        } else {
-            opButton = new SquareButtonWidget.Builder()
-                .identifier(isOp ? deopIcon : opIcon).size(18, 18).hint(opHint)
-                .accentType(ThemeManager.getAccent("calm"))
-                .onClick(() -> controller.toggleOp(player)).build();
-        }
+        opButton = new SquareButtonWidget.Builder()
+            .identifier(isOp ? deopIcon : opIcon).size(18, 18).hint(opHint)
+            .accentType(ThemeManager.getAccent("calm"))
+            .onClick(() -> controller.toggleOp(player)).build();
         opButton.active = serverRunning;
 
         List<AnimatedWidget> buttons = new CopyOnWriteArrayList<>();
@@ -145,9 +127,9 @@ public class PlayerEntryWidget extends MountableButtonWidget {
                 buttons.add(actionButton);
             }
         }
-        buttons.add(banButton);
-        buttons.add(kickButton);
-        buttons.add(opButton);
+        if (banButton != null) buttons.add(banButton);
+        if (kickButton != null) buttons.add(kickButton);
+        if (opButton != null) buttons.add(opButton);
 
         mountedWidgets.clear();
         mountedWidgets.addAll(buttons);
@@ -191,7 +173,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
     protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
         StringBuilder displayName = new StringBuilder();
         if (!cachedPrefix.isEmpty()) displayName.append(cachedPrefix);
-        displayName.append(player.getName());
+        displayName.append(player.getName() != null ? player.getName() : "Unknown");
         if (!cachedSuffix.isEmpty()) displayName.append(cachedSuffix);
 
         name = displayName.toString().replace("&", "§");

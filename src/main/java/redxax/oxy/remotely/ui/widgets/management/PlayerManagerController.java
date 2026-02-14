@@ -48,6 +48,7 @@ public class PlayerManagerController {
     private StandardFileSource standardFileSource;
     private List<PlayerAction> playerActions = new ArrayList<>();
     private final Gson gson = new Gson();
+    private int uiToken = 0;
 
     private PlayerManagerController(Instance instance) {
         this.instance = instance;
@@ -65,17 +66,25 @@ public class PlayerManagerController {
     }
 
     public void reloadProviders() {
+        uiToken++;
         initializeService();
         if (container != null) {
+            int token = uiToken;
             playerService.addListener(snapshot -> ScreenManager.getInstance().execute(() -> {
-                if (container != null) container.syncUi(snapshot);
+                if (container != null && token == uiToken) container.syncUi(snapshot);
             }));
             container.syncUi(playerService.getRegistry().getAll());
         }
     }
 
     private void initializeService() {
+        if (this.playerService != null) {
+            this.playerService.shutdown();
+        }
         this.playerService = new PlayerService();
+        if (this.historyProvider != null) {
+            this.historyProvider.shutdown();
+        }
         TerminalWidget tw = this.terminalWidget;
         RebaseAPI api = RebaseApiFactory.get(instance);
         Properties settings = instance.getSettings();
@@ -139,11 +148,6 @@ public class PlayerManagerController {
             reloadProviders();
             isInitialized = true;
         } else {
-             playerService.addListener(snapshot -> {
-                 ScreenManager.getInstance().execute(() -> {
-                     if (this.container != null) this.container.syncUi(snapshot);
-                 });
-             });
              if (container != null) container.syncUi(playerService.getRegistry().getAll());
         }
     }

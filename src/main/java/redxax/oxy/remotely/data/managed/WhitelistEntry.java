@@ -1,0 +1,10 @@
+package redxax.oxy.remotely.data.managed;
+
+import com.google.gson.annotations.SerializedName;
+
+public class WhitelistEntry {
+    @SerializedName("uuid")
+    public String uuid;
+    @SerializedName("name")
+    public String name;
+}
