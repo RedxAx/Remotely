@@ -20,6 +20,8 @@ public class PlayersContainer extends Container {
     private ReScreen host;
     private final TerminalWidget terminalWidget;
     private PlayerManagerController controller;
+    private IconMessage emptyMessage;
+    private boolean loading = true;
 
     public PlayersContainer(ReScreen host, Instance instance, TerminalWidget terminalWidget, int x, int y, int width, int height) {
         super(x, y, width, height);
@@ -28,6 +30,7 @@ public class PlayersContainer extends Container {
         this.layout(new ManagedLayout()).columns(1).padding(2).enableSelecting(true).setRelativeScissor(- 1, - 1, - 1, - 3);
         controller = PlayerManagerController.getOrCreate(instance);
         controller.setUiBindings(this, terminalWidget);
+        emptyMessage = new IconMessage(0, 0, 64, 64, "Loading Players", "remotely.png");
     }
 
     public void setInstance(Instance newInstance) {
@@ -40,11 +43,14 @@ public class PlayersContainer extends Container {
     }
 
     public void fullRefresh() {
+        loading = true;
+//        updateEmptyMessage();
         if (controller != null) controller.fullRefresh();
     }
 
     public void syncUi(List<UnifiedPlayer> snapshot) {
         if (snapshot == null) return;
+        loading = false;
         List<UnifiedPlayer> processingList = new ArrayList<>(snapshot);
         List<AnimatedWidget> toRemove = new ArrayList<>();
 
@@ -79,12 +85,24 @@ public class PlayersContainer extends Container {
                 UnifiedPlayer u1 = p1.getPlayer();
                 UnifiedPlayer u2 = p2.getPlayer();
                 if (u1.isOnline() != u2.isOnline()) return u1.isOnline() ? -1 : 1;
-                return u1.getName().compareToIgnoreCase(u2.getName());
+                String n1 = u1.getName() != null ? u1.getName() : "";
+                String n2 = u2.getName() != null ? u2.getName() : "";
+                return n1.compareToIgnoreCase(n2);
             }
             return 0;
         });
 
         this.updateWidgetPositions();
+    }
+
+    @Override
+    protected void drawContent(restudio.rescreen.platform.IDrawContext ctx, int mouseX, int mouseY) {
+        if (emptyMessage != null && getWidgets().isEmpty()) {
+            emptyMessage.setMessage(loading ? "Loading Players" : "No Players Found");
+            emptyMessage.setPosition(getX() + (getWidth() - emptyMessage.getWidth()) / 2, getY() + (getHeight() - emptyMessage.getHeight()) / 2);
+            emptyMessage.render(ctx, mouseX, mouseY, 0f);
+        }
+        super.drawContent(ctx, mouseX, mouseY);
     }
 
     @Override

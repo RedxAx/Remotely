@@ -26,6 +26,7 @@ public class StandardLogSource implements IPlayerSource {
     private static final Pattern PLAYER_JOIN_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+)\\[/([0-9.:]+)] logged in with entity id \\d+ at .*");
     private static final Pattern PLAYER_LEAVE_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+) left the game");
     private static final Pattern PLAYER_UUID_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?UUID of player (\\w+) is ([0-9a-f\\-]+)");
+    private static final Pattern PLAYER_LOGIN_FAST_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*?(\\w+) joined the game");
     private static final Pattern ANSI_PATTERN = Pattern.compile("\u001B\\[[0-9;]*[A-Za-z]");
 
     private static final Pattern PLAYER_OP_PATTERN = Pattern.compile("(?:.*\\[INFO]: )?.*Made (\\w+) a server operator.*");
@@ -86,6 +87,9 @@ public class StandardLogSource implements IPlayerSource {
             PlayerUpdateBatch batch = new PlayerUpdateBatch("log", getPriority());
             batch.add(new PlayerUpdateBatch.PlayerUpdate(uuid, name));
             service.submitUpdate(batch);
+            if (service != null) {
+                service.ensurePlayer(uuid, name, "log", getPriority());
+            }
             return;
         }
 
@@ -93,17 +97,39 @@ public class StandardLogSource implements IPlayerSource {
         if (joinMatcher.matches()) {
             String name = joinMatcher.group(1);
             String ip = joinMatcher.group(2);
-            UUID uuid = nameToUuid.get(name);
+            UUID uuid = resolveUuid(name);
             if (uuid != null) {
                 PlayerUpdateBatch batch = new PlayerUpdateBatch("log", getPriority());
                 PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, name);
                 update.setOnline(true);
                 update.setIp(ip);
-                update.setLastSeen(System.currentTimeMillis());
+                long now = System.currentTimeMillis();
+                update.setLastSeen(now);
                 batch.add(update);
                 service.submitUpdate(batch);
 
-                historyCollector.startSession(uuid, name, ip, System.currentTimeMillis());
+                historyCollector.startSession(uuid, name, ip, now);
+            } else if (service != null) {
+                service.markOnlineByName(name, ip, System.currentTimeMillis(), "log", getPriority());
+            }
+            return;
+        }
+
+        Matcher fastJoin = PLAYER_LOGIN_FAST_PATTERN.matcher(line);
+        if (fastJoin.matches()) {
+            String name = fastJoin.group(1);
+            UUID uuid = resolveUuid(name);
+            if (uuid != null) {
+                PlayerUpdateBatch batch = new PlayerUpdateBatch("log", getPriority());
+                PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, name);
+                update.setOnline(true);
+                long now = System.currentTimeMillis();
+                update.setLastSeen(now);
+                batch.add(update);
+                service.submitUpdate(batch);
+                historyCollector.startSession(uuid, name, null, now);
+            } else if (service != null) {
+                service.markOnlineByName(name, null, System.currentTimeMillis(), "log", getPriority());
             }
             return;
         }
@@ -111,7 +137,7 @@ public class StandardLogSource implements IPlayerSource {
         Matcher leaveMatcher = PLAYER_LEAVE_PATTERN.matcher(line);
         if (leaveMatcher.matches()) {
             String name = leaveMatcher.group(1);
-            UUID uuid = nameToUuid.get(name);
+            UUID uuid = resolveUuid(name);
             if (uuid != null) {
                 PlayerUpdateBatch batch = new PlayerUpdateBatch("log", getPriority());
                 PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, name);
@@ -121,6 +147,8 @@ public class StandardLogSource implements IPlayerSource {
                 service.submitUpdate(batch);
 
                 historyCollector.endSession(uuid, System.currentTimeMillis());
+            } else if (service != null) {
+                service.clearPendingOnline(name);
             }
             return;
         }
@@ -128,7 +156,7 @@ public class StandardLogSource implements IPlayerSource {
         Matcher opMatcher = PLAYER_OP_PATTERN.matcher(line);
         if (opMatcher.matches()) {
             String name = opMatcher.group(1);
-            UUID uuid = nameToUuid.get(name);
+            UUID uuid = resolveUuid(name);
             if (uuid != null) {
                 PlayerUpdateBatch batch = new PlayerUpdateBatch("log", getPriority());
                 PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, name);
@@ -143,7 +171,7 @@ public class StandardLogSource implements IPlayerSource {
         Matcher deopMatcher = PLAYER_DEOP_PATTERN.matcher(line);
         if (deopMatcher.matches()) {
             String name = deopMatcher.group(1);
-            UUID uuid = nameToUuid.get(name);
+            UUID uuid = resolveUuid(name);
             if (uuid != null) {
                 PlayerUpdateBatch batch = new PlayerUpdateBatch("log", getPriority());
                 PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, name);
@@ -164,7 +192,7 @@ public class StandardLogSource implements IPlayerSource {
         if (banMatcher.matches()) {
             String name = banMatcher.group(1);
             String reason = banMatcher.group(2);
-            UUID uuid = nameToUuid.get(name);
+            UUID uuid = resolveUuid(name);
             if (uuid != null) {
                 PlayerUpdateBatch batch = new PlayerUpdateBatch("log", 15);
                 PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, name);
@@ -180,7 +208,7 @@ public class StandardLogSource implements IPlayerSource {
         Matcher unbanMatcher = PLAYER_UNBAN_PATTERN.matcher(line);
         if (unbanMatcher.matches()) {
             String name = unbanMatcher.group(1);
-            UUID uuid = nameToUuid.get(name);
+            UUID uuid = resolveUuid(name);
             if (uuid != null) {
                 PlayerUpdateBatch batch = new PlayerUpdateBatch("log", 15);
                 PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, name);
@@ -190,5 +218,19 @@ public class StandardLogSource implements IPlayerSource {
                 historyCollector.recordAccessChange(uuid, name, SessionEventType.UNBAN, "", System.currentTimeMillis());
             }
         }
+    }
+
+    private UUID resolveUuid(String name) {
+        if (name == null || name.isBlank()) return null;
+        UUID cached = nameToUuid.get(name);
+        if (cached != null) return cached;
+        if (service != null) {
+            UUID resolved = service.resolveUuid(name);
+            if (resolved != null) {
+                nameToUuid.put(name, resolved);
+            }
+            return resolved;
+        }
+        return null;
     }
 }

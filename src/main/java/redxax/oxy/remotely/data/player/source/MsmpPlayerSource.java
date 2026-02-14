@@ -92,6 +92,7 @@ public class MsmpPlayerSource implements IPlayerSource {
                 update.setPing(mp.ping);
                 update.setIp(mp.address);
                 batch.add(update);
+                service.ensurePlayer(mp.uuid, mp.name, "msmp", getPriority());
             }
 
             service.getRegistry().getAll().stream()
@@ -114,6 +115,7 @@ public class MsmpPlayerSource implements IPlayerSource {
                     BanInfo banInfo = new BanInfo(b.uuid, b.name, b.created, b.source, b.expires, b.reason);
                     update.setBan(banInfo);
                     batch.add(update);
+                    service.ensurePlayer(u, b.name, "msmp", getPriority());
                 } catch (Exception ignored) {}
             }
             service.getRegistry().getAll().stream()
@@ -134,6 +136,7 @@ public class MsmpPlayerSource implements IPlayerSource {
                     PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(u, op.name);
                     update.setOp(true);
                     batch.add(update);
+                    service.ensurePlayer(u, op.name, "msmp", getPriority());
                 } catch (Exception ignored) {}
             }
             service.getRegistry().getAll().stream()
