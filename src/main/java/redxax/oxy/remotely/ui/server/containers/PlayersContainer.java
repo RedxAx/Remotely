@@ -14,7 +14,11 @@ import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class PlayersContainer extends Container {
     private ReScreen host;
@@ -99,6 +103,7 @@ public class PlayersContainer extends Container {
     protected void drawContent(restudio.rescreen.platform.IDrawContext ctx, int mouseX, int mouseY) {
         if (emptyMessage != null && getWidgets().isEmpty()) {
             emptyMessage.setMessage(loading ? "Loading Players" : "No Players Found");
+            emptyMessage.setIcon(loading ? "remotely.png" : "emptyFolder.png");
             emptyMessage.setPosition(getX() + (getWidth() - emptyMessage.getWidth()) / 2, getY() + (getHeight() - emptyMessage.getHeight()) / 2);
             emptyMessage.render(ctx, mouseX, mouseY, 0f);
         }
@@ -109,7 +114,7 @@ public class PlayersContainer extends Container {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
             if (isMouseOver(mouseX, mouseY)) {
-                java.util.List<AnimatedWidget> selected = getSelectedWidgets();
+                List<AnimatedWidget> selected = getSelectedWidgets();
 
                 boolean mouseOverSelected = false;
                 for (AnimatedWidget widget : selected) {
@@ -140,7 +145,7 @@ public class PlayersContainer extends Container {
     }
 
     private void showPlayersContextMenu(double mouseX, double mouseY) {
-        java.util.List<AnimatedWidget> selected = getSelectedWidgets();
+        List<AnimatedWidget> selected = getSelectedWidgets();
         if (selected.isEmpty()) return;
         List<UnifiedPlayer> players = new ArrayList<>();
         for (AnimatedWidget w : selected) {
@@ -180,8 +185,8 @@ public class PlayersContainer extends Container {
 
     private List<String> findCustomVariables(String command) {
         List<String> variables = new ArrayList<>();
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\$([a-zA-Z0-9_]+)");
-        java.util.regex.Matcher matcher = pattern.matcher(command);
+        Pattern pattern = Pattern.compile("\\$([a-zA-Z0-9_]+)");
+        Matcher matcher = pattern.matcher(command);
         while (matcher.find()) {
             String var = matcher.group(1);
             if (!"name".equalsIgnoreCase(var) && !"uuid".equalsIgnoreCase(var) && !variables.contains(var)) {
@@ -199,10 +204,10 @@ public class PlayersContainer extends Container {
         }
         PopupWidget.Builder builder = new PopupWidget.Builder("Execute: " + action.name)
             .size(300, 60 + variables.size() * 30).setAntiOutOfBound(true).setResizable(true);
-        java.util.Map<String, TextInputWidget> inputs = new java.util.HashMap<>();
+        Map<String, TextInputWidget> inputs = new HashMap<>();
         Runnable execute = () -> {
             String template = action.command;
-            for (java.util.Map.Entry<String, TextInputWidget> entry : inputs.entrySet()) {
+            for (Map.Entry<String, TextInputWidget> entry : inputs.entrySet()) {
                 String value = entry.getValue().getText();
                 template = template.replace("$" + entry.getKey(), value);
             }

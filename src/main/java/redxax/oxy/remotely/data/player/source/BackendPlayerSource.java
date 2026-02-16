@@ -65,6 +65,9 @@ public class BackendPlayerSource implements IPlayerSource {
             .filter(UnifiedPlayer::isOnline)
             .filter(p -> onlinePlayers.stream().noneMatch(sp -> sp.uuid().equals(p.getUuid())))
             .forEach(p -> {
+                if (!"backend".equalsIgnoreCase(p.getOnline().getSource())) {
+                    return;
+                }
                 PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(p.getUuid(), p.getName());
                 update.setOnline(false);
                 batch.add(update);

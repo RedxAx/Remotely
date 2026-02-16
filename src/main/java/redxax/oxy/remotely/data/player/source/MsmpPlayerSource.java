@@ -99,6 +99,9 @@ public class MsmpPlayerSource implements IPlayerSource {
                 .filter(UnifiedPlayer::isOnline)
                 .filter(p -> msmpPlayers.stream().noneMatch(mp -> mp.uuid.equals(p.getUuid())))
                 .forEach(p -> {
+                    if (!"msmp".equalsIgnoreCase(p.getOnline().getSource())) {
+                        return;
+                    }
                     PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(p.getUuid(), p.getName());
                     update.setOnline(false);
                     update.setPing(-1);
