@@ -104,7 +104,6 @@ public class StandardLogSource implements IPlayerSource {
                 update.setOnline(true);
                 update.setIp(ip);
                 long now = System.currentTimeMillis();
-                update.setLastSeen(now);
                 batch.add(update);
                 service.submitUpdate(batch);
 
@@ -124,7 +123,6 @@ public class StandardLogSource implements IPlayerSource {
                 PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, name);
                 update.setOnline(true);
                 long now = System.currentTimeMillis();
-                update.setLastSeen(now);
                 batch.add(update);
                 service.submitUpdate(batch);
                 historyCollector.startSession(uuid, name, null, now);
@@ -142,7 +140,6 @@ public class StandardLogSource implements IPlayerSource {
                 PlayerUpdateBatch batch = new PlayerUpdateBatch("log", getPriority());
                 PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, name);
                 update.setOnline(false);
-                update.setLastSeen(System.currentTimeMillis());
                 batch.add(update);
                 service.submitUpdate(batch);
 

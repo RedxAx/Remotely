@@ -5,6 +5,9 @@ import redxax.oxy.remotely.data.managed.PlayerAction;
 import redxax.oxy.remotely.data.managed.PlayerSession;
 import redxax.oxy.remotely.data.player.IPlayerHistoryProvider;
 import redxax.oxy.remotely.data.player.PlayerService;
+import redxax.oxy.remotely.data.playerdata.PlayerDataManager;
+import redxax.oxy.remotely.data.playerdata.sources.RconPlayerDataSource;
+import redxax.oxy.remotely.data.playerdata.sources.WorldPlayerDataSource;
 import redxax.oxy.remotely.data.player.action.BackendActionExecutor;
 import redxax.oxy.remotely.data.player.action.MsmpActionExecutor;
 import redxax.oxy.remotely.data.player.action.StandardActionExecutor;
@@ -39,12 +42,14 @@ public class PlayerManagerController {
     private final Instance instance;
     private PlayersContainer container;
     private PlayerService playerService;
+    private PlayerDataManager playerDataManager;
 
     private IPlayerHistoryProvider historyProvider;
 
     private LuckPermsService luckPermsService;
     private TerminalWidget terminalWidget;
     private boolean isInitialized = false;
+    private boolean listenerRegistered = false;
     private StandardFileSource standardFileSource;
     private List<PlayerAction> playerActions = new ArrayList<>();
     private final Gson gson = new Gson();
@@ -67,24 +72,43 @@ public class PlayerManagerController {
 
     public void reloadProviders() {
         uiToken++;
-        initializeService();
-        if (container != null) {
-            int token = uiToken;
-            playerService.addListener(snapshot -> ScreenManager.getInstance().execute(() -> {
-                if (container != null && token == uiToken) container.syncUi(snapshot);
-            }));
-            container.syncUi(playerService.getRegistry().getAll());
-        }
+        ensureServiceInitialized();
+        ensureListenerRegistered();
+        if (container != null && playerService != null) container.syncUi(playerService.getRegistry().getAll());
     }
 
-    private void initializeService() {
-        if (this.playerService != null) {
-            this.playerService.shutdown();
+    private void ensureServiceInitialized() {
+        if (this.playerService != null && this.playerDataManager != null && this.historyProvider != null) return;
+        initializeService(false);
+    }
+
+    private void reinitializeService() {
+        uiToken++;
+        initializeService(true);
+        ensureListenerRegistered();
+        if (container != null && playerService != null) container.syncUi(playerService.getRegistry().getAll());
+    }
+
+    private void ensureListenerRegistered() {
+        if (playerService == null || listenerRegistered) return;
+        playerService.addListener(snapshot -> {
+            int token = uiToken;
+            ScreenManager.getInstance().execute(() -> {
+                if (container != null && token == uiToken) container.syncUi(snapshot);
+            });
+        });
+        listenerRegistered = true;
+    }
+
+    private void initializeService(boolean shutdownExisting) {
+        if (shutdownExisting) {
+            if (this.playerService != null) this.playerService.shutdown();
+            if (this.historyProvider != null) this.historyProvider.shutdown();
         }
+
         this.playerService = new PlayerService();
-        if (this.historyProvider != null) {
-            this.historyProvider.shutdown();
-        }
+        this.playerDataManager = new PlayerDataManager();
+        listenerRegistered = false;
         TerminalWidget tw = this.terminalWidget;
         RebaseAPI api = RebaseApiFactory.get(instance);
         Properties settings = instance.getSettings();
@@ -119,6 +143,12 @@ public class PlayerManagerController {
             playerService.registerExecutor(new StandardActionExecutor(tw));
         }
 
+        playerDataManager.registerSource(new WorldPlayerDataSource(instance, api));
+        boolean rconEnabled = Boolean.parseBoolean(instance.getServerProperties().getProperty("enable-rcon", "false"));
+        if (rconEnabled) {
+            playerDataManager.registerSource(new RconPlayerDataSource(instance));
+        }
+
         this.luckPermsService = new LuckPermsService(api, Path.of(instance.getPath()));
         this.luckPermsService.initialize();
         if (this.historyProvider != null) this.historyProvider.initialize();
@@ -145,10 +175,14 @@ public class PlayerManagerController {
         this.terminalWidget = terminalWidget;
 
         if (!isInitialized || terminalChanged) {
-            reloadProviders();
+            if (terminalChanged && isInitialized) {
+                reinitializeService();
+            } else {
+                reloadProviders();
+            }
             isInitialized = true;
         } else {
-             if (container != null) container.syncUi(playerService.getRegistry().getAll());
+             if (container != null && playerService != null) container.syncUi(playerService.getRegistry().getAll());
         }
     }
 
@@ -174,6 +208,14 @@ public class PlayerManagerController {
     }
 
     public IPlayerHistoryProvider getHistoryProvider() { return historyProvider; }
+
+    public PlayerDataManager getPlayerDataManager() {
+        return playerDataManager;
+    }
+
+    public Instance getInstance() {
+        return instance;
+    }
 
     public void kickPlayer(UnifiedPlayer player, String reason) {
         playerService.executeAction(player, "kick", reason).whenComplete((v, e) -> {

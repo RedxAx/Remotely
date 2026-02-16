@@ -22,6 +22,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+
 public class PlayerEntryWidget extends MountableButtonWidget {
 
     private UnifiedPlayer player;
@@ -38,12 +39,15 @@ public class PlayerEntryWidget extends MountableButtonWidget {
     private SquareButtonWidget kickButton;
     private SquareButtonWidget banButton;
     private SquareButtonWidget opButton;
+    private SquareButtonWidget infoButton;
 
     public PlayerEntryWidget(UnifiedPlayer player, PlayerManagerController controller) {
         super(player.getName(), "", "", new CopyOnWriteArrayList<>(), null);
         this.player = player;
         this.controller = controller;
         this.ClickableWhenInactive = true;
+        setHeight(30);
+        iconSize = 26;
 
         setupButtons();
     }
@@ -57,28 +61,6 @@ public class PlayerEntryWidget extends MountableButtonWidget {
             .onClick(() -> controller.kickPlayer(player, "Kicked by operator")).build();
 
         updateButtonsState(serverRunning);
-
-        List<AnimatedWidget> buttons = new CopyOnWriteArrayList<>();
-        List<PlayerAction> actions = controller.getPlayerActions();
-        if (actions != null) {
-            for (PlayerAction action : actions) {
-                SquareButtonWidget actionButton = new SquareButtonWidget.Builder().identifier(Identifier.icon(action.icon)).size(18, 18).hint(action.name).onClick(() -> {
-                    List<String> variables = findCustomVariables(action.command);
-                    if (variables.isEmpty()) {
-                        controller.runCustomCommand(player, action.command);
-                    } else {
-                        showVariableInputPopup(player, action, variables);
-                    }
-                }).build();
-                actionButton.active = serverRunning;
-                buttons.add(actionButton);
-            }
-        }
-
-        if (banButton != null) buttons.add(banButton);
-        if (kickButton != null) buttons.add(kickButton);
-        if (opButton != null) buttons.add(opButton);
-        mountedWidgets.addAll(buttons);
     }
 
     public void update(UnifiedPlayer newPlayerState) {
@@ -111,10 +93,22 @@ public class PlayerEntryWidget extends MountableButtonWidget {
             .onClick(() -> controller.toggleOp(player)).build();
         opButton.active = serverRunning;
 
+        infoButton = new SquareButtonWidget.Builder()
+            .imagePath("info.png").size(18, 18).hint("Player Data")
+            .accentType(ThemeManager.getAccent("calm"))
+            .onClick(() -> openPlayerDataPopup())
+            .build();
+        infoButton.active = true;
+
+        mountedWidgets.clear();
+        mountedWidgets.addAll(buildButtons(serverRunning));
+    }
+
+    private List<AnimatedWidget> buildButtons(boolean serverRunning) {
         List<AnimatedWidget> buttons = new CopyOnWriteArrayList<>();
         List<PlayerAction> actions = controller.getPlayerActions();
         if (actions != null) {
-             for (PlayerAction action : actions) {
+            for (PlayerAction action : actions) {
                 SquareButtonWidget actionButton = new SquareButtonWidget.Builder().identifier(Identifier.icon(action.icon)).size(18, 18).hint(action.name).onClick(() -> {
                     List<String> variables = findCustomVariables(action.command);
                     if (variables.isEmpty()) {
@@ -127,12 +121,11 @@ public class PlayerEntryWidget extends MountableButtonWidget {
                 buttons.add(actionButton);
             }
         }
+        if (infoButton != null) buttons.add(infoButton);
         if (banButton != null) buttons.add(banButton);
         if (kickButton != null) buttons.add(kickButton);
         if (opButton != null) buttons.add(opButton);
-
-        mountedWidgets.clear();
-        mountedWidgets.addAll(buttons);
+        return buttons;
     }
 
     public UnifiedPlayer getPlayer() {
@@ -167,6 +160,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
                 });
             }
         }
+
     }
 
     @Override
@@ -180,19 +174,21 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         hiddenText = cachedGroup;
 
         boolean isBanned = player.getBan().getValue() != null;
+        String statusText = "";
         if (isBanned) {
             String reason = player.getBan().getValue().reason();
             String expires = player.getBan().getValue().expires();
             description = "Banned For " + reason + " | Expires: " + expires;
             accentType = ThemeManager.getAccent("danger");
         } else if (player.isOnline()) {
-            description = "Online";
+            statusText = "Online";
             if (player.isOp()) {
-                description += " | Operator";
+                statusText += " | Operator";
                 accentType = ThemeManager.getAccent("calm");
             }
             else accentType = ThemeManager.getDefaultAccent();
             active = true;
+            description = statusText;
         } else {
             description = "Offline";
             if (player.isOp()) description += " | Operator";
@@ -206,6 +202,10 @@ public class PlayerEntryWidget extends MountableButtonWidget {
         titleColor = player.isOnline() ? ThemeManager.getColor(ThemeColor.text) : ThemeManager.getColor(ThemeColor.textDark);
 
         super.drawContent(ctx, mouseX, mouseY);
+    }
+
+    private void openPlayerDataPopup() {
+        new PlayerDataPopup(ScreenManager.getInstance().getCurrentScreen(), player, controller);
     }
 
     private List<String> findCustomVariables(String command) {

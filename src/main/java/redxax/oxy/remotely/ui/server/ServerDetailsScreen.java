@@ -260,7 +260,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         int statusPad = inst != null ? 15 : 0;
         Container main = createContainer("root", 5, 60, width - 10, height - 65 - statusPad);
-        main.layout(new ManagedLayout()).backgroundDrawing(false).disableScissorRegion(false).verticalSpacing(14).padding(0).setRelativeScissor(-1, -1, -1, -3);
+        main.layout(new ManagedLayout()).backgroundDrawing(true).disableScissorRegion(false).verticalSpacing(14).padding(0).setRelativeScissor(-1, -1, -1, -3);
 
         TabContext ctx = inst != null ? new ServerTabStatusContext(inst, tabInfo) : new TabContext(null, tabInfo);
         ctx.mainContainer = main;
@@ -282,6 +282,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             } else {
                 terminal = TerminalWidget.getOrCreate(null, exec, localId, 5, 60, width - 10, height - 66);
             }
+            terminal.entranceAnimationEnabled = false;
             info.setTerminalWidget(terminal);
 
             if (inst != null) {

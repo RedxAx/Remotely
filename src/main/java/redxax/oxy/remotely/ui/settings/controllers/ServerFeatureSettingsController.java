@@ -17,6 +17,7 @@ public class ServerFeatureSettingsController {
     public List<Setting> getSettings() {
         Setting.Builder builder = new Setting.Builder("Features & Integrations");
         Properties s = instance.getSettings();
+        Properties props = instance.getServerProperties();
 
         builder.addOption(ConfigOption.<Boolean>builder("Enable MSMP")
                 .description("Minecraft Server Management Protocol support.")
@@ -65,6 +66,21 @@ public class ServerFeatureSettingsController {
                 .bind(() -> s.getProperty("provider.priority.players", ""),
                       val -> s.setProperty("provider.priority.players", val))
                 .defaultValue("")
+                .build());
+
+        builder.addOption(ConfigOption.<Boolean>builder("Enable RCON")
+                .description("Allow online player data via RCON.")
+                .bind(() -> Boolean.parseBoolean(props.getProperty("enable-rcon", "false")),
+                        val -> props.setProperty("enable-rcon", String.valueOf(val)))
+                .defaultValue(false)
+                .build());
+
+        builder.addOption(ConfigOption.<Integer>builder("Player Data Interval")
+                .description("Real Time Update Interval")
+                .range(250, 10000)
+                .bind(() -> Integer.parseInt(s.getProperty("playerdata.refresh.intervalMs", "1000")),
+                        val -> s.setProperty("playerdata.refresh.intervalMs", String.valueOf(val)))
+                .defaultValue(1000)
                 .build());
 
         return List.of(builder.build());

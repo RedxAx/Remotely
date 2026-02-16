@@ -55,7 +55,9 @@ public class PlayerService {
             if (update.getOnline() != null) player.updateOnline(update.getOnline(), src, prio);
             if (update.getPing() != null) player.updatePing(update.getPing(), src, prio);
             if (update.getOp() != null) player.updateOp(update.getOp(), src, prio);
-            if (update.getLastSeen() != null) player.updateLastSeen(update.getLastSeen(), src, prio);
+            if (update.getLastSeen() != null && "world".equalsIgnoreCase(src)) {
+                player.updateLastSeen(update.getLastSeen(), src, prio);
+            }
             
             if (update.shouldClearBan()) player.updateBan(null, src, prio);
             else if (update.getBan() != null) player.updateBan(update.getBan(), src, prio);
@@ -97,7 +99,7 @@ public class PlayerService {
             PlayerUpdateBatch.PlayerUpdate update = new PlayerUpdateBatch.PlayerUpdate(uuid, name);
             update.setOnline(true);
             if (ip != null && !ip.isBlank()) update.setIp(ip);
-            if (lastSeen > 0) update.setLastSeen(lastSeen);
+            if (lastSeen > 0 && "world".equalsIgnoreCase(source)) update.setLastSeen(lastSeen);
             batch.add(update);
             submitUpdate(batch);
             return;
@@ -114,7 +116,9 @@ public class PlayerService {
         if (name == null || name.isBlank()) return;
         PendingOnline pending = pendingOnlineByName.remove(name.toLowerCase(Locale.ROOT));
         if (pending == null) return;
-        if (pending.lastSeen > 0) player.updateLastSeen(pending.lastSeen, pending.source, pending.priority);
+        if (pending.lastSeen > 0 && "world".equalsIgnoreCase(pending.source)) {
+            player.updateLastSeen(pending.lastSeen, pending.source, pending.priority);
+        }
         if (pending.ip != null && !pending.ip.isBlank()) player.updateIp(pending.ip, pending.source, pending.priority);
         player.updateOnline(true, pending.source, pending.priority);
     }
