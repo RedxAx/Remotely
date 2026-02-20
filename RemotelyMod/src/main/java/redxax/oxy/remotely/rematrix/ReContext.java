@@ -6,4 +6,5 @@ public interface ReContext {
     ReTextureCache textures();
     ReTextBridge text();
     Object graphics();
+    void drawItem(Object item, int x, int y, int z);
 }

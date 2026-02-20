@@ -5,6 +5,7 @@ import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.data.playerdata.PlayerData;
 import redxax.oxy.remotely.data.playerdata.PlayerDataManager;
 import redxax.oxy.remotely.data.playerdata.PlayerEffect;
+import redxax.oxy.remotely.data.item.UiItem;
 import redxax.oxy.remotely.data.playerdata.PlayerItem;
 import redxax.oxy.remotely.data.playerdata.PlayerStatistic;
 import restudio.rescreen.platform.IDrawContext;
@@ -61,10 +62,10 @@ public class PlayerDataPopup extends PopupWidget {
     private static final int INV_TRIM_RIGHT = 80;
     private static final int INV_TRIM_BOTTOM = 90;
     private static final int CHEST_GUI_TEXTURE_WIDTH = 176;
-    private static final int CHEST_GUI_TOP_MARGIN = 17;
+    private static final int CHEST_GUI_TOP_MARGIN = 16;
     private static final int CHEST_GUI_SIDE_MARGIN = 7;
-    private static final int CHEST_GUI_PLAYER_INV_OFFSET = 14;
-    private static final int CHEST_GUI_HOTBAR_OFFSET = 72;
+    private static final int CHEST_GUI_PLAYER_INV_OFFSET = 13;
+    private static final int CHEST_GUI_HOTBAR_OFFSET = 71;
     private static final int CHEST_GUI_PLAYER_INV_HEIGHT = 96;
     private static final int CHEST_GUI_BOTTOM_TEXTURE_Y = 126;
     private final PlayerDataSection[] sections = PlayerDataSection.values();
@@ -588,16 +589,16 @@ public class PlayerDataPopup extends PopupWidget {
             int iconSize = Math.max(8, Math.round(ICON_SIZE * scale));
             int iconX = baseX + Math.round(slotX * scale) + (slotSize - iconSize) / 2;
             int iconY = baseY + Math.round(slotY * scale) + (slotSize - iconSize) / 2;
-            BufferedImage icon = resolveItemIcon(item.id());
-            if (icon != null) {
-                ctx.drawPixelArt(icon, iconX, iconY, iconSize, iconSize);
+            UiItem uiItem = UiItem.fromPlayerItem(item);
+            if (uiItem != null) {
+                ctx.drawItem(uiItem, iconX, iconY, 0);
             }
             int count = item.count();
             if (count > 1) {
                 String text = String.valueOf(count);
                 int textW = TextRenderer.tr.getWidth(text);
                 int textX = baseX + Math.round(slotX * scale) + slotSize - textW - 1;
-                int textY = baseY + Math.round(slotY * scale) + slotSize - 9;
+                int textY = baseY + Math.round(slotY * scale) + slotSize - 8;
                 ctx.drawText(text, textX, textY, 0xFFFFFFFF, true);
             }
         }
@@ -688,16 +689,16 @@ public class PlayerDataPopup extends PopupWidget {
             int iconSize = Math.max(8, Math.round(ICON_SIZE * scale));
             int iconX = baseX + Math.round(slotX * scale) + (slotSize - iconSize) / 2;
             int iconY = baseY + Math.round(slotY * scale) + (slotSize - iconSize) / 2;
-            BufferedImage icon = resolveItemIcon(item.id());
-            if (icon != null) {
-                ctx.drawPixelArt(icon, iconX, iconY, iconSize, iconSize);
+            UiItem uiItem = UiItem.fromPlayerItem(item);
+            if (uiItem != null) {
+                ctx.drawItem(uiItem, iconX, iconY, 0);
             }
             int count = item.count();
             if (count > 1) {
                 String text = String.valueOf(count);
                 int textW = TextRenderer.tr.getWidth(text);
                 int textX = baseX + Math.round(slotX * scale) + slotSize - textW - 1;
-                int textY = baseY + Math.round(slotY * scale) + slotSize - 9;
+                int textY = baseY + Math.round(slotY * scale) + slotSize - 8;
                 ctx.drawText(text, textX, textY, 0xFFFFFFFF, true);
             }
         }
@@ -713,7 +714,7 @@ public class PlayerDataPopup extends PopupWidget {
 
     private MountableButtonWidget buildEffectRow(PlayerEffect effect) {
         String title = effect != null ? formatLabel(effect.id()) : "";
-        String meta = effect != null ? ("Lv " + (effect.amplifier() + 1) + " | " + effect.duration() + "t") : "";
+        String meta = effect != null ? ("Lv " + (effect.amplifier() + 1) + " | " + (effect.duration() == -1 ? "∞" : effect.duration() + "t")) : "";
         if (effect != null && !effect.showParticles()) {
             meta += " | Hidden";
         }

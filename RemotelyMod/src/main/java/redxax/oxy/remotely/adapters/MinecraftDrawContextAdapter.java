@@ -65,13 +65,25 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
         }
     }
 
-    @Override public void fillRoundedRectWithBorders(int i, int i1, int i2, int i3, float v, int i4, int i5, int i6) {}
+    @Override
+    public void fillRoundedRectWithBorders(int x, int y, int width, int height, float roundness, int bgColor, int borderColor, int outerBorderColor) {
+        if (ctx instanceof RematrixContext mc) {
+            mc.fillRoundedRectWithBorders(x, y, width, height, roundness, bgColor, borderColor, outerBorderColor);
+        }
+    }
     @Override public void drawAnimatedCornerGradient(float v, float v1, float v2, float v3, int i) {}
 
     @Override
     public void drawText(String text, int x, int y, int color, boolean shadow) {
         if (ctx instanceof RematrixContext mc) {
             mc.drawText(text, x, y, color, shadow);
+        }
+    }
+
+    @Override
+    public void drawItem(Object item, int x, int y, int z) {
+        if (ctx instanceof RematrixContext mc) {
+            mc.drawItem(item, x, y, z);
         }
     }
 
