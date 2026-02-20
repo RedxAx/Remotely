@@ -13,12 +13,22 @@ import net.minecraft.client.Minecraft;
 //#if MC >= 1.20.1
 import net.minecraft.client.gui.GuiGraphics;
 //#endif
-import net.minecraft.client.renderer.GameRenderer;
+//#if MC < 1.21.4
+//$$ import net.minecraft.client.renderer.GameRenderer;
+//#endif
 //#if MC >= 1.21.5
 import net.minecraft.client.renderer.RenderPipelines;
 //#endif
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.renderer.texture.TextureManager;
+//#if MC >= 1.21.1
+import net.minecraft.core.registries.BuiltInRegistries;
+//#endif
+//#if MC < 1.21.1
+//$$ import net.minecraft.core.registries.BuiltInRegistries;
+//#endif
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
@@ -37,6 +47,16 @@ import net.minecraft.resources.Identifier;
 //#if MC < 1.21.11
 //$$ import net.minecraft.resources.ResourceLocation;
 //#endif
+//#if MC >= 1.21.1
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.component.CustomModelData;
+import net.minecraft.world.item.component.ItemLore;
+//#endif
+//#if MC < 1.21.1
+//$$ import net.minecraft.nbt.CompoundTag;
+//$$ import net.minecraft.nbt.ListTag;
+//$$ import net.minecraft.nbt.StringTag;
+//#endif
 //#if MC < 1.20.1
 //$$ import com.mojang.blaze3d.vertex.PoseStack;
 //$$ import net.minecraft.client.gui.GuiComponent;
@@ -45,12 +65,14 @@ import org.jetbrains.annotations.NotNull;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.lwjgl.opengl.GL11;
+import redxax.oxy.remotely.data.item.UiItem;
 import redxax.oxy.remotely.rematrix.*;
 import redxax.oxy.remotely.rematrix.ReContext;
 import restudio.rescreen.text.StyledText;
 
 public final class RematrixContext implements ReContext {
     private static final Map<BufferedImage, ReTextureHandle> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<UiItem, ItemStack> ITEM_STACK_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
     private static final int SELECTION_COLOR = 0xFF0000FF;
 
     //#if MC >= 1.20.1
@@ -120,6 +142,141 @@ public final class RematrixContext implements ReContext {
     @Override
     public Object graphics() {
         return graphics;
+    }
+
+    @Override
+    public void drawItem(Object item, int x, int y, int z) {
+        if (item == null) return;
+        ItemStack renderStack = null;
+        if (item instanceof ItemStack stack) {
+            renderStack = stack;
+        } else if (item instanceof UiItem uiItem) {
+            renderStack = ITEM_STACK_CACHE.get(uiItem);
+            if (renderStack == null) {
+                renderStack = createItemStack(uiItem);
+                if (renderStack != null) {
+                    ITEM_STACK_CACHE.put(uiItem, renderStack);
+                }
+            }
+        }
+        if (renderStack == null || renderStack.isEmpty()) return;
+        renderItemWithScissor(renderStack, x, y, z);
+    }
+
+    private void renderItemWithScissor(ItemStack stack, int x, int y, int z) {
+        float[] scissor = ((McScissorStack) scissors).getCurrentRaw();
+        if (scissor == null) {
+            renderItemDirect(stack, x, y, z);
+            return;
+        }
+        if (applyScissor(scissor)) {
+            renderItemDirect(stack, x, y, z);
+            graphics.disableScissor();
+            return;
+        }
+        renderItemDirect(stack, x, y, z);
+    }
+
+    private void renderItemDirect(ItemStack stack, int x, int y, int z) {
+        //#if MC >= 1.21.6
+        graphics.renderItem(stack, x, y, 0);
+        //#endif
+        //#if MC >= 1.21.4 && MC < 1.21.6
+        //$$ graphics.renderItem(stack, x, y, 0, 0);
+        //#endif
+        //#if MC >= 1.20.1 && MC < 1.21.4
+        //$$ graphics.renderItem(stack, x, y, 0, 0);
+        //#endif
+    }
+
+    private ItemStack createItemStack(UiItem item) {
+        if (item == null || item.id() == null || item.id().isBlank()) return ItemStack.EMPTY;
+        String id = item.id();
+        //#if MC >= 1.21.11
+        Identifier rl = Identifier.fromNamespaceAndPath("minecraft", "air");
+        //#endif
+        //#if MC >= 1.21.1 && MC < 1.21.11
+        //$$ ResourceLocation rl = ResourceLocation.fromNamespaceAndPath("minecraft", "air");
+        //#endif
+        //#if MC < 1.21.1
+        //$$ ResourceLocation rl = new ResourceLocation("minecraft", "air");
+        //#endif
+        String namespace = "minecraft";
+        String path = id;
+        if (id.contains(":")) {
+            String[] parts = id.split(":", 2);
+            if (parts.length > 0 && !parts[0].isBlank()) {
+                namespace = parts[0];
+            }
+            path = parts.length > 1 ? parts[1] : "";
+        }
+        //#if MC >= 1.21.11
+        rl = Identifier.fromNamespaceAndPath(namespace, path);
+        ItemStack stack = BuiltInRegistries.ITEM.getOptional(rl).map(ItemStack::new).orElseGet(() -> new ItemStack(Items.BARRIER));
+        //#endif
+        //#if MC >= 1.21.1 && MC < 1.21.11
+        //$$ rl = ResourceLocation.fromNamespaceAndPath(namespace, path);
+        //$$ ItemStack stack = BuiltInRegistries.ITEM.getOptional(rl).map(ItemStack::new).orElseGet(() -> new ItemStack(Items.BARRIER));
+        //#endif
+        //#if MC < 1.21.1
+        //$$ rl = new ResourceLocation(namespace, path);
+        //$$ ItemStack stack = BuiltInRegistries.ITEM.getOptional(rl).map(ItemStack::new).orElseGet(() -> new ItemStack(Items.BARRIER));
+        //#endif
+        int count = item.count();
+        if (count > 0) {
+            stack.setCount(Math.min(count, stack.getMaxStackSize()));
+        }
+        String name = item.name();
+        if (name != null && !name.isBlank()) {
+            //#if MC >= 1.21.1
+            stack.set(DataComponents.CUSTOM_NAME, Component.literal(name));
+            //#endif
+            //#if MC < 1.21.1
+            //$$ stack.setHoverName(Component.literal(name));
+            //#endif
+        }
+        Integer modelData = item.modelData();
+        if (modelData != null) {
+            //#if MC >= 1.21.4
+            stack.set(DataComponents.CUSTOM_MODEL_DATA, new CustomModelData(List.of(), List.of(), List.of(), List.of(modelData)));
+            //#endif
+            //#if MC >= 1.21.1 && MC < 1.21.4
+            //$$ stack.set(DataComponents.CUSTOM_MODEL_DATA, new CustomModelData(modelData));
+            //#endif
+            //#if MC < 1.21.1
+            //$$ CompoundTag tag = stack.getOrCreateTag();
+            //$$ tag.putInt("CustomModelData", modelData);
+            //#endif
+        }
+        List<String> lore = item.lore();
+        if (lore != null && !lore.isEmpty()) {
+            //#if MC >= 1.21.1
+            List<Component> components = new ArrayList<>(lore.size());
+            for (String line : lore) {
+                if (line != null && !line.isBlank()) {
+                    components.add(Component.literal(line));
+                }
+            }
+            if (!components.isEmpty()) {
+                stack.set(DataComponents.LORE, new ItemLore(components));
+            }
+            //#endif
+            //#if MC < 1.21.1
+            //$$ ListTag list = new ListTag();
+            //$$ for (String line : lore) {
+            //$$     if (line != null && !line.isBlank()) {
+            //$$         list.add(StringTag.valueOf(line));
+            //$$     }
+            //$$ }
+            //$$ if (!list.isEmpty()) {
+            //$$     CompoundTag tag = stack.getOrCreateTag();
+            //$$     CompoundTag display = tag.contains("display") ? tag.getCompound("display") : new CompoundTag();
+            //$$     display.put("Lore", list);
+            //$$     tag.put("display", display);
+            //$$ }
+            //#endif
+        }
+        return stack;
     }
 
     //#if MC >= 1.20.1
@@ -235,6 +392,58 @@ public final class RematrixContext implements ReContext {
         //#if MC < 1.20.1
         //$$ GuiComponent.fill(graphics, x1, y1, x2, y2, argb);
         //#endif
+    }
+
+    public void fillRoundedRectWithBorders(int x, int y, int width, int height, float roundness, int bgColor, int borderColor, int outerBorderColor) {
+        float outerBorderWidth = 1f;
+        float innerBorderWidth = 1f;
+        fillRoundedRect(x - outerBorderWidth, y - outerBorderWidth, width + 2 * outerBorderWidth, height + 2 * outerBorderWidth, roundness + outerBorderWidth, outerBorderColor);
+        fillRoundedRect(x, y, width, height, roundness, borderColor);
+        fillRoundedRect(x + innerBorderWidth, y + innerBorderWidth, width - 2 * innerBorderWidth, height - 2 * innerBorderWidth, Math.max(0, roundness - innerBorderWidth), bgColor);
+    }
+
+    public void fillRoundedRect(float x, float y, float width, float height, float radius, int color) {
+        float r = Math.min(radius, Math.min(width, height) / 2.0f);
+        if (r <= 0) {
+            fill((int) x, (int) y, (int) (x + width), (int) (y + height), color);
+            return;
+        }
+        float alpha = ((color >> 24) & 0xFF) / 255.0f;
+        if (alpha <= 0f) return;
+        int left = (int) Math.floor(x);
+        int top = (int) Math.floor(y);
+        int right = (int) Math.ceil(x + width);
+        int bottom = (int) Math.ceil(y + height);
+        int innerLeft = (int) Math.ceil(x + r);
+        int innerRight = (int) Math.floor(x + width - r);
+        int innerTop = (int) Math.ceil(y + r);
+        int innerBottom = (int) Math.floor(y + height - r);
+        if (innerLeft < innerRight) {
+            fill(innerLeft, top, innerRight, bottom, color);
+        }
+        if (innerTop < innerBottom) {
+            fill(left, innerTop, innerLeft, innerBottom, color);
+            fill(innerRight, innerTop, right, innerBottom, color);
+        }
+        int ri = (int) Math.ceil(r);
+        float rSq = r * r;
+        for (int dy = 0; dy < ri; dy++) {
+            float fy = r - dy - 0.5f;
+            float dx = (float) Math.sqrt(Math.max(0f, rSq - fy * fy));
+            int ix = (int) Math.ceil(dx);
+            int yTop = top + dy;
+            int yBottom = bottom - dy - 1;
+            int leftStart = innerLeft - ix;
+            int rightEnd = innerRight + ix;
+            if (yTop >= top && yTop < bottom) {
+                fill(leftStart, yTop, innerLeft, yTop + 1, color);
+                fill(innerRight, yTop, rightEnd, yTop + 1, color);
+            }
+            if (yBottom >= top && yBottom < bottom) {
+                fill(leftStart, yBottom, innerLeft, yBottom + 1, color);
+                fill(innerRight, yBottom, rightEnd, yBottom + 1, color);
+            }
+        }
     }
 
     public void fillGradient(int x1, int y1, int x2, int y2, int color1, int color2, boolean horizontal) {

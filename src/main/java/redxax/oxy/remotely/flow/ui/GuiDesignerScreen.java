@@ -2,6 +2,7 @@ package redxax.oxy.remotely.flow.ui;
 
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.item.UiItem;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.GuiElement;
@@ -1271,12 +1272,17 @@ public class GuiDesignerScreen extends ReScreen {
         @Override
         protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
             if (element != null) {
-                Identifier texture = resolveMaterialIdentifier(element.getVisual());
+                UiItem uiItem = UiItem.fromVisual(element.getVisual());
                 int padding = Math.max(1, Math.round(guiScale));
                 int iconSize = Math.max(10, Math.min(getWidth(), getHeight()) - padding * 2);
                 int iconX = getX() + (getWidth() - iconSize) / 2;
                 int iconY = getY() + (getHeight() - iconSize) / 2;
-                ctx.drawPixelArt(texture, iconX, iconY, iconSize, iconSize);
+                if (uiItem != null) {
+                    ctx.drawItem(uiItem, iconX, iconY, 0);
+                } else {
+                    Identifier texture = resolveMaterialIdentifier(element.getVisual());
+                    ctx.drawPixelArt(texture, iconX, iconY, iconSize, iconSize);
+                }
             }
             if (highlightColor != 0) {
                 int fill = (highlightColor & 0x00FFFFFF) | 0x55000000;
