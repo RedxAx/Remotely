@@ -29,6 +29,7 @@ public class RemotelyConfigManager extends RebaseConfigManager {
         Config.redesignMainMenu = getRedesignMainMenu();
         Config.scanServers = getScanServers();
         Config.obfuscate = getObfuscate();
+        restudio.rescreen.config.Config.consoleScrollSpeed = getConsoleScrollSpeed();
     }
 
     public boolean getWallpaper() { return Boolean.parseBoolean(properties.getProperty("remotely.wallpaper", "false")); }
@@ -63,6 +64,9 @@ public class RemotelyConfigManager extends RebaseConfigManager {
 
     public boolean getObfuscate() { return Boolean.parseBoolean(properties.getProperty("remotely.showIp", "true")); }
     public void setObfuscate(boolean value) { properties.setProperty("remotely.showIp", String.valueOf(value)); save(); apply(); }
+
+    public float getConsoleScrollSpeed() { return Float.parseFloat(properties.getProperty("ui.consoleScrollSpeed", "7.0")); }
+    public void setConsoleScrollSpeed(float speed) { properties.setProperty("ui.consoleScrollSpeed", String.valueOf(speed)); save(); apply(); }
 
     public List<String> getInstanceOrder(String context) {
         String val = properties.getProperty("remotely.order." + context, "");
