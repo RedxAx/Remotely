@@ -78,6 +78,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private ScheduledExecutorService statusScheduler;
     private final List<Object> windowTabs = new ArrayList<>();
     private int windowActiveTabIndex = -1;
+    private SearchMode headerSearchMode;
 
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
         this(parent, client, null);
@@ -193,24 +194,26 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
         }, "Update All Resources");
 
-        SearchMode searchMode = new SearchMode(false);
-        searchMode.setPlaceholder("Search Logs...");
-        searchMode.setOnTextChange(query -> {
-            TerminalSession info = getCurrentInfo();
-            if (info != null && info.getTerminalWidget() != null && header().liveUpdate) {
-                info.getTerminalWidget().search(query);
-            }
-        });
-        searchMode.setOnSearchEnter(query -> {
-            TerminalSession info = getCurrentInfo();
-            if (info != null && info.getTerminalWidget() != null) {
-                if (!header().liveUpdate) {
+        if (headerSearchMode == null) {
+            headerSearchMode = new SearchMode(false);
+            headerSearchMode.setPlaceholder("Search Logs...");
+            headerSearchMode.setOnTextChange(query -> {
+                TerminalSession info = getCurrentInfo();
+                if (info != null && info.getTerminalWidget() != null && header().liveUpdate) {
                     info.getTerminalWidget().search(query);
                 }
-                info.getTerminalWidget().nextMatch();
-            }
-        });
-        header().setSearchMode(searchMode, true);
+            });
+            headerSearchMode.setOnSearchEnter(query -> {
+                TerminalSession info = getCurrentInfo();
+                if (info != null && info.getTerminalWidget() != null) {
+                    if (!header().liveUpdate) {
+                        info.getTerminalWidget().search(query);
+                    }
+                    info.getTerminalWidget().nextMatch();
+                }
+            });
+        }
+        header().setSearchMode(headerSearchMode, true);
 
         header().build();
     }
@@ -484,6 +487,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         super.onTabSelected(tab);
         applyStatusBarForActiveTab();
+        if (headerSearchMode != null) {
+            header().setSearchMode(headerSearchMode, true);
+        }
 
         TabContext ctx = getActiveContext();
         if (ctx == null) return;
