@@ -41,10 +41,7 @@ import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
-import restudio.rescreen.ui.rescreen.Container;
-import restudio.rescreen.ui.rescreen.StatusBarBuilder;
-import restudio.rescreen.ui.rescreen.TabStatusContext;
-import restudio.rescreen.ui.rescreen.TabsManager;
+        import restudio.rescreen.ui.rescreen.*;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.AnimatedButton;
@@ -107,6 +104,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         if (initialInstanceToOpen != null) {
             addInstanceTab(initialInstanceToOpen);
         }
+        header().reset();
+        setupHeader();
     }
 
     public String getDesktopAppId() {
@@ -193,6 +192,25 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 info.getResourceContainer().showUpdateAllDialog();
             }
         }, "Update All Resources");
+
+        SearchMode searchMode = new SearchMode(false);
+        searchMode.setPlaceholder("Search Logs...");
+        searchMode.setOnTextChange(query -> {
+            TerminalSession info = getCurrentInfo();
+            if (info != null && info.getTerminalWidget() != null && header().liveUpdate) {
+                info.getTerminalWidget().search(query);
+            }
+        });
+        searchMode.setOnSearchEnter(query -> {
+            TerminalSession info = getCurrentInfo();
+            if (info != null && info.getTerminalWidget() != null) {
+                if (!header().liveUpdate) {
+                    info.getTerminalWidget().search(query);
+                }
+                info.getTerminalWidget().nextMatch();
+            }
+        });
+        header().setSearchMode(searchMode, true);
 
         header().build();
     }
@@ -390,6 +408,13 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         boolean isInstance = !info.isLocalTerminalMode();
         header().setButtonVisible("explorer.png", isInstance);
+
+        if (activeView != null && activeView.widget() instanceof TerminalWidget terminal) {
+            terminal.setShowSearchNavigation(true);
+            if (header().searchBox != null) {
+                terminal.search(header().searchBox.getText());
+            }
+        }
 
         if (startIconButton != null) {
             startIconButton.setVisible(isInstance);
