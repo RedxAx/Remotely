@@ -44,6 +44,7 @@ import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
@@ -79,6 +80,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private static BufferedImage unknown, serverIcon, paper, vanilla, fabric, forge, neoforge, waterfall, velocity, leaf, quilt, spigot, bukkit, purpur;
     private InstanceManager instanceManager;
     private final List<Instance> restudioInstances = new CopyOnWriteArrayList<>();
+    private final Map<String, ServerModels.ClientServerView> restudioServerViews = new HashMap<>();
     private final ServerIconManager iconManager;
 
     public ServerManagerScreen(Object parent, RemotelyClient remotelyClient) {
@@ -446,6 +448,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         ReStudio.getInstance().getApi().getSftpPassword().thenCompose(sftpSecret ->
             ReStudio.getInstance().getApi().getServers().thenCompose(servers -> {
                 restudioInstances.clear();
+                restudioServerViews.clear();
                 List<java.util.concurrent.CompletableFuture<Void>> futures = new ArrayList<>();
                 for (ServerModels.ClientServerView csv : servers) {
                     Map<String, String> creds = new HashMap<>();
@@ -481,6 +484,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     }
 
                     restudioInstances.add(inst);
+                    restudioServerViews.put(csv.name, csv);
 
                     if (!csv.isInstalling && !csv.isSuspended) {
                         futures.add(ReStudio.getInstance().getApi().getServerResources(csv.identifier).thenAccept(stats -> {
@@ -634,11 +638,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private ServerModels.ClientServerView getReStudioServerView(String serverName) {
-        var servers = ReStudio.getInstance().getApi().getServers().join();
-        return servers.stream()
-            .filter(s -> serverName.equals(s.name))
-            .findFirst()
-            .orElse(null);
+        return restudioServerViews.get(serverName);
     }
 
     private void customizeIcon(Instance instance, RemoteHost remoteHost) {
@@ -1101,7 +1101,11 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void openServerScreen(Instance info) {
-        remotelyClient.openInstanceInTerminal(this, info);
+        CompletableFuture.runAsync(() -> {
+            if (info != null && info.getBackend() != null) {
+                info.getBackend().connect();
+            }
+        }).thenRun(() -> ScreenManager.getInstance().execute(() -> remotelyClient.openInstanceInTerminal(this, info)));
     }
 
     public static void openServerScreen(String path) {

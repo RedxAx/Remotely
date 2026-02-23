@@ -51,11 +51,6 @@ public class RematrixScreen extends Screen {
         if (current != null && libScreen != null) {
             if (current == libScreen) {
                 shouldSetScreen = false;
-            } else if (Config.desktopMode) {
-                restudio.rescreen.ui.core.Screen superScreen = sm.getDesktopSuperScreen();
-                if (superScreen != null && current == superScreen && libScreen == superScreen) {
-                    shouldSetScreen = false;
-                }
             }
         }
         if (shouldSetScreen) {
