@@ -35,6 +35,7 @@ public class RematrixScreen extends Screen {
         //$$ long handle = Minecraft.getInstance().getWindow().getWindow();
         //#endif
         sm.setWindowHandle(handle);
+        Config.animScaleFactor = Config.targetScaleFactor = Config.configManager.getGuiScale();
         try {
             Field f = restudio.rescreen.Main.class.getDeclaredField("window");
             f.setAccessible(true);
