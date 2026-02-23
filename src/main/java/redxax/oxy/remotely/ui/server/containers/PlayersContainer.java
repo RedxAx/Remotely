@@ -48,7 +48,8 @@ public class PlayersContainer extends Container {
 
     public void fullRefresh() {
         loading = true;
-//        updateEmptyMessage();
+        clearWidgets();
+        updateWidgetPositions();
         if (controller != null) controller.fullRefresh();
     }
 

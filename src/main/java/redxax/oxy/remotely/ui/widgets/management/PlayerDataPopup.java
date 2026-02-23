@@ -269,7 +269,7 @@ public class PlayerDataPopup extends PopupWidget {
         sectionContainer.addWidget(buildInfoRow("Game Mode", data.gameMode() != null ? formatLabel(data.gameMode()) : "Unknown"));
         sectionContainer.addWidget(buildInfoRow("Flying", data.flying() ? "Yes" : "No"));
         sectionContainer.addWidget(buildInfoRow("Gliding", data.fallFlying() ? "Yes" : "No"));
-        if (player != null && player.isOnline() && lastSource != null && !lastSource.isBlank() && !"rcon".equalsIgnoreCase(lastSource)) {
+        if (player != null && player.isOnline() && lastSource != null && !lastSource.isBlank() && "world".equalsIgnoreCase(lastSource)) {
             sectionContainer.addWidget(buildInfoRow("Source", "Offline"));
         }
         if (data.location() != null) {

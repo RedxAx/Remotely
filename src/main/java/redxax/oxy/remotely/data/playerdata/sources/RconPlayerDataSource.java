@@ -26,8 +26,14 @@ public class RconPlayerDataSource implements PlayerDataSource {
     private static final int[] ENDER_SLOTS = buildEnderSlots();
 
     private final Instance instance;
+    private final boolean includeStats;
     public RconPlayerDataSource(Instance instance) {
+        this(instance, false);
+    }
+
+    public RconPlayerDataSource(Instance instance, boolean includeStats) {
         this.instance = instance;
+        this.includeStats = includeStats;
     }
 
     @Override
@@ -68,7 +74,7 @@ public class RconPlayerDataSource implements PlayerDataSource {
                         data.enderChest(), data.effects(), data.attributes(), data.statistics(),
                         PlayerDataParser.flattenStats(data.statistics()), data.lastModified(), true);
 
-                if (session.isStable()) {
+                if (includeStats && session.isStable()) {
                     try {
                         String statsTarget = name != null && !name.isBlank() ? name : uuid.toString();
                         String statsResponse = session.execute(password, resolveTimeout(), "stats " + statsTarget, false);
@@ -86,6 +92,7 @@ public class RconPlayerDataSource implements PlayerDataSource {
                         DebugManager.getInstance().log("RconPlayerDataSource", "RCON stats failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
                     }
                 }
+
                 return new PlayerDataSnapshot(uuid, data, ID, getPriority());
             } catch (Exception e) {
                 DebugManager.getInstance().log("RconPlayerDataSource", "RCON fetch failed: " + e.getMessage());

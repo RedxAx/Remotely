@@ -146,7 +146,7 @@ public class PlayerManagerController {
         playerDataManager.registerSource(new WorldPlayerDataSource(instance, api));
         boolean rconEnabled = Boolean.parseBoolean(instance.getServerProperties().getProperty("enable-rcon", "false"));
         if (rconEnabled) {
-            playerDataManager.registerSource(new RconPlayerDataSource(instance));
+            playerDataManager.registerSource(new RconPlayerDataSource(instance, false));
         }
 
         this.luckPermsService = new LuckPermsService(api, Path.of(instance.getPath()));
