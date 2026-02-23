@@ -46,7 +46,14 @@ public class RematrixScreen extends Screen {
         float mcScale = (float) Minecraft.getInstance().getWindow().getGuiScale();
         float persistedScale = Config.configManager != null ? Config.configManager.getGuiScale() : mcScale;
         sm.setGuiScale(persistedScale);
-        sm.setScreen(libScreen);
+        boolean shouldSetScreen = true;
+        restudio.rescreen.ui.core.Screen current = sm.getCurrentScreen();
+        if (current != null && libScreen != null) {
+            shouldSetScreen = false;
+        }
+        if (shouldSetScreen) {
+            sm.setScreen(libScreen);
+        }
     }
 
     //#if MC >= 1.20.1
