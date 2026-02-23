@@ -21,6 +21,7 @@ import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.SearchUtils;
 import restudio.rescreen.util.WatchServiceManager;
 
 import java.nio.file.Path;
@@ -68,6 +69,7 @@ public class ResourceContainer extends Container {
 
     private ContentSort currentSort = ContentSort.NAME_AZ;
     private ContentFilter currentFilter = ContentFilter.ALL;
+    private String searchQuery = "";
     private RowWidget selectorsRow;
     private DropDownWidget<String> sortSelector;
     private DropDownWidget<String> filterSelector;
@@ -108,16 +110,14 @@ public class ResourceContainer extends Container {
                 case LOAD_STARTED:
                     viewModel.setGlobalLoadState(ResourceViewModel.LoadState.LOADING, null);
                     break;
-                case LOAD_COMPLETED:
-                    viewModel.setGlobalLoadState(ResourceViewModel.LoadState.LOADED, null);
-                    if (event.resources() != null) {
-                        viewModel.addResources(event.resources());
-                        refreshExistingWidgets(event.resources());
-                    }
-                    if (getWidgets().isEmpty()) {
-                        loadResourcesFromModel();
-                    }
-                    break;
+            case LOAD_COMPLETED:
+                viewModel.setGlobalLoadState(ResourceViewModel.LoadState.LOADED, null);
+                if (event.resources() != null) {
+                    viewModel.addResources(event.resources());
+                    refreshExistingWidgets(event.resources());
+                }
+                rebuildResourcesTab();
+                break;
                 case LOAD_FAILED:
                     viewModel.setGlobalLoadState(ResourceViewModel.LoadState.ERROR, "Failed to load");
                     break;
@@ -126,7 +126,7 @@ public class ResourceContainer extends Container {
     }
 
     private void addResourceWidgetIncremental(InstanceResource resource) {
-        if (!matchesFilter(resource)) return;
+        if (!matchesFilter(resource) || !matchesSearch(resource)) return;
 
         String baseFileName = resource.getFileName().replace(".disabled", "");
 
@@ -144,7 +144,7 @@ public class ResourceContainer extends Container {
         InstanceResourceWidget widget = new InstanceResourceWidget(host, instance, resource, () -> loadResources());
         widget.setHeight(30);
 
-        List<InstanceResource> sorted = viewModel.getLoadedResources().stream().filter(this::matchesFilter).sorted(getResourceComparator()).toList();
+        List<InstanceResource> sorted = viewModel.getLoadedResources().stream().filter(this::matchesFilter).filter(this::matchesSearch).sorted(getResourceComparator()).toList();
 
         int index = sorted.indexOf(resource);
         if (index != -1) {
@@ -208,6 +208,16 @@ public class ResourceContainer extends Container {
             case DISABLED -> !r.isEnabled();
             default -> true;
         };
+    }
+
+    private boolean matchesSearch(InstanceResource r) {
+        if (searchQuery == null || searchQuery.isBlank()) return true;
+        return SearchUtils.isFuzzyMatch(r.getName(), searchQuery) || SearchUtils.isFuzzyMatch(r.getFileName(), searchQuery);
+    }
+
+    public void search(String query) {
+        this.searchQuery = query == null ? "" : query.trim();
+        rebuildResourcesTab();
     }
 
     private ResourceType ResourcePackType() {
@@ -340,18 +350,7 @@ public class ResourceContainer extends Container {
             updateWidgetPositions();
             return;
         }
-        List<InstanceResource> filteredResources = currentResources.stream().filter(r -> {
-            if (currentFilter == ContentFilter.ALL) return true;
-            return switch (currentFilter) {
-                case MODS -> r.getType() == ResourceType.MOD;
-                case RESOURCE_PACKS -> r.getType() == ResourceType.RESOURCE_PACK;
-                case SHADER_PACKS -> r.getType() == ResourceType.SHADER_PACK;
-                case DATA_PACKS -> r.getType() == ResourceType.DATA_PACK;
-                case UPDATE_AVAILABLE -> r.availableUpdate != null;
-                case DISABLED -> !r.isEnabled();
-                default -> true;
-            };
-        }).toList();
+        List<InstanceResource> filteredResources = currentResources.stream().filter(this::matchesFilter).filter(this::matchesSearch).toList();
         if (filteredResources.isEmpty()) {
             addWidget(new AnimatedButton.Builder().label("No resources match filter.").active(false).build());
             updateWidgetPositions();

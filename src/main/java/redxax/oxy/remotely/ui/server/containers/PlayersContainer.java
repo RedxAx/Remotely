@@ -26,6 +26,8 @@ public class PlayersContainer extends Container {
     private PlayerManagerController controller;
     private IconMessage emptyMessage;
     private boolean loading = true;
+    private String searchQuery = "";
+    private List<UnifiedPlayer> lastSnapshot = new ArrayList<>();
 
     public PlayersContainer(ReScreen host, Instance instance, TerminalWidget terminalWidget, int x, int y, int width, int height) {
         super(x, y, width, height);
@@ -56,7 +58,11 @@ public class PlayersContainer extends Container {
     public void syncUi(List<UnifiedPlayer> snapshot) {
         if (snapshot == null) return;
         loading = false;
+        lastSnapshot = new ArrayList<>(snapshot);
         List<UnifiedPlayer> processingList = new ArrayList<>(snapshot);
+        if (searchQuery != null && !searchQuery.isBlank()) {
+            processingList.removeIf(p -> !matchesSearch(p));
+        }
         List<AnimatedWidget> toRemove = new ArrayList<>();
 
         for (AnimatedWidget w : getWidgets()) {
@@ -98,6 +104,18 @@ public class PlayersContainer extends Container {
         });
 
         this.updateWidgetPositions();
+    }
+
+    public void search(String query) {
+        this.searchQuery = query == null ? "" : query.trim();
+        syncUi(lastSnapshot);
+    }
+
+    private boolean matchesSearch(UnifiedPlayer player) {
+        if (searchQuery == null || searchQuery.isBlank()) return true;
+        String name = player.getName() != null ? player.getName() : "";
+        String uuid = player.getUuid() != null ? player.getUuid().toString() : "";
+        return restudio.rescreen.util.SearchUtils.isFuzzyMatch(name, searchQuery) || restudio.rescreen.util.SearchUtils.isFuzzyMatch(uuid, searchQuery);
     }
 
     @Override
