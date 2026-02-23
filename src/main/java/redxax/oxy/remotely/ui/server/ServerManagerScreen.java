@@ -201,7 +201,6 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             .allowRename(false).allowReorder(false).allowClose(false)
             .onPlusButtonClicked(() -> openRemoteHostPopup(false))
             .onTabSelected(this::onHostTabSelected)
-            .onTabClosed(this::onHostTabClosed)
             .onTabRenamed(this::onHostTabRenamed)
             .build();
 
@@ -525,16 +524,6 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         }));
     }
 
-    private void onHostTabClosed(TabsManager.Tab tab) {
-        if (tab != null && tab.getData() instanceof RemoteHost host) {
-            ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this).addIconItem("Confirm Deletion", "delete.png", () -> {
-                instanceManager.removeRemoteHost(host);
-                tabs().removeTab(tab.getId());
-            }, "Delete Remote Host", ThemeManager.getAccent("danger"));
-            showContextMenu(getMouseX(), tabsManager.getY() + 2, builder);
-        }
-    }
-
     private void onHostTabRenamed(TabsManager.Tab tab) {
         if (tab != null && tab.getData() instanceof RemoteHost) {
             openRemoteHostPopup(true);
@@ -797,10 +786,9 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void createRemoteHostPopup() {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Connect Remote Host")
-            .onClose(this::closeRemoteHostPopup)
-            .size(360, 250)
-            .setResizable(true)
+        PopupWidget.Builder builder = new PopupWidget.Builder("Connect Remote Host").onClose(this::closeRemoteHostPopup)
+            .size(360, 250).setResizable(true)
+            .setAntiOutOfBound(true).setBoundOffset(header().headerSize)
             .setMinSize(360, 250);
 
         remoteHostNameInput = new TextInputWidget.Builder().size(18, 18).build();
