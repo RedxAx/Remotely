@@ -11,6 +11,7 @@ import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.SidePanel;
@@ -40,7 +41,9 @@ import java.util.Set;
 
 import org.lwjgl.glfw.GLFW;
 
-public class GuiDesignerScreen extends ReScreen {
+import static restudio.rescreen.config.Config.desktopMode;
+
+public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehaviorProvider {
     private static final int GRID_COLUMNS = 9;
     private static final int PANEL_PADDING = 8;
     private static final int MIN_SLOT_SIZE = 16;
@@ -141,8 +144,21 @@ public class GuiDesignerScreen extends ReScreen {
     }
 
     @Override
+    public DesktopWindowBehavior getDesktopWindowBehavior() {
+        return DesktopWindowBehavior.SINGLETON;
+    }
+
+    @Override
+    public boolean shouldForceSuperScreen() {
+        return desktopMode;
+    }
+
+
+    @Override
     public void init() {
         super.init();
+        closingRequested = false;
+        closeCompleted = false;
         buildHeader();
         buildContainers();
         buildInspectorPanel();
@@ -154,6 +170,7 @@ public class GuiDesignerScreen extends ReScreen {
     public void close() {
         requestClose();
     }
+
 
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {

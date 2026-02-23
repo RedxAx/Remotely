@@ -158,20 +158,7 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
                     if (!remotely$refreshOverlayState() || remotely$overlayGuiId == null || remotely$overlayGuiId.isBlank()) {
                         return;
                     }
-                    try {
-                        boolean invoked = false;
-                        for (java.lang.reflect.Method method : RemotelyClient.INSTANCE.getFlowManager().getClass().getMethods()) {
-                            if ("openGuiDesigner".equals(method.getName()) && method.getParameterCount() == 4) {
-                                method.invoke(RemotelyClient.INSTANCE.getFlowManager(), remotely$overlayServerId, null, remotely$overlayGuiId, this);
-                                invoked = true;
-                                break;
-                            }
-                        }
-                        if (!invoked) {
-                            RemotelyClient.INSTANCE.getFlowManager().openGuiDesigner(remotely$overlayServerId, null, remotely$overlayGuiId);
-                        }
-                    } catch (Exception ignored) {
-                    }
+                    RemotelyClient.INSTANCE.getFlowManager().openGuiDesigner(remotely$overlayServerId, null, remotely$overlayGuiId, this);
                 })
                 .build();
             remotely$editOverlayButton.entranceAnimationEnabled = false;

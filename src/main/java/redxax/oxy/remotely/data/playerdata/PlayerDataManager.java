@@ -6,6 +6,7 @@ import restudio.rescreen.debug.DebugManager;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -122,13 +123,41 @@ public class PlayerDataManager {
             if (snapshot == null || snapshot.data() == null) {
                 return tryChain(chain, index + 1, uuid, name, online);
             }
-            dataByPlayer.put(uuid, new PlayerAttribute<>(snapshot.data(), snapshot.source(), snapshot.priority()));
+            PlayerData next = snapshot.data();
+            PlayerAttribute<PlayerData> cached = dataByPlayer.get(uuid);
+            if ("world".equalsIgnoreCase(snapshot.source()) && online) {
+                next = preserveStatsIfMissing(next, cached);
+            }
+            if ("rcon".equalsIgnoreCase(snapshot.source())) {
+                next = preserveStatsIfMissing(next, cached);
+            }
+            dataByPlayer.put(uuid, new PlayerAttribute<>(next, snapshot.source(), snapshot.priority()));
             lastRefreshByPlayer.put(uuid, System.currentTimeMillis());
-            return CompletableFuture.completedFuture(snapshot.data());
+            return CompletableFuture.completedFuture(next);
         }).exceptionallyCompose(ex -> {
             DebugManager.getInstance().log("PlayerData", source.getId() + " failed: " + ex.getMessage());
             return tryChain(chain, index + 1, uuid, name, online);
         });
+    }
+
+    private PlayerData preserveStatsIfMissing(PlayerData next, PlayerAttribute<PlayerData> cached) {
+        if (next == null || cached == null || cached.getValue() == null) {
+            return next;
+        }
+        Map<String, Object> currentStats = cached.getValue().statistics();
+        if (currentStats == null || currentStats.isEmpty()) {
+            return next;
+        }
+        Map<String, Object> nextStats = next.statistics();
+        if (nextStats != null && !nextStats.isEmpty()) {
+            return next;
+        }
+        return new PlayerData(next.health(), next.food(), next.saturation(), next.experienceLevel(),
+                next.experienceProgress(), next.totalExperience(), next.location(), next.gameMode(),
+                next.flying(), next.fallFlying(), next.inventory(), next.armor(), next.offhand(),
+                next.enderChest(), next.effects(), next.attributes(),
+                currentStats, cached.getValue().flattenedStatistics(),
+                next.lastModified(), next.onlineOnly());
     }
 
     public void clear(UUID uuid) {
