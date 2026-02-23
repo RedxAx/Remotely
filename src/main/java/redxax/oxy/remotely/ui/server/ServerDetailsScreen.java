@@ -79,6 +79,8 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private final List<Object> windowTabs = new ArrayList<>();
     private int windowActiveTabIndex = -1;
     private SearchMode headerSearchMode;
+    private SearchMode resourcesSearchMode;
+    private SearchMode playersSearchMode;
 
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
         this(parent, client, null);
@@ -210,6 +212,42 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                         info.getTerminalWidget().search(query);
                     }
                     info.getTerminalWidget().nextMatch();
+                }
+            });
+        }
+        if (resourcesSearchMode == null) {
+            resourcesSearchMode = new SearchMode(false);
+            resourcesSearchMode.setPlaceholder("Search Resources...");
+            resourcesSearchMode.setOnTextChange(query -> {
+                TerminalSession info = getCurrentInfo();
+                if (info != null && info.getResourceContainer() != null && header().liveUpdate) {
+                    info.getResourceContainer().search(query);
+                }
+            });
+            resourcesSearchMode.setOnSearchEnter(query -> {
+                TerminalSession info = getCurrentInfo();
+                if (info != null && info.getResourceContainer() != null) {
+                    if (!header().liveUpdate) {
+                        info.getResourceContainer().search(query);
+                    }
+                }
+            });
+        }
+        if (playersSearchMode == null) {
+            playersSearchMode = new SearchMode(false);
+            playersSearchMode.setPlaceholder("Search Players...");
+            playersSearchMode.setOnTextChange(query -> {
+                TerminalSession info = getCurrentInfo();
+                if (info != null && info.getPlayersContainer() != null && header().liveUpdate) {
+                    info.getPlayersContainer().search(query);
+                }
+            });
+            playersSearchMode.setOnSearchEnter(query -> {
+                TerminalSession info = getCurrentInfo();
+                if (info != null && info.getPlayersContainer() != null) {
+                    if (!header().liveUpdate) {
+                        info.getPlayersContainer().search(query);
+                    }
                 }
             });
         }
@@ -412,10 +450,29 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         boolean isInstance = !info.isLocalTerminalMode();
         header().setButtonVisible("explorer.png", isInstance);
 
-        if (activeView != null && activeView.widget() instanceof TerminalWidget terminal) {
-            terminal.setShowSearchNavigation(true);
-            if (header().searchBox != null) {
-                terminal.search(header().searchBox.getText());
+        if (activeView != null) {
+            switch (activeView.widget()) {
+                case TerminalWidget terminal -> {
+                    terminal.setShowSearchNavigation(true);
+                    if (header().searchBox != null) {
+                        terminal.search(header().searchBox.getText());
+                    }
+                    header().setSearchMode(headerSearchMode, true);
+                }
+                case ResourceContainer resources -> {
+                    if (header().searchBox != null) {
+                        resources.search(header().searchBox.getText());
+                    }
+                    header().setSearchMode(resourcesSearchMode, true);
+                }
+                case PlayersContainer players -> {
+                    if (header().searchBox != null) {
+                        players.search(header().searchBox.getText());
+                    }
+                    header().setSearchMode(playersSearchMode, true);
+                    players.syncUi(new ArrayList<>());
+                }
+                case null, default -> header().setSearchMode(null, false);
             }
         }
 
