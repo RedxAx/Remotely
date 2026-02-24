@@ -141,15 +141,24 @@ public class ResourceContainer extends Container {
             }
         }
 
-        InstanceResourceWidget widget = new InstanceResourceWidget(host, instance, resource, () -> loadResources());
+        InstanceResourceWidget widget = new InstanceResourceWidget(host, instance, resource, this::loadResources);
         widget.setHeight(30);
 
-        List<InstanceResource> sorted = viewModel.getLoadedResources().stream().filter(this::matchesFilter).filter(this::matchesSearch).sorted(getResourceComparator()).toList();
+        List<InstanceResourceWidget> sortedWidgets = getWidgets().stream()
+                .filter(InstanceResourceWidget.class::isInstance)
+                .map(InstanceResourceWidget.class::cast)
+                .sorted(getWidgetComparator())
+                .toList();
 
-        int index = sorted.indexOf(resource);
-        if (index != -1) {
-            insertWidget(widget, index);
+        int insertIndex = sortedWidgets.size();
+        for (int i = 0; i < sortedWidgets.size(); i++) {
+            if (getWidgetComparator().compare(widget, sortedWidgets.get(i)) < 0) {
+                insertIndex = i;
+                break;
+            }
         }
+
+        insertWidget(widget, insertIndex);
     }
 
     private void removeResourceWidgetIncremental(InstanceResource resource) {
