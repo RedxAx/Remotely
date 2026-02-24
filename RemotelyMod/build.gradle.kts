@@ -70,6 +70,7 @@ dependencies {
     implementation("com.github.javakeyring:java-keyring:1.0.4")
     implementation("net.java.dev.jna:jna-platform:5.13.0")
     implementation("com.vladsch.flexmark:flexmark-all:0.64.8")
+    implementation("org.apache.xmlgraphics:batik-transcoder:1.19")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     implementation("org.java-websocket:Java-WebSocket:1.5.7")
 
@@ -82,6 +83,7 @@ dependencies {
     shade("com.github.javakeyring:java-keyring:1.0.4")
     shade("net.java.dev.jna:jna-platform:5.13.0")
     shade("com.vladsch.flexmark:flexmark-all:0.64.8")
+    shade("org.apache.xmlgraphics:batik-transcoder:1.19")
     shade("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     shade("org.java-websocket:Java-WebSocket:1.5.7")
     shade("org.jetbrains.pty4j:pty4j:0.13.10-1")

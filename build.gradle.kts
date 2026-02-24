@@ -33,6 +33,7 @@ dependencies {
     implementation("com.vladsch.flexmark:flexmark-ext-tables:0.64.8")
     implementation("org.jsoup:jsoup:1.15.4")
 
+    implementation("org.apache.xmlgraphics:batik-transcoder:1.19")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     implementation("com.github.javakeyring:java-keyring:1.0.4")
     implementation("net.java.dev.jna:jna-platform:5.13.0")

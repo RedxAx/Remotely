@@ -41,7 +41,7 @@ import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
-        import restudio.rescreen.ui.rescreen.*;
+import restudio.rescreen.ui.rescreen.*;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.AnimatedButton;
@@ -562,10 +562,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
                 if (info.getPlayersContainer() != null) info.getPlayersContainer().fullRefresh();
             })).exceptionally(e -> {
-                ScreenManager.getInstance().execute(() -> {
-                    new Notification("Config Load Failed", e.getMessage(), Notification.Type.ERROR);
-                    setupTerminalListeners(ctx.instance, info);
-                });
+                ScreenManager.getInstance().execute(() -> setupTerminalListeners(ctx.instance, info));
                 return null;
             });
 
