@@ -8,6 +8,7 @@ import redxax.oxy.remotely.data.playerdata.PlayerEffect;
 import redxax.oxy.remotely.data.item.UiItem;
 import redxax.oxy.remotely.data.playerdata.PlayerItem;
 import redxax.oxy.remotely.data.playerdata.PlayerStatistic;
+import redxax.oxy.remotely.host.ApplicationHost;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.ui.core.Screen;
@@ -92,9 +93,15 @@ public class PlayerDataPopup extends PopupWidget {
 
         Builder builder = new Builder(getTitle()).size(520, 340).setResizable(true).setAntiOutOfBound(true);
         List<String> sectionLabels = new ArrayList<>();
+        List<PlayerDataSection> sectionList = new ArrayList<>();
         for (PlayerDataSection section : sections) {
+            if (!isSectionAllowed(section)) {
+                continue;
+            }
             sectionLabels.add(section.label());
+            sectionList.add(section);
         }
+        PlayerDataSection[] visibleSections = sectionList.toArray(PlayerDataSection[]::new);
         TabSwitchWidget sectionSwitch = new TabSwitchWidget.Builder()
             .options(sectionLabels)
             .size(360, 18)
@@ -150,9 +157,9 @@ public class PlayerDataPopup extends PopupWidget {
 
         sectionSwitch.setOnChange(() -> {
             int index = sectionSwitch.getCurrentIndex();
-            if (index >= 0 && index < sections.length) {
+            if (index >= 0 && index < visibleSections.length) {
                 scrollOffsets.put(activeSection, sectionContainer.getScrollOffset());
-                activeSection = sections[index];
+                activeSection = visibleSections[index];
                 updateHeaderVisibility();
                 if (cachedData != null) {
                     rebuildSection(cachedData);
@@ -164,9 +171,23 @@ public class PlayerDataPopup extends PopupWidget {
         sectionContainer.addWidget(buildInfoRow("Status", "Loading"));
         sectionContainer.updateWidgetPositions();
 
+        if (visibleSections.length > 0) {
+            activeSection = visibleSections[0];
+        }
         updateHeaderVisibility();
         requestRefresh(true);
         onClose = this::closePopup;
+    }
+
+    private boolean isSectionAllowed(PlayerDataSection section) {
+        if (section != PlayerDataSection.Inventory && section != PlayerDataSection.EnderChest) {
+            return true;
+        }
+        ApplicationHost host = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getHost() : null;
+        if (host == null) {
+            return false;
+        }
+        return host.getClass().getName().equals("redxax.oxy.remotely.host.MinecraftApplicationHost");
     }
 
 
