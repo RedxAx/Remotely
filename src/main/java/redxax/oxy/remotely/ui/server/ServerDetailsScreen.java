@@ -27,13 +27,11 @@ import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.msmp.MSMPManager;
-import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.Main;
-import restudio.rescreen.config.Config;
 import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.debug.IDebugInfoProvider;
 import restudio.rescreen.platform.IDrawContext;
@@ -104,11 +102,12 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         statusBar().size(14).visible(false).build();
         applyStatusBarForActiveTab();
         startStatusScheduler();
-        if (initialInstanceToOpen != null) {
-            addInstanceTab(initialInstanceToOpen);
-        }
         header().reset();
         setupHeader();
+        TabContext ctx = getActiveContext();
+        if (ctx != null && ctx.selectedViewIndex < ctx.views.size()) {
+            onViewChanged(ctx, ctx.views.get(ctx.selectedViewIndex));
+        }
     }
 
     public String getDesktopAppId() {
@@ -449,6 +448,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         boolean isInstance = !info.isLocalTerminalMode();
         header().setButtonVisible("explorer.png", isInstance);
+        header().setButtonVisible("edit.png", isInstance);
 
         if (activeView != null) {
             switch (activeView.widget()) {
@@ -470,7 +470,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                         players.search(header().searchBox.getText());
                     }
                     header().setSearchMode(playersSearchMode, true);
-                    players.syncUi(new ArrayList<>());
+                    players.fullRefresh();
                 }
                 case null, default -> header().setSearchMode(null, false);
             }
@@ -622,9 +622,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             String newName = tab.getName();
             context.instance.setName(newName);
 
-            if (context.instance.getBackend() instanceof restudio.rebase.backend.impl.ReStudioBackend) {
-                restudio.rebase.backend.impl.ReStudioBackend reStudioBackend =
-                    (restudio.rebase.backend.impl.ReStudioBackend) context.instance.getBackend();
+            if (context.instance.getBackend() instanceof ReStudioBackend reStudioBackend) {
                 String serverId = reStudioBackend.getServerId();
                 restudio.rebase.restudio.ReStudio.getInstance().getApi().renameServer(serverId, newName).exceptionally(e -> null);
             }
