@@ -92,6 +92,16 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
         if (!remotely$customWidgets.isEmpty()) {
             remotely$handleInput(mouseX, mouseY);
 
+            //#if MC >= 1.21.6
+            var pose = guiGraphics.pose();
+            pose.pushMatrix();
+            pose.identity();
+            //#endif
+            //#if MC < 1.21.6
+            //$$ guiGraphics.pose().pushPose();
+            //$$ guiGraphics.pose().last().pose().identity();
+            //#endif
+
             //#if MC >= 1.20.1
             RematrixContext ctx = new RematrixContext(guiGraphics);
             //#endif
@@ -102,6 +112,13 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             for (Widget widget : remotely$customWidgets) {
                 widget.render(adapter, mouseX, mouseY, f);
             }
+
+            //#if MC >= 1.21.6
+            pose.popMatrix();
+            //#endif
+            //#if MC < 1.21.6
+            //$$ guiGraphics.pose().popPose();
+            //#endif
         }
     }
 
