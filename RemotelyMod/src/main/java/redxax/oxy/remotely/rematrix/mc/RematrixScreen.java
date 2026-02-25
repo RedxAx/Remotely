@@ -7,6 +7,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
+import redxax.oxy.remotely.ui.server.ServerManagerScreen;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.ui.core.ScreenManager;
 
@@ -251,12 +252,20 @@ public class RematrixScreen extends Screen {
     @Override
     public boolean keyReleased(net.minecraft.client.input.KeyEvent keyEvent) {
         boolean handled = sm.keyReleased(keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers());
+        if (keyEvent.key() == 256 && sm.getCurrentScreen() instanceof ServerManagerScreen) {
+            sm.getCurrentScreen().close();
+            return true;
+        }
         return handled || super.keyReleased(keyEvent);
     }
     //#else
     //$$ @Override
     //$$ public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
     //$$     boolean handled = sm.keyReleased(keyCode, scanCode, modifiers);
+    //$$     if (keyCode == 256 && sm.getCurrentScreen() instanceof ServerManagerScreen) {
+    //$$         sm.getCurrentScreen().close();
+    //$$         return true;
+    //$$     }
     //$$     return handled || super.keyReleased(keyCode, scanCode, modifiers);
     //$$ }
     //#endif

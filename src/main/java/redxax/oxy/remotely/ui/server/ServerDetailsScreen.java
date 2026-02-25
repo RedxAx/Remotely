@@ -928,7 +928,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == GLFW.GLFW_KEY_R) {
+        if (keyCode == GLFW.GLFW_KEY_R && hasControlDown()) {
             TerminalSession info = getCurrentInfo();
             if (info != null && info.getResourceContainer() != null) info.getResourceContainer().loadResources(true);
             return true;

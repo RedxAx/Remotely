@@ -1265,7 +1265,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == GLFW.GLFW_KEY_R) {
+        if (keyCode == GLFW.GLFW_KEY_R && hasControlDown()) {
             reloadInstancesSmartly();
             return true;
         }
