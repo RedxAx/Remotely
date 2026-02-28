@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "redxax.oxy"
-version = "2.0.0-beta.4"
+version = "2.0.0-beta.5"
 
 application {
     mainClass.set("redxax.oxy.remotely.RemotelyInit")
