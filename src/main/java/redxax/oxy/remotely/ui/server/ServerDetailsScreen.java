@@ -1003,36 +1003,22 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
 
         ctx.instance.getBackend().getFeature(ResourceUsageFeature.class).ifPresentOrElse(feature -> {
-            String backendType = ctx.instance.getBackendConfig().type;
-            String extra = "";
-            if (ctx.instance.getBackend() instanceof ReStudioBackend reStudioBackend) {
-                extra = " " + reStudioBackend.getResourcesDebugSummary();
-            }
-            DebugManager.getInstance().log(ctx.instance.getInstanceId(), "ResourcePoll", "Start " + backendType + extra);
             feature.getResources().thenAccept(usage -> ScreenManager.getInstance().execute(() -> {
                 TabContext active = getActiveContext();
                 if (active == ctx) {
                     statusCtx.update(usage);
                 }
                 statusCtx.finishRequest();
-                if (usage != null) {
-                    DebugManager.getInstance().log(ctx.instance.getInstanceId(), "ResourcePoll",
-                            "Done Mem=" + usage.memoryBytes() + " Cpu=" + usage.cpuPercent() + " Uptime=" + usage.uptimeMs());
-                } else {
-                    DebugManager.getInstance().log(ctx.instance.getInstanceId(), "ResourcePoll", "Done Null");
-                }
             })).exceptionally(e -> {
                 ScreenManager.getInstance().execute(() -> {
                     statusCtx.finishRequest();
                     statusCtx.update(null);
-                    DebugManager.getInstance().log(ctx.instance.getInstanceId(), "ResourcePoll", "Error " + e.getClass().getSimpleName());
                 });
                 return null;
             });
         }, () -> {
             statusCtx.finishRequest();
             statusCtx.update(null);
-            DebugManager.getInstance().log(ctx.instance.getInstanceId(), "ResourcePoll", "No Feature");
         });
     }
 
