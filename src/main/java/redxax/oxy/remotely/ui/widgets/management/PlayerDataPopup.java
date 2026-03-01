@@ -345,7 +345,13 @@ public class PlayerDataPopup extends PopupWidget {
         sectionContainer.layout(new ManagedLayout()).columns(1).padding(2).verticalSpacing(2).enableSelecting(false).scrolling(true).backgroundDrawing(true);
         sectionContainer.clearWidgets();
         sectionContainer.setGroupHeaderEnabled(false);
-        cachedStats = new ArrayList<>(data.flattenedStatistics());
+        cachedStats = new ArrayList<>();
+        for (PlayerStatistic stat : data.flattenedStatistics()) {
+            if (stat == null || isDataVersionStat(stat.key())) {
+                continue;
+            }
+            cachedStats.add(stat);
+        }
         cachedStats.sort(Comparator.comparing(PlayerStatistic::key));
         applyStatsFilter();
     }
@@ -377,21 +383,14 @@ public class PlayerDataPopup extends PopupWidget {
             return;
         }
         sectionContainer.clearWidgets();
-        Map<String, Container> groups = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        String previousCategory = null;
         for (PlayerStatistic stat : filteredStats) {
             String category = extractCategory(stat.key());
-            Container group = groups.get(category);
-            if (group == null) {
-                group = createStatsGroup(category);
-                groups.put(category, group);
-                sectionContainer.addWidget(group);
+            if (!Objects.equals(previousCategory, category)) {
+                sectionContainer.addWidget(buildStatsCategoryRow(category));
+                previousCategory = category;
             }
-            group.addWidget(buildStatRow(stat));
-        }
-        for (Container group : groups.values()) {
-            group.updateWidgetPositions();
-            int totalHeight = group.calculateTotalHeight();
-            group.setHeight(Math.max(28, totalHeight + 6));
+            sectionContainer.addWidget(buildStatRow(stat));
         }
         sectionContainer.updateWidgetPositions();
     }
@@ -759,15 +758,18 @@ public class PlayerDataPopup extends PopupWidget {
         return row;
     }
 
-    private Container createStatsGroup(String category) {
-        String label = formatLabel(category);
-        int width = Math.max(1, sectionContainer.getEffectiveWidth() - sectionContainer.getPadding() * 2);
-        Container group = new Container(label, 0, 0, width, 120);
-        group.layout(new ManagedLayout()).columns(1).padding(4).verticalSpacing(2).enableSelecting(false).scrolling(false).backgroundDrawing(true);
-        group.setGroupHeaderEnabled(true);
-        group.setGroupHeaderTitle(label);
-        group.entranceAnimationEnabled = false;
-        return group;
+    private MountableButtonWidget buildStatsCategoryRow(String category) {
+        MountableButtonWidget row = new MountableButtonWidget.Builder(formatLabel(category))
+            .build();
+        row.setHeight(18);
+        row.setActive(false);
+        row.entranceAnimationEnabled = false;
+        return row;
+    }
+
+    private boolean isDataVersionStat(String rawKey) {
+        String normalized = formatStatKey(rawKey).replace(" ", "");
+        return "dataversion".equalsIgnoreCase(normalized);
     }
 
     private BufferedImage resolveItemIcon(String id) {
