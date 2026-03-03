@@ -11,17 +11,14 @@ import redxax.oxy.remotely.data.playerdata.PlayerStatistic;
 import redxax.oxy.remotely.host.ApplicationHost;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.render.TextRenderer;
+import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
-import restudio.rescreen.ui.widgets.AnimatedWidget;
-import restudio.rescreen.ui.widgets.IconButton;
-import restudio.rescreen.ui.widgets.MountableButtonWidget;
-import restudio.rescreen.ui.widgets.PopupWidget;
-import restudio.rescreen.ui.widgets.TabSwitchWidget;
-import restudio.rescreen.ui.widgets.TextInputWidget;
+import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Identifier;
+import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.ResourceManager;
 import restudio.rescreen.util.SearchUtils;
 
@@ -30,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -84,6 +82,7 @@ public class PlayerDataPopup extends PopupWidget {
     private long refreshIntervalMs;
     private final Map<PlayerDataSection, Float> scrollOffsets = new EnumMap<>(PlayerDataSection.class);
     private String lastSource;
+    private volatile long interactionLockUntilMs;
 
     public PlayerDataPopup(Screen parent, UnifiedPlayer player, PlayerManagerController controller) {
         super(0, 0, 520, 340, "Player Data: " + (player.getName() != null ? player.getName() : "Unknown"));
@@ -225,6 +224,12 @@ public class PlayerDataPopup extends PopupWidget {
             if (data == null) {
                 return;
             }
+            if (System.currentTimeMillis() < interactionLockUntilMs) {
+                return;
+            }
+            if (isInventoryInteractionActive()) {
+                return;
+            }
             if (isSameData(data, cachedData)) {
                 return;
             }
@@ -235,6 +240,24 @@ public class PlayerDataPopup extends PopupWidget {
                 rebuildSection(data);
             });
         });
+    }
+
+    private boolean isInventoryInteractionActive() {
+        if (sectionContainer.getWidgets().isEmpty()) {
+            return false;
+        }
+        AnimatedWidget widget = sectionContainer.getWidgets().getFirst();
+        if (widget instanceof InventoryGridWidget grid) {
+            return grid.isInteractionActive();
+        }
+        if (widget instanceof EnderChestWidget chest) {
+            return chest.isInteractionActive();
+        }
+        return false;
+    }
+
+    private void markInventoryInteraction() {
+        interactionLockUntilMs = System.currentTimeMillis() + 400L;
     }
 
     private void rebuildSection(PlayerData data) {
@@ -322,6 +345,70 @@ public class PlayerDataPopup extends PopupWidget {
         EnderChestWidget grid = new EnderChestWidget(0, 0, sectionContainer.getEffectiveWidth(), sectionContainer.getHeight(), data);
         sectionContainer.addWidget(grid);
         sectionContainer.updateWidgetPositions();
+    }
+
+    private boolean canManipulateInventory() {
+        return player != null && player.isOnline() && "rcon".equalsIgnoreCase(lastSource);
+    }
+
+    private void openSlotEditorPopup(String slotId, String slotLabel, PlayerItem item) {
+        if (item == null || item.id() == null || item.id().isBlank()) {
+            return;
+        }
+        if (!canManipulateInventory()) {
+            new Notification("Error", "Inventory edit requires RCON source.", Notification.Type.ERROR);
+            return;
+        }
+        if (player.getName() == null || player.getName().isBlank()) {
+            new Notification("Error", "Player name unavailable.", Notification.Type.ERROR);
+            return;
+        }
+
+        PopupWidget.Builder builder = new PopupWidget.Builder("Edit " + slotLabel)
+            .size(280, 125)
+            .setResizable(false)
+            .setAntiOutOfBound(true);
+
+        TextInputWidget countField = new TextInputWidget.Builder()
+            .text(String.valueOf(Math.max(1, item.count())))
+            .placeholder("Count")
+            .build();
+
+        MountableButtonWidget itemInfo = new MountableButtonWidget.Builder(formatLabel(item.id()))
+            .description(item.id())
+            .build();
+        itemInfo.setActive(false);
+        builder.addRow("Item", true, 20, itemInfo);
+        builder.addRow("Count", true, 20, countField);
+
+        builder.addTitleButton(() -> {
+            int count;
+            try {
+                count = Integer.parseInt(countField.getText().trim());
+            } catch (Exception e) {
+                new Notification("Error", "Invalid count.", Notification.Type.ERROR);
+                return;
+            }
+            if (count < 1 || count > 99) {
+                new Notification("Error", "Count range is 1-99.", Notification.Type.ERROR);
+                return;
+            }
+            String command = "item replace entity " + player.getName() + " " + slotId + " with " + item.id() + " " + count;
+            controller.runCustomCommand(player, command);
+            builder.getWidget().setVisible(false);
+            scheduler.schedule(() -> requestRefresh(true), 180, TimeUnit.MILLISECONDS);
+        }, "Apply", ThemeManager.getAccent("nice"));
+
+        builder.addTitleButton(() -> {
+            String command = "item replace entity " + player.getName() + " " + slotId + " with minecraft:air";
+            controller.runCustomCommand(player, command);
+            builder.getWidget().setVisible(false);
+            scheduler.schedule(() -> requestRefresh(true), 180, TimeUnit.MILLISECONDS);
+        }, "Clear", ThemeManager.getAccent("danger"));
+
+        PopupWidget popup = builder.build();
+        ScreenManager.getInstance().getCurrentScreen().addDrawableChild(popup);
+        popup.show();
     }
 
 
@@ -456,9 +543,20 @@ public class PlayerDataPopup extends PopupWidget {
     private class InventoryGridWidget extends AnimatedWidget {
         private final Map<Integer, PlayerItem> inventory = new HashMap<>();
         private final PlayerItem[] armor = new PlayerItem[4];
-        private final PlayerItem offhand;
+        private PlayerItem offhand;
         private final BufferedImage background;
         private final Map<String, Integer> slotPositions = new HashMap<>();
+        private int lastBaseX;
+        private int lastBaseY;
+        private float lastScale = 1f;
+        private int lastVisibleW;
+        private int lastVisibleH;
+        private PlayerItem heldItem;
+        private String lastDragSlot;
+        private final Map<String, PlayerItem> pendingUpdates = new LinkedHashMap<>();
+        private long lastClickAtMs;
+        private String lastClickKey;
+        private long syncBlockUntilMs;
 
         public InventoryGridWidget(int x, int y, int width, int height, PlayerData data) {
             super(x, y, width, height, "");
@@ -559,6 +657,11 @@ public class PlayerDataPopup extends PopupWidget {
             int baseX = centerX - visibleW / 2;
             int baseY = centerY - visibleH / 2;
             float scale = 1f;
+            lastBaseX = baseX;
+            lastBaseY = baseY;
+            lastScale = scale;
+            lastVisibleW = visibleW;
+            lastVisibleH = visibleH;
 
             if (background != null && background != ResourceManager.getInstance().getMissingTexture()) {
                 ctx.enableScissor(baseX, baseY, baseX + visibleW, baseY + visibleH);
@@ -599,6 +702,18 @@ public class PlayerDataPopup extends PopupWidget {
             drawItem(ctx, inventory.get(CRAFT_SLOT_1), baseX, baseY, unpackX(craft1), unpackY(craft1), scale);
             drawItem(ctx, inventory.get(CRAFT_SLOT_2), baseX, baseY, unpackX(craft2), unpackY(craft2), scale);
             drawItem(ctx, inventory.get(CRAFT_SLOT_3), baseX, baseY, unpackX(craft3), unpackY(craft3), scale);
+
+            if (heldItem != null) {
+                UiItem uiItem = UiItem.fromPlayerItem(heldItem);
+                if (uiItem != null) {
+                    ctx.drawItem(uiItem, mouseX - 8, mouseY - 8, 0);
+                }
+                if (heldItem.count() > 1) {
+                    String text = String.valueOf(heldItem.count());
+                    int textW = TextRenderer.tr.getWidth(text);
+                    ctx.drawText(text, mouseX + 8 - textW, mouseY + 7, 0xFFFFFFFF, true);
+                }
+            }
         }
 
         private void drawItem(IDrawContext ctx, PlayerItem item, int baseX, int baseY, int slotX, int slotY, float scale) {
@@ -622,12 +737,369 @@ public class PlayerDataPopup extends PopupWidget {
                 ctx.drawText(text, textX, textY, 0xFFFFFFFF, true);
             }
         }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            markInventoryInteraction();
+            if (!canManipulateInventory()) {
+                return false;
+            }
+            SlotSelection selection = findSelection(mouseX, mouseY);
+            if (selection == null) {
+                if (heldItem != null && (button == 0 || button == 1)) {
+                    if (isWithinInventoryBounds(mouseX, mouseY)) {
+                        return false;
+                    }
+                    heldItem = null;
+                    flushPendingUpdatesIfReady();
+                    return true;
+                }
+                return false;
+            }
+            if (selection.commandSlot == null) {
+                return false;
+            }
+            long now = System.currentTimeMillis();
+            boolean isDoubleLeftClick = button == 0 && Objects.equals(lastClickKey, selection.key) && now - lastClickAtMs <= 250L;
+            lastClickAtMs = now;
+            lastClickKey = selection.key;
+            if (isDoubleLeftClick) {
+                boolean handled = handleDoubleClick(selection);
+                flushPendingUpdatesIfReady();
+                return handled;
+            }
+            if (button == 2) {
+                if (selection.item != null) {
+                    heldItem = copyItem(selection.item, 64);
+                    return true;
+                }
+                return false;
+            }
+            if (button == 0) {
+                boolean handled = handleLeftClick(selection);
+                flushPendingUpdatesIfReady();
+                return handled;
+            }
+            if (button == 1) {
+                boolean handled = handleRightClick(selection);
+                flushPendingUpdatesIfReady();
+                return handled;
+            }
+            return false;
+        }
+
+        @Override
+        public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+            markInventoryInteraction();
+            if (!canManipulateInventory() || (button != 0 && button != 1) || heldItem == null || heldItem.count() <= 0) {
+                return false;
+            }
+            SlotSelection selection = findSelection(mouseX, mouseY);
+            if (selection == null || selection.commandSlot == null) {
+                return false;
+            }
+            if (selection.key.equals(lastDragSlot)) {
+                return false;
+            }
+            if (placeOne(selection)) {
+                lastDragSlot = selection.key;
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            if (button == 0) {
+                lastDragSlot = null;
+                flushPendingUpdatesIfReady();
+            }
+            if (button == 1) {
+                flushPendingUpdatesIfReady();
+            }
+            return false;
+        }
+
+        private boolean handleLeftClick(SlotSelection selection) {
+            PlayerItem slotItem = selection.item;
+            if (heldItem == null) {
+                if (slotItem == null) {
+                    return false;
+                }
+                heldItem = copyItem(slotItem, slotItem.count());
+                setSlotItem(selection.key, null);
+                sendSlotUpdate(selection.commandSlot, null);
+                return true;
+            }
+            if (slotItem == null) {
+                setSlotItem(selection.key, copyItem(heldItem, heldItem.count()));
+                sendSlotUpdate(selection.commandSlot, heldItem);
+                heldItem = null;
+                return true;
+            }
+            if (canStack(slotItem, heldItem) && slotItem.count() < 64) {
+                int transfer = Math.min(64 - slotItem.count(), heldItem.count());
+                if (transfer <= 0) {
+                    return false;
+                }
+                PlayerItem updatedSlot = copyItem(slotItem, slotItem.count() + transfer);
+                setSlotItem(selection.key, updatedSlot);
+                sendSlotUpdate(selection.commandSlot, updatedSlot);
+                int remain = heldItem.count() - transfer;
+                heldItem = remain > 0 ? copyItem(heldItem, remain) : null;
+                return true;
+            }
+            PlayerItem oldSlot = copyItem(slotItem, slotItem.count());
+            setSlotItem(selection.key, copyItem(heldItem, heldItem.count()));
+            sendSlotUpdate(selection.commandSlot, heldItem);
+            heldItem = oldSlot;
+            return true;
+        }
+
+        private boolean handleRightClick(SlotSelection selection) {
+            PlayerItem slotItem = selection.item;
+            if (heldItem == null) {
+                if (slotItem == null) {
+                    return false;
+                }
+                int take = (slotItem.count() + 1) / 2;
+                int remain = slotItem.count() - take;
+                heldItem = copyItem(slotItem, take);
+                PlayerItem updated = remain > 0 ? copyItem(slotItem, remain) : null;
+                setSlotItem(selection.key, updated);
+                sendSlotUpdate(selection.commandSlot, updated);
+                return true;
+            }
+            return placeOne(selection);
+        }
+
+        private boolean placeOne(SlotSelection selection) {
+            if (heldItem == null || heldItem.count() <= 0) {
+                return false;
+            }
+            PlayerItem slotItem = selection.item;
+            if (slotItem == null) {
+                PlayerItem placed = copyItem(heldItem, 1);
+                setSlotItem(selection.key, placed);
+                sendSlotUpdate(selection.commandSlot, placed);
+                heldItem = heldItem.count() > 1 ? copyItem(heldItem, heldItem.count() - 1) : null;
+                return true;
+            }
+            if (!canStack(slotItem, heldItem) || slotItem.count() >= 64) {
+                return false;
+            }
+            PlayerItem updatedSlot = copyItem(slotItem, slotItem.count() + 1);
+            setSlotItem(selection.key, updatedSlot);
+            sendSlotUpdate(selection.commandSlot, updatedSlot);
+            heldItem = heldItem.count() > 1 ? copyItem(heldItem, heldItem.count() - 1) : null;
+            return true;
+        }
+
+        private boolean handleDoubleClick(SlotSelection selection) {
+            PlayerItem template = heldItem != null ? heldItem : selection.item;
+            if (template == null) {
+                return false;
+            }
+            int total = heldItem != null ? heldItem.count() : 0;
+            for (String key : slotPositions.keySet()) {
+                String commandSlot = resolveCommandSlotByKey(key);
+                if (commandSlot == null) {
+                    continue;
+                }
+                PlayerItem slotItem = resolveItemByKey(key);
+                if (!canStack(slotItem, template)) {
+                    continue;
+                }
+                if (total >= 64) {
+                    break;
+                }
+                int take = Math.min(slotItem.count(), 64 - total);
+                if (take <= 0) {
+                    continue;
+                }
+                total += take;
+                heldItem = copyItem(template, total);
+                int remain = slotItem.count() - take;
+                PlayerItem updated = remain > 0 ? copyItem(slotItem, remain) : null;
+                setSlotItem(key, updated);
+                sendSlotUpdate(commandSlot, updated);
+            }
+            return heldItem != null;
+        }
+
+        private void setSlotItem(String key, PlayerItem item) {
+            if (key.startsWith("inv_")) {
+                int slot = parseIntSafe(key.substring("inv_".length()), -1);
+                if (slot >= 0) {
+                    if (item == null) inventory.remove(slot);
+                    else inventory.put(slot, item);
+                }
+                return;
+            }
+            if (key.startsWith("hotbar_")) {
+                int slot = parseIntSafe(key.substring("hotbar_".length()), -1);
+                if (slot >= 0) {
+                    if (item == null) inventory.remove(slot);
+                    else inventory.put(slot, item);
+                }
+                return;
+            }
+            switch (key) {
+                case "helmet" -> armor[3] = item;
+                case "chest" -> armor[2] = item;
+                case "legs" -> armor[1] = item;
+                case "boots" -> armor[0] = item;
+                case "offhand" -> offhand = item;
+            }
+        }
+
+        private void sendSlotUpdate(String commandSlot, PlayerItem item) {
+            if (commandSlot == null || player == null || player.getName() == null || player.getName().isBlank()) {
+                return;
+            }
+            pendingUpdates.put(commandSlot, item == null ? null : copyItem(item, item.count()));
+        }
+
+        private boolean canStack(PlayerItem first, PlayerItem second) {
+            if (first == null || second == null) {
+                return false;
+            }
+            return Objects.equals(first.id(), second.id()) && Objects.equals(first.tag(), second.tag());
+        }
+
+        private PlayerItem copyItem(PlayerItem item, int count) {
+            if (item == null) {
+                return null;
+            }
+            return new PlayerItem(item.id(), Math.max(1, count), item.slot(), item.tag());
+        }
+
+        private void flushPendingUpdatesIfReady() {
+            if (heldItem != null || pendingUpdates.isEmpty()) {
+                return;
+            }
+            syncBlockUntilMs = System.currentTimeMillis() + 550L;
+            for (Map.Entry<String, PlayerItem> entry : pendingUpdates.entrySet()) {
+                String commandSlot = entry.getKey();
+                PlayerItem item = entry.getValue();
+                String command = item == null
+                    ? "item replace entity " + player.getName() + " " + commandSlot + " with minecraft:air"
+                    : "item replace entity " + player.getName() + " " + commandSlot + " with " + item.id() + " " + Math.max(1, item.count());
+                controller.runCustomCommand(player, command);
+            }
+            pendingUpdates.clear();
+            scheduler.schedule(() -> requestRefresh(true), 180, TimeUnit.MILLISECONDS);
+        }
+
+        private boolean isInteractionActive() {
+            return heldItem != null || !pendingUpdates.isEmpty() || System.currentTimeMillis() < syncBlockUntilMs;
+        }
+
+        private SlotSelection findSelection(double mouseX, double mouseY) {
+            for (Map.Entry<String, Integer> entry : slotPositions.entrySet()) {
+                String key = entry.getKey();
+                int packed = entry.getValue();
+                int slotX = lastBaseX + Math.round(unpackX(packed) * lastScale);
+                int slotY = lastBaseY + Math.round(unpackY(packed) * lastScale);
+                int slotSize = Math.round(SLOT_SIZE * lastScale);
+                if (mouseX < slotX || mouseX > slotX + slotSize || mouseY < slotY || mouseY > slotY + slotSize) {
+                    continue;
+                }
+                PlayerItem item = resolveItemByKey(key);
+                String commandSlot = resolveCommandSlotByKey(key);
+                String label = resolveSlotLabel(key);
+                return new SlotSelection(key, item, commandSlot, label);
+            }
+            return null;
+        }
+
+        private boolean isWithinInventoryBounds(double mouseX, double mouseY) {
+            return mouseX >= lastBaseX && mouseX <= lastBaseX + lastVisibleW && mouseY >= lastBaseY && mouseY <= lastBaseY + lastVisibleH;
+        }
+
+        private PlayerItem resolveItemByKey(String key) {
+            if (key.startsWith("inv_")) {
+                int slot = parseIntSafe(key.substring("inv_".length()), -1);
+                return slot >= 0 ? inventory.get(slot) : null;
+            }
+            if (key.startsWith("hotbar_")) {
+                int slot = parseIntSafe(key.substring("hotbar_".length()), -1);
+                return slot >= 0 ? inventory.get(slot) : null;
+            }
+            return switch (key) {
+                case "helmet" -> armor[3];
+                case "chest" -> armor[2];
+                case "legs" -> armor[1];
+                case "boots" -> armor[0];
+                case "offhand" -> offhand;
+                default -> null;
+            };
+        }
+
+        private String resolveCommandSlotByKey(String key) {
+            if (key.startsWith("inv_")) {
+                int slot = parseIntSafe(key.substring("inv_".length()), -1);
+                return slot >= 9 ? "inventory." + (slot - 9) : null;
+            }
+            if (key.startsWith("hotbar_")) {
+                int slot = parseIntSafe(key.substring("hotbar_".length()), -1);
+                return slot >= 0 ? "hotbar." + slot : null;
+            }
+            return switch (key) {
+                case "helmet" -> "armor.head";
+                case "chest" -> "armor.chest";
+                case "legs" -> "armor.legs";
+                case "boots" -> "armor.feet";
+                case "offhand" -> "weapon.offhand";
+                default -> null;
+            };
+        }
+
+        private String resolveSlotLabel(String key) {
+            if (key.startsWith("inv_")) {
+                int slot = parseIntSafe(key.substring("inv_".length()), -1);
+                return slot >= 0 ? "Inventory " + (slot - 8) : "Inventory";
+            }
+            if (key.startsWith("hotbar_")) {
+                int slot = parseIntSafe(key.substring("hotbar_".length()), -1);
+                return slot >= 0 ? "Hotbar " + (slot + 1) : "Hotbar";
+            }
+            return switch (key) {
+                case "helmet" -> "Helmet";
+                case "chest" -> "Chestplate";
+                case "legs" -> "Leggings";
+                case "boots" -> "Boots";
+                case "offhand" -> "Offhand";
+                default -> "Slot";
+            };
+        }
+
+        private int parseIntSafe(String value, int fallback) {
+            try {
+                return Integer.parseInt(value);
+            } catch (Exception e) {
+                return fallback;
+            }
+        }
+
+        private record SlotSelection(String key, PlayerItem item, String commandSlot, String label) {
+        }
     }
 
     private class EnderChestWidget extends AnimatedWidget {
         private final Map<Integer, PlayerItem> enderItems = new HashMap<>();
         private final Map<Integer, PlayerItem> inventory = new HashMap<>();
         private final BufferedImage background;
+        private int lastBaseX;
+        private int lastBaseY;
+        private int lastGuiWidth;
+        private int lastGuiHeight;
+        private PlayerItem heldItem;
+        private Integer lastDragSlot;
+        private final Map<String, PlayerItem> pendingUpdates = new LinkedHashMap<>();
+        private long lastClickAtMs;
+        private Integer lastClickSlot;
+        private long syncBlockUntilMs;
 
         public EnderChestWidget(int x, int y, int width, int height, PlayerData data) {
             super(x, y, width, height, "");
@@ -666,6 +1138,10 @@ public class PlayerDataPopup extends PopupWidget {
             int centerY = getY() + availableH / 2;
             int baseX = centerX - CHEST_GUI_TEXTURE_WIDTH / 2;
             int baseY = centerY - (topHeight + CHEST_GUI_PLAYER_INV_HEIGHT) / 2;
+            lastBaseX = baseX;
+            lastBaseY = baseY;
+            lastGuiWidth = CHEST_GUI_TEXTURE_WIDTH;
+            lastGuiHeight = topHeight + CHEST_GUI_PLAYER_INV_HEIGHT;
 
             if (background != null && background != ResourceManager.getInstance().getMissingTexture()) {
                 BufferedImage top = background.getSubimage(0, 0, CHEST_GUI_TEXTURE_WIDTH, Math.min(topHeight, background.getHeight()));
@@ -699,6 +1175,18 @@ public class PlayerDataPopup extends PopupWidget {
             for (int col = 0; col < 9; col++) {
                 drawItem(ctx, inventory.get(col), baseX, baseY, gridX + col * SLOT_SIZE, hotbarY, 1f);
             }
+
+            if (heldItem != null) {
+                UiItem uiItem = UiItem.fromPlayerItem(heldItem);
+                if (uiItem != null) {
+                    ctx.drawItem(uiItem, mouseX - 8, mouseY - 8, 0);
+                }
+                if (heldItem.count() > 1) {
+                    String text = String.valueOf(heldItem.count());
+                    int textW = TextRenderer.tr.getWidth(text);
+                    ctx.drawText(text, mouseX + 8 - textW, mouseY + 7, 0xFFFFFFFF, true);
+                }
+            }
         }
 
         private void drawItem(IDrawContext ctx, PlayerItem item, int baseX, int baseY, int slotX, int slotY, float scale) {
@@ -721,6 +1209,324 @@ public class PlayerDataPopup extends PopupWidget {
                 int textY = baseY + Math.round(slotY * scale) + slotSize - 8;
                 ctx.drawText(text, textX, textY, 0xFFFFFFFF, true);
             }
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            markInventoryInteraction();
+            if (!canManipulateInventory()) {
+                return false;
+            }
+            SlotSelection selection = findSelection(mouseX, mouseY);
+            if (selection == null) {
+                if (heldItem != null && (button == 0 || button == 1)) {
+                    if (isWithinChestBounds(mouseX, mouseY)) {
+                        return false;
+                    }
+                    heldItem = null;
+                    flushPendingUpdatesIfReady();
+                    return true;
+                }
+                return false;
+            }
+            long now = System.currentTimeMillis();
+            boolean isDoubleLeftClick = button == 0 && Objects.equals(lastClickSlot, selection.slotIndex) && now - lastClickAtMs <= 250L;
+            lastClickAtMs = now;
+            lastClickSlot = selection.slotIndex;
+            if (isDoubleLeftClick) {
+                boolean handled = handleDoubleClick(selection);
+                flushPendingUpdatesIfReady();
+                return handled;
+            }
+            if (button == 2) {
+                if (selection.item != null) {
+                    heldItem = copyItem(selection.item, 64);
+                    return true;
+                }
+                return false;
+            }
+            if (button == 0) {
+                boolean handled = handleLeftClick(selection);
+                flushPendingUpdatesIfReady();
+                return handled;
+            }
+            if (button == 1) {
+                boolean handled = handleRightClick(selection);
+                flushPendingUpdatesIfReady();
+                return handled;
+            }
+            return false;
+        }
+
+        @Override
+        public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+            markInventoryInteraction();
+            if (!canManipulateInventory() || (button != 0 && button != 1) || heldItem == null || heldItem.count() <= 0) {
+                return false;
+            }
+            SlotSelection selection = findSelection(mouseX, mouseY);
+            if (selection == null) {
+                return false;
+            }
+            if (Objects.equals(lastDragSlot, selection.slotIndex)) {
+                return false;
+            }
+            if (placeOne(selection)) {
+                lastDragSlot = selection.slotIndex;
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            if (button == 0) {
+                lastDragSlot = null;
+                flushPendingUpdatesIfReady();
+            }
+            if (button == 1) {
+                flushPendingUpdatesIfReady();
+            }
+            return false;
+        }
+
+        private boolean handleLeftClick(SlotSelection selection) {
+            PlayerItem slotItem = selection.item;
+            if (heldItem == null) {
+                if (slotItem == null) {
+                    return false;
+                }
+                heldItem = copyItem(slotItem, slotItem.count());
+                setSlotItem(selection, null);
+                sendSlotUpdate(selection.commandSlot, null);
+                return true;
+            }
+            if (slotItem == null) {
+                setSlotItem(selection, copyItem(heldItem, heldItem.count()));
+                sendSlotUpdate(selection.commandSlot, heldItem);
+                heldItem = null;
+                return true;
+            }
+            if (canStack(slotItem, heldItem) && slotItem.count() < 64) {
+                int transfer = Math.min(64 - slotItem.count(), heldItem.count());
+                if (transfer <= 0) {
+                    return false;
+                }
+                PlayerItem updated = copyItem(slotItem, slotItem.count() + transfer);
+                setSlotItem(selection, updated);
+                sendSlotUpdate(selection.commandSlot, updated);
+                int remain = heldItem.count() - transfer;
+                heldItem = remain > 0 ? copyItem(heldItem, remain) : null;
+                return true;
+            }
+            PlayerItem old = copyItem(slotItem, slotItem.count());
+            setSlotItem(selection, copyItem(heldItem, heldItem.count()));
+            sendSlotUpdate(selection.commandSlot, heldItem);
+            heldItem = old;
+            return true;
+        }
+
+        private boolean handleRightClick(SlotSelection selection) {
+            PlayerItem slotItem = selection.item;
+            if (heldItem == null) {
+                if (slotItem == null) {
+                    return false;
+                }
+                int take = (slotItem.count() + 1) / 2;
+                int remain = slotItem.count() - take;
+                heldItem = copyItem(slotItem, take);
+                PlayerItem updated = remain > 0 ? copyItem(slotItem, remain) : null;
+                setSlotItem(selection, updated);
+                sendSlotUpdate(selection.commandSlot, updated);
+                return true;
+            }
+            return placeOne(selection);
+        }
+
+        private boolean placeOne(SlotSelection selection) {
+            if (heldItem == null || heldItem.count() <= 0) {
+                return false;
+            }
+            PlayerItem slotItem = selection.item;
+            if (slotItem == null) {
+                PlayerItem placed = copyItem(heldItem, 1);
+                setSlotItem(selection, placed);
+                sendSlotUpdate(selection.commandSlot, placed);
+                heldItem = heldItem.count() > 1 ? copyItem(heldItem, heldItem.count() - 1) : null;
+                return true;
+            }
+            if (!canStack(slotItem, heldItem) || slotItem.count() >= 64) {
+                return false;
+            }
+            PlayerItem updated = copyItem(slotItem, slotItem.count() + 1);
+            setSlotItem(selection, updated);
+            sendSlotUpdate(selection.commandSlot, updated);
+            heldItem = heldItem.count() > 1 ? copyItem(heldItem, heldItem.count() - 1) : null;
+            return true;
+        }
+
+        private boolean handleDoubleClick(SlotSelection selection) {
+            PlayerItem template = heldItem != null ? heldItem : selection.item;
+            if (template == null) {
+                return false;
+            }
+            int total = heldItem != null ? heldItem.count() : 0;
+            for (int slotIndex = 0; slotIndex < 27; slotIndex++) {
+                PlayerItem slotItem = enderItems.get(slotIndex);
+                if (!canStack(slotItem, template)) {
+                    continue;
+                }
+                if (total >= 64) {
+                    break;
+                }
+                int take = Math.min(slotItem.count(), 64 - total);
+                if (take <= 0) {
+                    continue;
+                }
+                total += take;
+                heldItem = copyItem(template, total);
+                int remain = slotItem.count() - take;
+                PlayerItem updated = remain > 0 ? copyItem(slotItem, remain) : null;
+                setSlotItem(new SlotSelection(slotIndex, slotItem, "enderchest." + slotIndex, "Ender Slot " + (slotIndex + 1), true), updated);
+                sendSlotUpdate("enderchest." + slotIndex, updated);
+            }
+            for (int slotIndex = 9; slotIndex < 36 && total < 64; slotIndex++) {
+                PlayerItem slotItem = inventory.get(slotIndex);
+                if (!canStack(slotItem, template)) {
+                    continue;
+                }
+                int take = Math.min(slotItem.count(), 64 - total);
+                if (take <= 0) {
+                    continue;
+                }
+                total += take;
+                heldItem = copyItem(template, total);
+                int remain = slotItem.count() - take;
+                PlayerItem updated = remain > 0 ? copyItem(slotItem, remain) : null;
+                setSlotItem(new SlotSelection(slotIndex, slotItem, "inventory." + (slotIndex - 9), "Inventory " + (slotIndex - 8), false), updated);
+                sendSlotUpdate("inventory." + (slotIndex - 9), updated);
+            }
+            for (int slotIndex = 0; slotIndex < 9 && total < 64; slotIndex++) {
+                PlayerItem slotItem = inventory.get(slotIndex);
+                if (!canStack(slotItem, template)) {
+                    continue;
+                }
+                int take = Math.min(slotItem.count(), 64 - total);
+                if (take <= 0) {
+                    continue;
+                }
+                total += take;
+                heldItem = copyItem(template, total);
+                int remain = slotItem.count() - take;
+                PlayerItem updated = remain > 0 ? copyItem(slotItem, remain) : null;
+                setSlotItem(new SlotSelection(slotIndex, slotItem, "hotbar." + slotIndex, "Hotbar " + (slotIndex + 1), false), updated);
+                sendSlotUpdate("hotbar." + slotIndex, updated);
+            }
+            return true;
+        }
+
+        private void setSlotItem(SlotSelection selection, PlayerItem item) {
+            if (selection.enderSlot) {
+                if (item == null) {
+                    enderItems.remove(selection.slotIndex);
+                } else {
+                    enderItems.put(selection.slotIndex, item);
+                }
+            } else {
+                if (item == null) {
+                    inventory.remove(selection.slotIndex);
+                } else {
+                    inventory.put(selection.slotIndex, item);
+                }
+            }
+        }
+
+        private void sendSlotUpdate(String commandSlot, PlayerItem item) {
+            if (commandSlot == null || player == null || player.getName() == null || player.getName().isBlank()) {
+                return;
+            }
+            pendingUpdates.put(commandSlot, item == null ? null : copyItem(item, item.count()));
+        }
+
+        private boolean canStack(PlayerItem first, PlayerItem second) {
+            if (first == null || second == null) {
+                return false;
+            }
+            return Objects.equals(first.id(), second.id()) && Objects.equals(first.tag(), second.tag());
+        }
+
+        private PlayerItem copyItem(PlayerItem item, int count) {
+            if (item == null) {
+                return null;
+            }
+            return new PlayerItem(item.id(), Math.max(1, count), item.slot(), item.tag());
+        }
+
+        private void flushPendingUpdatesIfReady() {
+            if (heldItem != null || pendingUpdates.isEmpty()) {
+                return;
+            }
+            syncBlockUntilMs = System.currentTimeMillis() + 550L;
+            for (Map.Entry<String, PlayerItem> entry : pendingUpdates.entrySet()) {
+                String commandSlot = entry.getKey();
+                PlayerItem item = entry.getValue();
+                String command = item == null
+                    ? "item replace entity " + player.getName() + " " + commandSlot + " with minecraft:air"
+                    : "item replace entity " + player.getName() + " " + commandSlot + " with " + item.id() + " " + Math.max(1, item.count());
+                controller.runCustomCommand(player, command);
+            }
+            pendingUpdates.clear();
+            scheduler.schedule(() -> requestRefresh(true), 180, TimeUnit.MILLISECONDS);
+        }
+
+        private boolean isInteractionActive() {
+            return heldItem != null || !pendingUpdates.isEmpty() || System.currentTimeMillis() < syncBlockUntilMs;
+        }
+
+        private SlotSelection findSelection(double mouseX, double mouseY) {
+            int gridX = CHEST_GUI_SIDE_MARGIN;
+            int gridY = CHEST_GUI_TOP_MARGIN;
+            for (int row = 0; row < 3; row++) {
+                for (int col = 0; col < 9; col++) {
+                    int slotIndex = row * 9 + col;
+                    int slotX = lastBaseX + gridX + col * SLOT_SIZE;
+                    int slotY = lastBaseY + gridY + row * SLOT_SIZE;
+                    if (mouseX < slotX || mouseX > slotX + SLOT_SIZE || mouseY < slotY || mouseY > slotY + SLOT_SIZE) {
+                        continue;
+                    }
+                    PlayerItem item = enderItems.get(slotIndex);
+                    return new SlotSelection(slotIndex, item, "enderchest." + slotIndex, "Ender Slot " + (slotIndex + 1), true);
+                }
+            }
+            int playerInvY = CHEST_GUI_TOP_MARGIN + 3 * SLOT_SIZE + CHEST_GUI_PLAYER_INV_OFFSET;
+            for (int row = 0; row < 3; row++) {
+                for (int col = 0; col < 9; col++) {
+                    int slotIndex = 9 + row * 9 + col;
+                    int slotX = lastBaseX + gridX + col * SLOT_SIZE;
+                    int slotY = lastBaseY + playerInvY + row * SLOT_SIZE;
+                    if (mouseX < slotX || mouseX > slotX + SLOT_SIZE || mouseY < slotY || mouseY > slotY + SLOT_SIZE) {
+                        continue;
+                    }
+                    return new SlotSelection(slotIndex, inventory.get(slotIndex), "inventory." + (slotIndex - 9), "Inventory " + (slotIndex - 8), false);
+                }
+            }
+            int hotbarY = CHEST_GUI_TOP_MARGIN + 3 * SLOT_SIZE + CHEST_GUI_HOTBAR_OFFSET;
+            for (int col = 0; col < 9; col++) {
+                int slotX = lastBaseX + gridX + col * SLOT_SIZE;
+                int slotY = lastBaseY + hotbarY;
+                if (mouseX < slotX || mouseX > slotX + SLOT_SIZE || mouseY < slotY || mouseY > slotY + SLOT_SIZE) {
+                    continue;
+                }
+                return new SlotSelection(col, inventory.get(col), "hotbar." + col, "Hotbar " + (col + 1), false);
+            }
+            return null;
+        }
+
+        private boolean isWithinChestBounds(double mouseX, double mouseY) {
+            return mouseX >= lastBaseX && mouseX <= lastBaseX + lastGuiWidth && mouseY >= lastBaseY && mouseY <= lastBaseY + lastGuiHeight;
+        }
+
+        private record SlotSelection(int slotIndex, PlayerItem item, String commandSlot, String label, boolean enderSlot) {
         }
     }
 
