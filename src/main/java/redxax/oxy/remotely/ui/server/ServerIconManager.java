@@ -94,9 +94,7 @@ public class ServerIconManager {
                 } finally {
                     tempDir.delete();
                 }
-            } catch (Exception e) {
-                devPrint("Failed to load remote icon: " + e.getMessage());
-            }
+            } catch (Exception ignored) {}
         });
     }
 
@@ -115,18 +113,16 @@ public class ServerIconManager {
                     onComplete.run();
                 }
             } else {
-                uploadToRemote(instance, icon).thenAccept(success -> {
-                    ScreenManager.getInstance().execute(() -> {
-                        if (success) {
-                            showSuccessNotification("Icon Updated", "Custom icon set.");
-                        } else {
-                            showErrorNotification("Upload Failed", "Failed to upload icon to remote server.");
-                        }
-                        if (onComplete != null) {
-                            onComplete.run();
-                        }
-                    });
-                }).exceptionally(e -> {
+                uploadToRemote(instance, icon).thenAccept(success -> ScreenManager.getInstance().execute(() -> {
+                    if (success) {
+                        showSuccessNotification("Icon Updated", "Custom icon set.");
+                    } else {
+                        showErrorNotification("Upload Failed", "Failed to upload icon to remote server.");
+                    }
+                    if (onComplete != null) {
+                        onComplete.run();
+                    }
+                })).exceptionally(e -> {
                     ScreenManager.getInstance().execute(() -> showErrorNotification("Upload Error", e.getMessage()));
                     if (onComplete != null) {
                         onComplete.run();

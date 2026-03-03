@@ -6,6 +6,7 @@ import restudio.rebase.instance.Instance;
 import restudio.rebase.resource.InstanceResource;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.resource.provider.IResourceProvider;
+import restudio.rebase.resource.provider.OnlineResource;
 import restudio.rebase.ui.screens.resources.ResourceOverviewScreen;
 import restudio.rebase.ui.widgets.DownloadProgressWidget;
 import restudio.rescreen.config.Config;
@@ -46,6 +47,7 @@ public class InstanceResourceWidget extends MountableButtonWidget {
     private final ToggleWidget toggleButton;
     private final SquareButtonWidget updateButton;
     private boolean updateBackup = false;
+    private volatile boolean iconLoading = false;
     private int imageColor;
     private long lastClickTime = 0;
 
@@ -119,21 +121,36 @@ public class InstanceResourceWidget extends MountableButtonWidget {
         if (ImageUtils.compareImages(resource.getIcon(), ImageUtils.loadIcon("missing.png"))) {
             if (Files.exists(imagePath)) {
                 resource.setIcon(ImageUtils.loadImage(imagePath));
-            } else if (resource.getProjectId() != null && resource.getProviderName() != null) {
-                Rebase.get().getResourceProvider(resource.getProviderName()).getResourceDetails(resource.getProjectId()).thenAccept(resourceDetails -> {
-                    if (resourceDetails != null) {
-                        cacheManager.cacheIcon(this.resource.getProviderName(), resourceDetails.getProjectId(), resourceDetails.getIconUrl());
-                        cacheManager.getOrFetchImage(resourceDetails.getIconUrl(), imagePath).thenAccept(img -> {
-                            if (img != null) {
-                                this.resource.setIcon(img);
-                                ScreenManager.getInstance().execute(() -> {
-                                    this.setMessage(resourceDetails.getName());
-                                    this.ensureImage();
-                                });
+            } else if (!iconLoading) {
+                OnlineResource cachedDetails = cacheManager.get(resource.getProviderName(), resource.getProjectId());
+                if (cachedDetails != null && cachedDetails.getIconUrl() != null && !cachedDetails.getIconUrl().isBlank()) {
+                    iconLoading = true;
+                    cacheManager.getOrFetchImage(cachedDetails.getIconUrl(), imagePath).thenAccept(img -> {
+                        if (img != null) {
+                            this.resource.setIcon(img);
+                            ScreenManager.getInstance().execute(this::ensureImage);
+                        }
+                    }).whenComplete((v, e) -> iconLoading = false);
+                } else {
+                    IResourceProvider provider = Rebase.get().getResourceProvider(resource.getProviderName());
+                    if (provider != null) {
+                        iconLoading = true;
+                        provider.getResourceDetails(resource.getProjectId()).thenAccept(resourceDetails -> {
+                            if (resourceDetails != null) {
+                                cacheManager.put(this.resource.getProviderName(), this.resource.getProjectId(), resourceDetails);
+                                String iconUrl = resourceDetails.getIconUrl();
+                                if (iconUrl != null && !iconUrl.isBlank()) {
+                                    cacheManager.getOrFetchImage(iconUrl, imagePath).thenAccept(img -> {
+                                        if (img != null) {
+                                            this.resource.setIcon(img);
+                                            ScreenManager.getInstance().execute(() -> this.setMessage(resourceDetails.getName()));
+                                        }
+                                    });
+                                }
                             }
-                        });
+                        }).whenComplete((v, e) -> iconLoading = false);
                     }
-                });
+                }
             }
         }
         this.imageColor = ImageUtils.getDominantColor(this.resource.getIcon());
