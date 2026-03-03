@@ -5,7 +5,10 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
+import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
+import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.instance.InstanceState;
@@ -693,7 +696,14 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     public void openWorldScreen(Instance instance) {
-        WorldMapScreen mapWidget = new WorldMapScreen(this, instance);
+        WorldMapScreen mapWidget = new WorldMapScreen(this, instance, location -> {
+            if (location == null || location.uuid() == null) {
+                return;
+            }
+            PlayerManagerController controller = PlayerManagerController.getOrCreate(instance);
+            UnifiedPlayer player = new UnifiedPlayer(location.uuid(), location.name());
+            new PlayerDataPopup(ScreenManager.getInstance().getCurrentScreen(), player, controller);
+        });
         client.setScreen(mapWidget);
         Main.setTitle("Viewing " + instance.getName() + "'s Map - Remotely World Viewer");
     }
