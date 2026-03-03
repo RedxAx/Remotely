@@ -380,9 +380,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
             BackendConfig backendConfig = server.getBackendConfig();
             if (backendConfig != null && !"LOCAL".equalsIgnoreCase(backendConfig.type)) {
-                iconManager.loadRemoteIconAsync(server, () -> {
-                    iconManager.loadIconAsync(server, widget::setIcon);
-                });
+                iconManager.loadRemoteIconAsync(server, () -> ScreenManager.getInstance().execute(() -> refreshServerWidgetIcon(server)));
             }
         }
 
@@ -412,6 +410,20 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         DesktopIconWidget widget = new DesktopIconWidget.Builder(info, isCreate, isCreate ? serverIcon : getServerIcon(info)).onClick(this::onDesktopIconClick).build();
         activeContainer.addWidget(widget);
         return widget;
+    }
+
+    private void refreshServerWidgetIcon(Instance server) {
+        if (activeContainer == null || server == null) return;
+        BufferedImage icon = iconManager.getIcon(server);
+        if (icon == null) return;
+        for (AnimatedWidget widget : activeContainer.getWidgets()) {
+            if (widget instanceof DesktopIconWidget desktopWidget && !desktopWidget.isCreateButton() && desktopWidget.getInstance() != null) {
+                if (Objects.equals(desktopWidget.getInstance().getInstanceId(), server.getInstanceId())) {
+                    desktopWidget.setIcon(icon);
+                    break;
+                }
+            }
+        }
     }
 
     private void onHostTabSelected(TabsManager.Tab tab) {
