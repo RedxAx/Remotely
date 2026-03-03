@@ -12,8 +12,11 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -37,6 +40,10 @@ public class ServerIconManager {
     }
 
     public BufferedImage getIcon(Instance instance) {
+        BufferedImage cachedIcon = loadFromCache(instance);
+        if (cachedIcon != null) return cachedIcon;
+        BufferedImage instanceIcon = loadFromInstance(instance);
+        if (instanceIcon != null) return instanceIcon;
         return getDefaultIcon(instance);
     }
 
@@ -65,36 +72,50 @@ public class ServerIconManager {
 
     public void loadRemoteIconAsync(Instance instance, Runnable onComplete) {
         CompletableFuture.runAsync(() -> {
+            String instanceKey = getInstanceUniqueId(instance);
+            boolean loaded = false;
             try {
                 BackendConfig backendConfig = instance.getBackendConfig();
                 if (backendConfig == null || "LOCAL".equalsIgnoreCase(backendConfig.type)) {
                     return;
                 }
 
-                if (!remoteIconsLoaded.add(getInstanceUniqueId(instance))) {
+                if (!remoteIconsLoaded.add(instanceKey)) {
                     return;
                 }
 
-                File tempDir = Files.createTempDirectory("icon_load").toFile();
+                Path tempDir = Files.createTempDirectory("icon_load");
                 try {
-                    Path iconPath = tempDir.toPath().resolve("icon.png");
-
-                    RebaseApiFactory.get(instance)
-                        .download(List.of(Path.of(instance.getPath(), "icon.png")), tempDir.toPath())
-                        .join();
-
-                    if (Files.exists(iconPath)) {
-                        BufferedImage icon = ImageIO.read(iconPath.toFile());
-                        saveToCache(instance, icon);
-
-                        if (onComplete != null) {
-                            ScreenManager.getInstance().execute(onComplete);
+                    for (String candidate : List.of("icon.png", "server-icon.png")) {
+                        Path candidatePath = tempDir.resolve(candidate);
+                        try {
+                            RebaseApiFactory.get(instance)
+                                .download(List.of(Path.of(instance.getPath(), candidate)), tempDir)
+                                .join();
+                            if (!Files.exists(candidatePath)) {
+                                continue;
+                            }
+                            BufferedImage icon = ImageIO.read(candidatePath.toFile());
+                            if (icon != null) {
+                                saveToCache(instance, icon);
+                                loaded = true;
+                                if (onComplete != null) {
+                                    ScreenManager.getInstance().execute(onComplete);
+                                }
+                                break;
+                            }
+                        } catch (Exception ignored) {
                         }
                     }
                 } finally {
-                    tempDir.delete();
+                    deleteDirectoryQuietly(tempDir);
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            } finally {
+                if (!loaded) {
+                    remoteIconsLoaded.remove(instanceKey);
+                }
+            }
         });
     }
 
@@ -167,13 +188,28 @@ public class ServerIconManager {
 
     private String getInstanceUniqueId(Instance instance) {
         BackendConfig config = instance.getBackendConfig();
-        if (config == null || "LOCAL".equalsIgnoreCase(config.type)) {
-            return "local_" + instance.getInstanceId();
-        } else if ("RESTUDIO".equalsIgnoreCase(config.type)) {
-            return "restudio_" + config.credentials.getOrDefault("identifier", "unknown");
-        } else {
-            String host = config.credentials.getOrDefault("host", "unknown").replace(":", "_").replace("/", "_");
-            return "ssh_" + host + "_" + instance.getInstanceId();
+        String backendType = config == null || config.type == null ? "local" : config.type.toLowerCase(Locale.ROOT);
+        Map<String, String> credentials = config != null && config.credentials != null ? config.credentials : Collections.emptyMap();
+        String identity = switch (backendType) {
+            case "restudio" -> credentials.getOrDefault("identifier", "unknown");
+            case "local" -> "local";
+            default -> credentials.getOrDefault("host", credentials.getOrDefault("hostId", "unknown"));
+        };
+        String path = instance.getPath() == null ? "" : instance.getPath();
+        return backendType + "_" + stableHash(identity + "|" + path);
+    }
+
+    private String stableHash(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < Math.min(12, bytes.length); i++) {
+                sb.append(String.format("%02x", bytes[i]));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return Integer.toHexString(value.hashCode());
         }
     }
 
@@ -218,25 +254,39 @@ public class ServerIconManager {
     private CompletableFuture<Boolean> uploadToRemote(Instance instance, BufferedImage icon) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                File tempFile = File.createTempFile("icon_", ".png");
+                Path tempDir = Files.createTempDirectory("icon_upload");
+                Path tempFile = tempDir.resolve("icon.png");
+                Path serverIconFile = tempDir.resolve("server-icon.png");
                 try {
-                    ImageIO.write(icon, "png", tempFile);
+                    ImageIO.write(icon, "png", tempFile.toFile());
+                    Files.copy(tempFile, serverIconFile, StandardCopyOption.REPLACE_EXISTING);
 
                     RebaseApiFactory.get(instance)
-                        .upload(List.of(tempFile.toPath()), Path.of(instance.getPath(), "icon.png"))
+                        .upload(List.of(tempFile, serverIconFile), Path.of(instance.getPath()))
                         .join();
 
                     return true;
                 } finally {
-                    if (tempFile.exists()) {
-                        tempFile.delete();
-                    }
+                    deleteDirectoryQuietly(tempDir);
                 }
             } catch (Exception e) {
                 devPrint("Failed to upload icon: " + e.getMessage());
                 return false;
             }
         });
+    }
+
+    private void deleteDirectoryQuietly(Path dir) {
+        if (dir == null || !Files.exists(dir)) return;
+        try (java.util.stream.Stream<Path> walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ignored) {
+                }
+            });
+        } catch (IOException ignored) {
+        }
     }
 
     private void showSuccessNotification(String title, String message) {
