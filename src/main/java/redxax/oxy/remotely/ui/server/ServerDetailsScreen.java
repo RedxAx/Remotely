@@ -1289,11 +1289,15 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         @Override
         public void accept(Integer integer, String line) {
             if (line == null) return;
-            line = line.trim();
+            String trimmedLine = line.trim();
 
             if (isReading) {
-                Matcher endMatcher = endPattern.matcher(line);
+                Matcher endMatcher = endPattern.matcher(trimmedLine);
                 if (endMatcher.find()) {
+                    int markerStart = line.indexOf("[FILE_END:");
+                    if (markerStart > 0) {
+                        buffer.append(line, 0, markerStart).append("\n");
+                    }
                     String fileName = endMatcher.group(1);
                     if (fileName.equals(currentFile)) {
                         DebugManager.getInstance().log("StreamDataParser", "Finished reading file: " + fileName);
@@ -1306,12 +1310,16 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                     buffer.append(line).append("\n");
                 }
             } else {
-                Matcher startMatcher = startPattern.matcher(line);
+                Matcher startMatcher = startPattern.matcher(trimmedLine);
                 if (startMatcher.find()) {
                     currentFile = startMatcher.group(1);
                     DebugManager.getInstance().log("StreamDataParser", "Started reading file: " + currentFile);
                     isReading = true;
                     buffer.setLength(0);
+                    int markerEnd = line.indexOf(']');
+                    if (markerEnd >= 0 && markerEnd + 1 < line.length()) {
+                        buffer.append(line.substring(markerEnd + 1)).append("\n");
+                    }
                 }
             }
         }
