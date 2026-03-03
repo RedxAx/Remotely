@@ -157,7 +157,8 @@ public class PlayerManagerController {
 
     private void loadActions() {
         Path actionsPath = Path.of(instance.getPath(), "Remotely", "player-actions.json");
-        RebaseApiFactory.get(instance).readFile(actionsPath).thenAccept(content -> {
+        try {
+            String content = RebaseApiFactory.get(instance).readFile(actionsPath).join();
             if (content != null && !content.isEmpty()) {
                 try {
                     List<PlayerAction> loaded = gson.fromJson(content, new TypeToken<List<PlayerAction>>(){}.getType());
@@ -165,8 +166,12 @@ public class PlayerManagerController {
                 } catch (Exception e) {
                     this.playerActions = new ArrayList<>();
                 }
+            } else {
+                this.playerActions = new ArrayList<>();
             }
-        });
+        } catch (Exception e) {
+            this.playerActions = new ArrayList<>();
+        }
     }
 
     public void setUiBindings(PlayersContainer container, TerminalWidget terminalWidget) {
@@ -205,6 +210,15 @@ public class PlayerManagerController {
 
     public List<PlayerAction> getPlayerActions() {
         return new ArrayList<>(playerActions);
+    }
+
+    public void refreshPlayerActions() {
+        loadActions();
+        ScreenManager.getInstance().execute(() -> {
+            if (container != null && playerService != null) {
+                container.syncUi(playerService.getRegistry().getAll());
+            }
+        });
     }
 
     public IPlayerHistoryProvider getHistoryProvider() { return historyProvider; }
