@@ -31,7 +31,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Stream;
 
 public class ResourceContainer extends Container {
     private boolean hasLoaded = false;
@@ -668,34 +667,37 @@ Rebase.get().getUpdateManager().performBulkUpdate(instance, selectedUpdates, pro
         stopFileWatchers();
         if (instance == null) return;
         Path instancePath = Path.of(instance.getPath());
+        WatchServiceManager manager = WatchServiceManager.getInstance();
+        for (String relativeDir : getWatchedResourceDirectories()) {
+            Path path = instancePath.resolve(relativeDir);
+            manager.registerIncrementalWithDebounce(path, events -> {
+                for (WatchServiceManager.FileChangeEvent event : events) {
+                    Path p = event.path();
+                    if (event.kind() == StandardWatchEventKinds.ENTRY_DELETE) {
+                        viewModel.getLoadedResources().stream().filter(r -> r.getPath().equals(p)).findFirst().ifPresent(r -> {
+                            Rebase.get().getResourceManager().handleResourceRemoved(instance, r);
+                            Rebase.get().getResourceStateManager().notifyRemoved(instance, r);
+                        });
+                    } else {
+                        Rebase.get().getResourceManager().loadResource(instance, p);
+                    }
+                }
+            }, 300);
+            watchedPaths.add(path);
+        }
+    }
 
-        String modsEquivalent = "mods";
+    private List<String> getWatchedResourceDirectories() {
+        if (instance == null) return List.of();
         if (instance.isServer()) {
-            modsEquivalent = switch (instance.getModLoader()) {
+            String modsEquivalent = switch (instance.getModLoader()) {
                 case PAPER, SPIGOT, BUKKIT, PURPUR, LEAF, VELOCITY, WATERFALL, BUNGEECORD -> "plugins";
                 default -> "mods";
             };
+            String worldName = instance.getServerProperties().getProperty("level-name", "world");
+            return List.of(modsEquivalent, worldName + "/datapacks");
         }
-
-        WatchServiceManager manager = WatchServiceManager.getInstance();
-        Stream.of(modsEquivalent, "resourcepacks", "shaderpacks", "datapacks")
-            .map(instancePath::resolve)
-            .forEach(path -> {
-                manager.registerIncrementalWithDebounce(path, events -> {
-                    for (WatchServiceManager.FileChangeEvent event : events) {
-                        Path p = event.path();
-                        if (event.kind() == StandardWatchEventKinds.ENTRY_DELETE) {
-                            viewModel.getLoadedResources().stream().filter(r -> r.getPath().equals(p)).findFirst().ifPresent(r -> {
-                                Rebase.get().getResourceManager().handleResourceRemoved(instance, r);
-                                Rebase.get().getResourceStateManager().notifyRemoved(instance, r);
-                            });
-                        } else {
-                            Rebase.get().getResourceManager().loadResource(instance, p);
-                        }
-                    }
-                }, 300);
-                watchedPaths.add(path);
-            });
+        return List.of("mods", "resourcepacks", "shaderpacks", "datapacks");
     }
 
     public List<InstanceResource> getCurrentResources() { return viewModel.getLoadedResources(); }
