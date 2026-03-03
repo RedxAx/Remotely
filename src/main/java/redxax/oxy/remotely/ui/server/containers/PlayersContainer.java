@@ -7,11 +7,13 @@ import redxax.oxy.remotely.ui.widgets.management.PlayerEntryWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.ui.widgets.TerminalWidget;
+import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
+import restudio.rescreen.util.SearchUtils;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -115,11 +117,11 @@ public class PlayersContainer extends Container {
         if (searchQuery == null || searchQuery.isBlank()) return true;
         String name = player.getName() != null ? player.getName() : "";
         String uuid = player.getUuid() != null ? player.getUuid().toString() : "";
-        return restudio.rescreen.util.SearchUtils.isFuzzyMatch(name, searchQuery) || restudio.rescreen.util.SearchUtils.isFuzzyMatch(uuid, searchQuery);
+        return SearchUtils.isFuzzyMatch(name, searchQuery) || SearchUtils.isFuzzyMatch(uuid, searchQuery);
     }
 
     @Override
-    protected void drawContent(restudio.rescreen.platform.IDrawContext ctx, int mouseX, int mouseY) {
+    protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
         if (emptyMessage != null && getWidgets().isEmpty()) {
             emptyMessage.setMessage(loading ? "Loading Players" : "No Players Found");
             emptyMessage.setIcon(loading ? "remotely.png" : "emptyFolder.png");

@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import redxax.oxy.remotely.data.managed.PlayerAction;
+import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
 import restudio.rebase.instance.Instance;
@@ -24,11 +25,13 @@ import static restudio.rescreen.render.TextRenderer.tr;
 public class PlayerActionsSettingsController {
 
     private final RebaseAPI api;
+    private final Instance instance;
     private final Path playerActionsPath;
     private final Gson gson = new Gson();
     private List<PlayerAction> loadedActions = new ArrayList<>();
 
     public PlayerActionsSettingsController(Instance instance) {
+        this.instance = instance;
         this.api = RebaseApiFactory.get(instance);
         this.playerActionsPath = Path.of(instance.getPath(), "Remotely", "player-actions.json");
 
@@ -61,6 +64,7 @@ public class PlayerActionsSettingsController {
             String json = new GsonBuilder().setPrettyPrinting().create().toJson(actions);
             api.writeFile(playerActionsPath, json).join();
             this.loadedActions = actions;
+            PlayerManagerController.getOrCreate(instance).refreshPlayerActions();
         } catch (Exception e) {
             new Notification("Error", "Failed to save actions: " + e.getMessage(), Notification.Type.ERROR);
         }
