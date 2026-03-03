@@ -765,10 +765,13 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
 
             ExecutionProvider exec = new UnifiedExecutionProvider(InstanceApi.of(context.instance).console());
-            TerminalWidget tw = ServerTerminal.getOrCreate(context.instance, exec, 5, 60, width - 10, height - 66);
-            info.setTerminalWidget(tw);
+             TerminalWidget tw = ServerTerminal.getOrCreate(context.instance, exec, 5, 60, width - 10, height - 66);
+             info.setTerminalWidget(tw);
+            if (info.getPlayersContainer() != null) {
+                info.getPlayersContainer().setTerminalWidget(tw);
+            }
 
-            tw.addOutputListener(context.instance.getMSMPManager()::handleConsoleLine);
+             tw.addOutputListener(context.instance.getMSMPManager()::handleConsoleLine);
             tw.setForceDirectLaunch(true);
             tw.start();
             context.instance.attachTerminalListener(tw);

@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
 
 public class PlayersContainer extends Container {
     private ReScreen host;
-    private final TerminalWidget terminalWidget;
+    private TerminalWidget terminalWidget;
     private PlayerManagerController controller;
     private IconMessage emptyMessage;
     private boolean loading = true;
@@ -44,6 +44,13 @@ public class PlayersContainer extends Container {
     public void setInstance(Instance newInstance) {
         controller = PlayerManagerController.getOrCreate(newInstance);
         controller.setUiBindings(this, terminalWidget);
+    }
+
+    public void setTerminalWidget(TerminalWidget terminalWidget) {
+        this.terminalWidget = terminalWidget;
+        if (controller != null) {
+            controller.setUiBindings(this, terminalWidget);
+        }
     }
 
     public void setHost(ReScreen host) {
