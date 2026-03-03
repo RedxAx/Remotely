@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
@@ -40,6 +41,9 @@ public class PlayerEntryWidget extends MountableButtonWidget {
     private SquareButtonWidget banButton;
     private SquareButtonWidget opButton;
     private SquareButtonWidget infoButton;
+    private final List<SquareButtonWidget> actionButtons = new ArrayList<>();
+    private boolean buttonsInitialized = false;
+    private int lastActionsHash = Integer.MIN_VALUE;
 
     public PlayerEntryWidget(UnifiedPlayer player, PlayerManagerController controller) {
         super(player.getName(), "", "", new CopyOnWriteArrayList<>(), null);
@@ -54,13 +58,32 @@ public class PlayerEntryWidget extends MountableButtonWidget {
 
     private void setupButtons() {
         mountedWidgets.clear();
-        boolean serverRunning = controller.isServerRunning();
-
         kickButton = new SquareButtonWidget.Builder()
             .imagePath("delete.png").size(18, 18).hint("Kick Player").accentType(ThemeManager.getAccent("danger"))
             .onClick(() -> controller.kickPlayer(player, "Kicked by operator")).build();
 
-        updateButtonsState(serverRunning);
+        banButton = new SquareButtonWidget.Builder().imagePath("close.png").size(18, 18).hint("Ban Player")
+            .accentType(ThemeManager.getAccent("danger")).onClick(() -> {
+                if (player.getBan().getValue() != null) {
+                    controller.unbanPlayer(player);
+                } else {
+                    new BanPlayerPopup(ScreenManager.getInstance().getCurrentScreen(), player, controller);
+                }
+            }).build();
+
+        opButton = new SquareButtonWidget.Builder()
+            .identifier(opIcon).size(18, 18).hint("Op Player")
+            .accentType(ThemeManager.getAccent("calm"))
+            .onClick(() -> controller.toggleOp(player)).build();
+
+        infoButton = new SquareButtonWidget.Builder()
+            .imagePath("info.png").size(18, 18).hint("Player Data")
+            .accentType(ThemeManager.getAccent("calm"))
+            .onClick(this::openPlayerDataPopup)
+            .build();
+        infoButton.active = true;
+
+        updateButtonsState(controller.isServerRunning());
     }
 
     public void update(UnifiedPlayer newPlayerState) {
@@ -71,61 +94,65 @@ public class PlayerEntryWidget extends MountableButtonWidget {
     }
 
     private void updateButtonsState(boolean serverRunning) {
+        List<PlayerAction> actions = controller.getPlayerActions();
         kickButton.active = player.isOnline() && serverRunning;
-
         boolean isBanned = player.getBan().getValue() != null;
-        String banHint = isBanned ? "Unban Player" : "Ban Player";
-        banButton = new SquareButtonWidget.Builder().imagePath(isBanned ? "heart.png" : "close.png").size(18, 18).hint(banHint)
-            .accentType(isBanned ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")).onClick(() -> {
-                if (player.getBan().getValue() != null) {
-                    controller.unbanPlayer(player);
-                } else {
-                    new BanPlayerPopup(ScreenManager.getInstance().getCurrentScreen(), player, controller);
-                }
-            }).build();
-        banButton.active = serverRunning;
-
         boolean isOp = player.isOp();
-        String opHint = isOp ? "De-Op Player" : "Op Player";
-        opButton = new SquareButtonWidget.Builder()
-            .identifier(isOp ? deopIcon : opIcon).size(18, 18).hint(opHint)
-            .accentType(ThemeManager.getAccent("calm"))
-            .onClick(() -> controller.toggleOp(player)).build();
-        opButton.active = serverRunning;
-
-        infoButton = new SquareButtonWidget.Builder()
-            .imagePath("info.png").size(18, 18).hint("Player Data")
-            .accentType(ThemeManager.getAccent("calm"))
-            .onClick(() -> openPlayerDataPopup())
-            .build();
-        infoButton.active = true;
-
-        mountedWidgets.clear();
-        mountedWidgets.addAll(buildButtons(serverRunning));
+        updateBanButton(isBanned, serverRunning);
+        updateOpButton(isOp, serverRunning);
+        int actionsHash = hashActions(actions);
+        if (!buttonsInitialized || actionsHash != lastActionsHash) {
+            rebuildActionButtons(actions);
+            mountedWidgets.clear();
+            mountedWidgets.addAll(actionButtons);
+            mountedWidgets.add(infoButton);
+            mountedWidgets.add(banButton);
+            mountedWidgets.add(kickButton);
+            mountedWidgets.add(opButton);
+            buttonsInitialized = true;
+            lastActionsHash = actionsHash;
+        }
+        for (SquareButtonWidget actionButton : actionButtons) {
+            actionButton.active = serverRunning;
+        }
     }
 
-    private List<AnimatedWidget> buildButtons(boolean serverRunning) {
-        List<AnimatedWidget> buttons = new CopyOnWriteArrayList<>();
-        List<PlayerAction> actions = controller.getPlayerActions();
-        if (actions != null) {
-            for (PlayerAction action : actions) {
-                SquareButtonWidget actionButton = new SquareButtonWidget.Builder().identifier(Identifier.icon(action.icon)).size(18, 18).hint(action.name).onClick(() -> {
-                    List<String> variables = findCustomVariables(action.command);
-                    if (variables.isEmpty()) {
-                        controller.runCustomCommand(player, action.command);
-                    } else {
-                        showVariableInputPopup(player, action, variables);
-                    }
-                }).build();
-                actionButton.active = serverRunning;
-                buttons.add(actionButton);
-            }
+    private void updateBanButton(boolean isBanned, boolean serverRunning) {
+        banButton.setIcon(Identifier.icon(isBanned ? "heart.png" : "close.png"));
+        banButton.hint = isBanned ? "Unban Player" : "Ban Player";
+        banButton.accentType = isBanned ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger");
+        banButton.active = serverRunning;
+    }
+
+    private void updateOpButton(boolean isOp, boolean serverRunning) {
+        opButton.setIcon(isOp ? deopIcon : opIcon);
+        opButton.hint = isOp ? "De-Op Player" : "Op Player";
+        opButton.active = serverRunning;
+    }
+
+    private void rebuildActionButtons(List<PlayerAction> actions) {
+        actionButtons.clear();
+        if (actions == null) return;
+        for (PlayerAction action : actions) {
+            SquareButtonWidget actionButton = new SquareButtonWidget.Builder().identifier(Identifier.icon(action.icon)).size(18, 18).hint(action.name).onClick(() -> {
+                List<String> variables = findCustomVariables(action.command);
+                if (variables.isEmpty()) {
+                    controller.runCustomCommand(player, action.command);
+                } else {
+                    showVariableInputPopup(player, action, variables);
+                }
+            }).build();
+            actionButtons.add(actionButton);
         }
-        if (infoButton != null) buttons.add(infoButton);
-        if (banButton != null) buttons.add(banButton);
-        if (kickButton != null) buttons.add(kickButton);
-        if (opButton != null) buttons.add(opButton);
-        return buttons;
+    }
+
+    private int hashActions(List<PlayerAction> actions) {
+        if (actions == null || actions.isEmpty()) return 0;
+        int hash = 1;
+        for (PlayerAction action : actions) {
+            hash = 31 * hash + Objects.hash(action.name, action.icon, action.command);
+        }
+        return hash;
     }
 
     public UnifiedPlayer getPlayer() {
