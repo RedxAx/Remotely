@@ -304,15 +304,6 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private void populateHostTabs() {
         tabs().addTab("Local", activeContainer).setData(null);
 
-        if (ReStudio.getInstance().isAuthenticated()) {
-            Container c = createContainer("desktop_restudio", 0, 0, width, height - 35);
-            DesktopLayout remoteLayout = new DesktopLayout();
-            c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
-            if (ReStudio.getInstance().isAuthenticated() && ReStudio.getInstance().getUsername() != null && ReStudio.getInstance().getUsername().equalsIgnoreCase("RedxAx")) {
-                tabs().addTab("ReStudio", c).setData("RESTUDIO_MARKER");
-            }
-        }
-
         for (RemoteHost host : instanceManager.getRemoteHosts()) {
             Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
             DesktopLayout remoteLayout = new DesktopLayout();
@@ -320,9 +311,46 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
             tabs().addTab(host.name, c).setData(host);
         }
+
+        maybeAddReStudioTab();
         int savedIndex = remotelyClient.getSavedTabIndex();
         tabs().setActiveTab(Math.min(savedIndex, tabs().getTabs().size() - 1));
         loadServersForCurrentTab();
+    }
+
+    private void maybeAddReStudioTab() {
+        if (!ReStudio.getInstance().isAuthenticated()) {
+            return;
+        }
+        ReStudio.getInstance().getApi().getServers().thenAccept(servers -> ScreenManager.getInstance().execute(() -> {
+            if (servers == null || servers.isEmpty()) {
+                return;
+            }
+            if (hasReStudioTab()) {
+                return;
+            }
+            Container container = createContainer("desktop_restudio", 0, 0, width, height - 35);
+            DesktopLayout remoteLayout = new DesktopLayout();
+            container.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
+            tabs().addTab("ReStudio", container).setData("RESTUDIO_MARKER");
+            updatePositions();
+            int savedIndex = remotelyClient.getSavedTabIndex();
+            if (savedIndex < tabs().getTabs().size()) {
+                tabs().setActiveTab(savedIndex);
+                if ("RESTUDIO_MARKER".equals(tabs().getActiveTab().getData())) {
+                    fetchReStudioServers();
+                }
+            }
+        })).exceptionally(ex -> null);
+    }
+
+    private boolean hasReStudioTab() {
+        for (TabsManager.Tab tab : tabs().getTabs()) {
+            if ("RESTUDIO_MARKER".equals(tab.getData())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void loadServersForCurrentTab() {
