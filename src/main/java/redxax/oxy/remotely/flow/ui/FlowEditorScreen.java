@@ -185,6 +185,59 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         return serverId;
     }
 
+    public String getFlowId() {
+        return graph.getId();
+    }
+
+    public void applyGraph(FlowGraph sourceGraph) {
+        if (sourceGraph == null) {
+            return;
+        }
+        graph.setId(sourceGraph.getId());
+        graph.getNodes().clear();
+        if (sourceGraph.getNodes() != null) {
+            for (Map.Entry<String, FlowNode> entry : sourceGraph.getNodes().entrySet()) {
+                FlowNode node = entry.getValue();
+                if (node == null) {
+                    continue;
+                }
+                graph.getNodes().put(entry.getKey(), new FlowNode(
+                    node.getType(),
+                    node.getX(),
+                    node.getY(),
+                    node.getInputValues() != null ? new HashMap<>(node.getInputValues()) : new HashMap<>()
+                ));
+            }
+        }
+        graph.getConnections().clear();
+        if (sourceGraph.getConnections() != null) {
+            for (FlowConnection connection : sourceGraph.getConnections()) {
+                if (connection == null) {
+                    continue;
+                }
+                graph.getConnections().add(new FlowConnection(
+                    connection.getSourceNodeId(),
+                    connection.getSourcePin(),
+                    connection.getTargetNodeId(),
+                    connection.getTargetPin()
+                ));
+            }
+        }
+        graph.getLocalVariables().clear();
+        if (sourceGraph.getLocalVariables() != null) {
+            graph.getLocalVariables().addAll(sourceGraph.getLocalVariables());
+        }
+        selectedNodeIds.clear();
+        selectionBase.clear();
+        focusedNode = null;
+        dragState.sourceNodeId = null;
+        dragState.sourcePin = null;
+        dragState.isDragging = false;
+        undoStack.clear();
+        redoStack.clear();
+        refreshNodeRegistry();
+    }
+
     public String getDesktopAppId() {
         return "flow-editor";
     }

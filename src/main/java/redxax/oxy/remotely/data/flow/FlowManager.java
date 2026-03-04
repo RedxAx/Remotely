@@ -75,7 +75,6 @@ public class FlowManager {
 
         if (serverFlowIds.contains(key)) {
             flowClient.requestFlow(flowId, true);
-            client.getHost().setScreen(new FlowEditorScreen(new FlowGraph(), actualServerId, ScreenManager.getInstance().getCurrentScreen()));
             return;
         }
 
@@ -135,7 +134,7 @@ public class FlowManager {
         flowNames.putIfAbsent(key, graph.getId().toString());
         serverFlowIds.add(key);
         draftFlows.remove(key);
-        refreshFlowManagerScreen(serverId);
+        upsertFlowManagerFlowEntry(serverId, graph.getId());
     }
 
     public void closeServerConnection(String serverId) {
@@ -173,9 +172,27 @@ public class FlowManager {
 
     private void refreshFlowManagerScreen(String serverId) {
         ScreenManager.getInstance().execute(() -> {
-            if (ScreenManager.getInstance().getCurrentScreen() instanceof FlowManagerScreen screen
-                && serverId.equals(screen.getServerId())) {
+            FlowManagerScreen screen = FlowManagerScreen.getOpenScreen(serverId);
+            if (screen != null) {
                 screen.refresh();
+            }
+        });
+    }
+
+    private void upsertFlowManagerFlowEntry(String serverId, String flowId) {
+        ScreenManager.getInstance().execute(() -> {
+            FlowManagerScreen screen = FlowManagerScreen.getOpenScreen(serverId);
+            if (screen != null) {
+                screen.upsertFlowEntry(flowId);
+            }
+        });
+    }
+
+    private void upsertFlowManagerGuiEntry(String serverId, String guiId) {
+        ScreenManager.getInstance().execute(() -> {
+            FlowManagerScreen screen = FlowManagerScreen.getOpenScreen(serverId);
+            if (screen != null) {
+                screen.upsertGuiEntry(guiId);
             }
         });
     }
@@ -467,7 +484,7 @@ public class FlowManager {
         guiNames.putIfAbsent(key, gui.getTitle() != null ? gui.getTitle() : gui.getId());
         serverGuiIds.add(key);
         draftGuis.remove(key);
-        refreshFlowManagerScreen(serverId);
+        upsertFlowManagerGuiEntry(serverId, gui.getId());
     }
 
     public void markGuiSaved(String serverId, String guiId) {
