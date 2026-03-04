@@ -89,6 +89,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
     private ToggleWidget placeToggle;
     private ToggleWidget extendInventoryToggle;
+    private final List<AnimatedWidget> inspectorDynamicWidgets = new ArrayList<>();
     private boolean placeMode;
     private boolean draggingPlacement;
     private int dragStartSlot = -1;
@@ -113,6 +114,28 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private int lastHeight = -1;
     private boolean closingRequested;
     private boolean closeCompleted;
+    private static final int MAX_UNDO_SIZE = 50;
+    private final List<GuiSnapshot> undoStack = new ArrayList<>();
+    private final List<GuiSnapshot> redoStack = new ArrayList<>();
+    private boolean applyingHistory;
+
+    private static class GuiSnapshot {
+        private final String title;
+        private final int rows;
+        private final boolean extendToPlayerInventory;
+        private final List<GuiElement> elements;
+        private final int selectedIndex;
+        private final Visual placementTemplate;
+
+        private GuiSnapshot(String title, int rows, boolean extendToPlayerInventory, List<GuiElement> elements, int selectedIndex, Visual placementTemplate) {
+            this.title = title;
+            this.rows = rows;
+            this.extendToPlayerInventory = extendToPlayerInventory;
+            this.elements = elements;
+            this.selectedIndex = selectedIndex;
+            this.placementTemplate = placementTemplate;
+        }
+    }
 
     public GuiDesignerScreen(GuiDefinition gui) {
         this(gui, null, null);
@@ -307,6 +330,22 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             requestClose();
             return true;
         }
+        boolean hasControl = hasControlDown();
+        boolean hasShift = hasShiftDown();
+        if (hasControl && !(getFocusedWidget() instanceof TextInputWidget) && !(getFocusedWidget() instanceof TextAreaWidget) && !(getFocusedWidget() instanceof ItemSelectorWidget)) {
+            if (keyCode == GLFW.GLFW_KEY_Z) {
+                if (hasShift) {
+                    redo();
+                } else {
+                    undo();
+                }
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_Y) {
+                redo();
+                return true;
+            }
+        }
         if (selectedElement != null && (keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)) {
             if (!isAnyPopupOpen()) {
                 if (!(getFocusedWidget() instanceof TextInputWidget) && !(getFocusedWidget() instanceof TextAreaWidget) && !(getFocusedWidget() instanceof ItemSelectorWidget)) {
@@ -346,14 +385,25 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             return;
         }
         Container container = inspectorPanel.container();
-        container.clearWidgets();
+        float scrollOffset = container.getScrollOffset();
+        ensureInspectorBase(container);
+        rebuildInspectorItemSection(container);
+        container.updateWidgetPositions();
+        container.setScrollOffset(scrollOffset);
+    }
 
+    private void ensureInspectorBase(Container container) {
+        if (guiTitleInput != null && guiRowsSelect != null && extendInventoryToggle != null) {
+            return;
+        }
+        container.clearWidgets();
+        inspectorDynamicWidgets.clear();
         container.addWidget(buildSectionLabel("GUI"));
         guiTitleInput = new TextInputWidget.Builder()
             .text(gui.getTitle() != null ? gui.getTitle() : "")
             .placeholder("Title")
             .size(180, 22)
-            .onChange(gui::setTitle)
+            .onChange(this::updateGuiTitle)
             .build();
         disableEntrance(guiTitleInput);
         container.addWidget(guiTitleInput);
@@ -377,16 +427,32 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             .build();
         disableEntrance(extendInventoryToggle);
         container.addWidget(extendInventoryToggle);
+    }
 
-        container.addWidget(buildSectionLabel("Item"));
+    private void rebuildInspectorItemSection(Container container) {
+        for (AnimatedWidget widget : inspectorDynamicWidgets) {
+            container.removeWidget(widget);
+        }
+        inspectorDynamicWidgets.clear();
+        materialSelector = null;
+        flowSelector = null;
+        guiSelector = null;
+
+        AnimatedButton itemSection = buildSectionLabel("Item");
+        container.addWidget(itemSection);
+        inspectorDynamicWidgets.add(itemSection);
         if (selectedElement == null) {
-            container.addWidget(buildHintLabel("Select an item to edit"));
+            AnimatedButton hint = buildHintLabel("Select an item to edit");
+            container.addWidget(hint);
+            inspectorDynamicWidgets.add(hint);
             return;
         }
 
         Visual visual = ensureVisual(selectedElement);
 
-        container.addWidget(buildLabel("slots"));
+        AnimatedButton slotsLabel = buildLabel("slots");
+        container.addWidget(slotsLabel);
+        inspectorDynamicWidgets.add(slotsLabel);
         TextInputWidget slotsInput = new TextInputWidget.Builder()
             .text(formatSlots(selectedElement))
             .placeholder("Slots")
@@ -395,21 +461,27 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             .build();
         disableEntrance(slotsInput);
         container.addWidget(slotsInput);
+        inspectorDynamicWidgets.add(slotsInput);
 
-        container.addWidget(buildLabel("name"));
+        AnimatedButton nameLabel = buildLabel("name");
+        container.addWidget(nameLabel);
+        inspectorDynamicWidgets.add(nameLabel);
         TextInputWidget nameInput = new TextInputWidget.Builder()
             .text(visual.getName() != null ? visual.getName() : "")
             .placeholder("Name")
             .size(180, 22)
             .onChange(text -> {
-                visual.setName(text);
+                updateVisualName(visual, text);
                 applySlotState();
             })
             .build();
         disableEntrance(nameInput);
         container.addWidget(nameInput);
+        inspectorDynamicWidgets.add(nameInput);
 
-        container.addWidget(buildLabel("material"));
+        AnimatedButton materialLabel = buildLabel("material");
+        container.addWidget(materialLabel);
+        inspectorDynamicWidgets.add(materialLabel);
         materialSelector = new ItemSelectorWidget.Builder(this)
             .size(180, 140)
             .embedded(true)
@@ -418,29 +490,24 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             .build();
         disableEntrance(materialSelector);
         container.addWidget(materialSelector);
+        inspectorDynamicWidgets.add(materialSelector);
 
-        container.addWidget(buildLabel("model data"));
+        AnimatedButton modelLabel = buildLabel("model data");
+        container.addWidget(modelLabel);
+        inspectorDynamicWidgets.add(modelLabel);
         TextInputWidget modelInput = new TextInputWidget.Builder()
             .text(visual.getModelData() != null ? String.valueOf(visual.getModelData()) : "")
             .placeholder("Custom model data")
             .size(180, 22)
-            .onChange(text -> {
-                String trimmed = text.trim();
-                if (trimmed.isEmpty()) {
-                    visual.setModelData(null);
-                } else {
-                    try {
-                        visual.setModelData(Integer.parseInt(trimmed));
-                    } catch (NumberFormatException ignored) {
-                    }
-                }
-                applySlotState();
-            })
+            .onChange(text -> updateModelData(visual, text))
             .build();
         disableEntrance(modelInput);
         container.addWidget(modelInput);
+        inspectorDynamicWidgets.add(modelInput);
 
-        container.addWidget(buildLabel("lore"));
+        AnimatedButton loreLabel = buildLabel("lore");
+        container.addWidget(loreLabel);
+        inspectorDynamicWidgets.add(loreLabel);
         String loreText = visual.getLore() != null ? String.join("\n", visual.getLore()) : "";
         TextAreaWidget loreInput = new TextAreaWidget.Builder()
             .text(loreText)
@@ -450,8 +517,11 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             .build();
         disableEntrance(loreInput);
         container.addWidget(loreInput);
+        inspectorDynamicWidgets.add(loreInput);
 
-        container.addWidget(buildSectionLabel("Flow"));
+        AnimatedButton flowSection = buildSectionLabel("Flow");
+        container.addWidget(flowSection);
+        inspectorDynamicWidgets.add(flowSection);
         flowSelector = new ItemSelectorWidget.Builder(this)
             .size(180, 140)
             .embedded(true)
@@ -460,6 +530,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             .build();
         disableEntrance(flowSelector);
         container.addWidget(flowSelector);
+        inspectorDynamicWidgets.add(flowSelector);
 
         RowWidget flowRow = new RowWidget.Builder()
             .size(180, 22)
@@ -477,8 +548,11 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             .build();
         disableEntrance(flowRow);
         container.addWidget(flowRow);
+        inspectorDynamicWidgets.add(flowRow);
 
-        container.addWidget(buildSectionLabel("Menu"));
+        AnimatedButton menuSection = buildSectionLabel("Menu");
+        container.addWidget(menuSection);
+        inspectorDynamicWidgets.add(menuSection);
         guiSelector = new ItemSelectorWidget.Builder(this)
             .size(180, 120)
             .embedded(true)
@@ -487,6 +561,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             .build();
         disableEntrance(guiSelector);
         container.addWidget(guiSelector);
+        inspectorDynamicWidgets.add(guiSelector);
 
         AnimatedButton removeButton = new AnimatedButton.Builder()
             .label("Remove item")
@@ -496,7 +571,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             .build();
         disableEntrance(removeButton);
         container.addWidget(removeButton);
-        container.updateWidgetPositions();
+        inspectorDynamicWidgets.add(removeButton);
         if (materialSelector != null) {
             materialSelector.openEmbedded();
             refreshMaterialSelector();
@@ -584,6 +659,11 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             return;
         }
         Visual visual = ensureVisual(selectedElement);
+        if ((material == null && visual.getMaterial() == null)
+            || (material != null && material.equals(visual.getMaterial()))) {
+            return;
+        }
+        captureSnapshot();
         visual.setMaterial(material);
         placementTemplate = visual.copy();
         setSelectorSelection(materialSelector, formatMaterialLabel(material));
@@ -594,6 +674,11 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         if (selectedElement == null) {
             return;
         }
+        if ((flowId == null && (selectedElement.getFlowId() == null || selectedElement.getFlowId().isBlank()))
+            || (flowId != null && flowId.equals(selectedElement.getFlowId()))) {
+            return;
+        }
+        captureSnapshot();
         selectedElement.setFlowId(flowId);
         if (flowId != null && !flowId.isBlank()) {
             selectedElement.setOpenGuiId(null);
@@ -607,6 +692,11 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         if (selectedElement == null) {
             return;
         }
+        if ((guiId == null && (selectedElement.getOpenGuiId() == null || selectedElement.getOpenGuiId().isBlank()))
+            || (guiId != null && guiId.equals(selectedElement.getOpenGuiId()))) {
+            return;
+        }
+        captureSnapshot();
         selectedElement.setOpenGuiId(guiId);
         if (guiId != null && !guiId.isBlank()) {
             selectedElement.setFlowId(null);
@@ -778,6 +868,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         if (element == null || gui.getElements() == null) {
             return;
         }
+        captureSnapshot();
         gui.getElements().remove(element);
         if (selectedElement == element) {
             selectedElement = null;
@@ -788,16 +879,11 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
     private void updateRows(int rows) {
         int clamped = Math.max(1, Math.min(6, rows));
-        int previousRows = gui.getRows();
-        if (clamped == previousRows) {
+        if (clamped == gui.getRows()) {
             return;
         }
+        captureSnapshot();
         gui.setRows(clamped);
-        if (gui.isExtendToPlayerInventory()) {
-            remapSlotsForRowChange(previousRows, clamped);
-        } else {
-            pruneElementsForSlots(clamped * GRID_COLUMNS);
-        }
         if (selectedElement != null && (gui.getElements() == null || !gui.getElements().contains(selectedElement))) {
             selectedElement = null;
         }
@@ -807,12 +893,16 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     }
 
     private void setExtendInventoryMode(boolean enabled) {
+        if (gui.isExtendToPlayerInventory() == enabled) {
+            if (extendInventoryToggle != null && extendInventoryToggle.getValue() != enabled) {
+                extendInventoryToggle.setValue(enabled);
+            }
+            return;
+        }
+        captureSnapshot();
         gui.setExtendToPlayerInventory(enabled);
         if (extendInventoryToggle != null && extendInventoryToggle.getValue() != enabled) {
             extendInventoryToggle.setValue(enabled);
-        }
-        if (!enabled) {
-            pruneElementsForSlots(gui.getRows() * GRID_COLUMNS);
         }
         if (selectedElement != null && (gui.getElements() == null || !gui.getElements().contains(selectedElement))) {
             selectedElement = null;
@@ -923,6 +1013,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             }
         }
 
+        captureSnapshot();
         GuiElement element = new GuiElement();
         element.getSlots().addAll(slots);
         Visual template = placementTemplate != null ? placementTemplate.copy() : new Visual("STONE", "Item");
@@ -1072,6 +1163,49 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         return visual;
     }
 
+    private void updateGuiTitle(String title) {
+        String current = gui.getTitle() != null ? gui.getTitle() : "";
+        String next = title != null ? title : "";
+        if (current.equals(next)) {
+            return;
+        }
+        captureSnapshot();
+        gui.setTitle(title);
+    }
+
+    private void updateVisualName(Visual visual, String name) {
+        String current = visual.getName() != null ? visual.getName() : "";
+        String next = name != null ? name : "";
+        if (current.equals(next)) {
+            return;
+        }
+        captureSnapshot();
+        visual.setName(name);
+    }
+
+    private void updateModelData(Visual visual, String text) {
+        Integer current = visual.getModelData();
+        Integer next = current;
+        String trimmed = text != null ? text.trim() : "";
+        if (trimmed.isEmpty()) {
+            next = null;
+        } else {
+            try {
+                next = Integer.parseInt(trimmed);
+            } catch (NumberFormatException ignored) {
+                applySlotState();
+                return;
+            }
+        }
+        if ((current == null && next == null) || (current != null && current.equals(next))) {
+            applySlotState();
+            return;
+        }
+        captureSnapshot();
+        visual.setModelData(next);
+        applySlotState();
+    }
+
     private void updateLore(Visual visual, String text) {
         List<String> loreLines = new ArrayList<>();
         if (text != null && !text.isBlank()) {
@@ -1082,7 +1216,94 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
                 }
             }
         }
+        if (visual.getLore() != null && visual.getLore().equals(loreLines)) {
+            return;
+        }
+        captureSnapshot();
         visual.setLore(loreLines);
+    }
+
+    private GuiSnapshot createSnapshot() {
+        List<GuiElement> copiedElements = new ArrayList<>();
+        if (gui.getElements() != null) {
+            for (GuiElement element : gui.getElements()) {
+                if (element != null) {
+                    copiedElements.add(element.copy());
+                }
+            }
+        }
+        int selectedIndex = -1;
+        if (selectedElement != null && gui.getElements() != null) {
+            selectedIndex = gui.getElements().indexOf(selectedElement);
+        }
+        return new GuiSnapshot(
+            gui.getTitle(),
+            gui.getRows(),
+            gui.isExtendToPlayerInventory(),
+            copiedElements,
+            selectedIndex,
+            placementTemplate != null ? placementTemplate.copy() : null
+        );
+    }
+
+    private void captureSnapshot() {
+        if (applyingHistory) {
+            return;
+        }
+        undoStack.add(createSnapshot());
+        if (undoStack.size() > MAX_UNDO_SIZE) {
+            undoStack.remove(0);
+        }
+        redoStack.clear();
+    }
+
+    private void undo() {
+        if (undoStack.isEmpty()) {
+            return;
+        }
+        redoStack.add(createSnapshot());
+        if (redoStack.size() > MAX_UNDO_SIZE) {
+            redoStack.remove(0);
+        }
+        GuiSnapshot snapshot = undoStack.remove(undoStack.size() - 1);
+        restoreSnapshot(snapshot);
+    }
+
+    private void redo() {
+        if (redoStack.isEmpty()) {
+            return;
+        }
+        undoStack.add(createSnapshot());
+        if (undoStack.size() > MAX_UNDO_SIZE) {
+            undoStack.remove(0);
+        }
+        GuiSnapshot snapshot = redoStack.remove(redoStack.size() - 1);
+        restoreSnapshot(snapshot);
+    }
+
+    private void restoreSnapshot(GuiSnapshot snapshot) {
+        applyingHistory = true;
+        gui.setTitle(snapshot.title);
+        gui.setRows(snapshot.rows);
+        gui.setExtendToPlayerInventory(snapshot.extendToPlayerInventory);
+        List<GuiElement> restoredElements = new ArrayList<>();
+        for (GuiElement element : snapshot.elements) {
+            restoredElements.add(element.copy());
+        }
+        gui.setElements(restoredElements);
+        if (snapshot.selectedIndex >= 0 && snapshot.selectedIndex < restoredElements.size()) {
+            selectedElement = restoredElements.get(snapshot.selectedIndex);
+        } else {
+            selectedElement = null;
+        }
+        placementTemplate = snapshot.placementTemplate != null ? snapshot.placementTemplate.copy() : new Visual("PAPER", "Item");
+        guiTitleInput = null;
+        guiRowsSelect = null;
+        extendInventoryToggle = null;
+        applyingHistory = false;
+        rebuildGrid();
+        buildInspectorPanel();
+        updateLayout(true);
     }
 
     private String formatSlots(GuiElement element) {
