@@ -94,6 +94,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private boolean draggingPlacement;
     private int dragStartSlot = -1;
     private int dragEndSlot = -1;
+    private GuiElement dragResizeElement;
     private GuiElement selectedElement;
     private Visual placementTemplate = new Visual("PAPER", "Item");
 
@@ -291,7 +292,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         if (!handled && button == GLFW.GLFW_MOUSE_BUTTON_LEFT && gridContainer != null) {
             int slot = getSlotAt((int) mouseX, (int) mouseY);
             if (placeMode && slot >= 0 && !slotElements.containsKey(slot)) {
-                startPlacementDrag(slot);
+                startPlacementDrag(slot, null);
                 return true;
             }
             if (gridContainer.isMouseOver(mouseX, mouseY)) {
@@ -840,6 +841,11 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
                 return;
             }
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                if (placeMode) {
+                    selectElement(element);
+                    startPlacementDrag(slot, element);
+                    return;
+                }
                 selectElement(element);
             }
             return;
@@ -848,7 +854,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             return;
         }
         if (placeMode) {
-            startPlacementDrag(slot);
+            startPlacementDrag(slot, null);
             return;
         }
         selectElement(null);
@@ -973,21 +979,24 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         draggingPlacement = false;
         dragStartSlot = -1;
         dragEndSlot = -1;
+        dragResizeElement = null;
         dragPreviewSlots.clear();
         applySlotState();
     }
 
-    private void startPlacementDrag(int slot) {
+    private void startPlacementDrag(int slot, GuiElement resizeElement) {
         draggingPlacement = true;
         dragStartSlot = slot;
         dragEndSlot = slot;
+        dragResizeElement = resizeElement;
         updateDragPreview();
     }
 
     private void updateDragPreview() {
         dragPreviewSlots.clear();
         for (int slot : computeSlotRange(dragStartSlot, dragEndSlot)) {
-            if (!slotElements.containsKey(slot)) {
+            GuiElement occupied = slotElements.get(slot);
+            if (occupied == null || occupied == dragResizeElement) {
                 dragPreviewSlots.add(slot);
             }
         }
@@ -997,8 +1006,10 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private void finishPlacementDrag() {
         draggingPlacement = false;
         List<Integer> slots = computeSlotRange(dragStartSlot, dragEndSlot);
+        GuiElement resizingElement = dragResizeElement;
         dragStartSlot = -1;
         dragEndSlot = -1;
+        dragResizeElement = null;
         dragPreviewSlots.clear();
 
         if (slots.isEmpty()) {
@@ -1007,10 +1018,17 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         }
         for (int slot : slots) {
             GuiElement occupied = slotElements.get(slot);
-            if (occupied != null) {
+            if (occupied != null && occupied != resizingElement) {
                 selectElement(occupied);
                 return;
             }
+        }
+        if (resizingElement != null) {
+            captureSnapshot();
+            resizingElement.setSlots(new ArrayList<>(slots));
+            rebuildGrid();
+            selectElement(resizingElement);
+            return;
         }
 
         captureSnapshot();
