@@ -2,8 +2,11 @@ package redxax.oxy.remotely.data.flow;
 
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.GuiElement;
+import redxax.oxy.remotely.flow.data.TriggerBinding;
+import redxax.oxy.remotely.flow.data.TriggerType;
 import redxax.oxy.remotely.flow.data.Visual;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.flow.ui.FlowManagerScreen;
@@ -13,6 +16,7 @@ import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -448,6 +452,54 @@ public class FlowManager {
         return triggerBindings.computeIfAbsent(serverId, id -> new java.util.ArrayList<>());
     }
 
+    public TriggerBinding getCommandBinding(String serverId, String flowId) {
+        if (serverId == null || flowId == null) {
+            return null;
+        }
+        for (TriggerBinding binding : getBindings(serverId)) {
+            if (flowId.equals(binding.getFlowId()) && binding.getType() == TriggerType.COMMAND) {
+                return binding;
+            }
+        }
+        return null;
+    }
+
+    public void setCommandBinding(String serverId, String flowId, String context) {
+        if (serverId == null || flowId == null) {
+            return;
+        }
+        java.util.List<TriggerBinding> bindings = getBindings(serverId);
+        bindings.removeIf(binding -> flowId.equals(binding.getFlowId()) && binding.getType() == TriggerType.COMMAND);
+        if (context != null && !context.isBlank()) {
+            bindings.add(new TriggerBinding(flowId + ":command", flowId, TriggerType.COMMAND, context));
+            ensureCommandStartNode(serverId, flowId);
+        }
+        sendTriggerUpdate(serverId, bindings);
+    }
+
+    public void clearCommandBinding(String serverId, String flowId) {
+        setCommandBinding(serverId, flowId, null);
+    }
+
+    private void ensureCommandStartNode(String serverId, String flowId) {
+        String key = serverId + ":" + flowId;
+        FlowGraph graph = draftFlows.get(key);
+        if (graph == null) {
+            graph = flowCache.get(key);
+        }
+        if (graph == null || graph.getNodes() == null) {
+            return;
+        }
+        boolean hasCommandNode = graph.getNodes().values().stream().anyMatch(node ->
+            node != null && ("event:resync_command".equals(node.getType()) || "event:command".equals(node.getType()))
+        );
+        if (hasCommandNode) {
+            return;
+        }
+        graph.getNodes().put(UUID.randomUUID().toString(), new FlowNode("event:resync_command", 120, 120, new HashMap<>()));
+        saveFlow(serverId, graph);
+    }
+
     public void markFlowSaved(String serverId, String flowId) {
         if (serverId == null || flowId == null) {
             return;
@@ -556,19 +608,19 @@ public class FlowManager {
         refreshFlowManagerScreen(serverId);
     }
 
-    public void addBinding(String serverId, redxax.oxy.remotely.flow.data.TriggerBinding binding) {
-        java.util.List<redxax.oxy.remotely.flow.data.TriggerBinding> bindings = getBindings(serverId);
+    public void addBinding(String serverId, TriggerBinding binding) {
+        java.util.List<TriggerBinding> bindings = getBindings(serverId);
         bindings.add(binding);
         sendTriggerUpdate(serverId, bindings);
     }
 
     public void removeBinding(String serverId, String bindingId) {
-        java.util.List<redxax.oxy.remotely.flow.data.TriggerBinding> bindings = getBindings(serverId);
+        java.util.List<TriggerBinding> bindings = getBindings(serverId);
         bindings.removeIf(binding -> bindingId.equals(binding.getId()));
         sendTriggerUpdate(serverId, bindings);
     }
 
-    private void sendTriggerUpdate(String serverId, java.util.List<redxax.oxy.remotely.flow.data.TriggerBinding> bindings) {
+    private void sendTriggerUpdate(String serverId, java.util.List<TriggerBinding> bindings) {
         ReSyncFlowClient client = ensureFlowClient(serverId);
         client.sendTriggerUpdate(bindings);
     }
