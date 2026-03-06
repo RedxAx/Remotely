@@ -293,7 +293,10 @@ public class RematrixScreen extends Screen {
     public static boolean toggleScreen() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.screen instanceof RematrixScreen wrapper) {
-            suspendedScreen = wrapper.getScreen();
+            ScreenManager sm = ScreenManager.getInstance();
+            var target = Config.desktopMode ? sm.getDesktopSuperScreen() : sm.getCurrentScreen();
+            if (target == null) target = sm.getCurrentScreen();
+            suspendedScreen = target != null ? target : wrapper.getScreen();
             skipCloseCleanup = true;
             mc.setScreen(null);
             return true;
