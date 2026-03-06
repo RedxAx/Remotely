@@ -61,6 +61,7 @@ public class InstanceResourceWidget extends MountableButtonWidget {
 
     public InstanceResourceWidget(ReScreen parentScreen, Instance instance, InstanceResource resource, Runnable refreshCallback) {
         super(resource.getName(), null, null, new CopyOnWriteArrayList<>(), null);
+        setCursorHoverReactive(true);
         this.parentScreen = parentScreen;
         this.instance = instance;
         this.resource = resource;
