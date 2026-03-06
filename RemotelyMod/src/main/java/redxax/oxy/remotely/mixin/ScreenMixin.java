@@ -23,10 +23,13 @@ import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.rematrix.mc.RematrixContext;
+import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
 import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.ui.tests.ContainerTestingScreen;
 import redxax.oxy.remotely.ui.tests.WidgetsTestingScreen;
 import redxax.oxy.remotely.util.CursorUtils;
+import restudio.rescreen.Main;
+import restudio.rescreen.ui.MouseCursor;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.widgets.IconButton;
@@ -89,8 +92,21 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
 
         remotely$updateEditOverlay();
 
-        if (!remotely$customWidgets.isEmpty()) {
-            remotely$handleInput(mouseX, mouseY);
+        boolean hasWidgets = !remotely$customWidgets.isEmpty();
+        boolean renderCursor = restudio.rescreen.config.Config.customMouse && !(((Object) this) instanceof RematrixScreen);
+
+        if (hasWidgets || renderCursor) {
+            MouseCursor.beginFrame();
+
+            //#if MC >= 1.21.6
+            Main.setWindow(Minecraft.getInstance().getWindow().handle());
+            //#else
+            //$$ Main.setWindow(Minecraft.getInstance().getWindow().getWindow());
+            //#endif
+
+            if (hasWidgets) {
+                remotely$handleInput(mouseX, mouseY);
+            }
 
             //#if MC >= 1.21.6
             var pose = guiGraphics.pose();
@@ -109,8 +125,13 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             //$$ RematrixMcContext ctx = new RematrixMcContext(guiGraphics);
             //#endif
             MinecraftDrawContextAdapter adapter = new MinecraftDrawContextAdapter(ctx);
-            for (Widget widget : remotely$customWidgets) {
-                widget.render(adapter, mouseX, mouseY, f);
+            if (hasWidgets) {
+                for (Widget widget : remotely$customWidgets) {
+                    widget.render(adapter, mouseX, mouseY, f);
+                }
+            }
+            if (renderCursor) {
+                MouseCursor.updateAndRender(adapter, mouseX, mouseY);
             }
 
             //#if MC >= 1.21.6
