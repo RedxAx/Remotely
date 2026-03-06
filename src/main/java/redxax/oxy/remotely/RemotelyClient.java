@@ -39,6 +39,7 @@ public class RemotelyClient {
     private int activeMultiTerminalTabIndex = 0;
     private final TerminalSessionManager sessionManager = new TerminalSessionManager();
     private FlowManager flowManager;
+    private ServerManagerScreen desktopServerManagerScreen;
 
     public RemotelyClient(ApplicationHost host) {
         this.host = host;
@@ -59,7 +60,7 @@ public class RemotelyClient {
 
         ThemeManager.init();
         host.ensureTextRenderer();
-        ScreenManager.getInstance().setDesktopSuperScreenSupplier(() -> new ServerManagerScreen(null, this));
+        ScreenManager.getInstance().setDesktopSuperScreenSupplier(this::getOrCreateDesktopServerManagerScreen);
         new NodeRegistry();
         System.out.println("Remotely mod initialized on client.");
         loadSnippets();
@@ -108,7 +109,29 @@ public class RemotelyClient {
     }
 
     public void openServerManager(Object parent) {
+        if (Config.desktopMode) {
+            Screen desktopSuper = ScreenManager.getInstance().getDesktopSuperScreen();
+            if (desktopSuper instanceof ServerManagerScreen existing) {
+                desktopServerManagerScreen = existing;
+                host.setScreen(existing);
+                return;
+            }
+            host.setScreen(getOrCreateDesktopServerManagerScreen());
+            return;
+        }
         host.setScreen(new ServerManagerScreen(parent, this));
+    }
+
+    private ServerManagerScreen getOrCreateDesktopServerManagerScreen() {
+        Screen desktopSuper = ScreenManager.getInstance().getDesktopSuperScreen();
+        if (desktopSuper instanceof ServerManagerScreen existing) {
+            desktopServerManagerScreen = existing;
+            return existing;
+        }
+        if (desktopServerManagerScreen == null) {
+            desktopServerManagerScreen = new ServerManagerScreen(null, this);
+        }
+        return desktopServerManagerScreen;
     }
 
     public void openFileExplorer(Object parent, Path path) {
