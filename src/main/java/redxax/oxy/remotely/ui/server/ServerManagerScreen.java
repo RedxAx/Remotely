@@ -85,12 +85,14 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private final List<Instance> restudioInstances = new CopyOnWriteArrayList<>();
     private final Map<String, ServerModels.ClientServerView> restudioServerViews = new HashMap<>();
     private final ServerIconManager iconManager;
+    private boolean initializedOnce;
 
     public ServerManagerScreen(Object parent, RemotelyClient remotelyClient) {
         super();
         this.parent = parent;
         this.remotelyClient = remotelyClient;
         this.iconManager = new ServerIconManager(remotelyDir);
+        this.preserveStateOnDisplay = true;
     }
 
     public String getDesktopAppId() {
@@ -113,6 +115,14 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     @Override
     public void init() {
         super.init();
+        if (initializedOnce) {
+            ReStudio.getInstance().addListener(this);
+            if (restudio.rescreen.config.Config.desktopMode && taskbarHelper != null) {
+                taskbarHelper.attach();
+            }
+            updatePositions();
+            return;
+        }
         this.instanceManager = Rebase.get().getInstanceManager();
         reloadInstancesSmartly();
         loadIcons();
@@ -215,6 +225,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         setActiveContainer(desktopContainer);
         populateHostTabs();
         updatePositions();
+        initializedOnce = true;
     }
 
     private void showUserMenu() {
@@ -1262,7 +1273,6 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         remotelyClient.saveTabIndex(tabs().getActiveTabIndex());
         if (taskbarHelper != null) {
             taskbarHelper.detach();
-            taskbarHelper = null;
         }
         super.removed();
     }
