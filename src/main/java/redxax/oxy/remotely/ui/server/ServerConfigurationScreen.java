@@ -411,9 +411,7 @@ public class ServerConfigurationScreen extends ReScreen {
         originalInstance.getServerProperties().putAll(tempInstance.getServerProperties());
 
         originalInstance.save();
-        if (!isReStudioBackend) {
-            originalInstance.saveServerProperties();
-        }
+        originalInstance.saveServerProperties();
 
         if (!isReStudioBackend) {
             InstanceRepairer.createStartScript(originalInstance).join();
