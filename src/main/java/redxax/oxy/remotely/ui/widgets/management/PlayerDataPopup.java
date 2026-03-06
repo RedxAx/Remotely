@@ -560,6 +560,7 @@ public class PlayerDataPopup extends PopupWidget {
 
         public InventoryGridWidget(int x, int y, int width, int height, PlayerData data) {
             super(x, y, width, height, "");
+            setCursorHoverReactive(true);
             if (data != null) {
                 if (data.inventory() != null) {
                     for (PlayerItem item : data.inventory()) {
@@ -1103,6 +1104,7 @@ public class PlayerDataPopup extends PopupWidget {
 
         public EnderChestWidget(int x, int y, int width, int height, PlayerData data) {
             super(x, y, width, height, "");
+            setCursorHoverReactive(true);
             if (data != null) {
                 if (data.enderChest() != null && data.enderChest().items() != null) {
                     for (PlayerItem item : data.enderChest().items()) {

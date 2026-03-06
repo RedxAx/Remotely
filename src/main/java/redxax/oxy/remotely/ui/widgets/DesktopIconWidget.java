@@ -38,6 +38,7 @@ public class DesktopIconWidget extends AnimatedWidget {
 
     public DesktopIconWidget(int x, int y, int width, int height, Instance serverInfo, boolean isCreateButton, BufferedImage icon) {
         super(x, y, width, height,(isCreateButton ? "New Server" : serverInfo.getName()));
+        setCursorHoverReactive(true);
         this.serverInfo = serverInfo;
         this.isCreateButton = isCreateButton;
         this.icon = icon;

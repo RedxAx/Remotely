@@ -72,6 +72,7 @@ public class NodeWidget extends AnimatedWidget {
 
     public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId, String serverId, Runnable onClose) {
         super(x, y, DEFAULT_WIDTH, 100, "");
+        setCursorHoverReactive(true);
         this.node = node;
         this.graph = graph;
         this.nodeId = nodeId;

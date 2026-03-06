@@ -47,6 +47,7 @@ public class PlayerEntryWidget extends MountableButtonWidget {
 
     public PlayerEntryWidget(UnifiedPlayer player, PlayerManagerController controller) {
         super(player.getName(), "", "", new CopyOnWriteArrayList<>(), null);
+        setCursorHoverReactive(true);
         this.player = player;
         this.controller = controller;
         this.ClickableWhenInactive = true;
