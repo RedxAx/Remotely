@@ -35,17 +35,12 @@ public class KeyboardMixin {
     private void onKey(long l, int i, KeyEvent keyEvent, CallbackInfo ci) {
         if (remotely$shouldToggle(keyEvent.key(), keyEvent.modifiers())) {
             if (i == GLFW.GLFW_PRESS) {
-                if (ReScreenWrapper.toggleScreen()) {
-                    remotely$toggleDown = true;
-                    ci.cancel();
-                    return;
-                }
+                remotely$toggleDown = ReScreenWrapper.toggleScreen();
             } else if (i == GLFW.GLFW_RELEASE) {
                 remotely$toggleDown = false;
-            } else if (i == GLFW.GLFW_REPEAT && remotely$toggleDown) {
-                ci.cancel();
-                return;
             }
+            ci.cancel();
+            return;
         }
         if (client.hasControlDown() && keyEvent.key() == GLFW.GLFW_KEY_B) {
             if (client.screen == null) return;
@@ -57,17 +52,12 @@ public class KeyboardMixin {
     //$$ private void onKey(long l, int i, int j, int k, int m, CallbackInfo ci) {
     //$$     if (remotely$shouldToggle(i, m)) {
     //$$         if (k == GLFW.GLFW_PRESS) {
-    //$$             if (ReScreenWrapper.toggleScreen()) {
-    //$$                 remotely$toggleDown = true;
-    //$$                 ci.cancel();
-    //$$                 return;
-    //$$             }
+    //$$             remotely$toggleDown = ReScreenWrapper.toggleScreen();
     //$$         } else if (k == GLFW.GLFW_RELEASE) {
     //$$             remotely$toggleDown = false;
-    //$$         } else if (k == GLFW.GLFW_REPEAT && remotely$toggleDown) {
-    //$$             ci.cancel();
-    //$$             return;
     //$$         }
+    //$$         ci.cancel();
+    //$$         return;
     //$$     }
     //$$     if (((m & GLFW.GLFW_MOD_CONTROL) != 0) && i == GLFW.GLFW_KEY_B && k == GLFW.GLFW_PRESS) {
     //$$         if (client.screen == null) return;
