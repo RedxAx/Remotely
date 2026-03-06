@@ -23,4 +23,20 @@ public class FlowSerializer {
     public static GuiDefinition deserializeGui(String json) {
         return gson.fromJson(json, GuiDefinition.class);
     }
+
+    public static String serializeScoreboard(ScoreboardDefinition scoreboard) {
+        return gson.toJson(scoreboard);
+    }
+
+    public static ScoreboardDefinition deserializeScoreboard(String json) {
+        return gson.fromJson(json, ScoreboardDefinition.class);
+    }
+
+    public static String serializeTab(TabDefinition tab) {
+        return gson.toJson(tab);
+    }
+
+    public static TabDefinition deserializeTab(String json) {
+        return gson.fromJson(json, TabDefinition.class);
+    }
 }

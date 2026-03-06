@@ -7,6 +7,8 @@ import com.google.gson.Gson;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowSerializer;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
+import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
+import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.cache.NodeRegistryCache;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
@@ -14,6 +16,8 @@ import redxax.oxy.remotely.flow.sync.NodeRegistryRequest;
 import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
+import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
+import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.util.Notification;
@@ -22,6 +26,7 @@ import restudio.rebase.restudio.api.ReStudioApiClient;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -32,7 +37,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
 
@@ -58,6 +65,8 @@ public class ReSyncFlowClient {
     private final Queue<Runnable> pendingSends = new ConcurrentLinkedQueue<>();
     private final Set<String> pendingOpenFlows = ConcurrentHashMap.newKeySet();
     private final Set<String> pendingOpenGuis = ConcurrentHashMap.newKeySet();
+    private final Set<String> pendingOpenScoreboards = ConcurrentHashMap.newKeySet();
+    private final Set<String> pendingOpenTabs = ConcurrentHashMap.newKeySet();
     private final NodeRegistryCache nodeRegistryCache = NodeRegistryCache.getInstance();
     private final ScheduledExecutorService nodeRegistryScheduler = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> nodeRegistryTimeout;
@@ -74,6 +83,8 @@ public class ReSyncFlowClient {
     private static final int HEARTBEAT_INTERVAL_SECONDS = 20;
     private static final int RECONNECT_DELAY_SECONDS = 3;
     private volatile boolean shutdownRequested = false;
+    private final AtomicInteger placeholderRequestCounter = new AtomicInteger(1);
+    private final Map<Integer, Consumer<String>> placeholderPreviewCallbacks = new ConcurrentHashMap<>();
 
     public ReSyncFlowClient(String serverId, ReStudioApiClient apiClient) {
         this.serverId = serverId;
@@ -372,6 +383,27 @@ public class ReSyncFlowClient {
             case 0x17:
                 handleGuiSaveAck(buffer);
                 break;
+            case 0x1C:
+                handleScoreboardData(buffer);
+                break;
+            case 0x1D:
+                handleScoreboardList(buffer);
+                break;
+            case 0x1E:
+                handleScoreboardSaveAck(buffer);
+                break;
+            case 0x24:
+                handleTabData(buffer);
+                break;
+            case 0x25:
+                handleTabList(buffer);
+                break;
+            case 0x26:
+                handleTabSaveAck(buffer);
+                break;
+            case 0x28:
+                handlePlaceholderPreview(buffer);
+                break;
             case 0x0B:
                 handleNodeRegistrySnapshot(buffer, true);
                 break;
@@ -430,6 +462,49 @@ public class ReSyncFlowClient {
             ScreenManager.getInstance().execute(() -> {
                 if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
                     RemotelyClient.INSTANCE.getHost().setScreen(new GuiDesignerScreen(gui, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                }
+            });
+        }
+    }
+
+    private void handleScoreboardData(ByteBuffer buffer) {
+        byte[] jsonBytes = new byte[buffer.remaining()];
+        buffer.get(jsonBytes);
+        String json = new String(jsonBytes, StandardCharsets.UTF_8);
+        ScoreboardDefinition scoreboard = FlowSerializer.deserializeScoreboard(json);
+
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+            RemotelyClient.INSTANCE.getFlowManager().cacheScoreboard(serverId, scoreboard);
+            RemotelyClient.INSTANCE.getFlowManager().handleScoreboardDataReceived(serverId, scoreboard);
+        }
+
+        if (scoreboard != null && scoreboard.getId() != null && pendingOpenScoreboards.remove(scoreboard.getId())) {
+            ScreenManager.getInstance().execute(() -> {
+                if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
+                    RemotelyClient.INSTANCE.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                }
+            });
+        }
+    }
+
+    private void handleTabData(ByteBuffer buffer) {
+        byte[] jsonBytes = new byte[buffer.remaining()];
+        buffer.get(jsonBytes);
+        String json = new String(jsonBytes, StandardCharsets.UTF_8);
+        TabDefinition tab = FlowSerializer.deserializeTab(json);
+
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+            try {
+                RemotelyClient.INSTANCE.getFlowManager().cacheTab(serverId, tab);
+                RemotelyClient.INSTANCE.getFlowManager().handleTabDataReceived(serverId, tab);
+            } catch (NoSuchMethodError ignored) {
+            }
+        }
+
+        if (tab != null && tab.getId() != null && pendingOpenTabs.remove(tab.getId())) {
+            ScreenManager.getInstance().execute(() -> {
+                if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
+                    RemotelyClient.INSTANCE.getHost().setScreen(new TabDesignerScreen(tab, serverId, ScreenManager.getInstance().getCurrentScreen()));
                 }
             });
         }
@@ -530,6 +605,51 @@ public class ReSyncFlowClient {
         }
     }
 
+    private void handleScoreboardSaveAck(ByteBuffer buffer) {
+        if (buffer.remaining() < 4) {
+            return;
+        }
+        int idLen = buffer.getInt();
+        if (idLen < 0 || idLen > buffer.remaining()) {
+            return;
+        }
+        byte[] idBytes = new byte[idLen];
+        buffer.get(idBytes);
+        String scoreboardId = new String(idBytes, StandardCharsets.UTF_8);
+
+        ScreenManager.getInstance().execute(() ->
+            new Notification("Scoreboard Saved", "ID: " + scoreboardId, Notification.Type.SUCCESS)
+        );
+
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+            RemotelyClient.INSTANCE.getFlowManager().markScoreboardSaved(serverId, scoreboardId);
+        }
+    }
+
+    private void handleTabSaveAck(ByteBuffer buffer) {
+        if (buffer.remaining() < 4) {
+            return;
+        }
+        int idLen = buffer.getInt();
+        if (idLen < 0 || idLen > buffer.remaining()) {
+            return;
+        }
+        byte[] idBytes = new byte[idLen];
+        buffer.get(idBytes);
+        String tabId = new String(idBytes, StandardCharsets.UTF_8);
+
+        ScreenManager.getInstance().execute(() ->
+            new Notification("Tab Saved", "ID: " + tabId, Notification.Type.SUCCESS)
+        );
+
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+            try {
+                RemotelyClient.INSTANCE.getFlowManager().markTabSaved(serverId, tabId);
+            } catch (NoSuchMethodError ignored) {
+            }
+        }
+    }
+
     private void handleFlowList(ByteBuffer buffer) {
         if (buffer.remaining() < 4) {
             return;
@@ -578,6 +698,57 @@ public class ReSyncFlowClient {
         }
     }
 
+    private void handleScoreboardList(ByteBuffer buffer) {
+        if (buffer.remaining() < 4) {
+            return;
+        }
+        int count = buffer.getInt();
+        java.util.List<String> scoreboardIds = new java.util.ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            if (buffer.remaining() < 4) {
+                break;
+            }
+            int len = buffer.getInt();
+            if (len < 0 || len > buffer.remaining()) {
+                break;
+            }
+            byte[] idBytes = new byte[len];
+            buffer.get(idBytes);
+            scoreboardIds.add(new String(idBytes, StandardCharsets.UTF_8));
+        }
+
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+            RemotelyClient.INSTANCE.getFlowManager().applyServerScoreboardList(serverId, scoreboardIds);
+        }
+    }
+
+    private void handleTabList(ByteBuffer buffer) {
+        if (buffer.remaining() < 4) {
+            return;
+        }
+        int count = buffer.getInt();
+        java.util.List<String> tabIds = new java.util.ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            if (buffer.remaining() < 4) {
+                break;
+            }
+            int len = buffer.getInt();
+            if (len < 0 || len > buffer.remaining()) {
+                break;
+            }
+            byte[] idBytes = new byte[len];
+            buffer.get(idBytes);
+            tabIds.add(new String(idBytes, StandardCharsets.UTF_8));
+        }
+
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+            try {
+                RemotelyClient.INSTANCE.getFlowManager().applyServerTabList(serverId, tabIds);
+            } catch (NoSuchMethodError ignored) {
+            }
+        }
+    }
+
     private void handleNodeRegistrySnapshot(ByteBuffer buffer, boolean fullSync) {
         byte[] jsonBytes = new byte[buffer.remaining()];
         buffer.get(jsonBytes);
@@ -599,6 +770,24 @@ public class ReSyncFlowClient {
             notifyNodeRegistryUpdated();
         } catch (Exception e) {
             System.err.println("[ReSyncFlow] Failed to parse node registry snapshot: " + e.getMessage());
+        }
+    }
+
+    private void handlePlaceholderPreview(ByteBuffer buffer) {
+        if (buffer.remaining() < 8) {
+            return;
+        }
+        int requestId = buffer.getInt();
+        int textLen = buffer.getInt();
+        if (textLen < 0 || textLen > buffer.remaining()) {
+            return;
+        }
+        byte[] textBytes = new byte[textLen];
+        buffer.get(textBytes);
+        String rendered = new String(textBytes, StandardCharsets.UTF_8);
+        Consumer<String> callback = placeholderPreviewCallbacks.remove(requestId);
+        if (callback != null) {
+            ScreenManager.getInstance().execute(() -> callback.accept(rendered));
         }
     }
 
@@ -681,6 +870,22 @@ public class ReSyncFlowClient {
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
 
+    private void sendScoreboardRequest(String scoreboardId) {
+        byte[] idBytes = scoreboardId.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
+        buffer.put((byte) 0x18);
+        buffer.put(idBytes);
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    }
+
+    private void sendTabRequest(String tabId) {
+        byte[] idBytes = tabId.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
+        buffer.put((byte) 0x20);
+        buffer.put(idBytes);
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    }
+
     public void requestFlow(String flowId) {
         requestFlow(flowId, true);
     }
@@ -741,6 +946,88 @@ public class ReSyncFlowClient {
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
 
+    public void requestScoreboard(String scoreboardId) {
+        requestScoreboard(scoreboardId, true);
+    }
+
+    public void requestScoreboard(String scoreboardId, boolean openWhenReceived) {
+        if (scoreboardId == null || scoreboardId.isEmpty()) {
+            return;
+        }
+        if (openWhenReceived) {
+            pendingOpenScoreboards.add(scoreboardId);
+        }
+        if (!isConnected()) {
+            pendingSends.add(() -> sendScoreboardRequest(scoreboardId));
+            ensureConnected();
+            return;
+        }
+        sendScoreboardRequest(scoreboardId);
+    }
+
+    public void requestScoreboardList() {
+        if (!isConnected()) {
+            pendingSends.add(this::requestScoreboardList);
+            ensureConnected();
+            return;
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(1);
+        buffer.put((byte) 0x1A);
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    }
+
+    public void requestTab(String tabId) {
+        requestTab(tabId, true);
+    }
+
+    public void requestTab(String tabId, boolean openWhenReceived) {
+        if (tabId == null || tabId.isEmpty()) {
+            return;
+        }
+        if (openWhenReceived) {
+            pendingOpenTabs.add(tabId);
+        }
+        if (!isConnected()) {
+            pendingSends.add(() -> sendTabRequest(tabId));
+            ensureConnected();
+            return;
+        }
+        sendTabRequest(tabId);
+    }
+
+    public void requestTabList() {
+        if (!isConnected()) {
+            pendingSends.add(this::requestTabList);
+            ensureConnected();
+            return;
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(1);
+        buffer.put((byte) 0x22);
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    }
+
+    public void requestPlaceholderPreview(String text, boolean usePapi, Consumer<String> callback) {
+        String value = text != null ? text : "";
+        if (callback == null) {
+            return;
+        }
+        if (!isConnected()) {
+            callback.accept(value);
+            ensureConnected();
+            return;
+        }
+        int requestId = placeholderRequestCounter.getAndIncrement();
+        placeholderPreviewCallbacks.put(requestId, callback);
+        byte[] valueBytes = value.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + 4 + 1 + 4 + valueBytes.length);
+        buffer.put((byte) 0x27);
+        buffer.putInt(requestId);
+        buffer.put((byte) (usePapi ? 1 : 0));
+        buffer.putInt(valueBytes.length);
+        buffer.put(valueBytes);
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    }
+
     public void sendFlowSave(FlowGraph graph) {
         if (graph == null) {
             return;
@@ -784,6 +1071,48 @@ public class ReSyncFlowClient {
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
 
+    public void sendScoreboardSave(ScoreboardDefinition scoreboard) {
+        if (scoreboard == null) {
+            return;
+        }
+        if (!isConnected()) {
+            System.err.println("[ReSyncFlow] WebSocket not connected - queueing scoreboard save");
+            pendingSends.add(() -> sendScoreboardSave(scoreboard));
+            ensureConnected();
+            return;
+        }
+
+        String json = FlowSerializer.serializeScoreboard(scoreboard);
+        byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
+
+        ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
+        buffer.put((byte) 0x19);
+        buffer.put(jsonBytes);
+
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    }
+
+    public void sendTabSave(TabDefinition tab) {
+        if (tab == null) {
+            return;
+        }
+        if (!isConnected()) {
+            System.err.println("[ReSyncFlow] WebSocket not connected - queueing tab save");
+            pendingSends.add(() -> sendTabSave(tab));
+            ensureConnected();
+            return;
+        }
+
+        String json = FlowSerializer.serializeTab(tab);
+        byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
+
+        ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
+        buffer.put((byte) 0x21);
+        buffer.put(jsonBytes);
+
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    }
+
     public void sendFlowDelete(String flowId) {
         if (flowId == null || flowId.isEmpty()) {
             return;
@@ -812,6 +1141,38 @@ public class ReSyncFlowClient {
         byte[] idBytes = guiId.getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
         buffer.put((byte) 0x16);
+        buffer.put(idBytes);
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    }
+
+    public void sendScoreboardDelete(String scoreboardId) {
+        if (scoreboardId == null || scoreboardId.isEmpty()) {
+            return;
+        }
+        if (!isConnected()) {
+            pendingSends.add(() -> sendScoreboardDelete(scoreboardId));
+            ensureConnected();
+            return;
+        }
+        byte[] idBytes = scoreboardId.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
+        buffer.put((byte) 0x1B);
+        buffer.put(idBytes);
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    }
+
+    public void sendTabDelete(String tabId) {
+        if (tabId == null || tabId.isEmpty()) {
+            return;
+        }
+        if (!isConnected()) {
+            pendingSends.add(() -> sendTabDelete(tabId));
+            ensureConnected();
+            return;
+        }
+        byte[] idBytes = tabId.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
+        buffer.put((byte) 0x23);
         buffer.put(idBytes);
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
@@ -898,6 +1259,7 @@ public class ReSyncFlowClient {
         }
         authenticated.set(false);
         connecting.set(false);
+        placeholderPreviewCallbacks.clear();
         cancelNodeRegistryTimeout();
         nodeRegistryScheduler.shutdownNow();
         heartbeatScheduler.shutdownNow();

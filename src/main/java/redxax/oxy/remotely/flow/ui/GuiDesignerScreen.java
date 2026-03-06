@@ -76,6 +76,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private final GuiDefinition gui;
     private final String serverId;
     private final Object parent;
+    private final boolean forceSuperScreen;
 
     private Container gridContainer;
     private SidePanel inspectorPanel;
@@ -139,7 +140,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     }
 
     public GuiDesignerScreen(GuiDefinition gui) {
-        this(gui, null, null);
+        this(gui, null, null, true);
     }
 
     public GuiDesignerScreen(GuiDefinition gui, String serverId) {
@@ -147,10 +148,15 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     }
 
     public GuiDesignerScreen(GuiDefinition gui, String serverId, Object parent) {
+        this(gui, serverId, parent, !(parent instanceof Screen));
+    }
+
+    public GuiDesignerScreen(GuiDefinition gui, String serverId, Object parent, boolean forceSuperScreen) {
         super();
         this.gui = gui;
         this.serverId = serverId;
         this.parent = parent;
+        this.forceSuperScreen = forceSuperScreen;
         this.autoResizeContainers = false;
         ensureGuiDefaults();
     }
@@ -174,7 +180,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
     @Override
     public boolean shouldForceSuperScreen() {
-        return desktopMode;
+        return desktopMode && forceSuperScreen;
     }
 
 
@@ -206,7 +212,9 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     @Override
     public void renderBackground(IDrawContext context, int mouseX, int mouseY, float delta) {
         super.renderBackground(context, mouseX, mouseY, delta);
-        context.fill(0, 0, width, height, OVERLAY_COLOR);
+        if (forceSuperScreen) {
+            context.fill(0, 0, width, height, OVERLAY_COLOR);
+        }
         renderGuiPreview(context);
     }
 
@@ -413,7 +421,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         List<Integer> rowOptions = List.of(1, 2, 3, 4, 5, 6);
         guiRowsSelect = new DropDownWidget.Builder<>(rowOptions)
             .size(180, 22)
-            .selectedItem(Math.max(1, Math.min(6, gui.getRows())))
+            .selectedItem(Math.clamp(gui.getRows(), 1, 6))
             .displayFunction(rows -> rows + (rows == 1 ? " row" : " rows"))
             .onSelectionChanged(this::updateRows)
             .build();
@@ -537,14 +545,8 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             .size(180, 22)
             .addWidget(new AnimatedButton.Builder()
                 .label("Open flow")
-                .size(86, 22)
+                .size(180, 22)
                 .onClick(this::openSelectedFlow)
-                .build())
-            .addWidget(new AnimatedButton.Builder()
-                .label("New flow")
-                .size(86, 22)
-                .accentType(ThemeManager.getAccent("nice"))
-                .onClick(this::showCreateFlowPopup)
                 .build())
             .build();
         disableEntrance(flowRow);
@@ -884,7 +886,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     }
 
     private void updateRows(int rows) {
-        int clamped = Math.max(1, Math.min(6, rows));
+        int clamped = Math.clamp(rows, 1, 6);
         if (clamped == gui.getRows()) {
             return;
         }
@@ -1270,7 +1272,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         }
         undoStack.add(createSnapshot());
         if (undoStack.size() > MAX_UNDO_SIZE) {
-            undoStack.remove(0);
+            undoStack.removeFirst();
         }
         redoStack.clear();
     }
@@ -1281,9 +1283,9 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         }
         redoStack.add(createSnapshot());
         if (redoStack.size() > MAX_UNDO_SIZE) {
-            redoStack.remove(0);
+            redoStack.removeFirst();
         }
-        GuiSnapshot snapshot = undoStack.remove(undoStack.size() - 1);
+        GuiSnapshot snapshot = undoStack.removeLast();
         restoreSnapshot(snapshot);
     }
 
@@ -1293,9 +1295,9 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         }
         undoStack.add(createSnapshot());
         if (undoStack.size() > MAX_UNDO_SIZE) {
-            undoStack.remove(0);
+            undoStack.removeFirst();
         }
-        GuiSnapshot snapshot = redoStack.remove(redoStack.size() - 1);
+        GuiSnapshot snapshot = redoStack.removeLast();
         restoreSnapshot(snapshot);
     }
 
@@ -1339,7 +1341,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             builder.append(slots.get(i) + 1);
         }
         if (slots.size() > max) {
-            builder.append(" ... (" + slots.size() + " slots)");
+            builder.append(" ... (").append(slots.size()).append(" slots)");
         }
         return builder.toString();
     }
