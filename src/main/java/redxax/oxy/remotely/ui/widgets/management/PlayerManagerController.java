@@ -1,5 +1,8 @@
 package redxax.oxy.remotely.ui.widgets.management;
 
+import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import redxax.oxy.remotely.data.managed.PlayerAction;
 import redxax.oxy.remotely.data.managed.PlayerSession;
@@ -21,6 +24,7 @@ import redxax.oxy.remotely.ui.integrations.luckperms.LuckPermsDashboardScreen;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
 import restudio.rebase.api.RebaseAPI;
 import restudio.rebase.api.RebaseApiFactory;
+import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.feature.PlayerManagementFeature;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
@@ -229,6 +233,41 @@ public class PlayerManagerController {
 
     public Instance getInstance() {
         return instance;
+    }
+
+    public String getReSyncServerId() {
+        BackendConfig backendConfig = instance.getBackendConfig();
+        if (backendConfig != null && backendConfig.credentials != null) {
+            String identifier = backendConfig.credentials.get("identifier");
+            if (identifier != null && !identifier.isBlank()) {
+                return identifier;
+            }
+        }
+        return instance.getInstanceId();
+    }
+
+    public void requestPlayerDossier(UUID playerId) {
+        if (playerId == null) {
+            return;
+        }
+        FlowManager flowManager = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getFlowManager() : null;
+        String serverId = getReSyncServerId();
+        if (flowManager == null || serverId == null || serverId.isBlank()) {
+            return;
+        }
+        flowManager.requestPlayerDossier(serverId, playerId);
+    }
+
+    public PlayerDossier getPlayerDossier(UUID playerId) {
+        if (playerId == null) {
+            return null;
+        }
+        FlowManager flowManager = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getFlowManager() : null;
+        String serverId = getReSyncServerId();
+        if (flowManager == null || serverId == null || serverId.isBlank()) {
+            return null;
+        }
+        return flowManager.getPlayerDossier(serverId, playerId);
     }
 
     public void kickPlayer(UnifiedPlayer player, String reason) {
