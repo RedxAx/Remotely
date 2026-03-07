@@ -18,6 +18,7 @@ import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
+import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.util.Notification;
@@ -29,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -58,6 +60,7 @@ public class ReSyncFlowClient {
     private static final int PROTOCOL_VERSION = 2;
     private static final String CLIENT_VERSION = "2.0.0";
     private static final short FLOW_CHANNEL_ID = 1001;
+    private static final short PLAYER_TRACKING_CHANNEL_ID = 1002;
     private static final short CONTROL_CHANNEL_ID = 0;
     private int sequenceCounter = 0;
     private ErrorListener errorListener;
@@ -233,16 +236,21 @@ public class ReSyncFlowClient {
 
         sendFrame(0, buffer.array(), (short) 0);
 
-        sendSubscribe();
+        sendSubscribe("flow", null);
+        sendSubscribe("player_tracking", null);
     }
 
-    private void sendSubscribe() {
-        byte[] subscribeData = ByteBuffer.allocate(4 + "flow".getBytes().length)
-                .putInt("flow".getBytes().length)
-                .put("flow".getBytes())
-                .array();
-
-        sendFrame(2, subscribeData, CONTROL_CHANNEL_ID);
+    private void sendSubscribe(String channelId, String data) {
+        byte[] channelBytes = channelId.getBytes(StandardCharsets.UTF_8);
+        byte[] dataBytes = data != null ? data.getBytes(StandardCharsets.UTF_8) : new byte[0];
+        ByteBuffer buffer = ByteBuffer.allocate(4 + channelBytes.length + 4 + dataBytes.length);
+        buffer.putInt(channelBytes.length);
+        buffer.put(channelBytes);
+        buffer.putInt(dataBytes.length);
+        if (dataBytes.length > 0) {
+            buffer.put(dataBytes);
+        }
+        sendFrame(2, buffer.array(), CONTROL_CHANNEL_ID);
     }
 
     private void sendFrame(int messageType, byte[] payload, short channel) {
@@ -334,8 +342,6 @@ public class ReSyncFlowClient {
     }
 
     private void handleDataMessage(short channel, byte[] payload, boolean compressed) {
-        if (channel != FLOW_CHANNEL_ID) return;
-
         byte[] data = payload;
         if (compressed) {
             try {
@@ -352,6 +358,15 @@ public class ReSyncFlowClient {
                 System.err.println("[ReSyncFlow] Decompression error: " + e.getMessage());
                 return;
             }
+        }
+
+        if (channel == PLAYER_TRACKING_CHANNEL_ID) {
+            handlePlayerTrackingMessage(data);
+            return;
+        }
+
+        if (channel != FLOW_CHANNEL_ID) {
+            return;
         }
 
         ByteBuffer buffer = ByteBuffer.wrap(data);
@@ -410,6 +425,21 @@ public class ReSyncFlowClient {
             case 0x0D:
                 handleNodeRegistrySnapshot(buffer, false);
                 break;
+        }
+    }
+
+    private void handlePlayerTrackingMessage(byte[] data) {
+        try {
+            String json = new String(data, StandardCharsets.UTF_8);
+            PlayerTrackingUpdate update = gson.fromJson(json, PlayerTrackingUpdate.class);
+            if (update == null) {
+                return;
+            }
+            if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+                RemotelyClient.INSTANCE.getFlowManager().applyPlayerTrackingUpdate(serverId, update);
+            }
+        } catch (Exception e) {
+            System.err.println("[ReSyncFlow] Failed to parse player tracking update: " + e.getMessage());
         }
     }
 
@@ -1028,6 +1058,30 @@ public class ReSyncFlowClient {
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
 
+    public void requestPlayerTrackingSnapshot() {
+        sendPlayerTrackingAction("snapshot", null);
+    }
+
+    public void requestPlayerDossier(UUID playerId) {
+        sendPlayerTrackingAction("dossier", playerId);
+    }
+
+    private void sendPlayerTrackingAction(String action, UUID playerId) {
+        if (action == null || action.isBlank()) {
+            return;
+        }
+        if (!isConnected()) {
+            pendingSends.add(() -> sendPlayerTrackingAction(action, playerId));
+            ensureConnected();
+            return;
+        }
+        PlayerTrackingRequest request = new PlayerTrackingRequest();
+        request.action = action;
+        request.playerId = playerId != null ? playerId.toString() : null;
+        byte[] jsonBytes = gson.toJson(request).getBytes(StandardCharsets.UTF_8);
+        sendFrame(4, jsonBytes, PLAYER_TRACKING_CHANNEL_ID);
+    }
+
     public void sendFlowSave(FlowGraph graph) {
         if (graph == null) {
             return;
@@ -1283,5 +1337,10 @@ public class ReSyncFlowClient {
         while ((pending = pendingSends.poll()) != null) {
             pending.run();
         }
+    }
+
+    private static class PlayerTrackingRequest {
+        private String action;
+        private String playerId;
     }
 }

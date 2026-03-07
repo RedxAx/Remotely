@@ -1,6 +1,8 @@
 package redxax.oxy.remotely.data.flow;
 
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.data.flow.player.PlayerDossier;
+import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
@@ -48,6 +50,7 @@ public class FlowManager {
     private final Map<String, Object> pendingScoreboardParents = new ConcurrentHashMap<>();
     private final Map<String, Object> pendingTabParents = new ConcurrentHashMap<>();
     private final Map<String, java.util.List<redxax.oxy.remotely.flow.data.TriggerBinding>> triggerBindings = new ConcurrentHashMap<>();
+    private final Map<String, PlayerDossier> playerDossierCache = new ConcurrentHashMap<>();
     private final java.util.Set<String> serverFlowIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final java.util.Set<String> serverGuiIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final java.util.Set<String> serverScoreboardIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -243,6 +246,7 @@ public class FlowManager {
         clearGuiCache(serverId);
         clearScoreboardCache(serverId);
         clearTabCache(serverId);
+        clearPlayerDossierCache(serverId);
     }
 
     private void clearFlowCache(String serverId) {
@@ -275,6 +279,11 @@ public class FlowManager {
         draftTabs.keySet().removeIf(key -> key.startsWith(prefix));
         serverTabIds.removeIf(key -> key.startsWith(prefix));
         tabNames.keySet().removeIf(key -> key.startsWith(prefix));
+    }
+
+    private void clearPlayerDossierCache(String serverId) {
+        String prefix = serverId + ":";
+        playerDossierCache.keySet().removeIf(key -> key.startsWith(prefix));
     }
 
     private void refreshFlowManagerScreen(String serverId) {
@@ -1138,6 +1147,48 @@ public class FlowManager {
             flowClient.connect();
         }
         return flowClient;
+    }
+
+    public void applyPlayerTrackingUpdate(String serverId, PlayerTrackingUpdate update) {
+        if (serverId == null || update == null) {
+            return;
+        }
+        if ("snapshot".equalsIgnoreCase(update.getType())) {
+            clearPlayerDossierCache(serverId);
+            for (PlayerDossier dossier : update.getDossiers()) {
+                cachePlayerDossier(serverId, dossier);
+            }
+            return;
+        }
+        cachePlayerDossier(serverId, update.getDossier());
+    }
+
+    public void requestPlayerTrackingSnapshot(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        ensureFlowClient(serverId).requestPlayerTrackingSnapshot();
+    }
+
+    public void requestPlayerDossier(String serverId, UUID playerId) {
+        if (serverId == null || serverId.isBlank() || playerId == null) {
+            return;
+        }
+        ensureFlowClient(serverId).requestPlayerDossier(playerId);
+    }
+
+    public PlayerDossier getPlayerDossier(String serverId, UUID playerId) {
+        if (serverId == null || playerId == null) {
+            return null;
+        }
+        return playerDossierCache.get(serverId + ":" + playerId);
+    }
+
+    private void cachePlayerDossier(String serverId, PlayerDossier dossier) {
+        if (serverId == null || dossier == null || dossier.getPlayerId() == null || dossier.getPlayerId().isBlank()) {
+            return;
+        }
+        playerDossierCache.put(serverId + ":" + dossier.getPlayerId(), dossier);
     }
 
     private java.util.UUID parseUuid(String value) {
