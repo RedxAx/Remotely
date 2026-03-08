@@ -19,6 +19,7 @@ import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
 import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
+import redxax.oxy.remotely.data.flow.world.WorldChannelMessage;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.util.Notification;
@@ -61,6 +62,7 @@ public class ReSyncFlowClient {
     private static final String CLIENT_VERSION = "2.0.0";
     private static final short FLOW_CHANNEL_ID = 1001;
     private static final short PLAYER_TRACKING_CHANNEL_ID = 1002;
+    private static final short WORLD_MANAGEMENT_CHANNEL_ID = 1003;
     private static final short CONTROL_CHANNEL_ID = 0;
     private int sequenceCounter = 0;
     private ErrorListener errorListener;
@@ -238,6 +240,7 @@ public class ReSyncFlowClient {
 
         sendSubscribe("flow", null);
         sendSubscribe("player_tracking", null);
+        sendSubscribe("world_management", null);
     }
 
     private void sendSubscribe(String channelId, String data) {
@@ -365,6 +368,11 @@ public class ReSyncFlowClient {
             return;
         }
 
+        if (channel == WORLD_MANAGEMENT_CHANNEL_ID) {
+            handleWorldManagementMessage(data);
+            return;
+        }
+
         if (channel != FLOW_CHANNEL_ID) {
             return;
         }
@@ -440,6 +448,21 @@ public class ReSyncFlowClient {
             }
         } catch (Exception e) {
             System.err.println("[ReSyncFlow] Failed to parse player tracking update: " + e.getMessage());
+        }
+    }
+
+    private void handleWorldManagementMessage(byte[] data) {
+        try {
+            String json = new String(data, StandardCharsets.UTF_8);
+            WorldChannelMessage message = gson.fromJson(json, WorldChannelMessage.class);
+            if (message == null) {
+                return;
+            }
+            if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+                RemotelyClient.INSTANCE.getFlowManager().applyWorldManagementMessage(serverId, message);
+            }
+        } catch (Exception e) {
+            System.err.println("[ReSyncFlow] Failed to parse world management update: " + e.getMessage());
         }
     }
 
@@ -1066,6 +1089,26 @@ public class ReSyncFlowClient {
         sendPlayerTrackingAction("dossier", playerId);
     }
 
+    public void requestWorldSnapshot() {
+        java.util.LinkedHashMap<String, Object> request = new java.util.LinkedHashMap<>();
+        request.put("action", "snapshot");
+        sendWorldRequest(request);
+    }
+
+    public void requestWorldMapSnapshot(String worldName, double centerX, double centerZ, int zoom) {
+        java.util.LinkedHashMap<String, Object> request = new java.util.LinkedHashMap<>();
+        request.put("action", "mapSnapshot");
+        request.put("worldName", worldName);
+        request.put("centerX", centerX);
+        request.put("centerZ", centerZ);
+        request.put("zoom", zoom);
+        sendWorldRequest(request);
+    }
+
+    public void sendWorldAction(Map<String, Object> request) {
+        sendWorldRequest(request);
+    }
+
     private void sendPlayerTrackingAction(String action, UUID playerId) {
         if (action == null || action.isBlank()) {
             return;
@@ -1080,6 +1123,19 @@ public class ReSyncFlowClient {
         request.playerId = playerId != null ? playerId.toString() : null;
         byte[] jsonBytes = gson.toJson(request).getBytes(StandardCharsets.UTF_8);
         sendFrame(4, jsonBytes, PLAYER_TRACKING_CHANNEL_ID);
+    }
+
+    private void sendWorldRequest(Map<String, Object> request) {
+        if (request == null || request.isEmpty()) {
+            return;
+        }
+        if (!isConnected()) {
+            pendingSends.add(() -> sendWorldRequest(request));
+            ensureConnected();
+            return;
+        }
+        byte[] jsonBytes = gson.toJson(request).getBytes(StandardCharsets.UTF_8);
+        sendFrame(4, jsonBytes, WORLD_MANAGEMENT_CHANNEL_ID);
     }
 
     public void sendFlowSave(FlowGraph graph) {
