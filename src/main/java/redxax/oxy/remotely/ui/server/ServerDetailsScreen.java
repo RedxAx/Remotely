@@ -691,8 +691,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
         } else {
             api.health().check().thenAccept(status -> ScreenManager.getInstance().execute(() -> {
-                if (!status.hasServerJar()) {
-                    showFixPopup("Server JAR Missing", "The server.jar file was not found.", "Download JAR", () -> {
+                String startupScriptPath = context.instance.getSettings().getProperty("startupScriptPath");
+                if (!status.hasServerJar() && (startupScriptPath == null || startupScriptPath.isBlank())) {
+                    showFixPopup("Server Jar Missing", "The server jar was not found.", "Download Jar", () -> {
                         Notification dlNotif = new Notification.Builder().message("Starting Download...").type(Notification.Type.INFO).loading(true).build();
                         new InstanceFactory().downloadMissingServerJar(context.instance, dlNotif).thenRun(() -> ScreenManager.getInstance().execute(() -> {
                             dlNotif.update().message("Download Complete").type(Notification.Type.SUCCESS).loading(false).autoSlideOut(true);
@@ -706,7 +707,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 }
 
                 if (!status.hasStartScript()) {
-                    showFixPopup("Start Script Missing", "The startup script (start.sh/start.bat) is missing.", "Create Script", () -> InstanceRepairer.createStartScript(context.instance).thenRun(() -> ScreenManager.getInstance().execute(() -> new Notification("Script Created", Notification.Type.SUCCESS))), () -> proceedWithServerStart(context, info));
+                    showFixPopup("Start Script Missing", "The startup script is missing.", "Create Script", () -> InstanceRepairer.createStartScript(context.instance).thenRun(() -> ScreenManager.getInstance().execute(() -> new Notification("Script Created", Notification.Type.SUCCESS))), () -> proceedWithServerStart(context, info));
                     return;
                 }
 
