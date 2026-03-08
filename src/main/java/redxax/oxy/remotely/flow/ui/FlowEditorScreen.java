@@ -51,23 +51,23 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     private SidePanel paletteSidePanel;
     private final Map<NodeDefinition.NodeCategory, PopupWidget> categoryPopups = new HashMap<>();
     private static final List<NodeDefinition.NodeCategory> CATEGORY_ORDER = List.of(
-        NodeDefinition.NodeCategory.EVENT,
-        NodeDefinition.NodeCategory.ACTION,
-        NodeDefinition.NodeCategory.LOGIC,
-        NodeDefinition.NodeCategory.DATA,
-        NodeDefinition.NodeCategory.VARIABLE,
-        NodeDefinition.NodeCategory.FUNCTION,
-        NodeDefinition.NodeCategory.ENTITY,
-        NodeDefinition.NodeCategory.WORLD,
-        NodeDefinition.NodeCategory.INVENTORY,
-        NodeDefinition.NodeCategory.SCOREBOARD,
-        NodeDefinition.NodeCategory.ECONOMY,
-        NodeDefinition.NodeCategory.PERMISSION,
-        NodeDefinition.NodeCategory.VISUAL,
-        NodeDefinition.NodeCategory.UTILITY,
-        NodeDefinition.NodeCategory.DATABASE,
-        NodeDefinition.NodeCategory.HTTP,
-        NodeDefinition.NodeCategory.DISCORD
+            NodeDefinition.NodeCategory.EVENT,
+            NodeDefinition.NodeCategory.ACTION,
+            NodeDefinition.NodeCategory.LOGIC,
+            NodeDefinition.NodeCategory.DATA,
+            NodeDefinition.NodeCategory.VARIABLE,
+            NodeDefinition.NodeCategory.FUNCTION,
+            NodeDefinition.NodeCategory.ENTITY,
+            NodeDefinition.NodeCategory.WORLD,
+            NodeDefinition.NodeCategory.INVENTORY,
+            NodeDefinition.NodeCategory.SCOREBOARD,
+            NodeDefinition.NodeCategory.ECONOMY,
+            NodeDefinition.NodeCategory.PERMISSION,
+            NodeDefinition.NodeCategory.VISUAL,
+            NodeDefinition.NodeCategory.UTILITY,
+            NodeDefinition.NodeCategory.DATABASE,
+            NodeDefinition.NodeCategory.HTTP,
+            NodeDefinition.NodeCategory.DISCORD
     );
 
     private IconButton headerBackground;
@@ -138,10 +138,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             for (Map.Entry<String, FlowNode> entry : nodes.entrySet()) {
                 FlowNode node = entry.getValue();
                 this.nodes.put(entry.getKey(), new FlowNode(
-                    node.getType(),
-                    node.getX(),
-                    node.getY(),
-                    new HashMap<>(node.getInputValues())
+                        node.getType(),
+                        node.getX(),
+                        node.getY(),
+                        new HashMap<>(node.getInputValues())
                 ));
             }
             this.connections = new ArrayList<>(connections);
@@ -202,10 +202,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                     continue;
                 }
                 graph.getNodes().put(entry.getKey(), new FlowNode(
-                    node.getType(),
-                    node.getX(),
-                    node.getY(),
-                    node.getInputValues() != null ? new HashMap<>(node.getInputValues()) : new HashMap<>()
+                        node.getType(),
+                        node.getX(),
+                        node.getY(),
+                        node.getInputValues() != null ? new HashMap<>(node.getInputValues()) : new HashMap<>()
                 ));
             }
         }
@@ -216,10 +216,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                     continue;
                 }
                 graph.getConnections().add(new FlowConnection(
-                    connection.getSourceNodeId(),
-                    connection.getSourcePin(),
-                    connection.getTargetNodeId(),
-                    connection.getTargetPin()
+                        connection.getSourceNodeId(),
+                        connection.getSourcePin(),
+                        connection.getTargetNodeId(),
+                        connection.getTargetPin()
                 ));
             }
         }
@@ -333,8 +333,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
 
         Comparator<NodeDefinition> comparator = Comparator
-            .comparingInt(NodeDefinition::getPriority)
-            .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER);
+                .comparingInt(NodeDefinition::getPriority)
+                .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER);
 
         for (NodeDefinition.NodeCategory category : CATEGORY_ORDER) {
             PopupWidget targetPopup = getCategoryPopup(category);
@@ -346,9 +346,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             nodes.sort(comparator);
             for (NodeDefinition def : nodes) {
                 IconButton btn = new IconButton.Builder()
-                    .label(def.getDisplayName())
-                    .onClick(() -> addNodeAtCenter(def.getId()))
-                    .build();
+                        .label(def.getDisplayName())
+                        .onClick(() -> addNodeAtCenter(def.getId()))
+                        .build();
                 targetPopup.addRow("", Collections.singletonList(btn), 20, true, false);
             }
         }
@@ -420,10 +420,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         headerButtons.add(backButton);
 
         IconButton saveButton = new IconButton.Builder()
-            .size(18, 18)
-            .imagePath("save.png")
-            .onClick(this::onSave)
-            .build();
+                .size(18, 18)
+                .imagePath("save.png")
+                .onClick(this::onSave)
+                .build();
         headerButtons.add(saveButton);
         addDrawableChild(saveButton, backButton);
     }
@@ -491,13 +491,14 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         double[] worldMouse = screenToWorld(undistortedMouseX, undistortedMouseY);
         int worldMouseX = (int) worldMouse[0];
         int worldMouseY = (int) worldMouse[1];
+        IDrawContext worldContext = createWorldDrawContext(context);
 
-        renderWires(context);
+        renderWires(worldContext);
 
         for (Widget widget : worldWidgets) {
-            widget.render(context, worldMouseX, worldMouseY, delta);
+            widget.render(worldContext, worldMouseX, worldMouseY, delta);
         }
-        renderSelectionHighlights(context);
+        renderSelectionHighlights(worldContext);
         context.getMatrices().pop();
 
         renderSelectionBox(context);
@@ -810,7 +811,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)
-            && !(getFocusedWidget() instanceof TextInputWidget)) {
+                && !(getFocusedWidget() instanceof TextInputWidget)) {
             if (!selectedNodeIds.isEmpty()) {
                 captureSnapshot();
                 deleteSelectedNodes();
@@ -1062,7 +1063,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
         int accentColor = ThemeManager.getDefaultAccent().getAccentColor();
         int border = ThemeManager.getAnimatedColor("flow_node_selection_border".hashCode(),
-            (accentColor & 0x00FFFFFF) | 0xAA000000);
+                (accentColor & 0x00FFFFFF) | 0xAA000000);
         for (String nodeId : selectedNodeIds) {
             NodeWidget widget = widgetCache.get(nodeId);
             if (widget == null) {
@@ -1081,10 +1082,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             return;
         }
         int accentColor = ThemeManager.getDefaultAccent().getAccentColor();
-        int fill = ThemeManager.getAnimatedColor("selection_fill".hashCode(),
-            (accentColor & 0x00FFFFFF) | 0x44000000);
-        int border = ThemeManager.getAnimatedColor("selection_border".hashCode(),
-            (accentColor & 0x00FFFFFF) | 0xAA000000);
+        int fill = ThemeManager.getAnimatedColor("selection_fill".hashCode(), (accentColor & 0x00FFFFFF) | 0x44000000);
+        int border = ThemeManager.getAnimatedColor("selection_border".hashCode(), (accentColor & 0x00FFFFFF) | 0xAA000000);
 
         int x1 = (int) Math.min(selectionStartX, selectionEndX);
         int y1 = (int) Math.min(selectionStartY, selectionEndY);
@@ -1105,10 +1104,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
 
         if (sourceKind == NodeDefinition.PinType.FLOW || targetKind == NodeDefinition.PinType.FLOW) {
-            return sourceKind == NodeDefinition.PinType.FLOW
-                && targetKind == NodeDefinition.PinType.FLOW
-                && sourceType == FlowType.EXECUTION
-                && targetType == FlowType.EXECUTION;
+            return sourceKind == NodeDefinition.PinType.FLOW && targetKind == NodeDefinition.PinType.FLOW && sourceType == FlowType.EXECUTION && targetType == FlowType.EXECUTION;
         }
 
         if (sourceKind != NodeDefinition.PinType.DATA || targetKind != NodeDefinition.PinType.DATA) {
@@ -1133,12 +1129,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                         double[] bounds = targetWidget.getPinBounds(targetPin, true);
 
                         if (bounds != null && canConnect(dragPinWidget, dragState.sourcePin, targetWidget, targetPin)) {
-                            FlowConnection newConnection = new FlowConnection(
-                                dragState.sourceNodeId,
-                                dragState.sourcePin,
-                                targetNodeId,
-                                targetPin
-                            );
+                            FlowConnection newConnection = new FlowConnection(dragState.sourceNodeId, dragState.sourcePin, targetNodeId, targetPin);
 
                             removeExistingInputConnection(targetNodeId, targetPin);
                             graph.getConnections().add(newConnection);
@@ -1182,8 +1173,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             }
         }
 
-        boolean removed = graph.getConnections().removeIf(conn ->
-            conn.getTargetNodeId().equals(nodeId) && conn.getTargetPin().equals(pinName)
+        boolean removed = graph.getConnections().removeIf(conn -> conn.getTargetNodeId().equals(nodeId) && conn.getTargetPin().equals(pinName)
         );
         if (removed) {
             refreshInputWidgets(nodeId);
@@ -1217,8 +1207,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(serverId).values());
             definitions.removeIf(NodeDefinition::isHidden);
             definitions.sort(Comparator
-                .comparingInt(NodeDefinition::getPriority)
-                .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
+                    .comparingInt(NodeDefinition::getPriority)
+                    .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
             for (NodeDefinition def : definitions) {
                 String compatiblePin = null;
                 if (sourceType != null) {
@@ -1230,11 +1220,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 String pinName = compatiblePin;
                 int finalWorldX = worldX;
                 int finalWorldY = worldY;
-                builder.addItem(def.getDisplayName(),
-                    () -> {
-                        captureSnapshot();
-                        addNode(finalWorldX, finalWorldY, def.getId(), pinName);
-                    });
+                builder.addItem(def.getDisplayName(), () -> {
+                    captureSnapshot();
+                    addNode(finalWorldX, finalWorldY, def.getId(), pinName);
+                });
             }
         }
 
@@ -1266,14 +1255,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(serverId).values());
             definitions.removeIf(NodeDefinition::isHidden);
             definitions.sort(Comparator
-                .comparingInt(NodeDefinition::getPriority)
-                .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
+                    .comparingInt(NodeDefinition::getPriority)
+                    .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
             for (NodeDefinition def : definitions) {
-                builder.addItem(def.getDisplayName(),
-                    () -> {
-                        captureSnapshot();
-                        addNodeAtCenter(def.getId());
-                    });
+                builder.addItem(def.getDisplayName(), () -> {
+                    captureSnapshot();
+                    addNodeAtCenter(def.getId());
+                });
             }
         }
 
@@ -1296,12 +1284,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         addWorldWidget(widget);
 
         if (pendingSourceNodeId != null && pendingSourcePin != null && autoWirePin != null) {
-            FlowConnection newConnection = new FlowConnection(
-                pendingSourceNodeId,
-                pendingSourcePin,
-                id,
-                autoWirePin
-            );
+            FlowConnection newConnection = new FlowConnection(pendingSourceNodeId, pendingSourcePin, id, autoWirePin);
             removeExistingInputConnection(id, autoWirePin);
             graph.getConnections().add(newConnection);
             widget.refreshInputWidgets();
@@ -1327,9 +1310,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         double[] inputBounds = widget.getPinBounds(pinName, true);
         if (isInside(wx, wy, inputBounds)) {
-            boolean removed = graph.getConnections().removeIf(conn ->
-                nodeId.equals(conn.getTargetNodeId()) && pinName.equals(conn.getTargetPin())
-            );
+            boolean removed = graph.getConnections().removeIf(conn -> nodeId.equals(conn.getTargetNodeId()) && pinName.equals(conn.getTargetPin()));
             if (removed) {
                 captureSnapshot();
                 refreshInputWidgets(nodeId);
@@ -1435,12 +1416,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             FlowNode node = graph.getNodes().get(nodeId);
             if (node != null) {
                 nodeIdToIndex.put(nodeId, index++);
-                clipboard.nodes.add(new CopiedNode(
-                    node.getType(),
-                    node.getX() - minX,
-                    node.getY() - minY,
-                    node.getInputValues()
-                ));
+                clipboard.nodes.add(new CopiedNode(node.getType(), node.getX() - minX, node.getY() - minY, node.getInputValues()));
             }
         }
 
@@ -1450,12 +1426,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                     Integer sourceIdx = nodeIdToIndex.get(conn.getSourceNodeId());
                     Integer targetIdx = nodeIdToIndex.get(conn.getTargetNodeId());
                     if (sourceIdx != null && targetIdx != null) {
-                        clipboard.connections.add(new CopiedConnection(
-                            sourceIdx,
-                            conn.getSourcePin(),
-                            targetIdx,
-                            conn.getTargetPin()
-                        ));
+                        clipboard.connections.add(new CopiedConnection(sourceIdx, conn.getSourcePin(), targetIdx, conn.getTargetPin()));
                     }
                 }
             }
@@ -1500,12 +1471,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             String sourceId = indexToNewNodeId.get(conn.sourceIndex);
             String targetId = indexToNewNodeId.get(conn.targetIndex);
             if (sourceId != null && targetId != null) {
-                FlowConnection newConnection = new FlowConnection(
-                    sourceId,
-                    conn.sourcePin,
-                    targetId,
-                    conn.targetPin
-                );
+                FlowConnection newConnection = new FlowConnection(sourceId, conn.sourcePin, targetId, conn.targetPin);
                 removeExistingInputConnection(targetId, conn.targetPin);
                 graph.getConnections().add(newConnection);
                 refreshInputWidgets(targetId);
@@ -1602,7 +1568,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             return false;
         }
         return x >= bounds[0] && x <= bounds[0] + bounds[2]
-            && y >= bounds[1] && y <= bounds[1] + bounds[3];
+                && y >= bounds[1] && y <= bounds[1] + bounds[3];
     }
 
     @Override

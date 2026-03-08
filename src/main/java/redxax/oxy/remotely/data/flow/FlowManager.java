@@ -1,8 +1,16 @@
 package redxax.oxy.remotely.data.flow;
 
+import com.google.gson.Gson;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
+import redxax.oxy.remotely.data.flow.world.WorldChannelMessage;
+import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
+import redxax.oxy.remotely.data.flow.world.WorldMapSnapshot;
+import redxax.oxy.remotely.data.flow.world.WorldPortal;
+import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
+import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
+import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
@@ -17,13 +25,25 @@ import redxax.oxy.remotely.flow.ui.FlowManagerScreen;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
+import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
+import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
+import restudio.rebase.Rebase;
+import restudio.rebase.backend.BackendConfig;
+import restudio.rebase.instance.Instance;
+import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.restudio.api.ReStudioApiClient;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
+import restudio.rebase.ui.worldmap.WorldMapScreen;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.util.Notification;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -51,6 +71,10 @@ public class FlowManager {
     private final Map<String, Object> pendingTabParents = new ConcurrentHashMap<>();
     private final Map<String, java.util.List<redxax.oxy.remotely.flow.data.TriggerBinding>> triggerBindings = new ConcurrentHashMap<>();
     private final Map<String, PlayerDossier> playerDossierCache = new ConcurrentHashMap<>();
+    private final Map<String, WorldSnapshot> worldSnapshotCache = new ConcurrentHashMap<>();
+    private final Map<String, WorldMapSnapshot> worldMapSnapshotCache = new ConcurrentHashMap<>();
+    private final Map<String, String> pendingWorldMapRequests = new ConcurrentHashMap<>();
+    private final Map<String, Integer> suppressedWorldSuccessNotifications = new ConcurrentHashMap<>();
     private final java.util.Set<String> serverFlowIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final java.util.Set<String> serverGuiIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final java.util.Set<String> serverScoreboardIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -60,6 +84,7 @@ public class FlowManager {
     private volatile String overlayGuiId;
     private volatile String overlayFlowId;
     private final java.util.concurrent.atomic.AtomicInteger overlayRevision = new java.util.concurrent.atomic.AtomicInteger();
+    private final Gson gson = new Gson();
 
     public FlowManager(RemotelyClient client, ReStudioApiClient apiClient) {
         this.client = client;
@@ -78,6 +103,7 @@ public class FlowManager {
         refreshGuisFromServer(actualServerId);
         refreshScoreboardsFromServer(actualServerId);
         refreshTabsFromServer(actualServerId);
+        refreshWorldsFromServer(actualServerId);
         client.getHost().setScreen(new FlowManagerScreen(actualServerId, server, ScreenManager.getInstance().getCurrentScreen()));
     }
 
@@ -247,6 +273,7 @@ public class FlowManager {
         clearScoreboardCache(serverId);
         clearTabCache(serverId);
         clearPlayerDossierCache(serverId);
+        clearWorldCache(serverId);
     }
 
     private void clearFlowCache(String serverId) {
@@ -284,6 +311,13 @@ public class FlowManager {
     private void clearPlayerDossierCache(String serverId) {
         String prefix = serverId + ":";
         playerDossierCache.keySet().removeIf(key -> key.startsWith(prefix));
+    }
+
+    private void clearWorldCache(String serverId) {
+        String prefix = serverId + ":";
+        worldMapSnapshotCache.keySet().removeIf(key -> key.startsWith(prefix));
+        pendingWorldMapRequests.keySet().removeIf(key -> key.startsWith(prefix));
+        worldSnapshotCache.remove(serverId);
     }
 
     private void refreshFlowManagerScreen(String serverId) {
@@ -327,6 +361,15 @@ public class FlowManager {
             FlowManagerScreen screen = FlowManagerScreen.getOpenScreen(serverId);
             if (screen != null) {
                 screen.upsertTabEntry(tabId);
+            }
+        });
+    }
+
+    private void upsertFlowManagerWorldEntry(String serverId, String worldName) {
+        ScreenManager.getInstance().execute(() -> {
+            FlowManagerScreen screen = FlowManagerScreen.getOpenScreen(serverId);
+            if (screen != null) {
+                screen.upsertWorldEntry(worldName);
             }
         });
     }
@@ -442,6 +485,48 @@ public class FlowManager {
             }
         }
         return tabs;
+    }
+
+    public Map<String, WorldRegistryEntry> getWorldsForServer(String serverId) {
+        Map<String, WorldRegistryEntry> worlds = new LinkedHashMap<>();
+        WorldSnapshot snapshot = worldSnapshotCache.get(serverId);
+        if (snapshot == null) {
+            return worlds;
+        }
+        for (WorldRegistryEntry world : snapshot.getWorlds()) {
+            if (world != null && world.getWorldName() != null) {
+                worlds.put(world.getWorldName(), world);
+            }
+        }
+        return worlds;
+    }
+
+    public List<WorldDashboardEntry> getWorldDashboardForServer(String serverId) {
+        WorldSnapshot snapshot = worldSnapshotCache.get(serverId);
+        return snapshot == null ? List.of() : new ArrayList<>(snapshot.getDashboard());
+    }
+
+    public List<WorldPortal> getWorldPortalsForServer(String serverId) {
+        WorldSnapshot snapshot = worldSnapshotCache.get(serverId);
+        return snapshot == null ? List.of() : new ArrayList<>(snapshot.getPortals());
+    }
+
+    public WorldRegistryEntry getWorld(String serverId, String worldName) {
+        if (serverId == null || worldName == null) {
+            return null;
+        }
+        return getWorldsForServer(serverId).get(worldName);
+    }
+
+    public WorldSnapshot getWorldSnapshot(String serverId) {
+        return worldSnapshotCache.get(serverId);
+    }
+
+    public WorldMapSnapshot getWorldMapSnapshot(String serverId, String worldName) {
+        if (serverId == null || worldName == null) {
+            return null;
+        }
+        return worldMapSnapshotCache.get(serverId + ":" + worldName.toLowerCase(Locale.ROOT));
     }
 
     public String getFlowName(String serverId, String flowId) {
@@ -1025,6 +1110,16 @@ public class FlowManager {
         refreshFlowManagerScreen(serverId);
     }
 
+    public void refreshWorldsFromServer(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        ReSyncFlowClient client = ensureFlowClient(serverId);
+        client.requestWorldSnapshot();
+        client.requestPlayerTrackingSnapshot();
+        refreshFlowManagerScreen(serverId);
+    }
+
     public void applyServerFlowList(String serverId, java.util.List<String> flowIds) {
         clearFlowCache(serverId);
         String prefix = serverId + ":";
@@ -1189,6 +1284,259 @@ public class FlowManager {
             return;
         }
         playerDossierCache.put(serverId + ":" + dossier.getPlayerId(), dossier);
+    }
+
+    public void applyWorldManagementMessage(String serverId, WorldChannelMessage message) {
+        if (serverId == null || serverId.isBlank() || message == null) {
+            return;
+        }
+        String action = message.getAction() == null ? "" : message.getAction();
+        if ("snapshot".equalsIgnoreCase(action) && message.getData() != null) {
+            WorldSnapshot snapshot = gson.fromJson(message.getData(), WorldSnapshot.class);
+            if (snapshot != null) {
+                worldSnapshotCache.put(serverId, snapshot);
+                for (WorldRegistryEntry world : snapshot.getWorlds()) {
+                    if (world != null && world.getWorldName() != null) {
+                        upsertFlowManagerWorldEntry(serverId, world.getWorldName());
+                    }
+                }
+                refreshFlowManagerScreen(serverId);
+            }
+            return;
+        }
+        if ("mapSnapshot".equalsIgnoreCase(action) && message.getData() != null) {
+            WorldMapSnapshot snapshot = gson.fromJson(message.getData(), WorldMapSnapshot.class);
+            String worldName = pendingWorldMapRequests.remove(serverId);
+            if (snapshot != null && worldName != null && !worldName.isBlank()) {
+                worldMapSnapshotCache.put(serverId + ":" + worldName.toLowerCase(Locale.ROOT), snapshot);
+            }
+            return;
+        }
+        if ("error".equalsIgnoreCase(message.getType())) {
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", prettyWorldMessage(message.getMessage()), Notification.Type.ERROR));
+            return;
+        }
+        if ("response".equalsIgnoreCase(message.getType()) && !message.isSuccess()) {
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", prettyWorldMessage(message.getMessage()), Notification.Type.ERROR));
+        }
+        if ("response".equalsIgnoreCase(message.getType()) && message.isSuccess() && !"snapshot".equalsIgnoreCase(action) && !"mapSnapshot".equalsIgnoreCase(action)
+            && !"setGameRule".equalsIgnoreCase(action) && !consumeSuppressedWorldSuccessNotification(serverId, action)) {
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", prettyWorldMessage(message.getMessage()), Notification.Type.SUCCESS));
+        }
+        ensureFlowClient(serverId).requestWorldSnapshot();
+    }
+
+    public void requestWorldMapSnapshot(String serverId, String worldName, double centerX, double centerZ, int zoom) {
+        if (serverId == null || serverId.isBlank() || worldName == null || worldName.isBlank()) {
+            return;
+        }
+        pendingWorldMapRequests.put(serverId, worldName);
+        ensureFlowClient(serverId).requestWorldMapSnapshot(worldName, centerX, centerZ, zoom);
+    }
+
+    public void createWorld(String serverId, String worldName, String seed, String environment, String generator) {
+        sendWorldAction(serverId, worldAction("createWorld", "worldName", worldName, "seed", seed, "environment", environment, "generator", generator));
+    }
+
+    public void importWorlds(String serverId) {
+        sendWorldAction(serverId, worldAction("importUnregisteredWorlds"));
+    }
+
+    public void scanWorlds(String serverId) {
+        sendWorldAction(serverId, worldAction("scanUnregisteredWorlds"));
+    }
+
+    public void cloneWorld(String serverId, String sourceWorld, String targetWorld, boolean loadAfterClone) {
+        sendWorldAction(serverId, worldAction("cloneWorld", "sourceWorld", sourceWorld, "targetWorld", targetWorld, "loadAfterClone", loadAfterClone));
+    }
+
+    public void loadWorld(String serverId, String worldName) {
+        sendWorldAction(serverId, worldAction("loadWorld", "worldName", worldName));
+    }
+
+    public void unloadWorld(String serverId, String worldName, String fallbackWorld) {
+        sendWorldAction(serverId, worldAction("unloadWorld", "worldName", worldName, "fallbackWorld", fallbackWorld));
+    }
+
+    public void deleteWorld(String serverId, String worldName, boolean deleteFiles, String fallbackWorld) {
+        sendWorldAction(serverId, worldAction("deleteWorld", "worldName", worldName, "deleteFiles", deleteFiles, "fallbackWorld", fallbackWorld));
+    }
+
+    public void setWorldGameRule(String serverId, String worldName, String ruleName, String value) {
+        sendWorldAction(serverId, worldAction("setGameRule", "worldName", worldName, "ruleName", ruleName, "ruleValue", value));
+    }
+
+    public void setWorldGameRules(String serverId, String worldName, Map<String, String> rules) {
+        sendWorldAction(serverId, worldAction("setGameRules", "worldName", worldName, "gameRules", rules));
+    }
+
+    public void suppressNextWorldSuccessNotification(String serverId, String action) {
+        if (serverId == null || serverId.isBlank() || action == null || action.isBlank()) {
+            return;
+        }
+        suppressedWorldSuccessNotifications.merge(serverId + ":" + action.toLowerCase(Locale.ROOT), 1, Integer::sum);
+    }
+
+    public void setWorldDifficulty(String serverId, String worldName, String difficulty) {
+        sendWorldAction(serverId, worldAction("setDifficulty", "worldName", worldName, "difficulty", difficulty));
+    }
+
+    public void setWorldTimeLock(String serverId, String worldName, boolean enabled, long lockedTime) {
+        sendWorldAction(serverId, worldAction("setTimeLock", "worldName", worldName, "enabled", enabled, "lockedTime", lockedTime));
+    }
+
+    public void setWorldWeatherLock(String serverId, String worldName, boolean enabled, boolean storm, boolean thundering) {
+        sendWorldAction(serverId, worldAction("setWeatherLock", "worldName", worldName, "enabled", enabled, "storm", storm, "thundering", thundering));
+    }
+
+    public void setWorldIsolatedState(String serverId, String worldName, boolean enabled) {
+        sendWorldAction(serverId, worldAction("setIsolatedPlayerState", "worldName", worldName, "enabled", enabled));
+    }
+
+    public void createPortal(String serverId, String portalName, String sourceWorld, double minX, double minY, double minZ, double maxX, double maxY, double maxZ,
+                             String destinationWorld, double destinationX, double destinationY, double destinationZ, float destinationYaw, float destinationPitch, boolean enabled) {
+        sendWorldAction(serverId, worldAction(
+            "createPortal",
+            "portalName", portalName,
+            "sourceWorld", sourceWorld,
+            "minX", minX,
+            "minY", minY,
+            "minZ", minZ,
+            "maxX", maxX,
+            "maxY", maxY,
+            "maxZ", maxZ,
+            "destinationWorld", destinationWorld,
+            "destinationX", destinationX,
+            "destinationY", destinationY,
+            "destinationZ", destinationZ,
+            "destinationYaw", destinationYaw,
+            "destinationPitch", destinationPitch,
+            "portalEnabled", enabled
+        ));
+    }
+
+    public void deletePortal(String serverId, String portalId) {
+        sendWorldAction(serverId, worldAction("deletePortal", "portalId", portalId));
+    }
+
+    public void openWorldMap(String serverId, ClientServerView server, String worldName) {
+        String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
+        Instance instance = resolveInstance(actualServerId, server);
+        if (instance == null) {
+            new Notification("WorldMap", "InstanceUnavailable", Notification.Type.ERROR);
+            return;
+        }
+        Object parent = resolveDesignerParent(null);
+        Screen parentScreen = parent instanceof Screen screen ? screen : ScreenManager.getInstance().getCurrentScreen();
+        WorldMapScreen mapScreen = createWorldMapScreen(parentScreen, instance, worldName, location -> {
+            if (location == null || location.uuid() == null) {
+                return;
+            }
+            PlayerManagerController controller = PlayerManagerController.getOrCreate(instance);
+            controller.requestPlayerDossier(location.uuid());
+            UnifiedPlayer player = new UnifiedPlayer(location.uuid(), location.name());
+            new PlayerDataPopup(ScreenManager.getInstance().getCurrentScreen(), player, controller);
+        });
+        client.getHost().setScreen(mapScreen);
+    }
+
+    @SuppressWarnings("unchecked")
+    private WorldMapScreen createWorldMapScreen(Screen parentScreen, Instance instance, String worldName, Consumer<restudio.rebase.minecraft.MinecraftPlayerLocation> onPlayerSelected) {
+        try {
+            return (WorldMapScreen) WorldMapScreen.class
+                .getConstructor(Screen.class, Instance.class, String.class, Consumer.class)
+                .newInstance(parentScreen, instance, worldName, onPlayerSelected);
+        } catch (Exception ignored) {
+            return new WorldMapScreen(parentScreen, instance, onPlayerSelected);
+        }
+    }
+
+    private Instance resolveInstance(String serverId, ClientServerView server) {
+        try {
+            InstanceManager instanceManager = Rebase.get().getInstanceManager();
+            List<Instance> instances = new ArrayList<>(instanceManager.getLocalInstances());
+            for (var host : instanceManager.getRemoteHosts()) {
+                instances.addAll(instanceManager.getRemoteInstances(host));
+            }
+            for (Instance instance : instances) {
+                BackendConfig backendConfig = instance.getBackendConfig();
+                if (backendConfig != null && backendConfig.credentials != null) {
+                    String identifier = backendConfig.credentials.get("identifier");
+                    if (identifier != null && identifier.equals(serverId)) {
+                        return instance;
+                    }
+                }
+            }
+            if (server != null && server.name != null) {
+                for (Instance instance : instances) {
+                    if (server.name.equalsIgnoreCase(instance.getName())) {
+                        return instance;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private void sendWorldAction(String serverId, Map<String, Object> request) {
+        if (serverId == null || serverId.isBlank() || request == null || request.isEmpty()) {
+            return;
+        }
+        ensureFlowClient(serverId).sendWorldAction(request);
+    }
+
+    private Map<String, Object> worldAction(String action, Object... pairs) {
+        LinkedHashMap<String, Object> data = new LinkedHashMap<>();
+        data.put("action", action);
+        if (pairs != null) {
+            for (int index = 0; index + 1 < pairs.length; index += 2) {
+                Object key = pairs[index];
+                if (key instanceof String stringKey && !stringKey.isBlank()) {
+                    data.put(stringKey, pairs[index + 1]);
+                }
+            }
+        }
+        return data;
+    }
+
+    private boolean consumeSuppressedWorldSuccessNotification(String serverId, String action) {
+        if (serverId == null || action == null) {
+            return false;
+        }
+        String key = serverId + ":" + action.toLowerCase(Locale.ROOT);
+        Integer count = suppressedWorldSuccessNotifications.get(key);
+        if (count == null || count <= 0) {
+            return false;
+        }
+        if (count == 1) {
+            suppressedWorldSuccessNotifications.remove(key);
+        } else {
+            suppressedWorldSuccessNotifications.put(key, count - 1);
+        }
+        return true;
+    }
+
+    private String prettyWorldMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "Done";
+        }
+        String normalized = message.replace(':', ' ').replaceAll("([a-z])([A-Z])", "$1 $2").replace('_', ' ').trim();
+        String[] parts = normalized.split("\\s+");
+        StringBuilder builder = new StringBuilder();
+        for (String part : parts) {
+            if (part.isBlank()) {
+                continue;
+            }
+            if (!builder.isEmpty()) {
+                builder.append(' ');
+            }
+            builder.append(part.substring(0, 1).toUpperCase(Locale.ROOT));
+            if (part.length() > 1) {
+                builder.append(part.substring(1).toLowerCase(Locale.ROOT));
+            }
+        }
+        return builder.isEmpty() ? "Done" : builder.toString();
     }
 
     private java.util.UUID parseUuid(String value) {

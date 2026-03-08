@@ -3,6 +3,10 @@ package redxax.oxy.remotely.flow.ui;
 import com.google.gson.Gson;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
+import redxax.oxy.remotely.data.flow.world.WorldGameRuleDescriptor;
+import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
+import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
@@ -12,6 +16,7 @@ import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.TabsManager;
@@ -29,9 +34,12 @@ import restudio.rescreen.util.Notification;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+
+import static restudio.rescreen.config.Config.desktopMode;
 
 public class FlowManagerScreen extends ReScreen {
     private static final Map<String, FlowManagerScreen> OPEN_SCREENS = new HashMap<>();
@@ -45,10 +53,12 @@ public class FlowManagerScreen extends ReScreen {
     private Container blueprintsContainer;
     private Container guisContainer;
     private Container scoreboardsContainer;
+    private Container worldsContainer;
     private Container tabsContainer;
     private final Map<String, MountableButtonWidget> blueprintEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> guiEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> scoreboardEntries = new HashMap<>();
+    private final Map<String, MountableButtonWidget> worldEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> tabEntries = new HashMap<>();
     private final Gson gson = new Gson();
 
@@ -111,6 +121,8 @@ public class FlowManagerScreen extends ReScreen {
         guisContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
         scoreboardsContainer = createContainer("scoreboards", 5, contentY, width - 10, contentHeight);
         scoreboardsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
+        worldsContainer = createContainer("worlds", 5, contentY, width - 10, contentHeight);
+        worldsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
         if (tabMethodsAvailable) {
             tabsContainer = createContainer("tabs", 5, contentY, width - 10, contentHeight);
             tabsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
@@ -119,6 +131,7 @@ public class FlowManagerScreen extends ReScreen {
         tabsManager.addTab("Blueprints", blueprintsContainer);
         tabsManager.addTab("GUIs", guisContainer);
         tabsManager.addTab("Scoreboards", scoreboardsContainer);
+        tabsManager.addTab("Worlds", worldsContainer);
         if (tabMethodsAvailable && tabsContainer != null) {
             tabsManager.addTab("Tabs", tabsContainer);
         }
@@ -126,6 +139,7 @@ public class FlowManagerScreen extends ReScreen {
         rebuildBlueprints();
         rebuildGuis();
         rebuildScoreboards();
+        rebuildWorlds();
         if (tabMethodsAvailable && tabsContainer != null) {
             rebuildTabs();
         }
@@ -140,6 +154,8 @@ public class FlowManagerScreen extends ReScreen {
             rebuildGuis();
         } else if (tab.getContainer() == scoreboardsContainer) {
             rebuildScoreboards();
+        } else if (tab.getContainer() == worldsContainer) {
+            rebuildWorlds();
         } else if (tabMethodsAvailable && tabsContainer != null && tab.getContainer() == tabsContainer) {
             rebuildTabs();
         }
@@ -1068,6 +1084,349 @@ public class FlowManagerScreen extends ReScreen {
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
         popupRef[0].show();
+    }
+
+    private void rebuildWorlds() {
+        if (worldsContainer == null) {
+            return;
+        }
+        worldsContainer.clearWidgets();
+        worldEntries.clear();
+
+        IconButton createButton = new IconButton.Builder()
+            .label("New World")
+            .accentType(ThemeManager.getAccent("nice"))
+            .imagePath("create.png")
+            .size(120, 18)
+            .onClick(this::showCreateWorldPopup)
+            .build();
+        IconButton importButton = new IconButton.Builder()
+            .label("Import")
+            .imagePath("download.png")
+            .size(130, 18)
+            .onClick(() -> flowManager.importWorlds(serverId))
+            .build();
+        IconButton scanButton = new IconButton.Builder()
+            .label("Scan")
+            .imagePath("search.png")
+            .size(120, 18)
+            .onClick(() -> flowManager.scanWorlds(serverId))
+            .build();
+        RowWidget topRow = new RowWidget.Builder()
+            .size(Math.max(200, worldsContainer.getWidth() - 20), 18)
+            .addWidget(createButton, importButton, scanButton)
+            .build();
+        worldsContainer.addWidget(topRow);
+
+        List<String> worldNames = new ArrayList<>(flowManager.getWorldsForServer(serverId).keySet());
+        worldNames.sort(Comparator.naturalOrder());
+        for (String worldName : worldNames) {
+            upsertWorldEntry(worldName);
+        }
+    }
+
+    public void upsertWorldEntry(String worldName) {
+        if (worldsContainer == null || worldName == null) {
+            return;
+        }
+        WorldRegistryEntry world = flowManager.getWorld(serverId, worldName);
+        if (world == null) {
+            return;
+        }
+        MountableButtonWidget existing = worldEntries.remove(worldName);
+        if (existing != null) {
+            worldsContainer.removeWidget(existing);
+        }
+
+        WorldDashboardEntry dashboard = findWorldDashboard(worldName);
+        String status = dashboard != null ? dashboard.getStatus() : world.isLoaded() ? "Loaded" : "Unloaded";
+        int players = dashboard != null ? dashboard.getPlayerCount() : 0;
+        String environment = dashboard != null && dashboard.getEnvironment() != null ? dashboard.getEnvironment() : world.getEnvironment();
+        String difficulty = dashboard != null && dashboard.getDifficulty() != null ? dashboard.getDifficulty() : world.getDifficulty();
+        String description = status + " | " + environment + " | Players: " + players + " | " + difficulty;
+
+        SquareButtonWidget mapButton = new SquareButtonWidget.Builder()
+            .imagePath("map.png").hint("View World Map")
+            .onClick(() -> flowManager.openWorldMap(serverId, server, worldName))
+            .build();
+
+        SquareButtonWidget loadButton = new SquareButtonWidget.Builder()
+            .imagePath(world.isLoaded() ? "hide.png" : "add.png").hint(world.isLoaded() ? "Unload World" : "Load World")
+            .onClick(() -> {
+                if (world.isLoaded()) {
+                    flowManager.unloadWorld(serverId, worldName, "world");
+                } else {
+                    flowManager.loadWorld(serverId, worldName);
+                }
+            })
+            .build();
+
+        SquareButtonWidget settingsButton = new SquareButtonWidget.Builder()
+            .imagePath("edit.png").hint("Edit World Settings")
+            .onClick(() -> showWorldSettingsPopup(worldName))
+            .build();
+
+        SquareButtonWidget cloneButton = new SquareButtonWidget.Builder()
+            .imagePath("copy.png").hint("Clone World")
+            .onClick(() -> showCloneWorldPopup(worldName))
+            .build();
+
+        SquareButtonWidget deleteButton = new SquareButtonWidget.Builder()
+            .imagePath("delete.png").hint("Delete World")
+            .accentType(ThemeManager.getAccent("danger"))
+            .onClick(() -> flowManager.deleteWorld(serverId, worldName, false, "world"))
+            .build();
+
+        MountableButtonWidget widget = new MountableButtonWidget.Builder(worldName)
+            .description(description)
+            .hiddenText("Generator: " + safeText(world.getGenerator()))
+            .onClick(() -> flowManager.openWorldMap(serverId, server, worldName))
+            .addButton(mapButton)
+            .addButton(loadButton)
+            .addButton(settingsButton)
+            .addButton(cloneButton)
+            .addButton(deleteButton)
+            .build();
+        widget.setSize(Math.max(200, worldsContainer.getWidth() - 20), 28);
+
+        List<String> sortedIds = new ArrayList<>(worldEntries.keySet());
+        sortedIds.add(worldName);
+        sortedIds.sort(Comparator.naturalOrder());
+        int insertIndex = 1 + sortedIds.indexOf(worldName);
+        if (worldEntries.isEmpty() || insertIndex >= worldsContainer.getWidgets().size()) {
+            worldsContainer.addWidget(widget);
+        } else {
+            worldsContainer.insertWidget(widget, insertIndex);
+        }
+        worldEntries.put(worldName, widget);
+    }
+
+    private void showCreateWorldPopup() {
+        PopupWidget.Builder builder = new PopupWidget.Builder("CreateWorld").setResizable(false);
+        WorldSnapshot snapshot = flowManager.getWorldSnapshot(serverId);
+        List<String> generatorHints = snapshot == null ? List.of() : snapshot.getGeneratorHints();
+
+        TextInputWidget worldInput = new TextInputWidget.Builder().placeholder("WorldName").size(220, 18).build();
+        TextInputWidget seedInput = new TextInputWidget.Builder().placeholder("Seed").size(220, 18).build();
+        TextInputWidget environmentInput = new TextInputWidget.Builder().placeholder("Environment").text("NORMAL").size(220, 18).build();
+        TextInputWidget generatorInput = new TextInputWidget.Builder().placeholder("Generator").size(220, 18).build();
+
+        builder.addRow("World", true, 18, worldInput);
+        builder.addRow("Seed", true, 18, seedInput);
+        builder.addRow("Env", true, 18, environmentInput);
+        builder.addRow("Generator", true, 18, generatorInput);
+        if (!generatorHints.isEmpty()) {
+            String hintsText = String.join(", ", generatorHints.stream().limit(4).toList());
+            if (generatorHints.size() > 4) {
+                hintsText += "...";
+            }
+            IconButton hintsButton = new IconButton.Builder().label(hintsText).autoWidthOnTextChange(true).build();
+            hintsButton.active = false;
+            builder.addRow("Hints", true, 18, hintsButton);
+        }
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton createBtn = new AnimatedButton.Builder()
+            .label("Create")
+            .accentType(ThemeManager.getAccent("nice"))
+            .onClick(() -> {
+                String worldName = worldInput.getText() != null ? worldInput.getText().trim() : "";
+                if (!worldName.matches("^[a-zA-Z0-9_\\-]+$")) {
+                    new Notification("Error", "InvalidWorldName", Notification.Type.ERROR);
+                    return;
+                }
+                flowManager.createWorld(serverId, worldName, seedInput.getText(), environmentInput.getText(), generatorInput.getText());
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+            })
+            .build();
+        builder.addRow("", true, 20, createBtn);
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private void showCloneWorldPopup(String sourceWorld) {
+        PopupWidget.Builder builder = new PopupWidget.Builder("CloneWorld").setResizable(false);
+
+        TextInputWidget worldInput = new TextInputWidget.Builder().placeholder("TargetWorld").size(220, 18).build();
+        ToggleWidget loadAfterToggle = new ToggleWidget.Builder().label("LoadAfter").toggled(true).size(80, 18).build();
+
+        builder.addRow("Source", true, 18, new IconButton.Builder().label(sourceWorld).autoWidthOnTextChange(true).build());
+        builder.addRow("Target", true, 18, worldInput);
+        builder.addRow("", true, 18, loadAfterToggle);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton cloneBtn = new AnimatedButton.Builder()
+            .label("Clone")
+            .accentType(ThemeManager.getAccent("nice"))
+            .onClick(() -> {
+                String targetWorld = worldInput.getText() != null ? worldInput.getText().trim() : "";
+                if (!targetWorld.matches("^[a-zA-Z0-9_\\-]+$")) {
+                    new Notification("Error", "InvalidWorldName", Notification.Type.ERROR);
+                    return;
+                }
+                flowManager.cloneWorld(serverId, sourceWorld, targetWorld, loadAfterToggle.getValue());
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+            })
+            .build();
+        builder.addRow("", true, 20, cloneBtn);
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private void showWorldSettingsPopup(String worldName) {
+        WorldRegistryEntry world = flowManager.getWorld(serverId, worldName);
+        if (world == null) {
+            return;
+        }
+        WorldSnapshot snapshot = flowManager.getWorldSnapshot(serverId);
+        List<WorldGameRuleDescriptor> descriptors = snapshot == null ? List.of() : snapshot.getGameRuleDescriptors();
+        PopupWidget.Builder builder = new PopupWidget.Builder("World Settings").setResizable(true).setAntiOutOfBound(true).setBoundOffset(desktopMode ? 35 : 0).size(470, 420);
+
+        TextInputWidget difficultyInput = new TextInputWidget.Builder().text(safeText(world.getDifficulty())).placeholder("Difficulty").size(180, 20).build();
+        ToggleWidget isolated = new ToggleWidget.Builder().label("IsolatedState").toggled(world.isIsolatedPlayerState()).size(110, 18).build();
+        ToggleWidget timeLock = new ToggleWidget.Builder().label("TimeLock").toggled(world.isTimeLockEnabled()).size(90, 18).build();
+        TextInputWidget lockedTimeInput = new TextInputWidget.Builder().text(String.valueOf(world.getLockedTime())).placeholder("LockedTime").size(120, 20).build();
+        ToggleWidget weatherLock = new ToggleWidget.Builder().label("WeatherLock").toggled(world.isWeatherLockEnabled()).size(100, 18).build();
+        ToggleWidget storm = new ToggleWidget.Builder().label("Storm").toggled(world.isLockedStorm()).size(70, 18).build();
+        ToggleWidget thundering = new ToggleWidget.Builder().label("Thunder").toggled(world.isLockedThundering()).size(80, 18).build();
+        Map<String, ToggleWidget> booleanRules = new HashMap<>();
+        Map<String, TextInputWidget> valueRules = new HashMap<>();
+        List<Widget> booleanRow = new ArrayList<>();
+
+        builder.addRow("Difficulty", true, 20, difficultyInput);
+        for (WorldGameRuleDescriptor descriptor : descriptors) {
+            if (descriptor == null || descriptor.getName() == null || descriptor.getName().isBlank()) {
+                continue;
+            }
+            String ruleName = descriptor.getName();
+            if ("boolean".equalsIgnoreCase(descriptor.getType())) {
+                ToggleWidget toggle = new ToggleWidget.Builder()
+                    .label(prettyRuleName(ruleName))
+                    .toggled(ruleEnabled(world, ruleName))
+                    .size(150, 18)
+                    .build();
+                booleanRules.put(ruleName, toggle);
+                booleanRow.add(toggle);
+                if (booleanRow.size() == 2) {
+                    builder.addRow("", true, 18, booleanRow.toArray(Widget[]::new));
+                    booleanRow.clear();
+                }
+                continue;
+            }
+            TextInputWidget valueInput = new TextInputWidget.Builder()
+                .text(safeText(world.getGameRules().get(ruleName)))
+                .placeholder(prettyRuleName(ruleName))
+                .size(180, 20)
+                .build();
+            valueRules.put(ruleName, valueInput);
+            builder.addRow(prettyRuleName(ruleName), true, 20, valueInput);
+        }
+        if (!booleanRow.isEmpty()) {
+            builder.addRow("", true, 18, booleanRow.toArray(Widget[]::new));
+        }
+        builder.addRow("", true, 18, isolated);
+        builder.addRow("", true, 18, timeLock, lockedTimeInput);
+        builder.addRow("", true, 18, weatherLock, storm, thundering);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        builder.addTitleButton(() -> {
+                boolean changedAnything = false;
+                if (!safeText(difficultyInput.getText()).trim().equalsIgnoreCase(safeText(world.getDifficulty()).trim())) {
+                    flowManager.suppressNextWorldSuccessNotification(serverId, "setDifficulty");
+                    flowManager.setWorldDifficulty(serverId, worldName, difficultyInput.getText());
+                    changedAnything = true;
+                }
+                Map<String, String> changedRules = new LinkedHashMap<>();
+                for (Map.Entry<String, ToggleWidget> entry : booleanRules.entrySet()) {
+                    String newValue = String.valueOf(entry.getValue().getValue());
+                    String oldValue = safeText(world.getGameRules().get(entry.getKey()));
+                    if (!newValue.equalsIgnoreCase(oldValue)) {
+                        changedRules.put(entry.getKey(), newValue);
+                    }
+                }
+                for (Map.Entry<String, TextInputWidget> entry : valueRules.entrySet()) {
+                    String newValue = safeText(entry.getValue().getText()).trim();
+                    String oldValue = safeText(world.getGameRules().get(entry.getKey())).trim();
+                    if (newValue.isBlank()) {
+                        newValue = oldValue;
+                    }
+                    if (!newValue.equals(oldValue)) {
+                        changedRules.put(entry.getKey(), newValue);
+                    }
+                }
+                if (!changedRules.isEmpty()) {
+                    flowManager.suppressNextWorldSuccessNotification(serverId, "setGameRules");
+                    flowManager.setWorldGameRules(serverId, worldName, changedRules);
+                    changedAnything = true;
+                }
+                if (isolated.getValue() != world.isIsolatedPlayerState()) {
+                    flowManager.suppressNextWorldSuccessNotification(serverId, "setIsolatedPlayerState");
+                    flowManager.setWorldIsolatedState(serverId, worldName, isolated.getValue());
+                    changedAnything = true;
+                }
+                long newLockedTime = parseLong(lockedTimeInput.getText(), world.getLockedTime());
+                if (timeLock.getValue() != world.isTimeLockEnabled() || newLockedTime != world.getLockedTime()) {
+                    flowManager.suppressNextWorldSuccessNotification(serverId, "setTimeLock");
+                    flowManager.setWorldTimeLock(serverId, worldName, timeLock.getValue(), newLockedTime);
+                    changedAnything = true;
+                }
+                if (weatherLock.getValue() != world.isWeatherLockEnabled() || storm.getValue() != world.isLockedStorm() || thundering.getValue() != world.isLockedThundering()) {
+                    flowManager.suppressNextWorldSuccessNotification(serverId, "setWeatherLock");
+                    flowManager.setWorldWeatherLock(serverId, worldName, weatherLock.getValue(), storm.getValue(), thundering.getValue());
+                    changedAnything = true;
+                }
+                if (changedAnything) {
+                    new Notification("ReSync", "World Settings Saved", Notification.Type.SUCCESS);
+                }
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+            }, "Save", ThemeManager.getAccent("nice"));
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private WorldDashboardEntry findWorldDashboard(String worldName) {
+        for (WorldDashboardEntry entry : flowManager.getWorldDashboardForServer(serverId)) {
+            if (entry != null && entry.getWorldName() != null && entry.getWorldName().equalsIgnoreCase(worldName)) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    private boolean ruleEnabled(WorldRegistryEntry world, String ruleName) {
+        String value = world.getGameRules().get(ruleName);
+        return Boolean.parseBoolean(value);
+    }
+
+    private String prettyRuleName(String ruleName) {
+        if (ruleName == null || ruleName.isBlank()) {
+            return "Rule";
+        }
+        return ruleName.substring(0, 1).toUpperCase(Locale.ROOT) + ruleName.substring(1);
+    }
+
+    private String safeText(String value) {
+        return value == null ? "" : value;
+    }
+
+    private long parseLong(String value, long fallback) {
+        try {
+            return Long.parseLong(value == null ? "" : value.trim());
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 
     public void refresh() {
