@@ -1233,7 +1233,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 }
 
                 public String getDesktopAppTitle() {
-                    return "File Explorer";
+                    return "Import Server";
                 }
 
                 public String getDesktopAppIconPath() {
@@ -1248,7 +1248,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             }
 
             public String getDesktopAppTitle() {
-                return "File Explorer";
+                return "Import Server";
             }
 
             public String getDesktopAppIconPath() {
