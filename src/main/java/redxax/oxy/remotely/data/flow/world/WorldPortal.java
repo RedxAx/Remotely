@@ -18,6 +18,19 @@ public class WorldPortal {
     private float destinationPitch;
     private boolean enabled;
     private long lastUsedAt;
+    private String accessPermission;
+    private String bypassPermission;
+    private boolean usageFeeEnabled;
+    private double usageFee;
+    private long cooldownMillis;
+    private int priority;
+    private boolean safeTeleport = true;
+    private boolean preserveVelocity;
+    private String enterMessage;
+    private Boolean vehiclePassthroughEnabled;
+    private Boolean entityPassthroughEnabled;
+    private String destinationMode;
+    private double cannonPower;
 
     public String getPortalId() {
         return portalId;
@@ -85,5 +98,57 @@ public class WorldPortal {
 
     public long getLastUsedAt() {
         return lastUsedAt;
+    }
+
+    public String getAccessPermission() {
+        return accessPermission;
+    }
+
+    public String getBypassPermission() {
+        return bypassPermission;
+    }
+
+    public boolean isUsageFeeEnabled() {
+        return usageFeeEnabled;
+    }
+
+    public double getUsageFee() {
+        return usageFee;
+    }
+
+    public long getCooldownMillis() {
+        return cooldownMillis;
+    }
+
+    public int getPriority() {
+        return priority;
+    }
+
+    public boolean isSafeTeleport() {
+        return safeTeleport;
+    }
+
+    public boolean isPreserveVelocity() {
+        return preserveVelocity;
+    }
+
+    public String getEnterMessage() {
+        return enterMessage;
+    }
+
+    public boolean isVehiclePassthroughEnabled() {
+        return vehiclePassthroughEnabled == null || vehiclePassthroughEnabled;
+    }
+
+    public boolean isEntityPassthroughEnabled() {
+        return entityPassthroughEnabled == null || entityPassthroughEnabled;
+    }
+
+    public String getDestinationMode() {
+        return destinationMode == null || destinationMode.isBlank() ? "WORLD" : destinationMode;
+    }
+
+    public double getCannonPower() {
+        return cannonPower > 0.0 ? cannonPower : 1.8;
     }
 }
