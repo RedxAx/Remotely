@@ -2,14 +2,14 @@ package redxax.oxy.remotely.adapters;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
-//#if MC >= 1.21.9
+//#if MC >= 1.21.9 || MC >= 26.1
 import net.minecraft.network.chat.FontDescription;
 //#endif
 import net.minecraft.network.chat.Style;
-//#if MC >= 1.21.11
+//#if MC >= 1.21.11 || MC >= 26.1
 import net.minecraft.resources.Identifier;
 //#endif
-//#if MC < 1.21.11
+//#if MC < 1.21.11 && MC < 26.1
 //$$ import net.minecraft.resources.ResourceLocation;
 //#endif
 import restudio.rescreen.platform.IDrawContext;
@@ -48,14 +48,14 @@ public class MinecraftTextRendererAdapter implements ITextRenderer {
 
     @Override
     public int getWidth(String text, Object font) {
-        //#if MC >= 1.21.11
+        //#if MC >= 1.21.11 || MC >= 26.1
         if (font instanceof Identifier rl) {
         //#endif
-        //#if MC < 1.21.11
+        //#if MC < 1.21.11 && MC < 26.1
         //$$ if (font instanceof ResourceLocation rl) {
         //#endif
             Component component = Component.literal(text).setStyle(Style.EMPTY.withFont(
-                //#if MC >= 1.21.9
+                //#if MC >= 1.21.9 || MC >= 26.1
                 new FontDescription.Resource(rl)
                 //#else
                 //$$ rl

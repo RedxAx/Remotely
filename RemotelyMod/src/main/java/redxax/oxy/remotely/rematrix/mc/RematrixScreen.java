@@ -1,10 +1,23 @@
 package redxax.oxy.remotely.rematrix.mc;
 
 import net.minecraft.client.Minecraft;
-//#if MC >= 1.20.1
+//#if MC >= 26.1
+//$$ import net.minecraft.client.gui.GuiGraphicsExtractor;
+//#endif
+//#if MC >= 1.20.1 && MC < 26.1
 import net.minecraft.client.gui.GuiGraphics;
 //#endif
 import net.minecraft.client.gui.screens.Screen;
+//#if MC >= 26.1
+//$$ import net.minecraft.client.input.CharacterEvent;
+//$$ import net.minecraft.client.input.KeyEvent;
+//$$ import net.minecraft.client.input.MouseButtonEvent;
+//#endif
+//#if MC >= 1.21.9 && MC < 26.1
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+//#endif
 import net.minecraft.network.chat.Component;
 import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
@@ -30,7 +43,7 @@ public class RematrixScreen extends Screen {
     protected void init() {
         super.init();
         lastFrameTime = System.nanoTime();
-        //#if MC >= 1.21.9
+        //#if MC >= 1.21.9 || MC >= 26.1
         long handle = Minecraft.getInstance().getWindow().handle();
         //#else
         //$$ long handle = Minecraft.getInstance().getWindow().getWindow();
@@ -60,7 +73,40 @@ public class RematrixScreen extends Screen {
         }
     }
 
-    //#if MC >= 1.20.1
+    //#if MC >= 26.1
+    //$$ @Override
+    //$$ public void extractRenderState(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float tickDelta) {
+    //$$     super.extractRenderState(guiGraphics, mouseX, mouseY, tickDelta);
+    //$$
+    //$$     long now = System.nanoTime();
+    //$$     float deltaSeconds = (float) ((now - lastFrameTime) / 1_000_000_000.0);
+    //$$     lastFrameTime = now;
+    //$$
+    //$$     if (deltaSeconds > 0.1f) deltaSeconds = 0.1f;
+    //$$     if (deltaSeconds < 0.0f) deltaSeconds = 0.016f;
+    //$$
+    //$$     int windowWidth = Minecraft.getInstance().getWindow().getWidth();
+    //$$     int windowHeight = Minecraft.getInstance().getWindow().getHeight();
+    //$$     sm.updateDimensions(windowWidth, windowHeight);
+    //$$     float mcScale = (float) Minecraft.getInstance().getWindow().getGuiScale();
+    //$$     float reScale = sm.getGuiScale();
+    //$$     if (mcScale == 0 || reScale == 0) return;
+    //$$     float renderScale = reScale / mcScale;
+    //$$     float mouseScale = mcScale / reScale;
+    //$$
+    //$$     RematrixContext ctx = new RematrixContext(guiGraphics, renderScale);
+    //$$     MinecraftDrawContextAdapter libCtx = new MinecraftDrawContextAdapter(ctx);
+    //$$
+    //$$     var pose = guiGraphics.pose();
+    //$$     pose.pushMatrix();
+    //$$     pose.scale(renderScale, renderScale);
+    //$$     sm.render(libCtx, (int) (mouseX * mouseScale), (int) (mouseY * mouseScale), deltaSeconds);
+    //$$     sm.processTasks();
+    //$$     pose.popMatrix();
+    //$$ }
+    //#endif
+
+    //#if MC >= 1.20.1 && MC < 26.1
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float tickDelta) {
         //#if MC >= 1.20.1 && MC < 1.20.6
@@ -88,30 +134,30 @@ public class RematrixScreen extends Screen {
         MinecraftDrawContextAdapter libCtx = new MinecraftDrawContextAdapter(ctx);
 
 
-        //#if MC >= 1.21.9
+        //#if MC >= 1.21.9 || MC >= 26.1
         var pose = guiGraphics.pose();
         pose.pushMatrix();
         pose.scale(renderScale, renderScale);
         //#endif
-        //#if MC >= 1.20.1 && MC < 1.21.6
+        //#if MC >= 1.20.1 && MC < 1.21.6 && MC < 26.1
         //$$ var pose = guiGraphics.pose();
         //$$ pose.pushPose();
         //$$ pose.scale(renderScale, renderScale, 1f);
         //#endif
-        //#if MC >= 1.21.6 && MC < 1.21.9
+        //#if MC >= 1.21.6 && MC < 1.21.9 && MC < 26.1
         //$$ var pose = guiGraphics.pose();
         //$$ pose.pushMatrix();
         //$$ pose.scale(renderScale, renderScale);
         //#endif
         sm.render(libCtx, (int) (mouseX * mouseScale), (int) (mouseY * mouseScale), deltaSeconds);
         sm.processTasks();
-        //#if MC >= 1.21.9
+        //#if MC >= 1.21.9 || MC >= 26.1
         pose.popMatrix();
         //#endif
-        //#if MC >= 1.20.1 && MC < 1.21.6
+        //#if MC >= 1.20.1 && MC < 1.21.6 && MC < 26.1
         //$$ pose.popPose();
         //#endif
-        //#if MC >= 1.21.6 && MC < 1.21.9
+        //#if MC >= 1.21.6 && MC < 1.21.9 && MC < 26.1
         //$$ pose.popMatrix();
         //#endif
     }
@@ -150,9 +196,9 @@ public class RematrixScreen extends Screen {
     //$$ }
     //#endif
 
-    //#if MC >= 1.21.9
+    //#if MC >= 1.21.9 || MC >= 26.1
     @Override
-    public boolean mouseClicked(net.minecraft.client.input.MouseButtonEvent event, boolean bl) {
+    public boolean mouseClicked(MouseButtonEvent event, boolean bl) {
         double sf = getInputScale();
         boolean handled = sm.mouseClicked(event.x() * sf, event.y() * sf, event.button());
         return handled || super.mouseClicked(event, bl);
@@ -166,9 +212,9 @@ public class RematrixScreen extends Screen {
     //$$ }
     //#endif
 
-    //#if MC >= 1.21.9
+    //#if MC >= 1.21.9 || MC >= 26.1
     @Override
-    public boolean mouseReleased(net.minecraft.client.input.MouseButtonEvent event) {
+    public boolean mouseReleased(MouseButtonEvent event) {
         double sf = getInputScale();
         boolean handled = sm.mouseReleased(event.x() * sf, event.y() * sf, event.button());
         return handled || super.mouseReleased(event);
@@ -182,9 +228,9 @@ public class RematrixScreen extends Screen {
     //$$ }
     //#endif
 
-    //#if MC >= 1.21.9
+    //#if MC >= 1.21.9 || MC >= 26.1
     @Override
-    public boolean mouseDragged(net.minecraft.client.input.MouseButtonEvent event, double deltaX, double deltaY) {
+    public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
         double sf = getInputScale();
         boolean handled = sm.mouseDragged(event.x() * sf, event.y() * sf, event.button(), deltaX * sf, deltaY * sf);
         return handled || super.mouseDragged(event, deltaX, deltaY);
@@ -215,9 +261,9 @@ public class RematrixScreen extends Screen {
     //$$ }
     //#endif
 
-    //#if MC >= 1.21.9
+    //#if MC >= 1.21.9 || MC >= 26.1
     @Override
-    public boolean keyPressed(net.minecraft.client.input.KeyEvent keyEvent) {
+    public boolean keyPressed(KeyEvent keyEvent) {
         boolean handled = sm.keyPressed(keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers());
         return handled || super.keyPressed(keyEvent);
     }
@@ -229,9 +275,20 @@ public class RematrixScreen extends Screen {
     //$$ }
     //#endif
 
-    //#if MC >= 1.21.9
+    //#if MC >= 26.1
+    //$$ @Override
+    //$$ public boolean charTyped(CharacterEvent characterEvent) {
+    //$$     int codepoint = characterEvent.codepoint();
+    //$$     boolean handled = false;
+    //$$     char[] chars = Character.toChars(codepoint);
+    //$$     for (char chr : chars) {
+    //$$         handled = sm.charTyped(chr, 0) || handled;
+    //$$     }
+    //$$     return handled || super.charTyped(characterEvent);
+    //$$ }
+    //#elseif MC >= 1.21.9
     @Override
-    public boolean charTyped(net.minecraft.client.input.CharacterEvent characterEvent) {
+    public boolean charTyped(CharacterEvent characterEvent) {
         int codepoint = characterEvent.codepoint();
         boolean handled = false;
         char[] chars = Character.toChars(codepoint);
@@ -248,9 +305,9 @@ public class RematrixScreen extends Screen {
     //$$ }
     //#endif
 
-    //#if MC >= 1.21.9
+    //#if MC >= 1.21.9 || MC >= 26.1
     @Override
-    public boolean keyReleased(net.minecraft.client.input.KeyEvent keyEvent) {
+    public boolean keyReleased(KeyEvent keyEvent) {
         boolean handled = sm.keyReleased(keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers());
         if (keyEvent.key() == 256 && sm.getCurrentScreen() instanceof ServerManagerScreen) {
             sm.getCurrentScreen().close();

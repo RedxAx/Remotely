@@ -32,6 +32,16 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version ("0.8.+")
 }
 
+val dropFabricProjectPattern = Regex("""^\d+\.\d+(?:-(?:snapshot|pre|rc)-\d+)?-fabric$""")
+
+gradle.beforeProject {
+    if (dropFabricProjectPattern.matches(name)) {
+        extensions.extraProperties["fabric.loom.disableObfuscation"] = "true"
+        extensions.extraProperties["dgt.loom.mappings.use"] = "false"
+        extensions.extraProperties["dgt.fabric.loader.version"] = "0.18.4"
+    }
+}
+
 rootProject.name = extra["mod.name"]?.toString()
     ?: throw MissingPropertyException("mod.name has not been set.")
 rootProject.buildFileName = "root.gradle.kts"
@@ -99,6 +109,8 @@ listOf(
     "1.21.10-fabric",
 
     "1.21.11-fabric",
+
+    "26.1-pre-1-fabric",
 ).forEach { version ->
     include(":$version")
     project(":$version").apply {

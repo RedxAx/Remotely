@@ -10,13 +10,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 import net.minecraft.client.Minecraft;
-//#if MC >= 1.20.1
+//#if MC >= 26.1
+//$$ import net.minecraft.client.gui.GuiGraphicsExtractor;
+//#endif
+//#if MC >= 1.20.1 && MC < 26.1
 import net.minecraft.client.gui.GuiGraphics;
 //#endif
 //#if MC < 1.21.4
 //$$ import net.minecraft.client.renderer.GameRenderer;
 //#endif
-//#if MC >= 1.21.5
+//#if MC >= 1.21.5 || MC >= 26.1
 import net.minecraft.client.renderer.RenderPipelines;
 //#endif
 import net.minecraft.client.renderer.texture.DynamicTexture;
@@ -32,19 +35,19 @@ import net.minecraft.world.item.Items;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
-//#if MC >= 1.21.9
+//#if MC >= 1.21.9 || MC >= 26.1
 import net.minecraft.network.chat.FontDescription;
 //#endif
-//#if MC < 1.21.6
+//#if MC < 1.21.6 && MC < 26.1
 //$$ import net.minecraft.client.renderer.RenderType;
 //#endif
-//#if MC < 1.21.6
+//#if MC < 1.21.6 && MC < 26.1
 //$$ import com.mojang.blaze3d.vertex.PoseStack;
 //#endif
-//#if MC >= 1.21.11
+//#if MC >= 1.21.11 || MC >= 26.1
 import net.minecraft.resources.Identifier;
 //#endif
-//#if MC < 1.21.11
+//#if MC < 1.21.11 && MC < 26.1
 //$$ import net.minecraft.resources.ResourceLocation;
 //#endif
 //#if MC >= 1.21.1
@@ -75,7 +78,10 @@ public final class RematrixContext implements ReContext {
     private static final Map<UiItem, ItemStack> ITEM_STACK_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
     private static final int SELECTION_COLOR = 0xFF0000FF;
 
-    //#if MC >= 1.20.1
+    //#if MC >= 26.1
+    //$$ private final GuiGraphicsExtractor graphics;
+    //#endif
+    //#if MC >= 1.20.1 && MC < 26.1
     private final GuiGraphics graphics;
     //#endif
     //#if MC < 1.20.1
@@ -87,7 +93,12 @@ public final class RematrixContext implements ReContext {
     private final ReTextureCache textures;
     private final ReTextBridge textBridge;
 
-    //#if MC >= 1.20.1
+    //#if MC >= 26.1
+    //$$ public RematrixContext(@NotNull GuiGraphicsExtractor graphics) {
+    //$$     this(graphics, 1.0f);
+    //$$ }
+    //#endif
+    //#if MC >= 1.20.1 && MC < 26.1
     public RematrixContext(@NotNull GuiGraphics graphics) {
         this(graphics, 1.0f);
     }
@@ -98,7 +109,17 @@ public final class RematrixContext implements ReContext {
     //$$ }
     //#endif
 
-    //#if MC >= 1.20.1
+    //#if MC >= 26.1
+    //$$ public RematrixContext(@NotNull GuiGraphicsExtractor graphics, float scissorScale) {
+    //$$     this.graphics = graphics;
+    //$$     this.scissorScale = scissorScale > 0f ? scissorScale : 1f;
+    //$$     this.matrices = new McMatrixStack(graphics.pose());
+    //$$     this.scissors = new McScissorStack();
+    //$$     this.textBridge = new McTextBridge();
+    //$$     this.textures = new McTextureCache();
+    //$$ }
+    //#endif
+    //#if MC >= 1.20.1 && MC < 26.1
     public RematrixContext(@NotNull GuiGraphics graphics, float scissorScale) {
         this.graphics = graphics;
         this.scissorScale = scissorScale > 0f ? scissorScale : 1f;
@@ -178,7 +199,10 @@ public final class RematrixContext implements ReContext {
     }
 
     private void renderItemDirect(ItemStack stack, int x, int y, int z) {
-        //#if MC >= 1.21.6
+        //#if MC >= 26.1
+        //$$ graphics.item(stack, x, y, z);
+        //#endif
+        //#if MC >= 1.21.6 && MC < 26.1
         graphics.renderItem(stack, x, y, 0);
         //#endif
         //#if MC >= 1.21.4 && MC < 1.21.6
@@ -192,7 +216,7 @@ public final class RematrixContext implements ReContext {
     private ItemStack createItemStack(UiItem item) {
         if (item == null || item.id() == null || item.id().isBlank()) return ItemStack.EMPTY;
         String id = item.id();
-        //#if MC >= 1.21.11
+        //#if MC >= 1.21.11 || MC >= 26.1
         Identifier rl = Identifier.fromNamespaceAndPath("minecraft", "air");
         //#endif
         //#if MC >= 1.21.1 && MC < 1.21.11
@@ -210,7 +234,7 @@ public final class RematrixContext implements ReContext {
             }
             path = parts.length > 1 ? parts[1] : "";
         }
-        //#if MC >= 1.21.11
+        //#if MC >= 1.21.11 || MC >= 26.1
         rl = Identifier.fromNamespaceAndPath(namespace, path);
         ItemStack stack = BuiltInRegistries.ITEM.getOptional(rl).map(ItemStack::new).orElseGet(() -> new ItemStack(Items.BARRIER));
         //#endif
@@ -279,7 +303,12 @@ public final class RematrixContext implements ReContext {
         return stack;
     }
 
-    //#if MC >= 1.20.1
+    //#if MC >= 26.1
+    //$$ public GuiGraphicsExtractor getGraphics() {
+    //$$     return graphics;
+    //$$ }
+    //#endif
+    //#if MC >= 1.20.1 && MC < 26.1
     public GuiGraphics getGraphics() {
         return graphics;
     }
@@ -291,12 +320,15 @@ public final class RematrixContext implements ReContext {
     //#endif
 
     public void drawText(String text, int x, int y, int color, boolean shadow) {
-        //#if MC < 1.21.6
+        //#if MC < 1.21.6 && MC < 26.1
         if (((color >>> 24) & 0xFF) <= 4) {
             return;
         }
         //#endif
-        //#if MC >= 1.20.1
+        //#if MC >= 26.1
+        //$$ withScissor(() -> graphics.text(Minecraft.getInstance().font, text, x, y, color, shadow));
+        //#endif
+        //#if MC >= 1.20.1 && MC < 26.1
         withScissor(() -> {
             if (shadow) {
                 graphics.drawString(Minecraft.getInstance().font, text, x, y, color, true);
@@ -316,12 +348,15 @@ public final class RematrixContext implements ReContext {
 
     public void drawStyledText(Object text, int x, int y, int color, boolean shadow) {
         if (text instanceof Component component) {
-            //#if MC < 1.21.6
+            //#if MC < 1.21.6 && MC < 26.1
             if (((color >>> 24) & 0xFF) <= 4) {
                 return;
             }
             //#endif
-            //#if MC >= 1.20.1
+            //#if MC >= 26.1
+            //$$ withScissor(() -> graphics.text(Minecraft.getInstance().font, component, x, y, color, shadow));
+            //#endif
+            //#if MC >= 1.20.1 && MC < 26.1
             withScissor(() -> {
                 if (shadow) {
                     graphics.drawString(Minecraft.getInstance().font, component, x, y, color, true);
@@ -340,31 +375,34 @@ public final class RematrixContext implements ReContext {
             return;
         }
         if (text instanceof StyledText styledText) {
-            //#if MC < 1.21.6
+            //#if MC < 1.21.6 && MC < 26.1
             if (((styledText.color >>> 24) & 0xFF) <= 4) {
                 return;
             }
             //#endif
-            //#if MC >= 1.21.6
+            //#if MC >= 1.21.6 || MC >= 26.1
             if (((styledText.color >>> 24) & 0xFF) == 0) {
                 return;
             }
             //#endif
             MutableComponent renderText = Component.literal(styledText.text);
-            //#if MC >= 1.21.11
+            //#if MC >= 1.21.11 || MC >= 26.1
             if (styledText.font instanceof Identifier rl) {
             //#endif
-            //#if MC < 1.21.11
+            //#if MC < 1.21.11 && MC < 26.1
             //$$ if (styledText.font instanceof ResourceLocation rl) {
             //#endif
-                //#if MC >= 1.21.9
+                //#if MC >= 1.21.9 || MC >= 26.1
                 renderText.setStyle(Style.EMPTY.withFont(new FontDescription.Resource(rl)));
                 //#endif
-                //#if MC < 1.21.9
+                //#if MC < 1.21.9 && MC < 26.1
                 //$$ renderText.setStyle(Style.EMPTY.withFont(rl));
                 //#endif
             }
-            //#if MC >= 1.20.1
+            //#if MC >= 26.1
+            //$$ withScissor(() -> graphics.text(Minecraft.getInstance().font, renderText, x, y, styledText.color, shadow));
+            //#endif
+            //#if MC >= 1.20.1 && MC < 26.1
             withScissor(() -> {
                 if (shadow) {
                     graphics.drawString(Minecraft.getInstance().font, renderText, x, y, styledText.color, true);
@@ -485,7 +523,7 @@ public final class RematrixContext implements ReContext {
         if (handle == null) return;
         int dw = Math.max(1, (int) Math.ceil(width <= 0 ? handle.getWidth() : width));
         int dh = Math.max(1, (int) Math.ceil(height <= 0 ? handle.getHeight() : height));
-        //#if MC >= 1.21.9
+        //#if MC >= 1.21.9 || MC >= 26.1
         withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, (Identifier) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
         //#endif
         //#if MC >= 1.21.6 && MC < 1.21.9
@@ -528,7 +566,7 @@ public final class RematrixContext implements ReContext {
         float minY = Math.min(y1, y2);
         float maxX = Math.max(x1, x2);
         float maxY = Math.max(y1, y2);
-        //#if MC >= 1.21.11
+        //#if MC >= 1.21.11 || MC >= 26.1
         withScissor(() -> graphics.textHighlight((int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY), true));
         //#endif
         //#if MC >= 1.21.8 && MC < 1.21.11
@@ -537,7 +575,7 @@ public final class RematrixContext implements ReContext {
         //#if MC >= 1.21.6 && MC < 1.21.8
         //$$ withScissor(() -> graphics.fill(RenderPipelines.GUI_TEXT_HIGHLIGHT, (int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY), SELECTION_COLOR));
         //#endif
-        //#if MC < 1.21.6
+        //#if MC < 1.21.6 && MC < 26.1
         //$$ withScissor(() -> graphics.fill(RenderType.guiTextHighlight(), (int) Math.floor(minX), (int) Math.floor(minY), (int) Math.ceil(maxX), (int) Math.ceil(maxY), SELECTION_COLOR));
         //#endif
         //#if MC < 1.20.1
@@ -565,7 +603,7 @@ public final class RematrixContext implements ReContext {
     }
 
     private static final class McMatrixStack implements ReMatrixStack {
-        //#if MC >= 1.21.6
+        //#if MC >= 1.21.6 || MC >= 26.1
         private final org.joml.Matrix3x2fStack pose;
 
         private McMatrixStack(org.joml.Matrix3x2fStack pose) {
@@ -573,7 +611,7 @@ public final class RematrixContext implements ReContext {
         }
         //#endif
 
-        //#if MC < 1.21.6
+        //#if MC < 1.21.6 && MC < 26.1
         //$$ private final PoseStack pose;
         //$$
         //$$ private McMatrixStack(PoseStack pose) {
@@ -583,60 +621,60 @@ public final class RematrixContext implements ReContext {
 
         @Override
         public void push() {
-            //#if MC >= 1.21.6
+            //#if MC >= 1.21.6 || MC >= 26.1
             pose.pushMatrix();
             //#endif
-            //#if MC < 1.21.6
+            //#if MC < 1.21.6 && MC < 26.1
             //$$ pose.pushPose();
             //#endif
         }
 
         @Override
         public void pop() {
-            //#if MC >= 1.21.6
+            //#if MC >= 1.21.6 || MC >= 26.1
             pose.popMatrix();
             //#endif
-            //#if MC < 1.21.6
+            //#if MC < 1.21.6 && MC < 26.1
             //$$ pose.popPose();
             //#endif
         }
 
         @Override
         public void translate(float x, float y, float z) {
-            //#if MC >= 1.21.6
+            //#if MC >= 1.21.6 || MC >= 26.1
             pose.translate(x, y);
             //#endif
-            //#if MC < 1.21.6
+            //#if MC < 1.21.6 && MC < 26.1
             //$$ pose.translate(x, y, z);
             //#endif
         }
 
         @Override
         public void scale(float x, float y, float z) {
-            //#if MC >= 1.21.6
+            //#if MC >= 1.21.6 || MC >= 26.1
             pose.scale(x, y);
             //#endif
-            //#if MC < 1.21.6
+            //#if MC < 1.21.6 && MC < 26.1
             //$$ pose.scale(x, y, z);
             //#endif
         }
 
         @Override
         public void rotate(float angle, float x, float y, float z) {
-            //#if MC >= 1.21.6
+            //#if MC >= 1.21.6 || MC >= 26.1
             pose.rotate(angle);
             //#endif
-            //#if MC < 1.21.6
+            //#if MC < 1.21.6 && MC < 26.1
             //$$ pose.mulPose(new Quaternionf().fromAxisAngleDeg(x, y, z, angle));
             //#endif
         }
 
         @Override
         public void multiply(float angle) {
-            //#if MC >= 1.21.6
+            //#if MC >= 1.21.6 || MC >= 26.1
             pose.rotate((float) Math.toRadians(angle));
             //#endif
-            //#if MC < 1.21.6
+            //#if MC < 1.21.6 && MC < 26.1
             //$$ pose.mulPose(new Quaternionf().fromAxisAngleDeg(0f, 0f, 1f, angle));
             //#endif
         }
@@ -739,7 +777,7 @@ public final class RematrixContext implements ReContext {
                     for (int x = 0; x < width; x++) {
                         int argb = image.getRGB(x, y);
                         int abgr = (argb & 0xFF00FF00) | ((argb & 0x00FF0000) >> 16) | ((argb & 0x000000FF) << 16);
-                        //#if MC >= 1.21.5
+                        //#if MC >= 1.21.5 || MC >= 26.1
                         nativeImage.setPixelABGR(x, y, abgr);
                         //#endif
                         //#if MC >= 1.21.4 && MC < 1.21.5
@@ -750,14 +788,14 @@ public final class RematrixContext implements ReContext {
                         //#endif
                     }
                 }
-                //#if MC >= 1.21.5
+                //#if MC >= 1.21.5 || MC >= 26.1
                 DynamicTexture dynamicTexture = new DynamicTexture(() -> "rematrix", nativeImage);
                 //#endif
-                //#if MC < 1.21.5
+                //#if MC < 1.21.5 && MC < 26.1
                 //$$ DynamicTexture dynamicTexture = new DynamicTexture(nativeImage);
                 //#endif
                 TextureManager textureManager = Minecraft.getInstance().getTextureManager();
-                //#if MC >= 1.21.11
+                //#if MC >= 1.21.11 || MC >= 26.1
                 Identifier id = Identifier.fromNamespaceAndPath("rematrix", "img_" + System.identityHashCode(image));
                 textureManager.register(id, dynamicTexture);
                 //#endif
@@ -789,17 +827,17 @@ public final class RematrixContext implements ReContext {
 
         @Override
         public int getWidth(String text, Object font) {
-            //#if MC >= 1.21.11
+            //#if MC >= 1.21.11 || MC >= 26.1
             if (font instanceof Identifier rl) {
             //#endif
-            //#if MC < 1.21.11
+            //#if MC < 1.21.11 && MC < 26.1
             //$$ if (font instanceof ResourceLocation rl) {
             //#endif
                 MutableComponent component = Component.literal(text);
-                //#if MC >= 1.21.9
+                //#if MC >= 1.21.9 || MC >= 26.1
                 component.setStyle(Style.EMPTY.withFont(new FontDescription.Resource(rl)));
                 //#endif
-                //#if MC < 1.21.9
+                //#if MC < 1.21.9 && MC < 26.1
                 //$$ component.setStyle(Style.EMPTY.withFont(rl));
                 //#endif
                 return Minecraft.getInstance().font.width(component);
@@ -849,14 +887,14 @@ public final class RematrixContext implements ReContext {
         int iy = (int) Math.floor(y1);
         int iw = Math.max(0, (int) Math.ceil(x2 - x1));
         int ih = Math.max(0, (int) Math.ceil(y2 - y1));
-        //#if MC >= 1.21.6
+        //#if MC >= 1.21.6 || MC >= 26.1
         var pose = graphics.pose();
         pose.pushMatrix();
         pose.identity();
         graphics.enableScissor(ix, iy, ix + iw, iy + ih);
         pose.popMatrix();
         //#endif
-        //#if MC < 1.21.6
+        //#if MC < 1.21.6 && MC < 26.1
         //$$ graphics.pose().pushPose();
         //$$ graphics.pose().last().pose().identity();
         //$$ graphics.enableScissor(ix, iy, ix + iw, iy + ih);

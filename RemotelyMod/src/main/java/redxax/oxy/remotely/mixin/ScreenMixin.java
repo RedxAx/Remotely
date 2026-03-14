@@ -1,14 +1,20 @@
 package redxax.oxy.remotely.mixin;
 
 import net.minecraft.client.Minecraft;
+//#if MC >= 26.1
+//$$ import net.minecraft.client.gui.GuiGraphicsExtractor;
+//#endif
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
-//#if MC >= 1.20.1
+//#if MC >= 1.20.1 && MC < 26.1
 import net.minecraft.client.gui.GuiGraphics;
 //#else
 //$$ import com.mojang.blaze3d.vertex.PoseStack;
 //#endif
 import net.minecraft.client.gui.screens.Screen;
-//#if MC >= 1.21.9
+//#if MC >= 26.1
+//$$ import net.minecraft.client.input.KeyEvent;
+//#endif
+//#if MC >= 1.21.9 && MC < 26.1
 import net.minecraft.client.input.KeyEvent;
 //#endif
 import org.lwjgl.glfw.GLFW;
@@ -80,8 +86,17 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
         this.remotely$customWidgets.clear();
     }
 
-    @Inject(method = "render", at = @At("TAIL"))
-    //#if MC >= 1.20.1
+    @Inject(
+    //#if MC >= 26.1
+    //$$     method = "extractRenderState",
+    //#else
+        method = "render",
+    //#endif
+        at = @At("TAIL")
+    )
+    //#if MC >= 26.1
+    //$$ private void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
+    //#elseif MC >= 1.20.1
     private void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
     //#else
     //$$ private void render(PoseStack guiGraphics, int mouseX, int mouseY, float f, CallbackInfo ci) {
@@ -98,7 +113,7 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
         if (hasWidgets || renderCursor) {
             MouseCursor.beginFrame();
 
-            //#if MC >= 1.21.6
+            //#if MC >= 1.21.6 || MC >= 26.1
             Main.setWindow(Minecraft.getInstance().getWindow().handle());
             //#else
             //$$ Main.setWindow(Minecraft.getInstance().getWindow().getWindow());
@@ -108,17 +123,25 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
                 remotely$handleInput(mouseX, mouseY);
             }
 
-            //#if MC >= 1.21.6
+            //#if MC >= 26.1
+            //$$ var pose = guiGraphics.pose();
+            //$$ pose.pushMatrix();
+            //$$ pose.identity();
+            //#endif
+            //#if MC >= 1.21.6 && MC < 26.1
             var pose = guiGraphics.pose();
             pose.pushMatrix();
             pose.identity();
             //#endif
-            //#if MC < 1.21.6
+            //#if MC < 1.21.6 && MC < 26.1
             //$$ guiGraphics.pose().pushPose();
             //$$ guiGraphics.pose().last().pose().identity();
             //#endif
 
-            //#if MC >= 1.20.1
+            //#if MC >= 26.1
+            //$$ RematrixContext ctx = new RematrixContext(guiGraphics);
+            //#endif
+            //#if MC >= 1.20.1 && MC < 26.1
             RematrixContext ctx = new RematrixContext(guiGraphics);
             //#endif
             //#if MC < 1.20.1
@@ -134,10 +157,13 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
                 MouseCursor.updateAndRender(adapter, mouseX, mouseY);
             }
 
-            //#if MC >= 1.21.6
+            //#if MC >= 26.1
+            //$$ pose.popMatrix();
+            //#endif
+            //#if MC >= 1.21.6 && MC < 26.1
             pose.popMatrix();
             //#endif
-            //#if MC < 1.21.6
+            //#if MC < 1.21.6 && MC < 26.1
             //$$ guiGraphics.pose().popPose();
             //#endif
         }
@@ -145,7 +171,7 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
 
     @Unique
     private void remotely$handleInput(int mouseX, int mouseY) {
-        //#if MC >= 1.21.6 || MC == 1.21.10
+        //#if MC >= 1.21.6 || MC >= 26.1 || MC == 1.21.10
         long handle = Minecraft.getInstance().getWindow().handle();
         //#else
         //$$ long handle = Minecraft.getInstance().getWindow().getWindow();
@@ -309,10 +335,10 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
     }
 
     @Inject(method = "keyPressed", at = @At("HEAD"))
-    //#if MC >= 1.21.9
+    //#if MC >= 1.21.9 || MC >= 26.1
      private void keyPressed(KeyEvent keyEvent, CallbackInfoReturnable<Boolean> cir) {
-         remotely$handleDebugKeys(keyEvent.key(), keyEvent.modifiers());
-     }
+          remotely$handleDebugKeys(keyEvent.key(), keyEvent.modifiers());
+      }
     //#else
     //$$ private void keyPressed(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
     //$$     remotely$handleDebugKeys(keyCode, modifiers);
