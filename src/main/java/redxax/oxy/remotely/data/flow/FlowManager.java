@@ -6,9 +6,13 @@ import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
 import redxax.oxy.remotely.data.flow.world.WorldChannelMessage;
 import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
+import redxax.oxy.remotely.data.flow.world.WorldInventoryGroup;
 import redxax.oxy.remotely.data.flow.world.WorldMapSnapshot;
+import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import redxax.oxy.remotely.data.flow.world.WorldPortal;
+import redxax.oxy.remotely.data.flow.world.WorldProfileSettings;
 import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
+import redxax.oxy.remotely.data.flow.world.WorldSignPortal;
 import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.flow.data.FlowGraph;
@@ -73,6 +77,7 @@ public class FlowManager {
     private final Map<String, PlayerDossier> playerDossierCache = new ConcurrentHashMap<>();
     private final Map<String, WorldSnapshot> worldSnapshotCache = new ConcurrentHashMap<>();
     private final Map<String, WorldMapSnapshot> worldMapSnapshotCache = new ConcurrentHashMap<>();
+    private final Map<String, WorldOperationResult> worldOperationCache = new ConcurrentHashMap<>();
     private final Map<String, String> pendingWorldMapRequests = new ConcurrentHashMap<>();
     private final Map<String, Integer> suppressedWorldSuccessNotifications = new ConcurrentHashMap<>();
     private final java.util.Set<String> serverFlowIds = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -511,6 +516,81 @@ public class FlowManager {
         return snapshot == null ? List.of() : new ArrayList<>(snapshot.getPortals());
     }
 
+    public List<WorldInventoryGroup> getWorldInventoryGroupsForServer(String serverId) {
+        WorldSnapshot snapshot = worldSnapshotCache.get(serverId);
+        return snapshot == null ? List.of() : new ArrayList<>(snapshot.getInventoryGroups());
+    }
+
+    public WorldInventoryGroup getWorldInventoryGroup(String serverId, String groupId) {
+        if (serverId == null || groupId == null || groupId.isBlank()) {
+            return null;
+        }
+        for (WorldInventoryGroup group : getWorldInventoryGroupsForServer(serverId)) {
+            if (group != null && group.getGroupId() != null && group.getGroupId().equalsIgnoreCase(groupId)) {
+                return group;
+            }
+        }
+        return null;
+    }
+
+    public List<WorldSignPortal> getWorldSignPortalsForServer(String serverId) {
+        WorldSnapshot snapshot = worldSnapshotCache.get(serverId);
+        return snapshot == null ? List.of() : new ArrayList<>(snapshot.getSignPortals());
+    }
+
+    public List<WorldSignPortal> getWorldSignPortals(String serverId, String worldName) {
+        List<WorldSignPortal> signPortals = new ArrayList<>();
+        if (worldName == null || worldName.isBlank()) {
+            return signPortals;
+        }
+        for (WorldSignPortal signPortal : getWorldSignPortalsForServer(serverId)) {
+            if (signPortal != null && signPortal.getWorldName() != null && signPortal.getWorldName().equalsIgnoreCase(worldName)) {
+                signPortals.add(signPortal);
+            }
+        }
+        return signPortals;
+    }
+
+    public WorldSignPortal getWorldSignPortal(String serverId, String signId) {
+        if (serverId == null || signId == null || signId.isBlank()) {
+            return null;
+        }
+        for (WorldSignPortal signPortal : getWorldSignPortalsForServer(serverId)) {
+            if (signPortal != null && signPortal.getSignId() != null && signPortal.getSignId().equalsIgnoreCase(signId)) {
+                return signPortal;
+            }
+        }
+        return null;
+    }
+
+    public List<WorldPortal> getWorldPortals(String serverId, String worldName) {
+        List<WorldPortal> portals = new ArrayList<>();
+        if (worldName == null || worldName.isBlank()) {
+            return portals;
+        }
+        for (WorldPortal portal : getWorldPortalsForServer(serverId)) {
+            if (portal != null && portal.getSourceWorld() != null && portal.getSourceWorld().equalsIgnoreCase(worldName)) {
+                portals.add(portal);
+            }
+        }
+        return portals;
+    }
+
+    public WorldPortal getWorldPortal(String serverId, String portalId) {
+        if (serverId == null || portalId == null || portalId.isBlank()) {
+            return null;
+        }
+        for (WorldPortal portal : getWorldPortalsForServer(serverId)) {
+            if (portal == null) {
+                continue;
+            }
+            if (portalId.equalsIgnoreCase(portal.getPortalId()) || portalId.equalsIgnoreCase(portal.getPortalName())) {
+                return portal;
+            }
+        }
+        return null;
+    }
+
     public WorldRegistryEntry getWorld(String serverId, String worldName) {
         if (serverId == null || worldName == null) {
             return null;
@@ -522,11 +602,43 @@ public class FlowManager {
         return worldSnapshotCache.get(serverId);
     }
 
+    public WorldOperationResult getLastWorldOperationResult(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return null;
+        }
+        return worldOperationCache.get(serverId);
+    }
+
     public WorldMapSnapshot getWorldMapSnapshot(String serverId, String worldName) {
         if (serverId == null || worldName == null) {
             return null;
         }
         return worldMapSnapshotCache.get(serverId + ":" + worldName.toLowerCase(Locale.ROOT));
+    }
+
+    public List<String> getOnlinePlayerNamesForServer(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return List.of();
+        }
+        String prefix = serverId + ":";
+        Map<String, String> playerNames = new LinkedHashMap<>();
+        for (Map.Entry<String, PlayerDossier> entry : playerDossierCache.entrySet()) {
+            if (!entry.getKey().startsWith(prefix)) {
+                continue;
+            }
+            PlayerDossier dossier = entry.getValue();
+            if (dossier == null || !dossier.isOnline()) {
+                continue;
+            }
+            String playerName = dossier.getPlayerName();
+            if (playerName == null || playerName.isBlank()) {
+                continue;
+            }
+            playerNames.putIfAbsent(playerName.toLowerCase(Locale.ROOT), playerName);
+        }
+        List<String> values = new ArrayList<>(playerNames.values());
+        values.sort(String.CASE_INSENSITIVE_ORDER);
+        return values;
     }
 
     public String getFlowName(String serverId, String flowId) {
@@ -1291,6 +1403,7 @@ public class FlowManager {
             return;
         }
         String action = message.getAction() == null ? "" : message.getAction();
+        WorldOperationResult operationResult = null;
         if ("snapshot".equalsIgnoreCase(action) && message.getData() != null) {
             WorldSnapshot snapshot = gson.fromJson(message.getData(), WorldSnapshot.class);
             if (snapshot != null) {
@@ -1316,8 +1429,17 @@ public class FlowManager {
             ScreenManager.getInstance().execute(() -> new Notification("ReSync", prettyWorldMessage(message.getMessage()), Notification.Type.ERROR));
             return;
         }
+        if ("response".equalsIgnoreCase(message.getType()) && message.getData() != null) {
+            operationResult = cacheWorldOperationResult(serverId, message);
+        }
+        if ("response".equalsIgnoreCase(message.getType()) && message.isSuccess() && operationResult != null) {
+            applyWorldOperationSnapshotPatch(serverId, operationResult);
+        }
         if ("response".equalsIgnoreCase(message.getType()) && !message.isSuccess()) {
             ScreenManager.getInstance().execute(() -> new Notification("ReSync", prettyWorldMessage(message.getMessage()), Notification.Type.ERROR));
+        }
+        if ("response".equalsIgnoreCase(message.getType()) && message.isSuccess() && operationResult != null) {
+            dispatchWorldOperationResult(serverId, operationResult);
         }
         if ("response".equalsIgnoreCase(message.getType()) && message.isSuccess() && !"snapshot".equalsIgnoreCase(action) && !"mapSnapshot".equalsIgnoreCase(action)
             && !"setGameRule".equalsIgnoreCase(action) && !consumeSuppressedWorldSuccessNotification(serverId, action)) {
@@ -1334,8 +1456,8 @@ public class FlowManager {
         ensureFlowClient(serverId).requestWorldMapSnapshot(worldName, centerX, centerZ, zoom);
     }
 
-    public void createWorld(String serverId, String worldName, String seed, String environment, String generator) {
-        sendWorldAction(serverId, worldAction("createWorld", "worldName", worldName, "seed", seed, "environment", environment, "generator", generator));
+    public void createWorld(String serverId, String worldName, String seed, String environment, String generator, String generatorConfig) {
+        sendWorldAction(serverId, worldAction("createWorld", "worldName", worldName, "seed", seed, "environment", environment, "generator", generator, "generatorConfig", generatorConfig));
     }
 
     public void importWorlds(String serverId) {
@@ -1393,8 +1515,30 @@ public class FlowManager {
         sendWorldAction(serverId, worldAction("setIsolatedPlayerState", "worldName", worldName, "enabled", enabled));
     }
 
+    public void setWorldProfile(String serverId, String worldName, WorldProfileSettings profileSettings) {
+        sendWorldAction(serverId, worldAction("setWorldProfile", "worldName", worldName, "profileSettings", profileSettings));
+    }
+
     public void createPortal(String serverId, String portalName, String sourceWorld, double minX, double minY, double minZ, double maxX, double maxY, double maxZ,
                              String destinationWorld, double destinationX, double destinationY, double destinationZ, float destinationYaw, float destinationPitch, boolean enabled) {
+        createPortal(serverId, portalName, sourceWorld, minX, minY, minZ, maxX, maxY, maxZ, destinationWorld, destinationX, destinationY, destinationZ,
+            destinationYaw, destinationPitch, enabled, "", "", false, 0.0, 1500L, 0, true, false, "", true, true, "WORLD", 1.8);
+    }
+
+    public void createPortal(String serverId, String portalName, String sourceWorld, double minX, double minY, double minZ, double maxX, double maxY, double maxZ,
+                             String destinationWorld, double destinationX, double destinationY, double destinationZ, float destinationYaw, float destinationPitch,
+                             boolean enabled, String accessPermission, String bypassPermission, boolean usageFeeEnabled, double usageFee, long cooldownMillis,
+                             int priority, boolean safeTeleport, boolean preserveVelocity, String enterMessage) {
+        createPortal(serverId, portalName, sourceWorld, minX, minY, minZ, maxX, maxY, maxZ, destinationWorld, destinationX, destinationY, destinationZ,
+            destinationYaw, destinationPitch, enabled, accessPermission, bypassPermission, usageFeeEnabled, usageFee, cooldownMillis, priority,
+            safeTeleport, preserveVelocity, enterMessage, true, true, "WORLD", 1.8);
+    }
+
+    public void createPortal(String serverId, String portalName, String sourceWorld, double minX, double minY, double minZ, double maxX, double maxY, double maxZ,
+                             String destinationWorld, double destinationX, double destinationY, double destinationZ, float destinationYaw, float destinationPitch,
+                             boolean enabled, String accessPermission, String bypassPermission, boolean usageFeeEnabled, double usageFee, long cooldownMillis,
+                             int priority, boolean safeTeleport, boolean preserveVelocity, String enterMessage, boolean vehiclePassthroughEnabled,
+                             boolean entityPassthroughEnabled, String destinationMode, double cannonPower) {
         sendWorldAction(serverId, worldAction(
             "createPortal",
             "portalName", portalName,
@@ -1411,12 +1555,165 @@ public class FlowManager {
             "destinationZ", destinationZ,
             "destinationYaw", destinationYaw,
             "destinationPitch", destinationPitch,
-            "portalEnabled", enabled
+            "portalEnabled", enabled,
+            "accessPermission", accessPermission,
+            "bypassPermission", bypassPermission,
+            "usageFeeEnabled", usageFeeEnabled,
+            "usageFee", usageFee,
+            "cooldownMillis", cooldownMillis,
+            "priority", priority,
+            "safeTeleport", safeTeleport,
+            "preserveVelocity", preserveVelocity,
+            "enterMessage", enterMessage,
+            "vehiclePassthroughEnabled", vehiclePassthroughEnabled,
+            "entityPassthroughEnabled", entityPassthroughEnabled,
+            "destinationMode", destinationMode,
+            "cannonPower", cannonPower
+        ));
+    }
+
+    public void resizePortal(String serverId, String portalId, String portalName, String sourceWorld, double minX, double minY, double minZ, double maxX, double maxY,
+                             double maxZ, String destinationWorld, double destinationX, double destinationY, double destinationZ, float destinationYaw,
+                             float destinationPitch, boolean enabled, String accessPermission, String bypassPermission, boolean usageFeeEnabled, double usageFee,
+                             long cooldownMillis, int priority, boolean safeTeleport, boolean preserveVelocity, String enterMessage) {
+        resizePortal(serverId, portalId, portalName, sourceWorld, minX, minY, minZ, maxX, maxY, maxZ, destinationWorld, destinationX, destinationY, destinationZ,
+            destinationYaw, destinationPitch, enabled, accessPermission, bypassPermission, usageFeeEnabled, usageFee, cooldownMillis, priority,
+            safeTeleport, preserveVelocity, enterMessage, true, true, "WORLD", 1.8);
+    }
+
+    public void resizePortal(String serverId, String portalId, String portalName, String sourceWorld, double minX, double minY, double minZ, double maxX, double maxY,
+                             double maxZ, String destinationWorld, double destinationX, double destinationY, double destinationZ, float destinationYaw,
+                             float destinationPitch, boolean enabled, String accessPermission, String bypassPermission, boolean usageFeeEnabled, double usageFee,
+                             long cooldownMillis, int priority, boolean safeTeleport, boolean preserveVelocity, String enterMessage,
+                             boolean vehiclePassthroughEnabled, boolean entityPassthroughEnabled, String destinationMode, double cannonPower) {
+        sendWorldAction(serverId, worldAction(
+            "resizePortal",
+            "portalId", portalId,
+            "portalName", portalName,
+            "sourceWorld", sourceWorld,
+            "minX", minX,
+            "minY", minY,
+            "minZ", minZ,
+            "maxX", maxX,
+            "maxY", maxY,
+            "maxZ", maxZ,
+            "destinationWorld", destinationWorld,
+            "destinationX", destinationX,
+            "destinationY", destinationY,
+            "destinationZ", destinationZ,
+            "destinationYaw", destinationYaw,
+            "destinationPitch", destinationPitch,
+            "portalEnabled", enabled,
+            "accessPermission", accessPermission,
+            "bypassPermission", bypassPermission,
+            "usageFeeEnabled", usageFeeEnabled,
+            "usageFee", usageFee,
+            "cooldownMillis", cooldownMillis,
+            "priority", priority,
+            "safeTeleport", safeTeleport,
+            "preserveVelocity", preserveVelocity,
+            "enterMessage", enterMessage,
+            "vehiclePassthroughEnabled", vehiclePassthroughEnabled,
+            "entityPassthroughEnabled", entityPassthroughEnabled,
+            "destinationMode", destinationMode,
+            "cannonPower", cannonPower
+        ));
+    }
+
+    public void setPortalEnabled(String serverId, String portalId, boolean enabled) {
+        sendWorldAction(serverId, worldAction("setPortalEnabled", "portalId", portalId, "enabled", enabled));
+    }
+
+    public void setPortalDestination(String serverId, String portalId, String destinationWorld, double destinationX, double destinationY, double destinationZ,
+                                     float destinationYaw, float destinationPitch) {
+        sendWorldAction(serverId, worldAction(
+            "setPortalDestination",
+            "portalId", portalId,
+            "destinationWorld", destinationWorld,
+            "destinationX", destinationX,
+            "destinationY", destinationY,
+            "destinationZ", destinationZ,
+            "destinationYaw", destinationYaw,
+            "destinationPitch", destinationPitch
+        ));
+    }
+
+    public void setPortalBounds(String serverId, String portalId, String sourceWorld, double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
+        sendWorldAction(serverId, worldAction(
+            "setPortalBounds",
+            "portalId", portalId,
+            "sourceWorld", sourceWorld,
+            "minX", minX,
+            "minY", minY,
+            "minZ", minZ,
+            "maxX", maxX,
+            "maxY", maxY,
+            "maxZ", maxZ
         ));
     }
 
     public void deletePortal(String serverId, String portalId) {
         sendWorldAction(serverId, worldAction("deletePortal", "portalId", portalId));
+    }
+
+    public void teleportPlayerToWorld(String serverId, String playerName, String worldName, Double x, Double y, Double z, Float yaw, Float pitch) {
+        sendWorldAction(serverId, worldAction(
+            "teleportPlayerToWorld",
+            "playerName", playerName,
+            "worldName", worldName,
+            "destinationX", x,
+            "destinationY", y,
+            "destinationZ", z,
+            "destinationYaw", yaw,
+            "destinationPitch", pitch,
+            "hasPosition", x != null && y != null && z != null,
+            "hasRotation", yaw != null && pitch != null
+        ));
+    }
+
+    public void teleportPlayerToWorldSpawn(String serverId, String playerName, String worldName) {
+        sendWorldAction(serverId, worldAction("teleportPlayerToWorldSpawn", "playerName", playerName, "worldName", worldName));
+    }
+
+    public void teleportPlayerToPortal(String serverId, String playerName, String portalId) {
+        sendWorldAction(serverId, worldAction("teleportPlayerToPortal", "playerName", playerName, "portalId", portalId));
+    }
+
+    public void createInventoryGroup(String serverId, WorldInventoryGroup group) {
+        sendWorldAction(serverId, worldAction("createInventoryGroup", "inventoryGroup", group));
+    }
+
+    public void updateInventoryGroup(String serverId, WorldInventoryGroup group) {
+        sendWorldAction(serverId, worldAction("updateInventoryGroup", "inventoryGroup", group));
+    }
+
+    public void deleteInventoryGroup(String serverId, String groupId) {
+        sendWorldAction(serverId, worldAction("deleteInventoryGroup", "groupId", groupId));
+    }
+
+    public void createSignPortal(String serverId, WorldSignPortal signPortal) {
+        sendWorldAction(serverId, worldAction("createSignPortal", "signPortal", signPortal));
+    }
+
+    public void deleteSignPortal(String serverId, String signId) {
+        sendWorldAction(serverId, worldAction("deleteSignPortal", "signId", signId));
+    }
+
+    public void whoWorld(String serverId, String worldName) {
+        sendWorldAction(serverId, worldAction("whoWorld", "worldName", worldName));
+    }
+
+    public void purgeWorld(String serverId, String worldName, boolean monsters, boolean animals, boolean ambient, boolean misc, boolean vehicles, boolean items) {
+        sendWorldAction(serverId, worldAction(
+            "purgeWorld",
+            "worldName", worldName,
+            "purgeMonsters", monsters,
+            "purgeAnimals", animals,
+            "purgeAmbient", ambient,
+            "purgeMisc", misc,
+            "purgeVehicles", vehicles,
+            "purgeItems", items
+        ));
     }
 
     public void openWorldMap(String serverId, ClientServerView server, String worldName) {
@@ -1537,6 +1834,186 @@ public class FlowManager {
             }
         }
         return builder.isEmpty() ? "Done" : builder.toString();
+    }
+
+    private void applyWorldOperationSnapshotPatch(String serverId, WorldOperationResult result) {
+        if (serverId == null || serverId.isBlank() || result == null || !result.isSuccess()) {
+            return;
+        }
+        WorldSnapshot snapshot = worldSnapshotCache.get(serverId);
+        if (snapshot == null) {
+            return;
+        }
+        String action = result.getAction() == null ? "" : result.getAction().trim().toLowerCase(Locale.ROOT);
+        switch (action) {
+            case "createportal", "resizeportal", "setportalenabled", "setportaldestination", "setportalbounds" ->
+                upsertSnapshotPortal(snapshot, convertWorldResultData(result, "portal", WorldPortal.class));
+            case "deleteportal" -> removeSnapshotPortal(snapshot, resultDataText(result, "portalId"));
+            case "createinventorygroup", "updateinventorygroup" ->
+                upsertSnapshotInventoryGroup(snapshot, convertWorldResultData(result, "group", WorldInventoryGroup.class));
+            case "deleteinventorygroup" -> removeSnapshotInventoryGroup(snapshot, resultDataText(result, "groupId"));
+            case "createsignportal" ->
+                upsertSnapshotSignPortal(snapshot, convertWorldResultData(result, "signPortal", WorldSignPortal.class));
+            case "deletesignportal" -> removeSnapshotSignPortal(snapshot, resultDataText(result, "signId"));
+            case "createworld", "loadworld", "unloadworld" ->
+                upsertSnapshotWorld(snapshot, convertWorldResultData(result, "world", WorldRegistryEntry.class));
+            case "deleteworld" -> removeSnapshotWorld(snapshot, resultDataText(result, "worldName", result.getWorldName()));
+            default -> {
+            }
+        }
+    }
+
+    private <T> T convertWorldResultData(WorldOperationResult result, String key, Class<T> type) {
+        if (result == null || result.getData() == null || key == null || key.isBlank() || type == null) {
+            return null;
+        }
+        Object value = result.getData().get(key);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return gson.fromJson(gson.toJson(value), type);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String resultDataText(WorldOperationResult result, String... keys) {
+        if (result == null) {
+            return "";
+        }
+        if (keys != null && result.getData() != null) {
+            for (String key : keys) {
+                if (key == null || key.isBlank()) {
+                    continue;
+                }
+                Object value = result.getData().get(key);
+                if (value != null) {
+                    String text = String.valueOf(value).trim();
+                    if (!text.isBlank()) {
+                        return text;
+                    }
+                }
+            }
+        }
+        String worldName = result.getWorldName();
+        return worldName == null ? "" : worldName.trim();
+    }
+
+    private void upsertSnapshotWorld(WorldSnapshot snapshot, WorldRegistryEntry world) {
+        if (snapshot == null || world == null || world.getWorldName() == null || world.getWorldName().isBlank()) {
+            return;
+        }
+        try {
+            snapshot.getWorlds().removeIf(entry -> entry != null && entry.getWorldName() != null && entry.getWorldName().equalsIgnoreCase(world.getWorldName()));
+            snapshot.getWorlds().add(world);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void removeSnapshotWorld(WorldSnapshot snapshot, String worldName) {
+        if (snapshot == null || worldName == null || worldName.isBlank()) {
+            return;
+        }
+        try {
+            snapshot.getWorlds().removeIf(entry -> entry != null && entry.getWorldName() != null && entry.getWorldName().equalsIgnoreCase(worldName));
+            snapshot.getDashboard().removeIf(entry -> entry != null && entry.getWorldName() != null && entry.getWorldName().equalsIgnoreCase(worldName));
+            snapshot.getPortals().removeIf(portal -> portal != null && ((portal.getSourceWorld() != null && portal.getSourceWorld().equalsIgnoreCase(worldName))
+                || (portal.getDestinationWorld() != null && portal.getDestinationWorld().equalsIgnoreCase(worldName))));
+            snapshot.getSignPortals().removeIf(signPortal -> signPortal != null && signPortal.getWorldName() != null && signPortal.getWorldName().equalsIgnoreCase(worldName));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void upsertSnapshotPortal(WorldSnapshot snapshot, WorldPortal portal) {
+        if (snapshot == null || portal == null || portal.getPortalId() == null || portal.getPortalId().isBlank()) {
+            return;
+        }
+        try {
+            snapshot.getPortals().removeIf(entry -> entry != null && entry.getPortalId() != null && entry.getPortalId().equalsIgnoreCase(portal.getPortalId()));
+            snapshot.getPortals().add(portal);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void removeSnapshotPortal(WorldSnapshot snapshot, String portalId) {
+        if (snapshot == null || portalId == null || portalId.isBlank()) {
+            return;
+        }
+        try {
+            snapshot.getPortals().removeIf(entry -> entry != null && ((entry.getPortalId() != null && entry.getPortalId().equalsIgnoreCase(portalId))
+                || (entry.getPortalName() != null && entry.getPortalName().equalsIgnoreCase(portalId))));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void upsertSnapshotInventoryGroup(WorldSnapshot snapshot, WorldInventoryGroup group) {
+        if (snapshot == null || group == null || group.getGroupId() == null || group.getGroupId().isBlank()) {
+            return;
+        }
+        try {
+            snapshot.getInventoryGroups().removeIf(entry -> entry != null && entry.getGroupId() != null && entry.getGroupId().equalsIgnoreCase(group.getGroupId()));
+            snapshot.getInventoryGroups().add(group);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void removeSnapshotInventoryGroup(WorldSnapshot snapshot, String groupId) {
+        if (snapshot == null || groupId == null || groupId.isBlank()) {
+            return;
+        }
+        try {
+            snapshot.getInventoryGroups().removeIf(entry -> entry != null && entry.getGroupId() != null && entry.getGroupId().equalsIgnoreCase(groupId));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void upsertSnapshotSignPortal(WorldSnapshot snapshot, WorldSignPortal signPortal) {
+        if (snapshot == null || signPortal == null || signPortal.getSignId() == null || signPortal.getSignId().isBlank()) {
+            return;
+        }
+        try {
+            snapshot.getSignPortals().removeIf(entry -> entry != null && entry.getSignId() != null && entry.getSignId().equalsIgnoreCase(signPortal.getSignId()));
+            snapshot.getSignPortals().add(signPortal);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void removeSnapshotSignPortal(WorldSnapshot snapshot, String signId) {
+        if (snapshot == null || signId == null || signId.isBlank()) {
+            return;
+        }
+        try {
+            snapshot.getSignPortals().removeIf(entry -> entry != null && entry.getSignId() != null && entry.getSignId().equalsIgnoreCase(signId));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void dispatchWorldOperationResult(String serverId, WorldOperationResult result) {
+        if (serverId == null || serverId.isBlank() || result == null) {
+            return;
+        }
+        ScreenManager.getInstance().execute(() -> {
+            FlowManagerScreen screen = FlowManagerScreen.getOpenScreen(serverId);
+            if (screen != null) {
+                screen.handleWorldOperationResult(result);
+            }
+        });
+    }
+
+    private WorldOperationResult cacheWorldOperationResult(String serverId, WorldChannelMessage message) {
+        if (serverId == null || serverId.isBlank() || message == null || message.getData() == null) {
+            return null;
+        }
+        try {
+            WorldOperationResult result = gson.fromJson(message.getData(), WorldOperationResult.class);
+            if (result != null) {
+                worldOperationCache.put(serverId, result);
+            }
+            return result;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private java.util.UUID parseUuid(String value) {

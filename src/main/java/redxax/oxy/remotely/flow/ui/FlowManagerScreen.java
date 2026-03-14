@@ -5,7 +5,13 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
 import redxax.oxy.remotely.data.flow.world.WorldGameRuleDescriptor;
+import redxax.oxy.remotely.data.flow.world.WorldGeneratorDescriptor;
+import redxax.oxy.remotely.data.flow.world.WorldInventoryGroup;
+import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
+import redxax.oxy.remotely.data.flow.world.WorldPortal;
+import redxax.oxy.remotely.data.flow.world.WorldProfileSettings;
 import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
+import redxax.oxy.remotely.data.flow.world.WorldSignPortal;
 import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
@@ -22,6 +28,8 @@ import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.AnimatedButton;
+import restudio.rescreen.ui.widgets.ContextMenuWidget;
+import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
@@ -38,6 +46,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
@@ -54,11 +65,17 @@ public class FlowManagerScreen extends ReScreen {
     private Container guisContainer;
     private Container scoreboardsContainer;
     private Container worldsContainer;
+    private Container portalsContainer;
+    private Container inventoryGroupsContainer;
+    private Container signPortalsContainer;
     private Container tabsContainer;
     private final Map<String, MountableButtonWidget> blueprintEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> guiEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> scoreboardEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> worldEntries = new HashMap<>();
+    private final Map<String, MountableButtonWidget> portalEntries = new HashMap<>();
+    private final Map<String, MountableButtonWidget> inventoryGroupEntries = new HashMap<>();
+    private final Map<String, MountableButtonWidget> signPortalEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> tabEntries = new HashMap<>();
     private final Gson gson = new Gson();
 
@@ -66,6 +83,16 @@ public class FlowManagerScreen extends ReScreen {
         private String command;
         private List<String> subcommands;
         private Boolean structured;
+    }
+
+    private static class SelectorWidgets {
+        private final TextInputWidget input;
+        private final DropDownWidget<String> dropdown;
+
+        private SelectorWidgets(TextInputWidget input, DropDownWidget<String> dropdown) {
+            this.input = input;
+            this.dropdown = dropdown;
+        }
     }
 
     public FlowManagerScreen(String serverId, ClientServerView server, Screen parent) {
@@ -123,6 +150,12 @@ public class FlowManagerScreen extends ReScreen {
         scoreboardsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
         worldsContainer = createContainer("worlds", 5, contentY, width - 10, contentHeight);
         worldsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
+        portalsContainer = createContainer("portals", 5, contentY, width - 10, contentHeight);
+        portalsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
+        inventoryGroupsContainer = createContainer("inventory-groups", 5, contentY, width - 10, contentHeight);
+        inventoryGroupsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
+        signPortalsContainer = createContainer("sign-portals", 5, contentY, width - 10, contentHeight);
+        signPortalsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
         if (tabMethodsAvailable) {
             tabsContainer = createContainer("tabs", 5, contentY, width - 10, contentHeight);
             tabsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
@@ -132,6 +165,9 @@ public class FlowManagerScreen extends ReScreen {
         tabsManager.addTab("GUIs", guisContainer);
         tabsManager.addTab("Scoreboards", scoreboardsContainer);
         tabsManager.addTab("Worlds", worldsContainer);
+        tabsManager.addTab("Portals", portalsContainer);
+        tabsManager.addTab("Groups", inventoryGroupsContainer);
+        tabsManager.addTab("Signs", signPortalsContainer);
         if (tabMethodsAvailable && tabsContainer != null) {
             tabsManager.addTab("Tabs", tabsContainer);
         }
@@ -140,6 +176,9 @@ public class FlowManagerScreen extends ReScreen {
         rebuildGuis();
         rebuildScoreboards();
         rebuildWorlds();
+        rebuildPortals();
+        rebuildInventoryGroups();
+        rebuildSignPortals();
         if (tabMethodsAvailable && tabsContainer != null) {
             rebuildTabs();
         }
@@ -156,6 +195,12 @@ public class FlowManagerScreen extends ReScreen {
             rebuildScoreboards();
         } else if (tab.getContainer() == worldsContainer) {
             rebuildWorlds();
+        } else if (tab.getContainer() == portalsContainer) {
+            rebuildPortals();
+        } else if (tab.getContainer() == inventoryGroupsContainer) {
+            rebuildInventoryGroups();
+        } else if (tab.getContainer() == signPortalsContainer) {
+            rebuildSignPortals();
         } else if (tabMethodsAvailable && tabsContainer != null && tab.getContainer() == tabsContainer) {
             rebuildTabs();
         }
@@ -1112,9 +1157,15 @@ public class FlowManagerScreen extends ReScreen {
             .size(120, 18)
             .onClick(() -> flowManager.scanWorlds(serverId))
             .build();
+        IconButton refreshButton = new IconButton.Builder()
+            .label("Refresh")
+            .imagePath("reload.png")
+            .size(130, 18)
+            .onClick(() -> flowManager.refreshWorldsFromServer(serverId))
+            .build();
         RowWidget topRow = new RowWidget.Builder()
             .size(Math.max(200, worldsContainer.getWidth() - 20), 18)
-            .addWidget(createButton, importButton, scanButton)
+            .addWidget(createButton, importButton, scanButton, refreshButton)
             .build();
         worldsContainer.addWidget(topRow);
 
@@ -1143,51 +1194,94 @@ public class FlowManagerScreen extends ReScreen {
         int players = dashboard != null ? dashboard.getPlayerCount() : 0;
         String environment = dashboard != null && dashboard.getEnvironment() != null ? dashboard.getEnvironment() : world.getEnvironment();
         String difficulty = dashboard != null && dashboard.getDifficulty() != null ? dashboard.getDifficulty() : world.getDifficulty();
-        String description = status + " | " + environment + " | Players: " + players + " | " + difficulty;
+        String alias = dashboard != null ? safeText(dashboard.getAlias()) : safeText(world.getProfileSettings().getAlias());
+        boolean hidden = dashboard != null && dashboard.isHidden();
+        boolean forceGameMode = dashboard != null && dashboard.isForceGameMode();
+        String gameMode = dashboard != null ? safeText(dashboard.getGameMode()) : safeText(world.getProfileSettings().getGameMode());
+        boolean entryFeeEnabled = dashboard != null && dashboard.isEntryFeeEnabled();
+        double entryFee = dashboard != null ? dashboard.getEntryFee() : world.getProfileSettings().getEntryFee();
+        int portalCount = flowManager.getWorldPortals(serverId, worldName).size();
+        String description = status + " | " + environment + " | Players: " + players + " | " + difficulty + " | Portals: " + portalCount;
+        if (!alias.isBlank()) {
+            description += " | Alias: " + alias;
+        }
+        StringBuilder hiddenText = new StringBuilder("Generator: " + safeText(world.getGenerator()));
+        if (hidden) {
+            hiddenText.append(" | Hidden");
+        }
+        if (forceGameMode && !gameMode.isBlank()) {
+            hiddenText.append(" | Game Mode: ").append(gameMode);
+        }
+        if (entryFeeEnabled) {
+            hiddenText.append(" | Entry Fee: ").append(entryFee);
+        }
+        if (!world.getProfileSettings().isPvpEnabled()) {
+            hiddenText.append(" | PVP Off");
+        }
+        if (!world.getProfileSettings().isAutoSaveEnabled()) {
+            hiddenText.append(" | Auto Save Off");
+        }
+        if (world.getProfileSettings().isKeepSpawnLoaded()) {
+            hiddenText.append(" | Keep Spawn Loaded");
+        }
+        if (!safeText(world.getProfileSettings().getInventoryGroupId()).isBlank()) {
+            hiddenText.append(" | Group: ").append(world.getProfileSettings().getInventoryGroupId());
+        }
+        if (!safeText(world.getProfileSettings().getLinkedNetherWorld()).isBlank()) {
+            hiddenText.append(" | Nether: ").append(world.getProfileSettings().getLinkedNetherWorld());
+        }
+        if (!safeText(world.getProfileSettings().getLinkedEndWorld()).isBlank()) {
+            hiddenText.append(" | End: ").append(world.getProfileSettings().getLinkedEndWorld());
+        }
+        if (!safeText(world.getProfileSettings().getLinkedOverworld()).isBlank()) {
+            hiddenText.append(" | Overworld: ").append(world.getProfileSettings().getLinkedOverworld());
+        }
+        if (Double.compare(world.getProfileSettings().getNetherScale(), 8.0) != 0) {
+            hiddenText.append(" | Nether Scale: ").append(formatDecimal(world.getProfileSettings().getNetherScale()));
+        }
+        if (Double.compare(world.getProfileSettings().getEndScale(), 1.0) != 0) {
+            hiddenText.append(" | End Scale: ").append(formatDecimal(world.getProfileSettings().getEndScale()));
+        }
+        if (!world.getProfileSettings().isAutoLinkNetherPortal()) {
+            hiddenText.append(" | Nether Auto Link Off");
+        }
+        if (!world.getProfileSettings().isAutoLinkEndPortal()) {
+            hiddenText.append(" | End Auto Link Off");
+        }
+        if (!world.getProfileSettings().isNonLivingEntitySpawnsEnabled()) {
+            hiddenText.append(" | Misc Spawns Off");
+        }
 
-        SquareButtonWidget mapButton = new SquareButtonWidget.Builder()
-            .imagePath("map.png").hint("View World Map")
-            .onClick(() -> flowManager.openWorldMap(serverId, server, worldName))
+        SquareButtonWidget editButton = new SquareButtonWidget.Builder()
+            .imagePath("edit.png").hint("Edit World")
+            .onClick(() -> showWorldSettingsPopup(worldName))
             .build();
-
-        SquareButtonWidget loadButton = new SquareButtonWidget.Builder()
-            .imagePath(world.isLoaded() ? "hide.png" : "add.png").hint(world.isLoaded() ? "Unload World" : "Load World")
+        SquareButtonWidget stateButton = new SquareButtonWidget.Builder()
+            .imagePath(world.isLoaded() ? "hide.png" : "add.png")
+            .hint(world.isLoaded() ? "Unload World" : "Load World")
             .onClick(() -> {
                 if (world.isLoaded()) {
-                    flowManager.unloadWorld(serverId, worldName, "world");
+                    showWorldUnloadPopup(worldName);
                 } else {
                     flowManager.loadWorld(serverId, worldName);
                 }
             })
             .build();
-
-        SquareButtonWidget settingsButton = new SquareButtonWidget.Builder()
-            .imagePath("edit.png").hint("Edit World Settings")
-            .onClick(() -> showWorldSettingsPopup(worldName))
-            .build();
-
-        SquareButtonWidget cloneButton = new SquareButtonWidget.Builder()
-            .imagePath("copy.png").hint("Clone World")
-            .onClick(() -> showCloneWorldPopup(worldName))
-            .build();
-
-        SquareButtonWidget deleteButton = new SquareButtonWidget.Builder()
-            .imagePath("delete.png").hint("Delete World")
-            .accentType(ThemeManager.getAccent("danger"))
-            .onClick(() -> flowManager.deleteWorld(serverId, worldName, false, "world"))
+        final SquareButtonWidget[] actionsButtonRef = new SquareButtonWidget[1];
+        actionsButtonRef[0] = new SquareButtonWidget.Builder()
+            .imagePath("apps.png").hint("More Actions")
+            .onClick(() -> showWorldActionsMenu(worldName, actionsButtonRef[0]))
             .build();
 
         MountableButtonWidget widget = new MountableButtonWidget.Builder(worldName)
             .description(description)
-            .hiddenText("Generator: " + safeText(world.getGenerator()))
+            .hiddenText(hiddenText.toString())
             .onClick(() -> flowManager.openWorldMap(serverId, server, worldName))
-            .addButton(mapButton)
-            .addButton(loadButton)
-            .addButton(settingsButton)
-            .addButton(cloneButton)
-            .addButton(deleteButton)
+            .addButton(editButton)
+            .addButton(stateButton)
+            .addButton(actionsButtonRef[0])
             .build();
-        widget.setSize(Math.max(200, worldsContainer.getWidth() - 20), 28);
+        widget.setSize(Math.max(200, worldsContainer.getWidth() - 20), 26);
 
         List<String> sortedIds = new ArrayList<>(worldEntries.keySet());
         sortedIds.add(worldName);
@@ -1201,20 +1295,703 @@ public class FlowManagerScreen extends ReScreen {
         worldEntries.put(worldName, widget);
     }
 
+    private void showWorldActionsMenu(String worldName, SquareButtonWidget anchor) {
+        if (anchor == null || worldName == null || worldName.isBlank()) {
+            return;
+        }
+        WorldRegistryEntry world = flowManager.getWorld(serverId, worldName);
+        if (world == null) {
+            return;
+        }
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
+            .addHeaderButton("map.png", () -> flowManager.openWorldMap(serverId, server, worldName), "Open World Map")
+            .addHeaderButton("steve.png", () -> showWorldTeleportPopup(worldName), "Teleport Player")
+            .addHeaderButton("search.png", () -> flowManager.whoWorld(serverId, worldName), "View Players")
+            .addIconItem("Clone World", "copy.png", () -> showCloneWorldPopup(worldName), "")
+            .addIconItem("Purge Entities", "delete.png", () -> showWorldPurgePopup(worldName), "", ThemeManager.getAccent("calm"))
+            .addIconItem("Delete World", "delete.png", () -> showWorldDeletePopup(worldName), "", ThemeManager.getAccent("danger"));
+        showContextMenu(anchor.getX() + anchor.getWidth() + 4, anchor.getY() + anchor.getHeight(), builder);
+    }
+
+    private void rebuildPortals() {
+        if (portalsContainer == null) {
+            return;
+        }
+        portalsContainer.clearWidgets();
+        portalEntries.clear();
+
+        IconButton createButton = new IconButton.Builder()
+            .label("New Portal")
+            .accentType(ThemeManager.getAccent("nice"))
+            .imagePath("newFile.png")
+            .size(130, 18)
+            .onClick(this::showCreatePortalPopup)
+            .build();
+        IconButton refreshButton = new IconButton.Builder()
+            .label("Refresh")
+            .imagePath("reload.png")
+            .size(120, 18)
+            .onClick(() -> flowManager.refreshWorldsFromServer(serverId))
+            .build();
+        RowWidget topRow = new RowWidget.Builder()
+            .size(Math.max(200, portalsContainer.getWidth() - 20), 18)
+            .addWidget(createButton, refreshButton)
+            .build();
+        portalsContainer.addWidget(topRow);
+
+        List<WorldPortal> portals = new ArrayList<>(flowManager.getWorldPortalsForServer(serverId));
+        portals.sort(Comparator
+            .comparing((WorldPortal portal) -> safeText(portal.getSourceWorld()), String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(portal -> safeText(portal.getPortalName()).isBlank() ? safeText(portal.getPortalId()) : safeText(portal.getPortalName()), String.CASE_INSENSITIVE_ORDER));
+        for (WorldPortal portal : portals) {
+            if (portal == null) {
+                continue;
+            }
+            upsertPortalEntry(portalKey(portal));
+        }
+    }
+
+    private void upsertPortalEntry(String portalId) {
+        if (portalsContainer == null || portalId == null || portalId.isBlank()) {
+            return;
+        }
+        WorldPortal portal = flowManager.getWorldPortal(serverId, portalId);
+        if (portal == null) {
+            return;
+        }
+        MountableButtonWidget existing = portalEntries.remove(portalKey(portal));
+        if (existing != null) {
+            portalsContainer.removeWidget(existing);
+        }
+
+        String displayName = safeText(portal.getPortalName()).isBlank() ? safeText(portal.getPortalId()) : safeText(portal.getPortalName());
+        String description = safeText(portal.getSourceWorld()) + " -> " + safeText(portal.getDestinationWorld())
+            + " | " + (portal.isEnabled() ? "Enabled" : "Disabled")
+            + " | Priority: " + portal.getPriority();
+        StringBuilder hiddenText = new StringBuilder();
+        hiddenText.append("Bounds: ")
+            .append(formatDecimal(portal.getMinX())).append(',').append(formatDecimal(portal.getMinY())).append(',').append(formatDecimal(portal.getMinZ()))
+            .append(" -> ")
+            .append(formatDecimal(portal.getMaxX())).append(',').append(formatDecimal(portal.getMaxY())).append(',').append(formatDecimal(portal.getMaxZ()));
+        hiddenText.append(" | Dest: ")
+            .append(formatDecimal(portal.getDestinationX())).append(',').append(formatDecimal(portal.getDestinationY())).append(',').append(formatDecimal(portal.getDestinationZ()));
+        hiddenText.append(" | Cooldown: ").append(portal.getCooldownMillis()).append(" ms");
+        if (portal.isUsageFeeEnabled()) {
+            hiddenText.append(" | Usage Fee: ").append(portal.getUsageFee());
+        }
+        if (!safeText(portal.getAccessPermission()).isBlank()) {
+            hiddenText.append(" | Access: ").append(portal.getAccessPermission());
+        }
+        if (!safeText(portal.getBypassPermission()).isBlank()) {
+            hiddenText.append(" | Bypass: ").append(portal.getBypassPermission());
+        }
+        if (portal.isSafeTeleport()) {
+            hiddenText.append(" | Safe Teleport");
+        }
+        if (portal.isPreserveVelocity()) {
+            hiddenText.append(" | Keep Velocity");
+        }
+        if (!portal.isVehiclePassthroughEnabled()) {
+            hiddenText.append(" | Vehicle Pass Off");
+        }
+        if (!portal.isEntityPassthroughEnabled()) {
+            hiddenText.append(" | Entity Pass Off");
+        }
+        if (!"WORLD".equalsIgnoreCase(portal.getDestinationMode())) {
+            hiddenText.append(" | Mode: ").append(portal.getDestinationMode());
+        }
+        if ("CANNON".equalsIgnoreCase(portal.getDestinationMode()) || Double.compare(portal.getCannonPower(), 1.8) != 0) {
+            hiddenText.append(" | Cannon Power: ").append(formatDecimal(portal.getCannonPower()));
+        }
+
+        String portalLookup = portalKey(portal);
+        SquareButtonWidget editButton = new SquareButtonWidget.Builder()
+            .imagePath("edit.png").hint("Edit Portal")
+            .onClick(() -> showEditPortalPopup(portalLookup))
+            .build();
+
+        SquareButtonWidget toggleButton = new SquareButtonWidget.Builder()
+            .imagePath(portal.isEnabled() ? "hide.png" : "add.png").hint(portal.isEnabled() ? "Disable Portal" : "Enable Portal")
+            .onClick(() -> flowManager.setPortalEnabled(serverId, portalLookup, !portal.isEnabled()))
+            .build();
+
+        SquareButtonWidget teleportButton = new SquareButtonWidget.Builder()
+            .imagePath("steve.png").hint("Teleport Player")
+            .onClick(() -> showPortalTeleportPopup(portalLookup))
+            .build();
+
+        SquareButtonWidget deleteButton = new SquareButtonWidget.Builder()
+            .imagePath("delete.png").hint("Delete Portal")
+            .accentType(ThemeManager.getAccent("danger"))
+            .onClick(() -> showPortalDeletePopup(portalLookup))
+            .build();
+
+        MountableButtonWidget widget = new MountableButtonWidget.Builder(displayName)
+            .description(description)
+            .hiddenText(hiddenText.toString())
+            .onClick(() -> showEditPortalPopup(portalLookup))
+            .addButton(editButton)
+            .addButton(toggleButton)
+            .addButton(teleportButton)
+            .addButton(deleteButton)
+            .build();
+        widget.setSize(Math.max(200, portalsContainer.getWidth() - 20), 28);
+
+        List<String> sortedIds = new ArrayList<>(portalEntries.keySet());
+        sortedIds.add(portalLookup);
+        sortedIds.sort((left, right) -> {
+            WorldPortal leftPortal = flowManager.getWorldPortal(serverId, left);
+            WorldPortal rightPortal = flowManager.getWorldPortal(serverId, right);
+            String leftWorld = leftPortal == null ? "" : safeText(leftPortal.getSourceWorld());
+            String rightWorld = rightPortal == null ? "" : safeText(rightPortal.getSourceWorld());
+            int worldCompare = String.CASE_INSENSITIVE_ORDER.compare(leftWorld, rightWorld);
+            if (worldCompare != 0) {
+                return worldCompare;
+            }
+            String leftName = leftPortal == null ? left : (safeText(leftPortal.getPortalName()).isBlank() ? safeText(leftPortal.getPortalId()) : safeText(leftPortal.getPortalName()));
+            String rightName = rightPortal == null ? right : (safeText(rightPortal.getPortalName()).isBlank() ? safeText(rightPortal.getPortalId()) : safeText(rightPortal.getPortalName()));
+            return String.CASE_INSENSITIVE_ORDER.compare(leftName, rightName);
+        });
+        int insertIndex = 1 + sortedIds.indexOf(portalLookup);
+        if (portalEntries.isEmpty() || insertIndex >= portalsContainer.getWidgets().size()) {
+            portalsContainer.addWidget(widget);
+        } else {
+            portalsContainer.insertWidget(widget, insertIndex);
+        }
+        portalEntries.put(portalLookup, widget);
+    }
+
+    private void showCreatePortalPopup() {
+        showPortalEditorPopup(null);
+    }
+
+    private void showEditPortalPopup(String portalId) {
+        showPortalEditorPopup(flowManager.getWorldPortal(serverId, portalId));
+    }
+
+    private void showPortalEditorPopup(WorldPortal existingPortal) {
+        boolean editing = existingPortal != null;
+        List<String> worldOptions = worldNameOptions();
+        PopupWidget.Builder builder = new PopupWidget.Builder(editing ? "Edit Portal" : "Create Portal")
+            .setResizable(true)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(560, 500);
+
+        TextInputWidget portalNameInput = new TextInputWidget.Builder()
+            .text(editing ? safeText(existingPortal.getPortalName()) : "")
+            .placeholder("Portal Name")
+            .size(220, 20)
+            .build();
+        SelectorWidgets sourceWorldSelector = createSelectorWidgets("Source World", worldOptions,
+            editing ? safeText(existingPortal.getSourceWorld()) : "", 180, false, Function.identity());
+        SelectorWidgets destinationWorldSelector = createSelectorWidgets("Destination World", worldOptions,
+            editing ? safeText(existingPortal.getDestinationWorld()) : "", 180, false, Function.identity());
+        ToggleWidget enabledToggle = new ToggleWidget.Builder()
+            .label("Enabled")
+            .toggled(!editing || existingPortal.isEnabled())
+            .size(85, 18)
+            .build();
+        TextInputWidget minXInput = new TextInputWidget.Builder().text(editing ? formatDecimal(existingPortal.getMinX()) : "0").placeholder("Min X").size(78, 20).build();
+        TextInputWidget minYInput = new TextInputWidget.Builder().text(editing ? formatDecimal(existingPortal.getMinY()) : "64").placeholder("Min Y").size(78, 20).build();
+        TextInputWidget minZInput = new TextInputWidget.Builder().text(editing ? formatDecimal(existingPortal.getMinZ()) : "0").placeholder("Min Z").size(78, 20).build();
+        TextInputWidget maxXInput = new TextInputWidget.Builder().text(editing ? formatDecimal(existingPortal.getMaxX()) : "1").placeholder("Max X").size(78, 20).build();
+        TextInputWidget maxYInput = new TextInputWidget.Builder().text(editing ? formatDecimal(existingPortal.getMaxY()) : "66").placeholder("Max Y").size(78, 20).build();
+        TextInputWidget maxZInput = new TextInputWidget.Builder().text(editing ? formatDecimal(existingPortal.getMaxZ()) : "1").placeholder("Max Z").size(78, 20).build();
+        TextInputWidget destinationXInput = new TextInputWidget.Builder().text(editing ? formatDecimal(existingPortal.getDestinationX()) : "0").placeholder("Target X").size(78, 20).build();
+        TextInputWidget destinationYInput = new TextInputWidget.Builder().text(editing ? formatDecimal(existingPortal.getDestinationY()) : "64").placeholder("Target Y").size(78, 20).build();
+        TextInputWidget destinationZInput = new TextInputWidget.Builder().text(editing ? formatDecimal(existingPortal.getDestinationZ()) : "0").placeholder("Target Z").size(78, 20).build();
+        TextInputWidget destinationYawInput = new TextInputWidget.Builder().text(editing ? String.valueOf(existingPortal.getDestinationYaw()) : "0").placeholder("Yaw").size(78, 20).build();
+        TextInputWidget destinationPitchInput = new TextInputWidget.Builder().text(editing ? String.valueOf(existingPortal.getDestinationPitch()) : "0").placeholder("Pitch").size(78, 20).build();
+        TextInputWidget accessPermissionInput = new TextInputWidget.Builder().text(editing ? safeText(existingPortal.getAccessPermission()) : "").placeholder("Access Permission").size(220, 20).build();
+        TextInputWidget bypassPermissionInput = new TextInputWidget.Builder().text(editing ? safeText(existingPortal.getBypassPermission()) : "").placeholder("Bypass Permission").size(220, 20).build();
+        ToggleWidget usageFeeToggle = new ToggleWidget.Builder().label("Usage Fee").toggled(editing && existingPortal.isUsageFeeEnabled()).size(95, 18).build();
+        TextInputWidget usageFeeInput = new TextInputWidget.Builder().text(editing ? String.valueOf(existingPortal.getUsageFee()) : "0").placeholder("Fee").size(120, 20).build();
+        TextInputWidget cooldownInput = new TextInputWidget.Builder().text(editing ? String.valueOf(existingPortal.getCooldownMillis()) : "1500").placeholder("Cooldown Ms").size(120, 20).build();
+        TextInputWidget priorityInput = new TextInputWidget.Builder().text(editing ? String.valueOf(existingPortal.getPriority()) : "0").placeholder("Priority").size(120, 20).build();
+        ToggleWidget safeTeleportToggle = new ToggleWidget.Builder().label("Safe Teleport").toggled(!editing || existingPortal.isSafeTeleport()).size(110, 18).build();
+        ToggleWidget preserveVelocityToggle = new ToggleWidget.Builder().label("Keep Velocity").toggled(editing && existingPortal.isPreserveVelocity()).size(115, 18).build();
+        ToggleWidget vehiclePassthroughToggle = new ToggleWidget.Builder().label("Vehicle Pass").toggled(!editing || existingPortal.isVehiclePassthroughEnabled()).size(118, 18).build();
+        ToggleWidget entityPassthroughToggle = new ToggleWidget.Builder().label("Entity Pass").toggled(!editing || existingPortal.isEntityPassthroughEnabled()).size(110, 18).build();
+        DropDownWidget<String> destinationModeSelect = new DropDownWidget.Builder<>(List.of("WORLD", "CANNON"))
+            .size(150, 18)
+            .selectedItem(editing ? safeText(existingPortal.getDestinationMode()).toUpperCase(Locale.ROOT) : "WORLD")
+            .build();
+        TextInputWidget cannonPowerInput = new TextInputWidget.Builder().text(editing ? formatDecimal(existingPortal.getCannonPower()) : "1.8").placeholder("Cannon Power").size(120, 20).build();
+        TextInputWidget enterMessageInput = new TextInputWidget.Builder().text(editing ? safeText(existingPortal.getEnterMessage()) : "").placeholder("Enter Message").size(260, 20).build();
+
+        if (editing) {
+            IconButton portalIdButton = new IconButton.Builder().label(safeText(existingPortal.getPortalId())).autoWidthOnTextChange(true).build();
+            portalIdButton.active = false;
+            builder.addRow("Portal Id", true, 18, portalIdButton);
+        }
+        builder.addRow("Name", true, 18, portalNameInput, enabledToggle);
+        builder.addRow("Source", true, 18, sourceWorldSelector.input, sourceWorldSelector.dropdown);
+        builder.addRow("Bounds Min", true, 18, minXInput, minYInput, minZInput);
+        builder.addRow("Bounds Max", true, 18, maxXInput, maxYInput, maxZInput);
+        builder.addRow("Target", true, 18, destinationWorldSelector.input, destinationWorldSelector.dropdown);
+        builder.addRow("Target Position", true, 18, destinationXInput, destinationYInput, destinationZInput);
+        builder.addRow("Target Look", true, 18, destinationYawInput, destinationPitchInput);
+        builder.addRow("Access", true, 18, accessPermissionInput);
+        builder.addRow("Bypass", true, 18, bypassPermissionInput);
+        builder.addRow("Rules", true, 18, usageFeeToggle, usageFeeInput, cooldownInput, priorityInput);
+        builder.addRow("Travel", true, 18, safeTeleportToggle, preserveVelocityToggle);
+        builder.addRow("Pass", true, 18, vehiclePassthroughToggle, entityPassthroughToggle);
+        builder.addRow("Mode", true, 18, destinationModeSelect, cannonPowerInput);
+        builder.addRow("Message", true, 18, enterMessageInput);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        builder.addTitleButton(() -> {
+            String portalName = safeText(portalNameInput.getText()).trim();
+            String sourceWorld = selectedSelectorValue(sourceWorldSelector).trim();
+            String destinationWorld = selectedSelectorValue(destinationWorldSelector).trim();
+            if (portalName.isBlank()) {
+                new Notification("Error", "Portal Name Required", Notification.Type.ERROR);
+                return;
+            }
+            if (sourceWorld.isBlank() || destinationWorld.isBlank()) {
+                new Notification("Error", "World Name Required", Notification.Type.ERROR);
+                return;
+            }
+            if (!WorldUiSupport.containsIgnoreCase(worldOptions, sourceWorld)) {
+                new Notification("Error", "Unknown Source World", Notification.Type.ERROR);
+                return;
+            }
+            if (!WorldUiSupport.containsIgnoreCase(worldOptions, destinationWorld)) {
+                new Notification("Error", "Unknown Destination World", Notification.Type.ERROR);
+                return;
+            }
+            Double minXValue = parseNullableDouble(minXInput.getText());
+            Double minYValue = parseNullableDouble(minYInput.getText());
+            Double minZValue = parseNullableDouble(minZInput.getText());
+            Double maxXValue = parseNullableDouble(maxXInput.getText());
+            Double maxYValue = parseNullableDouble(maxYInput.getText());
+            Double maxZValue = parseNullableDouble(maxZInput.getText());
+            Double destinationXValue = parseNullableDouble(destinationXInput.getText());
+            Double destinationYValue = parseNullableDouble(destinationYInput.getText());
+            Double destinationZValue = parseNullableDouble(destinationZInput.getText());
+            Float destinationYawValue = parseNullableFloat(destinationYawInput.getText());
+            Float destinationPitchValue = parseNullableFloat(destinationPitchInput.getText());
+            Double usageFeeValue = parseNullableDouble(usageFeeInput.getText());
+            Long cooldownValue = parseNullableLong(cooldownInput.getText());
+            Integer priorityValue = parseNullableInt(priorityInput.getText());
+            Double cannonPowerValue = parseNullableDouble(cannonPowerInput.getText());
+            if (minXValue == null || minYValue == null || minZValue == null || maxXValue == null || maxYValue == null || maxZValue == null) {
+                new Notification("Error", "Invalid Bounds", Notification.Type.ERROR);
+                return;
+            }
+            if (!WorldUiSupport.areOrderedBounds(minXValue, minYValue, minZValue, maxXValue, maxYValue, maxZValue)) {
+                new Notification("Error", "Bounds Order Invalid", Notification.Type.ERROR);
+                return;
+            }
+            if (destinationXValue == null || destinationYValue == null || destinationZValue == null || destinationYawValue == null || destinationPitchValue == null) {
+                new Notification("Error", "Invalid Target Position", Notification.Type.ERROR);
+                return;
+            }
+            if (usageFeeValue == null) {
+                new Notification("Error", "Invalid Fee", Notification.Type.ERROR);
+                return;
+            }
+            if (cooldownValue == null) {
+                new Notification("Error", "Invalid Cooldown", Notification.Type.ERROR);
+                return;
+            }
+            if (priorityValue == null) {
+                new Notification("Error", "Invalid Priority", Notification.Type.ERROR);
+                return;
+            }
+            if (cannonPowerValue == null || cannonPowerValue <= 0.0) {
+                new Notification("Error", "Invalid Cannon Power", Notification.Type.ERROR);
+                return;
+            }
+            double minX = minXValue;
+            double minY = minYValue;
+            double minZ = minZValue;
+            double maxX = maxXValue;
+            double maxY = maxYValue;
+            double maxZ = maxZValue;
+            double destinationX = destinationXValue;
+            double destinationY = destinationYValue;
+            double destinationZ = destinationZValue;
+            float destinationYaw = destinationYawValue;
+            float destinationPitch = destinationPitchValue;
+            String accessPermission = safeText(accessPermissionInput.getText()).trim();
+            String bypassPermission = safeText(bypassPermissionInput.getText()).trim();
+            boolean usageFeeEnabled = usageFeeToggle.getValue();
+            double usageFee = usageFeeValue;
+            long cooldownMillis = cooldownValue;
+            int priority = priorityValue;
+            boolean safeTeleport = safeTeleportToggle.getValue();
+            boolean preserveVelocity = preserveVelocityToggle.getValue();
+            boolean vehiclePassthroughEnabled = vehiclePassthroughToggle.getValue();
+            boolean entityPassthroughEnabled = entityPassthroughToggle.getValue();
+            String destinationMode = safeText(destinationModeSelect.getSelectedItem()).trim();
+            if (destinationMode.isBlank()) {
+                destinationMode = "WORLD";
+            }
+            double cannonPower = cannonPowerValue;
+            String enterMessage = safeText(enterMessageInput.getText()).trim();
+            if (editing) {
+                flowManager.suppressNextWorldSuccessNotification(serverId, "resizePortal");
+                flowManager.resizePortal(serverId, existingPortal.getPortalId(), portalName, sourceWorld, minX, minY, minZ, maxX, maxY, maxZ,
+                    destinationWorld, destinationX, destinationY, destinationZ, destinationYaw, destinationPitch, enabledToggle.getValue(),
+                    accessPermission, bypassPermission, usageFeeEnabled, usageFee, cooldownMillis, priority, safeTeleport, preserveVelocity, enterMessage,
+                    vehiclePassthroughEnabled, entityPassthroughEnabled, destinationMode, cannonPower);
+            } else {
+                flowManager.suppressNextWorldSuccessNotification(serverId, "createPortal");
+                flowManager.createPortal(serverId, portalName, sourceWorld, minX, minY, minZ, maxX, maxY, maxZ,
+                    destinationWorld, destinationX, destinationY, destinationZ, destinationYaw, destinationPitch, enabledToggle.getValue(),
+                    accessPermission, bypassPermission, usageFeeEnabled, usageFee, cooldownMillis, priority, safeTeleport, preserveVelocity, enterMessage,
+                    vehiclePassthroughEnabled, entityPassthroughEnabled, destinationMode, cannonPower);
+            }
+            new Notification("ReSync", editing ? "Portal Saved" : "Portal Created", Notification.Type.SUCCESS);
+            if (popupRef[0] != null) {
+                popupRef[0].hide();
+            }
+        }, editing ? "Save" : "Create", ThemeManager.getAccent("nice"));
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private void showPortalTeleportPopup(String portalId) {
+        WorldPortal portal = flowManager.getWorldPortal(serverId, portalId);
+        if (portal == null) {
+            return;
+        }
+        List<String> playerOptions = onlinePlayerNames();
+        String portalLabel = safeText(portal.getPortalName()).isBlank() ? safeText(portal.getPortalId()) : safeText(portal.getPortalName());
+        PopupWidget.Builder builder = new PopupWidget.Builder("Teleport To Portal · " + portalLabel).setResizable(false);
+        SelectorWidgets playerSelector = createSelectorWidgets("Player Name", playerOptions, "", 220, true, Function.identity());
+        builder.addRow("Player", true, 18, playerSelector.input, playerSelector.dropdown);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton teleportButton = new AnimatedButton.Builder()
+            .label("Teleport")
+            .accentType(ThemeManager.getAccent("nice"))
+            .onClick(() -> {
+                String playerName = selectedSelectorValue(playerSelector).trim();
+                if (playerName.isBlank()) {
+                    new Notification("Error", "Player Name Required", Notification.Type.ERROR);
+                    return;
+                }
+                flowManager.suppressNextWorldSuccessNotification(serverId, "teleportPlayerToPortal");
+                flowManager.teleportPlayerToPortal(serverId, playerName, portal.getPortalId());
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+            })
+            .build();
+        builder.addRow("", true, 20, teleportButton);
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private void showWorldTeleportPopup(String worldName) {
+        WorldRegistryEntry world = flowManager.getWorld(serverId, worldName);
+        if (world == null) {
+            return;
+        }
+        List<String> playerOptions = onlinePlayerNames();
+        PopupWidget.Builder builder = new PopupWidget.Builder("Teleport To World · " + worldName).setResizable(false).size(420, 205);
+        SelectorWidgets playerSelector = createSelectorWidgets("Player Name", playerOptions, "", 220, true, Function.identity());
+        TextInputWidget xInput = new TextInputWidget.Builder().placeholder("X").size(85, 20).build();
+        TextInputWidget yInput = new TextInputWidget.Builder().placeholder("Y").size(85, 20).build();
+        TextInputWidget zInput = new TextInputWidget.Builder().placeholder("Z").size(85, 20).build();
+        TextInputWidget yawInput = new TextInputWidget.Builder().placeholder("Yaw").size(85, 20).build();
+        TextInputWidget pitchInput = new TextInputWidget.Builder().placeholder("Pitch").size(85, 20).build();
+        builder.addRow("Player", true, 18, playerSelector.input, playerSelector.dropdown);
+        builder.addRow("Pos", true, 18, xInput, yInput, zInput);
+        builder.addRow("Look", true, 18, yawInput, pitchInput);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton spawnButton = new AnimatedButton.Builder()
+            .label("World Spawn")
+            .onClick(() -> {
+                String playerName = selectedSelectorValue(playerSelector).trim();
+                if (playerName.isBlank()) {
+                    new Notification("Error", "Player Name Required", Notification.Type.ERROR);
+                    return;
+                }
+                flowManager.suppressNextWorldSuccessNotification(serverId, "teleportPlayerToWorldSpawn");
+                flowManager.teleportPlayerToWorldSpawn(serverId, playerName, worldName);
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+            })
+            .build();
+        AnimatedButton teleportButton = new AnimatedButton.Builder()
+            .label("Teleport")
+            .accentType(ThemeManager.getAccent("nice"))
+            .onClick(() -> {
+                String playerName = selectedSelectorValue(playerSelector).trim();
+                if (playerName.isBlank()) {
+                    new Notification("Error", "Player Name Required", Notification.Type.ERROR);
+                    return;
+                }
+                if (!WorldUiSupport.isCompleteOrBlank(xInput.getText(), yInput.getText(), zInput.getText())) {
+                    new Notification("Error", "Complete Position", Notification.Type.ERROR);
+                    return;
+                }
+                if (!WorldUiSupport.isCompleteOrBlank(yawInput.getText(), pitchInput.getText())) {
+                    new Notification("Error", "Complete Rotation", Notification.Type.ERROR);
+                    return;
+                }
+                Double x = parseNullableDouble(xInput.getText());
+                Double y = parseNullableDouble(yInput.getText());
+                Double z = parseNullableDouble(zInput.getText());
+                Float yaw = parseNullableFloat(yawInput.getText());
+                Float pitch = parseNullableFloat(pitchInput.getText());
+                if (WorldUiSupport.hasAnyValue(xInput.getText(), yInput.getText(), zInput.getText()) && (x == null || y == null || z == null)) {
+                    new Notification("Error", "Invalid Position", Notification.Type.ERROR);
+                    return;
+                }
+                if (WorldUiSupport.hasAnyValue(yawInput.getText(), pitchInput.getText()) && (yaw == null || pitch == null)) {
+                    new Notification("Error", "Invalid Rotation", Notification.Type.ERROR);
+                    return;
+                }
+                flowManager.suppressNextWorldSuccessNotification(serverId, "teleportPlayerToWorld");
+                flowManager.teleportPlayerToWorld(serverId, playerName, worldName, x, y, z, yaw, pitch);
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+            })
+            .build();
+        builder.addRow("", true, 20, spawnButton, teleportButton);
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private void showWorldPurgePopup(String worldName) {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Purge Entities · " + worldName)
+            .setResizable(false)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(420, 215);
+
+        ToggleWidget monstersToggle = new ToggleWidget.Builder().label("Monsters").toggled(true).size(95, 18).build();
+        ToggleWidget animalsToggle = new ToggleWidget.Builder().label("Animals").toggled(false).size(90, 18).build();
+        ToggleWidget ambientToggle = new ToggleWidget.Builder().label("Ambient").toggled(false).size(90, 18).build();
+        ToggleWidget miscToggle = new ToggleWidget.Builder().label("Misc").toggled(false).size(80, 18).build();
+        ToggleWidget vehiclesToggle = new ToggleWidget.Builder().label("Vehicles").toggled(false).size(90, 18).build();
+        ToggleWidget itemsToggle = new ToggleWidget.Builder().label("Items").toggled(false).size(80, 18).build();
+
+        builder.addRow("Types", true, 18, monstersToggle, animalsToggle, ambientToggle);
+        builder.addRow("More", true, 18, miscToggle, vehiclesToggle, itemsToggle);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton purgeButton = new AnimatedButton.Builder()
+            .label("Purge")
+            .accentType(ThemeManager.getAccent("danger"))
+            .onClick(() -> {
+                if (!monstersToggle.getValue() && !animalsToggle.getValue() && !ambientToggle.getValue() && !miscToggle.getValue()
+                    && !vehiclesToggle.getValue() && !itemsToggle.getValue()) {
+                    new Notification("Error", "Select Purge Types", Notification.Type.ERROR);
+                    return;
+                }
+                flowManager.suppressNextWorldSuccessNotification(serverId, "purgeWorld");
+                flowManager.purgeWorld(serverId, worldName, monstersToggle.getValue(), animalsToggle.getValue(), ambientToggle.getValue(),
+                    miscToggle.getValue(), vehiclesToggle.getValue(), itemsToggle.getValue());
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+            })
+            .build();
+        builder.addRow("", true, 20, purgeButton);
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private void showWorldUnloadPopup(String worldName) {
+        List<String> fallbackOptions = fallbackWorldOptions(worldName);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Unload World · " + worldName)
+            .setResizable(false)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(430, 145);
+        String defaultFallbackWorld = selectDefaultFallbackWorld(worldName, fallbackOptions);
+        SelectorWidgets fallbackSelector = createSelectorWidgets("Fallback World", fallbackOptions,
+            defaultFallbackWorld, 200, false, Function.identity());
+        builder.addRow("Fallback", true, 18, fallbackSelector.input, fallbackSelector.dropdown);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton unloadButton = new AnimatedButton.Builder()
+            .label("Unload")
+            .accentType(ThemeManager.getAccent("danger"))
+            .onClick(() -> {
+                String fallbackWorld = selectedSelectorValue(fallbackSelector).trim();
+                if (fallbackWorld.isBlank()) {
+                    new Notification("Error", "Fallback World Required", Notification.Type.ERROR);
+                    return;
+                }
+                if (!WorldUiSupport.containsIgnoreCase(fallbackOptions, fallbackWorld)) {
+                    new Notification("Error", "Unknown Fallback World", Notification.Type.ERROR);
+                    return;
+                }
+                flowManager.suppressNextWorldSuccessNotification(serverId, "unloadWorld");
+                flowManager.unloadWorld(serverId, worldName, fallbackWorld);
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+            })
+            .build();
+        builder.addRow("", true, 20, unloadButton);
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private void showWorldDeletePopup(String worldName) {
+        List<String> fallbackOptions = fallbackWorldOptions(worldName);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Delete World · " + worldName)
+            .setResizable(false)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(460, 175);
+        String defaultFallbackWorld = selectDefaultFallbackWorld(worldName, fallbackOptions);
+        SelectorWidgets fallbackSelector = createSelectorWidgets("Fallback World", fallbackOptions,
+            defaultFallbackWorld, 200, false, Function.identity());
+        ToggleWidget deleteFilesToggle = new ToggleWidget.Builder().label("Delete Files").toggled(false).size(100, 18).build();
+        builder.addRow("Delete Files", true, 18, deleteFilesToggle);
+        builder.addRow("Fallback", true, 18, fallbackSelector.input, fallbackSelector.dropdown);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton deleteButton = new AnimatedButton.Builder()
+            .label("Delete")
+            .accentType(ThemeManager.getAccent("danger"))
+            .onClick(() -> {
+                String fallbackWorld = selectedSelectorValue(fallbackSelector).trim();
+                if (fallbackWorld.isBlank()) {
+                    new Notification("Error", "Fallback World Required", Notification.Type.ERROR);
+                    return;
+                }
+                if (!WorldUiSupport.containsIgnoreCase(fallbackOptions, fallbackWorld)) {
+                    new Notification("Error", "Unknown Fallback World", Notification.Type.ERROR);
+                    return;
+                }
+                flowManager.suppressNextWorldSuccessNotification(serverId, "deleteWorld");
+                flowManager.deleteWorld(serverId, worldName, deleteFilesToggle.getValue(), fallbackWorld);
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+            })
+            .build();
+        builder.addRow("", true, 20, deleteButton);
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private void showPortalDeletePopup(String portalId) {
+        WorldPortal portal = flowManager.getWorldPortal(serverId, portalId);
+        if (portal == null) {
+            return;
+        }
+        showDeleteConfirmation("Delete Portal · " + (safeText(portal.getPortalName()).isBlank() ? safeText(portal.getPortalId()) : safeText(portal.getPortalName())),
+            () -> flowManager.deletePortal(serverId, portal.getPortalId()));
+    }
+
+    private void showInventoryGroupDeletePopup(String groupId) {
+        WorldInventoryGroup group = flowManager.getWorldInventoryGroup(serverId, groupId);
+        if (group == null) {
+            return;
+        }
+        showDeleteConfirmation("Delete Group · " + (safeText(group.getDisplayName()).isBlank() ? safeText(group.getGroupId()) : safeText(group.getDisplayName())),
+            () -> flowManager.deleteInventoryGroup(serverId, group.getGroupId()));
+    }
+
+    private void showSignPortalDeletePopup(String signId) {
+        WorldSignPortal signPortal = flowManager.getWorldSignPortal(serverId, signId);
+        if (signPortal == null) {
+            return;
+        }
+        showDeleteConfirmation("Delete Sign · " + safeText(signPortal.getWorldName()) + " " + signPortal.getX() + "," + signPortal.getY() + "," + signPortal.getZ(),
+            () -> flowManager.deleteSignPortal(serverId, signPortal.getSignId()));
+    }
+
+    private void showDeleteConfirmation(String title, Runnable action) {
+        PopupWidget.Builder builder = new PopupWidget.Builder(title)
+            .setResizable(false)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(400, 120);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton confirmButton = new AnimatedButton.Builder()
+            .label("Confirm")
+            .accentType(ThemeManager.getAccent("danger"))
+            .onClick(() -> {
+                action.run();
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+            })
+            .build();
+        builder.addRow("", true, 20, confirmButton);
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
     private void showCreateWorldPopup() {
-        PopupWidget.Builder builder = new PopupWidget.Builder("CreateWorld").setResizable(false);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Create World").setResizable(false);
         WorldSnapshot snapshot = flowManager.getWorldSnapshot(serverId);
         List<String> generatorHints = snapshot == null ? List.of() : snapshot.getGeneratorHints();
+        List<WorldGeneratorDescriptor> generatorDescriptors = snapshot == null ? List.of() : snapshot.getGeneratorDescriptors();
+        List<String> knownWorlds = worldNameOptions();
 
-        TextInputWidget worldInput = new TextInputWidget.Builder().placeholder("WorldName").size(220, 18).build();
+        TextInputWidget worldInput = new TextInputWidget.Builder().placeholder("World Name").size(220, 18).build();
         TextInputWidget seedInput = new TextInputWidget.Builder().placeholder("Seed").size(220, 18).build();
-        TextInputWidget environmentInput = new TextInputWidget.Builder().placeholder("Environment").text("NORMAL").size(220, 18).build();
-        TextInputWidget generatorInput = new TextInputWidget.Builder().placeholder("Generator").size(220, 18).build();
+        DropDownWidget<String> environmentSelect = new DropDownWidget.Builder<>(List.of("NORMAL", "NETHER", "THE_END", "CUSTOM"))
+            .size(220, 18)
+            .selectedItem("NORMAL")
+            .build();
+        List<String> generatorOptions = new ArrayList<>();
+        generatorOptions.add("Default");
+        for (WorldGeneratorDescriptor descriptor : generatorDescriptors) {
+            if (descriptor != null && descriptor.getId() != null && !descriptor.getId().isBlank()) {
+                generatorOptions.add(descriptor.getId());
+            }
+        }
+        DropDownWidget<String> generatorSelect = new DropDownWidget.Builder<>(generatorOptions)
+            .size(220, 18)
+            .selectedItem(generatorOptions.getFirst())
+            .displayFunction(value -> {
+                if (value == null || value.isBlank() || "Default".equalsIgnoreCase(value)) {
+                    return "Default";
+                }
+                WorldGeneratorDescriptor descriptor = findGeneratorDescriptor(generatorDescriptors, value);
+                return descriptor != null && descriptor.getDisplayName() != null && !descriptor.getDisplayName().isBlank() ? descriptor.getDisplayName() : value;
+            })
+            .build();
+        TextInputWidget generatorConfigInput = new TextInputWidget.Builder().placeholder("Generator Config").size(220, 18).build();
+        generatorConfigInput.active = false;
+        generatorSelect.setOnSelectionChanged(selected -> {
+            WorldGeneratorDescriptor descriptor = findGeneratorDescriptor(generatorDescriptors, selected);
+            if (descriptor != null && descriptor.isConfigurable()) {
+                generatorConfigInput.active = true;
+                generatorConfigInput.setText(descriptor.getDefaultConfig() == null ? "" : descriptor.getDefaultConfig());
+            } else {
+                generatorConfigInput.active = false;
+                generatorConfigInput.setText("");
+            }
+        });
 
         builder.addRow("World", true, 18, worldInput);
         builder.addRow("Seed", true, 18, seedInput);
-        builder.addRow("Env", true, 18, environmentInput);
-        builder.addRow("Generator", true, 18, generatorInput);
+        builder.addRow("Environment", true, 18, environmentSelect);
+        builder.addRow("Generator", true, 18, generatorSelect);
+        builder.addRow("Config", true, 18, generatorConfigInput);
         if (!generatorHints.isEmpty()) {
             String hintsText = String.join(", ", generatorHints.stream().limit(4).toList());
             if (generatorHints.size() > 4) {
@@ -1231,11 +2008,20 @@ public class FlowManagerScreen extends ReScreen {
             .accentType(ThemeManager.getAccent("nice"))
             .onClick(() -> {
                 String worldName = worldInput.getText() != null ? worldInput.getText().trim() : "";
-                if (!worldName.matches("^[a-zA-Z0-9_\\-]+$")) {
-                    new Notification("Error", "InvalidWorldName", Notification.Type.ERROR);
+                if (!WorldUiSupport.isValidSimpleId(worldName)) {
+                    new Notification("Error", "Invalid World Name", Notification.Type.ERROR);
                     return;
                 }
-                flowManager.createWorld(serverId, worldName, seedInput.getText(), environmentInput.getText(), generatorInput.getText());
+                if (WorldUiSupport.containsIgnoreCase(knownWorlds, worldName)) {
+                    new Notification("Error", "World Already Exists", Notification.Type.ERROR);
+                    return;
+                }
+                String generatorId = generatorSelect.getSelectedItem();
+                if (generatorId != null && generatorId.equalsIgnoreCase("Default")) {
+                    generatorId = "";
+                }
+                String environment = safeText(environmentSelect.getSelectedItem()).trim();
+                flowManager.createWorld(serverId, worldName, seedInput.getText(), environment, generatorId, generatorConfigInput.getText());
                 if (popupRef[0] != null) {
                     popupRef[0].hide();
                 }
@@ -1249,12 +2035,11 @@ public class FlowManagerScreen extends ReScreen {
     }
 
     private void showCloneWorldPopup(String sourceWorld) {
-        PopupWidget.Builder builder = new PopupWidget.Builder("CloneWorld").setResizable(false);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Clone World · " + sourceWorld).setResizable(false);
 
-        TextInputWidget worldInput = new TextInputWidget.Builder().placeholder("TargetWorld").size(220, 18).build();
-        ToggleWidget loadAfterToggle = new ToggleWidget.Builder().label("LoadAfter").toggled(true).size(80, 18).build();
+        TextInputWidget worldInput = new TextInputWidget.Builder().placeholder("Target World").size(220, 18).build();
+        ToggleWidget loadAfterToggle = new ToggleWidget.Builder().label("Load After").toggled(true).size(80, 18).build();
 
-        builder.addRow("Source", true, 18, new IconButton.Builder().label(sourceWorld).autoWidthOnTextChange(true).build());
         builder.addRow("Target", true, 18, worldInput);
         builder.addRow("", true, 18, loadAfterToggle);
 
@@ -1264,8 +2049,16 @@ public class FlowManagerScreen extends ReScreen {
             .accentType(ThemeManager.getAccent("nice"))
             .onClick(() -> {
                 String targetWorld = worldInput.getText() != null ? worldInput.getText().trim() : "";
-                if (!targetWorld.matches("^[a-zA-Z0-9_\\-]+$")) {
-                    new Notification("Error", "InvalidWorldName", Notification.Type.ERROR);
+                if (!WorldUiSupport.isValidSimpleId(targetWorld)) {
+                    new Notification("Error", "Invalid World Name", Notification.Type.ERROR);
+                    return;
+                }
+                if (targetWorld.equalsIgnoreCase(sourceWorld)) {
+                    new Notification("Error", "Choose A Different Target World", Notification.Type.ERROR);
+                    return;
+                }
+                if (WorldUiSupport.containsIgnoreCase(worldNameOptions(), targetWorld)) {
+                    new Notification("Error", "World Already Exists", Notification.Type.ERROR);
                     return;
                 }
                 flowManager.cloneWorld(serverId, sourceWorld, targetWorld, loadAfterToggle.getValue());
@@ -1288,20 +2081,173 @@ public class FlowManagerScreen extends ReScreen {
         }
         WorldSnapshot snapshot = flowManager.getWorldSnapshot(serverId);
         List<WorldGameRuleDescriptor> descriptors = snapshot == null ? List.of() : snapshot.getGameRuleDescriptors();
-        PopupWidget.Builder builder = new PopupWidget.Builder("World Settings").setResizable(true).setAntiOutOfBound(true).setBoundOffset(desktopMode ? 35 : 0).size(470, 420);
+        List<WorldInventoryGroup> inventoryGroups = snapshot == null ? List.of() : snapshot.getInventoryGroups();
+        List<String> worldOptions = worldNameOptions();
+        List<String> inventoryGroupOptions = new ArrayList<>();
+        inventoryGroupOptions.add("None");
+        List<String> sortedGroupIds = new ArrayList<>();
+        for (WorldInventoryGroup inventoryGroup : inventoryGroups) {
+            if (inventoryGroup != null && inventoryGroup.getGroupId() != null && !inventoryGroup.getGroupId().isBlank()) {
+                sortedGroupIds.add(inventoryGroup.getGroupId());
+            }
+        }
+        sortedGroupIds.sort(String.CASE_INSENSITIVE_ORDER);
+        inventoryGroupOptions.addAll(sortedGroupIds);
+        String selectedInventoryGroup = safeText(world.getProfileSettings().getInventoryGroupId()).trim();
+        if (selectedInventoryGroup.isBlank()) {
+            selectedInventoryGroup = "None";
+        } else if (!inventoryGroupOptions.contains(selectedInventoryGroup)) {
+            inventoryGroupOptions.add(selectedInventoryGroup);
+        }
+        PopupWidget.Builder builder = new PopupWidget.Builder("World Settings · " + worldName)
+            .setResizable(true)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(620, 430);
+        WorldProfileSettings profile = world.getProfileSettings();
+        Map<String, List<String>> sectionRows = new LinkedHashMap<>();
+        Map<String, String> sectionDescriptions = new LinkedHashMap<>();
+        sectionDescriptions.put("Basics", "Name, visibility, difficulty, and shared player data.");
+        sectionDescriptions.put("Access", "Who can enter, what it costs, and what they see.");
+        sectionDescriptions.put("Spawn", "Where players arrive and which game mode they get.");
+        sectionDescriptions.put("Rules", "Combat, saves, mobs, hunger, and healing.");
+        sectionDescriptions.put("Links", "Portal routing between overworld, nether, and end.");
+        sectionDescriptions.put("Game Rules", "Vanilla gamerules for this world.");
+        sectionDescriptions.put("Advanced", "Low-level world state like isolated data, time, and weather.");
 
-        TextInputWidget difficultyInput = new TextInputWidget.Builder().text(safeText(world.getDifficulty())).placeholder("Difficulty").size(180, 20).build();
-        ToggleWidget isolated = new ToggleWidget.Builder().label("IsolatedState").toggled(world.isIsolatedPlayerState()).size(110, 18).build();
-        ToggleWidget timeLock = new ToggleWidget.Builder().label("TimeLock").toggled(world.isTimeLockEnabled()).size(90, 18).build();
-        TextInputWidget lockedTimeInput = new TextInputWidget.Builder().text(String.valueOf(world.getLockedTime())).placeholder("LockedTime").size(120, 20).build();
-        ToggleWidget weatherLock = new ToggleWidget.Builder().label("WeatherLock").toggled(world.isWeatherLockEnabled()).size(100, 18).build();
+        List<String> difficultyOptions = WorldUiSupport.mergeOptions(List.of("PEACEFUL", "EASY", "NORMAL", "HARD"), safeText(world.getDifficulty()).trim().toUpperCase(Locale.ROOT));
+        DropDownWidget<String> difficultySelect = new DropDownWidget.Builder<>(difficultyOptions)
+            .size(180, 18)
+            .selectedItem(safeText(world.getDifficulty()).trim().isBlank() ? "NORMAL" : safeText(world.getDifficulty()).trim().toUpperCase(Locale.ROOT))
+            .build();
+        TextInputWidget aliasInput = new TextInputWidget.Builder().text(safeText(profile.getAlias())).placeholder("Alias").size(180, 20).build();
+        ToggleWidget hiddenToggle = new ToggleWidget.Builder().label("Hidden").toggled(profile.isHidden()).size(80, 18).build();
+        TextInputWidget accessPermissionInput = new TextInputWidget.Builder().text(safeText(profile.getAccessPermission())).placeholder("Access Permission").size(180, 20).build();
+        TextInputWidget bypassPermissionInput = new TextInputWidget.Builder().text(safeText(profile.getBypassPermission())).placeholder("Bypass Permission").size(180, 20).build();
+        SelectorWidgets respawnWorldSelector = createSelectorWidgets("Respawn World", worldOptions, safeText(profile.getRespawnWorld()), 180, true, Function.identity());
+        ToggleWidget forceGameModeToggle = new ToggleWidget.Builder().label("Force Game Mode").toggled(profile.isForceGameMode()).size(110, 18).build();
+        DropDownWidget<String> gameModeSelect = new DropDownWidget.Builder<>(List.of("SURVIVAL", "CREATIVE", "ADVENTURE", "SPECTATOR"))
+            .size(140, 18)
+            .selectedItem(safeText(profile.getGameMode()).isBlank() ? "SURVIVAL" : safeText(profile.getGameMode()).toUpperCase(Locale.ROOT))
+            .build();
+        ToggleWidget customSpawnToggle = new ToggleWidget.Builder().label("Custom Spawn").toggled(profile.isCustomSpawnEnabled()).size(110, 18).build();
+        TextInputWidget spawnXInput = new TextInputWidget.Builder().text(String.valueOf(profile.getSpawnX())).placeholder("Spawn X").size(90, 20).build();
+        TextInputWidget spawnYInput = new TextInputWidget.Builder().text(String.valueOf(profile.getSpawnY())).placeholder("Spawn Y").size(90, 20).build();
+        TextInputWidget spawnZInput = new TextInputWidget.Builder().text(String.valueOf(profile.getSpawnZ())).placeholder("Spawn Z").size(90, 20).build();
+        TextInputWidget spawnYawInput = new TextInputWidget.Builder().text(String.valueOf(profile.getSpawnYaw())).placeholder("Spawn Yaw").size(90, 20).build();
+        TextInputWidget spawnPitchInput = new TextInputWidget.Builder().text(String.valueOf(profile.getSpawnPitch())).placeholder("Spawn Pitch").size(90, 20).build();
+        ToggleWidget entryFeeToggle = new ToggleWidget.Builder().label("Entry Fee").toggled(profile.isEntryFeeEnabled()).size(90, 18).build();
+        TextInputWidget entryFeeInput = new TextInputWidget.Builder().text(String.valueOf(profile.getEntryFee())).placeholder("Entry Fee Amount").size(120, 20).build();
+        ToggleWidget pvpToggle = new ToggleWidget.Builder().label("PVP").toggled(profile.isPvpEnabled()).size(70, 18).build();
+        ToggleWidget keepSpawnLoadedToggle = new ToggleWidget.Builder().label("Keep Spawn Loaded").toggled(profile.isKeepSpawnLoaded()).size(105, 18).build();
+        ToggleWidget autoSaveToggle = new ToggleWidget.Builder().label("Auto Save").toggled(profile.isAutoSaveEnabled()).size(95, 18).build();
+        ToggleWidget animalSpawnsToggle = new ToggleWidget.Builder().label("Animal Spawns").toggled(profile.isAnimalSpawnsEnabled()).size(120, 18).build();
+        ToggleWidget monsterSpawnsToggle = new ToggleWidget.Builder().label("Monster Spawns").toggled(profile.isMonsterSpawnsEnabled()).size(125, 18).build();
+        ToggleWidget hungerToggle = new ToggleWidget.Builder().label("Hunger").toggled(profile.isHungerEnabled()).size(85, 18).build();
+        ToggleWidget autoHealToggle = new ToggleWidget.Builder().label("Auto Heal").toggled(profile.isAutoHealEnabled()).size(95, 18).build();
+        ToggleWidget bedRespawnToggle = new ToggleWidget.Builder().label("Bed Respawn").toggled(profile.isBedRespawnEnabled()).size(110, 18).build();
+        ToggleWidget anchorRespawnToggle = new ToggleWidget.Builder().label("Anchor Respawn").toggled(profile.isAnchorRespawnEnabled()).size(125, 18).build();
+        ToggleWidget nonLivingSpawnsToggle = new ToggleWidget.Builder().label("Misc Spawns").toggled(profile.isNonLivingEntitySpawnsEnabled()).size(115, 18).build();
+        TextInputWidget arrivalMessageInput = new TextInputWidget.Builder().text(safeText(profile.getArrivalMessage())).placeholder("Arrival Message").size(240, 20).build();
+        TextInputWidget denyMessageInput = new TextInputWidget.Builder().text(safeText(profile.getDenyMessage())).placeholder("Deny Message").size(240, 20).build();
+        DropDownWidget<String> inventoryGroupSelect = new DropDownWidget.Builder<>(inventoryGroupOptions)
+            .size(220, 18)
+            .selectedItem(selectedInventoryGroup)
+            .displayFunction(value -> formatInventoryGroupOption(inventoryGroups, value))
+            .build();
+        SelectorWidgets linkedNetherWorldSelector = createSelectorWidgets("Linked Nether World", worldOptions, safeText(profile.getLinkedNetherWorld()), 170, true, Function.identity());
+        SelectorWidgets linkedEndWorldSelector = createSelectorWidgets("Linked End World", worldOptions, safeText(profile.getLinkedEndWorld()), 170, true, Function.identity());
+        SelectorWidgets linkedOverworldSelector = createSelectorWidgets("Linked Overworld", worldOptions, safeText(profile.getLinkedOverworld()), 170, true, Function.identity());
+        TextInputWidget netherScaleInput = new TextInputWidget.Builder().text(formatDecimal(profile.getNetherScale())).placeholder("Nether Scale").size(120, 20).build();
+        TextInputWidget endScaleInput = new TextInputWidget.Builder().text(formatDecimal(profile.getEndScale())).placeholder("End Scale").size(120, 20).build();
+        ToggleWidget autoLinkNetherToggle = new ToggleWidget.Builder().label("Auto Link Nether").toggled(profile.isAutoLinkNetherPortal()).size(105, 18).build();
+        ToggleWidget autoLinkEndToggle = new ToggleWidget.Builder().label("Auto Link End").toggled(profile.isAutoLinkEndPortal()).size(95, 18).build();
+        ToggleWidget isolated = new ToggleWidget.Builder().label("Isolated State").toggled(world.isIsolatedPlayerState()).size(110, 18).build();
+        ToggleWidget timeLock = new ToggleWidget.Builder().label("Time Lock").toggled(world.isTimeLockEnabled()).size(90, 18).build();
+        TextInputWidget lockedTimeInput = new TextInputWidget.Builder().text(String.valueOf(world.getLockedTime())).placeholder("Locked Time").size(120, 20).build();
+        ToggleWidget weatherLock = new ToggleWidget.Builder().label("Weather Lock").toggled(world.isWeatherLockEnabled()).size(100, 18).build();
         ToggleWidget storm = new ToggleWidget.Builder().label("Storm").toggled(world.isLockedStorm()).size(70, 18).build();
         ToggleWidget thundering = new ToggleWidget.Builder().label("Thunder").toggled(world.isLockedThundering()).size(80, 18).build();
         Map<String, ToggleWidget> booleanRules = new HashMap<>();
         Map<String, TextInputWidget> valueRules = new HashMap<>();
         List<Widget> booleanRow = new ArrayList<>();
+        DropDownWidget<String> sectionSelect = new DropDownWidget.Builder<>(new ArrayList<>(sectionDescriptions.keySet()))
+            .size(220, 18)
+            .selectedItem("Basics")
+            .build();
+        sectionSelect.setHint(sectionDescriptions.get("Basics"));
+        difficultySelect.setHint("How hard this world should feel for players.");
+        aliasInput.setHint("Optional display name shown instead of the raw world id.");
+        hiddenToggle.setHint("Hide this world from normal world browsing when enabled.");
+        inventoryGroupSelect.setHint(describeInventoryGroupSelection(inventoryGroups, selectedInventoryGroup));
+        accessPermissionInput.setHint("Players need this permission to enter the world. Leave empty for open access.");
+        bypassPermissionInput.setHint("Players with this permission skip entry restrictions and fees.");
+        entryFeeToggle.setHint("Charge players when they enter this world.");
+        entryFeeInput.setHint("How much entry costs when entry fee is enabled.");
+        arrivalMessageInput.setHint("Optional message shown when a player enters this world.");
+        denyMessageInput.setHint("Optional message shown when entry is blocked.");
+        respawnWorldSelector.input.setHint("Optional world players should respawn in after dying here.");
+        respawnWorldSelector.dropdown.setHint("Pick a known respawn world.");
+        forceGameModeToggle.setHint("Force everyone entering this world into a specific game mode.");
+        gameModeSelect.setHint("Game mode applied when force game mode is enabled.");
+        customSpawnToggle.setHint("Send players to this exact spawn instead of the default world spawn.");
+        spawnXInput.setHint("Custom spawn X position.");
+        spawnYInput.setHint("Custom spawn Y position.");
+        spawnZInput.setHint("Custom spawn Z position.");
+        spawnYawInput.setHint("Direction players face at the custom spawn.");
+        spawnPitchInput.setHint("Vertical look angle at the custom spawn.");
+        pvpToggle.setHint("Allow player versus player combat in this world.");
+        keepSpawnLoadedToggle.setHint("Keep the spawn chunks loaded even when nobody is nearby.");
+        autoSaveToggle.setHint("Let the world save itself automatically.");
+        animalSpawnsToggle.setHint("Allow passive mobs to spawn naturally.");
+        monsterSpawnsToggle.setHint("Allow hostile mobs to spawn naturally.");
+        nonLivingSpawnsToggle.setHint("Allow non-living entities like dropped items, boats, or minecarts to appear naturally.");
+        hungerToggle.setHint("Let players lose hunger in this world.");
+        autoHealToggle.setHint("Let players heal naturally when their hunger is high enough.");
+        bedRespawnToggle.setHint("Allow beds to set respawn points here.");
+        anchorRespawnToggle.setHint("Allow respawn anchors to work here.");
+        linkedNetherWorldSelector.input.setHint("Optional nether partner world for portal travel. Leave empty for normal behavior.");
+        linkedNetherWorldSelector.dropdown.setHint("Pick a known nether-linked world.");
+        linkedEndWorldSelector.input.setHint("Optional end partner world for portal travel.");
+        linkedEndWorldSelector.dropdown.setHint("Pick a known end-linked world.");
+        linkedOverworldSelector.input.setHint("Optional overworld partner used when this world links back out.");
+        linkedOverworldSelector.dropdown.setHint("Pick a known overworld-linked world.");
+        netherScaleInput.setHint("Coordinate scale used for overworld to nether travel. Default is 8.");
+        endScaleInput.setHint("Coordinate scale used for overworld to end travel. Default is 1.");
+        autoLinkNetherToggle.setHint("Automatically create sensible nether portal links when possible.");
+        autoLinkEndToggle.setHint("Automatically create sensible end portal links when possible.");
+        isolated.setHint("Keep player inventory and state separate from other worlds.");
+        timeLock.setHint("Force this world to stay at one time of day.");
+        lockedTimeInput.setHint("The exact time to keep when time lock is enabled.");
+        weatherLock.setHint("Force this world to stay in one weather state.");
+        storm.setHint("Keep rain or snow enabled when weather lock is on.");
+        thundering.setHint("Keep thunder enabled when weather lock is on.");
+        inventoryGroupSelect.setOnSelectionChanged(value -> inventoryGroupSelect.setHint(describeInventoryGroupSelection(inventoryGroups, safeText(value))));
 
-        builder.addRow("Difficulty", true, 20, difficultyInput);
+        builder.addRow("Section", true, 18, sectionSelect);
+        addPopupSectionRow(builder, sectionRows, "Basics", "ws-basics-difficulty", "Difficulty", 18, difficultySelect);
+        addPopupSectionRow(builder, sectionRows, "Basics", "ws-basics-identity", "Identity", 18, aliasInput, hiddenToggle);
+        addPopupSectionRow(builder, sectionRows, "Basics", "ws-basics-group", "Inventory Group", 18, inventoryGroupSelect);
+        addPopupSectionRow(builder, sectionRows, "Access", "ws-access-permission", "Access Permission", 18, accessPermissionInput);
+        addPopupSectionRow(builder, sectionRows, "Access", "ws-access-bypass", "Bypass Permission", 18, bypassPermissionInput);
+        addPopupSectionRow(builder, sectionRows, "Access", "ws-access-entry-toggle", "Entry Fee", 18, entryFeeToggle);
+        addPopupSectionRow(builder, sectionRows, "Access", "ws-access-entry-amount", "Entry Fee Amount", 18, entryFeeInput);
+        addPopupSectionRow(builder, sectionRows, "Access", "ws-access-arrival", "Arrival Message", 18, arrivalMessageInput);
+        addPopupSectionRow(builder, sectionRows, "Access", "ws-access-deny", "Deny Message", 18, denyMessageInput);
+        addPopupSectionRow(builder, sectionRows, "Spawn", "ws-spawn-respawn", "Respawn World", 18, respawnWorldSelector.input, respawnWorldSelector.dropdown);
+        addPopupSectionRow(builder, sectionRows, "Spawn", "ws-spawn-gamemode-toggle", "Force Game Mode", 18, forceGameModeToggle);
+        addPopupSectionRow(builder, sectionRows, "Spawn", "ws-spawn-gamemode-value", "Game Mode", 18, gameModeSelect);
+        addPopupSectionRow(builder, sectionRows, "Spawn", "ws-spawn-custom-toggle", "Custom Spawn", 18, customSpawnToggle);
+        addPopupSectionRow(builder, sectionRows, "Spawn", "ws-spawn-position", "Spawn Position", 18, spawnXInput, spawnYInput, spawnZInput);
+        addPopupSectionRow(builder, sectionRows, "Spawn", "ws-spawn-look", "Spawn Rotation", 18, spawnYawInput, spawnPitchInput);
+        addPopupSectionRow(builder, sectionRows, "Rules", "ws-rules-world", "World Rules", 18, pvpToggle, keepSpawnLoadedToggle, autoSaveToggle);
+        addPopupSectionRow(builder, sectionRows, "Rules", "ws-rules-spawns", "Mob Spawns", 18, animalSpawnsToggle, monsterSpawnsToggle, nonLivingSpawnsToggle);
+        addPopupSectionRow(builder, sectionRows, "Rules", "ws-rules-player", "Player Survival", 18, hungerToggle, autoHealToggle, bedRespawnToggle, anchorRespawnToggle);
+        addPopupSectionRow(builder, sectionRows, "Links", "ws-links-nether", "Nether Link", 18, linkedNetherWorldSelector.input, linkedNetherWorldSelector.dropdown);
+        addPopupSectionRow(builder, sectionRows, "Links", "ws-links-end", "End Link", 18, linkedEndWorldSelector.input, linkedEndWorldSelector.dropdown);
+        addPopupSectionRow(builder, sectionRows, "Links", "ws-links-overworld", "Overworld Link", 18, linkedOverworldSelector.input, linkedOverworldSelector.dropdown);
+        addPopupSectionRow(builder, sectionRows, "Links", "ws-links-scale", "Scale", 18, netherScaleInput, endScaleInput);
+        addPopupSectionRow(builder, sectionRows, "Links", "ws-links-auto", "Auto Link", 18, autoLinkNetherToggle, autoLinkEndToggle);
         for (WorldGameRuleDescriptor descriptor : descriptors) {
             if (descriptor == null || descriptor.getName() == null || descriptor.getName().isBlank()) {
                 continue;
@@ -1313,10 +2259,11 @@ public class FlowManagerScreen extends ReScreen {
                     .toggled(ruleEnabled(world, ruleName))
                     .size(150, 18)
                     .build();
+                toggle.setHint("Vanilla game rule override for this world.");
                 booleanRules.put(ruleName, toggle);
                 booleanRow.add(toggle);
                 if (booleanRow.size() == 2) {
-                    builder.addRow("", true, 18, booleanRow.toArray(Widget[]::new));
+                    addPopupSectionRow(builder, sectionRows, "Game Rules", "ws-gamerules-bool-" + booleanRules.size(), "", 18, booleanRow.toArray(Widget[]::new));
                     booleanRow.clear();
                 }
                 continue;
@@ -1326,22 +2273,135 @@ public class FlowManagerScreen extends ReScreen {
                 .placeholder(prettyRuleName(ruleName))
                 .size(180, 20)
                 .build();
+            valueInput.setHint("Vanilla game rule override for this world.");
             valueRules.put(ruleName, valueInput);
-            builder.addRow(prettyRuleName(ruleName), true, 20, valueInput);
+            addPopupSectionRow(builder, sectionRows, "Game Rules", "ws-gamerules-value-" + ruleName, prettyRuleName(ruleName), 18, valueInput);
         }
         if (!booleanRow.isEmpty()) {
-            builder.addRow("", true, 18, booleanRow.toArray(Widget[]::new));
+            addPopupSectionRow(builder, sectionRows, "Game Rules", "ws-gamerules-bool-last", "", 18, booleanRow.toArray(Widget[]::new));
         }
-        builder.addRow("", true, 18, isolated);
-        builder.addRow("", true, 18, timeLock, lockedTimeInput);
-        builder.addRow("", true, 18, weatherLock, storm, thundering);
+        addPopupSectionRow(builder, sectionRows, "Advanced", "ws-advanced-isolated", "Player Data", 18, isolated);
+        addPopupSectionRow(builder, sectionRows, "Advanced", "ws-advanced-time-toggle", "Time Lock", 18, timeLock);
+        addPopupSectionRow(builder, sectionRows, "Advanced", "ws-advanced-locked-time", "Locked Time", 20, lockedTimeInput);
+        addPopupSectionRow(builder, sectionRows, "Advanced", "ws-advanced-weather-toggle", "Weather Lock", 18, weatherLock);
+        addPopupSectionRow(builder, sectionRows, "Advanced", "ws-advanced-locked-weather", "Locked Weather", 18, storm, thundering);
 
         PopupWidget[] popupRef = new PopupWidget[1];
+        Runnable refreshSectionVisibility = () -> {
+            if (popupRef[0] == null) {
+                return;
+            }
+            String activeSection = safeText(sectionSelect.getSelectedItem()).trim();
+            if (activeSection.isBlank()) {
+                activeSection = "Basics";
+            }
+            sectionSelect.setHint(safeText(sectionDescriptions.getOrDefault(activeSection, sectionDescriptions.get("Basics"))));
+            updatePopupSectionVisibility(popupRef[0], sectionRows, activeSection);
+            popupRef[0].setRowVisibility("ws-access-entry-amount", "Access".equalsIgnoreCase(activeSection) && entryFeeToggle.getValue());
+            popupRef[0].setRowVisibility("ws-spawn-gamemode-value", "Spawn".equalsIgnoreCase(activeSection) && forceGameModeToggle.getValue());
+            boolean showCustomSpawn = "Spawn".equalsIgnoreCase(activeSection) && customSpawnToggle.getValue();
+            popupRef[0].setRowVisibility("ws-spawn-position", showCustomSpawn);
+            popupRef[0].setRowVisibility("ws-spawn-look", showCustomSpawn);
+            popupRef[0].setRowVisibility("ws-advanced-locked-time", "Advanced".equalsIgnoreCase(activeSection) && timeLock.getValue());
+            popupRef[0].setRowVisibility("ws-advanced-locked-weather", "Advanced".equalsIgnoreCase(activeSection) && weatherLock.getValue());
+        };
+        sectionSelect.setOnSelectionChanged(value -> refreshSectionVisibility.run());
+        entryFeeToggle.setOnChange(refreshSectionVisibility);
+        forceGameModeToggle.setOnChange(refreshSectionVisibility);
+        customSpawnToggle.setOnChange(refreshSectionVisibility);
+        timeLock.setOnChange(refreshSectionVisibility);
+        weatherLock.setOnChange(refreshSectionVisibility);
         builder.addTitleButton(() -> {
+                String selectedDifficulty = safeText(difficultySelect.getSelectedItem()).trim();
+                String respawnWorld = selectedSelectorValue(respawnWorldSelector).trim();
+                String linkedNetherWorld = selectedSelectorValue(linkedNetherWorldSelector).trim();
+                String linkedEndWorld = selectedSelectorValue(linkedEndWorldSelector).trim();
+                String linkedOverworld = selectedSelectorValue(linkedOverworldSelector).trim();
+                Double spawnX = parseNullableDouble(spawnXInput.getText());
+                Double spawnY = parseNullableDouble(spawnYInput.getText());
+                Double spawnZ = parseNullableDouble(spawnZInput.getText());
+                Float spawnYaw = parseNullableFloat(spawnYawInput.getText());
+                Float spawnPitch = parseNullableFloat(spawnPitchInput.getText());
+                Double entryFee = parseNullableDouble(entryFeeInput.getText());
+                Double netherScale = parseNullableDouble(netherScaleInput.getText());
+                Double endScale = parseNullableDouble(endScaleInput.getText());
+                Long lockedTime = parseNullableLong(lockedTimeInput.getText());
+                if (selectedDifficulty.isBlank()) {
+                    new Notification("Error", "Difficulty Required", Notification.Type.ERROR);
+                    return;
+                }
+                if (!WorldUiSupport.isKnownEntryOrBlank(worldOptions, respawnWorld)) {
+                    new Notification("Error", "Unknown Respawn World", Notification.Type.ERROR);
+                    return;
+                }
+                if (!WorldUiSupport.isKnownEntryOrBlank(worldOptions, linkedNetherWorld)
+                    || !WorldUiSupport.isKnownEntryOrBlank(worldOptions, linkedEndWorld)
+                    || !WorldUiSupport.isKnownEntryOrBlank(worldOptions, linkedOverworld)) {
+                    new Notification("Error", "Unknown Linked World", Notification.Type.ERROR);
+                    return;
+                }
+                if (spawnX == null || spawnY == null || spawnZ == null || spawnYaw == null || spawnPitch == null) {
+                    new Notification("Error", "Invalid Spawn", Notification.Type.ERROR);
+                    return;
+                }
+                if (entryFee == null) {
+                    new Notification("Error", "Invalid Entry Fee", Notification.Type.ERROR);
+                    return;
+                }
+                if (netherScale == null || endScale == null) {
+                    new Notification("Error", "Invalid Scale", Notification.Type.ERROR);
+                    return;
+                }
+                if (lockedTime == null) {
+                    new Notification("Error", "Invalid Locked Time", Notification.Type.ERROR);
+                    return;
+                }
                 boolean changedAnything = false;
-                if (!safeText(difficultyInput.getText()).trim().equalsIgnoreCase(safeText(world.getDifficulty()).trim())) {
+                if (!selectedDifficulty.equalsIgnoreCase(safeText(world.getDifficulty()).trim())) {
                     flowManager.suppressNextWorldSuccessNotification(serverId, "setDifficulty");
-                    flowManager.setWorldDifficulty(serverId, worldName, difficultyInput.getText());
+                    flowManager.setWorldDifficulty(serverId, worldName, selectedDifficulty);
+                    changedAnything = true;
+                }
+                WorldProfileSettings changedProfile = new WorldProfileSettings();
+                changedProfile.setAlias(safeText(aliasInput.getText()).trim());
+                changedProfile.setHidden(hiddenToggle.getValue());
+                changedProfile.setAccessPermission(safeText(accessPermissionInput.getText()).trim());
+                changedProfile.setBypassPermission(safeText(bypassPermissionInput.getText()).trim());
+                changedProfile.setRespawnWorld(respawnWorld);
+                changedProfile.setForceGameMode(forceGameModeToggle.getValue());
+                changedProfile.setGameMode(safeText(gameModeSelect.getSelectedItem()));
+                changedProfile.setCustomSpawnEnabled(customSpawnToggle.getValue());
+                changedProfile.setSpawnX(spawnX);
+                changedProfile.setSpawnY(spawnY);
+                changedProfile.setSpawnZ(spawnZ);
+                changedProfile.setSpawnYaw(spawnYaw);
+                changedProfile.setSpawnPitch(spawnPitch);
+                changedProfile.setEntryFeeEnabled(entryFeeToggle.getValue());
+                changedProfile.setEntryFee(entryFee);
+                changedProfile.setPvpEnabled(pvpToggle.getValue());
+                changedProfile.setKeepSpawnLoaded(keepSpawnLoadedToggle.getValue());
+                changedProfile.setAutoSaveEnabled(autoSaveToggle.getValue());
+                changedProfile.setAnimalSpawnsEnabled(animalSpawnsToggle.getValue());
+                changedProfile.setMonsterSpawnsEnabled(monsterSpawnsToggle.getValue());
+                changedProfile.setHungerEnabled(hungerToggle.getValue());
+                changedProfile.setAutoHealEnabled(autoHealToggle.getValue());
+                changedProfile.setBedRespawnEnabled(bedRespawnToggle.getValue());
+                changedProfile.setAnchorRespawnEnabled(anchorRespawnToggle.getValue());
+                changedProfile.setNonLivingEntitySpawnsEnabled(nonLivingSpawnsToggle.getValue());
+                changedProfile.setArrivalMessage(safeText(arrivalMessageInput.getText()).trim());
+                changedProfile.setDenyMessage(safeText(denyMessageInput.getText()).trim());
+                String inventoryGroupId = safeText(inventoryGroupSelect.getSelectedItem()).trim();
+                changedProfile.setInventoryGroupId("None".equalsIgnoreCase(inventoryGroupId) ? "" : inventoryGroupId);
+                changedProfile.setLinkedNetherWorld(linkedNetherWorld);
+                changedProfile.setLinkedEndWorld(linkedEndWorld);
+                changedProfile.setLinkedOverworld(linkedOverworld);
+                changedProfile.setNetherScale(netherScale);
+                changedProfile.setEndScale(endScale);
+                changedProfile.setAutoLinkNetherPortal(autoLinkNetherToggle.getValue());
+                changedProfile.setAutoLinkEndPortal(autoLinkEndToggle.getValue());
+                if (profileChanged(profile, changedProfile)) {
+                    flowManager.suppressNextWorldSuccessNotification(serverId, "setWorldProfile");
+                    flowManager.setWorldProfile(serverId, worldName, changedProfile);
                     changedAnything = true;
                 }
                 Map<String, String> changedRules = new LinkedHashMap<>();
@@ -1372,7 +2432,7 @@ public class FlowManagerScreen extends ReScreen {
                     flowManager.setWorldIsolatedState(serverId, worldName, isolated.getValue());
                     changedAnything = true;
                 }
-                long newLockedTime = parseLong(lockedTimeInput.getText(), world.getLockedTime());
+                long newLockedTime = lockedTime;
                 if (timeLock.getValue() != world.isTimeLockEnabled() || newLockedTime != world.getLockedTime()) {
                     flowManager.suppressNextWorldSuccessNotification(serverId, "setTimeLock");
                     flowManager.setWorldTimeLock(serverId, worldName, timeLock.getValue(), newLockedTime);
@@ -1393,7 +2453,737 @@ public class FlowManagerScreen extends ReScreen {
 
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
+        refreshSectionVisibility.run();
         popupRef[0].show();
+    }
+
+    private void rebuildInventoryGroups() {
+        if (inventoryGroupsContainer == null) {
+            return;
+        }
+        inventoryGroupsContainer.clearWidgets();
+        inventoryGroupEntries.clear();
+
+        IconButton createButton = new IconButton.Builder()
+            .label("New Group")
+            .accentType(ThemeManager.getAccent("nice"))
+            .imagePath("newFile.png")
+            .size(130, 18)
+            .onClick(this::showCreateInventoryGroupPopup)
+            .build();
+        IconButton refreshButton = new IconButton.Builder()
+            .label("Refresh")
+            .imagePath("reload.png")
+            .size(120, 18)
+            .onClick(() -> flowManager.refreshWorldsFromServer(serverId))
+            .build();
+        RowWidget topRow = new RowWidget.Builder()
+            .size(Math.max(200, inventoryGroupsContainer.getWidth() - 20), 18)
+            .addWidget(createButton, refreshButton)
+            .build();
+        inventoryGroupsContainer.addWidget(topRow);
+
+        List<WorldInventoryGroup> groups = new ArrayList<>(flowManager.getWorldInventoryGroupsForServer(serverId));
+        groups.sort(Comparator.comparing(group -> safeText(group == null ? "" : group.getGroupId()), String.CASE_INSENSITIVE_ORDER));
+        for (WorldInventoryGroup group : groups) {
+            if (group == null || safeText(group.getGroupId()).isBlank()) {
+                continue;
+            }
+            upsertInventoryGroupEntry(group.getGroupId());
+        }
+    }
+
+    private void upsertInventoryGroupEntry(String groupId) {
+        if (inventoryGroupsContainer == null || groupId == null || groupId.isBlank()) {
+            return;
+        }
+        WorldInventoryGroup group = flowManager.getWorldInventoryGroup(serverId, groupId);
+        if (group == null) {
+            return;
+        }
+        MountableButtonWidget existing = inventoryGroupEntries.remove(groupId);
+        if (existing != null) {
+            inventoryGroupsContainer.removeWidget(existing);
+        }
+
+        String displayName = safeText(group.getDisplayName()).isBlank() ? group.getGroupId() : group.getDisplayName();
+        String description = "Worlds: " + group.getWorlds().size() + " | " + summarizeInventoryGroupShares(group);
+        String hiddenText = "Members: " + (group.getWorlds().isEmpty() ? "None" : String.join(", ", group.getWorlds()));
+
+        SquareButtonWidget editButton = new SquareButtonWidget.Builder()
+            .imagePath("edit.png").hint("Edit Group")
+            .onClick(() -> showEditInventoryGroupPopup(groupId))
+            .build();
+
+        SquareButtonWidget deleteButton = new SquareButtonWidget.Builder()
+            .imagePath("delete.png").hint("Delete Group")
+            .accentType(ThemeManager.getAccent("danger"))
+            .onClick(() -> showInventoryGroupDeletePopup(groupId))
+            .build();
+
+        MountableButtonWidget widget = new MountableButtonWidget.Builder(displayName)
+            .description(description)
+            .hiddenText(hiddenText)
+            .onClick(() -> showEditInventoryGroupPopup(groupId))
+            .addButton(editButton)
+            .addButton(deleteButton)
+            .build();
+        widget.setSize(Math.max(200, inventoryGroupsContainer.getWidth() - 20), 28);
+
+        List<String> sortedIds = new ArrayList<>(inventoryGroupEntries.keySet());
+        sortedIds.add(groupId);
+        sortedIds.sort(String.CASE_INSENSITIVE_ORDER);
+        int insertIndex = 1 + sortedIds.indexOf(groupId);
+        if (inventoryGroupEntries.isEmpty() || insertIndex >= inventoryGroupsContainer.getWidgets().size()) {
+            inventoryGroupsContainer.addWidget(widget);
+        } else {
+            inventoryGroupsContainer.insertWidget(widget, insertIndex);
+        }
+        inventoryGroupEntries.put(groupId, widget);
+    }
+
+    private void showCreateInventoryGroupPopup() {
+        showInventoryGroupPopup(null);
+    }
+
+    private void showEditInventoryGroupPopup(String groupId) {
+        showInventoryGroupPopup(flowManager.getWorldInventoryGroup(serverId, groupId));
+    }
+
+    private void showInventoryGroupPopup(WorldInventoryGroup existingGroup) {
+        boolean editing = existingGroup != null;
+        List<String> worldOptions = worldNameOptions();
+        PopupWidget.Builder builder = new PopupWidget.Builder(editing ? "Edit Group" : "Create Group")
+            .setResizable(true)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(560, 420);
+
+        TextInputWidget groupIdInput = new TextInputWidget.Builder()
+            .text(editing ? safeText(existingGroup.getGroupId()) : "")
+            .placeholder("Group Id")
+            .size(200, 20)
+            .build();
+        groupIdInput.active = !editing;
+        TextInputWidget displayNameInput = new TextInputWidget.Builder()
+            .text(editing ? safeText(existingGroup.getDisplayName()) : "")
+            .placeholder("Display Name")
+            .size(220, 20)
+            .build();
+        TextInputWidget worldsInput = new TextInputWidget.Builder()
+            .text(editing ? String.join(", ", existingGroup.getWorlds()) : "")
+            .placeholder("worldA, worldB")
+            .size(320, 20)
+            .build();
+        SelectorWidgets worldSelector = createSelectorWidgets("World Name", worldOptions, "", 180, false, Function.identity());
+        AnimatedButton addWorldButton = new AnimatedButton.Builder()
+            .label("Add")
+            .size(70, 18)
+            .onClick(() -> {
+                String selectedWorld = selectedSelectorValue(worldSelector).trim();
+                if (selectedWorld.isBlank()) {
+                    return;
+                }
+                worldsInput.setText(appendCommaSeparatedValue(worldsInput.getText(), selectedWorld));
+            })
+            .build();
+        ToggleWidget shareInventoryToggle = new ToggleWidget.Builder().label("Inventory").toggled(!editing || existingGroup.isShareInventory()).size(90, 18).build();
+        ToggleWidget shareArmorToggle = new ToggleWidget.Builder().label("Armor").toggled(!editing || existingGroup.isShareArmor()).size(80, 18).build();
+        ToggleWidget shareOffhandToggle = new ToggleWidget.Builder().label("Offhand").toggled(!editing || existingGroup.isShareOffhand()).size(90, 18).build();
+        ToggleWidget shareEnderChestToggle = new ToggleWidget.Builder().label("Ender Chest").toggled(!editing || existingGroup.isShareEnderChest()).size(110, 18).build();
+        ToggleWidget shareHealthToggle = new ToggleWidget.Builder().label("Health").toggled(!editing || existingGroup.isShareHealth()).size(82, 18).build();
+        ToggleWidget shareHungerToggle = new ToggleWidget.Builder().label("Hunger").toggled(!editing || existingGroup.isShareHunger()).size(86, 18).build();
+        ToggleWidget shareExperienceToggle = new ToggleWidget.Builder().label("Experience").toggled(!editing || existingGroup.isShareExperience()).size(102, 18).build();
+        ToggleWidget shareGameModeToggle = new ToggleWidget.Builder().label("Game Mode").toggled(!editing || existingGroup.isShareGameMode()).size(102, 18).build();
+        ToggleWidget sharePotionEffectsToggle = new ToggleWidget.Builder().label("Potions").toggled(!editing || existingGroup.isSharePotionEffects()).size(90, 18).build();
+        ToggleWidget shareLastLocationToggle = new ToggleWidget.Builder().label("Last Location").toggled(!editing || existingGroup.isShareLastLocation()).size(112, 18).build();
+        ToggleWidget shareBedSpawnToggle = new ToggleWidget.Builder().label("Bed Spawn").toggled(!editing || existingGroup.isShareBedSpawn()).size(100, 18).build();
+
+        builder.addRow("Group Id", true, 18, groupIdInput);
+        builder.addRow("Display", true, 18, displayNameInput);
+        builder.addRow("Worlds", true, 18, worldsInput);
+        builder.addRow("Known", true, 18, worldSelector.input, worldSelector.dropdown, addWorldButton);
+        builder.addRow("Share A", true, 18, shareInventoryToggle, shareArmorToggle, shareOffhandToggle, shareEnderChestToggle);
+        builder.addRow("Share B", true, 18, shareHealthToggle, shareHungerToggle, shareExperienceToggle, shareGameModeToggle);
+        builder.addRow("Share C", true, 18, sharePotionEffectsToggle, shareLastLocationToggle, shareBedSpawnToggle);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        builder.addTitleButton(() -> {
+            String groupId = editing ? safeText(existingGroup.getGroupId()).trim() : safeText(groupIdInput.getText()).trim();
+            if (!WorldUiSupport.isValidSimpleId(groupId)) {
+                new Notification("Error", "Invalid Group Id", Notification.Type.ERROR);
+                return;
+            }
+            List<String> groupWorlds = WorldUiSupport.normalizeUniqueEntries(parseCommaSeparatedList(worldsInput.getText()));
+            for (String groupWorld : groupWorlds) {
+                if (!WorldUiSupport.containsIgnoreCase(worldOptions, groupWorld)) {
+                    new Notification("Error", "Unknown Group World", Notification.Type.ERROR);
+                    return;
+                }
+            }
+            WorldInventoryGroup group = new WorldInventoryGroup();
+            group.setGroupId(groupId);
+            group.setDisplayName(safeText(displayNameInput.getText()).trim());
+            group.setWorlds(groupWorlds);
+            group.setShareInventory(shareInventoryToggle.getValue());
+            group.setShareArmor(shareArmorToggle.getValue());
+            group.setShareOffhand(shareOffhandToggle.getValue());
+            group.setShareEnderChest(shareEnderChestToggle.getValue());
+            group.setShareHealth(shareHealthToggle.getValue());
+            group.setShareHunger(shareHungerToggle.getValue());
+            group.setShareExperience(shareExperienceToggle.getValue());
+            group.setShareGameMode(shareGameModeToggle.getValue());
+            group.setSharePotionEffects(sharePotionEffectsToggle.getValue());
+            group.setShareLastLocation(shareLastLocationToggle.getValue());
+            group.setShareBedSpawn(shareBedSpawnToggle.getValue());
+            if (editing) {
+                flowManager.updateInventoryGroup(serverId, group);
+            } else {
+                flowManager.createInventoryGroup(serverId, group);
+            }
+            new Notification("ReSync", editing ? "Group Saved" : "Group Created", Notification.Type.SUCCESS);
+            if (popupRef[0] != null) {
+                popupRef[0].hide();
+            }
+        }, editing ? "Save" : "Create", ThemeManager.getAccent("nice"));
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private void rebuildSignPortals() {
+        if (signPortalsContainer == null) {
+            return;
+        }
+        signPortalsContainer.clearWidgets();
+        signPortalEntries.clear();
+
+        IconButton createButton = new IconButton.Builder()
+            .label("New Sign")
+            .accentType(ThemeManager.getAccent("nice"))
+            .imagePath("newFile.png")
+            .size(120, 18)
+            .onClick(this::showCreateSignPortalPopup)
+            .build();
+        IconButton refreshButton = new IconButton.Builder()
+            .label("Refresh")
+            .imagePath("reload.png")
+            .size(120, 18)
+            .onClick(() -> flowManager.refreshWorldsFromServer(serverId))
+            .build();
+        RowWidget topRow = new RowWidget.Builder()
+            .size(Math.max(200, signPortalsContainer.getWidth() - 20), 18)
+            .addWidget(createButton, refreshButton)
+            .build();
+        signPortalsContainer.addWidget(topRow);
+
+        List<WorldSignPortal> signPortals = new ArrayList<>(flowManager.getWorldSignPortalsForServer(serverId));
+        signPortals.sort(Comparator
+            .comparing((WorldSignPortal signPortal) -> safeText(signPortal == null ? "" : signPortal.getWorldName()), String.CASE_INSENSITIVE_ORDER)
+            .thenComparingInt(signPortal -> signPortal == null ? 0 : signPortal.getX())
+            .thenComparingInt(signPortal -> signPortal == null ? 0 : signPortal.getY())
+            .thenComparingInt(signPortal -> signPortal == null ? 0 : signPortal.getZ()));
+        for (WorldSignPortal signPortal : signPortals) {
+            if (signPortal == null || safeText(signPortal.getSignId()).isBlank()) {
+                continue;
+            }
+            upsertSignPortalEntry(signPortal.getSignId());
+        }
+    }
+
+    private void upsertSignPortalEntry(String signId) {
+        if (signPortalsContainer == null || signId == null || signId.isBlank()) {
+            return;
+        }
+        WorldSignPortal signPortal = flowManager.getWorldSignPortal(serverId, signId);
+        if (signPortal == null) {
+            return;
+        }
+        MountableButtonWidget existing = signPortalEntries.remove(signId);
+        if (existing != null) {
+            signPortalsContainer.removeWidget(existing);
+        }
+
+        String targetPortal = !safeText(signPortal.getPortalName()).isBlank() ? signPortal.getPortalName() : safeText(signPortal.getPortalId());
+        String displayName = safeText(signPortal.getWorldName()) + " " + signPortal.getX() + "," + signPortal.getY() + "," + signPortal.getZ();
+        String description = targetPortal + " | " + (signPortal.isEnabled() ? "Enabled" : "Disabled");
+        StringBuilder hiddenText = new StringBuilder("SignId: ").append(safeText(signPortal.getSignId()));
+        if (!safeText(signPortal.getPortalId()).isBlank()) {
+            hiddenText.append(" | PortalId: ").append(signPortal.getPortalId());
+        }
+
+        SquareButtonWidget editButton = new SquareButtonWidget.Builder()
+            .imagePath("edit.png").hint("Edit Sign")
+            .onClick(() -> showEditSignPortalPopup(signId))
+            .build();
+
+        SquareButtonWidget deleteButton = new SquareButtonWidget.Builder()
+            .imagePath("delete.png").hint("Delete Sign")
+            .accentType(ThemeManager.getAccent("danger"))
+            .onClick(() -> showSignPortalDeletePopup(signId))
+            .build();
+
+        MountableButtonWidget widget = new MountableButtonWidget.Builder(displayName)
+            .description(description)
+            .hiddenText(hiddenText.toString())
+            .onClick(() -> showEditSignPortalPopup(signId))
+            .addButton(editButton)
+            .addButton(deleteButton)
+            .build();
+        widget.setSize(Math.max(200, signPortalsContainer.getWidth() - 20), 28);
+
+        List<String> sortedIds = new ArrayList<>(signPortalEntries.keySet());
+        sortedIds.add(signId);
+        sortedIds.sort((left, right) -> {
+            WorldSignPortal leftPortal = flowManager.getWorldSignPortal(serverId, left);
+            WorldSignPortal rightPortal = flowManager.getWorldSignPortal(serverId, right);
+            String leftWorld = leftPortal == null ? "" : safeText(leftPortal.getWorldName());
+            String rightWorld = rightPortal == null ? "" : safeText(rightPortal.getWorldName());
+            int worldCompare = String.CASE_INSENSITIVE_ORDER.compare(leftWorld, rightWorld);
+            if (worldCompare != 0) {
+                return worldCompare;
+            }
+            int xCompare = Integer.compare(leftPortal == null ? 0 : leftPortal.getX(), rightPortal == null ? 0 : rightPortal.getX());
+            if (xCompare != 0) {
+                return xCompare;
+            }
+            int yCompare = Integer.compare(leftPortal == null ? 0 : leftPortal.getY(), rightPortal == null ? 0 : rightPortal.getY());
+            if (yCompare != 0) {
+                return yCompare;
+            }
+            return Integer.compare(leftPortal == null ? 0 : leftPortal.getZ(), rightPortal == null ? 0 : rightPortal.getZ());
+        });
+        int insertIndex = 1 + sortedIds.indexOf(signId);
+        if (signPortalEntries.isEmpty() || insertIndex >= signPortalsContainer.getWidgets().size()) {
+            signPortalsContainer.addWidget(widget);
+        } else {
+            signPortalsContainer.insertWidget(widget, insertIndex);
+        }
+        signPortalEntries.put(signId, widget);
+    }
+
+    private void showCreateSignPortalPopup() {
+        showSignPortalPopup(null);
+    }
+
+    private void showEditSignPortalPopup(String signId) {
+        showSignPortalPopup(flowManager.getWorldSignPortal(serverId, signId));
+    }
+
+    private void showSignPortalPopup(WorldSignPortal existingSignPortal) {
+        boolean editing = existingSignPortal != null;
+        List<String> worldOptions = worldNameOptions();
+        List<String> portalOptions = portalTargetOptions();
+        PopupWidget.Builder builder = new PopupWidget.Builder(editing ? "Edit Sign" : "Create Sign")
+            .setResizable(false)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(470, 280);
+
+        SelectorWidgets worldSelector = createSelectorWidgets("World Name", worldOptions,
+            editing ? safeText(existingSignPortal.getWorldName()) : "", 180, false, Function.identity());
+        TextInputWidget xInput = new TextInputWidget.Builder().text(editing ? String.valueOf(existingSignPortal.getX()) : "0").placeholder("X").size(90, 20).build();
+        TextInputWidget yInput = new TextInputWidget.Builder().text(editing ? String.valueOf(existingSignPortal.getY()) : "64").placeholder("Y").size(90, 20).build();
+        TextInputWidget zInput = new TextInputWidget.Builder().text(editing ? String.valueOf(existingSignPortal.getZ()) : "0").placeholder("Z").size(90, 20).build();
+        String existingPortalTarget = editing && !safeText(existingSignPortal.getPortalId()).isBlank()
+            ? safeText(existingSignPortal.getPortalId())
+            : editing ? safeText(existingSignPortal.getPortalName()) : "";
+        SelectorWidgets portalTargetSelector = createSelectorWidgets("Portal Target", portalOptions, existingPortalTarget, 180, true, Function.identity());
+        ToggleWidget enabledToggle = new ToggleWidget.Builder().label("Enabled").toggled(!editing || existingSignPortal.isEnabled()).size(90, 18).build();
+
+        if (editing) {
+            IconButton signIdButton = new IconButton.Builder().label(safeText(existingSignPortal.getSignId())).autoWidthOnTextChange(true).build();
+            signIdButton.active = false;
+            builder.addRow("Sign Id", true, 18, signIdButton);
+        }
+        builder.addRow("World", true, 18, worldSelector.input, worldSelector.dropdown, enabledToggle);
+        builder.addRow("Pos", true, 18, xInput, yInput, zInput);
+        builder.addRow("Portal", true, 18, portalTargetSelector.input, portalTargetSelector.dropdown);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        builder.addTitleButton(() -> {
+            String worldName = selectedSelectorValue(worldSelector).trim();
+            String portalTarget = selectedSelectorValue(portalTargetSelector).trim();
+            if (worldName.isBlank()) {
+                new Notification("Error", "World Name Required", Notification.Type.ERROR);
+                return;
+            }
+            if (!WorldUiSupport.containsIgnoreCase(worldOptions, worldName)) {
+                new Notification("Error", "Unknown World Name", Notification.Type.ERROR);
+                return;
+            }
+            if (portalTarget.isBlank()) {
+                new Notification("Error", "Portal Target Required", Notification.Type.ERROR);
+                return;
+            }
+            if (!WorldUiSupport.containsIgnoreCase(portalOptions, portalTarget)) {
+                new Notification("Error", "Unknown Portal Target", Notification.Type.ERROR);
+                return;
+            }
+            Integer x = parseNullableInt(xInput.getText());
+            Integer y = parseNullableInt(yInput.getText());
+            Integer z = parseNullableInt(zInput.getText());
+            if (x == null || y == null || z == null) {
+                new Notification("Error", "Invalid Sign Position", Notification.Type.ERROR);
+                return;
+            }
+            WorldPortal targetPortal = flowManager.getWorldPortal(serverId, portalTarget);
+            WorldSignPortal signPortal = new WorldSignPortal();
+            signPortal.setSignId(editing ? existingSignPortal.getSignId() : "");
+            signPortal.setWorldName(worldName);
+            signPortal.setX(x);
+            signPortal.setY(y);
+            signPortal.setZ(z);
+            signPortal.setPortalId(targetPortal == null ? "" : safeText(targetPortal.getPortalId()));
+            signPortal.setPortalName(targetPortal == null ? portalTarget : safeText(targetPortal.getPortalName()));
+            signPortal.setEnabled(enabledToggle.getValue());
+            flowManager.createSignPortal(serverId, signPortal);
+            new Notification("ReSync", editing ? "Sign Saved" : "Sign Created", Notification.Type.SUCCESS);
+            if (popupRef[0] != null) {
+                popupRef[0].hide();
+            }
+        }, editing ? "Save" : "Create", ThemeManager.getAccent("nice"));
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    public void handleWorldOperationResult(WorldOperationResult result) {
+        if (result == null || !result.isSuccess()) {
+            return;
+        }
+        String action = safeText(result.getAction()).trim().toLowerCase(Locale.ROOT);
+        switch (action) {
+            case "whoworld" -> showWorldWhoPopup(result);
+            case "purgeworld" -> showWorldPurgeResultPopup(result);
+            case "createworld", "loadworld", "unloadworld" -> {
+                String worldName = resultWorldName(result);
+                if (!worldName.isBlank()) {
+                    upsertWorldEntry(worldName);
+                }
+                if ("unloadworld".equals(action)) {
+                    showWorldStateResultPopup(result);
+                }
+            }
+            case "deleteworld" -> {
+                String worldName = resultWorldName(result);
+                if (!worldName.isBlank()) {
+                    removeWorldEntry(worldName);
+                }
+                rebuildPortals();
+                rebuildSignPortals();
+                showWorldStateResultPopup(result);
+            }
+            case "createportal", "resizeportal", "setportalenabled", "setportaldestination", "setportalbounds" -> {
+                WorldPortal portal = resultData(result, "portal", WorldPortal.class);
+                if (portal != null) {
+                    upsertPortalEntry(portalKey(portal));
+                }
+            }
+            case "deleteportal" -> removePortalEntry(resultDataText(result, "portalId"));
+            case "createinventorygroup", "updateinventorygroup" -> {
+                WorldInventoryGroup group = resultData(result, "group", WorldInventoryGroup.class);
+                if (group != null && !safeText(group.getGroupId()).isBlank()) {
+                    upsertInventoryGroupEntry(group.getGroupId());
+                }
+            }
+            case "deleteinventorygroup" -> removeInventoryGroupEntry(resultDataText(result, "groupId"));
+            case "createsignportal" -> {
+                WorldSignPortal signPortal = resultData(result, "signPortal", WorldSignPortal.class);
+                if (signPortal != null && !safeText(signPortal.getSignId()).isBlank()) {
+                    upsertSignPortalEntry(signPortal.getSignId());
+                }
+            }
+            case "deletesignportal" -> removeSignPortalEntry(resultDataText(result, "signId"));
+            default -> {
+            }
+        }
+    }
+
+    private void showWorldPurgeResultPopup(WorldOperationResult result) {
+        String worldName = resultWorldName(result);
+        int removed = parseResultInt(result.getData().get("removed"), 0);
+        PopupWidget.Builder builder = new PopupWidget.Builder(worldName.isBlank() ? "Purge Result" : "Purge " + worldName)
+            .setResizable(false)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(420, 180);
+        builder.addRow("World", true, 18, readOnlyLabel(worldName.isBlank() ? "Unknown World" : worldName));
+        builder.addRow("Removed", true, 18, readOnlyLabel(String.valueOf(removed)));
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    private void showWorldStateResultPopup(WorldOperationResult result) {
+        String action = safeText(result.getAction()).trim();
+        String worldName = resultWorldName(result);
+        PopupWidget.Builder builder = new PopupWidget.Builder(worldName.isBlank() ? formatTitleWords(action) : formatTitleWords(action) + " " + worldName)
+            .setResizable(false)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(460, 200);
+        builder.addRow("World", true, 18, readOnlyLabel(worldName.isBlank() ? "Unknown World" : worldName));
+        if ("deleteWorld".equalsIgnoreCase(action)) {
+            builder.addRow("Portals", true, 18, readOnlyLabel(String.valueOf(parseResultInt(result.getData().get("removedPortals"), 0))));
+            builder.addRow("Files", true, 18, readOnlyLabel(Boolean.TRUE.equals(result.getData().get("deleteFiles")) ? "Deleted" : "Kept"));
+        }
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    private <T> T resultData(WorldOperationResult result, String key, Class<T> type) {
+        if (result == null || key == null || key.isBlank() || type == null) {
+            return null;
+        }
+        Object raw = result.getData().get(key);
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return gson.fromJson(gson.toJsonTree(raw), type);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String resultDataText(WorldOperationResult result, String... keys) {
+        if (result == null || keys == null) {
+            return "";
+        }
+        for (String key : keys) {
+            String value = safeText(Objects.toString(result.getData().get(key), "")).trim();
+            if (!value.isBlank()) {
+                return value;
+            }
+        }
+        return safeText(result.getWorldName()).trim();
+    }
+
+    private String resultWorldName(WorldOperationResult result) {
+        return resultDataText(result, "worldName", "world");
+    }
+
+    private void removeWorldEntry(String worldName) {
+        String key = findEntryKeyIgnoreCase(worldEntries, worldName);
+        if (key == null || worldsContainer == null) {
+            return;
+        }
+        MountableButtonWidget existing = worldEntries.remove(key);
+        if (existing != null) {
+            worldsContainer.removeWidget(existing);
+        }
+    }
+
+    private void removePortalEntry(String portalId) {
+        String key = findEntryKeyIgnoreCase(portalEntries, portalId);
+        if (key == null || portalsContainer == null) {
+            return;
+        }
+        MountableButtonWidget existing = portalEntries.remove(key);
+        if (existing != null) {
+            portalsContainer.removeWidget(existing);
+        }
+    }
+
+    private void removeInventoryGroupEntry(String groupId) {
+        String key = findEntryKeyIgnoreCase(inventoryGroupEntries, groupId);
+        if (key == null || inventoryGroupsContainer == null) {
+            return;
+        }
+        MountableButtonWidget existing = inventoryGroupEntries.remove(key);
+        if (existing != null) {
+            inventoryGroupsContainer.removeWidget(existing);
+        }
+    }
+
+    private void removeSignPortalEntry(String signId) {
+        String key = findEntryKeyIgnoreCase(signPortalEntries, signId);
+        if (key == null || signPortalsContainer == null) {
+            return;
+        }
+        MountableButtonWidget existing = signPortalEntries.remove(key);
+        if (existing != null) {
+            signPortalsContainer.removeWidget(existing);
+        }
+    }
+
+    private String findEntryKeyIgnoreCase(Map<String, MountableButtonWidget> entries, String target) {
+        if (entries == null || target == null || target.isBlank()) {
+            return null;
+        }
+        for (String key : entries.keySet()) {
+            if (key != null && key.equalsIgnoreCase(target)) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    private IconButton readOnlyLabel(String text) {
+        IconButton button = new IconButton.Builder().label(text).autoWidthOnTextChange(true).build();
+        button.active = false;
+        return button;
+    }
+
+    private List<String> onlinePlayerNames() {
+        return WorldUiSupport.normalizeUniqueEntries(flowManager.getOnlinePlayerNamesForServer(serverId));
+    }
+
+    private List<String> worldNameOptions() {
+        List<String> worldNames = new ArrayList<>(flowManager.getWorldsForServer(serverId).keySet());
+        worldNames = WorldUiSupport.normalizeUniqueEntries(worldNames);
+        worldNames.sort(String.CASE_INSENSITIVE_ORDER);
+        return worldNames;
+    }
+
+    private List<String> fallbackWorldOptions(String worldName) {
+        List<String> options = new ArrayList<>(worldNameOptions());
+        options.removeIf(option -> option != null && option.equalsIgnoreCase(worldName));
+        return options;
+    }
+
+    private String selectDefaultFallbackWorld(String worldName, List<String> fallbackOptions) {
+        if (fallbackOptions == null || fallbackOptions.isEmpty()) {
+            return "";
+        }
+        WorldRegistryEntry currentWorld = flowManager.getWorld(serverId, worldName);
+        WorldProfileSettings profile = currentWorld == null ? null : currentWorld.getProfileSettings();
+        List<String> preferred = new ArrayList<>();
+        if (profile != null) {
+            preferred.add(safeText(profile.getRespawnWorld()).trim());
+            preferred.add(safeText(profile.getLinkedOverworld()).trim());
+        }
+        preferred.add("world");
+        preferred.add("overworld");
+        preferred.add("world_overworld");
+        preferred.add("spawn");
+        preferred.add(fallbackOptions.getFirst());
+        for (String candidate : preferred) {
+            if (candidate == null || candidate.isBlank()) {
+                continue;
+            }
+            for (String option : fallbackOptions) {
+                if (option != null && option.equalsIgnoreCase(candidate)) {
+                    return option;
+                }
+            }
+        }
+        return fallbackOptions.getFirst();
+    }
+
+    private List<String> portalTargetOptions() {
+        List<String> options = new ArrayList<>();
+        for (WorldPortal portal : flowManager.getWorldPortalsForServer(serverId)) {
+            if (portal == null) {
+                continue;
+            }
+            if (!safeText(portal.getPortalId()).isBlank()) {
+                options.add(portal.getPortalId());
+            }
+            if (!safeText(portal.getPortalName()).isBlank()) {
+                options.add(portal.getPortalName());
+            }
+        }
+        options = WorldUiSupport.normalizeUniqueEntries(options);
+        options.sort(String.CASE_INSENSITIVE_ORDER);
+        return options;
+    }
+
+    private SelectorWidgets createSelectorWidgets(String placeholder, List<String> options, String initialValue, int inputWidth,
+                                                  boolean allowCustomInput, Function<String, String> displayFunction) {
+        List<String> mergedOptions = WorldUiSupport.mergeOptions(options, initialValue);
+        String selectedValue = safeText(initialValue).trim();
+        if (!allowCustomInput && selectedValue.isBlank() && !mergedOptions.isEmpty()) {
+            selectedValue = mergedOptions.getFirst();
+        }
+        TextInputWidget input = new TextInputWidget.Builder()
+            .text(selectedValue)
+            .placeholder(placeholder)
+            .size(inputWidth, 20)
+            .build();
+        input.active = allowCustomInput;
+        DropDownWidget<String> dropdown = new DropDownWidget.Builder<>(mergedOptions)
+            .size(180, 18)
+            .selectedItem(selectedValue.isBlank() ? (mergedOptions.isEmpty() ? null : mergedOptions.getFirst()) : selectedValue)
+            .displayFunction(value -> displayFunction == null ? safeText(value) : safeText(displayFunction.apply(value)))
+            .build();
+        dropdown.setOnSelectionChanged(selected -> input.setText(safeText(selected)));
+        return new SelectorWidgets(input, dropdown);
+    }
+
+    private String selectedSelectorValue(SelectorWidgets selector) {
+        if (selector == null) {
+            return "";
+        }
+        String inputValue = selector.input == null ? "" : safeText(selector.input.getText()).trim();
+        if (selector.input != null && selector.input.active) {
+            return inputValue;
+        }
+        if (!inputValue.isBlank()) {
+            return inputValue;
+        }
+        return selector.dropdown == null ? "" : safeText(selector.dropdown.getSelectedItem()).trim();
+    }
+
+    private void showWorldWhoPopup(WorldOperationResult result) {
+        String worldName = safeText(result.getWorldName()).trim();
+        if (worldName.isBlank()) {
+            worldName = safeText(String.valueOf(result.getData().getOrDefault("worldName", ""))).trim();
+        }
+        List<Map<String, Object>> players = extractWhoPlayers(result);
+        PopupWidget.Builder builder = new PopupWidget.Builder(worldName.isBlank() ? "World Players" : "Players In " + worldName)
+            .setResizable(true)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(620, Math.max(220, Math.min(520, 120 + players.size() * 28)));
+
+        IconButton worldButton = new IconButton.Builder()
+            .label(worldName.isBlank() ? "Unknown World" : worldName)
+            .autoWidthOnTextChange(true)
+            .build();
+        worldButton.active = false;
+        IconButton countButton = new IconButton.Builder()
+            .label("Players: " + players.size())
+            .autoWidthOnTextChange(true)
+            .build();
+        countButton.active = false;
+        builder.addRow("World", true, 18, worldButton, countButton);
+
+        if (players.isEmpty()) {
+            IconButton emptyButton = new IconButton.Builder().label("No Players Online").autoWidthOnTextChange(true).build();
+            emptyButton.active = false;
+            builder.addRow("", true, 18, emptyButton);
+        } else {
+            for (Map<String, Object> player : players) {
+                String playerName = safeText(String.valueOf(player.getOrDefault("playerName", "Unknown")));
+                String gameMode = safeText(String.valueOf(player.getOrDefault("gameMode", "Unknown")));
+                double health = parseResultDouble(player.get("health"), 0.0);
+                double food = parseResultDouble(player.get("food"), 0.0);
+                double x = parseResultDouble(player.get("x"), 0.0);
+                double y = parseResultDouble(player.get("y"), 0.0);
+                double z = parseResultDouble(player.get("z"), 0.0);
+
+                IconButton playerButton = new IconButton.Builder()
+                    .label(playerName + " | " + gameMode + " | Health " + formatDecimal(health) + " | Food " + formatDecimal(food))
+                    .autoWidthOnTextChange(true)
+                    .build();
+                playerButton.active = false;
+                IconButton locationButton = new IconButton.Builder()
+                    .label(formatDecimal(x) + ", " + formatDecimal(y) + ", " + formatDecimal(z))
+                    .autoWidthOnTextChange(true)
+                    .build();
+                locationButton.active = false;
+                builder.addRow("", true, 18, playerButton, locationButton);
+            }
+        }
+
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
     }
 
     private WorldDashboardEntry findWorldDashboard(String worldName) {
@@ -1414,11 +3204,248 @@ public class FlowManagerScreen extends ReScreen {
         if (ruleName == null || ruleName.isBlank()) {
             return "Rule";
         }
-        return ruleName.substring(0, 1).toUpperCase(Locale.ROOT) + ruleName.substring(1);
+        return formatTitleWords(ruleName);
+    }
+
+    private WorldGeneratorDescriptor findGeneratorDescriptor(List<WorldGeneratorDescriptor> descriptors, String id) {
+        if (id == null || id.isBlank()) {
+            return null;
+        }
+        for (WorldGeneratorDescriptor descriptor : descriptors) {
+            if (descriptor != null && descriptor.getId() != null && descriptor.getId().equalsIgnoreCase(id)) {
+                return descriptor;
+            }
+        }
+        return null;
+    }
+
+    private boolean profileChanged(WorldProfileSettings oldProfile, WorldProfileSettings newProfile) {
+        if (oldProfile == null) {
+            return true;
+        }
+        return !safeText(oldProfile.getAlias()).equals(safeText(newProfile.getAlias()))
+            || oldProfile.isHidden() != newProfile.isHidden()
+            || !safeText(oldProfile.getAccessPermission()).equals(safeText(newProfile.getAccessPermission()))
+            || !safeText(oldProfile.getBypassPermission()).equals(safeText(newProfile.getBypassPermission()))
+            || !safeText(oldProfile.getRespawnWorld()).equals(safeText(newProfile.getRespawnWorld()))
+            || oldProfile.isForceGameMode() != newProfile.isForceGameMode()
+            || !safeText(oldProfile.getGameMode()).equalsIgnoreCase(safeText(newProfile.getGameMode()))
+            || oldProfile.isCustomSpawnEnabled() != newProfile.isCustomSpawnEnabled()
+            || Double.compare(oldProfile.getSpawnX(), newProfile.getSpawnX()) != 0
+            || Double.compare(oldProfile.getSpawnY(), newProfile.getSpawnY()) != 0
+            || Double.compare(oldProfile.getSpawnZ(), newProfile.getSpawnZ()) != 0
+            || Float.compare(oldProfile.getSpawnYaw(), newProfile.getSpawnYaw()) != 0
+            || Float.compare(oldProfile.getSpawnPitch(), newProfile.getSpawnPitch()) != 0
+            || oldProfile.isEntryFeeEnabled() != newProfile.isEntryFeeEnabled()
+            || Double.compare(oldProfile.getEntryFee(), newProfile.getEntryFee()) != 0
+            || oldProfile.isPvpEnabled() != newProfile.isPvpEnabled()
+            || oldProfile.isKeepSpawnLoaded() != newProfile.isKeepSpawnLoaded()
+            || oldProfile.isAutoSaveEnabled() != newProfile.isAutoSaveEnabled()
+            || oldProfile.isAnimalSpawnsEnabled() != newProfile.isAnimalSpawnsEnabled()
+            || oldProfile.isMonsterSpawnsEnabled() != newProfile.isMonsterSpawnsEnabled()
+            || oldProfile.isHungerEnabled() != newProfile.isHungerEnabled()
+            || oldProfile.isAutoHealEnabled() != newProfile.isAutoHealEnabled()
+            || oldProfile.isBedRespawnEnabled() != newProfile.isBedRespawnEnabled()
+            || oldProfile.isAnchorRespawnEnabled() != newProfile.isAnchorRespawnEnabled()
+            || oldProfile.isNonLivingEntitySpawnsEnabled() != newProfile.isNonLivingEntitySpawnsEnabled()
+            || !safeText(oldProfile.getArrivalMessage()).equals(safeText(newProfile.getArrivalMessage()))
+            || !safeText(oldProfile.getDenyMessage()).equals(safeText(newProfile.getDenyMessage()))
+            || !safeText(oldProfile.getInventoryGroupId()).equals(safeText(newProfile.getInventoryGroupId()))
+            || !safeText(oldProfile.getLinkedNetherWorld()).equals(safeText(newProfile.getLinkedNetherWorld()))
+            || !safeText(oldProfile.getLinkedEndWorld()).equals(safeText(newProfile.getLinkedEndWorld()))
+            || !safeText(oldProfile.getLinkedOverworld()).equals(safeText(newProfile.getLinkedOverworld()))
+            || Double.compare(oldProfile.getNetherScale(), newProfile.getNetherScale()) != 0
+            || Double.compare(oldProfile.getEndScale(), newProfile.getEndScale()) != 0
+            || oldProfile.isAutoLinkNetherPortal() != newProfile.isAutoLinkNetherPortal()
+            || oldProfile.isAutoLinkEndPortal() != newProfile.isAutoLinkEndPortal();
+    }
+
+    private WorldInventoryGroup findInventoryGroup(List<WorldInventoryGroup> inventoryGroups, String groupId) {
+        if (groupId == null || groupId.isBlank()) {
+            return null;
+        }
+        for (WorldInventoryGroup inventoryGroup : inventoryGroups) {
+            if (inventoryGroup != null && inventoryGroup.getGroupId() != null && inventoryGroup.getGroupId().equalsIgnoreCase(groupId)) {
+                return inventoryGroup;
+            }
+        }
+        return null;
+    }
+
+    private String formatInventoryGroupOption(List<WorldInventoryGroup> inventoryGroups, String groupId) {
+        if (groupId == null || groupId.isBlank() || "None".equalsIgnoreCase(groupId)) {
+            return "None";
+        }
+        WorldInventoryGroup inventoryGroup = findInventoryGroup(inventoryGroups, groupId);
+        if (inventoryGroup == null) {
+            return groupId;
+        }
+        String displayName = safeText(inventoryGroup.getDisplayName()).trim();
+        return displayName.isBlank() || displayName.equalsIgnoreCase(groupId) ? groupId : displayName + " · " + groupId;
+    }
+
+    private void addPopupSectionRow(PopupWidget.Builder builder, Map<String, List<String>> sectionRows, String section,
+                                    String rowId, String label, int height, Widget... widgets) {
+        builder.addRow(rowId, label, true, height, widgets);
+        sectionRows.computeIfAbsent(section, ignored -> new ArrayList<>()).add(rowId);
+    }
+
+    private void updatePopupSectionVisibility(PopupWidget popup, Map<String, List<String>> sectionRows, String activeSection) {
+        if (popup == null || sectionRows == null || activeSection == null || activeSection.isBlank()) {
+            return;
+        }
+        for (Map.Entry<String, List<String>> entry : sectionRows.entrySet()) {
+            boolean visible = entry.getKey().equalsIgnoreCase(activeSection);
+            for (String rowId : entry.getValue()) {
+                popup.setRowVisibility(rowId, visible);
+            }
+        }
+    }
+
+    private String describeInventoryGroupSelection(List<WorldInventoryGroup> inventoryGroups, String groupId) {
+        String normalized = safeText(groupId).trim();
+        if (normalized.isBlank() || "None".equalsIgnoreCase(normalized)) {
+            return "No group means this world keeps its own player data.";
+        }
+        WorldInventoryGroup group = findInventoryGroup(inventoryGroups, normalized);
+        if (group == null) {
+            return normalized;
+        }
+        List<String> members = group.getWorlds();
+        String worldSummary = members.isEmpty() ? "No linked worlds yet" : String.join(", ", members);
+        return "Shared with: " + worldSummary;
+    }
+
+    private String appendCommaSeparatedValue(String currentValue, String newValue) {
+        List<String> values = parseCommaSeparatedList(currentValue);
+        values.add(newValue);
+        return String.join(", ", WorldUiSupport.normalizeUniqueEntries(values));
+    }
+
+    private List<String> parseCommaSeparatedList(String value) {
+        List<String> values = new ArrayList<>();
+        for (String part : safeText(value).split(",")) {
+            String trimmed = safeText(part).trim();
+            if (!trimmed.isBlank() && !values.contains(trimmed)) {
+                values.add(trimmed);
+            }
+        }
+        return values;
+    }
+
+    private String summarizeInventoryGroupShares(WorldInventoryGroup group) {
+        List<String> parts = new ArrayList<>();
+        if (group.isShareInventory()) {
+            parts.add("Inventory");
+        }
+        if (group.isShareArmor()) {
+            parts.add("Armor");
+        }
+        if (group.isShareOffhand()) {
+            parts.add("Offhand");
+        }
+        if (group.isShareEnderChest()) {
+            parts.add("Ender Chest");
+        }
+        if (group.isShareHealth()) {
+            parts.add("Health");
+        }
+        if (group.isShareHunger()) {
+            parts.add("Hunger");
+        }
+        if (group.isShareExperience()) {
+            parts.add("Experience");
+        }
+        if (group.isShareGameMode()) {
+            parts.add("Game Mode");
+        }
+        if (group.isSharePotionEffects()) {
+            parts.add("Potions");
+        }
+        if (group.isShareLastLocation()) {
+            parts.add("Last Position");
+        }
+        if (group.isShareBedSpawn()) {
+            parts.add("Bed Spawn");
+        }
+        return parts.isEmpty() ? "No Shared Data" : String.join(", ", parts);
+    }
+
+    private String formatTitleWords(String value) {
+        String safe = safeText(value).trim();
+        if (safe.isBlank()) {
+            return "";
+        }
+        String normalized = safe.replace('_', ' ').replace('-', ' ');
+        normalized = normalized.replaceAll("([a-z0-9])([A-Z])", "$1 $2");
+        normalized = normalized.replaceAll("\\s+", " ").trim();
+        StringBuilder result = new StringBuilder();
+        for (String part : normalized.split(" ")) {
+            if (part.isBlank()) {
+                continue;
+            }
+            if (!result.isEmpty()) {
+                result.append(' ');
+            }
+            if (part.equalsIgnoreCase("pvp")) {
+                result.append("PVP");
+            } else {
+                result.append(part.substring(0, 1).toUpperCase(Locale.ROOT));
+                if (part.length() > 1) {
+                    result.append(part.substring(1).toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        return result.toString();
+    }
+
+    private List<Map<String, Object>> extractWhoPlayers(WorldOperationResult result) {
+        List<Map<String, Object>> players = new ArrayList<>();
+        Object rawPlayers = result.getData().get("players");
+        if (!(rawPlayers instanceof List<?> rawList)) {
+            return players;
+        }
+        for (Object rawEntry : rawList) {
+            if (!(rawEntry instanceof Map<?, ?> rawMap)) {
+                continue;
+            }
+            LinkedHashMap<String, Object> entry = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> mapEntry : rawMap.entrySet()) {
+                if (mapEntry.getKey() == null) {
+                    continue;
+                }
+                entry.put(String.valueOf(mapEntry.getKey()), mapEntry.getValue());
+            }
+            players.add(entry);
+        }
+        players.sort(Comparator.comparing(player -> safeText(String.valueOf(player.getOrDefault("playerName", ""))), String.CASE_INSENSITIVE_ORDER));
+        return players;
+    }
+
+    private double parseResultDouble(Object value, double fallback) {
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        return parseDouble(Objects.toString(value, ""), fallback);
+    }
+
+    private int parseResultInt(Object value, int fallback) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        return parseInt(Objects.toString(value, ""), fallback);
     }
 
     private String safeText(String value) {
         return value == null ? "" : value;
+    }
+
+    private double parseDouble(String value, double fallback) {
+        try {
+            return Double.parseDouble(value == null ? "" : value.trim());
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 
     private long parseLong(String value, long fallback) {
@@ -1427,6 +3454,73 @@ public class FlowManagerScreen extends ReScreen {
         } catch (Exception ignored) {
             return fallback;
         }
+    }
+
+    private int parseInt(String value, int fallback) {
+        try {
+            return Integer.parseInt(value == null ? "" : value.trim());
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
+    private Integer parseNullableInt(String value) {
+        String trimmed = safeText(value).trim();
+        if (trimmed.isBlank()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(trimmed);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Long parseNullableLong(String value) {
+        String trimmed = safeText(value).trim();
+        if (trimmed.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(trimmed);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Double parseNullableDouble(String value) {
+        String trimmed = safeText(value).trim();
+        if (trimmed.isBlank()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(trimmed);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Float parseNullableFloat(String value) {
+        String trimmed = safeText(value).trim();
+        if (trimmed.isBlank()) {
+            return null;
+        }
+        try {
+            return Float.parseFloat(trimmed);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String portalKey(WorldPortal portal) {
+        if (portal == null) {
+            return "";
+        }
+        return !safeText(portal.getPortalId()).isBlank() ? portal.getPortalId() : safeText(portal.getPortalName());
+    }
+
+    private String formatDecimal(double value) {
+        return value == Math.rint(value) ? String.valueOf((long) value) : String.valueOf(value);
     }
 
     public void refresh() {

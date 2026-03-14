@@ -6,6 +6,7 @@ public class WorldRegistryEntry {
     private String worldName;
     private String environment;
     private String generator;
+    private String generatorConfig;
     private String difficulty;
     private boolean loaded;
     private boolean isolatedPlayerState;
@@ -14,6 +15,7 @@ public class WorldRegistryEntry {
     private boolean weatherLockEnabled;
     private boolean lockedStorm;
     private boolean lockedThundering;
+    private WorldProfileSettings profileSettings;
     private Map<String, String> gameRules;
     private long updatedAt;
 
@@ -27,6 +29,10 @@ public class WorldRegistryEntry {
 
     public String getGenerator() {
         return generator;
+    }
+
+    public String getGeneratorConfig() {
+        return generatorConfig;
     }
 
     public String getDifficulty() {
@@ -59,6 +65,10 @@ public class WorldRegistryEntry {
 
     public boolean isLockedThundering() {
         return lockedThundering;
+    }
+
+    public WorldProfileSettings getProfileSettings() {
+        return profileSettings == null ? new WorldProfileSettings() : profileSettings;
     }
 
     public Map<String, String> getGameRules() {
