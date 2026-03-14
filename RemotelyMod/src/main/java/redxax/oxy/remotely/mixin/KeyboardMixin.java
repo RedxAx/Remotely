@@ -2,7 +2,7 @@ package redxax.oxy.remotely.mixin;
 
 import net.minecraft.client.KeyboardHandler;
 import net.minecraft.client.Minecraft;
-//#if MC >= 1.21.9
+//#if MC >= 1.21.9 || MC >= 26.1
 import net.minecraft.client.input.KeyEvent;
 //#endif
 import org.lwjgl.glfw.GLFW;
@@ -31,7 +31,7 @@ public class KeyboardMixin {
     }
 
     @Inject(method = "keyPress", at = @At("HEAD"), cancellable = true)
-    //#if MC >= 1.21.9
+    //#if MC >= 1.21.9 || MC >= 26.1
     private void onKey(long l, int i, KeyEvent keyEvent, CallbackInfo ci) {
         if (remotely$shouldToggle(keyEvent.key(), keyEvent.modifiers())) {
             if (i == GLFW.GLFW_PRESS) {

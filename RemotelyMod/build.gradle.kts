@@ -1,8 +1,10 @@
-import dev.deftu.gradle.utils.ModLoader
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import dev.deftu.gradle.utils.version.MinecraftVersions
 import dev.deftu.gradle.utils.includeOrShade
-import net.fabricmc.loom.task.RemapJarTask
+import net.fabricmc.loom.api.LoomGradleExtensionAPI
+import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.jvm.tasks.Jar
+import org.gradle.language.jvm.tasks.ProcessResources
 import java.util.Properties
 
 plugins {
@@ -20,11 +22,20 @@ toolkitMultiversion {
     moveBuildsToRootProject.set(true)
 }
 
-toolkitLoomHelper {
-    useDevAuth("1.2.2")
-    useMixinExtras("0.5.0")
+val isDropFabric = mcData.isFabric && mcData.version.isDrop
+val fabricApiVersionOverride = (findProperty("dgt.fabric.api.version") as String?)
+    ?: (findProperty("fabric.api.version") as String?)
+val fabricLoaderVersion = (findProperty("dgt.fabric.loader.version") as String?)
+    ?: (findProperty("fabric.loader.version") as String?)
+    ?: "0.17.2"
 
-    if (!mcData.isNeoForge) {
+toolkitLoomHelper {
+    if (!isDropFabric) {
+        useDevAuth("1.2.2")
+        useMixinExtras("0.5.0")
+    }
+
+    if (!isDropFabric && !mcData.isNeoForge) {
         useMixinRefMap(modData.id)
     }
 
@@ -73,6 +84,8 @@ dependencies {
     implementation("org.apache.xmlgraphics:batik-transcoder:1.19")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     implementation("org.java-websocket:Java-WebSocket:1.5.7")
+    implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:0.24.0")
+    implementation("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.24.0")
 
     implementation("org.jetbrains.pty4j:pty4j:0.13.10-1")
     implementation("org.jetbrains.jediterm:jediterm-core:3.54")
@@ -86,25 +99,58 @@ dependencies {
     shade("org.apache.xmlgraphics:batik-transcoder:1.19")
     shade("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     shade("org.java-websocket:Java-WebSocket:1.5.7")
+    shade("org.eclipse.lsp4j:org.eclipse.lsp4j:0.24.0")
+    shade("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.24.0")
     shade("org.jetbrains.pty4j:pty4j:0.13.10-1")
     shade("org.jetbrains.jediterm:jediterm-core:3.54")
     shade("org.jetbrains.jediterm:jediterm-pty:2.69")
 
+    val fabricApiVersion = if (mcData.isFabric && !mcData.isLegacyFabric) {
+        runCatching { mcData.dependencies.fabric.fabricApiVersion }.getOrNull()
+            ?: fabricApiVersionOverride
+            ?: error("No Fabric API version found for ${mcData.version}")
+    } else {
+        null
+    }
 
     if (mcData.isFabric) {
         if (mcData.isLegacyFabric) {
-            modImplementation("net.legacyfabric.legacy-fabric-api:legacy-fabric-api:${mcData.dependencies.legacyFabric.legacyFabricApiVersion}")
+            add("modImplementation", "net.legacyfabric.legacy-fabric-api:legacy-fabric-api:${mcData.dependencies.legacyFabric.legacyFabricApiVersion}")
         } else {
-            modImplementation("net.fabricmc.fabric-api:fabric-api:${mcData.dependencies.fabric.fabricApiVersion}")
+            val fabricApiDependency = "net.fabricmc.fabric-api:fabric-api:$fabricApiVersion"
+            if (mcData.version.isDrop) {
+                implementation(fabricApiDependency)
+            } else {
+                add("modImplementation", fabricApiDependency)
+            }
         }
     }
 
     if (mcData.version <= MinecraftVersions.VERSION_1_12_2) {
-        modImplementation(includeOrShade("org.spongepowered:mixin:0.7.11-SNAPSHOT")!!)
+        add("modImplementation", includeOrShade("org.spongepowered:mixin:0.7.11-SNAPSHOT")!!)
     }
 }
 
 tasks {
+    val fatJar = named<ShadowJar>("fatJar")
+
+    named<ProcessResources>("processResources") {
+        inputs.property("fabric_loader_version", fabricLoaderVersion)
+        filesMatching("fabric.mod.json") {
+            filter { line ->
+                line.replace("\${fabric_loader_version}", fabricLoaderVersion)
+            }
+        }
+    }
+
+    named<Jar>("jar") {
+        if (isDropFabric) {
+            dependsOn(fatJar)
+            duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+            from(fatJar.flatMap { it.archiveFile }.map { zipTree(it.asFile) })
+        }
+    }
+
     configureEach {
         val taskName = name.lowercase()
         if (taskName.contains("publish") && (taskName.contains("modrinth") || taskName.contains("curse") || taskName.contains("github"))) {
@@ -198,7 +244,7 @@ publisher {
 
         versionType.set("beta")
 
-        val targetTask = tasks.named<Jar>("remapJar")
+        val targetTask = tasks.named<Jar>(if (isDropFabric) "jar" else "remapJar")
 
         artifact.set(targetTask.flatMap { it.archiveFile })
 

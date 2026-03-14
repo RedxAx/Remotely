@@ -1,10 +1,10 @@
 package redxax.oxy.remotely.host;
 
 import net.minecraft.client.Minecraft;
-//#if MC >= 1.21.11
+//#if MC >= 1.21.11 || MC >= 26.1
 import net.minecraft.resources.Identifier;
 //#endif
-//#if MC < 1.21.11
+//#if MC < 1.21.11 && MC < 26.1
 //$$ import net.minecraft.resources.ResourceLocation;
 //#endif
 import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
@@ -75,7 +75,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
     public Object getFontIdentifier(String namespace, String path) {
         String resolvedNamespace = (namespace == null || namespace.isBlank()) ? "minecraft" : namespace;
         String resolvedPath = path == null ? "" : path;
-        //#if MC >= 1.21.11
+        //#if MC >= 1.21.11 || MC >= 26.1
         return Identifier.fromNamespaceAndPath(resolvedNamespace, resolvedPath);
         //#endif
         //#if MC < 1.21.11 && MC >= 1.21.1

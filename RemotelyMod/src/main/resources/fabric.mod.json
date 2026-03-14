@@ -23,7 +23,7 @@
     "mixins.remotely.json"
   ],
   "depends": {
-    "minecraft": "~${minor_mc_version}",
-    "fabricloader": ">=0.17.2"
+    "minecraft": ">=${fabric_mc_version}",
+    "fabricloader": ">=${fabric_loader_version}"
   }
 }
