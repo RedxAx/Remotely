@@ -21,6 +21,9 @@ dependencies {
     implementation(files("libs/Remodel-1.0.0.jar"))
     implementation(files("libs/Rebase-1.0-SNAPSHOT.jar"))
 
+    implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:0.24.0")
+    implementation("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.24.0")
+
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     implementation("org.apache.commons:commons-compress:1.28.0")

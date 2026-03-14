@@ -39,6 +39,9 @@ public class SettingsScreenFactory {
         JavaManagerController javaController = new JavaManagerController();
         settingsByTab.put("Java", javaController::getSettings);
 
+        LspSettingsController lspController = new LspSettingsController(configManager);
+        settingsByTab.put("LSP", lspController::getSettings);
+
         ExplorerSettingsController explorerController = new ExplorerSettingsController(configManager);
         settingsByTab.put("File Explorer", explorerController::getSettings);
 
