@@ -48,6 +48,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
@@ -812,9 +813,44 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             .accentType(ThemeManager.getAccent("danger"))
             .onClick(() -> {
                 playSound(Sound.DELETE);
-                instanceManager.removeInstance(instanceForDeletion);
-                loadServersForCurrentTab();
                 deleteServerPopup.hide();
+                if (instanceForDeletion == null) {
+                    return;
+                }
+                Instance deletingInstance = instanceForDeletion;
+                instanceForDeletion = null;
+                Notification notification = new Notification.Builder()
+                    .message("Deleting Server")
+                    .description(deletingInstance.getName())
+                    .type(Notification.Type.INFO)
+                    .loading(true)
+                    .autoSlideOut(false)
+                    .build();
+                CompletableFuture.runAsync(() -> instanceManager.removeInstance(deletingInstance))
+                    .whenComplete((v, throwable) -> ScreenManager.getInstance().execute(() -> {
+                        Throwable error = throwable;
+                        if (error instanceof CompletionException completionException && completionException.getCause() != null) {
+                            error = completionException.getCause();
+                        }
+                        if (error != null) {
+                            notification.update()
+                                .message("Delete Failed")
+                                .description(error.getMessage() != null && !error.getMessage().isBlank() ? error.getMessage() : deletingInstance.getName())
+                                .type(Notification.Type.ERROR)
+                                .loading(false)
+                                .autoSlideOut(true)
+                                .commit();
+                            return;
+                        }
+                        loadServersForCurrentTab();
+                        notification.update()
+                            .message("Server Deleted")
+                            .description(deletingInstance.getName())
+                            .type(Notification.Type.SUCCESS)
+                            .loading(false)
+                            .autoSlideOut(true)
+                            .commit();
+                    }));
             })
             .build();
 
