@@ -15,6 +15,7 @@ import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.settings.controllers.VersionSettingsController;
+import restudio.rebase.util.Executors;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.config.Config;
@@ -42,6 +43,8 @@ import static restudio.rescreen.util.SoundUtils.playSound;
 
 @SuppressWarnings("unchecked")
 public class ServerConfigurationScreen extends ReScreen {
+    private record InitialConfigLoad(List<String> extraFiles) {}
+
     private final Screen parent;
     private final boolean isEditMode;
     private final Instance originalInstance;
@@ -55,6 +58,7 @@ public class ServerConfigurationScreen extends ReScreen {
     private final boolean isReStudioBackend;
     private String serverIdentifier;
     private ServerPlanSettingsController planController;
+    private volatile boolean screenClosed;
 
     private static final Set<String> REINSTALL_TRIGGERING_VARS = Set.of(
         "VERSION", "SOFTWARE", "BUILD", "MODPACK_SOURCE", "DOWNLOAD_URL", "AUTOMATIC_UPDATING"
@@ -140,67 +144,79 @@ public class ServerConfigurationScreen extends ReScreen {
         LoadingAnimationWidget loadingWidget = new LoadingAnimationWidget(0, 0, width, height);
         addDrawableChild(loadingWidget);
 
-        CompletableFuture<Void> propertiesFuture;
-        CompletableFuture<Void> settingsFuture;
-        CompletableFuture<List<String>> filesFuture;
-        CompletableFuture<Void> remoteConfigFuture;
-
-        boolean isRemote = tempInstance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(tempInstance.getBackendConfig().type);
-
-        if (isEditMode) {
-            if (isRemote) {
-                propertiesFuture = tempInstance.loadRemoteServerProperties();
-                settingsFuture = tempInstance.reloadSettingsFromBackend();
-            } else {
-                propertiesFuture = CompletableFuture.runAsync(tempInstance::loadServerProperties);
-                settingsFuture = CompletableFuture.completedFuture(null);
+        loadInitialConfig().thenAccept(load -> ScreenManager.getInstance().execute(() -> {
+            if (screenClosed) {
+                return;
             }
-            filesFuture = RebaseApiFactory.get(tempInstance).listDirectory(Path.of(tempInstance.getPath())).thenApply(entries -> entries.stream().map(RebaseAPI.FileEntry::toString).toList()).exceptionally(e -> new ArrayList<>());
-
-            if (isReStudioBackend) {
-                remoteConfigFuture = ReStudio.getInstance().getApi().getServerStartupConfig(serverIdentifier).thenAccept(data -> {
-                    if (data.containsKey("data")) {
-                        List<Map<String, Object>> vars = (List<Map<String, Object>>) data.get("data");
-                        for (Map<String, Object> varWrapper : vars) {
-                            Map<String, Object> attr = (Map<String, Object>) varWrapper.get("attributes");
-                            String key = (String) attr.get("env_variable");
-                            String val = (String) attr.get("server_value");
-                            remoteVariables.put(key, val);
-                            originalRemoteVariables.put(key, val);
-                        }
-                    }
-                }).exceptionally(e -> {
-                    System.err.println("Failed to fetch startup config: " + e.getMessage());
-                    return null;
-                });
-            } else {
-                remoteConfigFuture = CompletableFuture.completedFuture(null);
-            }
-
-        } else {
-            tempInstance.loadServerProperties();
-            propertiesFuture = CompletableFuture.completedFuture(null);
-            settingsFuture = CompletableFuture.completedFuture(null);
-            filesFuture = CompletableFuture.completedFuture(new ArrayList<>());
-
-            if (isReStudioCreation) {
-                remoteVariables.put("SOFTWARE", "PAPER");
-                remoteVariables.put("VERSION", "latest");
-                remoteVariables.put("BUILD", "latest");
-            }
-
-            remoteConfigFuture = CompletableFuture.completedFuture(null);
-        }
-
-        CompletableFuture.allOf(propertiesFuture, settingsFuture, filesFuture, remoteConfigFuture).thenRun(() -> {
-            List<String> files = filesFuture.join();
-            ScreenManager.getInstance().execute(() -> setupSettingsUI(files));
-        }).exceptionally(e -> {
+            setupSettingsUI(load.extraFiles());
+        })).exceptionally(e -> {
             ScreenManager.getInstance().execute(() -> {
-                new Notification("Error", "Could not load server configuration: " + e.getMessage(), Notification.Type.ERROR);
+                if (screenClosed) {
+                    return;
+                }
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+                new Notification("Error", "Could not load server configuration: " + cause.getMessage(), Notification.Type.ERROR);
                 close();
             });
             return null;
+        });
+    }
+
+    private CompletableFuture<InitialConfigLoad> loadInitialConfig() {
+        return CompletableFuture.runAsync(() -> {
+        }, Executors.IO).thenCompose(v -> {
+            CompletableFuture<Void> propertiesFuture;
+            CompletableFuture<Void> settingsFuture;
+            CompletableFuture<List<String>> filesFuture;
+            CompletableFuture<Void> remoteConfigFuture;
+
+            boolean isRemote = tempInstance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(tempInstance.getBackendConfig().type);
+
+            if (isEditMode) {
+                if (isRemote) {
+                    propertiesFuture = tempInstance.loadRemoteServerProperties();
+                    settingsFuture = tempInstance.reloadSettingsFromBackend();
+                } else {
+                    propertiesFuture = CompletableFuture.runAsync(tempInstance::loadServerProperties, Executors.IO);
+                    settingsFuture = CompletableFuture.completedFuture(null);
+                }
+                filesFuture = RebaseApiFactory.get(tempInstance).listDirectory(Path.of(tempInstance.getPath())).thenApply(entries -> entries.stream().map(RebaseAPI.FileEntry::toString).toList()).exceptionally(e -> new ArrayList<>());
+
+                if (isReStudioBackend) {
+                    remoteConfigFuture = ReStudio.getInstance().getApi().getServerStartupConfig(serverIdentifier).thenAccept(data -> {
+                        if (data.containsKey("data")) {
+                            List<Map<String, Object>> vars = (List<Map<String, Object>>) data.get("data");
+                            for (Map<String, Object> varWrapper : vars) {
+                                Map<String, Object> attr = (Map<String, Object>) varWrapper.get("attributes");
+                                String key = (String) attr.get("env_variable");
+                                String val = (String) attr.get("server_value");
+                                remoteVariables.put(key, val);
+                                originalRemoteVariables.put(key, val);
+                            }
+                        }
+                    }).exceptionally(e -> {
+                        System.err.println("Failed to fetch startup config: " + e.getMessage());
+                        return null;
+                    });
+                } else {
+                    remoteConfigFuture = CompletableFuture.completedFuture(null);
+                }
+
+            } else {
+                propertiesFuture = CompletableFuture.runAsync(tempInstance::loadServerProperties, Executors.IO);
+                settingsFuture = CompletableFuture.completedFuture(null);
+                filesFuture = CompletableFuture.completedFuture(new ArrayList<>());
+
+                if (isReStudioCreation) {
+                    remoteVariables.put("SOFTWARE", "PAPER");
+                    remoteVariables.put("VERSION", "latest");
+                    remoteVariables.put("BUILD", "latest");
+                }
+
+                remoteConfigFuture = CompletableFuture.completedFuture(null);
+            }
+
+            return CompletableFuture.allOf(propertiesFuture, settingsFuture, filesFuture, remoteConfigFuture).thenApply(ignored -> new InitialConfigLoad(new ArrayList<>(filesFuture.join())));
         });
     }
 
@@ -523,7 +539,14 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     public void close() {
+        screenClosed = true;
         client.setScreen(parent);
+    }
+
+    @Override
+    public void removed() {
+        screenClosed = true;
+        super.removed();
     }
 
     private void handleOpMe(Instance instance) {
