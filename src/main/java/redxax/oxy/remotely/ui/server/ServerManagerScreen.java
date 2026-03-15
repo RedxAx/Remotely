@@ -87,6 +87,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private final Map<String, ServerModels.ClientServerView> restudioServerViews = new HashMap<>();
     private final ServerIconManager iconManager;
     private boolean initializedOnce;
+    private volatile int remoteHostSelectionToken;
 
     public ServerManagerScreen(Object parent, RemotelyClient remotelyClient) {
         super();
@@ -367,7 +368,6 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
     private void loadServersForCurrentTab() {
         if (activeContainer == null) return;
-        activeContainer.clearWidgets();
 
         List<Instance> instances;
         Object tabData = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
@@ -409,24 +409,11 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             });
         }
 
-        List<DesktopIconWidget> serverWidgets = new ArrayList<>();
+        activeContainer.clearWidgets();
         for (Instance server : instances) {
-            DesktopIconWidget widget = addServerWidget(server, false);
-            serverWidgets.add(widget);
+            addServerWidget(server, false);
         }
         addServerWidget(null, true);
-
-        for (int i = 0; i < instances.size(); i++) {
-            Instance server = instances.get(i);
-            DesktopIconWidget widget = serverWidgets.get(i);
-            iconManager.loadIconAsync(server, widget::setIcon);
-
-            BackendConfig backendConfig = server.getBackendConfig();
-            if (backendConfig != null && !"LOCAL".equalsIgnoreCase(backendConfig.type)) {
-                iconManager.loadRemoteIconAsync(server, () -> ScreenManager.getInstance().execute(() -> refreshServerWidgetIcon(server)));
-            }
-        }
-
         activeContainer.updateWidgetPositions();
     }
 
@@ -449,45 +436,31 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         config.setInstanceOrder(context, newOrderIds);
     }
 
-    private DesktopIconWidget addServerWidget(Instance info, boolean isCreate) {
-        DesktopIconWidget widget = new DesktopIconWidget.Builder(info, isCreate, isCreate ? serverIcon : getServerIcon(info)).onClick(this::onDesktopIconClick).build();
+    private void addServerWidget(Instance info, boolean isCreate) {
+        DesktopIconWidget widget = new DesktopIconWidget.Builder(info, isCreate, isCreate ? serverIcon : iconManager.getQuickIcon(info))
+            .onClick(this::onDesktopIconClick)
+            .build();
         activeContainer.addWidget(widget);
-        return widget;
-    }
-
-    private void refreshServerWidgetIcon(Instance server) {
-        if (activeContainer == null || server == null) return;
-        BufferedImage icon = iconManager.getIcon(server);
-        if (icon == null) return;
-        for (AnimatedWidget widget : activeContainer.getWidgets()) {
-            if (widget instanceof DesktopIconWidget desktopWidget && !desktopWidget.isCreateButton() && desktopWidget.getInstance() != null) {
-                if (Objects.equals(desktopWidget.getInstance().getInstanceId(), server.getInstanceId())) {
-                    desktopWidget.setIcon(icon);
-                    break;
-                }
-            }
+        if (isCreate || info == null) {
+            return;
+        }
+        iconManager.loadIconAsync(info, widget::setIcon);
+        BackendConfig backendConfig = info.getBackendConfig();
+        if (backendConfig != null && !"LOCAL".equalsIgnoreCase(backendConfig.type)) {
+            iconManager.loadRemoteIconAsync(info, () -> iconManager.loadIconAsync(info, widget::setIcon));
         }
     }
 
     private void onHostTabSelected(TabsManager.Tab tab) {
+        int selectionToken = ++remoteHostSelectionToken;
         remotelyClient.saveTabIndex(tabs().getActiveTabIndex());
         setActiveContainer(tab.getContainer());
 
         Object data = tab.getData();
         if (data instanceof RemoteHost host) {
-            if (!host.getSshManager().isConnected()) {
-                if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("calm"));
-                connectRemoteHostAsync(host, () -> {
-                    if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getDefaultAccent());
-                    instanceManager.fetchRemoteInstances(host)
-                        .whenComplete((v, e) -> ScreenManager.getInstance().execute(this::loadServersForCurrentTab));
-                }, () -> {
-                    if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("danger"));
-                });
-            } else if (instanceManager.getRemoteInstances(host).isEmpty()) {
-                instanceManager.fetchRemoteInstances(host)
-                    .whenComplete((v, e) -> ScreenManager.getInstance().execute(this::loadServersForCurrentTab));
-            }
+            CompletableFuture.supplyAsync(() -> host.getSshManager().isConnected())
+                .exceptionally(e -> false)
+                .thenAccept(connected -> ScreenManager.getInstance().execute(() -> handleRemoteHostTabSelected(tab, host, selectionToken, connected)));
         } else if ("RESTUDIO_MARKER".equals(data)) {
             fetchReStudioServers();
         }
@@ -496,84 +469,137 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         Main.setTitle(tab.getName() + " Host - Remotely Server Manager");
     }
 
+    private void handleRemoteHostTabSelected(TabsManager.Tab tab, RemoteHost host, int selectionToken, boolean connected) {
+        if (selectionToken != remoteHostSelectionToken) {
+            return;
+        }
+        if (tabs().getActiveTab() != tab) {
+            return;
+        }
+        if (!connected) {
+            if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("calm"));
+            connectRemoteHostAsync(host, () -> {
+                if (selectionToken != remoteHostSelectionToken || tabs().getActiveTab() != tab) {
+                    return;
+                }
+                if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getDefaultAccent());
+                instanceManager.fetchRemoteInstances(host)
+                    .whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
+                        if (selectionToken != remoteHostSelectionToken || tabs().getActiveTab() != tab) {
+                            return;
+                        }
+                        loadServersForCurrentTab();
+                    }));
+            }, () -> {
+                if (selectionToken != remoteHostSelectionToken || tabs().getActiveTab() != tab) {
+                    return;
+                }
+                if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("danger"));
+            });
+            return;
+        }
+        if (tab.getWidget() != null) {
+            tab.getWidget().setAccent(ThemeManager.getDefaultAccent());
+        }
+        if (instanceManager.getRemoteInstances(host).isEmpty()) {
+            if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("calm"));
+            instanceManager.fetchRemoteInstances(host)
+                .whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
+                    if (selectionToken != remoteHostSelectionToken || tabs().getActiveTab() != tab) {
+                        return;
+                    }
+                    if (tab.getWidget() != null) {
+                        tab.getWidget().setAccent(e == null ? ThemeManager.getDefaultAccent() : ThemeManager.getAccent("danger"));
+                    }
+                    loadServersForCurrentTab();
+                }));
+        }
+    }
+
     private void fetchReStudioServers() {
         if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getAccent("calm"));
-
         ReStudio.getInstance().getApi().getSftpPassword().thenCompose(sftpSecret ->
             ReStudio.getInstance().getApi().getServers().thenCompose(servers -> {
-                restudioInstances.clear();
-                restudioServerViews.clear();
-                List<java.util.concurrent.CompletableFuture<Void>> futures = new ArrayList<>();
-                for (ServerModels.ClientServerView csv : servers) {
-                    Map<String, String> creds = new HashMap<>();
-                    creds.put("identifier", csv.identifier);
-                    creds.put("host", csv.sftpIp);
-                    creds.put("port", String.valueOf(csv.sftpPort));
-                    creds.put("user", csv.sftpUser);
-                    creds.put("password", sftpSecret != null ? sftpSecret : "");
-                    creds.put("installing", String.valueOf(csv.isInstalling));
-                    creds.put("suspended", String.valueOf(csv.isSuspended));
+                List<Instance> instances = new ArrayList<>();
+                Map<String, ServerModels.ClientServerView> serverViews = new HashMap<>();
+                List<CompletableFuture<Void>> stateFutures = new ArrayList<>();
 
-                    BackendConfig config = new BackendConfig("RESTUDIO", creds);
+                if (servers != null) {
+                    for (ServerModels.ClientServerView csv : servers) {
+                        Map<String, String> creds = new HashMap<>();
+                        creds.put("identifier", csv.identifier);
+                        creds.put("host", csv.sftpIp);
+                        creds.put("port", String.valueOf(csv.sftpPort));
+                        creds.put("user", csv.sftpUser);
+                        creds.put("password", sftpSecret != null ? sftpSecret : "");
+                        creds.put("installing", String.valueOf(csv.isInstalling));
+                        creds.put("suspended", String.valueOf(csv.isSuspended));
 
-                    Instance inst = new Instance(csv.name, "unknown", "");
-                    inst.setBackendConfig(config);
-                    inst.setServer(true);
-                    if (csv.isInstalling) {
-                        inst.setState(InstanceState.INSTALLING);
-                    }
-                    if (csv.isSuspended) {
-                        inst.setState(InstanceState.STOPPED);
-                    }
+                        BackendConfig config = new BackendConfig("RESTUDIO", creds);
 
-                    if (csv.loader != null) {
-                        try {
-                            inst.setModLoader(ModLoader.valueOf(csv.loader));
-                        } catch (IllegalArgumentException ignored) {
-                            inst.setModLoader(ModLoader.VANILLA);
+                        Instance inst = new Instance(csv.name, "unknown", "");
+                        inst.setBackendConfig(config);
+                        inst.setServer(true);
+                        if (csv.isInstalling) {
+                            inst.setState(InstanceState.INSTALLING);
                         }
-                    }
-                    if (csv.version != null) {
-                        inst.setVersionId(csv.version);
-                    }
+                        if (csv.isSuspended) {
+                            inst.setState(InstanceState.STOPPED);
+                        }
 
-                    restudioInstances.add(inst);
-                    restudioServerViews.put(csv.name, csv);
+                        if (csv.loader != null) {
+                            try {
+                                inst.setModLoader(ModLoader.valueOf(csv.loader));
+                            } catch (IllegalArgumentException ignored) {
+                                inst.setModLoader(ModLoader.VANILLA);
+                            }
+                        }
+                        if (csv.version != null) {
+                            inst.setVersionId(csv.version);
+                        }
 
-                    if (!csv.isInstalling && !csv.isSuspended) {
-                        futures.add(ReStudio.getInstance().getApi().getServerResources(csv.identifier).thenAccept(stats -> {
-                            if (stats == null) return;
-                            ScreenManager.getInstance().execute(() -> {
-                                if (inst.getState() == InstanceState.INSTALLING) return;
-                                if (csv.isSuspended || stats.isSuspended) {
-                                    inst.setState(InstanceState.STOPPED);
-                                    creds.put("suspended", "true");
+                        instances.add(inst);
+                        serverViews.put(csv.name, csv);
+
+                        CompletableFuture<Void> stateFuture = ReStudio.getInstance().getApi().getServerResources(csv.identifier)
+                            .thenAccept(stats -> {
+                                if (stats == null) {
                                     return;
                                 }
-                                String cs = stats.currentState != null ? stats.currentState.trim().toLowerCase() : "";
-                                if ("running".equals(cs)) {
+                                if (csv.isSuspended || stats.isSuspended) {
+                                    inst.setState(InstanceState.STOPPED);
+                                    inst.getBackendConfig().credentials.put("suspended", "true");
+                                    return;
+                                }
+                                String currentState = stats.currentState != null ? stats.currentState.trim().toLowerCase() : "";
+                                if ("running".equals(currentState)) {
                                     inst.setState(InstanceState.RUNNING);
-                                } else if ("starting".equals(cs)) {
+                                } else if ("starting".equals(currentState)) {
                                     inst.setState(InstanceState.STARTING);
-                                } else if ("offline".equals(cs)) {
+                                } else if ("offline".equals(currentState)) {
                                     inst.setState(InstanceState.STOPPED);
                                 }
-                            });
-                        }).exceptionally(ex -> null));
+                            })
+                            .exceptionally(ex -> null);
+                        stateFutures.add(stateFuture);
                     }
                 }
 
-                if (futures.isEmpty()) {
-                    return java.util.concurrent.CompletableFuture.completedFuture(null);
-                }
-                return java.util.concurrent.CompletableFuture.allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0]));
+                return CompletableFuture.allOf(stateFutures.toArray(CompletableFuture[]::new))
+                    .thenApply(v -> Map.entry(instances, serverViews));
             })
-        ).whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
+        ).whenComplete((result, e) -> ScreenManager.getInstance().execute(() -> {
             if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getDefaultAccent());
             if (e != null) {
                 new Notification("Error fetching ReStudio servers", e.getMessage(), Notification.Type.ERROR);
                 if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getAccent("danger"));
-            } else {
+                return;
+            }
+            restudioInstances.clear();
+            restudioInstances.addAll(result.getKey());
+            restudioServerViews.clear();
+            restudioServerViews.putAll(result.getValue());
+            if (tabs().getActiveTab() != null && "RESTUDIO_MARKER".equals(tabs().getActiveTab().getData())) {
                 loadServersForCurrentTab();
             }
         }));
@@ -1186,11 +1212,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void openServerScreen(Instance info) {
-        CompletableFuture.runAsync(() -> {
-            if (info != null && info.getBackend() != null) {
-                info.getBackend().connect();
-            }
-        }).thenRun(() -> ScreenManager.getInstance().execute(() -> remotelyClient.openInstanceInTerminal(this, info)));
+        remotelyClient.openInstanceInTerminal(this, info);
     }
 
     public static void openServerScreen(String path) {
@@ -1311,10 +1333,6 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             taskbarHelper.detach();
         }
         super.removed();
-    }
-
-    private BufferedImage getServerIcon(Instance server) {
-        return iconManager.getIcon(server);
     }
 
     private long lastReloadTime = 0;
