@@ -27,6 +27,7 @@ import static redxax.oxy.remotely.util.DevUtil.devPrint;
 public class ServerIconManager {
     private final Path cacheDir;
     private final Set<String> remoteIconsLoaded = ConcurrentHashMap.newKeySet();
+    private final Map<String, BufferedImage> iconMemoryCache = new ConcurrentHashMap<>();
 
     private final Map<String, BufferedImage> defaultIcons = new HashMap<>();
 
@@ -40,6 +41,8 @@ public class ServerIconManager {
     }
 
     public BufferedImage getIcon(Instance instance) {
+        BufferedImage memoryIcon = iconMemoryCache.get(getInstanceUniqueId(instance));
+        if (memoryIcon != null) return memoryIcon;
         BufferedImage cachedIcon = loadFromCache(instance);
         if (cachedIcon != null) return cachedIcon;
         BufferedImage instanceIcon = loadFromInstance(instance);
@@ -47,7 +50,20 @@ public class ServerIconManager {
         return getDefaultIcon(instance);
     }
 
+    public BufferedImage getQuickIcon(Instance instance) {
+        if (instance == null) {
+            return null;
+        }
+        BufferedImage memoryIcon = iconMemoryCache.get(getInstanceUniqueId(instance));
+        return memoryIcon != null ? memoryIcon : getDefaultIcon(instance);
+    }
+
     public void loadIconAsync(Instance instance, Consumer<BufferedImage> onLoaded) {
+        BufferedImage memoryIcon = iconMemoryCache.get(getInstanceUniqueId(instance));
+        if (memoryIcon != null) {
+            ScreenManager.getInstance().execute(() -> onLoaded.accept(memoryIcon));
+            return;
+        }
         CompletableFuture.runAsync(() -> {
             try {
                 BufferedImage cachedIcon = loadFromCache(instance);
@@ -162,6 +178,7 @@ public class ServerIconManager {
             if (cacheFile.exists()) {
                 cacheFile.delete();
             }
+            iconMemoryCache.remove(getInstanceUniqueId(instance));
             remoteIconsLoaded.remove(getInstanceUniqueId(instance));
         } catch (Exception e) {
             devPrint("Failed to clear cache: " + e.getMessage());
@@ -217,7 +234,11 @@ public class ServerIconManager {
         try {
             File cacheFile = getCachePath(instance);
             if (cacheFile.exists()) {
-                return ImageIO.read(cacheFile);
+                BufferedImage icon = ImageIO.read(cacheFile);
+                if (icon != null) {
+                    iconMemoryCache.put(getInstanceUniqueId(instance), icon);
+                }
+                return icon;
             }
         } catch (IOException e) {
             devPrint("Failed to load from cache: " + e.getMessage());
@@ -231,7 +252,11 @@ public class ServerIconManager {
             if (backendConfig == null || "LOCAL".equalsIgnoreCase(backendConfig.type)) {
                 File iconFile = new File(instance.getPath(), "icon.png");
                 if (iconFile.exists() && iconFile.isFile()) {
-                    return ImageIO.read(iconFile);
+                    BufferedImage icon = ImageIO.read(iconFile);
+                    if (icon != null) {
+                        iconMemoryCache.put(getInstanceUniqueId(instance), icon);
+                    }
+                    return icon;
                 }
             }
         } catch (Exception e) {
@@ -244,6 +269,7 @@ public class ServerIconManager {
         File cacheFile = getCachePath(instance);
         cacheFile.getParentFile().mkdirs();
         ImageIO.write(icon, "png", cacheFile);
+        iconMemoryCache.put(getInstanceUniqueId(instance), icon);
     }
 
     private BufferedImage getDefaultIcon(Instance instance) {
