@@ -55,9 +55,10 @@ public class PlayerManagerController {
     private boolean isInitialized = false;
     private boolean listenerRegistered = false;
     private StandardFileSource standardFileSource;
-    private List<PlayerAction> playerActions = new ArrayList<>();
+    private volatile List<PlayerAction> playerActions = List.of();
     private final Gson gson = new Gson();
     private int uiToken = 0;
+    private volatile int playerActionsLoadToken = 0;
 
     private PlayerManagerController(Instance instance) {
         this.instance = instance;
@@ -156,26 +157,43 @@ public class PlayerManagerController {
         this.luckPermsService = new LuckPermsService(api, Path.of(instance.getPath()));
         this.luckPermsService.initialize();
         if (this.historyProvider != null) this.historyProvider.initialize();
-        loadActions();
+        loadActionsAsync();
     }
 
-    private void loadActions() {
+    private void loadActionsAsync() {
+        int loadToken = ++playerActionsLoadToken;
         Path actionsPath = Path.of(instance.getPath(), "Remotely", "player-actions.json");
-        try {
-            String content = RebaseApiFactory.get(instance).readFile(actionsPath).join();
+        RebaseApiFactory.get(instance).readFile(actionsPath).thenAccept(content -> {
+            List<PlayerAction> loadedActions = List.of();
             if (content != null && !content.isEmpty()) {
                 try {
                     List<PlayerAction> loaded = gson.fromJson(content, new TypeToken<List<PlayerAction>>(){}.getType());
-                    this.playerActions = loaded != null ? loaded : new ArrayList<>();
+                    loadedActions = loaded != null ? List.copyOf(loaded) : List.of();
                 } catch (Exception e) {
-                    this.playerActions = new ArrayList<>();
+                    loadedActions = List.of();
                 }
-            } else {
-                this.playerActions = new ArrayList<>();
             }
-        } catch (Exception e) {
-            this.playerActions = new ArrayList<>();
+
+            applyLoadedActions(loadToken, loadedActions);
+        }).exceptionally(e -> {
+            applyLoadedActions(loadToken, List.of());
+            return null;
+        });
+    }
+
+    private void applyLoadedActions(int loadToken, List<PlayerAction> loadedActions) {
+        if (loadToken != playerActionsLoadToken) {
+            return;
         }
+        this.playerActions = loadedActions;
+        ScreenManager.getInstance().execute(() -> {
+            if (loadToken != playerActionsLoadToken) {
+                return;
+            }
+            if (container != null && playerService != null) {
+                container.syncUi(playerService.getRegistry().getAll());
+            }
+        });
     }
 
     public void setUiBindings(PlayersContainer container, TerminalWidget terminalWidget) {
@@ -217,12 +235,7 @@ public class PlayerManagerController {
     }
 
     public void refreshPlayerActions() {
-        loadActions();
-        ScreenManager.getInstance().execute(() -> {
-            if (container != null && playerService != null) {
-                container.syncUi(playerService.getRegistry().getAll());
-            }
-        });
+        loadActionsAsync();
     }
 
     public IPlayerHistoryProvider getHistoryProvider() { return historyProvider; }
