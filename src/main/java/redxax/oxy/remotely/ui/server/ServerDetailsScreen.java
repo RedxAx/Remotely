@@ -346,15 +346,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             if (inst != null) {
                 terminal.addOutputListener(inst.getMSMPManager()::handleConsoleLine);
 
-                if (inst.getBackend() instanceof restudio.rebase.backend.impl.SshBackend sshBackend) {
-                    sshBackend.connect();
-                    terminal.start();
-                } else if (inst.getBackend() instanceof restudio.rebase.backend.impl.ReStudioBackend reStudioBackend) {
-                    reStudioBackend.connect();
-                    terminal.start();
-                } else {
-                    terminal.start();
-                }
+                terminal.start();
 
                 inst.attachTerminalListener(terminal);
                 setupTerminalListeners(inst, info);

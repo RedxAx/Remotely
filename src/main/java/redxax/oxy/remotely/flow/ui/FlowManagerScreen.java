@@ -1269,7 +1269,7 @@ public class FlowManagerScreen extends ReScreen {
             .build();
         final SquareButtonWidget[] actionsButtonRef = new SquareButtonWidget[1];
         actionsButtonRef[0] = new SquareButtonWidget.Builder()
-            .imagePath("apps.png").hint("More Actions")
+            .imagePath("ContextMenu.png").hint("More Actions")
             .onClick(() -> showWorldActionsMenu(worldName, actionsButtonRef[0]))
             .build();
 

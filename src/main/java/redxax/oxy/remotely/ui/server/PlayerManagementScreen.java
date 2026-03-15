@@ -1761,11 +1761,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     }
 
     private boolean isInventorySectionAllowed() {
-        ApplicationHost host = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getHost() : null;
-        if (host == null) {
-            return false;
-        }
-        return host.getClass().getName().equals("redxax.oxy.remotely.host.MinecraftApplicationHost");
+        return true;
     }
 
     private boolean canManipulateInventory() {

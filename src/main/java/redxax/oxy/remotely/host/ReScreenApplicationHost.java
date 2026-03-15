@@ -1,7 +1,12 @@
 package redxax.oxy.remotely.host;
 
+import redxax.oxy.remotely.config.RemotelyConfigManager;
+import redxax.oxy.remotely.mcassets.MinecraftAssetsManager;
 import redxax.oxy.remotely.RemotelyClient;
 import restudio.rescreen.Main;
+import restudio.rescreen.config.Config;
+import restudio.rescreen.game.MinecraftGameAssets;
+import restudio.rescreen.game.SourceMinecraftGameAssets;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -10,6 +15,7 @@ import static org.lwjgl.glfw.GLFW.glfwSetClipboardString;
 
 public class ReScreenApplicationHost implements ApplicationHost {
     private final ScreenManager sm = ScreenManager.getInstance();
+    private volatile MinecraftGameAssets gameAssets;
 
     @Override
     public void setScreen(Screen screen) {
@@ -21,11 +27,28 @@ public class ReScreenApplicationHost implements ApplicationHost {
         return sm.getCurrentScreen();
     }
 
-@Override
+    @Override
     public void ensureTextRenderer() {
         if (RemotelyClient.tr != null) return;
         TextRenderer.ensureLwjglRenderer();
         RemotelyClient.tr = TextRenderer.getTr();
+    }
+
+    @Override
+    public MinecraftGameAssets getGameAssets() {
+        MinecraftGameAssets current = gameAssets;
+        if (Config.configManager instanceof RemotelyConfigManager remotelyConfigManager) {
+            if (!(current instanceof SourceMinecraftGameAssets)) {
+                current = new SourceMinecraftGameAssets(MinecraftAssetsManager.get(remotelyConfigManager).getAssetSource());
+                gameAssets = current;
+            }
+            return current;
+        }
+        if (current == null) {
+            current = MinecraftGameAssets.EMPTY;
+            gameAssets = current;
+        }
+        return current;
     }
 
     @Override
@@ -49,7 +72,7 @@ public class ReScreenApplicationHost implements ApplicationHost {
 
     @Override
     public String getGameVersion() {
-        return "1.21.1";
+        return null;
     }
 
     @Override

@@ -2,13 +2,16 @@ package redxax.oxy.remotely.flow.ui;
 
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
-import redxax.oxy.remotely.data.item.UiItem;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.GuiElement;
 import redxax.oxy.remotely.flow.data.Visual;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
+import restudio.rescreen.game.MinecraftAssetReference;
+import restudio.rescreen.game.MinecraftGameAssets;
+import restudio.rescreen.game.MinecraftGameItems;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -26,7 +29,6 @@ import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.RowWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
-import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.ResourceManager;
 
@@ -259,8 +261,8 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         if (guiBackgroundWidth <= 0 || guiBackgroundHeight <= 0) {
             return;
         }
-        Identifier textureId = buildTextureIdentifier("minecraft", "textures/gui/container/generic_54.png");
-        BufferedImage texture = ResourceManager.getInstance().getImage(textureId);
+        MinecraftGameAssets gameAssets = getGameAssets();
+        BufferedImage texture = gameAssets.getImage(gameAssets.containerTexture("generic_54.png"));
         if (texture == null || texture == ResourceManager.getInstance().getMissingTexture()) {
             return;
         }
@@ -1436,61 +1438,44 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         return builder.toString();
     }
 
-    private Identifier resolveMaterialIdentifier(Visual visual) {
+    private MinecraftGameAssets getGameAssets() {
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
+            MinecraftGameAssets gameAssets = RemotelyClient.INSTANCE.getHost().getGameAssets();
+            if (gameAssets != null) {
+                return gameAssets;
+            }
+        }
+        return MinecraftGameAssets.EMPTY;
+    }
+
+    private MinecraftAssetReference resolveMaterialTexture(Visual visual) {
         if (visual == null) {
-            return buildTextureIdentifier("minecraft", "textures/item/stone.png");
+            return getGameAssets().resolveMaterialTexture("stone", null);
+        }
+        return getGameAssets().resolveMaterialTexture(visual.getMaterial(), visual.getModelData());
+    }
+
+    private MinecraftRenderItem toRenderItem(Visual visual) {
+        if (visual == null || shouldRenderAsTexture(visual)) {
+            return null;
+        }
+        return MinecraftGameItems.fromVisual(visual.getMaterial(), 1, visual.getName(), visual.getLore(), visual.getModelData());
+    }
+
+    private boolean shouldRenderAsTexture(Visual visual) {
+        if (visual == null) {
+            return true;
         }
         String material = visual.getMaterial();
-        String namespace = "minecraft";
-        String path = material != null ? material.trim() : "";
+        if (material == null || material.isBlank()) {
+            return true;
+        }
+        String path = material.trim().replace('\\', '/');
         if (path.contains(":")) {
             String[] parts = path.split(":", 2);
-            namespace = parts[0].isBlank() ? "minecraft" : parts[0];
             path = parts.length > 1 ? parts[1] : "";
         }
-        path = path.toLowerCase(Locale.ROOT).replace(" ", "_");
-        if (path.isBlank()) {
-            path = "stone";
-        }
-
-        Identifier resolved = null;
-        if (!path.contains("/")) {
-            Integer modelData = visual.getModelData();
-            if (modelData != null) {
-                Identifier modelId = buildTextureIdentifier(namespace, "textures/item/" + path + "_" + modelData + ".png");
-                if (!isMissingTexture(modelId)) {
-                    resolved = modelId;
-                }
-            }
-            if (resolved == null) {
-                Identifier itemId = buildTextureIdentifier(namespace, "textures/item/" + path + ".png");
-                if (!isMissingTexture(itemId)) {
-                    resolved = itemId;
-                }
-            }
-            if (resolved == null) {
-                resolved = buildTextureIdentifier(namespace, "textures/block/" + path + ".png");
-            }
-        } else {
-            String texturePath = path.endsWith(".png") ? path : path + ".png";
-            resolved = buildTextureIdentifier(namespace, texturePath.startsWith("textures/") ? texturePath : "textures/" + texturePath);
-        }
-        return resolved;
-    }
-
-    private Identifier buildTextureIdentifier(String namespace, String path) {
-        String resolved = namespace + ":" + path;
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-            Object hostId = RemotelyClient.INSTANCE.getHost().getFontIdentifier(namespace, path);
-            if (hostId != null) {
-                resolved = hostId.toString();
-            }
-        }
-        return Identifier.of(resolved);
-    }
-
-    private boolean isMissingTexture(Identifier identifier) {
-        return ResourceManager.getInstance().getImage(identifier) == ResourceManager.getInstance().getMissingTexture();
+        return path.contains("/") || path.endsWith(".png");
     }
 
     private class SlotButton extends AnimatedButton {
@@ -1530,15 +1515,15 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         @Override
         protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
             if (element != null) {
-                UiItem uiItem = UiItem.fromVisual(element.getVisual());
+                MinecraftRenderItem renderItem = toRenderItem(element.getVisual());
                 int padding = Math.max(1, Math.round(guiScale));
                 int iconSize = Math.max(10, Math.min(getWidth(), getHeight()) - padding * 2);
                 int iconX = getX() + (getWidth() - iconSize) / 2;
                 int iconY = getY() + (getHeight() - iconSize) / 2;
-                if (uiItem != null) {
-                    ctx.drawItem(uiItem, iconX, iconY, 0);
+                if (renderItem != null) {
+                    ctx.drawItem(renderItem, iconX, iconY, 0);
                 } else {
-                    Identifier texture = resolveMaterialIdentifier(element.getVisual());
+                    BufferedImage texture = getGameAssets().getImage(resolveMaterialTexture(element.getVisual()));
                     ctx.drawPixelArt(texture, iconX, iconY, iconSize, iconSize);
                 }
             }

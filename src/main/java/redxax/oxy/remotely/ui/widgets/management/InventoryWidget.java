@@ -1,16 +1,17 @@
 package redxax.oxy.remotely.ui.widgets.management;
 
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.data.item.UiItem;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.data.playerdata.PlayerData;
 import redxax.oxy.remotely.data.playerdata.PlayerItem;
+import restudio.rescreen.game.MinecraftGameAssets;
+import restudio.rescreen.game.MinecraftGameItems;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
-import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.ResourceManager;
 import restudio.rescreen.util.SearchUtils;
 
@@ -99,8 +100,9 @@ public class InventoryWidget extends AnimatedWidget {
         this.editableSupplier = editableSupplier;
         this.interactionCallback = interactionCallback;
         this.refreshScheduler = refreshScheduler;
-        this.inventoryBackground = ResourceManager.getInstance().getImage(buildTextureIdentifier("minecraft", "textures/gui/container/inventory.png"));
-        this.enderChestBackground = ResourceManager.getInstance().getImage(buildTextureIdentifier("minecraft", "textures/gui/container/generic_54.png"));
+        MinecraftGameAssets gameAssets = getGameAssets();
+        this.inventoryBackground = gameAssets.getImage(gameAssets.containerTexture("inventory.png"));
+        this.enderChestBackground = gameAssets.getImage(gameAssets.containerTexture("generic_54.png"));
 
         if (data != null) {
             if (data.inventory() != null) {
@@ -343,9 +345,9 @@ public class InventoryWidget extends AnimatedWidget {
         if (heldItem == null) {
             return;
         }
-        UiItem uiItem = UiItem.fromPlayerItem(heldItem);
-        if (uiItem != null) {
-            ctx.drawItem(uiItem, mouseX - 8, mouseY - 8, 0);
+        MinecraftRenderItem renderItem = toRenderItem(heldItem);
+        if (renderItem != null) {
+            ctx.drawItem(renderItem, mouseX - 8, mouseY - 8, 0);
         }
         if (heldItem.count() > 1) {
             String text = String.valueOf(heldItem.count());
@@ -364,9 +366,9 @@ public class InventoryWidget extends AnimatedWidget {
         int top = baseY + Math.round(slotY * scale);
         int iconX = left + (slotSize - iconSize) / 2;
         int iconY = top + (slotSize - iconSize) / 2;
-        UiItem uiItem = UiItem.fromPlayerItem(item);
-        if (uiItem != null) {
-            ctx.drawItem(uiItem, iconX, iconY, 0);
+        MinecraftRenderItem renderItem = toRenderItem(item);
+        if (renderItem != null) {
+            ctx.drawItem(renderItem, iconX, iconY, 0);
         }
         if (item.count() > 1) {
             String text = String.valueOf(item.count());
@@ -794,15 +796,18 @@ public class InventoryWidget extends AnimatedWidget {
         return editableSupplier != null && editableSupplier.getAsBoolean();
     }
 
-    private Identifier buildTextureIdentifier(String namespace, String path) {
-        String resolved = namespace + ":" + path;
+    private MinecraftGameAssets getGameAssets() {
         if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-            Object hostId = RemotelyClient.INSTANCE.getHost().getFontIdentifier(namespace, path);
-            if (hostId != null) {
-                resolved = hostId.toString();
+            MinecraftGameAssets gameAssets = RemotelyClient.INSTANCE.getHost().getGameAssets();
+            if (gameAssets != null) {
+                return gameAssets;
             }
         }
-        return Identifier.of(resolved);
+        return MinecraftGameAssets.EMPTY;
+    }
+
+    private MinecraftRenderItem toRenderItem(PlayerItem item) {
+        return item == null ? null : MinecraftGameItems.fromTag(item.id(), item.count(), item.tag());
     }
 
     private String formatLabel(String raw) {
