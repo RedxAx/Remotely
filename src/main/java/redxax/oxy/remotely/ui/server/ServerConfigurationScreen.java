@@ -281,7 +281,7 @@ public class ServerConfigurationScreen extends ReScreen {
             }
         }
 
-        if (!isEditMode && !isReStudioCreation) {
+        if (isEditMode && !isReStudioCreation) {
             ServerExtraSettingsController extraController = new ServerExtraSettingsController(tempInstance, extraFiles);
             settingsByTab.put("Extra Files", extraController::getSettings);
         }
