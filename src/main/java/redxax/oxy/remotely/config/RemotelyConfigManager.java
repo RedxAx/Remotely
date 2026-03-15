@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.config;
 
+import redxax.oxy.remotely.mcassets.MinecraftAssetsManager;
 import restudio.rebase.config.RebaseConfigManager;
 
 import java.nio.file.Path;
@@ -8,6 +9,11 @@ import java.util.Arrays;
 import java.util.List;
 
 public class RemotelyConfigManager extends RebaseConfigManager {
+    private static final boolean DEFAULT_MC_ASSETS_ENABLED = true;
+    private static final boolean DEFAULT_MC_ASSETS_MANAGED = true;
+    private static final boolean DEFAULT_MC_ASSETS_AUTO_DOWNLOAD = true;
+    private static final boolean DEFAULT_MC_ASSETS_ASK_BEFORE_DOWNLOAD = true;
+    private static final String DEFAULT_MC_ASSETS_VERSION_TARGET = "latest-release";
 
     public RemotelyConfigManager(Path applicationDir) {
         super(applicationDir);
@@ -67,6 +73,73 @@ public class RemotelyConfigManager extends RebaseConfigManager {
 
     public float getConsoleScrollSpeed() { return Float.parseFloat(properties.getProperty("ui.consoleScrollSpeed", "7.0")); }
     public void setConsoleScrollSpeed(float speed) { properties.setProperty("ui.consoleScrollSpeed", String.valueOf(speed)); save(); apply(); }
+
+    public boolean isMinecraftAssetsEnabled() {
+        return Boolean.parseBoolean(properties.getProperty("ui.mcassets.enabled", String.valueOf(DEFAULT_MC_ASSETS_ENABLED)));
+    }
+
+    public void setMinecraftAssetsEnabled(boolean enabled) {
+        properties.setProperty("ui.mcassets.enabled", String.valueOf(enabled));
+        save();
+        apply();
+        MinecraftAssetsManager.notifyConfigurationChanged();
+    }
+
+    public boolean isMinecraftAssetsManagedEnabled() {
+        return Boolean.parseBoolean(properties.getProperty("ui.mcassets.managed", String.valueOf(DEFAULT_MC_ASSETS_MANAGED)));
+    }
+
+    public void setMinecraftAssetsManagedEnabled(boolean enabled) {
+        properties.setProperty("ui.mcassets.managed", String.valueOf(enabled));
+        save();
+        apply();
+        MinecraftAssetsManager.notifyConfigurationChanged();
+    }
+
+    public boolean isMinecraftAssetsAutoDownloadEnabled() {
+        return Boolean.parseBoolean(properties.getProperty("ui.mcassets.autoDownload", String.valueOf(DEFAULT_MC_ASSETS_AUTO_DOWNLOAD)));
+    }
+
+    public void setMinecraftAssetsAutoDownloadEnabled(boolean enabled) {
+        properties.setProperty("ui.mcassets.autoDownload", String.valueOf(enabled));
+        save();
+        apply();
+        MinecraftAssetsManager.notifyConfigurationChanged();
+    }
+
+    public boolean isMinecraftAssetsAskBeforeDownload() {
+        return Boolean.parseBoolean(properties.getProperty("ui.mcassets.askBeforeDownload", String.valueOf(DEFAULT_MC_ASSETS_ASK_BEFORE_DOWNLOAD)));
+    }
+
+    public void setMinecraftAssetsAskBeforeDownload(boolean enabled) {
+        properties.setProperty("ui.mcassets.askBeforeDownload", String.valueOf(enabled));
+        save();
+        apply();
+        MinecraftAssetsManager.notifyConfigurationChanged();
+    }
+
+    public String getMinecraftAssetsVersionTarget() {
+        return properties.getProperty("ui.mcassets.versionTarget", DEFAULT_MC_ASSETS_VERSION_TARGET);
+    }
+
+    public void setMinecraftAssetsVersionTarget(String versionTarget) {
+        String normalized = versionTarget == null || versionTarget.isBlank() ? DEFAULT_MC_ASSETS_VERSION_TARGET : versionTarget.trim();
+        properties.setProperty("ui.mcassets.versionTarget", normalized);
+        save();
+        apply();
+        MinecraftAssetsManager.notifyConfigurationChanged();
+    }
+
+    public String getMinecraftAssetsResolvedVersion() {
+        return properties.getProperty("ui.mcassets.resolvedVersion", "");
+    }
+
+    public void setMinecraftAssetsResolvedVersion(String resolvedVersion) {
+        properties.setProperty("ui.mcassets.resolvedVersion", resolvedVersion == null ? "" : resolvedVersion.trim());
+        save();
+        apply();
+        MinecraftAssetsManager.notifyConfigurationChanged();
+    }
 
     public List<String> getInstanceOrder(String context) {
         String val = properties.getProperty("remotely.order." + context, "");

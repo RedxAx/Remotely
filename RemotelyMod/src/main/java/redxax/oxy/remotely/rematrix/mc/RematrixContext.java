@@ -68,14 +68,16 @@ import org.jetbrains.annotations.NotNull;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.lwjgl.opengl.GL11;
-import redxax.oxy.remotely.data.item.UiItem;
 import redxax.oxy.remotely.rematrix.*;
 import redxax.oxy.remotely.rematrix.ReContext;
+import restudio.rescreen.game.MinecraftGameItem;
+import restudio.rescreen.game.MinecraftGameItems;
+import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.text.StyledText;
 
 public final class RematrixContext implements ReContext {
     private static final Map<BufferedImage, ReTextureHandle> TEXTURE_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
-    private static final Map<UiItem, ItemStack> ITEM_STACK_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<MinecraftRenderItem, ItemStack> ITEM_STACK_CACHE = Collections.synchronizedMap(new WeakHashMap<>());
     private static final int SELECTION_COLOR = 0xFF0000FF;
 
     //#if MC >= 26.1
@@ -171,17 +173,34 @@ public final class RematrixContext implements ReContext {
         ItemStack renderStack = null;
         if (item instanceof ItemStack stack) {
             renderStack = stack;
-        } else if (item instanceof UiItem uiItem) {
-            renderStack = ITEM_STACK_CACHE.get(uiItem);
+        } else {
+            MinecraftRenderItem renderItem = adaptRenderItem(item);
+            renderStack = ITEM_STACK_CACHE.get(renderItem);
             if (renderStack == null) {
-                renderStack = createItemStack(uiItem);
+                renderStack = createItemStack(renderItem);
                 if (renderStack != null) {
-                    ITEM_STACK_CACHE.put(uiItem, renderStack);
+                    ITEM_STACK_CACHE.put(renderItem, renderStack);
                 }
             }
         }
         if (renderStack == null || renderStack.isEmpty()) return;
         renderItemWithScissor(renderStack, x, y, z);
+    }
+
+    private MinecraftRenderItem adaptRenderItem(Object item) {
+        if (item instanceof MinecraftRenderItem renderItem) {
+            return renderItem;
+        }
+        if (item instanceof MinecraftGameItem gameItem) {
+            return gameItem.asRenderItem();
+        }
+        if (item instanceof String id) {
+            return MinecraftRenderItem.of(id, 1);
+        }
+        if (item instanceof Map<?, ?> map) {
+            return MinecraftGameItems.fromMap(map);
+        }
+        return null;
     }
 
     private void renderItemWithScissor(ItemStack stack, int x, int y, int z) {
@@ -213,7 +232,7 @@ public final class RematrixContext implements ReContext {
         //#endif
     }
 
-    private ItemStack createItemStack(UiItem item) {
+    private ItemStack createItemStack(MinecraftGameItem item) {
         if (item == null || item.id() == null || item.id().isBlank()) return ItemStack.EMPTY;
         String id = item.id();
         //#if MC >= 1.21.11 || MC >= 26.1

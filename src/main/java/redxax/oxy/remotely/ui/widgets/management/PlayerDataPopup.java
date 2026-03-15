@@ -157,14 +157,7 @@ public class PlayerDataPopup extends PopupWidget {
     }
 
     private boolean isSectionAllowed(PlayerDataSection section) {
-        if (section != PlayerDataSection.Inventory && section != PlayerDataSection.EnderChest) {
-            return true;
-        }
-        ApplicationHost host = RemotelyClient.INSTANCE != null ? RemotelyClient.INSTANCE.getHost() : null;
-        if (host == null) {
-            return false;
-        }
-        return host.getClass().getName().equals("redxax.oxy.remotely.host.MinecraftApplicationHost");
+        return true;
     }
 
     private void closePopup() {

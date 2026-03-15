@@ -10,6 +10,7 @@ import net.minecraft.resources.Identifier;
 import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
 import redxax.oxy.remotely.adapters.ReScreenWrapper;
 import restudio.rescreen.config.Config;
+import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.ClipboardHandler;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -18,6 +19,7 @@ import java.lang.reflect.Field;
 
 public class MinecraftApplicationHost implements ApplicationHost {
     private final Minecraft mc = Minecraft.getInstance();
+    private final MinecraftGameAssets gameAssets = new MinecraftNativeGameAssets();
 
     public MinecraftApplicationHost() {
         ScreenManager.getInstance().setClipboardHandler(new ClipboardHandler() {
@@ -69,6 +71,11 @@ public class MinecraftApplicationHost implements ApplicationHost {
         if (redxax.oxy.remotely.RemotelyClient.tr != null) return;
         restudio.rescreen.render.TextRenderer.setTextRendererAdapter(new MinecraftTextRendererAdapter());
         redxax.oxy.remotely.RemotelyClient.tr = restudio.rescreen.render.TextRenderer.getTr();
+    }
+
+    @Override
+    public MinecraftGameAssets getGameAssets() {
+        return gameAssets;
     }
 
     @Override

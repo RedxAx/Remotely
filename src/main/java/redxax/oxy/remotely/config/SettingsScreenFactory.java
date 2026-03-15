@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.config;
 
+import redxax.oxy.remotely.ui.settings.controllers.MinecraftAssetsSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerClientSettingsController;
 import restudio.rebase.settings.controllers.*;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -41,6 +42,9 @@ public class SettingsScreenFactory {
 
         LspSettingsController lspController = new LspSettingsController(configManager);
         settingsByTab.put("LSP", lspController::getSettings);
+
+        MinecraftAssetsSettingsController minecraftAssetsController = new MinecraftAssetsSettingsController(configManager);
+        settingsByTab.put("Minecraft Assets", minecraftAssetsController::getSettings);
 
         ExplorerSettingsController explorerController = new ExplorerSettingsController(configManager);
         settingsByTab.put("File Explorer", explorerController::getSettings);
