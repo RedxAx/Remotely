@@ -1,35 +1,47 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
 import restudio.rebase.Rebase;
+import restudio.rebase.backup.BackupPathResolver;
 import restudio.rebase.backup.BackupInfo;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
-import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.util.FileTransferProgress;
+import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.config.Config;
+import restudio.rescreen.theme.ThemeManager;
 import restudio.rebase.settings.controllers.ReStudioBackupSettingsController;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.settings.Setting;
+import restudio.rescreen.ui.settings.SettingsScreen;
+import restudio.rescreen.ui.settings.options.ConfigOption;
 import restudio.rescreen.ui.widgets.*;
+import restudio.rescreen.util.FileUtils;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 import restudio.rescreen.util.TimeUtils;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class ServerBackupSettingsController {
     private final ReScreen parentScreen;
     private final Instance instance;
+    private final Runnable backupRefreshListener = () -> ScreenManager.getInstance().execute(this::refreshBackups);
+    private boolean backupRefreshListenerRegistered;
 
     public ServerBackupSettingsController(ReScreen parentScreen, Instance instance) {
         this.parentScreen = parentScreen;
@@ -37,6 +49,7 @@ public class ServerBackupSettingsController {
     }
 
     public List<Setting> getSettings() {
+        ensureRefreshListenerRegistered();
         boolean isReStudioBackend = instance.getBackendConfig() != null &&
                 "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type);
 
@@ -45,16 +58,40 @@ public class ServerBackupSettingsController {
         }
 
         Setting.Builder builder = new Setting.Builder("Server Backups");
+        ConfigOption<Boolean> autoBackups = ConfigOption.<Boolean>builder("Auto Backups")
+                .description("Create backups automatically for this server.")
+                .bind(instance::isAutoBackupEnabled, instance::setAutoBackupEnabled)
+                .defaultValue(false)
+                .build();
+
+        builder.addOption(autoBackups);
+        builder.addOption(ConfigOption.<Boolean>builder("Allow Running Backups")
+                .description("Allow manual and auto backups while this server is running.")
+                .bind(instance::isAutoBackupWhileRunningEnabled, instance::setAutoBackupWhileRunningEnabled)
+                .defaultValue(false)
+                .build());
+        builder.addOption(ConfigOption.<Integer>builder("Auto Backup Interval Minutes")
+                .description("Set how often this server should auto backup.")
+                .bind(instance::getAutoBackupIntervalMinutes, instance::setAutoBackupIntervalMinutes)
+                .defaultValue(1440)
+                .dependsOn(autoBackups)
+                .build());
+        builder.addOption(ConfigOption.<Integer>builder("Auto Backup Retention Days")
+                .description("Set how long this server auto backups should be kept.")
+                .bind(instance::getAutoBackupRetentionDays, instance::setAutoBackupRetentionDays)
+                .defaultValue(3)
+                .dependsOn(autoBackups)
+                .build());
 
         AnimatedButton createBackupButton = new AnimatedButton.Builder()
                 .label("Create Server Backup")
-                .accentType(restudio.rescreen.theme.ThemeManager.getAccent("nice"))
+                .accentType(ThemeManager.getAccent("nice"))
                 .onClick(this::showCreateBackupPopup)
                 .build();
 
+        builder.addRow("", true, false, 30, createAutoBackupStatusWidget());
         builder.addRow("", true, 20, createBackupButton);
 
-        Rebase.get().getBackupManager().loadBackups();
         List<BackupInfo> allBackups = Rebase.get().getBackupManager().getAllBackups();
         List<BackupInfo> serverBackups = allBackups.stream().filter(b -> b.getInstanceId() != null && b.getInstanceId().equals(instance.getInstanceId())).sorted(Comparator.comparing(BackupInfo::getCreationTimestamp).reversed()).toList();
         for (BackupInfo backup : serverBackups) {
@@ -69,7 +106,7 @@ public class ServerBackupSettingsController {
                 .imagePath("reload.png")
                 .onClick(() -> restoreBackup(backup))
                 .hint("Restore this backup")
-                .accentType(restudio.rescreen.theme.ThemeManager.getAccent("nice"))
+                .accentType(ThemeManager.getAccent("nice"))
                 .size(18, 18).build();
 
         SquareButtonWidget extendButton = new SquareButtonWidget.Builder()
@@ -82,20 +119,25 @@ public class ServerBackupSettingsController {
                 .imagePath("delete.png")
                 .onClick(() -> deleteBackup(backup))
                 .hint("Permanently delete the backup")
-                .accentType(restudio.rescreen.theme.ThemeManager.getAccent("danger"))
+                .accentType(ThemeManager.getAccent("danger"))
                 .size(18, 18).build();
 
         String description = backup.getDescription();
         String created = "Created: " + TimeUtils.timeSense(backup.getCreationTimestamp());
         String expires = "Expires: " + TimeUtils.timeSense(backup.getExpiryTimestamp());
 
-        return new MountableButtonWidget.Builder(description)
+        MountableButtonWidget.Builder builder = new MountableButtonWidget.Builder(description)
                 .description(expires)
                 .hiddenText(created)
-                .addButton(restoreButton)
-                .addButton(extendButton)
-                .addButton(deleteButton)
-                .build();
+                .addButton(restoreButton);
+        if (backup.isStoredRemotely()) {
+            builder.addButton(new SquareButtonWidget.Builder()
+                    .imagePath("download.png")
+                    .onClick(() -> downloadBackup(backup))
+                    .hint("Download this backup file")
+                    .size(18, 18).build());
+        }
+        return builder.addButton(extendButton).addButton(deleteButton).build();
     }
 
     private void showCreateBackupPopup() {
@@ -111,7 +153,7 @@ public class ServerBackupSettingsController {
                 .size(160, 20)
                 .build();
 
-        List<String> backupOptions = getBackupOptions(instance.getModLoader());
+        List<String> backupOptions = getBackupOptions();
         TabSwitchWidget optionsSelector = new TabSwitchWidget.Builder()
                 .options(backupOptions)
                 .multiSelect(true)
@@ -133,7 +175,9 @@ public class ServerBackupSettingsController {
         TextInputWidget backupPathField = new TextInputWidget.Builder()
                 .placeholder("Override The Default Path")
                 .size(160, 20)
-                .hint("(Optional) E.g. \"C:\\Backups\\myServer\"")
+                .hint(instance.getBackendConfig() != null && "SSH".equalsIgnoreCase(instance.getBackendConfig().type)
+                        ? "(Optional) Remote path, e.g. \"~/.remotely/backups/myServer\""
+                        : "(Optional) E.g. \"C:\\Backups\\myServer\"")
                 .build();
 
         builder.addRow("Description", true, 20, descriptionField);
@@ -146,7 +190,7 @@ public class ServerBackupSettingsController {
             playSound(Sound.CREATE);
             createServerBackup(optionsSelector, descriptionField, retentionField, customPathsField, backupPathField);
             builder.getWidget().setVisible(false);
-        }, "Create Backup", restudio.rescreen.theme.ThemeManager.getAccent("nice"));
+        }, "Create Backup", ThemeManager.getAccent("nice"));
 
         PopupWidget popup = builder.build();
         if (currentScreen != null) {
@@ -155,24 +199,8 @@ public class ServerBackupSettingsController {
         }
     }
 
-    private List<String> getBackupOptions(ModLoader serverType) {
-        List<String> options = new ArrayList<>();
-
-        if (ModLoader.isBukkitBased(serverType)) {
-            options.add("Plugins");
-        }
-
-        if (!ModLoader.isProxy(serverType)) {
-            options.add("Worlds");
-        }
-
-        if (!ModLoader.isBukkitBased(serverType)) {
-            options.add("Mods");
-        }
-
-        options.add("Configs");
-
-        return options;
+    private List<String> getBackupOptions() {
+        return BackupPathResolver.getServerOptions(instance);
     }
 
     private void createServerBackup(TabSwitchWidget optionsSelector, TextInputWidget descriptionField,
@@ -191,22 +219,18 @@ public class ServerBackupSettingsController {
             return;
         }
 
-        boolean isRemote = instance.getBackendConfig() != null &&
-                          !"LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
-
-        if (instance.getState() == InstanceState.RUNNING || instance.getState() == InstanceState.STARTING) {
+        if ((instance.getState() == InstanceState.RUNNING && !instance.isAutoBackupWhileRunningEnabled()) || instance.getState() == InstanceState.STARTING) {
             new Notification("Server Running", "Server must be stopped to create backup", Notification.Type.WARN);
             return;
         }
 
-        List<Path> pathsToBackup = new ArrayList<>();
-        Path instancePath = Paths.get(instance.getPath());
+        Set<Path> pathsToBackup = new LinkedHashSet<>();
 
-        backupByOptions(optionsSelector, instancePath, pathsToBackup);
+        backupByOptions(optionsSelector, pathsToBackup);
 
         String customPaths = customPathsField.getText();
         if (!customPaths.trim().isEmpty()) {
-            addCustomPaths(customPaths, instancePath, pathsToBackup);
+            addCustomPaths(customPaths, pathsToBackup);
         }
 
         if (pathsToBackup.isEmpty()) {
@@ -214,186 +238,169 @@ public class ServerBackupSettingsController {
             return;
         }
 
-        restudio.rescreen.config.Config.loading = true;
+        Config.loading = true;
 
         String backupPath = backupPathField.getText().trim();
+        boolean remoteStorage = instance.getBackendConfig() != null && "SSH".equalsIgnoreCase(instance.getBackendConfig().type);
+        String initialStatus = remoteStorage ? "Preparing Remote Backup" : "Preparing Backup";
+        String notificationMessage = remoteStorage ? "Creating Remote Backup" : "Creating Backup";
+        FileTransferProgress progress = new FileTransferProgress(0L);
+        AtomicReference<String> status = new AtomicReference<>(initialStatus);
+        Notification notification = new Notification.Builder()
+                .message(notificationMessage)
+                .description(formatTransferDescription(initialStatus, progress, false))
+                .type(Notification.Type.INFO)
+                .loading(true)
+                .autoSlideOut(false)
+                .build();
 
-        Rebase.get().getBackupManager().createBackup(instance, description, pathsToBackup, Duration.ofDays(retentionDays), backupPath)
-                .thenAccept(backup -> {
+        Rebase.get().getBackupManager().createBackup(
+                        instance,
+                        description,
+                        List.copyOf(pathsToBackup),
+                        Duration.ofDays(retentionDays),
+                        backupPath,
+                        newStatus -> {
+                            status.set(newStatus);
+                            ScreenManager.getInstance().execute(() -> notification.update()
+                                    .description(formatTransferDescription(status.get(), progress, false))
+                                    .commit());
+                        },
+                        (transferred, total) -> {
+                            progress.update(transferred, total);
+                            ScreenManager.getInstance().execute(() -> notification.update()
+                                    .description(formatTransferDescription(status.get(), progress, false))
+                                    .commit());
+                        }
+                )
+                .thenAccept(backup -> ScreenManager.getInstance().execute(() -> {
                     refreshBackups();
-                    new Notification("Backup Created", description, Notification.Type.SUCCESS);
-                })
+                    notification.update()
+                            .message("Backup Created")
+                            .description(backup.isStoredRemotely() ? backup.getFilePath() : backup.getDescription())
+                            .type(Notification.Type.SUCCESS)
+                            .loading(false)
+                            .autoSlideOut(true)
+                            .action(null)
+                            .image(null)
+                            .commit();
+                }))
                 .exceptionally(e -> {
-                    new Notification("Backup Failed", e.getMessage(), Notification.Type.ERROR);
+                    Throwable cause = unwrapThrowable(e);
+                    ScreenManager.getInstance().execute(() -> notification.update()
+                            .message("Backup Failed")
+                            .description(resolveErrorMessage(cause))
+                            .type(Notification.Type.ERROR)
+                            .loading(false)
+                            .autoSlideOut(true)
+                            .action(null)
+                            .image(null)
+                            .commit());
                     return null;
                 })
-                .whenComplete((v, e) -> restudio.rescreen.config.Config.loading = false);
+                .whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> Config.loading = false));
     }
 
-    private void backupByOptions(TabSwitchWidget optionsSelector, Path instancePath,
-                                List<Path> pathsToBackup) {
-        List<String> options = getBackupOptions(instance.getModLoader());
+    private void backupByOptions(TabSwitchWidget optionsSelector, Set<Path> pathsToBackup) {
+        List<String> options = getBackupOptions();
         List<Integer> selected = optionsSelector.getSelectedIndices();
+        List<String> selectedOptions = new ArrayList<>();
 
         for (int index : selected) {
-            String option = options.get(index);
-            switch (option) {
-                case "Worlds":
-                    addWorldDirectories(instancePath, pathsToBackup);
-                    break;
-                case "Plugins":
-                    pathsToBackup.add(instancePath.resolve("plugins"));
-                    addPluginConfigs(instancePath, pathsToBackup);
-                    addPluginData(instancePath, pathsToBackup);
-                    addSQLiteDatabases(instancePath, pathsToBackup);
-                    break;
-                case "Plugin Configs":
-                    addPluginConfigs(instancePath, pathsToBackup);
-                    break;
-                case "Plugin Data":
-                    addPluginData(instancePath, pathsToBackup);
-                    break;
-                case "SQLite Databases":
-                    addSQLiteDatabases(instancePath, pathsToBackup);
-                    break;
-                case "Mods":
-                    pathsToBackup.add(instancePath.resolve("mods"));
-                    pathsToBackup.add(instancePath.resolve("config"));
-                    break;
-                case "Mod Configs":
-                    pathsToBackup.add(instancePath.resolve("config"));
-                    break;
-                case "Server Configs":
-                    addServerConfigs(instancePath, pathsToBackup);
-                    break;
-                case "server.properties":
-                    pathsToBackup.add(instancePath.resolve("server.properties"));
-                    break;
-                case "Proxy Configs":
-                    addProxyConfigs(instancePath, pathsToBackup);
-                    break;
+            if (index >= 0 && index < options.size()) {
+                selectedOptions.add(options.get(index));
             }
         }
+        pathsToBackup.addAll(BackupPathResolver.resolveServerPaths(instance, selectedOptions));
     }
 
-    private void addWorldDirectories(Path instancePath, List<Path> pathsToBackup) {
-        try {
-            try (Stream<Path> stream = Files.list(instancePath)) {
-                List<Path> worldDirs = stream.filter(Files::isDirectory).filter(this::isValidWorldDirectory).toList();
-                pathsToBackup.addAll(worldDirs);
-            }
-        } catch (IOException ignored) {}
-    }
-
-    private boolean isValidWorldDirectory(Path dir) {
-        try {
-            Path levelDat = dir.resolve("level.dat");
-            if (Files.exists(levelDat)) {
-                return true;
-            }
-            return dir.getFileName().toString().toLowerCase().contains("world");
-        } catch (Exception e) {
-            return dir.getFileName().toString().toLowerCase().contains("world");
-        }
-    }
-
-    private void addPluginConfigs(Path instancePath, List<Path> pathsToBackup) {
-        Path pluginsDir = instancePath.resolve("plugins");
-        if (Files.exists(pluginsDir)) {
-            try (Stream<Path> stream = Files.list(pluginsDir)) {
-                stream.filter(Files::isDirectory)
-                        .map(p -> p.resolve("config.yml"))
-                        .filter(Files::exists)
-                        .forEach(pathsToBackup::add);
-            } catch (IOException ignored) {}
-        }
-    }
-
-    private void addPluginData(Path instancePath, List<Path> pathsToBackup) {
-        Path pluginsDir = instancePath.resolve("plugins");
-        if (Files.exists(pluginsDir)) {
-            try (Stream<Path> stream = Files.list(pluginsDir)) {
-                stream.filter(Files::isDirectory)
-                        .flatMap(p -> {
-                            try {
-                                return Files.list(p).toList().stream().filter(this::isPluginDataFile);
-                            } catch (IOException e) {
-                                return Stream.empty();
-                            }
-                        })
-                        .forEach(pathsToBackup::add);
-            } catch (IOException ignored) {}
-        }
-    }
-
-    private boolean isPluginDataFile(Path path) {
-        String name = path.getFileName().toString().toLowerCase();
-        return name.endsWith(".db") || name.endsWith(".sqlite") || name.endsWith(".json") ||
-               name.endsWith(".yml") || name.equals("data") || name.equals("userdata");
-    }
-
-    private void addSQLiteDatabases(Path instancePath, List<Path> pathsToBackup) {
-        try {
-            try (Stream<Path> stream = Files.walk(instancePath)) {
-                stream.filter(p -> !Files.isDirectory(p))
-                        .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".db"))
-                        .forEach(pathsToBackup::add);
-            }
-        } catch (IOException ignored) {}
-    }
-
-    private void addServerConfigs(Path instancePath, List<Path> pathsToBackup) {
-        ModLoader type = instance.getModLoader();
-
-        if (type == ModLoader.PAPER || type == ModLoader.SPIGOT || type == ModLoader.BUKKIT) {
-            pathsToBackup.add(instancePath.resolve("spigot.yml"));
-            pathsToBackup.add(instancePath.resolve("bukkit.yml"));
-        }
-        if (type == ModLoader.PAPER) {
-            pathsToBackup.add(instancePath.resolve("paper.yml"));
-        }
-        if (type == ModLoader.PURPUR) {
-            pathsToBackup.add(instancePath.resolve("purpur.yml"));
-        }
-        if (type == ModLoader.LEAF) {
-            pathsToBackup.add(instancePath.resolve("leaf.yml"));
-        }
-        if (type == ModLoader.VELOCITY) {
-            pathsToBackup.add(instancePath.resolve("velocity.toml"));
-        } else if (type == ModLoader.WATERFALL || type == ModLoader.BUNGEECORD) {
-            pathsToBackup.add(instancePath.resolve("config.yml"));
-            pathsToBackup.add(instancePath.resolve("server.yml"));
-        }
-    }
-
-    private void addProxyConfigs(Path instancePath, List<Path> pathsToBackup) {
-        ModLoader type = instance.getModLoader();
-
-        if (type == ModLoader.VELOCITY) {
-            pathsToBackup.add(instancePath.resolve("velocity.toml"));
-        } else if (type == ModLoader.WATERFALL || type == ModLoader.BUNGEECORD) {
-            pathsToBackup.add(instancePath.resolve("config.yml"));
-            pathsToBackup.add(instancePath.resolve("server.yml"));
-        }
-    }
-
-    private void addCustomPaths(String customPaths, Path instancePath, List<Path> pathsToBackup) {
-        String[] paths = customPaths.split(",");
-        for (String pathStr : paths) {
-            pathStr = pathStr.trim();
-            if (!pathStr.isEmpty()) {
-                Path customPath = instancePath.resolve(pathStr);
-                if (Files.exists(customPath)) {
-                    pathsToBackup.add(customPath);
-                }
-            }
-        }
+    private void addCustomPaths(String customPaths, Set<Path> pathsToBackup) {
+        pathsToBackup.addAll(BackupPathResolver.resolveCustomPaths(instance, customPaths));
     }
 
     private void refreshBackups() {
-        Screen currentScreen = ScreenManager.getInstance().getCurrentScreen();
-        if (currentScreen instanceof restudio.rescreen.ui.settings.SettingsScreen) {
-            ((restudio.rescreen.ui.settings.SettingsScreen) currentScreen).refreshTab("Backups");
+        Set<SettingsScreen> settingsScreens = new LinkedHashSet<>();
+        ScreenManager screenManager = ScreenManager.getInstance();
+        Screen currentScreen = screenManager.getCurrentScreen();
+        if (currentScreen instanceof SettingsScreen settingsScreen) {
+            settingsScreens.add(settingsScreen);
+        }
+        if (screenManager.getDesktopWindowsOverlay() != null) {
+            for (ScreenWindowWidget window : screenManager.getDesktopWindowsOverlay().getWindows()) {
+                if (window.getScreen() instanceof SettingsScreen settingsScreen) {
+                    settingsScreens.add(settingsScreen);
+                }
+            }
+        }
+        for (SettingsScreen settingsScreen : settingsScreens) {
+            settingsScreen.refreshTab("Backups");
+        }
+    }
+
+    private void ensureRefreshListenerRegistered() {
+        if (!backupRefreshListenerRegistered) {
+            Rebase.get().getBackupManager().addChangeListener(backupRefreshListener);
+            backupRefreshListenerRegistered = true;
+        }
+    }
+
+    public void cleanup() {
+        if (backupRefreshListenerRegistered) {
+            Rebase.get().getBackupManager().removeChangeListener(backupRefreshListener);
+            backupRefreshListenerRegistered = false;
+        }
+    }
+
+    private MountableButtonWidget createAutoBackupStatusWidget() {
+        AutoBackupStatusWidget widget = new AutoBackupStatusWidget();
+        widget.setActive(false);
+        return widget;
+    }
+
+    private AutoBackupStatus getAutoBackupStatus() {
+        if (!instance.isAutoBackupEnabled()) {
+            return new AutoBackupStatus("Auto Backups Off", "Enable Auto Backups To Schedule Backups", null);
+        }
+        if (Rebase.get().getBackupManager().isAutoBackupActive(instance)) {
+            long startedAt = Rebase.get().getBackupManager().getAutoBackupStartedAt(instance);
+            String description = startedAt > 0L ? "Started " + TimeUtils.timeSense(startedAt) : "Creating Backup";
+            String hiddenText = startedAt > 0L ? "At " + TimeUtils.formatDateTime(startedAt) : null;
+            return new AutoBackupStatus("Auto Backup Running", description, hiddenText);
+        }
+        if (instance.getState() == InstanceState.STARTING || instance.getState() == InstanceState.INSTALLING) {
+            return new AutoBackupStatus("Waiting For Server Ready", "Backups Resume After Startup Finishes", null);
+        }
+        if (instance.getState() == InstanceState.RUNNING && !instance.isAutoBackupWhileRunningEnabled()) {
+            long nextRunAt = Rebase.get().getBackupManager().getNextAutoBackupRunAt(instance);
+            String hiddenText = nextRunAt > 0L ? "Due " + TimeUtils.formatDateTime(nextRunAt) : null;
+            return new AutoBackupStatus("Waiting For Server Stop", "Enable Allow Running Backups To Run While Online", hiddenText);
+        }
+        long nextRunAt = Rebase.get().getBackupManager().getNextAutoBackupRunAt(instance);
+        if (nextRunAt <= 0L || nextRunAt <= System.currentTimeMillis()) {
+            return new AutoBackupStatus("Next Backup Due", "Scheduled Now", null);
+        }
+        return new AutoBackupStatus(
+                "Next Backup " + TimeUtils.timeSense(nextRunAt),
+                "At " + TimeUtils.formatDateTime(nextRunAt),
+                "State " + instance.getState().name()
+        );
+    }
+
+    private record AutoBackupStatus(String title, String description, String hiddenText) {
+    }
+
+    private final class AutoBackupStatusWidget extends MountableButtonWidget {
+        private AutoBackupStatusWidget() {
+            super("", null, null, new CopyOnWriteArrayList<>(), null);
+        }
+
+        @Override
+        public void renderWidget(IDrawContext context, int mouseX, int mouseY, float delta) {
+            AutoBackupStatus status = getAutoBackupStatus();
+            setName(status.title());
+            setDescription(status.description());
+            setHiddenText(status.hiddenText());
+            super.renderWidget(context, mouseX, mouseY, delta);
         }
     }
 
@@ -424,6 +431,167 @@ public class ServerBackupSettingsController {
         Rebase.get().getBackupManager().deleteBackup(backupInfo);
         new Notification("Backup Deleted", backupInfo.getDescription() + " has been deleted", Notification.Type.INFO);
         refreshBackups();
+    }
+
+    private void downloadBackup(BackupInfo backupInfo) {
+        if (!backupInfo.isStoredRemotely()) {
+            new Notification("Download Unavailable", "Only Remote Backups Can Be Downloaded", Notification.Type.WARN);
+            return;
+        }
+        Path destination = resolveDownloadDestination(backupInfo);
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        FileTransferProgress progress = new FileTransferProgress(0L);
+        Notification notification = new Notification.Builder()
+                .message("Downloading Backup")
+                .description(formatTransferDescription("Preparing Download", progress, true))
+                .type(Notification.Type.INFO)
+                .loading(true)
+                .autoSlideOut(false)
+                .image(Identifier.icon("download.png"))
+                .action(() -> cancelled.set(true))
+                .build();
+
+        Rebase.get().getBackupManager().downloadBackup(backupInfo, destination, (transferred, total) -> {
+            progress.update(transferred, total);
+            ScreenManager.getInstance().execute(() -> notification.update()
+                    .description(formatTransferDescription("Downloading Backup", progress, true))
+                    .commit());
+        }, cancelled::get).thenAccept(path -> ScreenManager.getInstance().execute(() -> notification.update()
+                .message("Backup Downloaded")
+                .description(path.getFileName() + "\nClick To Open")
+                .type(Notification.Type.SUCCESS)
+                .loading(false)
+                .autoSlideOut(false)
+                .image(Identifier.icon("download.png"))
+                .action(() -> openDownloadedBackup(path))
+                .commit())).exceptionally(e -> {
+            Throwable cause = unwrapThrowable(e);
+            ScreenManager.getInstance().execute(() -> notification.update()
+                    .message(cancelled.get() || cause instanceof CancellationException ? "Download Cancelled" : "Download Failed")
+                    .description(cancelled.get() || cause instanceof CancellationException ? backupInfo.getDescription() : resolveErrorMessage(cause))
+                    .type(cancelled.get() || cause instanceof CancellationException ? Notification.Type.WARN : Notification.Type.ERROR)
+                    .loading(false)
+                    .autoSlideOut(true)
+                    .image(cancelled.get() || cause instanceof CancellationException ? Identifier.icon("download.png") : null)
+                    .action(null)
+                    .commit());
+            return null;
+        });
+    }
+
+    private Path resolveDownloadDestination(BackupInfo backupInfo) {
+        return normalizeDownloadDestination(resolveDownloadsDir().resolve(getSuggestedBackupFileName(backupInfo)), backupInfo);
+    }
+
+    private Path resolveDownloadsDir() {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        Path home = Paths.get(System.getProperty("user.home"));
+        if (os.contains("win")) {
+            String userProfile = System.getenv("USERPROFILE");
+            if (userProfile != null && !userProfile.isBlank()) {
+                Path path = Paths.get(userProfile).resolve("Downloads");
+                if (Files.isDirectory(path)) {
+                    return path;
+                }
+            }
+            Path path = home.resolve("Downloads");
+            if (Files.isDirectory(path)) {
+                return path;
+            }
+            return home;
+        }
+        if (os.contains("mac")) {
+            Path path = home.resolve("Downloads");
+            return Files.isDirectory(path) ? path : home;
+        }
+        try {
+            Path xdg = home.resolve(".config").resolve("user-dirs.dirs");
+            if (Files.isRegularFile(xdg)) {
+                for (String line : Files.readAllLines(xdg)) {
+                    String trimmed = line.trim();
+                    if (!trimmed.startsWith("XDG_DOWNLOAD_DIR")) {
+                        continue;
+                    }
+                    int eq = trimmed.indexOf('=');
+                    if (eq <= 0) {
+                        continue;
+                    }
+                    String value = trimmed.substring(eq + 1).trim().replace("\"", "").replace("$HOME", home.toString());
+                    Path path = Paths.get(value);
+                    if (Files.isDirectory(path)) {
+                        return path;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        Path path = home.resolve("Downloads");
+        return Files.isDirectory(path) ? path : home;
+    }
+
+    private Path normalizeDownloadDestination(Path selectedPath, BackupInfo backupInfo) {
+        String fileName = selectedPath.getFileName() == null ? "backup" : selectedPath.getFileName().toString();
+        String suffix = getPreferredBackupSuffix(backupInfo);
+        if (!suffix.isEmpty() && !fileName.toLowerCase(Locale.ROOT).endsWith(suffix.toLowerCase(Locale.ROOT))) {
+            selectedPath = selectedPath.resolveSibling(fileName + suffix);
+        }
+        return selectedPath.toAbsolutePath().normalize();
+    }
+
+    private String getSuggestedBackupFileName(BackupInfo backupInfo) {
+        String path = backupInfo.getFilePath();
+        if (path == null || path.isBlank()) {
+            return backupInfo.getDescription() + getPreferredBackupSuffix(backupInfo);
+        }
+        String normalized = path.replace('\\', '/');
+        int slashIndex = normalized.lastIndexOf('/');
+        return slashIndex >= 0 ? normalized.substring(slashIndex + 1) : normalized;
+    }
+
+    private String getPreferredBackupSuffix(BackupInfo backupInfo) {
+        String fileName = getSuggestedBackupFileName(backupInfo).toLowerCase(Locale.ROOT);
+        if (fileName.endsWith(".tar.gz")) {
+            return ".tar.gz";
+        }
+        if (fileName.endsWith(".zip")) {
+            return ".zip";
+        }
+        return backupInfo.isStoredRemotely() ? ".tar.gz" : ".zip";
+    }
+
+    private void openDownloadedBackup(Path path) {
+        try {
+            FileUtils.openAssociated(path);
+        } catch (Exception e) {
+            new Notification("Open Failed", resolveErrorMessage(e), Notification.Type.ERROR);
+        }
+    }
+
+    private String formatTransferDescription(String status, FileTransferProgress progress, boolean cancellable) {
+        List<String> lines = new ArrayList<>();
+        if (status != null && !status.isBlank()) {
+            lines.add(status);
+        }
+        if (progress != null && (progress.getTotalBytes() > 0 || progress.getTransferredBytes() > 0)) {
+            lines.add(progress.formatProgress());
+        }
+        if (cancellable) {
+            lines.add("Click To Cancel");
+        }
+        return String.join("\n", lines);
+    }
+
+    private Throwable unwrapThrowable(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private String resolveErrorMessage(Throwable throwable) {
+        String message = throwable == null ? null : throwable.getMessage();
+        return message == null || message.isBlank() ? "Unexpected Error" : message;
     }
 
     private void showExtendPopup(BackupInfo backupInfo) {

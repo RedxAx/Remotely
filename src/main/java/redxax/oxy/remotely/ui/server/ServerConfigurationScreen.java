@@ -264,8 +264,9 @@ public class ServerConfigurationScreen extends ReScreen {
         settingsByTab.put("Java", javaController::getSettings);
 
         if (isEditMode) {
-            ServerBackupSettingsController backupController = new ServerBackupSettingsController(this, originalInstance);
+            ServerBackupSettingsController backupController = new ServerBackupSettingsController(this, tempInstance);
             settingsByTab.put("Backups", backupController::getSettings);
+            cleanupActions.add(backupController::cleanup);
         }
 
         boolean msmpCompatible = VersionUtil.isMSMPCompatible(tempInstance.getVersionId());
