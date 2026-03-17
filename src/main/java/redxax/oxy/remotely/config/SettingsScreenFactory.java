@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.config;
 
-import redxax.oxy.remotely.ui.settings.controllers.MinecraftAssetsSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.ServerClientSettingsController;
 import restudio.rebase.settings.controllers.*;
 import restudio.rescreen.ui.rescreen.ReScreen;
@@ -63,7 +62,7 @@ public class SettingsScreenFactory {
 
         return new SettingsScreen(parent, "Remotely Settings", settingsByTab, () -> {
             if (configManager != null) configManager.save();
-        }, null) {
+        }, backupSettings::cleanup) {
             public String getDesktopAppId() {
                 return "global-settings";
             }

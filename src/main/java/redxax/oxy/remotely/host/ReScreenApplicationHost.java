@@ -1,8 +1,8 @@
 package redxax.oxy.remotely.host;
 
 import redxax.oxy.remotely.config.RemotelyConfigManager;
-import redxax.oxy.remotely.mcassets.MinecraftAssetsManager;
 import redxax.oxy.remotely.RemotelyClient;
+import restudio.rebase.minecraft.assets.MinecraftAssetsManager;
 import restudio.rescreen.Main;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.game.MinecraftGameAssets;
