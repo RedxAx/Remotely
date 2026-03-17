@@ -74,6 +74,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private final Object parent;
     private IconButton userButton;
     private DesktopTaskbarHelper taskbarHelper;
+    private boolean restudioTabRequested;
     int bx1 = 0, by1 = 0, bx2 = 0, by2 = 0;
 
     private static final String ROW_REMOTE_HOST_PASSWORD = "remoteHostPassword";
@@ -122,6 +123,12 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             if (restudio.rescreen.config.Config.desktopMode && taskbarHelper != null) {
                 taskbarHelper.attach();
             }
+            refreshAccountButton();
+            if (ReStudio.getInstance().isAuthenticated()) {
+                maybeAddReStudioTab();
+            } else {
+                removeReStudioTab();
+            }
             updatePositions();
             return;
         }
@@ -156,7 +163,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         userButton = new IconButton.Builder()
             .imagePath("steve.png")
             .label(displayName)
-            .onClick(this::showUserMenu)
+            .onClick(this::onAccountButtonClick)
             .size(18, 18)
             .autoWidthOnTextChange(true)
             .build();
@@ -239,14 +246,27 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         showContextMenu(userButton.getX(), height - 35, builder);
     }
 
+    private void onAccountButtonClick() {
+        if (ReStudio.getInstance().isAuthenticated()) {
+            showUserMenu();
+            return;
+        }
+        openReStudioLogin();
+    }
+
     @Override
     public void onLogin(String email) {
+        refreshAccountButton();
+        maybeAddReStudioTab();
         new Notification.Builder().message("Welcome back!").description("Email: " + (!Config.obfuscate ? "" : "§k") + email).type(Notification.Type.SUCCESS).build();
     }
 
     @Override
     public void onLogout() {
-        ScreenManager.getInstance().execute(() -> ScreenManager.getInstance().setScreen(new ReStudioLoginScreen(null, () -> ScreenManager.getInstance().setScreen(new ServerManagerScreen(null, RemotelyClient.INSTANCE)))));
+        ScreenManager.getInstance().execute(() -> {
+            refreshAccountButton();
+            removeReStudioTab();
+        });
         new Notification.Builder().message("Bye Bye").type(Notification.Type.INFO).build();
 
     }
@@ -255,8 +275,37 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     public void onSessionExpired() {
         ScreenManager.getInstance().execute(() -> {
             new Notification("Session Expired", "Your session has expired. Please log in again.", Notification.Type.WARN);
-            onLogout();
+            refreshAccountButton();
+            removeReStudioTab();
         });
+    }
+
+    private void openReStudioLogin() {
+        ScreenManager.getInstance().setScreen(new ReStudioLoginScreen(this, () -> {
+            refreshAccountButton();
+            maybeAddReStudioTab();
+        }));
+    }
+
+    private void refreshAccountButton() {
+        if (userButton == null) {
+            return;
+        }
+        String displayName = ReStudio.getInstance().getDisplayName();
+        if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getUsername();
+        if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getEmail();
+        if (displayName == null || displayName.isBlank()) displayName = "Account";
+        userButton.setMessage(displayName);
+        userButton.setOnClick(this::onAccountButtonClick);
+        if (ReStudio.getInstance().isAuthenticated()) {
+            ReStudio.getInstance().loadAvatar().thenAccept(img -> ScreenManager.getInstance().execute(() -> {
+                if (img != null && userButton != null) {
+                    userButton.setIcon(img);
+                }
+            }));
+            return;
+        }
+        userButton.setIcon("steve.png");
     }
 
 
@@ -333,19 +382,27 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
     private void maybeAddReStudioTab() {
         if (!ReStudio.getInstance().isAuthenticated()) {
+            restudioTabRequested = false;
             return;
         }
+        if (restudioTabRequested || hasReStudioTab()) {
+            return;
+        }
+        restudioTabRequested = true;
         ReStudio.getInstance().getApi().getServers().thenAccept(servers -> ScreenManager.getInstance().execute(() -> {
             if (servers == null || servers.isEmpty()) {
+                restudioTabRequested = false;
                 return;
             }
             if (hasReStudioTab()) {
+                restudioTabRequested = false;
                 return;
             }
             Container container = createContainer("desktop_restudio", 0, 0, width, height - 35);
             DesktopLayout remoteLayout = new DesktopLayout();
             container.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
-            tabs().addTab("ReStudio", container).setData("RESTUDIO_MARKER");
+            tabs().addTab("Reactors", container).setData("RESTUDIO_MARKER");
+            restudioTabRequested = false;
             updatePositions();
             int savedIndex = remotelyClient.getSavedTabIndex();
             if (savedIndex < tabs().getTabs().size()) {
@@ -354,7 +411,31 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     fetchReStudioServers();
                 }
             }
-        })).exceptionally(ex -> null);
+        })).exceptionally(ex -> {
+            restudioTabRequested = false;
+            return null;
+        });
+    }
+
+    private void removeReStudioTab() {
+        restudioTabRequested = false;
+        restudioInstances.clear();
+        restudioServerViews.clear();
+        if (tabsManager == null) {
+            return;
+        }
+        for (int i = 0; i < tabs().getTabs().size(); i++) {
+            TabsManager.Tab tab = tabs().getTabs().get(i);
+            if (!"RESTUDIO_MARKER".equals(tab.getData())) {
+                continue;
+            }
+            boolean wasActive = tabs().getActiveTab() == tab;
+            tabs().removeTab(i);
+            if (wasActive) {
+                loadServersForCurrentTab();
+            }
+            return;
+        }
     }
 
     private boolean hasReStudioTab() {
@@ -646,6 +727,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 RemoteHost finalRh = rh;
                 ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
 
+                builder.addHeaderButton("merge.png", () -> remotelyClient.openServerTwin(this, inst), "Twin");
                 builder.addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings");
                 builder.addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getInstance(), Path.of(widget.getInstance().getPath()), remotelyDir, false) {
                     public String getDesktopAppId() {
