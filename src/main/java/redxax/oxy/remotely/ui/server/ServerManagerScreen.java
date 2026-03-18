@@ -284,6 +284,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         ScreenManager.getInstance().setScreen(new ReStudioLoginScreen(this, () -> {
             refreshAccountButton();
             maybeAddReStudioTab();
+            ScreenManager.getInstance().setScreen(this);
         }));
     }
 
