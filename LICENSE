@@ -1,12 +1,19 @@
 Remotely License
 
-**In using this Software, visible credit must be given to the original author(s) of the Software in any distributed or published form, and such credit must not be hidden nor obscured.**
+1. Attribution
+In using this Software, visible credit must be given to the original author(s) of the Software in any distributed or published form, and such credit must not be hidden nor obscured.
 
-**The Software's code or/and assets of the software may not be sold, used Commercially, or used as a way to make money (Normal usage of the software is excluded).**
+2. No Commercialization of the Software
+The Software's code and/or assets may not be sold, monetized, or used commercially. Normal end-user operation of the software (e.g., a server owner using it to manage their own monetized Minecraft server) is fully permitted and excluded from this restriction.
 
-**This license is strict and enforced to corporate, organizations, and considerably big entities. Individual developers are free to use the code/assets in a personal/small manners.**
+3. No Commercial Addons, Mixins, or Integrations
+Creating plugins, addons, Mods using Mixin, or using any form of code injection/API usage that integrates 3rd party commercial services into Remotely/Rebase is not allowed at all. A competing commercial server hosting platform or paid backend is never allowed.
 
-**Permission from the original author (RedxAx) must be granted for any kind of usecases mentioned above, and it must be explicate.**
+4. Corporate Enforcement & Indie Exemption
+This license is strictly enforced against corporations, organizations, and large entities. Individual developers are free to use the code/assets or write non-commercial modifications in a personal or small-scale manner, provided it does not violate Clause 3.
+
+5. Explicit Permission Required
+Written permission from the original author (RedxAx) must be explicitly granted for any commercial use-cases or integrations not expressly permitted above.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
