@@ -4,7 +4,6 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
 import restudio.rebase.Rebase;
 import restudio.rescreen.config.Config;
-import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.preset.ResourceList;
 import restudio.rebase.resource.InstanceResource;
@@ -12,6 +11,7 @@ import restudio.rebase.resource.ResourceEvent;
 import restudio.rebase.resource.ResourceViewModel;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.resource.UpdateInfo;
+import restudio.rebase.resource.provider.OnlineResourceVersion;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rebase.ui.widgets.DownloadProgressWidget;
 import restudio.rescreen.theme.ThemeManager;
@@ -31,6 +31,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 public class ResourceContainer extends Container {
     private boolean hasLoaded = false;
@@ -109,7 +110,8 @@ public class ResourceContainer extends Container {
                 case LOAD_STARTED:
                     viewModel.setGlobalLoadState(ResourceViewModel.LoadState.LOADING, null);
                     break;
-            case LOAD_COMPLETED:
+                case LOAD_COMPLETED:
+                viewModel.clear();
                 viewModel.setGlobalLoadState(ResourceViewModel.LoadState.LOADED, null);
                 if (event.resources() != null) {
                     viewModel.addResources(event.resources());
@@ -443,7 +445,13 @@ public class ResourceContainer extends Container {
         if (resourcesToDelete == null || resourcesToDelete.isEmpty()) return;
         if (instance == null) return;
         List<Path> paths = resourcesToDelete.stream().map(InstanceResource::getPath).toList();
-        InstanceApi.of(instance).files().delete(paths).thenRun(() -> ScreenManager.getInstance().execute(() -> {
+        instance.getBackend().getFileSystem().delete(paths).thenRun(() -> {
+            for (InstanceResource resource : resourcesToDelete) {
+                Rebase.get().getResourceManager().handleResourceRemoved(instance, resource);
+                Rebase.get().getResourceStateManager().notifyRemoved(instance, resource);
+            }
+            Rebase.get().getResourceManager().invalidateCache(instance);
+            ScreenManager.getInstance().execute(() -> {
             List<String> deletedFileNames = resourcesToDelete.stream().map(InstanceResource::getFileName).toList();
             boolean changed = false;
             if (resourceGroups != null) {
@@ -460,7 +468,10 @@ public class ResourceContainer extends Container {
                 instance.setResourceGroups(resourceGroups);
                 instance.save();
             }
-        })).exceptionally(e -> {
+            hasLoaded = false;
+            loadResources(true);
+            });
+        }).exceptionally(e -> {
             ScreenManager.getInstance().execute(() -> new Notification("Failed To Delete: ", e.getMessage(), Notification.Type.ERROR));
             return null;
         });
@@ -513,7 +524,7 @@ public class ResourceContainer extends Container {
             if (!availableUpdates.isEmpty()) {
                 showUpdateDialog(availableUpdates);
             }
-        }, restudio.rescreen.ui.core.ScreenManager.getInstance()::execute).whenComplete((v, ex) -> {
+        }, ScreenManager.getInstance()::execute).whenComplete((v, ex) -> {
             if (ex != null) {
                 checkingNotification.update()
                         .message("Check Failed")
@@ -526,7 +537,7 @@ public class ResourceContainer extends Container {
         });
     }
 
-    private String getUpdateCountDescription(Map<String, restudio.rebase.resource.provider.OnlineResourceVersion> updates) {
+    private String getUpdateCountDescription(Map<String, OnlineResourceVersion> updates) {
         int count = updates.size();
         if (count == 0) return "No updates available";
         return count + " resource" + (count == 1 ? "" : "s") + " have updates available";
@@ -545,7 +556,7 @@ public class ResourceContainer extends Container {
         DownloadProgressWidget progress = new DownloadProgressWidget.DownloadProgressBuilder().size(builder.getWidget().getWidth() - 20, 18).build();
         progress.setVisible(false);
         builder.addTitleButton(() -> {
-            List<UpdateInfo> selectedUpdates = resourceWidgets.stream().filter(w -> w.includedInUpdate).map(w -> new UpdateInfo(w.getResource(), w.getResource().availableUpdate)).collect(java.util.stream.Collectors.toList());
+            List<UpdateInfo> selectedUpdates = resourceWidgets.stream().filter(w -> w.includedInUpdate).map(w -> new UpdateInfo(w.getResource(), w.getResource().availableUpdate)).collect(Collectors.toList());
             if (selectedUpdates.isEmpty()) {
                 new Notification("No Resources Selected", "You must select at least one resource to update.", Notification.Type.INFO);
                 return;
