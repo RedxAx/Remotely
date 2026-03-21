@@ -14,7 +14,7 @@ import java.util.function.BiConsumer;
 import static redxax.oxy.remotely.RemotelyClient.tr;
 
 public class DesktopIconWidget extends AnimatedWidget {
-    private final Instance serverInfo;
+    private Instance serverInfo;
     private BufferedImage icon;
     private final boolean isCreateButton;
 
@@ -100,6 +100,14 @@ public class DesktopIconWidget extends AnimatedWidget {
 
     public Instance getInstance() {
         return serverInfo;
+    }
+
+    public void setInstance(Instance serverInfo) {
+        this.serverInfo = serverInfo;
+        if (serverInfo != null && !isCreateButton) {
+            setMessage(serverInfo.getName());
+            setHint(serverInfo.getName());
+        }
     }
 
     public boolean isCreateButton() {

@@ -39,7 +39,10 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
+import restudio.rescreen.ui.rescreen.layout.FreeLayout;
+import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
+import restudio.rescreen.util.BrowserUtils;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.Sound;
 
@@ -89,6 +92,12 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private final ServerIconManager iconManager;
     private boolean initializedOnce;
     private volatile int remoteHostSelectionToken;
+    private Container noServersOverlay;
+    private boolean noServersOverlayVisible;
+    private boolean forceNoServersOverlay = false;
+    private IconMessage localNoServersIcon;
+    private IconMessage reactorsNoServersIcon;
+    private IconButton reactorInfo;
 
     public ServerManagerScreen(Object parent, RemotelyClient remotelyClient) {
         super();
@@ -120,6 +129,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         super.init();
         if (initializedOnce) {
             ReStudio.getInstance().addListener(this);
+            initNoServersOverlay();
             if (restudio.rescreen.config.Config.desktopMode && taskbarHelper != null) {
                 taskbarHelper.attach();
             }
@@ -158,7 +168,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         String displayName = ReStudio.getInstance().getDisplayName();
         if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getUsername();
         if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getEmail();
-        if (displayName == null) displayName = "Account";
+        if (displayName == null) displayName = "Sign In";
 
         userButton = new IconButton.Builder()
             .imagePath("steve.png")
@@ -232,9 +242,50 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         desktopContainer.layout(localLayout).backgroundDrawing(false).enableSelecting(true).enableDoubleClick(false).disableScissorRegion(true).enableDoubleClick(false);
 
         setActiveContainer(desktopContainer);
+        initNoServersOverlay();
         populateHostTabs();
         updatePositions();
         initializedOnce = true;
+    }
+
+    protected void setupNoServersOverlay(Container overlayContainer) {
+        localNoServersIcon = new IconMessage(width / 2 - 32, height / 4, 64, 64, "Welcome To Remotely!\nI Guess We're Locally Now...\nClick New Server To Start!\n\n\n Quick Tips:\nMiddle Click To Close Tabs\nSign In To Report Bugs & Give Feedback\nThere's A Very Powerfull Desktop Mode In The Settings!", "remotely.png");
+        reactorsNoServersIcon = new IconMessage(width / 2 - 32, height / 4, 64, 64, "Reactor By ReStudio\nHigh-End & Affordable Hosting For Everyone.\nOrder And Control Your Server Right Here & Now!", "Reactor.png");
+        reactorInfo = new IconButton.Builder().size(300, 18).label("Learn More Here").imagePath("external").autoWidthOnTextChange(true).onClick(() -> BrowserUtils.openBrowser("https://restudiomc.net/hosting")).build();
+        reactorInfo.setX(width / 2 - (reactorInfo.getWidth() / 2));
+        reactorInfo.setY(reactorsNoServersIcon.getY() + reactorsNoServersIcon.getHeight() + (12 * 5));
+
+        noServersOverlay.addWidget(localNoServersIcon);
+        noServersOverlay.addWidget(reactorsNoServersIcon);
+        noServersOverlay.addWidget(reactorInfo);
+    }
+
+    private void initNoServersOverlay() {
+        if (noServersOverlay != null) {
+            return;
+        }
+        noServersOverlay = createContainer("server_manager_no_servers_overlay", 0, 0, width, height - 35);
+        noServersOverlay.layout(new FreeLayout()).columns(1).padding(4).scrolling(false).enableSelecting(false).backgroundDrawing(false).disableScissorRegion(true);
+        noServersOverlay.setVisible(false);
+        noServersOverlay.setActive(false);
+        setupNoServersOverlay(noServersOverlay);
+        addDrawableChild(noServersOverlay);
+    }
+
+    private void updateNoServersOverlayVisibility(boolean visible) {
+        if (noServersOverlay == null) {
+            return;
+        }
+
+        Object tabData = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
+        updateOverlayIcons(tabData);
+
+        if (noServersOverlayVisible == visible) {
+            return;
+        }
+        noServersOverlayVisible = visible;
+        noServersOverlay.setVisible(visible);
+        noServersOverlay.setActive(visible);
     }
 
     private void showUserMenu() {
@@ -254,10 +305,20 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         openReStudioLogin();
     }
 
+    private void updateOverlayIcons(Object tabData) {
+        boolean isReactors = "RESTUDIO_MARKER".equals(tabData);
+        if (localNoServersIcon != null) localNoServersIcon.setVisible(!isReactors);
+        if (reactorsNoServersIcon != null) reactorsNoServersIcon.setVisible(isReactors);
+    }
+
     @Override
     public void onLogin(String email) {
         refreshAccountButton();
-        maybeAddReStudioTab();
+        if (tabs().getActiveTab() != null && "RESTUDIO_MARKER".equals(tabs().getActiveTab().getData())) {
+            fetchReStudioServers();
+        } else {
+            maybeAddReStudioTab();
+        }
         new Notification.Builder().message("Welcome back!").description("Email: " + (!Config.obfuscate ? "" : "§k") + email).type(Notification.Type.SUCCESS).build();
     }
 
@@ -265,7 +326,11 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     public void onLogout() {
         ScreenManager.getInstance().execute(() -> {
             refreshAccountButton();
-            removeReStudioTab();
+            restudioInstances.clear();
+            restudioServerViews.clear();
+            if (tabs().getActiveTab() != null && "RESTUDIO_MARKER".equals(tabs().getActiveTab().getData())) {
+                loadServersForCurrentTab();
+            }
         });
         new Notification.Builder().message("Bye Bye").type(Notification.Type.INFO).build();
 
@@ -276,7 +341,11 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         ScreenManager.getInstance().execute(() -> {
             new Notification("Session Expired", "Your session has expired. Please log in again.", Notification.Type.WARN);
             refreshAccountButton();
-            removeReStudioTab();
+            restudioInstances.clear();
+            restudioServerViews.clear();
+            if (tabs().getActiveTab() != null && "RESTUDIO_MARKER".equals(tabs().getActiveTab().getData())) {
+                loadServersForCurrentTab();
+            }
         });
     }
 
@@ -373,6 +442,16 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             remoteLayout.setOnReorder(() -> saveServerOrder(c, host));
             c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
             tabs().addTab(host.name, c).setData(host);
+
+            instanceManager.fetchRemoteInstances(host)
+                .whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
+                    for (TabsManager.Tab tab : tabs().getTabs()) {
+                        if (tab.getData() == host) {
+                            loadServersForTab(tab);
+                            break;
+                        }
+                    }
+                }));
         }
 
         maybeAddReStudioTab();
@@ -382,40 +461,22 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void maybeAddReStudioTab() {
-        if (!ReStudio.getInstance().isAuthenticated()) {
-            restudioTabRequested = false;
+        if (hasReStudioTab()) {
             return;
         }
-        if (restudioTabRequested || hasReStudioTab()) {
-            return;
+        Container container = createContainer("desktop_restudio", 0, 0, width, height - 35);
+        DesktopLayout remoteLayout = new DesktopLayout();
+        container.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
+        tabs().addTab("Reactors", container).setData("RESTUDIO_MARKER");
+        updatePositions();
+        int savedIndex = remotelyClient.getSavedTabIndex();
+        if (savedIndex < tabs().getTabs().size()) {
+            tabs().setActiveTab(savedIndex);
         }
-        restudioTabRequested = true;
-        ReStudio.getInstance().getApi().getServers().thenAccept(servers -> ScreenManager.getInstance().execute(() -> {
-            if (servers == null || servers.isEmpty()) {
-                restudioTabRequested = false;
-                return;
-            }
-            if (hasReStudioTab()) {
-                restudioTabRequested = false;
-                return;
-            }
-            Container container = createContainer("desktop_restudio", 0, 0, width, height - 35);
-            DesktopLayout remoteLayout = new DesktopLayout();
-            container.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
-            tabs().addTab("Reactors", container).setData("RESTUDIO_MARKER");
-            restudioTabRequested = false;
-            updatePositions();
-            int savedIndex = remotelyClient.getSavedTabIndex();
-            if (savedIndex < tabs().getTabs().size()) {
-                tabs().setActiveTab(savedIndex);
-                if ("RESTUDIO_MARKER".equals(tabs().getActiveTab().getData())) {
-                    fetchReStudioServers();
-                }
-            }
-        })).exceptionally(ex -> {
-            restudioTabRequested = false;
-            return null;
-        });
+
+        if (ReStudio.getInstance().isAuthenticated()) {
+            fetchReStudioServers();
+        }
     }
 
     private void removeReStudioTab() {
@@ -449,15 +510,29 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     }
 
     private void loadServersForCurrentTab() {
-        if (activeContainer == null) return;
+        loadServersForTab(tabs().getActiveTab());
+    }
+
+    private void loadServersForTab(TabsManager.Tab tab) {
+        if (tab == null) {
+            updateNoServersOverlayVisibility(false);
+            return;
+        }
+
+        Container targetContainer = tab.getContainer();
+        if (targetContainer == null) {
+            return;
+        }
 
         List<Instance> instances;
-        Object tabData = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
+        Object tabData = tab.getData();
 
         if ("RESTUDIO_MARKER".equals(tabData)) {
             instances = new ArrayList<>(restudioInstances);
+        } else if (tabData instanceof RemoteHost host) {
+            instances = new ArrayList<>(instanceManager.getRemoteInstances(host));
         } else {
-            instances = new ArrayList<>(getCurrentServers());
+            instances = new ArrayList<>(instanceManager.getLocalInstances());
         }
 
         instances.removeIf(Instance::isHidden);
@@ -485,25 +560,69 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             }
 
             instances.sort((a, b) -> {
-                int idxA = orderMap.getOrDefault(a.getInstanceId(), Integer.MAX_VALUE);
-                int idxB = orderMap.getOrDefault(b.getInstanceId(), Integer.MAX_VALUE);
+                int idxA = orderMap.getOrDefault(getWidgetKey(a), Integer.MAX_VALUE);
+                int idxB = orderMap.getOrDefault(getWidgetKey(b), Integer.MAX_VALUE);
                 return Integer.compare(idxA, idxB);
             });
         }
 
-        activeContainer.clearWidgets();
-        for (Instance server : instances) {
-            addServerWidget(server, false);
+        Map<String, DesktopIconWidget> existingWidgets = new HashMap<>();
+        DesktopIconWidget createButton = null;
+
+        for (AnimatedWidget w : targetContainer.getWidgets()) {
+            if (w instanceof DesktopIconWidget diw) {
+                if (diw.isCreateButton()) {
+                    createButton = diw;
+                } else if (diw.getInstance() != null) {
+                    existingWidgets.put(getWidgetKey(diw.getInstance()), diw);
+                }
+            }
         }
-        addServerWidget(null, true);
-        activeContainer.updateWidgetPositions();
+
+        List<AnimatedWidget> toKeep = new ArrayList<>();
+        for (Instance server : instances) {
+            DesktopIconWidget existing = existingWidgets.get(getWidgetKey(server));
+            if (existing != null) {
+                existing.setInstance(server);
+                toKeep.add(existing);
+                existingWidgets.remove(getWidgetKey(server));
+            } else {
+                DesktopIconWidget widget = createServerWidget(server, false);
+                toKeep.add(widget);
+            }
+        }
+
+        if (createButton == null) {
+            createButton = createServerWidget(null, true);
+        }
+        toKeep.add(createButton);
+
+        targetContainer.clearWidgets();
+        for (AnimatedWidget w : toKeep) {
+            targetContainer.addWidget(w);
+        }
+
+        targetContainer.updateWidgetPositions();
+        if (tab == tabs().getActiveTab()) {
+            updateNoServersOverlayVisibility(forceNoServersOverlay || instances.isEmpty());
+        }
+    }
+
+    private String getWidgetKey(Instance inst) {
+        if (inst == null) return "create_button";
+        BackendConfig config = inst.getBackendConfig();
+        if (config != null && "RESTUDIO".equalsIgnoreCase(config.type)) {
+            String identifier = config.credentials.get("identifier");
+            if (identifier != null) return "RESTUDIO_" + identifier;
+        }
+        return inst.getInstanceId();
     }
 
     private void saveServerOrder(Container container, RemoteHost host) {
         List<String> newOrderIds = new ArrayList<>();
         for (AnimatedWidget w : container.getWidgets()) {
             if (w instanceof DesktopIconWidget diw && !diw.isCreateButton()) {
-                newOrderIds.add(diw.getInstance().getInstanceId());
+                newOrderIds.add(getWidgetKey(diw.getInstance()));
             }
         }
 
@@ -518,19 +637,23 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         config.setInstanceOrder(context, newOrderIds);
     }
 
-    private void addServerWidget(Instance info, boolean isCreate) {
+    private DesktopIconWidget createServerWidget(Instance info, boolean isCreate) {
         DesktopIconWidget widget = new DesktopIconWidget.Builder(info, isCreate, isCreate ? serverIcon : iconManager.getQuickIcon(info))
             .onClick(this::onDesktopIconClick)
             .build();
-        activeContainer.addWidget(widget);
         if (isCreate || info == null) {
-            return;
+            return widget;
         }
         iconManager.loadIconAsync(info, widget::setIcon);
         BackendConfig backendConfig = info.getBackendConfig();
         if (backendConfig != null && !"LOCAL".equalsIgnoreCase(backendConfig.type)) {
             iconManager.loadRemoteIconAsync(info, () -> iconManager.loadIconAsync(info, widget::setIcon));
         }
+        return widget;
+    }
+
+    private void addServerWidget(Instance info, boolean isCreate) {
+        activeContainer.addWidget(createServerWidget(info, isCreate));
     }
 
     private void onHostTabSelected(TabsManager.Tab tab) {
@@ -570,7 +693,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                         if (selectionToken != remoteHostSelectionToken || tabs().getActiveTab() != tab) {
                             return;
                         }
-                        loadServersForCurrentTab();
+                        loadServersForTab(tab);
                     }));
             }, () -> {
                 if (selectionToken != remoteHostSelectionToken || tabs().getActiveTab() != tab) {
@@ -593,12 +716,15 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     if (tab.getWidget() != null) {
                         tab.getWidget().setAccent(e == null ? ThemeManager.getDefaultAccent() : ThemeManager.getAccent("danger"));
                     }
-                    loadServersForCurrentTab();
+                    loadServersForTab(tab);
                 }));
         }
     }
 
     private void fetchReStudioServers() {
+        if (!ReStudio.getInstance().isAuthenticated()) {
+            return;
+        }
         if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getAccent("calm"));
         ReStudio.getInstance().getApi().getSftpPassword().thenCompose(sftpSecret ->
             ReStudio.getInstance().getApi().getServers().thenCompose(servers -> {
@@ -681,8 +807,12 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             restudioInstances.addAll(result.getKey());
             restudioServerViews.clear();
             restudioServerViews.putAll(result.getValue());
-            if (tabs().getActiveTab() != null && "RESTUDIO_MARKER".equals(tabs().getActiveTab().getData())) {
-                loadServersForCurrentTab();
+
+            for (TabsManager.Tab tab : tabs().getTabs()) {
+                if ("RESTUDIO_MARKER".equals(tab.getData())) {
+                    loadServersForTab(tab);
+                    break;
+                }
             }
         }));
     }
@@ -696,6 +826,15 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private void onDesktopIconClick(DesktopIconWidget widget, int button) {
         if (button == 0) {
             if (widget.isCreateButton()) {
+                if ("RESTUDIO_MARKER".equals(tabs().getActiveTab().getData()) && !ReStudio.getInstance().isAuthenticated()) {
+                    new Notification.Builder()
+                        .message("Not Authenticated")
+                        .description("Click To Log-In")
+                        .type(Notification.Type.ERROR)
+                        .action(this::openReStudioLogin)
+                        .build();
+                    return;
+                }
                 playSound(Sound.CREATE);
                 addServerPopup.setX((this.width - addServerPopup.getWidth())/2);
                 addServerPopup.setY((this.height - addServerPopup.getHeight())/2);
@@ -764,8 +903,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     serverView = null;
                 }
 
-                if (isRestudio) {
-                    builder.addHeaderButton("merge.png", () -> openFlowManagerForServer(serverId, serverView), "Flow Manager");
+                if (isRestudio && false) {
+                    builder.addHeaderButton("ReSync.png", () -> openFlowManagerForServer(serverId, serverView), "Flow Manager");
                 }
                 if (!isRestudio) {
                     builder.addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server").addHeaderButton("delete.png", () -> {
@@ -1437,6 +1576,18 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     public void updatePositions() {
         super.updatePositions();
         tabs().setPosition(width - tabs().getWidth(), height - 28 + 5);
+        if (noServersOverlay != null) {
+            noServersOverlay.setPosition(0, 0);
+            noServersOverlay.setSize(width, height - 35);
+            noServersOverlay.updateWidgetPositions();
+            reactorsNoServersIcon.setX(width / 2 - (reactorsNoServersIcon.getWidth() / 2));
+            reactorsNoServersIcon.setY(height / 4);
+            reactorInfo.setX(width / 2 - (reactorInfo.getWidth() / 2));
+            reactorInfo.setY(reactorsNoServersIcon.getY() + reactorsNoServersIcon.getHeight() + (12 * 5));
+            localNoServersIcon.setX(width / 2 - (localNoServersIcon.getWidth() / 2));
+            localNoServersIcon.setY(height / 4);
+
+        }
     }
 
     @Override
@@ -1473,6 +1624,14 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (reactorInfo.isHovered()) {
+            return reactorInfo.mouseClicked(mouseX, mouseY, button);
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
     }
 
     public List<Instance> getRestudioInstances() {

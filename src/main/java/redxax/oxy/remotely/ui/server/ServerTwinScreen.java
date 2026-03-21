@@ -354,27 +354,27 @@ public class ServerTwinScreen extends ReScreen {
         }
         boolean selectedExists = false;
         for (FileChange change : changes) {
-            boolean selected = Objects.equals(change.relativePath, selectedChangePath);
+            boolean selected = Objects.equals(change.relativePath(), selectedChangePath);
             if (selected) {
                 selectedExists = true;
             }
             String hidden = change.summary();
-            String description = change.directory
-                    ? formatSize(change.baselineSize) + " • " + formatSize(change.workspaceSize) + " • directory"
-                    : formatSize(change.baselineSize) + " → " + formatSize(change.workspaceSize);
-            MountableButtonWidget row = new MountableButtonWidget.Builder(change.relativePath)
+            String description = change.directory()
+                    ? formatSize(change.baselineSize()) + " • " + formatSize(change.workspaceSize()) + " • directory"
+                    : formatSize(change.baselineSize()) + " → " + formatSize(change.workspaceSize());
+            MountableButtonWidget row = new MountableButtonWidget.Builder(change.relativePath())
                     .hiddenText(hidden)
                     .description(description)
-                    .onClick(() -> selectChange(change.relativePath))
+                    .onClick(() -> selectChange(change.relativePath()))
                     .addButton(actionButton("edit.png", "Preview", () -> openChangePreview(twin, change)))
                     .addButton(actionButton("reload.png", "Restore Path", () -> restoreChange(twin, change), ThemeManager.getAccent("calm")))
                     .build();
-            styleRow(row, changesContainer, accentForChangeType(change.type), 34);
+            styleRow(row, changesContainer, accentForChangeType(change.type()), 34);
             changesContainer.addWidget(row);
         }
         changesContainer.updateWidgetPositions();
         if (!selectedExists) {
-            selectedChangePath = changes.getFirst().relativePath;
+            selectedChangePath = changes.getFirst().relativePath();
         }
         updateDetailsForCurrentTab();
     }
@@ -516,9 +516,9 @@ public class ServerTwinScreen extends ReScreen {
             addDetailsRow("Changes", "Loading", ThemeManager.getAccent("calm"));
             return;
         }
-        long added = changes.stream().filter(change -> change.type == FileChangeType.ADDED).count();
-        long modified = changes.stream().filter(change -> change.type == FileChangeType.MODIFIED).count();
-        long deleted = changes.stream().filter(change -> change.type == FileChangeType.DELETED).count();
+        long added = changes.stream().filter(change -> change.type() == FileChangeType.ADDED).count();
+        long modified = changes.stream().filter(change -> change.type() == FileChangeType.MODIFIED).count();
+        long deleted = changes.stream().filter(change -> change.type() == FileChangeType.DELETED).count();
         addDetailsRow("DevMode", selectedTwin.name, ThemeManager.getDefaultAccent());
         addDetailsRow("Total", String.valueOf(changes.size()), ThemeManager.getDefaultAccent());
         addDetailsRow("Added", String.valueOf(added), ThemeManager.getAccent("nice"));
@@ -527,18 +527,18 @@ public class ServerTwinScreen extends ReScreen {
         if (changes.isEmpty()) {
             return;
         }
-        if (selectedChangePath == null || changes.stream().noneMatch(change -> Objects.equals(change.relativePath, selectedChangePath))) {
-            selectedChangePath = changes.getFirst().relativePath;
+        if (selectedChangePath == null || changes.stream().noneMatch(change -> Objects.equals(change.relativePath(), selectedChangePath))) {
+            selectedChangePath = changes.getFirst().relativePath();
         }
         FileChange selectedChange = changes.stream()
-                .filter(change -> Objects.equals(change.relativePath, selectedChangePath))
+                .filter(change -> Objects.equals(change.relativePath(), selectedChangePath))
                 .findFirst()
                 .orElse(changes.getFirst());
-        addDetailsRow("Path", selectedChange.relativePath, accentForChangeType(selectedChange.type));
-        addDetailsRow("State", formatChangeType(selectedChange.type), accentForChangeType(selectedChange.type));
-        addDetailsRow("Kind", selectedChange.directory ? "Directory" : selectedChange.text ? "Text" : "Binary", ThemeManager.getDefaultAccent());
-        addDetailsRow("Baseline", formatSize(selectedChange.baselineSize), ThemeManager.getDefaultAccent());
-        addDetailsRow("Workspace", formatSize(selectedChange.workspaceSize), ThemeManager.getDefaultAccent());
+        addDetailsRow("Path", selectedChange.relativePath(), accentForChangeType(selectedChange.type()));
+        addDetailsRow("State", formatChangeType(selectedChange.type()), accentForChangeType(selectedChange.type()));
+        addDetailsRow("Kind", selectedChange.directory() ? "Directory" : selectedChange.text() ? "Text" : "Binary", ThemeManager.getDefaultAccent());
+        addDetailsRow("Baseline", formatSize(selectedChange.baselineSize()), ThemeManager.getDefaultAccent());
+        addDetailsRow("Workspace", formatSize(selectedChange.workspaceSize()), ThemeManager.getDefaultAccent());
     }
 
     private void buildTwinDetailsRows(ServerTwin twin) {
@@ -576,7 +576,7 @@ public class ServerTwinScreen extends ReScreen {
         if (selected.gitCommitSubject != null && !selected.gitCommitSubject.isBlank()) {
             addDetailsRow("Subject", selected.gitCommitSubject, ThemeManager.getDefaultAccent());
         }
-        selected.changes.stream().limit(20).forEach(change -> addDetailsRow("Path", change.relativePath + " • " + change.summary(), accentForChangeType(change.type)));
+        selected.changes.stream().limit(20).forEach(change -> addDetailsRow("Path", change.relativePath() + " • " + change.summary(), accentForChangeType(change.type())));
     }
 
     private void addDetailsRow(String title, String value, Accent accent) {
@@ -817,32 +817,32 @@ public class ServerTwinScreen extends ReScreen {
     }
 
     private void restoreChange(ServerTwin twin, FileChange change) {
-        Notification notification = loadingNotification("Restoring Path", change.relativePath);
-        twinManager.restoreWorkspacePath(twin.id, change.relativePath).whenComplete((unused, throwable) -> ScreenManager.getInstance().execute(() -> {
+        Notification notification = loadingNotification("Restoring Path", change.relativePath());
+        twinManager.restoreWorkspacePath(twin.id, change.relativePath()).whenComplete((unused, throwable) -> ScreenManager.getInstance().execute(() -> {
             if (throwable != null) {
                 finishNotification(notification, "Restore Failed", resolveThrowable(throwable), Notification.Type.ERROR);
                 return;
             }
-            finishNotification(notification, "Path Restored", change.relativePath, Notification.Type.SUCCESS);
+            finishNotification(notification, "Path Restored", change.relativePath(), Notification.Type.SUCCESS);
             changeCache.remove(twin.id);
-            previewCache.remove(buildPreviewKey(twin.id, change.relativePath));
-            parsedPreviewCache.remove(buildPreviewKey(twin.id, change.relativePath));
+            previewCache.remove(buildPreviewKey(twin.id, change.relativePath()));
+            parsedPreviewCache.remove(buildPreviewKey(twin.id, change.relativePath()));
             refreshChangesRows();
         }));
     }
 
     private void openChangePreview(ServerTwin twin, FileChange change) {
-        selectChange(change.relativePath);
-        String previewKey = buildPreviewKey(twin.id, change.relativePath);
+        selectChange(change.relativePath());
+        String previewKey = buildPreviewKey(twin.id, change.relativePath());
         parsedPreviewCache.remove(previewKey);
         String cachedPreview = previewCache.get(previewKey);
         if (cachedPreview != null) {
-            showDiffPreviewPopup(twin, change.relativePath, cachedPreview);
+            showDiffPreviewPopup(twin, change.relativePath(), cachedPreview);
             return;
         }
-        Notification notification = loadingNotification("Loading Preview", change.relativePath);
+        Notification notification = loadingNotification("Loading Preview", change.relativePath());
         long nonce = ++previewRequestNonce;
-        twinManager.buildChangePreview(twin.id, change.relativePath).whenComplete((preview, throwable) -> ScreenManager.getInstance().execute(() -> {
+        twinManager.buildChangePreview(twin.id, change.relativePath()).whenComplete((preview, throwable) -> ScreenManager.getInstance().execute(() -> {
             if (nonce != previewRequestNonce || !Objects.equals(selectedTwinId, twin.id)) {
                 return;
             }
@@ -851,8 +851,8 @@ public class ServerTwinScreen extends ReScreen {
                 return;
             }
             previewCache.put(previewKey, preview);
-            finishNotification(notification, "Preview Ready", change.relativePath, Notification.Type.SUCCESS);
-            showDiffPreviewPopup(twin, change.relativePath, preview);
+            finishNotification(notification, "Preview Ready", change.relativePath(), Notification.Type.SUCCESS);
+            showDiffPreviewPopup(twin, change.relativePath(), preview);
             updateDetailsForCurrentTab();
         }));
     }
@@ -1522,12 +1522,12 @@ public class ServerTwinScreen extends ReScreen {
         for (int i = 0; i < current.size(); i++) {
             FileChange left = current.get(i);
             FileChange right = next.get(i);
-            if (!Objects.equals(left.relativePath, right.relativePath)
-                    || left.type != right.type
-                    || left.directory != right.directory
-                    || left.baselineSize != right.baselineSize
-                    || left.workspaceSize != right.workspaceSize
-                    || left.text != right.text) {
+            if (!Objects.equals(left.relativePath(), right.relativePath())
+                    || left.type() != right.type()
+                    || left.directory() != right.directory()
+                    || left.baselineSize() != right.baselineSize()
+                    || left.workspaceSize() != right.workspaceSize()
+                    || left.text() != right.text()) {
                 return false;
             }
         }
