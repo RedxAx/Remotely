@@ -3,8 +3,10 @@ package redxax.oxy.remotely;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.host.ReScreenApplicationHost;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
+import restudio.rebase.Rebase;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.minecraft.assets.MinecraftAssetsManager;
+import restudio.rebase.update.UpdateAvailablePopup;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.lwjgl.DrawContextLwjgl;
 import restudio.rescreen.ReStudioEntry;
@@ -19,6 +21,14 @@ public class RemotelyEntry extends ReStudioEntry {
     public void init() {
         if (RemotelyClient.INSTANCE == null) {
             RemotelyInit.initClient(new ReScreenApplicationHost());
+            if (Rebase.get().getConfigManager().isUpdateCheckOnStartup()) {
+                if (Rebase.get().getConfigManager().getUpdateChannel().equalsIgnoreCase("alpha"))  {
+                    Rebase.get().getConfigManager().setUpdateChannel("stable");
+                    Rebase.get().getConfigManager().save();
+                    Rebase.get().getConfigManager().apply();
+                }
+                Rebase.get().getApplicationUpdateManager().checkForUpdates().thenAccept(updateOpt -> updateOpt.ifPresent(releaseInfo -> ScreenManager.getInstance().execute(() -> UpdateAvailablePopup.show(releaseInfo, Rebase.get().getApplicationUpdateManager()))));
+            }
         }
 
         RemotelyClient.INSTANCE.getHost().ensureTextRenderer();
