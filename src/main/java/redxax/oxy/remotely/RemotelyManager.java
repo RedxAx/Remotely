@@ -18,6 +18,7 @@ import restudio.rebase.resource.UpdateManager;
 import restudio.rebase.resource.provider.*;
 
 import restudio.rebase.restudio.ReStudio;
+import restudio.rebase.twin.ServerTwinManager;
 import restudio.rebase.update.UpdateAvailablePopup;
 import restudio.rebase.util.PlaytimeManager;
 import restudio.rebase.instance.loaders.FabricHandler;
@@ -67,6 +68,7 @@ public class RemotelyManager implements IRebaseManager {
 
     private final UpdateManager updateManager;
     private final ApplicationUpdateManager applicationUpdateManager;
+    private final ServerTwinManager twinManager;
     private final List<IResourceProvider> resourceProviders;
     private final Path versionsDir;
     private final Map<ModLoader, ModLoaderHandler> modLoaderHandlers = new HashMap<>();
@@ -88,6 +90,7 @@ public class RemotelyManager implements IRebaseManager {
         this.resourceMetadataManager = new ResourceMetadataManager(applicationDir);
         this.resourceStateManager = new restudio.rebase.resource.ResourceStateManager();
         this.applicationUpdateManager = new ApplicationUpdateManager(applicationDir, this);
+        this.twinManager = new ServerTwinManager(applicationDir);
 
 
         this.resourceProviders = List.of(
@@ -288,6 +291,11 @@ public class RemotelyManager implements IRebaseManager {
     @Override
     public RebaseConfigManager getConfigManager() {
         return configManager;
+    }
+
+    @Override
+    public ServerTwinManager getTwinManager() {
+        return twinManager;
     }
 
     @Override

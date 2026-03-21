@@ -728,7 +728,9 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 RemoteHost finalRh = rh;
                 ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
 
-                builder.addHeaderButton("merge.png", () -> remotelyClient.openServerTwin(this, inst), "Twin");
+                if (inst.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(inst.getBackendConfig().type)) {
+                    builder.addHeaderButton("merge.png", () -> remotelyClient.openServerTwin(this, inst), "DevMode");
+                }
                 builder.addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings");
                 builder.addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getInstance(), Path.of(widget.getInstance().getPath()), remotelyDir, false) {
                     public String getDesktopAppId() {
@@ -1401,7 +1403,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private void openModpackInstallation() {
         Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
         if ("RESTUDIO_MARKER".equals(data)) {
-            client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, (restudio.rebase.hosting.RemoteHost) null, true));
+            client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, (RemoteHost) null, true));
         } else {
             RemoteHost currentHost = (tabs().getActiveTabIndex() > 0 && tabs().getActiveTab() != null && data instanceof RemoteHost) ? (RemoteHost) data : null;
             client.setScreen(new ResourceBrowserScreen(this, null, ResourceType.MODPACK, true, currentHost, false));

@@ -161,6 +161,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
+        header().addRight("merge.png", this::openDevModeScreen, "DevMode");
 
         startIconButton = new IconButton.Builder()
             .imagePath("start.png")
@@ -441,6 +442,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         boolean isInstance = !info.isLocalTerminalMode();
         header().setButtonVisible("explorer.png", isInstance);
         header().setButtonVisible("edit.png", isInstance);
+        header().setButtonVisible("merge.png", isInstance && isDevModeEligible(context.instance));
 
         if (activeView != null) {
             switch (activeView.widget()) {
@@ -866,6 +868,25 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 return "explorer.png";
             }
         });
+    }
+
+    private boolean isDevModeEligible(Instance instance) {
+        if (instance == null || instance.getBackendConfig() == null || instance.getBackendConfig().type == null) {
+            return false;
+        }
+        return !"LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
+    }
+
+    private void openDevModeScreen() {
+        TabContext context = getActiveContext();
+        if (context == null || context.instance == null) {
+            return;
+        }
+        if (!isDevModeEligible(context.instance)) {
+            new Notification.Builder().message("DevMode Unavailable").description("Remote Servers Only").type(Notification.Type.ERROR).build();
+            return;
+        }
+        ScreenManager.getInstance().setScreen(new ServerTwinScreen(this, remotelyClient, context.instance));
     }
 
     public void openInstanceSettings() {
