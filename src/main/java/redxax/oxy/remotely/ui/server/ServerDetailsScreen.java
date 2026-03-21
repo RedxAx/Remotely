@@ -791,10 +791,20 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             st.notifyStartRequested();
         }
         api.console().startServer().thenAccept(command -> ScreenManager.getInstance().execute(() -> {
-            if (command != null && !command.isEmpty()) info.getTerminalWidget().executeCommand(command);
-            else {
-                String type = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
-                if ("LOCAL".equalsIgnoreCase(type)) info.getTerminalWidget().startServerProcess();
+            String type = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
+            if ("SSH".equalsIgnoreCase(type)) {
+                if (info.getTerminalWidget() != null) {
+                    info.getTerminalWidget().stopProcess();
+                    info.getTerminalWidget().startServerProcess();
+                }
+                return;
+            }
+            if (command != null && !command.isEmpty()) {
+                info.getTerminalWidget().executeCommand(command);
+                return;
+            }
+            if ("LOCAL".equalsIgnoreCase(type)) {
+                info.getTerminalWidget().startServerProcess();
             }
         }));
     }
