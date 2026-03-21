@@ -115,10 +115,6 @@ public class RemotelyManager implements IRebaseManager {
         BackendFactory.register("LOCAL", (cfg, inst) -> new LocalBackend(cfg != null ? cfg : new BackendConfig("LOCAL", new java.util.HashMap<>()), inst));
         BackendFactory.register("SSH", SshBackend::new);
         BackendFactory.register("RESTUDIO", ReStudioBackend::new);
-
-        if (configManager.isUpdateCheckOnStartup()) {
-            applicationUpdateManager.checkForUpdates().thenAccept(updateOpt -> updateOpt.ifPresent(releaseInfo -> restudio.rescreen.ui.core.ScreenManager.getInstance().execute(() -> UpdateAvailablePopup.show(releaseInfo, applicationUpdateManager))));
-        }
     }
 
     private CompletableFuture<JsonObject> loadRemoteManifest() {

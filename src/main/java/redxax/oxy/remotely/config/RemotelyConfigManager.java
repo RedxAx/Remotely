@@ -11,7 +11,7 @@ public class RemotelyConfigManager extends RebaseConfigManager {
     public RemotelyConfigManager(Path applicationDir) {
         super(applicationDir);
         if (!properties.containsKey("update.projectId")) properties.setProperty("update.projectId", "remotely");
-        if (!properties.containsKey("update.channel")) properties.setProperty("update.channel", "alpha");
+        if (!properties.containsKey("update.channel")) properties.setProperty("update.channel", "stable");
     }
 
     @Override
