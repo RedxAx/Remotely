@@ -7,7 +7,6 @@ import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.util.FileTransferProgress;
 import restudio.rescreen.platform.IDrawContext;
-import restudio.rescreen.config.Config;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rebase.settings.controllers.ReStudioBackupSettingsController;
 import restudio.rescreen.ui.core.Screen;
@@ -238,7 +237,7 @@ public class ServerBackupSettingsController {
             return;
         }
 
-        Config.loading = true;
+        parentScreen.setLoading(true);
 
         String backupPath = backupPathField.getText().trim();
         boolean remoteStorage = instance.getBackendConfig() != null && "SSH".equalsIgnoreCase(instance.getBackendConfig().type);
@@ -298,7 +297,7 @@ public class ServerBackupSettingsController {
                             .commit());
                     return null;
                 })
-                .whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> Config.loading = false));
+                .whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> parentScreen.setLoading(false)));
     }
 
     private void backupByOptions(TabSwitchWidget optionsSelector, Set<Path> pathsToBackup) {

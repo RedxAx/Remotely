@@ -3,7 +3,6 @@ package redxax.oxy.remotely.ui.server.containers;
 import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
 import restudio.rebase.Rebase;
-import restudio.rescreen.config.Config;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.preset.ResourceList;
 import restudio.rebase.resource.InstanceResource;
@@ -424,11 +423,11 @@ public class ResourceContainer extends Container {
         if (hasLoaded && !force) return CompletableFuture.completedFuture(List.of());
 
         isLoading = true;
-        Config.loading = true;
+        host.setLoading(true);
 
         return Rebase.get().getResourceManager().getResources(instance).whenComplete((resources, e) -> ScreenManager.getInstance().execute(() -> {
             isLoading = false;
-            Config.loading = false;
+            host.setLoading(false);
             if (e != null) {
                 new Notification("Failed to load resources", e.getMessage(), Notification.Type.ERROR);
             } else {
@@ -438,7 +437,7 @@ public class ResourceContainer extends Container {
     }
 
     public void resetLoadingState() {
-        Config.loading = false;
+        host.setLoading(false);
     }
 
     public void deleteResources(List<InstanceResource> resourcesToDelete) {

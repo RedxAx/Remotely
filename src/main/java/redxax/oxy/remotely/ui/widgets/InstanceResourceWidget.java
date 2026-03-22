@@ -9,7 +9,6 @@ import restudio.rebase.resource.provider.IResourceProvider;
 import restudio.rebase.resource.provider.OnlineResource;
 import restudio.rebase.ui.screens.resources.ResourceOverviewScreen;
 import restudio.rebase.ui.widgets.DownloadProgressWidget;
-import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.theme.ThemeColor;
@@ -293,7 +292,7 @@ public class InstanceResourceWidget extends MountableButtonWidget {
         if (button == 0 && resource.getProjectId() != null && resource.getProviderName() != null) {
             IResourceProvider provider = Rebase.get().getResourceProvider(resource.getProviderName());
             if (provider != null) {
-                loading = true;
+                parentScreen.setLoading(true);
                 playSound(Sound.CREATE);
                 provider.getResourceDetails(resource.getProjectId()).thenAccept(onlineResource -> {
                     if (onlineResource != null) {
@@ -302,7 +301,7 @@ public class InstanceResourceWidget extends MountableButtonWidget {
                         ResourceType finalActiveResourceType = activeResourceType;
                         ScreenManager.getInstance().execute(() -> ScreenManager.getInstance().setScreen(new ResourceOverviewScreen(parentScreen, provider, onlineResource, instance, finalActiveResourceType, true, null)));
                     }
-                }).whenComplete((v, e) -> Config.loading = false);
+                }).whenComplete((v, e) -> parentScreen.setLoading(false));
             }
         }
     }
