@@ -242,7 +242,7 @@ publisher {
         }
         loaders.set(listOf(currentLoader))
 
-        versionType.set("beta")
+        versionType.set("release")
 
         val targetTask = tasks.named<Jar>(if (isDropFabric) "jar" else "remapJar")
 
@@ -251,91 +251,129 @@ publisher {
         changelog.set(
             """
                 ### Remotely Changes:
-                - Fix: Remote Server Importing Opening.
-                - Chore: Removed Unused Debs & Cleanup.
-                - Fix: ServerDetailsScreen Opening Behavior In Desktop Mode.
-                - Fix: Minimal Button Position On TitleScreen.
-                - Adapt/Feat: SSH-Keys Support | Better Connection Feedback.
-                - Adapt: Rebase User System Overhaul.
-                - Feat: ServerDetailsScreen Isolated Tabs For Desktop Mode.
-                - Fix: Desktop Screen Opening Fixes.
-                - Fix: Black/White Text When Should Be Invisible (HotFix).
-                - Chore: Class Names Refactor For Rematrix.
-                - Feat(Rematrix): 1.20.1 Support.
-                - Feat(Rematrix): 1.21.[1, 4] Support.
-                - Feat(Rematrix): 1.21.[8, 6, 5] Support.
-                - ReWrite/Feat: Rematrix Init.
-                - Fix: Proper ReStudio Host Status Management.
-                - Adapt: ReScreen's Desktop Apps API.
-                - Adapt: ReScreen Desktop Mode Changes.
-                - Chore: Updated License To Remove Ambiguity.
-                - Feat: Status Bar For Resource Tracking & Server Info.
-                - Feat(Huge): Desktop Mode.
-                - Adapt: ReStudio Modpack Installation.
-                - Feat: Hide/Unhide Servers.
-                - Visual: Updated The Server Creation Popup Look.
-                - Fix: Asyncing Stuff To Prevent Many Freezes.
-                - Fix: Remote Host Popup Improvements.
-                - Fix: Some FlowEditor Bugs.
-                - Feat: `ALT+X` To Toggle Game/Remotely.
+                - Fix: Import Server Visible In Reactor.
+                - Feat: Better Reactor Plan Listing On Server Creation.
+                - Feat: Proper SshBackend Server Starting.
+                - Feat: Big ServerManagerScreen Improvements & Reactor For Everyone.
+                - Fix: Application Update Manager Config.
+                - Feat: Git-Like Server DevMode For Remote Servers (WIP).
+                - Fix: Deleting Resource Doesn't Unlist It.
+                - Fix: Stuck In Login After A Successful One.
+                - Chore: Update License.
+                - Feat: Backups Overhaul.
+                - Feat: Remotely No Longer Forces Login.
+                - Chore: Moved Minecraft Assets Logic To Rebase.
+                - Fix: Freeze When Opening ServerConfigurationScreen.
+                - Fix: Freezes When Switching Tabs.
+                - Feat(HUGE): Full Minecraft Assets Management And Rendering Via ReScreen.
+                - Fix: Opening ServerDetailsScreen Triggered Freezing Synchronous Slow Loading.
+                - Feat: Server Deletion Feedback.
+                - Fix: Inverted ServerExtraSettingsController View Flag.
+                - Adapt: Rebase LSP Integration.
+                - Feat: Messy 26.1-Pre-1 Support.
+                - Feat(ReSync): Extend World Management: Inventory Groups, Signs, & More.
+                - Feat(Huge): ReSync World Management Integration.
+                - Feat: New Server Import Mode.
+                - Feat(HUGE): New Modular PlayerManagementScreen, ReSync Adapt.
+                - Fix: Settings Never Get Saved For ReStudio Servers.
+                - Feat: ReScreen MouseCursor Visible In Normal Minecraft.
+                - Adapt: MouseCursor Reactive Widgets.
+                - Fix: Rematrix Suspended Screen.
+                - Feat(HUGE): ReSync Scoreboards & Tabs.
+                - Fix: Prevent ServerManagerScreen Reinit.
+                - Fix(Mod): Opening ServerManagerScreen Resets it.
+                - Fix(Mod): `ALT+X` Shortcut Leaks "x" Into Text Input.
+                - Feat: ReSync Commands Integration.
+                - Fix: FlowEditorScreen Opening Twice.
+                - Fix: Wrong GuiDesigner Edit Button Placement.
+                - Feat: GuiDesignerScreen Re/Undoability.
+                - Feat: Player Inventory Manipulation.
+                - Feat: WorldMap Player Data Integration.
+                - Fix: Custom `PlayerAction`s Not Reaching Terminal Execution.
+                - Feat: Actually Smart Player Entry Action Updates.
+                - Feat: Instant PlayerAction Registration.
+                - Fix: Improved SSH-Servers Icon Management.
+                - Fix: Errors With StreamDataParser.
+                - Fix: Better Caching Flow For Resources.
+                - Chore: Removed Redundant DebugLogs.
+                - Fix: Bad Looking Stats Entries.
 
                 ### Rebase Changes:
-                - Fix: Dynamic Width For StatusBar In FileEditorScreen.
-                - Fix: Incorrect Tab Opening For Importing.
-                - Fix: External Path Getting Deleted On Scan.
-                - Fix: Importing Remote Servers Goes To Local.
-                - Fix: Critical Resource Downloading Issues.
-                - Fix: Small Changes To Settings.
-                - Fix: Tab Closing Behavior In Desktop Mode.
-                - Feat: SSH-Keys Support.
-                - Feat: Overhauled User System.
-                - Feat: Isolated Tabs For Desktop Mode.
-                - Feat: Many PixelArtEditor Improvements.
-                - Feat: Dynamic Context Menu Actions.
-                - Feat: Pixel Art Editor.
-                - Fix: ReStudio Servers Status Stuff.
-                - Feat: FileEditor Status Bar Impl.
-                - Adapt: ReScreen's Desktop Apps API.
-                - Adapt: ReScreen's Desktop Mode.
-                - Fix: Modpack Installation Is Now Reliable.
-                - Feat: ResourceUsageFeature Full Implementation.
-                - Feat(Huge): Desktop Mode.
-                - Feat: Status Bar For FileExplorer.
-                - Feat/Fix: ResourceInstallationService And ReStudio Modpack Handling.
-                - Feat: Hide Flag For Instances.
-                - Feat: Made TextArea Line Highlight Toggleable.
-                - Fix: Duplicate Posting Possibility.
-                - Feat: Replaced Binary Agent With Shell Script.
-                - Feat: Terminal Optimizations.
-                - Feat: Folia Support.
-                - Fix: "New Issue" Button Disappear When Set-To-Parent.
-                - Fix: Start Script For Servers.
+                - Fix: File Explorer Refetches Win-Quick Access Every Time.
+                - Adapt: ReScreen Instanced Loading Animation.
+                - Feat: Modpack Reactors **Creation**.
+                - Fix: Critical Huge Memory Leak When Browsing Resources.
+                - Feat: Big Improvements For SshBackend Server Lifecycle Detection.
+                - Feat: Redirect To Sign-In Feedback Pages.
+                - Feat: ServerTwinManager.
+                - Feat: 20x Faster Remote Resource Indexing.
+                - Fix: Unregistered Resource Deletion.
+                - Feat: Minecraft Assets Management.
+                - Feat: Backups System Overhaul.
+                - Fix: Inaccurate Filters.
+                - Feat: LSP UX Improvements.
+                - Feat: Quick-Access Improvements.
+                - Feat: Async Instance Deletion.
+                - Feat: Windows Quick-Access Pins For File Explorer.
+                - Feat: Dynamic Instance Software.
+                - Adapt: ReStudio Changes.
+                - Feat: General Propose Auto LSP, Editor Integration.
+                - Fix: Resource Browsing Filters Stuff.
+                - Feat: GameVersion Assets Control.
+                - Feat: ReSync World Map Optimizations.
+                - Feat: Dynamic & User Friendly Explorer Import Mode.
+                - Feat: Servers No Longer Hardcoded `server.jar`.
+                - Feat: Faster ReStudio File Explorer.
+                - Feat: Remote File External Opening Handling.
+                - Feat: Configurable FileExplorer Click/DoubleClick.
+                - Feat: Configurable FileExplorer Per-Tab Sort.
+                - Fix: Unreliable Transfer Progress Reporting.
+                - Adapt: MouseCursor Reactive Widgets.
+                - Feat: Set/Get TextAreaWidget Placeholder.
+                - Fix: CodeCompletionWidget Freaks Out In Desktop Mode.
+                - Fix: Explorer Renaming Reliability.
+                - Feat: Archive/Unarchive For ReStudioBackend.
+                - Feat: Much More Reliable StandardUndoRedoPlugin.
+                - Feat: File ExplorerDrag 'n Drop.
+                - Fix: Gallery Tab Always Exists.
+                - Feat: Implemented Multi +/- Filters.
+                - Feat: ResourceBrowser Remembers Your Preference.
+                - Feat: Overhauled Resources System.
+                - Feat: WorldMap Player Data Integration.
+                - Fix: Refactor Resource Indexing For SSH & ReStudio.
+                - Feat: Improved SshBackend Resources Indexing.
+                - Chore: Removed Redundant DebugLogs.
+                - Feat: Manual Resource Installation Auto-Dep Download.
 
                 ### ReScreen Changes:
-                - Feat: Width Bounds For StatusBarBuilder.
-                - Fix: Entrance Delay Calculation For Desktop Mode.
-                - Feat: More ScreenWindowWidget UX Improvements.
-                - Fix: Scissors Now Animated With Elevation In IconButton.
-                - Fix: Thumbnails For Minimized Windows.
-                - Fix: Tab Grouping Behaviors.
-                - Fix: Incorrect TabsManager Width In Desktop Mode.
-                - Feat: Native pickImageFileAsync.
-                - Fix: Screens Rescales When Applying Settings.
-                - Fix: More Polishments For Desktop Mode.
-                - Feat: Defensive Layering For Desktop Mode.
-                - Feat: Smoooooooooooooooooth Desktop Mode.
-                - Fix: More Desktop Mode Polishments.
-                - Feat: Desktop Mode Overhaul.
-                - Feat/Fixes: More Desktop Mode Features & Improvements.
-                - Visual: Small Adjustments.
-                - Feat(Huge): Desktop Mode.
-                - Fix: All Custom MouseCursor Issues.
-                - Feat: New `BreadcrumbWidget`.
-                - Feat: StatusBar API For ReScreen.
-                - Feat: Text Batching.
+                - Feat: LoadingAnimation No Longer Static.
+                - Feat: Gif Decoding Optimizations.
+                - Fix: TextRendererLwjgl `trimToWidget()` Appends "...".
+                - Feat: Reactor & ReSync Icons, `server.png` Remake.
+                - Feat: Unsaved Changes Access.
+                - Fix: Popups Blocking Other Interactions.
+                - Feat: Better SettingsScreen Category Loading Flow.
+                - Fix: SidePanel Related Stuff.
+                - Feat(HUGE): Abstracted Minecraft Assets & Rendering.
+                - Feat: Popups Now Have Their Own Overlay.
+                - Feat: Maybe CrossPlatform `openAssociated`.
+                - Feat: Multi-Line Hints & Visual Upgrades To It.
+                - Fix: Rare Unreliable SuperScreen Checking.
+                - Fix: InfiniteScreen Scissors Logic.
+                - Fix: Size Caching Causing Stale Sizes.
+                - Feat: DropDown Single Negative Selection Display.
+                - Feat: MouseCursor Highlighting Overhaul.
+                - Feat: ContextMenuWidget Bounds Forcing.
+                - Delete: TextAreaWidget.
+                - Fix: DesktopMode `fileDrop` Targets Superscreen.
+                - Feat: DropDownWIdget Multi-Select +/- Mode.
+                - Fix: `MountableButtonWidget` Mounted Buttons Don't Render Hints.
+                - Feat: ScreenWindow Dynamic Sizing.
+                - Fix: SearchMode No Longer Effected By Button Count.
             """.trimIndent()
         )
 
         modrinthDepends.required.set(listOf("fabric-api"))
+        modrinthDepends.incompatible.set(listOf("essential"))
     }
 }
