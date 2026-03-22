@@ -23,7 +23,6 @@ import java.util.*;
 import java.awt.image.BufferedImage;
 
 import static restudio.rescreen.config.Config.desktopMode;
-import static restudio.rescreen.config.Config.loading;
 
 public class LuckPermsDashboardScreen extends ReScreen {
     private final Screen parent;
