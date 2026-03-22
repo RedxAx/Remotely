@@ -7,6 +7,7 @@ import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
+import redxax.oxy.remotely.ui.widgets.ReactorPlanWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.backend.BackendConfig;
@@ -98,6 +99,12 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private IconMessage localNoServersIcon;
     private IconMessage reactorsNoServersIcon;
     private IconButton reactorInfo;
+    private final List<ReactorPlanWidget> reactorPlanCards = new ArrayList<>();
+    private final List<ServerModels.Plan> reactorPlans = new ArrayList<>();
+    private String selectedReactorPlanName;
+    private boolean reactorPlanSelectionVisible;
+    private static final int REACTOR_PLAN_CARD_GAP = 14;
+    private static final int REACTOR_PLAN_CARD_SIDE_MARGIN = 14;
 
     public ServerManagerScreen(Object parent, RemotelyClient remotelyClient) {
         super();
@@ -258,6 +265,29 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         noServersOverlay.addWidget(localNoServersIcon);
         noServersOverlay.addWidget(reactorsNoServersIcon);
         noServersOverlay.addWidget(reactorInfo);
+    }
+
+    private void ensureReactorPlanSelectionCardsCreated() {
+        if (!reactorPlanCards.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < 3; i++) {
+            ReactorPlanWidget card = new ReactorPlanWidget(0, 0, 232, 132, null);
+            card.setVisible(false);
+            card.setActive(false);
+            final int planIndex = i;
+            card.setOnAction(() -> {
+                if (!reactorPlanSelectionVisible) {
+                    return;
+                }
+                if (planIndex < 0 || planIndex >= reactorPlans.size()) {
+                    return;
+                }
+                onReactorPlanSelected(reactorPlans.get(planIndex));
+            });
+            reactorPlanCards.add(card);
+            addDrawableChild(card);
+        }
     }
 
     private void initNoServersOverlay() {
@@ -1002,6 +1032,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         createAddServerPopup();
         createDeleteServerPopup();
         createRemoteHostPopup();
+        ensureReactorPlanSelectionCardsCreated();
     }
 
     private void createAddServerPopup() {
@@ -1016,7 +1047,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             .onClick(() -> {
                 Object data = (tabs().getActiveTab() != null) ? tabs().getActiveTab().getData() : null;
                 if ("RESTUDIO_MARKER".equals(data)) {
-                    client.setScreen(new ServerConfigurationScreen(this, null, null, remotelyClient, true));
+                    openReactorPlanSelection();
                 } else {
                     RemoteHost currentHost = (data instanceof RemoteHost) ? (RemoteHost) data : null;
                     client.setScreen(new ServerConfigurationScreen(this, null, currentHost, remotelyClient));
@@ -1130,6 +1161,222 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         deleteServerPopup = builder.build();
         deleteServerPopup.hide();
         addDrawableChild(deleteServerPopup);
+    }
+
+    private void openReactorPlanSelection() {
+        ensureReactorPlanSelectionCardsCreated();
+        hideReactorPlanSelection();
+        selectedReactorPlanName = null;
+        reactorPlans.clear();
+
+        List<ServerModels.Plan> fallbackPlans = List.of(
+                createFallbackPlan("Starter", 4096, 20480, 125, 1, 2, 1, 699),
+                createFallbackPlan("Standard", 8192, 40960, 200, 3, 4, 2, 1499),
+                createFallbackPlan("Pro", 12288, 61440, 300, 5, 8, 3, 2499)
+        );
+
+        ReStudio.getInstance().getApi().getPlans().thenAccept(plans -> ScreenManager.getInstance().execute(() -> {
+            List<ServerModels.Plan> source = plans == null || plans.isEmpty() ? fallbackPlans : plans;
+            source.stream()
+                    .filter(Objects::nonNull)
+                    .sorted(Comparator.comparingLong(plan -> plan.priceCents))
+                    .limit(3)
+                    .forEach(reactorPlans::add);
+
+            if (reactorPlans.isEmpty()) {
+                reactorPlans.addAll(fallbackPlans);
+            }
+
+            rebuildReactorPlanSelectionCards();
+            showReactorPlanSelection();
+        })).exceptionally(e -> {
+            ScreenManager.getInstance().execute(() -> {
+                reactorPlans.addAll(fallbackPlans);
+                rebuildReactorPlanSelectionCards();
+                showReactorPlanSelection();
+            });
+            return null;
+        });
+    }
+
+    private void rebuildReactorPlanSelectionCards() {
+        ensureReactorPlanSelectionCardsCreated();
+        if (reactorPlanCards.isEmpty()) {
+            return;
+        }
+
+        List<ServerModels.Plan> items = reactorPlans.isEmpty() ? List.of(
+                createFallbackPlan("Starter", 4096, 20480, 125, 1, 2, 1, 699),
+                createFallbackPlan("Standard", 8192, 40960, 200, 3, 4, 2, 1499),
+                createFallbackPlan("Pro", 12288, 61440, 300, 5, 8, 3, 2499)
+        ) : reactorPlans;
+
+        for (int i = 0; i < reactorPlanCards.size(); i++) {
+            ReactorPlanWidget card = reactorPlanCards.get(i);
+            if (i >= items.size()) {
+                card.setVisible(false);
+                card.setActive(false);
+                continue;
+            }
+            ServerModels.Plan plan = items.get(i);
+            card.setVisible(true);
+            card.setActive(true);
+            card.setContent(
+                    plan.name == null || plan.name.isBlank() ? "Reactor Plan" : plan.name,
+                    formatPlanFriendlyDescription(plan),
+                    formatPlanSpecs(plan),
+                    formatPlanPrice(plan.priceCents)
+            );
+            if (selectedReactorPlanName != null && plan.name != null && plan.name.equalsIgnoreCase(selectedReactorPlanName)) {
+                card.accentType = ThemeManager.getAccent("nice");
+            } else {
+                card.accentType = ThemeManager.getDefaultAccent();
+            }
+        }
+        positionReactorPlanSelectionCards();
+    }
+
+    private void onReactorPlanSelected(ServerModels.Plan plan) {
+        if (plan == null || plan.name == null || plan.name.isBlank()) {
+            return;
+        }
+        selectedReactorPlanName = plan.name;
+        for (int i = 0; i < reactorPlanCards.size(); i++) {
+            ReactorPlanWidget card = reactorPlanCards.get(i);
+            ServerModels.Plan candidate = i < reactorPlans.size() ? reactorPlans.get(i) : null;
+            if (candidate != null && candidate.name != null && candidate.name.equalsIgnoreCase(selectedReactorPlanName)) {
+                card.accentType = ThemeManager.getAccent("nice");
+                continue;
+            }
+            card.accentType = ThemeManager.getDefaultAccent();
+        }
+        openReactorConfigWithPlan();
+    }
+
+    private void openReactorConfigWithPlan() {
+        if (selectedReactorPlanName == null || selectedReactorPlanName.isBlank()) {
+            new Notification("Select Plan", Notification.Type.WARN);
+            return;
+        }
+        hideReactorPlanSelection();
+        client.setScreen(new ServerConfigurationScreen(this, null, null, remotelyClient, true, selectedReactorPlanName));
+    }
+
+    private void hideReactorPlanSelection() {
+        reactorPlanSelectionVisible = false;
+        for (ReactorPlanWidget card : reactorPlanCards) {
+            card.setVisible(false);
+            card.setActive(false);
+        }
+    }
+
+    private void showReactorPlanSelection() {
+        if (reactorPlanCards.isEmpty()) {
+            return;
+        }
+        reactorPlanSelectionVisible = true;
+        positionReactorPlanSelectionCards();
+        for (int i = 0; i < reactorPlanCards.size(); i++) {
+            ReactorPlanWidget card = reactorPlanCards.get(i);
+            boolean hasPlan = i < reactorPlans.size();
+            card.setVisible(hasPlan);
+            card.setActive(hasPlan);
+        }
+    }
+
+    private void positionReactorPlanSelectionCards() {
+        if (!reactorPlanSelectionVisible || reactorPlanCards.isEmpty()) {
+            return;
+        }
+        int targetCardWidth = resolveReactorPlanCardWidth();
+        int targetCardHeight = resolveReactorPlanCardHeight(targetCardWidth);
+        for (ReactorPlanWidget card : reactorPlanCards) {
+            card.setWidth(targetCardWidth);
+            card.setHeight(targetCardHeight);
+        }
+
+        ReactorPlanWidget center = reactorPlanCards.get(1);
+        int centerCardWidth = center.getWidth();
+        int centerCardHeight = center.getHeight();
+        int centerX = (width - centerCardWidth) / 2;
+        int maxBottom = Math.max(80, height - 42);
+        int centerY = Math.max(22, (maxBottom - centerCardHeight) / 2);
+        center.setPosition(centerX, centerY);
+
+        ReactorPlanWidget left = reactorPlanCards.getFirst();
+        left.setPosition(Math.max(REACTOR_PLAN_CARD_SIDE_MARGIN, centerX - left.getWidth() - REACTOR_PLAN_CARD_GAP), centerY);
+
+        ReactorPlanWidget right = reactorPlanCards.get(2);
+        right.setPosition(Math.min(width - right.getWidth() - REACTOR_PLAN_CARD_SIDE_MARGIN, centerX + centerCardWidth + REACTOR_PLAN_CARD_GAP), centerY);
+    }
+
+    private int resolveReactorPlanCardWidth() {
+        int available = width - (REACTOR_PLAN_CARD_SIDE_MARGIN * 2) - (REACTOR_PLAN_CARD_GAP * 2);
+        int byLayout = available / 3;
+        int lowerBound = Math.max(184, Math.round(width * 0.16f));
+        int upperBound = Math.max(212, Math.round(width * 0.24f));
+        return Math.max(lowerBound, Math.min(upperBound, byLayout));
+    }
+
+    private int resolveReactorPlanCardHeight(int cardWidth) {
+        if (!reactorPlanCards.isEmpty()) {
+            return reactorPlanCards.getFirst().getPreferredHeight();
+        }
+        return Math.max(1, Math.round(cardWidth * 0.45f));
+    }
+
+    private ServerModels.Plan createFallbackPlan(String name, int memoryMb, int diskMb, int cpuPercent, int databases, int backups, int allocations, long priceCents) {
+        ServerModels.Plan plan = new ServerModels.Plan();
+        plan.name = name;
+        plan.memoryMb = memoryMb;
+        plan.diskMb = diskMb;
+        plan.cpuPercent = cpuPercent;
+        plan.databases = databases;
+        plan.backups = backups;
+        plan.allocations = allocations;
+        plan.priceCents = priceCents;
+        return plan;
+    }
+
+    private String formatPlanSpecs(ServerModels.Plan plan) {
+        return formatStorage(plan.memoryMb) + " RAM • " + formatStorage(plan.diskMb) + " Disk • " + formatCpuThreads(plan.cpuPercent) + " Threads";
+    }
+
+    private String formatPlanFriendlyDescription(ServerModels.Plan plan) {
+        return switch (plan.name) {
+            case "Relay" -> "Perfect For 10-15 Players";
+            case "Refine" -> "Realistic For Anything";
+            case "Revenge" -> "As Fast As It Can Be";
+            default -> "";
+        };
+    }
+
+    private String formatStorage(int valueMb) {
+        if (valueMb <= 0) {
+            return "0 MB";
+        }
+        if (valueMb >= 1024) {
+            double gb = valueMb / 1024.0;
+            long rounded = Math.round(gb);
+            if (Math.abs(gb - rounded) < 0.05) {
+                return rounded + " GB";
+            }
+            return String.format(Locale.US, "%.1f GB", gb);
+        }
+        return valueMb + " MB";
+    }
+
+    private String formatCpuThreads(int cpuPercent) {
+        int percent = Math.max(0, cpuPercent);
+        int threads = Math.max(1, (int) Math.round(percent / 100.0));
+        return String.valueOf(threads);
+    }
+
+    private String formatPlanPrice(long priceCents) {
+        if (priceCents <= 0) {
+            return "$0.00/mo";
+        }
+        return String.format(Locale.US, "$%.2f/mo", priceCents / 100.0);
     }
 
     private void createRemoteHostPopup() {
@@ -1576,6 +1823,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     public void updatePositions() {
         super.updatePositions();
         tabs().setPosition(width - tabs().getWidth(), height - 28 + 5);
+        positionReactorPlanSelectionCards();
         if (noServersOverlay != null) {
             noServersOverlay.setPosition(0, 0);
             noServersOverlay.setSize(width, height - 35);
@@ -1615,6 +1863,13 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (reactorPlanSelectionVisible && keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            hideReactorPlanSelection();
+            return true;
+        }
+        if (reactorPlanSelectionVisible) {
+            return true;
+        }
         if (keyCode == GLFW.GLFW_KEY_R && hasControlDown()) {
             reloadInstancesSmartly();
             return true;
@@ -1628,10 +1883,86 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (reactorPlanSelectionVisible) {
+            for (int i = reactorPlanCards.size() - 1; i >= 0; i--) {
+                ReactorPlanWidget card = reactorPlanCards.get(i);
+                if (!card.isVisible() || !card.isActive()) {
+                    continue;
+                }
+                if (card.mouseClicked(mouseX, mouseY, button)) {
+                    return true;
+                }
+            }
+            return true;
+        }
         if (reactorInfo.isHovered()) {
             return reactorInfo.mouseClicked(mouseX, mouseY, button);
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (reactorPlanSelectionVisible) {
+            for (int i = reactorPlanCards.size() - 1; i >= 0; i--) {
+                ReactorPlanWidget card = reactorPlanCards.get(i);
+                if (!card.isVisible() || !card.isActive()) {
+                    continue;
+                }
+                if (card.mouseReleased(mouseX, mouseY, button)) {
+                    return true;
+                }
+            }
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (reactorPlanSelectionVisible) {
+            for (int i = reactorPlanCards.size() - 1; i >= 0; i--) {
+                ReactorPlanWidget card = reactorPlanCards.get(i);
+                if (!card.isVisible() || !card.isActive()) {
+                    continue;
+                }
+                if (card.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+                    return true;
+                }
+            }
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (reactorPlanSelectionVisible) {
+            for (int i = reactorPlanCards.size() - 1; i >= 0; i--) {
+                ReactorPlanWidget card = reactorPlanCards.get(i);
+                if (!card.isVisible() || !card.isActive()) {
+                    continue;
+                }
+                if (card.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+                    return true;
+                }
+            }
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+    }
+
+    @Override
+    public void mouseMoved(double mouseX, double mouseY) {
+        if (reactorPlanSelectionVisible) {
+            for (ReactorPlanWidget card : reactorPlanCards) {
+                if (!card.isVisible() || !card.isActive()) {
+                    continue;
+                }
+                card.mouseMoved(mouseX, mouseY);
+            }
+        }
+        super.mouseMoved(mouseX, mouseY);
     }
 
     public List<Instance> getRestudioInstances() {

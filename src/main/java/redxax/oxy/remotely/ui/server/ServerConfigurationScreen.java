@@ -52,6 +52,7 @@ public class ServerConfigurationScreen extends ReScreen {
     private final RemoteHost remoteHostContext;
     private final RemotelyClient remotelyClient;
     private final boolean isReStudioCreation;
+    private final String preselectedPlanName;
 
     private final Map<String, String> remoteVariables = new HashMap<>();
     private final Map<String, String> originalRemoteVariables = new HashMap<>();
@@ -69,6 +70,10 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient, boolean isReStudioCreation) {
+        this(parent, instance, remoteHostContext, remotelyClient, isReStudioCreation, null);
+    }
+
+    public ServerConfigurationScreen(Screen parent, Instance instance, RemoteHost remoteHostContext, RemotelyClient remotelyClient, boolean isReStudioCreation, String preselectedPlanName) {
         super();
         this.parent = parent;
         this.isEditMode = instance != null;
@@ -76,6 +81,7 @@ public class ServerConfigurationScreen extends ReScreen {
         this.remoteHostContext = remoteHostContext;
         this.remotelyClient = remotelyClient;
         this.isReStudioCreation = isReStudioCreation;
+        this.preselectedPlanName = preselectedPlanName;
 
         if (isEditMode) {
             this.tempInstance = new Instance(instance, instance.getName());
@@ -236,6 +242,7 @@ public class ServerConfigurationScreen extends ReScreen {
 
         if (isReStudioCreation) {
             planController = new ServerPlanSettingsController();
+            planController.selectPlanByName(preselectedPlanName);
         }
 
         settingsByTab.put("General", () -> {
