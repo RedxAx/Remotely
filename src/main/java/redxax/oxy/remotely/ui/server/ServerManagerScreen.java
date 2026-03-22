@@ -866,6 +866,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     return;
                 }
                 playSound(Sound.CREATE);
+                boolean isReStudioTab = "RESTUDIO_MARKER".equals(tabs().getActiveTab().getData());
+                addServerPopup.setRowVisibility("importServerRow", !isReStudioTab);
                 addServerPopup.setX((this.width - addServerPopup.getWidth())/2);
                 addServerPopup.setY((this.height - addServerPopup.getHeight())/2);
                 addServerPopup.show();
@@ -1078,7 +1080,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
         builder.addRow("", true, 27, createBtn);
         builder.addRow("", true, 27, modpackBtn);
-        builder.addRow("", true, 27, importBtn);
+        builder.addRow("importServerRow", "", true, 27, importBtn);
 
         addServerPopup = builder.build();
         addServerPopup.hide();
