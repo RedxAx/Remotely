@@ -185,7 +185,7 @@ public class ServerTwinScreen extends ReScreen {
         header().addLeft("terminal.png", this::openSelectedTwinTerminal, "Terminal");
         header().addLeft("reload.png", this::pullSelectedTwin, "Pull");
         header().addLeft("edit.png", this::openDeployPopup, "Commit");
-        header().addLeft("upload.png", this::pushSelectedTwin, "Push");
+        header().addLeft("reverse.png", this::pushSelectedTwin, "Push");
         header().build();
         refreshHeaderButtons();
     }

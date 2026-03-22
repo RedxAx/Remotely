@@ -6,12 +6,12 @@ import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
-
 import restudio.rescreen.ui.widgets.TextInputWidget;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class ServerPlanSettingsController {
@@ -20,21 +20,43 @@ public class ServerPlanSettingsController {
     private final List<ServerModels.Plan> availablePlans = new ArrayList<>();
     private DropDownWidget<ServerModels.Plan> planDropdown;
     private TextInputWidget subdomainInput;
+    private String selectedPlanName;
 
     public ServerPlanSettingsController() {
+    }
+
+    public void selectPlanByName(String planName) {
+        selectedPlanName = planName;
+        if (planDropdown == null || availablePlans.isEmpty() || planName == null || planName.isBlank()) {
+            return;
+        }
+        ServerModels.Plan preferred = null;
+        for (ServerModels.Plan candidate : availablePlans) {
+            if (candidate != null && candidate.name != null && candidate.name.equalsIgnoreCase(planName)) {
+                preferred = candidate;
+                break;
+            }
+        }
+        planDropdown.setItems(availablePlans, preferred);
+        selectedPlan.set(planDropdown.getSelectedItem());
     }
 
     public List<Setting> getSettings() {
         Setting.Builder builder = new Setting.Builder("Server Plan");
 
-        planDropdown = new DropDownWidget.Builder<>(new ArrayList<ServerModels.Plan>())
-                .displayFunction(plan -> plan.name + " (" + formatPrice(plan.priceCents) + ")")
-                .onSelectionChanged(selectedPlan::set)
-                .size(300, 20)
+        planDropdown = new DropDownWidget.Builder<ServerModels.Plan>(new ArrayList<>())
+                .displayFunction(this::formatPlanOption)
+                .onSelectionChanged(plan -> {
+                    selectedPlan.set(plan);
+                    if (plan != null && plan.name != null && !plan.name.isBlank()) {
+                        selectedPlanName = plan.name;
+                    }
+                })
+                .size(150, 20)
                 .build();
 
-        MountableButtonWidget planWidget = new MountableButtonWidget.Builder("Select Plan")
-                .description("Choose a hosting plan for your server.")
+        MountableButtonWidget planWidget = new MountableButtonWidget.Builder("Reactor Plans")
+                .description("Choose the plan for this Reactor server.")
                 .addWidget(planDropdown)
                 .build();
 
@@ -42,7 +64,7 @@ public class ServerPlanSettingsController {
 
         subdomainInput = new TextInputWidget.Builder()
                 .placeholder("Optional (e.g. myserver)")
-                .size(300, 20)
+                .size(150, 20)
                 .build();
 
         MountableButtonWidget subdomainWidget = new MountableButtonWidget.Builder("Custom Subdomain")
@@ -60,16 +82,41 @@ public class ServerPlanSettingsController {
     private void loadPlans() {
         ReStudio.getInstance().getApi().getPlans().thenAccept(plans -> ScreenManager.getInstance().execute(() -> {
             availablePlans.clear();
-            availablePlans.addAll(plans);
+            if (plans != null) {
+                availablePlans.addAll(plans);
+            }
 
             availablePlans.sort(Comparator.comparingLong(p -> p.priceCents));
 
-            planDropdown.setItems(availablePlans, availablePlans.isEmpty() ? null : availablePlans.getFirst());
-            if (!availablePlans.isEmpty()) {
-                selectedPlan.set(availablePlans.getFirst());
+            if (planDropdown == null) {
+                return;
             }
+
+            ServerModels.Plan preferred = selectedPlan.get();
+            if (preferred == null && selectedPlanName != null && !selectedPlanName.isBlank()) {
+                for (ServerModels.Plan candidate : availablePlans) {
+                    if (candidate != null && candidate.name != null && candidate.name.equalsIgnoreCase(selectedPlanName)) {
+                        preferred = candidate;
+                        break;
+                    }
+                }
+            }
+
+            if (availablePlans.isEmpty()) {
+                planDropdown.setItems(List.of(), null);
+                selectedPlan.set(null);
+                return;
+            }
+
+            planDropdown.setItems(availablePlans, preferred);
+            selectedPlan.set(planDropdown.getSelectedItem());
         })).exceptionally(e -> {
-            e.printStackTrace();
+            ScreenManager.getInstance().execute(() -> {
+                if (planDropdown != null) {
+                    planDropdown.setItems(List.of(), null);
+                }
+                selectedPlan.set(null);
+            });
             return null;
         });
     }
@@ -83,7 +130,12 @@ public class ServerPlanSettingsController {
         return subdomainInput != null ? subdomainInput.getText() : null;
     }
 
-    private String formatPrice(long cents) {
-        return String.format("$%.2f/mo", cents / 100.0);
+    private String formatPlanOption(ServerModels.Plan plan) {
+        if (plan == null) {
+            return "Select Plan";
+        }
+        String name = plan.name == null || plan.name.isBlank() ? "Plan" : plan.name;
+        long cents = Math.max(0L, plan.priceCents);
+        return String.format(Locale.US, "%s - $%.2f/mo", name, cents / 100.0);
     }
 }
