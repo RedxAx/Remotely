@@ -935,7 +935,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     serverView = null;
                 }
 
-                if (isRestudio && false) {
+                if (isRestudio) {
                     builder.addHeaderButton("ReSync.png", () -> openFlowManagerForServer(serverId, serverView), "Flow Manager");
                 }
                 if (!isRestudio) {
