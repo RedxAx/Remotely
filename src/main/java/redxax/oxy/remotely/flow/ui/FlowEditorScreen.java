@@ -81,6 +81,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         String sourceNodeId;
         String sourcePin;
         boolean isDragging;
+        boolean sourceIsInput;
     }
     private final DragState dragState;
     private NodeWidget dragPinWidget;
@@ -89,6 +90,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     private String pendingSourceNodeId;
     private String pendingSourcePin;
+    private boolean pendingSourceIsInput;
 
     private double dragMouseX = 0;
     private double dragMouseY = 0;
@@ -233,6 +235,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         dragState.sourceNodeId = null;
         dragState.sourcePin = null;
         dragState.isDragging = false;
+        dragState.sourceIsInput = false;
         undoStack.clear();
         redoStack.clear();
         refreshNodeRegistry();
@@ -547,10 +550,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             NodeWidget source = widgetCache.get(dragState.sourceNodeId);
             FlowType sourceType = null;
             if (source != null) {
-                double[] bounds = source.getPinBounds(dragState.sourcePin, false);
+                double[] bounds = source.getPinBounds(dragState.sourcePin, dragState.sourceIsInput);
                 if (bounds != null) {
                     sourcePinWorld = new double[] { bounds[0] + bounds[2]/2, bounds[1] + bounds[3]/2 };
-                    sourceType = source.getPinType(dragState.sourcePin, false);
+                    sourceType = source.getPinType(dragState.sourcePin, dragState.sourceIsInput);
                 }
             }
 
@@ -702,11 +705,20 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             if (widget.isMouseOverPin(wx, wy)) {
                 String pinName = widget.getPinAtPosition(wx, wy);
                 if (pinName != null) {
-                    double[] outputBounds = widget.getPinBounds(pinName, false);
-                    if (outputBounds != null) {
+                    double[] inputBounds = widget.getPinBounds(pinName, true);
+                    if (isInside(wx, wy, inputBounds)) {
                         dragMouseX = undistortedCoords[0];
                         dragMouseY = undistortedCoords[1];
-                        startWireDrag(widget, pinName);
+                        startWireDrag(widget, pinName, true);
+                        setFocusedWidget(null);
+                        return true;
+                    }
+
+                    double[] outputBounds = widget.getPinBounds(pinName, false);
+                    if (isInside(wx, wy, outputBounds)) {
+                        dragMouseX = undistortedCoords[0];
+                        dragMouseY = undistortedCoords[1];
+                        startWireDrag(widget, pinName, false);
                         setFocusedWidget(null);
                         return true;
                     }
@@ -756,13 +768,15 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
-    private void startWireDrag(NodeWidget widget, String pinName) {
+    private void startWireDrag(NodeWidget widget, String pinName, boolean isInput) {
         dragState.isDragging = true;
         dragState.sourceNodeId = findNodeId(widget);
         dragState.sourcePin = pinName;
+        dragState.sourceIsInput = isInput;
         dragPinWidget = widget;
         pendingSourceNodeId = null;
         pendingSourcePin = null;
+        pendingSourceIsInput = false;
     }
 
     @Override
@@ -790,6 +804,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             dragState.isDragging = false;
             dragState.sourceNodeId = null;
             dragState.sourcePin = null;
+            dragState.sourceIsInput = false;
             return true;
         }
 
@@ -1126,17 +1141,29 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                     String targetPin = targetWidget.getPinAtPosition(wx, wy);
                     if (targetPin != null) {
                         String targetNodeId = findNodeId(targetWidget);
-                        double[] bounds = targetWidget.getPinBounds(targetPin, true);
+                        double[] inputBounds = targetWidget.getPinBounds(targetPin, true);
+                        double[] outputBounds = targetWidget.getPinBounds(targetPin, false);
+                        boolean onInput = isInside(wx, wy, inputBounds);
+                        boolean onOutput = isInside(wx, wy, outputBounds);
 
-                        if (bounds != null && canConnect(dragPinWidget, dragState.sourcePin, targetWidget, targetPin)) {
-                            FlowConnection newConnection = new FlowConnection(dragState.sourceNodeId, dragState.sourcePin, targetNodeId, targetPin);
+                        if (!dragState.sourceIsInput && onInput && canConnect(dragPinWidget, dragState.sourcePin, targetWidget, targetPin)) {
+                                FlowConnection newConnection = new FlowConnection(dragState.sourceNodeId, dragState.sourcePin, targetNodeId, targetPin);
+                                removeExistingInputConnection(targetNodeId, targetPin);
+                                graph.getConnections().add(newConnection);
+                                refreshInputWidgets(targetNodeId);
+                                captureSnapshot();
+                                connected = true;
+                                break;
+                        }
 
-                            removeExistingInputConnection(targetNodeId, targetPin);
-                            graph.getConnections().add(newConnection);
-                            refreshInputWidgets(targetNodeId);
-                            captureSnapshot();
-                            connected = true;
-                            break;
+                        if (dragState.sourceIsInput && onOutput && canConnect(targetWidget, targetPin, dragPinWidget, dragState.sourcePin)) {
+                                FlowConnection newConnection = new FlowConnection(targetNodeId, targetPin, dragState.sourceNodeId, dragState.sourcePin);
+                                removeExistingInputConnection(dragState.sourceNodeId, dragState.sourcePin);
+                                graph.getConnections().add(newConnection);
+                                refreshInputWidgets(dragState.sourceNodeId);
+                                captureSnapshot();
+                                connected = true;
+                                break;
                         }
                     }
                 }
@@ -1144,11 +1171,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
 
         if (!connected && dragPinWidget != null) {
-            FlowType sourceType = dragPinWidget.getPinType(dragState.sourcePin, false);
-            if (sourceType != null && sourceType != FlowType.EXECUTION) {
+            FlowType sourceType = dragPinWidget.getPinType(dragState.sourcePin, dragState.sourceIsInput);
+            if (sourceType != null) {
                 pendingSourceNodeId = dragState.sourceNodeId;
                 pendingSourcePin = dragState.sourcePin;
-                showAddNodeMenu((int) screenMouseX, (int) screenMouseY, sourceType);
+                pendingSourceIsInput = dragState.sourceIsInput;
+                showAddNodeMenu((int) screenMouseX, (int) screenMouseY, sourceType, dragState.sourceIsInput);
             }
         }
     }
@@ -1164,14 +1192,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     private void removeExistingInputConnection(String nodeId, String pinName) {
         if (graph.getConnections() == null) return;
-
-        NodeWidget targetWidget = widgetCache.get(nodeId);
-        if (targetWidget != null) {
-            NodeDefinition.PinType pinType = targetWidget.getPinKind(pinName, true);
-            if (pinType == NodeDefinition.PinType.FLOW) {
-                return;
-            }
-        }
 
         boolean removed = graph.getConnections().removeIf(conn -> conn.getTargetNodeId().equals(nodeId) && conn.getTargetPin().equals(pinName)
         );
@@ -1189,7 +1209,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         return null;
     }
 
-    private void showAddNodeMenu(int x, int y, FlowType sourceType) {
+    private void showAddNodeMenu(int x, int y, FlowType sourceType, boolean sourceIsInput) {
         if (nodeItemSelector != null) {
             remove(nodeItemSelector);
             nodeItemSelector = null;
@@ -1212,7 +1232,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             for (NodeDefinition def : definitions) {
                 String compatiblePin = null;
                 if (sourceType != null) {
-                    compatiblePin = findCompatibleInput(def, sourceType);
+                    compatiblePin = findCompatiblePin(def, sourceType, sourceIsInput);
                     if (compatiblePin == null) {
                         continue;
                     }
@@ -1232,10 +1252,17 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         nodeItemSelector.show(x, y);
     }
 
-    private String findCompatibleInput(NodeDefinition definition, FlowType sourceType) {
-        for (NodeDefinition.PinDefinition input : definition.getInputs()) {
-            if (input.getType() == NodeDefinition.PinType.DATA && sourceType.isCompatibleWith(input.getDataType())) {
-                return input.getName();
+    private String findCompatiblePin(NodeDefinition definition, FlowType sourceType, boolean sourceIsInput) {
+        List<NodeDefinition.PinDefinition> pins = sourceIsInput ? definition.getOutputs() : definition.getInputs();
+        for (NodeDefinition.PinDefinition pin : pins) {
+            if (sourceType == FlowType.EXECUTION) {
+                if (pin.getType() == NodeDefinition.PinType.FLOW && pin.getDataType() == FlowType.EXECUTION) {
+                    return pin.getName();
+                }
+                continue;
+            }
+            if (pin.getType() == NodeDefinition.PinType.DATA && sourceType.isCompatibleWith(pin.getDataType())) {
+                return pin.getName();
             }
         }
         return null;
@@ -1284,14 +1311,22 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         addWorldWidget(widget);
 
         if (pendingSourceNodeId != null && pendingSourcePin != null && autoWirePin != null) {
-            FlowConnection newConnection = new FlowConnection(pendingSourceNodeId, pendingSourcePin, id, autoWirePin);
-            removeExistingInputConnection(id, autoWirePin);
+            FlowConnection newConnection;
+            if (pendingSourceIsInput) {
+                newConnection = new FlowConnection(id, autoWirePin, pendingSourceNodeId, pendingSourcePin);
+                removeExistingInputConnection(pendingSourceNodeId, pendingSourcePin);
+                refreshInputWidgets(pendingSourceNodeId);
+            } else {
+                newConnection = new FlowConnection(pendingSourceNodeId, pendingSourcePin, id, autoWirePin);
+                removeExistingInputConnection(id, autoWirePin);
+                refreshInputWidgets(id);
+            }
             graph.getConnections().add(newConnection);
-            widget.refreshInputWidgets();
         }
 
         pendingSourceNodeId = null;
         pendingSourcePin = null;
+        pendingSourceIsInput = false;
     }
 
     private void onSave() {
