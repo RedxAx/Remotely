@@ -14,7 +14,6 @@ import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.AnimatedButton;
-import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
 
@@ -32,7 +31,6 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
     private static final int TITLE_COLOR = 0xFFFFFFFF;
     private static final int TEXT_COLOR = 0xFFFFFFFF;
     private static final int SCORE_COLOR = 0xFFFF5555;
-    private static final List<String> SLOT_OPTIONS = List.of("sidebar", "list", "below_name");
     private static final Pattern MINI_HEX_PATTERN = Pattern.compile("<#([0-9a-fA-F]{6})>");
 
     private final ScoreboardDefinition scoreboard;
@@ -42,7 +40,6 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
     private SidePanel inspectorPanel;
     private TextInputWidget titleInput;
     private TextInputWidget objectiveInput;
-    private DropDownWidget<String> slotSelect;
     private CodeEditorWidget linesInput;
     private String previewTitle = "";
     private List<String> previewLines = new ArrayList<>();
@@ -165,18 +162,6 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
             .build();
         container.addWidget(objectiveInput);
 
-        slotSelect = new DropDownWidget.Builder<>(SLOT_OPTIONS)
-            .size(220, 22)
-            .selectedItem(scoreboard.getDisplaySlot() != null ? scoreboard.getDisplaySlot() : "sidebar")
-            .displayFunction(this::slotDisplayLabel)
-            .onSelectionChanged(slot -> {
-                scoreboard.setDisplaySlot(slot != null ? slot : "sidebar");
-                buildInspectorPanel();
-                refreshPreviewText();
-            })
-            .build();
-        container.addWidget(slotSelect);
-
         container.addWidget(new AnimatedButton.Builder().label("Lines").size(220, 20).active(false).build());
         linesInput = new CodeEditorWidget(0, 0, 220, 220);
         linesInput.setText(String.join("\n", scoreboard.getLines()));
@@ -192,16 +177,6 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
     }
 
     private void renderPreview(IDrawContext context) {
-        String slot = scoreboard.getDisplaySlot() != null ? scoreboard.getDisplaySlot() : "sidebar";
-        if ("list".equalsIgnoreCase(slot) || "player_list".equalsIgnoreCase(slot)) {
-            renderListPreview(context);
-            return;
-        }
-        if ("below_name".equalsIgnoreCase(slot)) {
-            renderBelowNamePreview(context);
-            return;
-        }
-
         List<String> lines = previewLines;
         int maxLines = Math.min(15, lines.size());
         String titleText = previewTitle.isEmpty() ? formatPreviewText(scoreboard.getId()) : previewTitle;
@@ -245,74 +220,6 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
         }
     }
 
-    private void renderListPreview(IDrawContext context) {
-        int lineHeight = 11;
-        int padX = 6;
-        int padTop = 4;
-        String title = previewTitle.isEmpty() ? formatPreviewText(scoreboard.getId()) : previewTitle;
-        List<String> lines = previewLines;
-        int shownLines = lines.isEmpty() ? 1 : Math.min(8, lines.size());
-        int maxTextWidth = textWidth(title);
-        if (lines.isEmpty()) {
-            maxTextWidth = Math.max(maxTextWidth, textWidth("Player : 0"));
-        } else {
-            for (int i = 0; i < shownLines; i++) {
-                maxTextWidth = Math.max(maxTextWidth, textWidth(lines.get(i) != null ? lines.get(i) : ""));
-            }
-        }
-
-        int panelWidth = Math.max(120, maxTextWidth + padX * 2);
-        panelWidth = Math.clamp(width - 20, 120, panelWidth);
-        int panelHeight = padTop + 14 + shownLines * lineHeight + 4;
-        int areaX = getPreviewAreaX();
-        int areaTop = getPreviewAreaTop();
-        int areaWidth = getPreviewAreaWidth();
-        int areaHeight = getPreviewAreaHeight();
-        panelWidth = Math.clamp(panelWidth, 120, areaWidth);
-        panelHeight = Math.clamp(panelHeight, 20, areaHeight);
-        int x = areaX + Math.max(0, (areaWidth - panelWidth) / 2);
-        int y = areaTop + Math.max(0, (areaHeight - panelHeight) / 2);
-        context.drawText("Tab List Preview", x, y - 14, 0xFFB8B8B8, true);
-        context.fill(x, y, x + panelWidth, y + panelHeight, 0x7F101010);
-
-        int contentWidth = Math.max(0, panelWidth - padX * 2);
-        context.drawText(fitLineToWidth(title, contentWidth), x + padX, y + padTop, TITLE_COLOR, true);
-        for (int i = 0; i < shownLines && i < lines.size(); i++) {
-            String rendered = lines.get(i) != null ? lines.get(i) : "";
-            int rowY = y + padTop + 14 + i * lineHeight;
-            context.drawText(fitLineToWidth(rendered, contentWidth), x + padX, rowY, TEXT_COLOR, true);
-        }
-        if (lines.isEmpty()) {
-            context.drawText(fitLineToWidth("Player : 0", contentWidth), x + padX, y + padTop + 14, 0xFFAAAAAA, true);
-        }
-    }
-
-    private void renderBelowNamePreview(IDrawContext context) {
-        String playerName = "Player";
-        List<String> lines = previewLines;
-        String value = lines.isEmpty() ? "0" : stripSectionCodes(lines.getFirst());
-        int valueWidth = textWidth(value);
-        int playerWidth = textWidth(playerName);
-        int panelWidth = Math.max(120, Math.max(valueWidth, playerWidth) + 40);
-        int areaX = getPreviewAreaX();
-        int areaTop = getPreviewAreaTop();
-        int areaWidth = getPreviewAreaWidth();
-        int areaHeight = getPreviewAreaHeight();
-        panelWidth = Math.clamp(panelWidth, 120, areaWidth);
-        int panelHeight = 52;
-        panelHeight = Math.clamp(areaHeight, 20, panelHeight);
-        int x = areaX + Math.max(0, (areaWidth - panelWidth) / 2);
-        int y = areaTop + Math.max(0, (areaHeight - panelHeight) / 2);
-        context.drawText("Below Name Preview", x, y - 18, 0xFFB8B8B8, true);
-        context.fill(x, y, x + panelWidth, y + panelHeight, 0x7F101010);
-        int playerX = x + (panelWidth - playerWidth) / 2;
-        int valueMaxWidth = Math.max(0, panelWidth - 12);
-        String valueDraw = fitLineToWidth(value, valueMaxWidth);
-        int valueX = x + (panelWidth - textWidth(valueDraw)) / 2;
-        context.drawText(playerName, playerX, y + 12, 0xFFFFFFFF, true);
-        context.drawText(valueDraw, valueX, y + 25, SCORE_COLOR, true);
-    }
-
     private String fitLineToWidth(String text, int maxWidth) {
         if (maxWidth <= 0) {
             return "";
@@ -349,17 +256,6 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
 
     private String formatPreviewText(String text) {
         return miniMessageToSection(text != null ? text : "").replace('&', '§');
-    }
-
-    private String slotDisplayLabel(String slot) {
-        if (slot == null) {
-            return "Sidebar (Right HUD)";
-        }
-        return switch (slot.toLowerCase()) {
-            case "list", "player_list" -> "List (Tab List)";
-            case "below_name" -> "BelowName (Under Player)";
-            default -> "Sidebar (Right HUD)";
-        };
     }
 
     private int textWidth(String text) {
@@ -532,7 +428,7 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
             scoreboard.setObjectiveId(scoreboard.getId() != null ? scoreboard.getId() : "scoreboard");
         }
         if (scoreboard.getDisplaySlot() == null || scoreboard.getDisplaySlot().isBlank()) {
-            scoreboard.setDisplaySlot("sidebar");
+            scoreboard.setDisplaySlot(ScoreboardDefinition.SLOT_SIDEBAR);
         }
         if (scoreboard.getLines() == null) {
             scoreboard.setLines(new ArrayList<>());
