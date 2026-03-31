@@ -1270,6 +1270,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             card.setVisible(false);
             card.setActive(false);
         }
+        loadServersForCurrentTab();
     }
 
     private void showReactorPlanSelection() {
@@ -1284,6 +1285,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             card.setVisible(hasPlan);
             card.setActive(hasPlan);
         }
+        updateNoServersOverlayVisibility(false);
     }
 
     private void positionReactorPlanSelectionCards() {
