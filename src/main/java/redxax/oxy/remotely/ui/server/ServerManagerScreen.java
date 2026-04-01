@@ -756,77 +756,87 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             return;
         }
         if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getAccent("calm"));
-        ReStudio.getInstance().getApi().getSftpPassword().thenCompose(sftpSecret ->
-            ReStudio.getInstance().getApi().getServers().thenCompose(servers -> {
-                List<Instance> instances = new ArrayList<>();
-                Map<String, ServerModels.ClientServerView> serverViews = new HashMap<>();
-                List<CompletableFuture<Void>> stateFutures = new ArrayList<>();
+        ReStudio.getInstance().getApi().getServers().thenCompose(servers -> {
+            List<Instance> instances = new ArrayList<>();
+            Map<String, ServerModels.ClientServerView> serverViews = new HashMap<>();
+            List<CompletableFuture<Void>> stateFutures = new ArrayList<>();
+            List<CompletableFuture<Void>> tokenFutures = new ArrayList<>();
 
-                if (servers != null) {
-                    for (ServerModels.ClientServerView csv : servers) {
-                        Map<String, String> creds = new HashMap<>();
-                        creds.put("identifier", csv.identifier);
-                        creds.put("host", csv.sftpIp);
-                        creds.put("port", String.valueOf(csv.sftpPort));
-                        creds.put("user", csv.sftpUser);
-                        creds.put("password", sftpSecret != null ? sftpSecret : "");
-                        creds.put("installing", String.valueOf(csv.isInstalling));
-                        creds.put("suspended", String.valueOf(csv.isSuspended));
+            if (servers != null) {
+                for (ServerModels.ClientServerView csv : servers) {
+                    Map<String, String> creds = new HashMap<>();
+                    creds.put("identifier", csv.identifier);
+                    creds.put("host", csv.sftpIp);
+                    creds.put("port", String.valueOf(csv.sftpPort));
+                    creds.put("user", csv.sftpUser);
+                    creds.put("password", "");
+                    creds.put("installing", String.valueOf(csv.isInstalling));
+                    creds.put("suspended", String.valueOf(csv.isSuspended));
 
-                        BackendConfig config = new BackendConfig("RESTUDIO", creds);
+                    BackendConfig config = new BackendConfig("RESTUDIO", creds);
 
-                        Instance inst = new Instance(csv.name, "unknown", "");
-                        inst.setBackendConfig(config);
-                        inst.setServer(true);
-                        if (csv.isInstalling) {
-                            inst.setState(InstanceState.INSTALLING);
-                        }
-                        if (csv.isSuspended) {
-                            inst.setState(InstanceState.STOPPED);
-                        }
-
-                        if (csv.loader != null) {
-                            try {
-                                inst.setModLoader(ModLoader.valueOf(csv.loader));
-                            } catch (IllegalArgumentException ignored) {
-                                inst.setModLoader(ModLoader.VANILLA);
-                            }
-                        }
-                        if (csv.version != null) {
-                            inst.setVersionId(csv.version);
-                        }
-
-                        instances.add(inst);
-                        serverViews.put(csv.name, csv);
-
-                        CompletableFuture<Void> stateFuture = ReStudio.getInstance().getApi().getServerResources(csv.identifier)
-                            .thenAccept(stats -> {
-                                if (stats == null) {
-                                    return;
-                                }
-                                if (csv.isSuspended || stats.isSuspended) {
-                                    inst.setState(InstanceState.STOPPED);
-                                    inst.getBackendConfig().credentials.put("suspended", "true");
-                                    return;
-                                }
-                                String currentState = stats.currentState != null ? stats.currentState.trim().toLowerCase() : "";
-                                if ("running".equals(currentState)) {
-                                    inst.setState(InstanceState.RUNNING);
-                                } else if ("starting".equals(currentState)) {
-                                    inst.setState(InstanceState.STARTING);
-                                } else if ("offline".equals(currentState)) {
-                                    inst.setState(InstanceState.STOPPED);
-                                }
-                            })
-                            .exceptionally(ex -> null);
-                        stateFutures.add(stateFuture);
+                    Instance inst = new Instance(csv.name, "unknown", "");
+                    inst.setBackendConfig(config);
+                    inst.setServer(true);
+                    if (csv.isInstalling) {
+                        inst.setState(InstanceState.INSTALLING);
                     }
-                }
+                    if (csv.isSuspended) {
+                        inst.setState(InstanceState.STOPPED);
+                    }
 
-                return CompletableFuture.allOf(stateFutures.toArray(CompletableFuture[]::new))
-                    .thenApply(v -> Map.entry(instances, serverViews));
-            })
-        ).whenComplete((result, e) -> ScreenManager.getInstance().execute(() -> {
+                    if (csv.loader != null) {
+                        try {
+                            inst.setModLoader(ModLoader.valueOf(csv.loader));
+                        } catch (IllegalArgumentException ignored) {
+                            inst.setModLoader(ModLoader.VANILLA);
+                        }
+                    }
+                    if (csv.version != null) {
+                        inst.setVersionId(csv.version);
+                    }
+
+                    instances.add(inst);
+                    serverViews.put(csv.name, csv);
+
+                    CompletableFuture<Void> tokenFuture = ReStudio.getInstance().getApi().getSftpToken(csv.identifier)
+                            .thenAccept(token -> inst.getBackendConfig().credentials.put("password", token != null ? token : ""))
+                            .exceptionally(ex -> {
+                                inst.getBackendConfig().credentials.put("password", "");
+                                return null;
+                            });
+                    tokenFutures.add(tokenFuture);
+
+                    CompletableFuture<Void> stateFuture = ReStudio.getInstance().getApi().getServerResources(csv.identifier)
+                        .thenAccept(stats -> {
+                            if (stats == null) {
+                                return;
+                            }
+                            if (csv.isSuspended || stats.isSuspended) {
+                                inst.setState(InstanceState.STOPPED);
+                                inst.getBackendConfig().credentials.put("suspended", "true");
+                                return;
+                            }
+                            String currentState = stats.currentState != null ? stats.currentState.trim().toLowerCase() : "";
+                            if ("running".equals(currentState)) {
+                                inst.setState(InstanceState.RUNNING);
+                            } else if ("starting".equals(currentState)) {
+                                inst.setState(InstanceState.STARTING);
+                            } else if ("offline".equals(currentState)) {
+                                inst.setState(InstanceState.STOPPED);
+                            }
+                        })
+                        .exceptionally(ex -> null);
+                    stateFutures.add(stateFuture);
+                }
+            }
+
+            List<CompletableFuture<Void>> allFutures = new ArrayList<>(stateFutures.size() + tokenFutures.size());
+            allFutures.addAll(stateFutures);
+            allFutures.addAll(tokenFutures);
+            return CompletableFuture.allOf(allFutures.toArray(CompletableFuture[]::new))
+                .thenApply(v -> Map.entry(instances, serverViews));
+        }).whenComplete((result, e) -> ScreenManager.getInstance().execute(() -> {
             if (tabs().getActiveTab().getWidget() != null) tabs().getActiveTab().getWidget().setAccent(ThemeManager.getDefaultAccent());
             if (e != null) {
                 new Notification("Error fetching ReStudio servers", e.getMessage(), Notification.Type.ERROR);
