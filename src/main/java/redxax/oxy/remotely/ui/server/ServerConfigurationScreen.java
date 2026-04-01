@@ -15,6 +15,7 @@ import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.settings.controllers.VersionSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.ServerSubuserSettingsController;
 import restudio.rebase.util.Executors;
 import restudio.rebase.util.VersionUtil;
 import restudio.rescreen.theme.ThemeManager;
@@ -59,6 +60,8 @@ public class ServerConfigurationScreen extends ReScreen {
     private final boolean isReStudioBackend;
     private String serverIdentifier;
     private ServerPlanSettingsController planController;
+    private ServerBackupSettingsController backupController;
+    private ServerSubuserSettingsController subuserController;
     private volatile boolean screenClosed;
 
     private static final Set<String> REINSTALL_TRIGGERING_VARS = Set.of(
@@ -271,9 +274,18 @@ public class ServerConfigurationScreen extends ReScreen {
         settingsByTab.put("Java", javaController::getSettings);
 
         if (isEditMode) {
-            ServerBackupSettingsController backupController = new ServerBackupSettingsController(this, tempInstance);
+            if (backupController == null) {
+                backupController = new ServerBackupSettingsController(this, tempInstance);
+            }
             settingsByTab.put("Backups", backupController::getSettings);
             cleanupActions.add(backupController::cleanup);
+        }
+
+        if (isEditMode && isReStudioBackend) {
+            if (subuserController == null) {
+                subuserController = new ServerSubuserSettingsController(this, tempInstance);
+            }
+            settingsByTab.put("Subusers", subuserController::getSettings);
         }
 
         boolean msmpCompatible = VersionUtil.isMSMPCompatible(tempInstance.getVersionId());
