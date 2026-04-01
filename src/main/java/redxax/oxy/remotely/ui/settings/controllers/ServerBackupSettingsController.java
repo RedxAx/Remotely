@@ -39,6 +39,7 @@ import static restudio.rescreen.util.SoundUtils.playSound;
 public class ServerBackupSettingsController {
     private final ReScreen parentScreen;
     private final Instance instance;
+    private ReStudioBackupSettingsController reStudioBackupController;
     private final Runnable backupRefreshListener = () -> ScreenManager.getInstance().execute(this::refreshBackups);
     private boolean backupRefreshListenerRegistered;
 
@@ -53,7 +54,10 @@ public class ServerBackupSettingsController {
                 "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type);
 
         if (isReStudioBackend) {
-            return new ReStudioBackupSettingsController(parentScreen, instance).getSettings();
+            if (reStudioBackupController == null) {
+                reStudioBackupController = new ReStudioBackupSettingsController(parentScreen, instance);
+            }
+            return reStudioBackupController.getSettings();
         }
 
         Setting.Builder builder = new Setting.Builder("Server Backups");
@@ -344,6 +348,9 @@ public class ServerBackupSettingsController {
     }
 
     public void cleanup() {
+        if (reStudioBackupController != null) {
+            reStudioBackupController.cleanup();
+        }
         if (backupRefreshListenerRegistered) {
             Rebase.get().getBackupManager().removeChangeListener(backupRefreshListener);
             backupRefreshListenerRegistered = false;
