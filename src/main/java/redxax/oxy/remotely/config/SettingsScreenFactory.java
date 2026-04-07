@@ -61,7 +61,10 @@ public class SettingsScreenFactory {
         settingsByTab.put("Development", devController::getSettings);
 
         return new SettingsScreen(parent, "Remotely Settings", settingsByTab, () -> {
-            if (configManager != null) configManager.save();
+            if (configManager != null) {
+                configManager.save();
+                configManager.apply();
+            }
         }, backupSettings::cleanup) {
             public String getDesktopAppId() {
                 return "global-settings";
