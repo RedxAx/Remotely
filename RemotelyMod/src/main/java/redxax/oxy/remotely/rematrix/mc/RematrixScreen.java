@@ -264,12 +264,20 @@ public class RematrixScreen extends Screen {
     //#if MC >= 1.21.9 || MC >= 26.1
     @Override
     public boolean keyPressed(KeyEvent keyEvent) {
+        if (keyEvent.key() == 256 && sm.getCurrentScreen() instanceof ServerManagerScreen) {
+            sm.getCurrentScreen().close();
+            return true;
+        }
         boolean handled = sm.keyPressed(keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers());
         return handled || super.keyPressed(keyEvent);
     }
     //#else
     //$$ @Override
     //$$ public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    //$$     if (keyCode == 256 && sm.getCurrentScreen() instanceof ServerManagerScreen) {
+    //$$         sm.getCurrentScreen().close();
+    //$$         return true;
+    //$$     }
     //$$     boolean handled = sm.keyPressed(keyCode, scanCode, modifiers);
     //$$     return handled || super.keyPressed(keyCode, scanCode, modifiers);
     //$$ }
@@ -309,20 +317,12 @@ public class RematrixScreen extends Screen {
     @Override
     public boolean keyReleased(KeyEvent keyEvent) {
         boolean handled = sm.keyReleased(keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers());
-        if (keyEvent.key() == 256 && sm.getCurrentScreen() instanceof ServerManagerScreen) {
-            sm.getCurrentScreen().close();
-            return true;
-        }
         return handled || super.keyReleased(keyEvent);
     }
     //#else
     //$$ @Override
     //$$ public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
     //$$     boolean handled = sm.keyReleased(keyCode, scanCode, modifiers);
-    //$$     if (keyCode == 256 && sm.getCurrentScreen() instanceof ServerManagerScreen) {
-    //$$         sm.getCurrentScreen().close();
-    //$$         return true;
-    //$$     }
     //$$     return handled || super.keyReleased(keyCode, scanCode, modifiers);
     //$$ }
     //#endif
