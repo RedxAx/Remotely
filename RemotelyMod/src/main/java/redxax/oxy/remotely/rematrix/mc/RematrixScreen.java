@@ -23,6 +23,9 @@ import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
 import redxax.oxy.remotely.ui.server.ServerManagerScreen;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.ui.core.ScreenManager;
+//#if MC >= 26.2
+//$$ import org.lwjgl.glfw.GLFW;
+//#endif
 
 import java.lang.reflect.Field;
 
@@ -97,12 +100,26 @@ public class RematrixScreen extends Screen {
     //$$     RematrixContext ctx = new RematrixContext(guiGraphics, renderScale);
     //$$     MinecraftDrawContextAdapter libCtx = new MinecraftDrawContextAdapter(ctx);
     //$$
+        //#if MC >= 26.2
+        //$$     long previousContext = GLFW.glfwGetCurrentContext();
+        //$$     long windowHandle = Minecraft.getInstance().getWindow().handle();
+        //$$     if (previousContext != windowHandle) {
+        //$$         GLFW.glfwMakeContextCurrent(windowHandle);
+        //$$     }
+        //#endif
+        //$$
     //$$     var pose = guiGraphics.pose();
     //$$     pose.pushMatrix();
     //$$     pose.scale(renderScale, renderScale);
     //$$     sm.render(libCtx, (int) (mouseX * mouseScale), (int) (mouseY * mouseScale), deltaSeconds);
     //$$     sm.processTasks();
     //$$     pose.popMatrix();
+        //$$
+        //#if MC >= 26.2
+        //$$     if (previousContext != windowHandle) {
+        //$$         GLFW.glfwMakeContextCurrent(previousContext);
+        //$$     }
+        //#endif
     //$$ }
     //#endif
 
@@ -349,6 +366,20 @@ public class RematrixScreen extends Screen {
 
     public static boolean toggleScreen() {
         Minecraft mc = Minecraft.getInstance();
+        //#if MC >= 26.2
+        //$$ if (mc.gui.screen() instanceof RematrixScreen wrapper) {
+        //$$     ScreenManager sm = ScreenManager.getInstance();
+        //$$     var target = Config.desktopMode ? sm.getDesktopSuperScreen() : sm.getCurrentScreen();
+        //$$     if (target == null) target = sm.getCurrentScreen();
+        //$$     suspendedScreen = target != null ? target : wrapper.getScreen();
+        //$$     skipCloseCleanup = true;
+        //$$     mc.gui.setScreen(null);
+        //$$     return true;
+        //$$ }
+        //$$ if (suspendedScreen == null) return false;
+        //$$ mc.gui.setScreen(new RematrixScreen(suspendedScreen));
+        //$$ return true;
+        //#else
         if (mc.screen instanceof RematrixScreen wrapper) {
             ScreenManager sm = ScreenManager.getInstance();
             var target = Config.desktopMode ? sm.getDesktopSuperScreen() : sm.getCurrentScreen();
@@ -361,6 +392,7 @@ public class RematrixScreen extends Screen {
         if (suspendedScreen == null) return false;
         mc.setScreen(new RematrixScreen(suspendedScreen));
         return true;
+        //#endif
     }
 
     private double getInputScale() {

@@ -23,6 +23,7 @@ toolkitMultiversion {
 }
 
 val isDropFabric = mcData.isFabric && mcData.version.isDrop
+val isFabricApiRuntimeIncompatible = mcData.isFabric && mcData.version.toString() == "26.2-snapshot-1"
 val fabricApiVersionOverride = (findProperty("dgt.fabric.api.version") as String?)
     ?: (findProperty("fabric.api.version") as String?)
 val fabricLoaderVersion = (findProperty("dgt.fabric.loader.version") as String?)
@@ -118,7 +119,9 @@ dependencies {
             add("modImplementation", "net.legacyfabric.legacy-fabric-api:legacy-fabric-api:${mcData.dependencies.legacyFabric.legacyFabricApiVersion}")
         } else {
             val fabricApiDependency = "net.fabricmc.fabric-api:fabric-api:$fabricApiVersion"
-            if (mcData.version.isDrop) {
+            if (isFabricApiRuntimeIncompatible) {
+                logger.lifecycle("Skipping FabricApi For ${mcData.version} Due To Runtime Incompatibility")
+            } else if (mcData.version.isDrop) {
                 implementation(fabricApiDependency)
             } else {
                 add("modImplementation", fabricApiDependency)
@@ -224,6 +227,7 @@ publisher {
         displayName.set("Remotely ${modData.version} (${if (mcData.isFabric) "Fabric" else "NeoForge"} ${mcData.version})")
 
         val publishGameVersions = mapOf(
+            "26.2-snapshot-1" to listOf("26.2", "26.1.1", "26w14a"),
             "26.1-pre-1" to listOf("26.1", "26.1.1", "26w14a"),
             "1.21.11" to listOf("1.21.11"),
             "1.21.10" to listOf("1.21.10", "1.21.9"),
