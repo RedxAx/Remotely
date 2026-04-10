@@ -279,6 +279,7 @@ public class ServerConfigurationScreen extends ReScreen {
             }
             settingsByTab.put("Backups", backupController::getSettings);
             cleanupActions.add(backupController::cleanup);
+
         }
 
         if (isEditMode && isReStudioBackend) {
