@@ -110,6 +110,7 @@ listOf(
 
     "1.21.11-fabric",
 
+    "26.2-snapshot-1-fabric",
     "26.1-pre-1-fabric",
 ).forEach { version ->
     include(":$version")

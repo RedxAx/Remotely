@@ -37,6 +37,27 @@ public class MinecraftApplicationHost implements ApplicationHost {
 
     @Override
     public void setScreen(Screen screen) {
+        //#if MC >= 26.2
+        //$$ if (screen == null) {
+        //$$     mc.gui.setScreen(null);
+        //$$     return;
+        //$$ }
+        //$$ if (Config.desktopMode) {
+        //$$     ScreenManager sm = ScreenManager.getInstance();
+        //$$     long handle = Minecraft.getInstance().getWindow().handle();
+        //$$     sm.setWindowHandle(handle);
+        //$$     try {
+        //$$         Field f = restudio.rescreen.Main.class.getDeclaredField("window");
+        //$$         f.setAccessible(true);
+        //$$         f.setLong(null, handle);
+        //$$     } catch (Throwable ignored) {}
+        //$$     if (mc.gui.screen() instanceof ReScreenWrapper) {
+        //$$         sm.setScreen(screen);
+        //$$         return;
+        //$$     }
+        //$$ }
+        //$$ mc.gui.setScreen(new ReScreenWrapper(screen));
+        //#else
         if (screen == null) {
             mc.setScreen(null);
             return;
@@ -56,14 +77,22 @@ public class MinecraftApplicationHost implements ApplicationHost {
             }
         }
         mc.setScreen(new ReScreenWrapper(screen));
+        //#endif
     }
 
     @Override
     public Screen getCurrentScreen() {
+        //#if MC >= 26.2
+        //$$ if (mc.gui.screen() instanceof ReScreenWrapper wrapper) {
+        //$$     return wrapper.getScreen();
+        //$$ }
+        //$$ return null;
+        //#else
         if (mc.screen instanceof ReScreenWrapper wrapper) {
             return wrapper.getScreen();
         }
         return null;
+        //#endif
     }
 
     @Override
@@ -95,6 +124,15 @@ public class MinecraftApplicationHost implements ApplicationHost {
 
     @Override
     public void openParentScreen(Screen currentScreen, Object parent) {
+        //#if MC >= 26.2
+        //$$ if (parent instanceof net.minecraft.client.gui.screens.Screen) {
+        //$$     mc.gui.setScreen((net.minecraft.client.gui.screens.Screen) parent);
+        //$$ } else if (parent instanceof Screen) {
+        //$$     setScreen((Screen) parent);
+        //$$ } else {
+        //$$     setScreen(null);
+        //$$ }
+        //#else
         if (parent instanceof net.minecraft.client.gui.screens.Screen) {
             mc.setScreen((net.minecraft.client.gui.screens.Screen) parent);
         } else if (parent instanceof Screen) {
@@ -102,6 +140,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
         } else {
             setScreen(null);
         }
+        //#endif
     }
 
     @Override
