@@ -43,9 +43,15 @@ public class KeyboardMixin {
             return;
         }
         if (client.hasControlDown() && keyEvent.key() == GLFW.GLFW_KEY_B) {
+            //#if MC >= 26.2
+            //$$ if (client.gui.screen() == null) return;
+            //$$ client.gui.screen().keyPressed(keyEvent);
+            //$$ ci.cancel();
+            //#else
             if (client.screen == null) return;
             client.screen.keyPressed(keyEvent);
             ci.cancel();
+            //#endif
         }
     }
     //#else
