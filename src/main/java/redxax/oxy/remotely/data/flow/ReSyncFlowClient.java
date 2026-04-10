@@ -53,6 +53,8 @@ public class ReSyncFlowClient {
 
     private final String serverId;
     private final ReStudioApiClient apiClient;
+    private final String directWsUrl;
+    private final String directApiKey;
     private final AtomicReference<WebSocketClient> wsClient = new AtomicReference<>();
     private final AtomicBoolean authenticated = new AtomicBoolean(false);
     private final AtomicBoolean connecting = new AtomicBoolean(false);
@@ -85,15 +87,23 @@ public class ReSyncFlowClient {
     });
     private ScheduledFuture<?> heartbeatTask;
     private ScheduledFuture<?> reconnectTask;
+    private ScheduledFuture<?> connectTimeoutTask;
     private static final int HEARTBEAT_INTERVAL_SECONDS = 20;
     private static final int RECONNECT_DELAY_SECONDS = 3;
+    private static final int CONNECT_TIMEOUT_SECONDS = 10;
     private volatile boolean shutdownRequested = false;
     private final AtomicInteger placeholderRequestCounter = new AtomicInteger(1);
     private final Map<Integer, Consumer<String>> placeholderPreviewCallbacks = new ConcurrentHashMap<>();
 
     public ReSyncFlowClient(String serverId, ReStudioApiClient apiClient) {
+        this(serverId, apiClient, null, null);
+    }
+
+    public ReSyncFlowClient(String serverId, ReStudioApiClient apiClient, String directWsUrl, String directApiKey) {
         this.serverId = serverId;
         this.apiClient = apiClient;
+        this.directWsUrl = directWsUrl;
+        this.directApiKey = directApiKey;
         loadCachedRegistry();
     }
 
@@ -107,7 +117,24 @@ public class ReSyncFlowClient {
         }
         connecting.set(true);
         nodeRegistrySynced = false;
+        scheduleConnectTimeout();
         System.out.println("[ReSyncFlow] Attempting to connect to serverId=" + serverId);
+
+        if (directWsUrl != null && !directWsUrl.isBlank()) {
+            this.apiKey = directApiKey;
+            if (this.apiKey == null || this.apiKey.isBlank()) {
+                System.err.println("[ReSyncFlow] Direct ReSync apiKey is empty or null");
+                connecting.set(false);
+                cancelConnectTimeout();
+                if (errorListener != null) {
+                    errorListener.onError(null, "ReSyncApiKeyMissing");
+                }
+                return CompletableFuture.completedFuture(null);
+            }
+            System.out.println("[ReSyncFlow] Connecting with direct endpoint: " + directWsUrl);
+            initWebSocketConnection(directWsUrl);
+            return CompletableFuture.completedFuture(null);
+        }
 
         return apiClient.getReSyncConfig(serverId).thenCompose(config -> {
             if (config != null && config.port > 0) {
@@ -133,24 +160,27 @@ public class ReSyncFlowClient {
                         } else {
                             System.err.println("[ReSyncFlow] API key is empty or null");
                             connecting.set(false);
+                            cancelConnectTimeout();
                             if (errorListener != null) {
-                                errorListener.onError(null, "ReSync API key not available");
+                                errorListener.onError(null, "ReSyncApiKeyMissing");
                             }
                         }
                     });
                 } else {
                     System.err.println("[ReSyncFlow] Server not found in server list");
                     connecting.set(false);
+                    cancelConnectTimeout();
                     if (errorListener != null) {
-                        errorListener.onError(null, "Server not found");
+                        errorListener.onError(null, "ReSyncServerNotFound");
                     }
                     return CompletableFuture.completedFuture(null);
                 }
             } else {
                 System.err.println("[ReSyncFlow] No ReSync config found - ReSync is not enabled on this server");
                 connecting.set(false);
+                cancelConnectTimeout();
                 if (errorListener != null) {
-                    errorListener.onError(null, "ReSync is not enabled on this server");
+                    errorListener.onError(null, "ReSyncNotEnabled");
                 }
                 return CompletableFuture.completedFuture(null);
             }
@@ -158,8 +188,9 @@ public class ReSyncFlowClient {
             System.err.println("[ReSyncFlow] Error connecting to ReSync: " + e.getMessage());
             e.printStackTrace();
             connecting.set(false);
+            cancelConnectTimeout();
             if (errorListener != null) {
-                errorListener.onError(null, "Failed to connect to ReSync: " + e.getMessage());
+                errorListener.onError(null, "ReSyncConnectFailed: " + e.getMessage());
             }
             return null;
         });
@@ -192,6 +223,7 @@ public class ReSyncFlowClient {
                 public void onClose(int code, String reason, boolean remote) {
                     authenticated.set(false);
                     connecting.set(false);
+                    cancelConnectTimeout();
                     nodeRegistrySynced = false;
                     cancelNodeRegistryTimeout();
                     stopHeartbeat();
@@ -204,6 +236,7 @@ public class ReSyncFlowClient {
                     System.err.println("[ReSyncFlow] WebSocket error: " + ex.getMessage());
                     ex.printStackTrace();
                     connecting.set(false);
+                    cancelConnectTimeout();
                     scheduleReconnect();
                 }
             };
@@ -212,6 +245,7 @@ public class ReSyncFlowClient {
         } catch (Exception e) {
             e.printStackTrace();
             connecting.set(false);
+            cancelConnectTimeout();
         }
     }
 
@@ -338,10 +372,35 @@ public class ReSyncFlowClient {
 
         authenticated.set(true);
         connecting.set(false);
+        cancelConnectTimeout();
         System.out.println("[ReSyncFlow] Handshake complete, client authenticated");
         startHeartbeat();
         requestNodeRegistry();
         flushPendingSends();
+    }
+
+    private void scheduleConnectTimeout() {
+        cancelConnectTimeout();
+        connectTimeoutTask = heartbeatScheduler.schedule(() -> {
+            if (authenticated.get() || shutdownRequested) {
+                return;
+            }
+            connecting.set(false);
+            WebSocketClient client = wsClient.get();
+            if (client != null && !client.isOpen()) {
+                client.close();
+            }
+            if (errorListener != null) {
+                errorListener.onError(null, "ReSync Connection Timed Out");
+            }
+        }, CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    private void cancelConnectTimeout() {
+        if (connectTimeoutTask != null) {
+            connectTimeoutTask.cancel(false);
+            connectTimeoutTask = null;
+        }
     }
 
     private void handleDataMessage(short channel, byte[] payload, boolean compressed) {
@@ -1371,8 +1430,13 @@ public class ReSyncFlowClient {
         connecting.set(false);
         placeholderPreviewCallbacks.clear();
         cancelNodeRegistryTimeout();
+        cancelConnectTimeout();
         nodeRegistryScheduler.shutdownNow();
         heartbeatScheduler.shutdownNow();
+    }
+
+    public boolean isConnectedState() {
+        return isConnected();
     }
 
     private boolean isConnected() {

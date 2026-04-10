@@ -935,7 +935,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 final ServerModels.ClientServerView serverView;
 
                 if (rh != null) {
-                    serverId = rh.hostId;
+                    serverId = inst.getInstanceId();
                     serverView = null;
                 } else if (inst.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(inst.getBackendConfig().type)) {
                     serverId = inst.getBackendConfig().credentials.get("identifier");
@@ -945,9 +945,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     serverView = null;
                 }
 
-                if (isRestudio) {
-                    builder.addHeaderButton("ReSync.png", () -> openFlowManagerForServer(serverId, serverView), "Flow Manager");
-                }
+                String flowLoaderHint = resolveFlowLoaderHint(inst, serverView);
+                builder.addHeaderButton("ReSync.png", () -> openFlowManagerForServer(serverId, serverView, flowLoaderHint), "Flow Manager");
                 if (!isRestudio) {
                     builder.addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server").addHeaderButton("delete.png", () -> {
                         instanceForDeletion = widget.getInstance();
@@ -1711,21 +1710,30 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         }
     }
 
-    public void openFlowManagerForServer(String serverId, ServerModels.ClientServerView server) {
+    public void openFlowManagerForServer(String serverId, ServerModels.ClientServerView server, String loaderHint) {
         FlowManager flowManager = remotelyClient.getFlowManager();
-        if (flowManager != null) {
-            if (server == null) {
-                new Notification.Builder().message("Flow Manager only works with ReStudio servers").type(Notification.Type.WARN).build();
-                return;
-            }
-            if (server.identifier == null) {
-                new Notification.Builder().message("Server identifier not found - ReSync may not be properly configured").type(Notification.Type.ERROR).build();
-                return;
-            }
-            flowManager.openFlowManager(server.identifier, server);
-        } else {
+        if (flowManager == null) {
             new Notification.Builder().message("Flow Manager not available").type(Notification.Type.WARN).build();
+            return;
         }
+        flowManager.openFlowManager(serverId, server, loaderHint);
+    }
+
+    private String resolveFlowLoaderHint(Instance instance, ServerModels.ClientServerView serverView) {
+        if (serverView != null && serverView.loader != null && !serverView.loader.isBlank()) {
+            return serverView.loader;
+        }
+        if (instance != null && instance.getModLoader() != null) {
+            return instance.getModLoader().name();
+        }
+        return "";
+    }
+
+    private String flowAvailabilityMessage(String issue) {
+        if (remotelyClient == null || remotelyClient.getFlowManager() == null) {
+            return "ReSync Isn't Installed/Enabled";
+        }
+        return remotelyClient.getFlowManager().normalizeReSyncNotificationMessage(issue);
     }
 
     public void openGuiDesignerForServer(String serverId, ServerModels.ClientServerView server) {
