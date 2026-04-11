@@ -28,10 +28,7 @@ import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
 import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
-import restudio.rebase.Rebase;
-import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.instance.Instance;
-import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.restudio.api.ReStudioApiClient;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rebase.ui.worldmap.WorldMapScreen;
@@ -961,31 +958,7 @@ public class FlowManager {
     }
 
     private Instance resolveInstance(String serverId, ClientServerView server) {
-        try {
-            InstanceManager instanceManager = Rebase.get().getInstanceManager();
-            List<Instance> instances = new ArrayList<>(instanceManager.getLocalInstances());
-            for (var host : instanceManager.getRemoteHosts()) {
-                instances.addAll(instanceManager.getRemoteInstances(host));
-            }
-            for (Instance instance : instances) {
-                BackendConfig backendConfig = instance.getBackendConfig();
-                if (backendConfig != null && backendConfig.credentials != null) {
-                    String identifier = backendConfig.credentials.get("identifier");
-                    if (identifier != null && identifier.equals(serverId)) {
-                        return instance;
-                    }
-                }
-            }
-            if (server != null && server.name != null) {
-                for (Instance instance : instances) {
-                    if (server.name.equalsIgnoreCase(instance.getName())) {
-                        return instance;
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
+        return connectionManager.findInstanceByServerId(serverId, server);
     }
 
     private String getOrCreateDefaultFlowId(String serverId) {

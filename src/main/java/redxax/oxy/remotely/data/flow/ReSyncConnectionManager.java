@@ -119,7 +119,7 @@ public class ReSyncConnectionManager {
         if (server != null) {
             return null;
         }
-        Instance instance = findInstanceByServerId(serverId);
+        Instance instance = findInstanceByServerId(serverId, null);
         if (instance == null || instance.getBackendConfig() == null || instance.getBackendConfig().credentials == null) {
             return tryReadReSyncConfigFromBackend(instance);
         }
@@ -160,7 +160,7 @@ public class ReSyncConnectionManager {
         if (server != null) {
             return null;
         }
-        Instance instance = findInstanceByServerId(actualServerId);
+        Instance instance = findInstanceByServerId(actualServerId, null);
         if (instance == null) {
             return "ServerNotFound";
         }
@@ -223,7 +223,44 @@ public class ReSyncConnectionManager {
     }
 
     public Instance getInstanceByServerId(String serverId) {
-        return findInstanceByServerId(serverId);
+        return findInstanceByServerId(serverId, null);
+    }
+
+    public Instance findInstanceByServerId(String serverId, ClientServerView server) {
+        if (serverId == null || serverId.isBlank()) {
+            return null;
+        }
+        try {
+            InstanceManager instanceManager = Rebase.get().getInstanceManager();
+            List<Instance> instances = new ArrayList<>(instanceManager.getLocalInstances());
+            for (var host : instanceManager.getRemoteHosts()) {
+                instances.addAll(instanceManager.getRemoteInstances(host));
+            }
+            for (Instance instance : instances) {
+                if (instance == null) {
+                    continue;
+                }
+                if (serverId.equalsIgnoreCase(instance.getInstanceId())) {
+                    return instance;
+                }
+                BackendConfig backendConfig = instance.getBackendConfig();
+                if (backendConfig != null && backendConfig.credentials != null) {
+                    String identifier = backendConfig.credentials.get("identifier");
+                    if (identifier != null && identifier.equals(serverId)) {
+                        return instance;
+                    }
+                }
+            }
+            if (server != null && server.name != null) {
+                for (Instance instance : instances) {
+                    if (instance != null && server.name.equalsIgnoreCase(instance.getName())) {
+                        return instance;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     public RemotelyClient getClient() {
@@ -331,10 +368,22 @@ public class ReSyncConnectionManager {
     }
 
     public String normalizeReSyncNotificationMessage(String message) {
-        if (message != null && message.toLowerCase(Locale.ROOT).contains("timed out")) {
+        if (message == null || message.isBlank()) {
+            return "ReSync Isn't Installed/Enabled";
+        }
+        if (message.toLowerCase(Locale.ROOT).contains("timed out")) {
             return "ReSync Connection Timed Out";
         }
-        return "ReSync Isn't Installed/Enabled";
+        return switch (message) {
+            case "ServerIdMissing" -> "Server ID Missing";
+            case "ServerNotFound" -> "Server Not Found";
+            case "ReSyncNotConfigured" -> "ReSync Not Configured";
+            case "ReSyncPortMissing" -> "ReSync Port Missing";
+            case "ReSyncApiKeyMissing" -> "ReSync API Key Missing";
+            case "ReSyncNotEnabled" -> "ReSync Isn't Installed/Enabled";
+            case "ReSyncServerNotFound" -> "ReSync Server Not Found";
+            default -> message;
+        };
     }
 
     private String safeText(String value) {
