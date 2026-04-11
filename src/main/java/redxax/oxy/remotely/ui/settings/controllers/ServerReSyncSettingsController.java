@@ -13,7 +13,7 @@ public class ServerReSyncSettingsController {
     private static final String RESYNC_ENABLED_KEY = "resyncEnabled";
     private static final String RESYNC_API_KEY_KEY = "resyncApiKey";
     private static final String RESYNC_PORT_KEY = "resyncPort";
-    private static final String DEFAULT_RESYNC_PORT = "8080";
+    private static final String DEFAULT_RESYNC_PORT = "12441";
     private final Instance instance;
     private final boolean reStudioBackend;
     private final String serverIdentifier;
@@ -52,7 +52,7 @@ public class ServerReSyncSettingsController {
         setting.addOption(enabled);
 
         setting.addOption(ConfigOption.<String>builder("ReSync Port")
-            .description("Server ReSync WebSocket port. Enable ReSync sets port 8080 by default")
+            .description("Server ReSync WebSocket port. Default is 12441")
             .bind(() -> safeText(credentials.get(RESYNC_PORT_KEY)), value -> {
                 String normalized = safeText(value).trim();
                 if (normalized.isBlank()) {

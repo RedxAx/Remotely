@@ -22,6 +22,7 @@ import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.backend.ServerBackend;
 import restudio.rebase.backend.feature.NetworkTransferFeature;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.instance.InstanceState;
 import restudio.rebase.resource.InstanceResource;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rebase.ui.widgets.ViewSwitcherWidget;
@@ -73,6 +74,8 @@ public class FlowManagerScreen extends ReScreen {
         LOADING,
         NOT_SUPPORTED,
         SETUP,
+        WELCOME,
+        SERVER_STOPPED,
         READY
     }
 
@@ -104,6 +107,7 @@ public class FlowManagerScreen extends ReScreen {
     private StartupState startupState = StartupState.LOADING;
     private IconMessage startupIcon;
     private IconButton setupReSyncButton;
+    private IconButton welcomeServerButton;
     private boolean contentBuilt;
     private boolean startupProbeRunning;
     private boolean setupRunning;
@@ -169,7 +173,7 @@ public class FlowManagerScreen extends ReScreen {
             enterReadyState();
             return;
         }
-        if (startupState == StartupState.LOADING && !startupProbeRunning) {
+        if ((startupState == StartupState.LOADING || startupState == StartupState.SERVER_STOPPED || startupState == StartupState.WELCOME) && !startupProbeRunning) {
             beginStartupProbe(false);
         }
     }
@@ -201,6 +205,18 @@ public class FlowManagerScreen extends ReScreen {
             setupReSyncButton.setVisible(false);
             addDrawableChild(setupReSyncButton);
         }
+        if (welcomeServerButton == null) {
+            welcomeServerButton = new IconButton.Builder()
+                .label("Open Server")
+                .imagePath("server.png")
+                .accentType(ThemeManager.getAccent("nice"))
+                .size(180, 20)
+                .autoWidthOnTextChange(true)
+                .onClick(this::openServerScreen)
+                .build();
+            welcomeServerButton.setVisible(false);
+            addDrawableChild(welcomeServerButton);
+        }
         updateStartupWidgets();
     }
 
@@ -212,11 +228,15 @@ public class FlowManagerScreen extends ReScreen {
             startupIcon.setPosition(0, iconY);
             startupIcon.setSize(width, startupIcon.getHeight());
         }
+        int btnY = startupIcon != null
+            ? startupIcon.getY() + startupIcon.getHeight() + 10
+            : Math.max(100, (height / 2) + 70);
         if (setupReSyncButton != null) {
-            int btnY = startupIcon != null
-                ? startupIcon.getY() + startupIcon.getHeight() + 10
-                : Math.max(100, (height / 2) + 70);
             setupReSyncButton.setPosition((width - setupReSyncButton.getWidth()) / 2, btnY);
+        }
+        if (welcomeServerButton != null) {
+            int offset = setupReSyncButton != null && setupReSyncButton.isVisible() ? 28 : 0;
+            welcomeServerButton.setPosition((width - welcomeServerButton.getWidth()) / 2, btnY + offset);
         }
     }
 
@@ -231,11 +251,15 @@ public class FlowManagerScreen extends ReScreen {
         if (setupReSyncButton != null) {
             setupReSyncButton.setVisible(showSetupButton && !setupRunning);
         }
+        if (welcomeServerButton != null) {
+            welcomeServerButton.setVisible(state == StartupState.WELCOME);
+        }
+        updateStartupWidgets();
     }
 
     private void beginStartupProbe(boolean force) {
         if (flowManager == null) {
-            setStartupState(StartupState.NOT_SUPPORTED, "Not Supported\nReSync Is Missing", "searchFailed.png", false);
+            setStartupState(StartupState.NOT_SUPPORTED, "Not Supported\nReSync Is Missing", "stop.png", false);
             return;
         }
         long now = System.currentTimeMillis();
@@ -253,7 +277,9 @@ public class FlowManagerScreen extends ReScreen {
             enterReadyState();
             return;
         }
-        setStartupState(StartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
+        if (force || startupState == StartupState.LOADING) {
+            setStartupState(StartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
+        }
         CompletableFuture.runAsync(this::probeStartupStateAsync);
     }
 
@@ -271,9 +297,13 @@ public class FlowManagerScreen extends ReScreen {
                 enterReadyState();
                 return;
             }
+            if (startupState == StartupState.WELCOME && resolvedState != StartupState.READY) {
+                return;
+            }
             switch (resolvedState) {
                 case READY -> enterReadyState();
                 case NOT_SUPPORTED -> setStartupState(StartupState.NOT_SUPPORTED, "ReSync Is Not On This Server\nBukkit-Based Server Required", "close.png", false);
+                case SERVER_STOPPED -> setStartupState(StartupState.SERVER_STOPPED, "Server Is Offline\nStart The Server To Use ReSync", "stop.png", false);
                 case SETUP -> setStartupState(StartupState.SETUP, "Setup ReSync\nInstall And Configure", "ReSync.png", true);
                 default -> setStartupState(StartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
             }
@@ -292,8 +322,12 @@ public class FlowManagerScreen extends ReScreen {
             return StartupState.NOT_SUPPORTED;
         }
         Instance instance = flowManager.getInstanceByServerId(serverId);
+        boolean isRunning = instance != null && instance.getState() == InstanceState.RUNNING;
         if (instance != null && isReSyncResourcePresent(instance)) {
-            return StartupState.READY;
+            if (!isRunning) {
+                return StartupState.SERVER_STOPPED;
+            }
+            return StartupState.LOADING;
         }
         if (flowManager.isFlowClientConnected(serverId)) {
             return StartupState.READY;
@@ -391,6 +425,10 @@ public class FlowManagerScreen extends ReScreen {
             remove(setupReSyncButton);
             setupReSyncButton = null;
         }
+        if (welcomeServerButton != null) {
+            remove(welcomeServerButton);
+            welcomeServerButton = null;
+        }
         if (!contentBuilt) {
             buildMainContent();
         }
@@ -469,13 +507,16 @@ public class FlowManagerScreen extends ReScreen {
 
     private void setupReSyncAsync() {
         boolean success;
+        boolean needsRestart = false;
         try {
             if (flowManager != null && flowManager.isFlowClientConnected(serverId)) {
                 success = true;
             } else if (isReStudioTarget()) {
                 success = setupForReStudio();
+                needsRestart = true;
             } else {
                 success = setupForNonReStudio();
+                needsRestart = true;
             }
         } catch (Exception error) {
             success = false;
@@ -483,14 +524,49 @@ public class FlowManagerScreen extends ReScreen {
             ScreenManager.getInstance().execute(() -> new Notification("ReSync", reason, Notification.Type.ERROR));
         }
         boolean completed = success;
+        boolean shouldRestart = needsRestart;
         ScreenManager.getInstance().execute(() -> {
             setupRunning = false;
             if (completed) {
-                beginStartupProbe(true);
+                if (shouldRestart) {
+                    showWelcomeState();
+                    beginStartupProbe(true);
+                } else {
+                    beginStartupProbe(true);
+                }
                 return;
             }
             setStartupState(StartupState.SETUP, "Setup ReSync\nInstall And Configure", "ReSync.png", true);
         });
+    }
+
+    private void showWelcomeState() {
+        Instance instance = flowManager != null ? flowManager.getInstanceByServerId(serverId) : null;
+        boolean isRunning = instance != null && instance.getState() == InstanceState.RUNNING;
+        boolean isSSH = instance != null && instance.getBackendConfig() != null && "SSH".equalsIgnoreCase(instance.getBackendConfig().type);
+        StringBuilder message = new StringBuilder();
+        message.append("ReSync Installed!");
+        if (isRunning) {
+            message.append("\nRestart Your Server To Activate");
+        } else {
+            message.append("\nStart Your Server To Activate");
+        }
+        if (isSSH) {
+            message.append("\nOpen Port ").append(RESYNC_PORT).append(" On Your Host");
+        }
+        setStartupState(StartupState.WELCOME, message.toString(), "ReSync.png", false);
+        if (!isRunning) {
+            new Notification("ReSync", "Installed! Start Server To Activate", Notification.Type.SUCCESS);
+        } else {
+            new Notification("ReSync", "Installed! Restart Server To Activate", Notification.Type.SUCCESS);
+        }
+    }
+
+    private void openServerScreen() {
+        if (flowManager == null) return;
+        Instance instance = flowManager.getInstanceByServerId(serverId);
+        if (instance == null) return;
+        RemotelyClient.INSTANCE.openInstanceInTerminal(this, instance);
     }
 
     private boolean setupForReStudio() throws Exception {
@@ -546,9 +622,6 @@ public class FlowManagerScreen extends ReScreen {
             backendConfig.credentials.put("resyncPort", String.valueOf(RESYNC_PORT));
             backendConfig.credentials.put("resyncApiKey", apiKey);
             instance.save();
-            if ("SSH".equalsIgnoreCase(backendConfig.type)) {
-                ScreenManager.getInstance().execute(() -> new Notification("ReSync", "Open Port 12441 On Host", Notification.Type.WARN));
-            }
         }
         return true;
     }
@@ -3394,7 +3467,7 @@ public class FlowManagerScreen extends ReScreen {
                 enterReadyState();
                 return;
             }
-            if (startupState == StartupState.LOADING) {
+            if (startupState == StartupState.LOADING || startupState == StartupState.SERVER_STOPPED || startupState == StartupState.WELCOME) {
                 beginStartupProbe(false);
             }
             return;
