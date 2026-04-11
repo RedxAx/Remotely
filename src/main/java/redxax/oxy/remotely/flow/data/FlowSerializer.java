@@ -16,6 +16,10 @@ public class FlowSerializer {
         return gson.fromJson(json, FlowGraph.class);
     }
 
+    public static FlowGraph deserializeFlow(String json) {
+        return gson.fromJson(json, FlowGraph.class);
+    }
+
     public static String serializeGui(GuiDefinition gui) {
         return gson.toJson(gui);
     }
