@@ -242,14 +242,8 @@ public class NodeWidget extends AnimatedWidget {
             int pinY = rowY + (ROW_HEIGHT - PIN_BUTTON_SIZE) / 2;
             int pinX = getX() + PADDING;
             drawPinButton(ctx, pinX, pinY, getPinColor(input.getDataType()));
-
             int textY = rowY + (ROW_HEIGHT - ITextRenderer.fontHeight) / 2 + 1;
             ctx.drawText(input.getName(), pinX + PIN_BUTTON_SIZE + PIN_TEXT_GAP, textY, labelText, shadow);
-
-            Widget inputWidget = inputWidgets.get(input.getName());
-            if (inputWidget != null) {
-                inputWidget.render(ctx, mouseX, mouseY, 0);
-            }
         }
 
         for (int i = 0; i < visibleOutputs.size(); i++) {
@@ -263,10 +257,24 @@ public class NodeWidget extends AnimatedWidget {
                 int labelWidth = tr.getWidth(output.getName());
                 int labelX = pinX - PIN_TEXT_GAP - labelWidth;
                 ctx.drawText(output.getName(), labelX, textY, labelText, shadow);
-            } else {
-                branchWidget.render(ctx, mouseX, mouseY, 0);
             }
             drawPinButton(ctx, pinX, pinY, getPinColor(output.getDataType()));
+        }
+
+        for (int i = inputs.size() - 1; i >= 0; i--) {
+            NodeDefinition.PinDefinition input = inputs.get(i);
+            Widget inputWidget = inputWidgets.get(input.getName());
+            if (inputWidget != null) {
+                inputWidget.render(ctx, mouseX, mouseY, 0);
+            }
+        }
+
+        for (int i = visibleOutputs.size() - 1; i >= 0; i--) {
+            NodeDefinition.PinDefinition output = visibleOutputs.get(i);
+            DropDownWidget<String> branchWidget = getBranchWidget(output.getName());
+            if (branchWidget != null) {
+                branchWidget.render(ctx, mouseX, mouseY, 0);
+            }
         }
 
         if (addBranchButton != null && addBranchButton.visible) {
