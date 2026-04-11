@@ -46,28 +46,33 @@ public class PlayerActionsSettingsController {
     }
 
     private void loadActions() {
-        try {
-            String content = api.readFile(playerActionsPath).join();
-            if (content != null && !content.isEmpty()) {
-                List<PlayerAction> loaded = gson.fromJson(content, new TypeToken<List<PlayerAction>>(){}.getType());
-                this.loadedActions = loaded != null ? loaded : new ArrayList<>();
-            } else {
+        api.readFile(playerActionsPath).thenAccept(content -> {
+            try {
+                if (content != null && !content.isEmpty()) {
+                    List<PlayerAction> loaded = gson.fromJson(content, new TypeToken<List<PlayerAction>>(){}.getType());
+                    this.loadedActions = loaded != null ? loaded : new ArrayList<>();
+                } else {
+                    this.loadedActions = new ArrayList<>();
+                }
+            } catch (Exception e) {
                 this.loadedActions = new ArrayList<>();
             }
-        } catch (Exception e) {
+            refreshActions();
+        }).exceptionally(e -> {
             this.loadedActions = new ArrayList<>();
-        }
+            return null;
+        });
     }
 
     private void saveActions(List<PlayerAction> actions) {
-        try {
-            String json = new GsonBuilder().setPrettyPrinting().create().toJson(actions);
-            api.writeFile(playerActionsPath, json).join();
-            this.loadedActions = actions;
+        String json = new GsonBuilder().setPrettyPrinting().create().toJson(actions);
+        this.loadedActions = actions;
+        api.writeFile(playerActionsPath, json).thenRun(() -> {
             PlayerManagerController.getOrCreate(instance).refreshPlayerActions();
-        } catch (Exception e) {
-            new Notification("Error", "Failed to save actions: " + e.getMessage(), Notification.Type.ERROR);
-        }
+        }).exceptionally(e -> {
+            ScreenManager.getInstance().execute(() -> new Notification("Error", "Failed to save actions: " + e.getMessage(), Notification.Type.ERROR));
+            return null;
+        });
     }
 
     public List<Setting> getSettings() {
