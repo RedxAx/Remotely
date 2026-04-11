@@ -43,6 +43,7 @@ public class RemotelyClient {
     private final TerminalSessionManager sessionManager = new TerminalSessionManager();
     private FlowManager flowManager;
     private ServerManagerScreen desktopServerManagerScreen;
+    private final Map<String, ClientServerView> restudioServerViews = new java.util.concurrent.ConcurrentHashMap<>();
 
     public RemotelyClient(ApplicationHost host) {
         this.host = host;
@@ -239,8 +240,12 @@ public class RemotelyClient {
         }
         if (instance == null) return;
         String serverId;
-        if (instance.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type)) {
+        boolean isReStudio = instance.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type);
+        if (isReStudio) {
             serverId = instance.getBackendConfig().credentials.get("identifier");
+            if (serverView == null) {
+                serverView = restudioServerViews.get(instance.getName());
+            }
         } else {
             serverId = instance.getInstanceId();
         }
@@ -252,6 +257,11 @@ public class RemotelyClient {
             loaderHint = serverView.loader;
         }
         flowManager.openFlowManager(serverId, serverView, loaderHint);
+    }
+
+    public void cacheReStudioServerViews(Map<String, ClientServerView> views) {
+        restudioServerViews.clear();
+        restudioServerViews.putAll(views);
     }
 
 }
