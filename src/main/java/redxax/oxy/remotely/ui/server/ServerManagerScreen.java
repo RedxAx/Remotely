@@ -931,22 +931,9 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     builder.addHeaderButton("map.png", () -> openWorldScreen(widget.getInstance()), "View World Map");
                 }
 
-                final String serverId;
-                final ServerModels.ClientServerView serverView;
-
-                if (rh != null) {
-                    serverId = inst.getInstanceId();
-                    serverView = null;
-                } else if (inst.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(inst.getBackendConfig().type)) {
-                    serverId = inst.getBackendConfig().credentials.get("identifier");
-                    serverView = getReStudioServerView(inst.getName());
-                } else {
-                    serverId = inst.getInstanceId();
-                    serverView = null;
-                }
-
-                String flowLoaderHint = resolveFlowLoaderHint(inst, serverView);
-                builder.addHeaderButton("ReSync.png", () -> openFlowManagerForServer(serverId, serverView, flowLoaderHint), "Flow Manager");
+                final ServerModels.ClientServerView flowServerView = (inst.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(inst.getBackendConfig().type))
+                        ? restudioServerViews.get(inst.getName()) : null;
+                builder.addHeaderButton("ReSync.png", () -> remotelyClient.openFlowManager(this, inst, flowServerView), "Flow Manager");
                 if (!isRestudio) {
                     builder.addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server").addHeaderButton("delete.png", () -> {
                         instanceForDeletion = widget.getInstance();
@@ -970,10 +957,6 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         } else {
             new Notification("Duplication Failed", "Could not duplicate server.", Notification.Type.ERROR);
         }
-    }
-
-    private ServerModels.ClientServerView getReStudioServerView(String serverName) {
-        return restudioServerViews.get(serverName);
     }
 
     private void customizeIcon(Instance instance, RemoteHost remoteHost) {
@@ -1708,25 +1691,6 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 return;
             }
         }
-    }
-
-    public void openFlowManagerForServer(String serverId, ServerModels.ClientServerView server, String loaderHint) {
-        FlowManager flowManager = remotelyClient.getFlowManager();
-        if (flowManager == null) {
-            new Notification.Builder().message("Flow Manager not available").type(Notification.Type.WARN).build();
-            return;
-        }
-        flowManager.openFlowManager(serverId, server, loaderHint);
-    }
-
-    private String resolveFlowLoaderHint(Instance instance, ServerModels.ClientServerView serverView) {
-        if (serverView != null && serverView.loader != null && !serverView.loader.isBlank()) {
-            return serverView.loader;
-        }
-        if (instance != null && instance.getModLoader() != null) {
-            return instance.getModLoader().name();
-        }
-        return "";
     }
 
     private String flowAvailabilityMessage(String issue) {
