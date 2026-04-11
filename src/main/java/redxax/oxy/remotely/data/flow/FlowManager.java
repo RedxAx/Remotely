@@ -31,6 +31,7 @@ import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.restudio.api.ReStudioApiClient;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
+import restudio.rebase.restudio.api.models.ServerModels.PteroFileObjectAttributes;
 import restudio.rebase.ui.worldmap.WorldMapScreen;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.ui.core.Screen;
@@ -40,8 +41,10 @@ import restudio.rescreen.util.Notification;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -118,6 +121,34 @@ public class FlowManager {
 
     public Instance getInstanceByServerId(String serverId) {
         return connectionManager.getInstanceByServerId(serverId);
+    }
+
+    public Instance findInstanceByServerId(String serverId, ClientServerView server) {
+        return connectionManager.findInstanceByServerId(serverId, server);
+    }
+
+    public ReStudioApiClient getApiClient() {
+        return connectionManager.getApiClient();
+    }
+
+    public CompletableFuture<Boolean> isReSyncPluginInstalled(String serverId) {
+        if (connectionManager.getApiClient() == null) {
+            return CompletableFuture.completedFuture(false);
+        }
+        return connectionManager.getApiClient().listFiles(serverId, "/plugins")
+                .thenApply(files -> {
+                    if (files == null) return false;
+                    for (PteroFileObjectAttributes file : files) {
+                        if (file != null && file.isFile && file.name != null) {
+                            String lower = file.name.toLowerCase(Locale.ROOT);
+                            if (lower.startsWith("resync") && lower.endsWith(".jar")) {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                })
+                .exceptionally(ex -> false);
     }
 
     public String normalizeReSyncNotificationMessage(String message) {
