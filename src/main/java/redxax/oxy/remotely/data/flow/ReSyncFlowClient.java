@@ -5,7 +5,6 @@ import org.java_websocket.handshake.ServerHandshake;
 import redxax.oxy.remotely.RemotelyClient;
 import com.google.gson.Gson;
 import redxax.oxy.remotely.flow.data.FlowGraph;
-import redxax.oxy.remotely.flow.data.FlowSerializer;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
@@ -55,6 +54,7 @@ public class ReSyncFlowClient {
     private final ReStudioApiClient apiClient;
     private final String directWsUrl;
     private final String directApiKey;
+    private final RemotelyClient client;
     private final AtomicReference<WebSocketClient> wsClient = new AtomicReference<>();
     private final AtomicBoolean authenticated = new AtomicBoolean(false);
     private final AtomicBoolean connecting = new AtomicBoolean(false);
@@ -70,10 +70,7 @@ public class ReSyncFlowClient {
     private ErrorListener errorListener;
     private final Gson gson = new Gson();
     private final Queue<Runnable> pendingSends = new ConcurrentLinkedQueue<>();
-    private final Set<String> pendingOpenFlows = ConcurrentHashMap.newKeySet();
-    private final Set<String> pendingOpenGuis = ConcurrentHashMap.newKeySet();
-    private final Set<String> pendingOpenScoreboards = ConcurrentHashMap.newKeySet();
-    private final Set<String> pendingOpenTabs = ConcurrentHashMap.newKeySet();
+    private final Map<ReSyncResourceType, Set<String>> pendingOpenResources = new ConcurrentHashMap<>();
     private final NodeRegistryCache nodeRegistryCache = NodeRegistryCache.getInstance();
     private final ScheduledExecutorService nodeRegistryScheduler = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> nodeRegistryTimeout;
@@ -95,15 +92,19 @@ public class ReSyncFlowClient {
     private final AtomicInteger placeholderRequestCounter = new AtomicInteger(1);
     private final Map<Integer, Consumer<String>> placeholderPreviewCallbacks = new ConcurrentHashMap<>();
 
-    public ReSyncFlowClient(String serverId, ReStudioApiClient apiClient) {
-        this(serverId, apiClient, null, null);
+    public ReSyncFlowClient(String serverId, ReStudioApiClient apiClient, RemotelyClient client) {
+        this(serverId, apiClient, null, null, client);
     }
 
-    public ReSyncFlowClient(String serverId, ReStudioApiClient apiClient, String directWsUrl, String directApiKey) {
+    public ReSyncFlowClient(String serverId, ReStudioApiClient apiClient, String directWsUrl, String directApiKey, RemotelyClient client) {
         this.serverId = serverId;
         this.apiClient = apiClient;
         this.directWsUrl = directWsUrl;
         this.directApiKey = directApiKey;
+        this.client = client;
+        for (ReSyncResourceType type : ReSyncResourceType.values()) {
+            pendingOpenResources.put(type, ConcurrentHashMap.newKeySet());
+        }
         loadCachedRegistry();
     }
 
@@ -502,8 +503,8 @@ public class ReSyncFlowClient {
             if (update == null) {
                 return;
             }
-            if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-                RemotelyClient.INSTANCE.getFlowManager().applyPlayerTrackingUpdate(serverId, update);
+            if (client != null && client.getFlowManager() != null) {
+                client.getFlowManager().applyPlayerTrackingUpdate(serverId, update);
             }
         } catch (Exception e) {
             System.err.println("[ReSyncFlow] Failed to parse player tracking update: " + e.getMessage());
@@ -517,109 +518,99 @@ public class ReSyncFlowClient {
             if (message == null) {
                 return;
             }
-            if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-                RemotelyClient.INSTANCE.getFlowManager().applyWorldManagementMessage(serverId, message);
+            if (client != null && client.getFlowManager() != null) {
+                client.getFlowManager().applyWorldManagementMessage(serverId, message);
             }
         } catch (Exception e) {
             System.err.println("[ReSyncFlow] Failed to parse world management update: " + e.getMessage());
         }
     }
 
-    private void handleFlowData(ByteBuffer buffer) {
+    private void handleResourceData(ReSyncResourceType type, ByteBuffer buffer) {
         byte[] jsonBytes = new byte[buffer.remaining()];
         buffer.get(jsonBytes);
         String json = new String(jsonBytes, StandardCharsets.UTF_8);
-        System.out.println("[ReSyncFlow] Received flow data: " + json.substring(0, Math.min(100, json.length())) + (json.length() > 100 ? "..." : ""));
-
-        FlowGraph graph = FlowSerializer.deserialize(json);
-
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-            RemotelyClient.INSTANCE.getFlowManager().cacheFlow(serverId, graph);
+        if (type == ReSyncResourceType.FLOW) {
+            System.out.println("[ReSyncFlow] Received flow data: " + json.substring(0, Math.min(100, json.length())) + (json.length() > 100 ? "..." : ""));
         }
-
-        if (graph != null) {
-            String flowId = graph.getId() != null ? graph.getId().toString() : null;
-            if (flowId != null && pendingOpenFlows.remove(flowId)) {
+        Object item = type.deserialize(json);
+        FlowManager fm = client != null ? client.getFlowManager() : null;
+        if (fm != null) {
+            try {
+                cacheResource(fm, type, item);
+                handleResourceDataReceived(fm, type, item);
+            } catch (NoSuchMethodError ignored) {
+            }
+        }
+        if (item != null) {
+            String itemId = type.extractId(item);
+            if (itemId != null && pendingOpenResources.get(type).remove(itemId)) {
                 ScreenManager.getInstance().execute(() -> {
-                    if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-                        Screen current = ScreenManager.getInstance().getCurrentScreen();
-                        if (current instanceof FlowEditorScreen screen
-                            && serverId.equals(screen.getServerId())
-                            && flowId.equals(screen.getFlowId())) {
-                            screen.applyGraph(graph);
-                            return;
+                    if (client != null && client.getHost() != null) {
+                        if (type == ReSyncResourceType.FLOW) {
+                            FlowGraph graph = (FlowGraph) item;
+                            Screen current = ScreenManager.getInstance().getCurrentScreen();
+                            if (current instanceof FlowEditorScreen screen
+                                && serverId.equals(screen.getServerId())
+                                && itemId.equals(screen.getFlowId())) {
+                                screen.applyGraph(graph);
+                                return;
+                            }
+                            client.getHost().setScreen(new FlowEditorScreen(graph, serverId, current));
+                        } else if (type == ReSyncResourceType.GUI) {
+                            client.getHost().setScreen(new GuiDesignerScreen((GuiDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                        } else if (type == ReSyncResourceType.SCOREBOARD) {
+                            client.getHost().setScreen(new ScoreboardDesignerScreen((ScoreboardDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
+                        } else if (type == ReSyncResourceType.TAB) {
+                            client.getHost().setScreen(new TabDesignerScreen((TabDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
                         }
-                        RemotelyClient.INSTANCE.getHost().setScreen(new FlowEditorScreen(graph, serverId, current));
                     }
                 });
             }
         }
     }
 
+    private void cacheResource(FlowManager fm, ReSyncResourceType type, Object item) {
+        if (type == ReSyncResourceType.FLOW) fm.cacheFlow(serverId, (FlowGraph) item);
+        else if (type == ReSyncResourceType.GUI) fm.cacheGui(serverId, (GuiDefinition) item);
+        else if (type == ReSyncResourceType.SCOREBOARD) fm.cacheScoreboard(serverId, (ScoreboardDefinition) item);
+        else if (type == ReSyncResourceType.TAB) fm.cacheTab(serverId, (TabDefinition) item);
+    }
+
+    private void handleResourceDataReceived(FlowManager fm, ReSyncResourceType type, Object item) {
+        if (type == ReSyncResourceType.GUI) fm.handleGuiDataReceived(serverId, (GuiDefinition) item);
+        else if (type == ReSyncResourceType.SCOREBOARD) fm.handleScoreboardDataReceived(serverId, (ScoreboardDefinition) item);
+        else if (type == ReSyncResourceType.TAB) fm.handleTabDataReceived(serverId, (TabDefinition) item);
+    }
+
+    private void markResourceSaved(FlowManager fm, ReSyncResourceType type, String id) {
+        if (type == ReSyncResourceType.FLOW) fm.markFlowSaved(serverId, id);
+        else if (type == ReSyncResourceType.GUI) fm.markGuiSaved(serverId, id);
+        else if (type == ReSyncResourceType.SCOREBOARD) fm.markScoreboardSaved(serverId, id);
+        else if (type == ReSyncResourceType.TAB) fm.markTabSaved(serverId, id);
+    }
+
+    private void applyServerResourceList(FlowManager fm, ReSyncResourceType type, java.util.List<String> ids) {
+        if (type == ReSyncResourceType.FLOW) fm.applyServerFlowList(serverId, ids);
+        else if (type == ReSyncResourceType.GUI) fm.applyServerGuiList(serverId, ids);
+        else if (type == ReSyncResourceType.SCOREBOARD) fm.applyServerScoreboardList(serverId, ids);
+        else if (type == ReSyncResourceType.TAB) fm.applyServerTabList(serverId, ids);
+    }
+
+    private void handleFlowData(ByteBuffer buffer) {
+        handleResourceData(ReSyncResourceType.FLOW, buffer);
+    }
+
     private void handleGuiData(ByteBuffer buffer) {
-        byte[] jsonBytes = new byte[buffer.remaining()];
-        buffer.get(jsonBytes);
-        String json = new String(jsonBytes, StandardCharsets.UTF_8);
-        GuiDefinition gui = FlowSerializer.deserializeGui(json);
-
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-            RemotelyClient.INSTANCE.getFlowManager().cacheGui(serverId, gui);
-        }
-
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-            RemotelyClient.INSTANCE.getFlowManager().handleGuiDataReceived(serverId, gui);
-        }
-
-        if (gui != null && gui.getId() != null && pendingOpenGuis.remove(gui.getId())) {
-            ScreenManager.getInstance().execute(() -> {
-                if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-                    RemotelyClient.INSTANCE.getHost().setScreen(new GuiDesignerScreen(gui, serverId, ScreenManager.getInstance().getCurrentScreen()));
-                }
-            });
-        }
+        handleResourceData(ReSyncResourceType.GUI, buffer);
     }
 
     private void handleScoreboardData(ByteBuffer buffer) {
-        byte[] jsonBytes = new byte[buffer.remaining()];
-        buffer.get(jsonBytes);
-        String json = new String(jsonBytes, StandardCharsets.UTF_8);
-        ScoreboardDefinition scoreboard = FlowSerializer.deserializeScoreboard(json);
-
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-            RemotelyClient.INSTANCE.getFlowManager().cacheScoreboard(serverId, scoreboard);
-            RemotelyClient.INSTANCE.getFlowManager().handleScoreboardDataReceived(serverId, scoreboard);
-        }
-
-        if (scoreboard != null && scoreboard.getId() != null && pendingOpenScoreboards.remove(scoreboard.getId())) {
-            ScreenManager.getInstance().execute(() -> {
-                if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-                    RemotelyClient.INSTANCE.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, serverId, ScreenManager.getInstance().getCurrentScreen()));
-                }
-            });
-        }
+        handleResourceData(ReSyncResourceType.SCOREBOARD, buffer);
     }
 
     private void handleTabData(ByteBuffer buffer) {
-        byte[] jsonBytes = new byte[buffer.remaining()];
-        buffer.get(jsonBytes);
-        String json = new String(jsonBytes, StandardCharsets.UTF_8);
-        TabDefinition tab = FlowSerializer.deserializeTab(json);
-
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-            try {
-                RemotelyClient.INSTANCE.getFlowManager().cacheTab(serverId, tab);
-                RemotelyClient.INSTANCE.getFlowManager().handleTabDataReceived(serverId, tab);
-            } catch (NoSuchMethodError ignored) {
-            }
-        }
-
-        if (tab != null && tab.getId() != null && pendingOpenTabs.remove(tab.getId())) {
-            ScreenManager.getInstance().execute(() -> {
-                if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
-                    RemotelyClient.INSTANCE.getHost().setScreen(new TabDesignerScreen(tab, serverId, ScreenManager.getInstance().getCurrentScreen()));
-                }
-            });
-        }
+        handleResourceData(ReSyncResourceType.TAB, buffer);
     }
 
     private void handleGuiState(ByteBuffer buffer) {
@@ -651,8 +642,8 @@ public class ReSyncFlowClient {
         } else {
             redxax.oxy.remotely.flow.ui.GuiEditOverlayState.clear();
         }
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-            RemotelyClient.INSTANCE.getFlowManager().handleGuiStatePacket(serverId, editable, guiId, flowId);
+        if (client != null && client.getFlowManager() != null) {
+            client.getFlowManager().handleGuiStatePacket(serverId, editable, guiId, flowId);
         }
     }
 
@@ -675,7 +666,7 @@ public class ReSyncFlowClient {
         );
     }
 
-    private void handleFlowSaveAck(ByteBuffer buffer) {
+    private void handleResourceSaveAck(ReSyncResourceType type, ByteBuffer buffer) {
         if (buffer.remaining() < 4) {
             return;
         }
@@ -685,89 +676,31 @@ public class ReSyncFlowClient {
         }
         byte[] idBytes = new byte[idLen];
         buffer.get(idBytes);
-        String flowId = new String(idBytes, StandardCharsets.UTF_8);
+        String id = new String(idBytes, StandardCharsets.UTF_8);
 
         ScreenManager.getInstance().execute(() ->
-            new Notification("Flow Saved", "ID: " + flowId, Notification.Type.SUCCESS)
+            new Notification(type.displayName() + " Saved", "ID: " + id, Notification.Type.SUCCESS)
         );
 
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-            RemotelyClient.INSTANCE.getFlowManager().markFlowSaved(serverId, flowId);
-        }
-    }
-
-    private void handleGuiSaveAck(ByteBuffer buffer) {
-        if (buffer.remaining() < 4) {
-            return;
-        }
-        int idLen = buffer.getInt();
-        if (idLen < 0 || idLen > buffer.remaining()) {
-            return;
-        }
-        byte[] idBytes = new byte[idLen];
-        buffer.get(idBytes);
-        String guiId = new String(idBytes, StandardCharsets.UTF_8);
-
-        ScreenManager.getInstance().execute(() ->
-            new Notification("GUI Saved", "ID: " + guiId, Notification.Type.SUCCESS)
-        );
-
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-            RemotelyClient.INSTANCE.getFlowManager().markGuiSaved(serverId, guiId);
-        }
-    }
-
-    private void handleScoreboardSaveAck(ByteBuffer buffer) {
-        if (buffer.remaining() < 4) {
-            return;
-        }
-        int idLen = buffer.getInt();
-        if (idLen < 0 || idLen > buffer.remaining()) {
-            return;
-        }
-        byte[] idBytes = new byte[idLen];
-        buffer.get(idBytes);
-        String scoreboardId = new String(idBytes, StandardCharsets.UTF_8);
-
-        ScreenManager.getInstance().execute(() ->
-            new Notification("Scoreboard Saved", "ID: " + scoreboardId, Notification.Type.SUCCESS)
-        );
-
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-            RemotelyClient.INSTANCE.getFlowManager().markScoreboardSaved(serverId, scoreboardId);
-        }
-    }
-
-    private void handleTabSaveAck(ByteBuffer buffer) {
-        if (buffer.remaining() < 4) {
-            return;
-        }
-        int idLen = buffer.getInt();
-        if (idLen < 0 || idLen > buffer.remaining()) {
-            return;
-        }
-        byte[] idBytes = new byte[idLen];
-        buffer.get(idBytes);
-        String tabId = new String(idBytes, StandardCharsets.UTF_8);
-
-        ScreenManager.getInstance().execute(() ->
-            new Notification("Tab Saved", "ID: " + tabId, Notification.Type.SUCCESS)
-        );
-
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+        if (client != null && client.getFlowManager() != null) {
             try {
-                RemotelyClient.INSTANCE.getFlowManager().markTabSaved(serverId, tabId);
+                markResourceSaved(client.getFlowManager(), type, id);
             } catch (NoSuchMethodError ignored) {
             }
         }
     }
 
-    private void handleFlowList(ByteBuffer buffer) {
+    private void handleFlowSaveAck(ByteBuffer buffer) { handleResourceSaveAck(ReSyncResourceType.FLOW, buffer); }
+    private void handleGuiSaveAck(ByteBuffer buffer) { handleResourceSaveAck(ReSyncResourceType.GUI, buffer); }
+    private void handleScoreboardSaveAck(ByteBuffer buffer) { handleResourceSaveAck(ReSyncResourceType.SCOREBOARD, buffer); }
+    private void handleTabSaveAck(ByteBuffer buffer) { handleResourceSaveAck(ReSyncResourceType.TAB, buffer); }
+
+    private void handleResourceList(ReSyncResourceType type, ByteBuffer buffer) {
         if (buffer.remaining() < 4) {
             return;
         }
         int count = buffer.getInt();
-        java.util.List<String> flowIds = new java.util.ArrayList<>();
+        java.util.List<String> ids = new java.util.ArrayList<>();
         for (int i = 0; i < count; i++) {
             if (buffer.remaining() < 4) {
                 break;
@@ -778,88 +711,21 @@ public class ReSyncFlowClient {
             }
             byte[] idBytes = new byte[len];
             buffer.get(idBytes);
-            flowIds.add(new String(idBytes, StandardCharsets.UTF_8));
+            ids.add(new String(idBytes, StandardCharsets.UTF_8));
         }
 
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-            RemotelyClient.INSTANCE.getFlowManager().applyServerFlowList(serverId, flowIds);
-        }
-    }
-
-    private void handleGuiList(ByteBuffer buffer) {
-        if (buffer.remaining() < 4) {
-            return;
-        }
-        int count = buffer.getInt();
-        java.util.List<String> guiIds = new java.util.ArrayList<>();
-        for (int i = 0; i < count; i++) {
-            if (buffer.remaining() < 4) {
-                break;
-            }
-            int len = buffer.getInt();
-            if (len < 0 || len > buffer.remaining()) {
-                break;
-            }
-            byte[] idBytes = new byte[len];
-            buffer.get(idBytes);
-            guiIds.add(new String(idBytes, StandardCharsets.UTF_8));
-        }
-
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-            RemotelyClient.INSTANCE.getFlowManager().applyServerGuiList(serverId, guiIds);
-        }
-    }
-
-    private void handleScoreboardList(ByteBuffer buffer) {
-        if (buffer.remaining() < 4) {
-            return;
-        }
-        int count = buffer.getInt();
-        java.util.List<String> scoreboardIds = new java.util.ArrayList<>();
-        for (int i = 0; i < count; i++) {
-            if (buffer.remaining() < 4) {
-                break;
-            }
-            int len = buffer.getInt();
-            if (len < 0 || len > buffer.remaining()) {
-                break;
-            }
-            byte[] idBytes = new byte[len];
-            buffer.get(idBytes);
-            scoreboardIds.add(new String(idBytes, StandardCharsets.UTF_8));
-        }
-
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
-            RemotelyClient.INSTANCE.getFlowManager().applyServerScoreboardList(serverId, scoreboardIds);
-        }
-    }
-
-    private void handleTabList(ByteBuffer buffer) {
-        if (buffer.remaining() < 4) {
-            return;
-        }
-        int count = buffer.getInt();
-        java.util.List<String> tabIds = new java.util.ArrayList<>();
-        for (int i = 0; i < count; i++) {
-            if (buffer.remaining() < 4) {
-                break;
-            }
-            int len = buffer.getInt();
-            if (len < 0 || len > buffer.remaining()) {
-                break;
-            }
-            byte[] idBytes = new byte[len];
-            buffer.get(idBytes);
-            tabIds.add(new String(idBytes, StandardCharsets.UTF_8));
-        }
-
-        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getFlowManager() != null) {
+        if (client != null && client.getFlowManager() != null) {
             try {
-                RemotelyClient.INSTANCE.getFlowManager().applyServerTabList(serverId, tabIds);
+                applyServerResourceList(client.getFlowManager(), type, ids);
             } catch (NoSuchMethodError ignored) {
             }
         }
     }
+
+    private void handleFlowList(ByteBuffer buffer) { handleResourceList(ReSyncResourceType.FLOW, buffer); }
+    private void handleGuiList(ByteBuffer buffer) { handleResourceList(ReSyncResourceType.GUI, buffer); }
+    private void handleScoreboardList(ByteBuffer buffer) { handleResourceList(ReSyncResourceType.SCOREBOARD, buffer); }
+    private void handleTabList(ByteBuffer buffer) { handleResourceList(ReSyncResourceType.TAB, buffer); }
 
     private void handleNodeRegistrySnapshot(ByteBuffer buffer, boolean fullSync) {
         byte[] jsonBytes = new byte[buffer.remaining()];
@@ -966,35 +832,37 @@ public class ReSyncFlowClient {
         );
     }
 
-    private void sendFlowRequest(String flowId) {
-        byte[] idBytes = flowId.getBytes(StandardCharsets.UTF_8);
+    private void sendResourceRequest(ReSyncResourceType type, String id) {
+        byte[] idBytes = id.getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
-        buffer.put((byte) 0x01);
+        buffer.put(type.requestByte());
         buffer.put(idBytes);
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
 
-    private void sendGuiRequest(String guiId) {
-        byte[] idBytes = guiId.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
-        buffer.put((byte) 0x11);
-        buffer.put(idBytes);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+    private void requestResource(ReSyncResourceType type, String id, boolean openWhenReceived) {
+        if (id == null || id.isEmpty()) {
+            return;
+        }
+        if (openWhenReceived) {
+            pendingOpenResources.get(type).add(id);
+        }
+        if (!isConnected()) {
+            pendingSends.add(() -> sendResourceRequest(type, id));
+            ensureConnected();
+            return;
+        }
+        sendResourceRequest(type, id);
     }
 
-    private void sendScoreboardRequest(String scoreboardId) {
-        byte[] idBytes = scoreboardId.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
-        buffer.put((byte) 0x18);
-        buffer.put(idBytes);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
-    }
-
-    private void sendTabRequest(String tabId) {
-        byte[] idBytes = tabId.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
-        buffer.put((byte) 0x20);
-        buffer.put(idBytes);
+    private void requestResourceList(ReSyncResourceType type) {
+        if (!isConnected()) {
+            pendingSends.add(() -> requestResourceList(type));
+            ensureConnected();
+            return;
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(1);
+        buffer.put(type.listRequestByte());
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
 
@@ -1003,29 +871,11 @@ public class ReSyncFlowClient {
     }
 
     public void requestFlow(String flowId, boolean openWhenReceived) {
-        if (flowId == null || flowId.isEmpty()) {
-            return;
-        }
-        if (openWhenReceived) {
-            pendingOpenFlows.add(flowId);
-        }
-        if (!isConnected()) {
-            pendingSends.add(() -> sendFlowRequest(flowId));
-            ensureConnected();
-            return;
-        }
-        sendFlowRequest(flowId);
+        requestResource(ReSyncResourceType.FLOW, flowId, openWhenReceived);
     }
 
     public void requestFlowList() {
-        if (!isConnected()) {
-            pendingSends.add(this::requestFlowList);
-            ensureConnected();
-            return;
-        }
-        ByteBuffer buffer = ByteBuffer.allocate(1);
-        buffer.put((byte) 0x09);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+        requestResourceList(ReSyncResourceType.FLOW);
     }
 
     public void requestGui(String guiId) {
@@ -1033,29 +883,11 @@ public class ReSyncFlowClient {
     }
 
     public void requestGui(String guiId, boolean openWhenReceived) {
-        if (guiId == null || guiId.isEmpty()) {
-            return;
-        }
-        if (openWhenReceived) {
-            pendingOpenGuis.add(guiId);
-        }
-        if (!isConnected()) {
-            pendingSends.add(() -> sendGuiRequest(guiId));
-            ensureConnected();
-            return;
-        }
-        sendGuiRequest(guiId);
+        requestResource(ReSyncResourceType.GUI, guiId, openWhenReceived);
     }
 
     public void requestGuiList() {
-        if (!isConnected()) {
-            pendingSends.add(this::requestGuiList);
-            ensureConnected();
-            return;
-        }
-        ByteBuffer buffer = ByteBuffer.allocate(1);
-        buffer.put((byte) 0x14);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+        requestResourceList(ReSyncResourceType.GUI);
     }
 
     public void requestScoreboard(String scoreboardId) {
@@ -1063,29 +895,11 @@ public class ReSyncFlowClient {
     }
 
     public void requestScoreboard(String scoreboardId, boolean openWhenReceived) {
-        if (scoreboardId == null || scoreboardId.isEmpty()) {
-            return;
-        }
-        if (openWhenReceived) {
-            pendingOpenScoreboards.add(scoreboardId);
-        }
-        if (!isConnected()) {
-            pendingSends.add(() -> sendScoreboardRequest(scoreboardId));
-            ensureConnected();
-            return;
-        }
-        sendScoreboardRequest(scoreboardId);
+        requestResource(ReSyncResourceType.SCOREBOARD, scoreboardId, openWhenReceived);
     }
 
     public void requestScoreboardList() {
-        if (!isConnected()) {
-            pendingSends.add(this::requestScoreboardList);
-            ensureConnected();
-            return;
-        }
-        ByteBuffer buffer = ByteBuffer.allocate(1);
-        buffer.put((byte) 0x1A);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+        requestResourceList(ReSyncResourceType.SCOREBOARD);
     }
 
     public void requestTab(String tabId) {
@@ -1093,29 +907,11 @@ public class ReSyncFlowClient {
     }
 
     public void requestTab(String tabId, boolean openWhenReceived) {
-        if (tabId == null || tabId.isEmpty()) {
-            return;
-        }
-        if (openWhenReceived) {
-            pendingOpenTabs.add(tabId);
-        }
-        if (!isConnected()) {
-            pendingSends.add(() -> sendTabRequest(tabId));
-            ensureConnected();
-            return;
-        }
-        sendTabRequest(tabId);
+        requestResource(ReSyncResourceType.TAB, tabId, openWhenReceived);
     }
 
     public void requestTabList() {
-        if (!isConnected()) {
-            pendingSends.add(this::requestTabList);
-            ensureConnected();
-            return;
-        }
-        ByteBuffer buffer = ByteBuffer.allocate(1);
-        buffer.put((byte) 0x22);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+        requestResourceList(ReSyncResourceType.TAB);
     }
 
     public void requestPlaceholderPreview(String text, boolean usePapi, Consumer<String> callback) {
@@ -1197,154 +993,51 @@ public class ReSyncFlowClient {
         sendFrame(4, jsonBytes, WORLD_MANAGEMENT_CHANNEL_ID);
     }
 
-    public void sendFlowSave(FlowGraph graph) {
-        if (graph == null) {
+    void sendResourceSave(ReSyncResourceType type, Object item) {
+        if (item == null) {
             return;
         }
         if (!isConnected()) {
-            System.err.println("[ReSyncFlow] WebSocket not connected - queueing flow save");
-            pendingSends.add(() -> sendFlowSave(graph));
+            System.err.println("[ReSyncFlow] WebSocket not connected - queueing " + type.displayName() + " save");
+            pendingSends.add(() -> sendResourceSave(type, item));
             ensureConnected();
             return;
         }
-
-        String json = FlowSerializer.serialize(graph);
+        String json = type.serialize(item);
         byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
-        System.out.println("[ReSyncFlow] Sending flow save: " + jsonBytes.length + " bytes");
-
+        if (type == ReSyncResourceType.FLOW) {
+            System.out.println("[ReSyncFlow] Sending flow save: " + jsonBytes.length + " bytes");
+        }
         ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
-        buffer.put((byte) 0x03);
+        buffer.put(type.saveByte());
         buffer.put(jsonBytes);
-
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
 
-    public void sendGuiSave(GuiDefinition gui) {
-        if (gui == null) {
+    void sendResourceDelete(ReSyncResourceType type, String id) {
+        if (id == null || id.isEmpty()) {
             return;
         }
         if (!isConnected()) {
-            System.err.println("[ReSyncFlow] WebSocket not connected - queueing GUI save");
-            pendingSends.add(() -> sendGuiSave(gui));
+            pendingSends.add(() -> sendResourceDelete(type, id));
             ensureConnected();
             return;
         }
-
-        String json = FlowSerializer.serializeGui(gui);
-        byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
-
-        ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
-        buffer.put((byte) 0x13);
-        buffer.put(jsonBytes);
-
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
-    }
-
-    public void sendScoreboardSave(ScoreboardDefinition scoreboard) {
-        if (scoreboard == null) {
-            return;
-        }
-        if (!isConnected()) {
-            System.err.println("[ReSyncFlow] WebSocket not connected - queueing scoreboard save");
-            pendingSends.add(() -> sendScoreboardSave(scoreboard));
-            ensureConnected();
-            return;
-        }
-
-        String json = FlowSerializer.serializeScoreboard(scoreboard);
-        byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
-
-        ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
-        buffer.put((byte) 0x19);
-        buffer.put(jsonBytes);
-
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
-    }
-
-    public void sendTabSave(TabDefinition tab) {
-        if (tab == null) {
-            return;
-        }
-        if (!isConnected()) {
-            System.err.println("[ReSyncFlow] WebSocket not connected - queueing tab save");
-            pendingSends.add(() -> sendTabSave(tab));
-            ensureConnected();
-            return;
-        }
-
-        String json = FlowSerializer.serializeTab(tab);
-        byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
-
-        ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
-        buffer.put((byte) 0x21);
-        buffer.put(jsonBytes);
-
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
-    }
-
-    public void sendFlowDelete(String flowId) {
-        if (flowId == null || flowId.isEmpty()) {
-            return;
-        }
-        if (!isConnected()) {
-            pendingSends.add(() -> sendFlowDelete(flowId));
-            ensureConnected();
-            return;
-        }
-        byte[] idBytes = flowId.getBytes(StandardCharsets.UTF_8);
+        byte[] idBytes = id.getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
-        buffer.put((byte) 0x08);
+        buffer.put(type.deleteByte());
         buffer.put(idBytes);
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
 
-    public void sendGuiDelete(String guiId) {
-        if (guiId == null || guiId.isEmpty()) {
-            return;
-        }
-        if (!isConnected()) {
-            pendingSends.add(() -> sendGuiDelete(guiId));
-            ensureConnected();
-            return;
-        }
-        byte[] idBytes = guiId.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
-        buffer.put((byte) 0x16);
-        buffer.put(idBytes);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
-    }
-
-    public void sendScoreboardDelete(String scoreboardId) {
-        if (scoreboardId == null || scoreboardId.isEmpty()) {
-            return;
-        }
-        if (!isConnected()) {
-            pendingSends.add(() -> sendScoreboardDelete(scoreboardId));
-            ensureConnected();
-            return;
-        }
-        byte[] idBytes = scoreboardId.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
-        buffer.put((byte) 0x1B);
-        buffer.put(idBytes);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
-    }
-
-    public void sendTabDelete(String tabId) {
-        if (tabId == null || tabId.isEmpty()) {
-            return;
-        }
-        if (!isConnected()) {
-            pendingSends.add(() -> sendTabDelete(tabId));
-            ensureConnected();
-            return;
-        }
-        byte[] idBytes = tabId.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
-        buffer.put((byte) 0x23);
-        buffer.put(idBytes);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
-    }
+    public void sendFlowSave(FlowGraph graph) { sendResourceSave(ReSyncResourceType.FLOW, graph); }
+    public void sendGuiSave(GuiDefinition gui) { sendResourceSave(ReSyncResourceType.GUI, gui); }
+    public void sendScoreboardSave(ScoreboardDefinition scoreboard) { sendResourceSave(ReSyncResourceType.SCOREBOARD, scoreboard); }
+    public void sendTabSave(TabDefinition tab) { sendResourceSave(ReSyncResourceType.TAB, tab); }
+    public void sendFlowDelete(String flowId) { sendResourceDelete(ReSyncResourceType.FLOW, flowId); }
+    public void sendGuiDelete(String guiId) { sendResourceDelete(ReSyncResourceType.GUI, guiId); }
+    public void sendScoreboardDelete(String scoreboardId) { sendResourceDelete(ReSyncResourceType.SCOREBOARD, scoreboardId); }
+    public void sendTabDelete(String tabId) { sendResourceDelete(ReSyncResourceType.TAB, tabId); }
 
     public void sendTriggerUpdate(java.util.List<TriggerBinding> bindings) {
         if (!isConnected()) {
