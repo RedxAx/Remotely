@@ -23,6 +23,7 @@ import restudio.rebase.backend.ServerBackend;
 import restudio.rebase.backend.feature.NetworkTransferFeature;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
+import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.resource.InstanceResource;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rebase.ui.widgets.ViewSwitcherWidget;
@@ -74,7 +75,8 @@ public class FlowManagerScreen extends ReScreen {
         LOADING,
         NOT_SUPPORTED,
         SETUP,
-        WELCOME,
+        INSTALLING,
+        INSTALLED,
         SERVER_STOPPED,
         READY
     }
@@ -173,7 +175,7 @@ public class FlowManagerScreen extends ReScreen {
             enterReadyState();
             return;
         }
-        if ((startupState == StartupState.LOADING || startupState == StartupState.SERVER_STOPPED || startupState == StartupState.WELCOME) && !startupProbeRunning) {
+        if ((startupState == StartupState.LOADING || startupState == StartupState.SERVER_STOPPED) && !startupProbeRunning) {
             beginStartupProbe(false);
         }
     }
@@ -252,7 +254,7 @@ public class FlowManagerScreen extends ReScreen {
             setupReSyncButton.setVisible(showSetupButton && !setupRunning);
         }
         if (welcomeServerButton != null) {
-            welcomeServerButton.setVisible(state == StartupState.WELCOME);
+            welcomeServerButton.setVisible(state == StartupState.INSTALLED);
         }
         updateStartupWidgets();
     }
@@ -277,7 +279,7 @@ public class FlowManagerScreen extends ReScreen {
             enterReadyState();
             return;
         }
-        if (force || startupState == StartupState.LOADING) {
+        if (force && startupState != StartupState.INSTALLING && startupState != StartupState.INSTALLED) {
             setStartupState(StartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
         }
         CompletableFuture.runAsync(this::probeStartupStateAsync);
@@ -297,7 +299,7 @@ public class FlowManagerScreen extends ReScreen {
                 enterReadyState();
                 return;
             }
-            if (startupState == StartupState.WELCOME && resolvedState != StartupState.READY) {
+            if (startupState == StartupState.INSTALLED || startupState == StartupState.INSTALLING) {
                 return;
             }
             switch (resolvedState) {
@@ -515,7 +517,7 @@ public class FlowManagerScreen extends ReScreen {
             return;
         }
         setupRunning = true;
-        setStartupState(StartupState.LOADING, "Loading...\nSetting Up ReSync", "remotely.png", false);
+        setStartupState(StartupState.INSTALLING, "Installing ReSync...", "remotely.png", false);
         CompletableFuture.runAsync(this::setupReSyncAsync);
     }
 
@@ -543,8 +545,7 @@ public class FlowManagerScreen extends ReScreen {
             setupRunning = false;
             if (completed) {
                 if (shouldRestart) {
-                    showWelcomeState();
-                    beginStartupProbe(true);
+                    showInstalledState();
                 } else {
                     beginStartupProbe(true);
                 }
@@ -554,8 +555,8 @@ public class FlowManagerScreen extends ReScreen {
         });
     }
 
-    private void showWelcomeState() {
-        Instance instance = flowManager != null ? flowManager.getInstanceByServerId(serverId) : null;
+    private void showInstalledState() {
+        Instance instance = flowManager != null ? flowManager.findInstanceByServerId(serverId, server) : null;
         boolean isRunning = instance != null && instance.getState() == InstanceState.RUNNING;
         boolean isSSH = instance != null && instance.getBackendConfig() != null && "SSH".equalsIgnoreCase(instance.getBackendConfig().type);
         StringBuilder message = new StringBuilder();
@@ -568,19 +569,38 @@ public class FlowManagerScreen extends ReScreen {
         if (isSSH) {
             message.append("\nOpen Port ").append(RESYNC_PORT).append(" On Your Host");
         }
-        setStartupState(StartupState.WELCOME, message.toString(), "ReSync.png", false);
-        if (!isRunning) {
-            new Notification("ReSync", "Installed! Start Server To Activate", Notification.Type.SUCCESS);
-        } else {
-            new Notification("ReSync", "Installed! Restart Server To Activate", Notification.Type.SUCCESS);
-        }
+        setStartupState(StartupState.INSTALLED, message.toString(), "ReSync.png", false);
+        new Notification("ReSync", isRunning ? "Installed! Restart Server To Activate" : "Installed! Start Server To Activate", Notification.Type.SUCCESS);
     }
 
     private void openServerScreen() {
         if (flowManager == null) return;
-        Instance instance = flowManager.getInstanceByServerId(serverId);
+        Instance instance = flowManager.findInstanceByServerId(serverId, server);
+        if (instance == null && server != null) {
+            instance = buildTemporaryInstance(server);
+        }
         if (instance == null) return;
         RemotelyClient.INSTANCE.openInstanceInTerminal(this, instance);
+    }
+
+    private Instance buildTemporaryInstance(ClientServerView csv) {
+        Map<String, String> creds = new HashMap<>();
+        creds.put("identifier", csv.identifier);
+        creds.put("host", csv.sftpIp);
+        creds.put("port", String.valueOf(csv.sftpPort));
+        creds.put("user", csv.sftpUser);
+        creds.put("password", "");
+        creds.put("installing", String.valueOf(csv.isInstalling));
+        creds.put("suspended", String.valueOf(csv.isSuspended));
+        Instance inst = new Instance(csv.name, "unknown", "");
+        inst.setBackendConfig(new BackendConfig("RESTUDIO", creds));
+        inst.setServer(true);
+        if (csv.loader != null) {
+            try {
+                inst.setModLoader(ModLoader.valueOf(csv.loader));
+            } catch (IllegalArgumentException ignored) {}
+        }
+        return inst;
     }
 
     private boolean setupForReStudio() throws Exception {
@@ -3481,7 +3501,7 @@ public class FlowManagerScreen extends ReScreen {
                 enterReadyState();
                 return;
             }
-            if (startupState == StartupState.LOADING || startupState == StartupState.SERVER_STOPPED || startupState == StartupState.WELCOME) {
+            if (startupState == StartupState.LOADING || startupState == StartupState.SERVER_STOPPED) {
                 beginStartupProbe(false);
             }
             return;
