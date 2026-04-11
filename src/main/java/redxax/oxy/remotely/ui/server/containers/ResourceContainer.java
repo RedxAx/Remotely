@@ -676,6 +676,9 @@ Rebase.get().getUpdateManager().performBulkUpdate(instance, selectedUpdates, pro
     public void startFileWatchers() {
         stopFileWatchers();
         if (instance == null) return;
+        if (instance.getBackendConfig() != null && instance.getBackendConfig().type != null && !"LOCAL".equalsIgnoreCase(instance.getBackendConfig().type)) {
+            return;
+        }
         Path instancePath = Path.of(instance.getPath());
         WatchServiceManager manager = WatchServiceManager.getInstance();
         for (String relativeDir : getWatchedResourceDirectories()) {
