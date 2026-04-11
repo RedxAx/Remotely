@@ -847,6 +847,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             restudioInstances.addAll(result.getKey());
             restudioServerViews.clear();
             restudioServerViews.putAll(result.getValue());
+            remotelyClient.cacheReStudioServerViews(restudioServerViews);
 
             for (TabsManager.Tab tab : tabs().getTabs()) {
                 if ("RESTUDIO_MARKER".equals(tab.getData())) {
@@ -933,7 +934,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
 
                 final ServerModels.ClientServerView flowServerView = (inst.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(inst.getBackendConfig().type))
                         ? restudioServerViews.get(inst.getName()) : null;
-                builder.addHeaderButton("ReSync.png", () -> remotelyClient.openFlowManager(this, inst, flowServerView), "Flow Manager");
+                builder.addHeaderButton("ReSync.png", () -> remotelyClient.openFlowManager(this, inst, flowServerView), "ReSync");
                 if (!isRestudio) {
                     builder.addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server").addHeaderButton("delete.png", () -> {
                         instanceForDeletion = widget.getInstance();
