@@ -536,10 +536,15 @@ public class ReSyncFlowClient {
         Object item = type.deserialize(json);
         FlowManager fm = client != null ? client.getFlowManager() : null;
         if (fm != null) {
-            try {
+            if (type == ReSyncResourceType.TAB) {
+                try {
+                    cacheResource(fm, type, item);
+                    handleResourceDataReceived(fm, type, item);
+                } catch (NoSuchMethodError ignored) {
+                }
+            } else {
                 cacheResource(fm, type, item);
                 handleResourceDataReceived(fm, type, item);
-            } catch (NoSuchMethodError ignored) {
             }
         }
         if (item != null) {
@@ -683,9 +688,13 @@ public class ReSyncFlowClient {
         );
 
         if (client != null && client.getFlowManager() != null) {
-            try {
+            if (type == ReSyncResourceType.TAB) {
+                try {
+                    markResourceSaved(client.getFlowManager(), type, id);
+                } catch (NoSuchMethodError ignored) {
+                }
+            } else {
                 markResourceSaved(client.getFlowManager(), type, id);
-            } catch (NoSuchMethodError ignored) {
             }
         }
     }
@@ -715,9 +724,13 @@ public class ReSyncFlowClient {
         }
 
         if (client != null && client.getFlowManager() != null) {
-            try {
+            if (type == ReSyncResourceType.TAB) {
+                try {
+                    applyServerResourceList(client.getFlowManager(), type, ids);
+                } catch (NoSuchMethodError ignored) {
+                }
+            } else {
                 applyServerResourceList(client.getFlowManager(), type, ids);
-            } catch (NoSuchMethodError ignored) {
             }
         }
     }
