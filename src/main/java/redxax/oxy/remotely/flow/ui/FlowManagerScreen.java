@@ -321,6 +321,20 @@ public class FlowManagerScreen extends ReScreen {
         if (Boolean.FALSE.equals(pluginCompatible)) {
             return StartupState.NOT_SUPPORTED;
         }
+        if (server != null) {
+            try {
+                Boolean pluginPresent = flowManager.isReSyncPluginInstalled(serverId).get(5, TimeUnit.SECONDS);
+                if (Boolean.TRUE.equals(pluginPresent)) {
+                    Instance instance = flowManager.findInstanceByServerId(serverId, server);
+                    if (instance != null && instance.getState() != InstanceState.RUNNING) {
+                        return StartupState.SERVER_STOPPED;
+                    }
+                    return StartupState.LOADING;
+                }
+            } catch (Exception ignored) {
+            }
+            return StartupState.SETUP;
+        }
         Instance instance = flowManager.getInstanceByServerId(serverId);
         boolean isRunning = instance != null && instance.getState() == InstanceState.RUNNING;
         if (instance != null && isReSyncResourcePresent(instance)) {
