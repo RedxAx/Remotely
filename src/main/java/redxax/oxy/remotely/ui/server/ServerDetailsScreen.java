@@ -159,6 +159,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         if (!desktopMode) {
             header().addRight("close.png", this::closeScreen, "Close");
         }
+        header().addRight("ReSync.png", this::openFlowManager, "ReSync");
         header().addRight("explorer.png", this::exploreInstanceFiles, "File Explorer");
         header().addRight("edit.png", this::openInstanceSettings, "Server Settings");
         header().addRight("merge.png", this::openDevModeScreen, "DevMode");
@@ -878,6 +879,12 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 return "explorer.png";
             }
         });
+    }
+
+    private void openFlowManager() {
+        TabContext context = getActiveContext();
+        if (context == null || context.instance == null) return;
+        remotelyClient.openFlowManager(this, context.instance);
     }
 
     private boolean isDevModeEligible(Instance instance) {

@@ -20,6 +20,8 @@ import restudio.rebase.restudio.api.ReStudioApiClient;
 import restudio.rebase.restudio.ReStudio;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
+import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
+import restudio.rescreen.util.Notification;
 
 import java.io.File;
 import java.io.IOException;
@@ -224,6 +226,32 @@ public class RemotelyClient {
 
     public FlowManager getFlowManager() {
         return flowManager;
+    }
+
+    public void openFlowManager(Object parent, Instance instance) {
+        openFlowManager(parent, instance, null);
+    }
+
+    public void openFlowManager(Object parent, Instance instance, ClientServerView serverView) {
+        if (flowManager == null) {
+            new Notification.Builder().message("Flow Manager not available").type(Notification.Type.WARN).build();
+            return;
+        }
+        if (instance == null) return;
+        String serverId;
+        if (instance.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type)) {
+            serverId = instance.getBackendConfig().credentials.get("identifier");
+        } else {
+            serverId = instance.getInstanceId();
+        }
+        String loaderHint = "";
+        if (instance.getModLoader() != null) {
+            loaderHint = instance.getModLoader().name();
+        }
+        if (serverView != null && serverView.loader != null && !serverView.loader.isBlank()) {
+            loaderHint = serverView.loader;
+        }
+        flowManager.openFlowManager(serverId, serverView, loaderHint);
     }
 
 }
