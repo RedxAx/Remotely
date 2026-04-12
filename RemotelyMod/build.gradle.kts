@@ -227,7 +227,6 @@ publisher {
         displayName.set("Remotely ${modData.version} (${if (mcData.isFabric) "Fabric" else "NeoForge"} ${mcData.version})")
 
         val publishGameVersions = mapOf(
-            "26.2-snapshot-1" to listOf("26.2", "26.1.1", "26w14a"),
             "26.1-pre-1" to listOf("26.1", "26.1.1", "26w14a"),
             "1.21.11" to listOf("1.21.11"),
             "1.21.10" to listOf("1.21.10", "1.21.9"),
