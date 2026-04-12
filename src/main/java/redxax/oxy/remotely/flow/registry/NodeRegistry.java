@@ -40,6 +40,25 @@ public class NodeRegistry {
         localDefinitions.put(definition.getId(), definition);
     }
 
+    public void registerServerDefinition(String serverId, NodeDefinition definition) {
+        if (definition == null || definition.getId() == null) {
+            return;
+        }
+        String key = normalizeServerId(serverId);
+        serverDefinitions.computeIfAbsent(key, k -> new HashMap<>()).put(definition.getId(), definition);
+    }
+
+    public void unregisterServerDefinition(String serverId, String definitionId) {
+        if (definitionId == null) {
+            return;
+        }
+        String key = normalizeServerId(serverId);
+        Map<String, NodeDefinition> defs = serverDefinitions.get(key);
+        if (defs != null) {
+            defs.remove(definitionId);
+        }
+    }
+
     public NodeDefinition getDefinition(String serverId, String nodeId) {
         if (nodeId == null) {
             return null;

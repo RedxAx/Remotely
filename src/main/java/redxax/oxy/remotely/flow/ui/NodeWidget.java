@@ -15,7 +15,9 @@ import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.ContextMenuWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
+import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 
@@ -41,6 +43,7 @@ public class NodeWidget extends AnimatedWidget {
     private final Runnable onClose;
     private final AnimatedButton closeButton;
     private AnimatedButton addBranchButton;
+    private AnimatedButton paramButton;
     private static final int TITLE_HEIGHT = 16;
     private static final int PADDING = 6;
     private static final int ROW_HEIGHT = 18;
@@ -60,7 +63,11 @@ public class NodeWidget extends AnimatedWidget {
     private static final int CLOSE_BUTTON_WIDTH = 12;
     private static final int CLOSE_BUTTON_HEIGHT = 8;
     private static final String FLOW_BRANCHES_KEY = "__flow_branches";
+    private static final String FUNCTION_START_ID = "function_start";
+    private static final String FUNCTION_END_ID = "function_end";
     private boolean updatingBranchSelection = false;
+    private int lastScreenX;
+    private int lastScreenY;
 
     public NodeWidget(int x, int y, FlowNode node, FlowGraph graph, String nodeId) {
         this(x, y, node, graph, nodeId, null, null);
@@ -96,9 +103,23 @@ public class NodeWidget extends AnimatedWidget {
             .build();
         this.closeButton.visible = this.onClose != null;
 
+        if (FUNCTION_START_ID.equals(node.getType()) || FUNCTION_END_ID.equals(node.getType())) {
+            this.paramButton = new AnimatedButton.Builder()
+                .onClick(this::showParamContextMenu)
+                .accentType(ThemeManager.getAccent("nice"))
+                .animateElevation(false)
+                .entranceAnimation(false)
+                .size(CLOSE_BUTTON_WIDTH, CLOSE_BUTTON_HEIGHT)
+                .hint("Params")
+                .build();
+        } else {
+            this.paramButton = null;
+        }
+
         if (definition != null) {
             inputs.addAll(definition.getInputs());
             outputs.addAll(definition.getOutputs());
+            applyFunctionParameterPins();
             createInputWidgets();
             createOutputWidgets();
             updateSize();
@@ -176,10 +197,230 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     public void refreshInputWidgets() {
+        applyFunctionParameterPins();
         inputWidgets.clear();
         createInputWidgets();
         createOutputWidgets();
         updateSize();
+    }
+
+    private void applyFunctionParameterPins() {
+        if (!isFunctionStartNode() && !isFunctionEndNode()) {
+            return;
+        }
+        inputs.clear();
+        outputs.clear();
+
+        NodeDefinition.PinDefinition inputFlowPin = new NodeDefinition.PinDefinition("flow", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.INPUT, FlowType.EXECUTION);
+        NodeDefinition.PinDefinition outputFlowPin = new NodeDefinition.PinDefinition("flow", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.OUTPUT, FlowType.EXECUTION);
+
+        inputs.add(inputFlowPin);
+        outputs.add(outputFlowPin);
+
+        if (graph == null) {
+            return;
+        }
+
+        if (isFunctionStartNode() && graph.getFunctionInputs() != null) {
+            for (FlowGraph.FunctionParameter parameter : graph.getFunctionInputs()) {
+                if (!isValidFunctionParameter(parameter)) {
+                    continue;
+                }
+                outputs.add(new NodeDefinition.PinDefinition(parameter.getName(), NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.OUTPUT, parameter.getType()));
+            }
+        }
+
+        if (isFunctionEndNode() && graph.getFunctionOutputs() != null) {
+            for (FlowGraph.FunctionParameter parameter : graph.getFunctionOutputs()) {
+                if (!isValidFunctionParameter(parameter)) {
+                    continue;
+                }
+                inputs.add(new NodeDefinition.PinDefinition(parameter.getName(), NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, parameter.getType()));
+            }
+        }
+    }
+
+    private boolean isFunctionStartNode() {
+        return FUNCTION_START_ID.equals(node.getType());
+    }
+
+    private boolean isFunctionEndNode() {
+        return FUNCTION_END_ID.equals(node.getType());
+    }
+
+    private boolean isValidFunctionParameter(FlowGraph.FunctionParameter parameter) {
+        return parameter != null && parameter.getName() != null && !parameter.getName().isBlank();
+    }
+
+    private List<FlowType> getSupportedFunctionTypes() {
+        return List.of(
+            FlowType.ANY,
+            FlowType.STRING,
+            FlowType.NUMBER,
+            FlowType.BOOLEAN,
+            FlowType.PLAYER,
+            FlowType.ENTITY,
+            FlowType.LOCATION,
+            FlowType.ITEM,
+            FlowType.ITEMSTACK,
+            FlowType.LIST,
+            FlowType.JSON_OBJECT
+        );
+    }
+
+    public List<FlowGraph.FunctionParameter> getFunctionParameterList() {
+        if (graph == null) {
+            return null;
+        }
+        if (isFunctionStartNode()) {
+            return graph.getFunctionInputs();
+        }
+        if (isFunctionEndNode()) {
+            return graph.getFunctionOutputs();
+        }
+        return null;
+    }
+
+    public void setLastScreenMouse(int x, int y) {
+        this.lastScreenX = x;
+        this.lastScreenY = y;
+    }
+
+    public void showParamContextMenu() {
+        var currentScreen = ScreenManager.getInstance().getCurrentScreen();
+        if (currentScreen == null) return;
+
+        List<FlowGraph.FunctionParameter> params = getFunctionParameterList();
+        if (params == null) return;
+
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(currentScreen);
+        builder.addHeaderButton("add.png", this::showAddFunctionParameterPopup, "Add Parameter", ThemeManager.getAccent("nice"));
+        for (FlowGraph.FunctionParameter p : params) {
+            if (p != null && p.getName() != null) {
+                String name = p.getName();
+                builder.addItem("Remove: " + name, () -> removeFunctionParameter(name), name, ThemeManager.getAccent("danger"));
+            }
+        }
+        ContextMenuWidget menu = builder.build();
+        currentScreen.addDrawableChild(menu);
+        menu.show(lastScreenX, lastScreenY);
+    }
+
+    public void showAddFunctionParameterPopup() {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Add Parameter").setResizable(false);
+        TextInputWidget nameInput = new TextInputWidget.Builder()
+            .placeholder("parameter_name")
+            .size(200, 20)
+            .build();
+        List<FlowType> types = getSupportedFunctionTypes();
+        DropDownWidget<FlowType> typeDropdown = new DropDownWidget.Builder<>(types)
+            .selectedItem(FlowType.ANY)
+            .size(200, 18)
+            .build();
+
+        builder.addRow("Name", true, 20, nameInput);
+        builder.addRow("Type", true, 18, typeDropdown);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton addButton = new AnimatedButton.Builder()
+            .label("Add")
+            .onClick(() -> {
+                String rawName = nameInput.getText() != null ? nameInput.getText().trim() : "";
+                if (rawName.isBlank() || !rawName.matches("^[a-zA-Z0-9_]+$")) {
+                    return;
+                }
+                FlowType type = typeDropdown.getSelectedItem();
+                if (type == null) {
+                    type = FlowType.ANY;
+                }
+
+                List<FlowGraph.FunctionParameter> targetList;
+                targetList = getFunctionParameterList();
+
+                if (targetList == null) {
+                    return;
+                }
+                for (FlowGraph.FunctionParameter existing : targetList) {
+                    if (existing != null && rawName.equalsIgnoreCase(existing.getName())) {
+                        return;
+                    }
+                }
+                targetList.add(new FlowGraph.FunctionParameter(rawName, type));
+                refreshInputWidgets();
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+            })
+            .size(80, 18)
+            .animateElevation(false)
+            .entranceAnimation(false)
+            .build();
+
+        builder.addRow("", true, 18, addButton);
+        popupRef[0] = builder.build();
+        if (ScreenManager.getInstance().getCurrentScreen() != null) {
+            ScreenManager.getInstance().getCurrentScreen().addDrawableChild(popupRef[0]);
+            popupRef[0].show();
+        }
+    }
+
+    private int findParameterIndex(List<FlowGraph.FunctionParameter> parameters, String name) {
+        for (int i = 0; i < parameters.size(); i++) {
+            FlowGraph.FunctionParameter parameter = parameters.get(i);
+            if (parameter != null && parameter.getName() != null && parameter.getName().equals(name)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private FlowGraph.FunctionParameter findParameterByName(List<FlowGraph.FunctionParameter> parameters, String name) {
+        for (FlowGraph.FunctionParameter parameter : parameters) {
+            if (parameter != null && parameter.getName() != null && parameter.getName().equals(name)) {
+                return parameter;
+            }
+        }
+        return null;
+    }
+
+    private void renameParameterConnections(String oldName, String newName) {
+        if (oldName == null || newName == null || oldName.equals(newName) || graph == null || graph.getConnections() == null) {
+            return;
+        }
+        for (FlowConnection connection : graph.getConnections()) {
+            if (isFunctionStartNode() && nodeId.equals(connection.getSourceNodeId()) && oldName.equals(connection.getSourcePin())) {
+                connection.setSourcePin(newName);
+            }
+            if (isFunctionEndNode() && nodeId.equals(connection.getTargetNodeId()) && oldName.equals(connection.getTargetPin())) {
+                connection.setTargetPin(newName);
+            }
+        }
+    }
+
+    private void removeParameterConnections(String parameterName) {
+        if (parameterName == null || graph == null || graph.getConnections() == null) {
+            return;
+        }
+        if (isFunctionStartNode()) {
+            graph.getConnections().removeIf(connection -> nodeId.equals(connection.getSourceNodeId()) && parameterName.equals(connection.getSourcePin()));
+            return;
+        }
+        if (isFunctionEndNode()) {
+            graph.getConnections().removeIf(connection -> nodeId.equals(connection.getTargetNodeId()) && parameterName.equals(connection.getTargetPin()));
+        }
+    }
+
+    public void removeFunctionParameter(String name) {
+        List<FlowGraph.FunctionParameter> params = getFunctionParameterList();
+        if (params == null) return;
+        for (int i = 0; i < params.size(); i++) {
+            if (params.get(i) != null && name.equals(params.get(i).getName())) {
+                params.remove(i);
+                removeParameterConnections(name);
+                refreshInputWidgets();
+                return;
+            }
+        }
     }
 
     private boolean isLiteralType(FlowType type) {
@@ -227,6 +468,10 @@ public class NodeWidget extends AnimatedWidget {
             int closeX = getX() + getWidth() - PADDING - CLOSE_BUTTON_WIDTH;
             int closeY = (getY() + (TITLE_HEIGHT - CLOSE_BUTTON_HEIGHT) / 2) - 1;
             closeButton.setPosition(closeX, closeY);
+            if (paramButton != null) {
+                paramButton.setPosition(closeX - CLOSE_BUTTON_WIDTH - 4, closeY);
+                paramButton.render(ctx, mouseX, mouseY, 0);
+            }
             closeButton.render(ctx, mouseX, mouseY, 0);
         }
 
@@ -296,6 +541,9 @@ public class NodeWidget extends AnimatedWidget {
         if (closeButton.visible) {
             titleWidth += CLOSE_BUTTON_WIDTH + PADDING;
         }
+        if (paramButton != null) {
+            titleWidth += CLOSE_BUTTON_WIDTH + 4;
+        }
 
         setWidth(Math.max(minWidth, Math.max(titleWidth, PADDING * 2 + contentWidth)));
         setHeight(TITLE_HEIGHT + PADDING * 2 + contentHeight);
@@ -354,6 +602,11 @@ public class NodeWidget extends AnimatedWidget {
 
         if (closeButton.visible && closeButton.isMouseOver(wx, wy)) {
             closeButton.mouseClicked(mouseX, mouseY, button);
+            return true;
+        }
+
+        if (paramButton != null && paramButton.isMouseOver(wx, wy)) {
+            paramButton.mouseClicked(mouseX, mouseY, button);
             return true;
         }
 
@@ -639,6 +892,14 @@ public class NodeWidget extends AnimatedWidget {
         return null;
     }
 
+    public boolean isFunctionStartOrEnd() {
+        return isFunctionStartNode() || isFunctionEndNode();
+    }
+
+    public String getNodeId() {
+        return nodeId;
+    }
+
     public NodeDefinition.PinType getPinKind(String pinName, boolean isInput) {
         if (isInput) {
             for (NodeDefinition.PinDefinition input : inputs) {
@@ -889,6 +1150,11 @@ public class NodeWidget extends AnimatedWidget {
             addBranchButton.setWidth(Math.min(OUTPUT_WIDGET_WIDTH, rightColumnWidth));
             addBranchButton.setHeight(INPUT_WIDGET_HEIGHT);
         }
+
+        updateFunctionParameterButtonPosition();
+    }
+
+    private void updateFunctionParameterButtonPosition() {
     }
 
     private int getOutputWidgetWidth(Widget widget) {

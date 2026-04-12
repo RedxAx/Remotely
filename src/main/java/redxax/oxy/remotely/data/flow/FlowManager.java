@@ -391,7 +391,11 @@ public class FlowManager {
     }
 
     public FlowGraph createFlow(String serverId, String flowId) {
-        FlowGraph graph = createDefaultFlow();
+        return createFlow(serverId, flowId, false);
+    }
+
+    public FlowGraph createFlow(String serverId, String flowId, boolean function) {
+        FlowGraph graph = createDefaultFlow(function);
         if (flowId != null) {
             graph.setId(flowId);
         }
@@ -913,7 +917,13 @@ public class FlowManager {
     }
 
     private FlowGraph createDefaultFlow() {
-        return new FlowGraph();
+        return createDefaultFlow(false);
+    }
+
+    private FlowGraph createDefaultFlow(boolean function) {
+        FlowGraph graph = new FlowGraph();
+        graph.setFunction(function);
+        return graph;
     }
 
     private GuiDefinition createDefaultGui(String id) {

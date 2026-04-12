@@ -141,14 +141,6 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         }
     }
 
-    public GuiDesignerScreen(GuiDefinition gui) {
-        this(gui, null, null, true);
-    }
-
-    public GuiDesignerScreen(GuiDefinition gui, String serverId) {
-        this(gui, serverId, ScreenManager.getInstance().getCurrentScreen());
-    }
-
     public GuiDesignerScreen(GuiDefinition gui, String serverId, Object parent) {
         this(gui, serverId, parent, !(parent instanceof Screen));
     }
@@ -172,7 +164,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     }
 
     public String getDesktopAppIconPath() {
-        return "change.png";
+        return "slot.png";
     }
 
     @Override
@@ -741,6 +733,14 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
         builder.addRow("ID", true, 22, idInput);
 
+        ToggleWidget functionToggle = new ToggleWidget.Builder()
+            .label("Create As Function")
+            .size(200, 18)
+            .toggled(false)
+            .build();
+
+        builder.addRow("", true, 18, functionToggle);
+
         PopupWidget[] popupRef = new PopupWidget[1];
 
         AnimatedButton createBtn = new AnimatedButton.Builder()
@@ -753,7 +753,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
                         new Notification("Error", "Flow ID already exists", Notification.Type.ERROR);
                         return;
                     }
-                    FlowGraph graph = flowManager.createFlow(serverId, id);
+                    FlowGraph graph = flowManager.createFlow(serverId, id, functionToggle.getValue());
                     if (popupRef[0] != null) {
                         popupRef[0].hide();
                     }
