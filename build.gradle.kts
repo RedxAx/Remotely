@@ -64,6 +64,16 @@ dependencies {
     runtimeOnly("org.lwjgl:lwjgl-opengl::natives-linux")
     runtimeOnly("org.lwjgl:lwjgl-stb::natives-linux")
     runtimeOnly("org.lwjgl:lwjgl-glfw::natives-linux")
+
+    runtimeOnly("org.lwjgl:lwjgl::natives-macos")
+    runtimeOnly("org.lwjgl:lwjgl-opengl::natives-macos")
+    runtimeOnly("org.lwjgl:lwjgl-stb::natives-macos")
+    runtimeOnly("org.lwjgl:lwjgl-glfw::natives-macos")
+
+    runtimeOnly("org.lwjgl:lwjgl::natives-macos-arm64")
+    runtimeOnly("org.lwjgl:lwjgl-opengl::natives-macos-arm64")
+    runtimeOnly("org.lwjgl:lwjgl-stb::natives-macos-arm64")
+    runtimeOnly("org.lwjgl:lwjgl-glfw::natives-macos-arm64")
 }
 
 java {
