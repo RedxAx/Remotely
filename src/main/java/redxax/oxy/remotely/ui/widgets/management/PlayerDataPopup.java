@@ -110,7 +110,7 @@ public class PlayerDataPopup extends PopupWidget {
         sectionContainer.entranceAnimationEnabled = false;
 
         builder.addRow("Section", true, 20, sectionSwitch);
-        builder.addRow("", false, 20, new IconButton.Builder().imagePath("external.png").label("Open Player Management").onClick(this::openPlayerManagmentScreen).accentType(ThemeManager.getAccent("calm")).build());
+        builder.addRow("", false, 20, new IconButton.Builder().imagePath("external.png").label("Player Manager").onClick(this::openPlayerManagmentScreen).accentType(ThemeManager.getAccent("calm")).autoWidthOnTextChange(true).build());
         builder.addRow(SEARCH_ROW_ID, "", true, 20, searchField);
         builder.addRow(SUGGEST_ROW_ID, "", true, 20, suggestionContainer);
         builder.addRow("", true, 224, sectionContainer);

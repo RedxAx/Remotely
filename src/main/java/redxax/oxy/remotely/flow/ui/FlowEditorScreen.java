@@ -31,6 +31,7 @@ import java.util.Set;
 import java.util.UUID;
 
 public class FlowEditorScreen extends InfiniteScreen implements UiHost {
+    private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
     private final FlowGraph graph;
     private final String serverId;
     private static Screen parent;
@@ -134,35 +135,81 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         final Map<String, FlowNode> nodes;
         final List<FlowConnection> connections;
         final Set<String> selectedIds;
+        final boolean function;
+        final List<FlowGraph.FunctionParameter> functionInputs;
+        final List<FlowGraph.FunctionParameter> functionOutputs;
+
+        private GraphSnapshot(Map<String, FlowNode> nodes, List<FlowConnection> connections, Set<String> selectedIds,
+                              boolean function, List<FlowGraph.FunctionParameter> functionInputs,
+                              List<FlowGraph.FunctionParameter> functionOutputs) {
+            this.nodes = nodes;
+            this.connections = connections;
+            this.selectedIds = selectedIds;
+            this.function = function;
+            this.functionInputs = functionInputs;
+            this.functionOutputs = functionOutputs;
+        }
 
         GraphSnapshot(Map<String, FlowNode> nodes, List<FlowConnection> connections, Set<String> selectedIds) {
-            this.nodes = new HashMap<>();
+            Map<String, FlowNode> copiedNodes = new HashMap<>();
             for (Map.Entry<String, FlowNode> entry : nodes.entrySet()) {
                 FlowNode node = entry.getValue();
-                this.nodes.put(entry.getKey(), new FlowNode(
+                copiedNodes.put(entry.getKey(), new FlowNode(
                         node.getType(),
                         node.getX(),
                         node.getY(),
                         new HashMap<>(node.getInputValues())
                 ));
             }
-            this.connections = new ArrayList<>(connections);
-            this.selectedIds = new HashSet<>(selectedIds);
+            Map<String, FlowNode> immutableNodes = copiedNodes;
+            List<FlowConnection> copiedConnections = new ArrayList<>(connections);
+            Set<String> copiedSelectedIds = new HashSet<>(selectedIds);
+            List<FlowGraph.FunctionParameter> emptyInputs = new ArrayList<>();
+            List<FlowGraph.FunctionParameter> emptyOutputs = new ArrayList<>();
+            this.nodes = immutableNodes;
+            this.connections = copiedConnections;
+            this.selectedIds = copiedSelectedIds;
+            this.function = false;
+            this.functionInputs = emptyInputs;
+            this.functionOutputs = emptyOutputs;
         }
+
+        GraphSnapshot(FlowGraph graph, Set<String> selectedIds) {
+            this(
+                copyNodes(graph.getNodes()),
+                new ArrayList<>(graph.getConnections()),
+                new HashSet<>(selectedIds),
+                graph.isFunction(),
+                copyFunctionParameters(graph.getFunctionInputs()),
+                copyFunctionParameters(graph.getFunctionOutputs())
+            );
+        }
+
+        private static Map<String, FlowNode> copyNodes(Map<String, FlowNode> nodes) {
+            Map<String, FlowNode> copied = new HashMap<>();
+            for (Map.Entry<String, FlowNode> entry : nodes.entrySet()) {
+                FlowNode node = entry.getValue();
+                copied.put(entry.getKey(), new FlowNode(
+                    node.getType(),
+                    node.getX(),
+                    node.getY(),
+                    new HashMap<>(node.getInputValues())
+                ));
+            }
+            return copied;
+        }
+    }
+
+    private record InboundBoundary(String sourceNodeId, String sourcePin, String targetNodeId, String targetPin) {
+    }
+
+    private record OutboundBoundary(String sourceNodeId, String sourcePin, String targetNodeId, String targetPin) {
     }
 
     private final List<GraphSnapshot> undoStack = new ArrayList<>();
     private final List<GraphSnapshot> redoStack = new ArrayList<>();
     private static final int MAX_UNDO_SIZE = 50;
     private boolean isUndoing = false;
-
-    public FlowEditorScreen(FlowGraph graph) {
-        this(graph, null);
-    }
-
-    public FlowEditorScreen(FlowGraph graph, String serverId) {
-        this(graph, serverId, null);
-    }
 
     public FlowEditorScreen(FlowGraph graph, String serverId, Screen parent) {
         super();
@@ -229,6 +276,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         if (sourceGraph.getLocalVariables() != null) {
             graph.getLocalVariables().addAll(sourceGraph.getLocalVariables());
         }
+        graph.setFunction(sourceGraph.isFunction());
+        graph.setFunctionInputs(copyFunctionParameters(sourceGraph.getFunctionInputs()));
+        graph.setFunctionOutputs(copyFunctionParameters(sourceGraph.getFunctionOutputs()));
         selectedNodeIds.clear();
         selectionBase.clear();
         focusedNode = null;
@@ -250,7 +300,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     public String getDesktopAppIconPath() {
-        return "change.png";
+        return "flow.png";
     }
 
     public void refreshNodeRegistry() {
@@ -428,7 +478,334 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 .onClick(this::onSave)
                 .build();
         headerButtons.add(saveButton);
+
+        IconButton extractButton = new IconButton.Builder()
+                .size(18, 18)
+                .imagePath("copy.png")
+                .onClick(this::showExtractFunctionPopup)
+                .build();
+        headerButtons.add(extractButton);
         addDrawableChild(saveButton, backButton);
+        addDrawableChild(extractButton);
+    }
+
+    private void showExtractFunctionPopup() {
+        if (selectedNodeIds.isEmpty()) {
+            new Notification("Error", "Select Nodes", Notification.Type.ERROR);
+            return;
+        }
+        PopupWidget.Builder builder = new PopupWidget.Builder("Extract Function").setResizable(false);
+        TextInputWidget idInput = new TextInputWidget.Builder()
+                .placeholder("function_id")
+                .size(200, 22)
+                .build();
+        builder.addRow("ID", true, 22, idInput);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton extractButton = new AnimatedButton.Builder()
+                .label("Extract")
+                .accentType(ThemeManager.getAccent("nice"))
+                .onClick(() -> {
+                    String id = idInput.getText() != null ? idInput.getText().trim() : "";
+                    if (!id.matches("^[a-zA-Z0-9_]+$")) {
+                        new Notification("Error", "Invalid ID", Notification.Type.ERROR);
+                        return;
+                    }
+                    if (extractSelectionToFunction(id)) {
+                        if (popupRef[0] != null) {
+                            popupRef[0].hide();
+                        }
+                    }
+                })
+                .build();
+
+        builder.addRow("", true, 20, extractButton);
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private boolean extractSelectionToFunction(String functionId) {
+        FlowManager flowManager = FlowManager.getInstance();
+        if (flowManager == null || serverId == null || functionId == null || functionId.isBlank()) {
+            return false;
+        }
+        if (flowManager.getFlowsForServer(serverId).containsKey(functionId)) {
+            new Notification("Error", "Function ID Exists", Notification.Type.ERROR);
+            return false;
+        }
+        if (selectedNodeIds.isEmpty()) {
+            new Notification("Error", "Select Nodes", Notification.Type.ERROR);
+            return false;
+        }
+        captureSnapshot();
+
+        Set<String> selected = new HashSet<>(selectedNodeIds);
+        List<InboundBoundary> inbound = new ArrayList<>();
+        List<OutboundBoundary> outbound = new ArrayList<>();
+        List<FlowConnection> internal = new ArrayList<>();
+
+        for (FlowConnection connection : graph.getConnections()) {
+            boolean sourceSelected = selected.contains(connection.getSourceNodeId());
+            boolean targetSelected = selected.contains(connection.getTargetNodeId());
+            if (sourceSelected && targetSelected) {
+                internal.add(new FlowConnection(
+                        connection.getSourceNodeId(),
+                        connection.getSourcePin(),
+                        connection.getTargetNodeId(),
+                        connection.getTargetPin()
+                ));
+                continue;
+            }
+            if (!sourceSelected && targetSelected) {
+                inbound.add(new InboundBoundary(
+                        connection.getSourceNodeId(),
+                        connection.getSourcePin(),
+                        connection.getTargetNodeId(),
+                        connection.getTargetPin()
+                ));
+                continue;
+            }
+            if (sourceSelected) {
+                outbound.add(new OutboundBoundary(
+                        connection.getSourceNodeId(),
+                        connection.getSourcePin(),
+                        connection.getTargetNodeId(),
+                        connection.getTargetPin()
+                ));
+            }
+        }
+
+        FlowGraph functionGraph = flowManager.createFlow(serverId, functionId, true);
+        functionGraph.getNodes().clear();
+        functionGraph.getConnections().clear();
+        functionGraph.getLocalVariables().clear();
+        functionGraph.setFunction(true);
+        functionGraph.setFunctionInputs(new ArrayList<>());
+        functionGraph.setFunctionOutputs(new ArrayList<>());
+
+        double minX = Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE;
+        double maxX = Double.MIN_VALUE;
+        double maxY = Double.MIN_VALUE;
+        double centerX = 0;
+        double centerY = 0;
+        int count = 0;
+
+        for (String nodeId : selected) {
+            FlowNode node = graph.getNodes().get(nodeId);
+            if (node == null) {
+                continue;
+            }
+            functionGraph.getNodes().put(nodeId, new FlowNode(
+                    node.getType(),
+                    node.getX(),
+                    node.getY(),
+                    node.getInputValues() != null ? new HashMap<>(node.getInputValues()) : new HashMap<>())
+            );
+            minX = Math.min(minX, node.getX());
+            minY = Math.min(minY, node.getY());
+            maxX = Math.max(maxX, node.getX());
+            maxY = Math.max(maxY, node.getY());
+            centerX += node.getX();
+            centerY += node.getY();
+            count++;
+        }
+        if (count == 0) {
+            return false;
+        }
+        centerX /= count;
+        centerY /= count;
+
+        functionGraph.getConnections().addAll(internal);
+        String functionStartId = UUID.randomUUID().toString();
+        String functionEndId = UUID.randomUUID().toString();
+
+        functionGraph.getNodes().put(functionStartId, new FlowNode("function_start", minX - 220, minY, new HashMap<>()));
+        functionGraph.getNodes().put(functionEndId, new FlowNode("function_end", maxX + 220, maxY, new HashMap<>()));
+
+        Set<String> entryTargets = new HashSet<>();
+        Set<String> exitSources = new HashSet<>();
+        for (InboundBoundary connection : inbound) {
+            if ("flow".equals(connection.targetPin())) {
+                entryTargets.add(connection.targetNodeId());
+            }
+        }
+        for (OutboundBoundary connection : outbound) {
+            if ("flow".equals(connection.sourcePin())) {
+                exitSources.add(connection.sourceNodeId());
+            }
+        }
+        for (String entryTarget : entryTargets) {
+            functionGraph.getConnections().add(new FlowConnection(functionStartId, "flow", entryTarget, "flow"));
+        }
+        for (String exitSource : exitSources) {
+            functionGraph.getConnections().add(new FlowConnection(exitSource, "flow", functionEndId, "flow"));
+        }
+
+        Map<InboundBoundary, String> inboundParams = new HashMap<>();
+        Map<OutboundBoundary, String> outboundParams = new HashMap<>();
+        Set<String> usedInputNames = new HashSet<>();
+        Set<String> usedOutputNames = new HashSet<>();
+
+        for (InboundBoundary connection : inbound) {
+            if ("flow".equals(connection.targetPin())) {
+                continue;
+            }
+            String parameterName = uniqueParameterName(connection.targetPin(), usedInputNames);
+            usedInputNames.add(parameterName);
+            FlowType parameterType = resolveTargetPinType(connection.targetNodeId(), connection.targetPin());
+            functionGraph.getFunctionInputs().add(new FlowGraph.FunctionParameter(parameterName, parameterType));
+            functionGraph.getConnections().add(new FlowConnection(functionStartId, parameterName, connection.targetNodeId(), connection.targetPin()));
+            inboundParams.put(connection, parameterName);
+        }
+
+        for (OutboundBoundary connection : outbound) {
+            if ("flow".equals(connection.sourcePin())) {
+                continue;
+            }
+            String parameterName = uniqueParameterName(connection.sourcePin(), usedOutputNames);
+            usedOutputNames.add(parameterName);
+            FlowType parameterType = resolveSourcePinType(connection.sourceNodeId(), connection.sourcePin());
+            functionGraph.getFunctionOutputs().add(new FlowGraph.FunctionParameter(parameterName, parameterType));
+            functionGraph.getConnections().add(new FlowConnection(connection.sourceNodeId(), connection.sourcePin(), functionEndId, parameterName));
+            outboundParams.put(connection, parameterName);
+        }
+
+        flowManager.saveFlow(serverId, functionGraph);
+
+        String callNodeType = CUSTOM_FUNCTION_NODE_PREFIX + functionId;
+        NodeDefinition callDef = buildCustomFunctionNodeDefinition(callNodeType, functionId, functionGraph);
+        if (NodeRegistry.getInstance() != null) {
+            NodeRegistry.getInstance().registerServerDefinition(serverId, callDef);
+        }
+
+        graph.getConnections().removeIf(connection -> selected.contains(connection.getSourceNodeId()) || selected.contains(connection.getTargetNodeId()));
+        for (String nodeId : selected) {
+            NodeWidget widget = widgetCache.remove(nodeId);
+            if (widget != null) {
+                removeWorldWidget(widget);
+            }
+            graph.getNodes().remove(nodeId);
+        }
+
+        String callNodeId = UUID.randomUUID().toString();
+        FlowNode callNode = new FlowNode(callNodeType, centerX, centerY, new HashMap<>());
+        graph.getNodes().put(callNodeId, callNode);
+        NodeWidget callWidget = new NodeWidget((int) centerX, (int) centerY, callNode, graph, callNodeId, serverId, () -> deleteNode(callNodeId));
+        addWorldWidget(callWidget);
+        widgetCache.put(callNodeId, callWidget);
+
+        for (InboundBoundary connection : inbound) {
+            if ("flow".equals(connection.targetPin())) {
+                graph.getConnections().add(new FlowConnection(connection.sourceNodeId(), connection.sourcePin(), callNodeId, "flow"));
+                continue;
+            }
+            String parameterName = inboundParams.get(connection);
+            if (parameterName == null) {
+                continue;
+            }
+            removeExistingInputConnection(callNodeId, parameterName);
+            graph.getConnections().add(new FlowConnection(connection.sourceNodeId(), connection.sourcePin(), callNodeId, parameterName));
+        }
+
+        for (OutboundBoundary connection : outbound) {
+            if ("flow".equals(connection.sourcePin())) {
+                removeExistingInputConnection(connection.targetNodeId(), connection.targetPin());
+                graph.getConnections().add(new FlowConnection(callNodeId, "flow", connection.targetNodeId(), connection.targetPin()));
+                continue;
+            }
+            String parameterName = outboundParams.get(connection);
+            if (parameterName == null) {
+                continue;
+            }
+            removeExistingInputConnection(connection.targetNodeId(), connection.targetPin());
+            graph.getConnections().add(new FlowConnection(callNodeId, parameterName, connection.targetNodeId(), connection.targetPin()));
+        }
+
+        refreshInputWidgets(callNodeId);
+        for (InboundBoundary connection : inbound) {
+            refreshInputWidgets(connection.sourceNodeId());
+            refreshInputWidgets(connection.targetNodeId());
+        }
+        for (OutboundBoundary connection : outbound) {
+            refreshInputWidgets(connection.targetNodeId());
+        }
+
+        selectedNodeIds.clear();
+        selectedNodeIds.add(callNodeId);
+        focusedNode = callWidget;
+        new Notification("Function Extracted", functionId, Notification.Type.SUCCESS);
+        return true;
+    }
+
+    private String uniqueParameterName(String baseName, Set<String> usedNames) {
+        String normalized = (baseName == null || baseName.isBlank()) ? "value" : baseName.trim();
+        normalized = normalized.replaceAll("[^a-zA-Z0-9_]", "_");
+        if (!normalized.matches("^[a-zA-Z_].*")) {
+            normalized = "p_" + normalized;
+        }
+        String candidate = normalized;
+        int index = 2;
+        while (usedNames.contains(candidate)) {
+            candidate = normalized + "_" + index;
+            index++;
+        }
+        return candidate;
+    }
+
+    private FlowType resolveTargetPinType(String nodeId, String pinName) {
+        NodeWidget widget = widgetCache.get(nodeId);
+        if (widget == null) {
+            return FlowType.ANY;
+        }
+        FlowType type = widget.getPinType(pinName, true);
+        return type != null ? type : FlowType.ANY;
+    }
+
+    private FlowType resolveSourcePinType(String nodeId, String pinName) {
+        NodeWidget widget = widgetCache.get(nodeId);
+        if (widget == null) {
+            return FlowType.ANY;
+        }
+        FlowType type = widget.getPinType(pinName, false);
+        return type != null ? type : FlowType.ANY;
+    }
+
+    private NodeDefinition buildCustomFunctionNodeDefinition(String nodeType, String functionId, FlowGraph functionGraph) {
+        NodeDefinition.Builder builder = new NodeDefinition.Builder(nodeType, formatFunctionDisplayName(functionId), NodeDefinition.NodeCategory.FUNCTION);
+        builder.input("flow", NodeDefinition.PinType.FLOW, FlowType.EXECUTION);
+        builder.output("flow", NodeDefinition.PinType.FLOW, FlowType.EXECUTION);
+        if (functionGraph.getFunctionInputs() != null) {
+            for (FlowGraph.FunctionParameter param : functionGraph.getFunctionInputs()) {
+                if (param != null && param.getName() != null && !param.getName().isBlank()) {
+                    builder.input(param.getName(), NodeDefinition.PinType.DATA, param.getType() != null ? param.getType() : FlowType.ANY);
+                }
+            }
+        }
+        if (functionGraph.getFunctionOutputs() != null) {
+            for (FlowGraph.FunctionParameter param : functionGraph.getFunctionOutputs()) {
+                if (param != null && param.getName() != null && !param.getName().isBlank()) {
+                    builder.output(param.getName(), NodeDefinition.PinType.DATA, param.getType() != null ? param.getType() : FlowType.ANY);
+                }
+            }
+        }
+        builder.priority(220).color(NodeDefinition.NodeCategory.FUNCTION);
+        return builder.build();
+    }
+
+    private String formatFunctionDisplayName(String functionId) {
+        if (functionId == null || functionId.isBlank()) return "Function";
+        String[] parts = functionId.split("_");
+        StringBuilder sb = new StringBuilder();
+        for (String part : parts) {
+            if (!part.isEmpty()) {
+                sb.append(Character.toUpperCase(part.charAt(0)));
+                if (part.length() > 1) sb.append(part.substring(1));
+                sb.append(" ");
+            }
+        }
+        return sb.toString().trim();
     }
 
     private void layoutHeaderButtons() {
@@ -678,6 +1055,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         int wx = (int)worldMouse[0];
         int wy = (int)worldMouse[1];
 
+        if (handleHeaderButtonsClick((int) undistortedCoords[0], (int) undistortedCoords[1], button)) {
+            return true;
+        }
+
         if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
             if (handleRightClick(wx, wy, (int)mouseX, (int)mouseY)) {
                 return true;
@@ -751,6 +1132,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 }
                 bringToFront(widget);
                 selectNode(widget, hasShiftDown() || hasControlDown());
+                widget.setLastScreenMouse((int) undistortedCoords[0], (int) undistortedCoords[1]);
                 widget.mouseClicked(wx, wy, button);
                 return true;
             }
@@ -766,6 +1148,15 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             clearSelection();
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private boolean handleHeaderButtonsClick(int mouseX, int mouseY, int button) {
+        for (IconButton headerButton : headerButtons) {
+            if (headerButton != null && headerButton.isMouseOver(mouseX, mouseY)) {
+                return headerButton.mouseClicked(mouseX, mouseY, button);
+            }
+        }
+        return false;
     }
 
     private void startWireDrag(NodeWidget widget, String pinName, boolean isInput) {
@@ -979,6 +1370,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 return true;
             }
             selectNode(widget, hasShiftDown() || hasControlDown());
+            if (widget.isFunctionStartOrEnd()) {
+                showFunctionNodeContextMenu(screenX, screenY, widget);
+            }
             return true;
         }
 
@@ -996,6 +1390,23 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             }
         }
         return null;
+    }
+
+    private void showFunctionNodeContextMenu(int screenX, int screenY, NodeWidget widget) {
+        List<FlowGraph.FunctionParameter> params = widget.getFunctionParameterList();
+        if (params == null) return;
+
+        ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
+        builder.addHeaderButton("add.png", () -> widget.showAddFunctionParameterPopup(), "Add Parameter", ThemeManager.getAccent("nice"));
+        for (FlowGraph.FunctionParameter p : params) {
+            if (p != null && p.getName() != null) {
+                String name = p.getName();
+                builder.addItem("Remove: " + name, () -> widget.removeFunctionParameter(name), name, ThemeManager.getAccent("danger"));
+            }
+        }
+        ContextMenuWidget menu = builder.build();
+        addDrawableChild(menu);
+        menu.show(screenX, screenY);
     }
 
 
@@ -1530,7 +1941,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     private void captureSnapshot() {
         if (isUndoing) return;
-        undoStack.add(new GraphSnapshot(graph.getNodes(), graph.getConnections(), selectedNodeIds));
+        undoStack.add(new GraphSnapshot(graph, selectedNodeIds));
         if (undoStack.size() > MAX_UNDO_SIZE) {
             undoStack.remove(0);
         }
@@ -1542,7 +1953,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         isUndoing = true;
 
-        GraphSnapshot redoSnapshot = new GraphSnapshot(graph.getNodes(), graph.getConnections(), selectedNodeIds);
+        GraphSnapshot redoSnapshot = new GraphSnapshot(graph, selectedNodeIds);
         redoStack.add(redoSnapshot);
         if (redoStack.size() > MAX_UNDO_SIZE) {
             redoStack.remove(0);
@@ -1559,7 +1970,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         isUndoing = true;
 
-        GraphSnapshot undoSnapshot = new GraphSnapshot(graph.getNodes(), graph.getConnections(), selectedNodeIds);
+        GraphSnapshot undoSnapshot = new GraphSnapshot(graph, selectedNodeIds);
         undoStack.add(undoSnapshot);
         if (undoStack.size() > MAX_UNDO_SIZE) {
             undoStack.remove(0);
@@ -1592,6 +2003,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         graph.getConnections().clear();
         graph.getConnections().addAll(snapshot.connections);
+        graph.setFunction(snapshot.function);
+        graph.setFunctionInputs(copyFunctionParameters(snapshot.functionInputs));
+        graph.setFunctionOutputs(copyFunctionParameters(snapshot.functionOutputs));
 
         for (String nodeId : snapshot.nodes.keySet()) {
             refreshInputWidgets(nodeId);
@@ -1604,6 +2018,20 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
         return x >= bounds[0] && x <= bounds[0] + bounds[2]
                 && y >= bounds[1] && y <= bounds[1] + bounds[3];
+    }
+
+    private static List<FlowGraph.FunctionParameter> copyFunctionParameters(List<FlowGraph.FunctionParameter> parameters) {
+        List<FlowGraph.FunctionParameter> copied = new ArrayList<>();
+        if (parameters == null) {
+            return copied;
+        }
+        for (FlowGraph.FunctionParameter parameter : parameters) {
+            if (parameter == null) {
+                continue;
+            }
+            copied.add(new FlowGraph.FunctionParameter(parameter.getName(), parameter.getType()));
+        }
+        return copied;
     }
 
     @Override
