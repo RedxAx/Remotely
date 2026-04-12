@@ -38,7 +38,7 @@ public class RemotelyEntry extends ReStudioEntry {
 
     @Override
     public String getIconResourcePath() {
-        return "assets/restudio/logos/Reemotely.png";
+        return "/assets/restudio/logos/Reemotely.png";
     }
 
     @Override
