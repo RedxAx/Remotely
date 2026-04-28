@@ -31,6 +31,7 @@ import java.lang.reflect.Field;
 
 public class RematrixScreen extends Screen {
     private static restudio.rescreen.ui.core.Screen suspendedScreen;
+    private static Screen suspendedMinecraftScreen;
     private static boolean skipCloseCleanup;
     private final restudio.rescreen.ui.core.Screen libScreen;
     private final ScreenManager sm = ScreenManager.getInstance();
@@ -372,11 +373,14 @@ public class RematrixScreen extends Screen {
         //$$     var target = Config.desktopMode ? sm.getDesktopSuperScreen() : sm.getCurrentScreen();
         //$$     if (target == null) target = sm.getCurrentScreen();
         //$$     suspendedScreen = target != null ? target : wrapper.getScreen();
+        //$$     Screen restoreScreen = suspendedMinecraftScreen;
+        //$$     suspendedMinecraftScreen = null;
         //$$     skipCloseCleanup = true;
-        //$$     mc.gui.setScreen(null);
+        //$$     mc.gui.setScreen(restoreScreen);
         //$$     return true;
         //$$ }
         //$$ if (suspendedScreen == null) return false;
+        //$$ suspendedMinecraftScreen = mc.gui.screen();
         //$$ mc.gui.setScreen(new RematrixScreen(suspendedScreen));
         //$$ return true;
         //#else
@@ -385,11 +389,14 @@ public class RematrixScreen extends Screen {
             var target = Config.desktopMode ? sm.getDesktopSuperScreen() : sm.getCurrentScreen();
             if (target == null) target = sm.getCurrentScreen();
             suspendedScreen = target != null ? target : wrapper.getScreen();
+            Screen restoreScreen = suspendedMinecraftScreen;
+            suspendedMinecraftScreen = null;
             skipCloseCleanup = true;
-            mc.setScreen(null);
+            mc.setScreen(restoreScreen);
             return true;
         }
         if (suspendedScreen == null) return false;
+        suspendedMinecraftScreen = mc.screen;
         mc.setScreen(new RematrixScreen(suspendedScreen));
         return true;
         //#endif
