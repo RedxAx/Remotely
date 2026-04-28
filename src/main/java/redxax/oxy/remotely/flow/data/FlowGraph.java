@@ -7,7 +7,9 @@ import java.util.Map;
 import java.util.UUID;
 
 public class FlowGraph {
+    public static final int CURRENT_VERSION = 1;
     private String id;
+    private int version;
     private Map<String, FlowNode> nodes;
     private List<FlowConnection> connections;
     private List<FlowVariable> localVariables;
@@ -48,6 +50,7 @@ public class FlowGraph {
 
     public FlowGraph() {
         this.id = UUID.randomUUID().toString();
+        this.version = CURRENT_VERSION;
         this.nodes = new HashMap<>();
         this.connections = new ArrayList<>();
         this.localVariables = new ArrayList<>();
@@ -63,6 +66,7 @@ public class FlowGraph {
     public FlowGraph(String id, Map<String, FlowNode> nodes, List<FlowConnection> connections, List<FlowVariable> localVariables,
                      boolean function, List<FunctionParameter> functionInputs, List<FunctionParameter> functionOutputs) {
         this.id = id;
+        this.version = CURRENT_VERSION;
         this.nodes = nodes != null ? nodes : new HashMap<>();
         this.connections = connections != null ? connections : new ArrayList<>();
         this.localVariables = localVariables != null ? localVariables : new ArrayList<>();
@@ -77,6 +81,14 @@ public class FlowGraph {
 
     public void setId(String id) {
         this.id = id;
+    }
+
+    public int getVersion() {
+        return version;
+    }
+
+    public void setVersion(int version) {
+        this.version = version;
     }
 
     public Map<String, FlowNode> getNodes() {

@@ -1,7 +1,14 @@
 package redxax.oxy.remotely.flow.cache;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonSyntaxException;
+import com.google.gson.TypeAdapter;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
+import redxax.oxy.remotely.flow.data.FlowDataType;
+import redxax.oxy.remotely.flow.data.FlowDataTypeAdapter;
+import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.sync.NodePluginPayload;
 import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 
@@ -17,7 +24,21 @@ import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public class NodeRegistryCache {
     private static NodeRegistryCache INSTANCE;
-    private final Gson gson = new Gson();
+    private final Gson gson = new GsonBuilder()
+            .registerTypeAdapter(FlowDataType.class, new FlowDataTypeAdapter())
+            .registerTypeAdapter(NodeDefinition.NodeCategory.class, new TypeAdapter<NodeDefinition.NodeCategory>() {
+                @Override
+                public void write(JsonWriter out, NodeDefinition.NodeCategory value) throws IOException {
+                    out.value(value != null ? value.getId() : null);
+                }
+
+                @Override
+                public NodeDefinition.NodeCategory read(JsonReader in) throws IOException {
+                    String id = in.nextString();
+                    return NodeDefinition.NodeCategory.fromString(id);
+                }
+            })
+            .create();
     private final Path cachePath;
     private CacheState state = new CacheState();
 

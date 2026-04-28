@@ -555,11 +555,11 @@ public class NodeDefinition {
             if (canonicalId != null && !canonicalId.isBlank() && hidden) {
                 return NodeKind.ALIAS;
             }
-            if (handler != null && List.of("player", "entity", "world", "block", "inventory", "itemstack").contains(handler)) {
-                return NodeKind.FAMILY;
-            }
             boolean hasFlowInput = inputs.stream().anyMatch(pin -> pin.getType() == PinType.FLOW && pin.getDirection() == PinDirection.INPUT);
             boolean hasFlowOutput = outputs.stream().anyMatch(pin -> pin.getType() == PinType.FLOW && pin.getDirection() == PinDirection.OUTPUT);
+            if (handler != null && List.of("player", "entity", "world", "block", "inventory", "itemstack").contains(handler)) {
+                return hasFlowInput ? NodeKind.FAMILY : NodeKind.QUERY;
+            }
             if (hasFlowInput || hasFlowOutput) {
                 return NodeKind.ACTION;
             }
