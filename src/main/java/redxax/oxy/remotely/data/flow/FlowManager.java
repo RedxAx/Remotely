@@ -966,13 +966,29 @@ public class FlowManager {
         if (graph == null || graph.getNodes() == null) {
             return;
         }
-        boolean hasCommandNode = graph.getNodes().values().stream().anyMatch(node ->
-            node != null && ("event:resync_command".equals(node.getType()) || "event:command".equals(node.getType()))
-        );
+        boolean changed = false;
+        boolean hasCommandNode = false;
+        for (FlowNode node : graph.getNodes().values()) {
+            if (node == null) {
+                continue;
+            }
+            if ("event.resync.command".equals(node.getType())) {
+                hasCommandNode = true;
+                continue;
+            }
+            if ("event:resync_command".equals(node.getType())) {
+                node.setType("event.resync.command");
+                hasCommandNode = true;
+                changed = true;
+            }
+        }
         if (hasCommandNode) {
+            if (changed) {
+                saveFlow(serverId, graph);
+            }
             return;
         }
-        graph.getNodes().put(UUID.randomUUID().toString(), new FlowNode("event:resync_command", 120, 120, new HashMap<>()));
+        graph.getNodes().put(UUID.randomUUID().toString(), new FlowNode("event.resync.command", 120, 120, new HashMap<>()));
         saveFlow(serverId, graph);
     }
 
