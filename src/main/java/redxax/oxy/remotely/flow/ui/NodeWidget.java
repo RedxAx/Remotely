@@ -3,9 +3,11 @@ package redxax.oxy.remotely.flow.ui;
 import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
-import redxax.oxy.remotely.flow.data.FlowType;
+import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
+import redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata;
+import redxax.oxy.remotely.flow.sync.FlowTypeMetadata;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.render.Render;
@@ -15,16 +17,24 @@ import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
+import restudio.rescreen.ui.widgets.ColorFieldWidget;
 import restudio.rescreen.ui.widgets.ContextMenuWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
+import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
+import restudio.rescreen.ui.widgets.SliderWidget;
+import restudio.rebase.minecraft.assets.MinecraftAssetsManager;
+import restudio.rebase.minecraft.assets.MinecraftCatalog;
+import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Set;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static restudio.rescreen.config.Config.shadow;
 import static restudio.rescreen.render.TextRenderer.tr;
@@ -38,6 +48,7 @@ public class NodeWidget extends AnimatedWidget {
     private final List<NodeDefinition.PinDefinition> outputs = new ArrayList<>();
     private final NodeDefinition definition;
     private final Map<String, Widget> inputWidgets = new HashMap<>();
+    private final List<NodeDefinition.PinDefinition> visibleInputs = new ArrayList<>();
     private final List<NodeDefinition.PinDefinition> visibleOutputs = new ArrayList<>();
     private final List<FlowBranch> flowBranches = new ArrayList<>();
     private final Runnable onClose;
@@ -65,6 +76,7 @@ public class NodeWidget extends AnimatedWidget {
     private static final String FLOW_BRANCHES_KEY = "__flow_branches";
     private static final String FUNCTION_START_ID = "function_start";
     private static final String FUNCTION_END_ID = "function_end";
+
     private boolean updatingBranchSelection = false;
     private int lastScreenX;
     private int lastScreenY;
@@ -120,6 +132,7 @@ public class NodeWidget extends AnimatedWidget {
             inputs.addAll(definition.getInputs());
             outputs.addAll(definition.getOutputs());
             applyFunctionParameterPins();
+            seedDefaultInputValues();
             createInputWidgets();
             createOutputWidgets();
             updateSize();
@@ -129,71 +142,303 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private void createInputWidgets() {
-        if (graph == null || nodeId == null || graph.getConnections() == null) return;
+        if (graph == null || nodeId == null) return;
 
         for (NodeDefinition.PinDefinition input : inputs) {
             if (input.getType() != NodeDefinition.PinType.DATA) {
                 continue;
             }
-            if (!isLiteralType(input.getDataType())) {
+            if (!isLiteralInput(input)) {
                 continue;
             }
-            if (!isInputWired(input.getName())) {
-                Object currentValue = node.getInputValues() != null ? node.getInputValues().get(input.getName()) : null;
-                List<String> options = getDropdownOptions(input);
+            if (isInputWired(input.getName())) {
+                continue;
+            }
+            Widget widget = buildWidgetForPin(input);
+            if (widget != null) {
+                inputWidgets.put(input.getName(), widget);
+            }
+        }
+        updatePinVisibility();
+    }
 
-                if (options != null) {
-                    String selected = currentValue != null ? currentValue.toString() : options.getFirst();
-                    for (String option : options) {
-                        if (option.equalsIgnoreCase(selected)) {
-                            selected = option;
-                            break;
-                        }
-                    }
-                    DropDownWidget<String> widget = new DropDownWidget.Builder<>(options)
-                        .selectedItem(selected)
-                        .onSelectionChanged(value -> saveInputValue())
-                        .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
-                        .entranceAnimation(false)
-                        .build();
-                    inputWidgets.put(input.getName(), widget);
-                } else if (input.getDataType() == FlowType.BOOLEAN) {
-                    boolean toggled = currentValue instanceof Boolean ? (boolean) currentValue : Boolean.parseBoolean(String.valueOf(currentValue));
-                    ToggleWidget widget = new ToggleWidget.Builder()
-                        .toggled(toggled)
-                        .onChange(this::saveInputValue)
-                        .entranceAnimation(false)
-                        .build();
-                    widget.setSize(TOGGLE_WIDGET_WIDTH, TOGGLE_WIDGET_HEIGHT);
-                    inputWidgets.put(input.getName(), widget);
-                } else {
-                    String textValue = currentValue != null ? currentValue.toString() : "";
-                    TextInputWidget widget = new TextInputWidget.Builder()
-                        .text(textValue)
-                        .placeholder("")
-                        .forcePlaceholder(false)
-                        .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
-                        .onChange(this::saveInputValue)
-                        .entranceAnimation(false)
-                        .build();
-                    inputWidgets.put(input.getName(), widget);
+    private Widget buildWidgetForPin(NodeDefinition.PinDefinition input) {
+        Object currentValue = node.getInputValues() != null ? node.getInputValues().get(input.getName()) : null;
+        NodeDefinition.WidgetType widgetType = resolveWidgetType(input);
+
+        switch (widgetType) {
+            case DROPDOWN -> {
+                List<String> options = resolveOptions(input);
+                if (options.isEmpty()) {
+                    return buildTextInput(currentValue, input.getOptionsSource());
                 }
+                String selected = resolveSelected(options, currentValue, input.getDefaultValue());
+                if (options.size() > 20) {
+                    return buildSearchableSelector(input, options, selected);
+                }
+                return new DropDownWidget.Builder<>(options)
+                    .selectedItem(selected)
+                    .onSelectionChanged(value -> {
+                        saveInputValue();
+                        updatePinVisibility();
+                    })
+                    .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
+                    .entranceAnimation(false)
+                    .build();
+            }
+            case SEARCHABLE_LIST -> {
+                List<String> options = resolveOptions(input);
+                if (options.isEmpty()) {
+                    return buildTextInput(currentValue, input.getOptionsSource());
+                }
+                String selected = resolveSelected(options, currentValue, input.getDefaultValue());
+                return buildSearchableSelector(input, options, selected);
+            }
+            case TOGGLE -> {
+                boolean toggled = currentValue instanceof Boolean ? (boolean) currentValue : Boolean.parseBoolean(String.valueOf(currentValue));
+                ToggleWidget widget = new ToggleWidget.Builder()
+                    .toggled(toggled)
+                    .onChange(() -> {
+                        saveInputValue();
+                        updatePinVisibility();
+                    })
+                    .entranceAnimation(false)
+                    .build();
+                widget.setSize(TOGGLE_WIDGET_WIDTH, TOGGLE_WIDGET_HEIGHT);
+                return widget;
+            }
+            case SLIDER -> {
+                double value = 0.0;
+                if (currentValue instanceof Number n) {
+                    value = n.doubleValue();
+                } else if (currentValue != null) {
+                    try {
+                        value = Double.parseDouble(currentValue.toString());
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+                NodeDefinition.PinConstraints constraints = input.getConstraints();
+                double min = constraints != null && constraints.getMin() != null ? constraints.getMin() : 0.0;
+                double max = constraints != null && constraints.getMax() != null ? constraints.getMax() : 100.0;
+                double step = constraints != null && constraints.getStep() != null ? constraints.getStep() : 1.0;
+                return new SliderWidget.Builder()
+                    .min(min)
+                    .max(max)
+                    .step(step)
+                    .value(value)
+                    .onChange(() -> {
+                        saveInputValue();
+                        updatePinVisibility();
+                    })
+                    .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
+                    .entranceAnimation(false)
+                    .build();
+            }
+            case NUMBER -> {
+                String textValue = currentValue != null ? currentValue.toString() : "";
+                TextInputWidget widget = new TextInputWidget.Builder()
+                    .text(textValue)
+                    .placeholder("")
+                    .forcePlaceholder(false)
+                    .numericOnly(true)
+                    .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
+                    .onChange(this::saveInputValue)
+                    .entranceAnimation(false)
+                    .build();
+                return widget;
+            }
+            case MULTILINE -> {
+                String textValue = currentValue != null ? currentValue.toString() : "";
+                return new TextAreaWidget.Builder()
+                    .text(textValue)
+                    .placeholder("")
+                    .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT * 3)
+                    .onChange(text -> saveInputValue())
+                    .entranceAnimation(false)
+                    .build();
+            }
+            case COLOR -> {
+                String textValue = currentValue != null ? currentValue.toString() : "#FFFFFF";
+                return new ColorFieldWidget.Builder()
+                    .color(textValue)
+                    .onChange(() -> {
+                        saveInputValue();
+                        updatePinVisibility();
+                    })
+                    .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
+                    .entranceAnimation(false)
+                    .build();
+            }
+            default -> {
+                return buildTextInput(currentValue, "");
             }
         }
     }
 
-    private List<String> getDropdownOptions(NodeDefinition.PinDefinition input) {
-        if (definition == null) {
+    private Widget buildTextInput(Object currentValue, String placeholder) {
+        String textValue = currentValue != null ? currentValue.toString() : "";
+        return new TextInputWidget.Builder()
+            .text(textValue)
+            .placeholder(placeholder != null ? placeholder : "")
+            .forcePlaceholder(false)
+            .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
+            .onChange(this::saveInputValue)
+            .entranceAnimation(false)
+            .build();
+    }
+
+    private Widget buildSearchableSelector(NodeDefinition.PinDefinition input, List<String> options, String selected) {
+        AnimatedButton button = new AnimatedButton.Builder()
+            .label(selected)
+            .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
+            .entranceAnimation(false)
+            .build();
+        button.setAction(() -> {
+            var screen = ScreenManager.getInstance().getCurrentScreen();
+            if (screen == null) return;
+            AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
+            selector.set(new ItemSelectorWidget.Builder(screen)
+                .size(180, 220)
+                .dismissOnSelect(true)
+                .onClose(() -> screen.remove(selector.get()))
+                .build());
+            for (String option : options) {
+                selector.get().addItem(option, () -> {
+                    node.getInputValues().put(input.getName(), option);
+                    button.setMessage(option);
+                    saveInputValue();
+                    updatePinVisibility();
+                });
+            }
+            selector.get().setSelectedItem(selected);
+            screen.addDrawableChild(selector.get());
+            selector.get().show(button.getX(), button.getY() + button.getHeight());
+        });
+        return button;
+    }
+
+    private List<String> resolveOptions(NodeDefinition.PinDefinition input) {
+        List<String> options = input.getOptions();
+        if (options != null && !options.isEmpty()) {
+            return options;
+        }
+        String catalog = resolveMinecraftCatalog(input.getOptionsSource());
+        if (catalog != null) {
+            return MinecraftCatalog.getCatalog(MinecraftAssetsManager.getInstance(), "minecraft", catalog);
+        }
+        return List.of();
+    }
+
+    private String resolveSelected(List<String> options, Object currentValue, String defaultValue) {
+        String selected = currentValue != null ? currentValue.toString() : defaultValue;
+        if (selected == null || selected.isBlank()) {
+            selected = options.isEmpty() ? "" : options.getFirst();
+        }
+        for (String option : options) {
+            if (option.equalsIgnoreCase(selected)) {
+                return option;
+            }
+        }
+        return selected;
+    }
+
+    private NodeDefinition.WidgetType resolveWidgetType(NodeDefinition.PinDefinition input) {
+        if (input.getWidgetType() != null && input.getWidgetType() != NodeDefinition.WidgetType.AUTO) {
+            return input.getWidgetType();
+        }
+        String optionsSource = input.getOptionsSource();
+        if (optionsSource != null && !optionsSource.isBlank()) {
+            NodeRegistry registry = NodeRegistry.getInstance();
+            FlowOptionSourceMetadata meta = registry != null ? registry.getServerOptionSource(serverId, optionsSource) : null;
+            if (meta != null) {
+                return meta.isSearchable() ? NodeDefinition.WidgetType.SEARCHABLE_LIST : NodeDefinition.WidgetType.DROPDOWN;
+            }
+            String catalog = resolveMinecraftCatalog(optionsSource);
+            if (catalog != null) {
+                return NodeDefinition.WidgetType.DROPDOWN;
+            }
+            return NodeDefinition.WidgetType.DROPDOWN;
+        }
+        if (input.getDataType() == FlowDataType.BOOLEAN) {
+            return NodeDefinition.WidgetType.TOGGLE;
+        }
+        return NodeDefinition.WidgetType.TEXT;
+    }
+
+    private String resolveMinecraftCatalog(String optionsSource) {
+        if (optionsSource == null || optionsSource.isBlank()) {
             return null;
         }
-        if ("variable_access".equals(definition.getId())) {
-            return switch (input.getName()) {
-                case "mode" -> List.of("Get", "Set", "Exists", "Delete", "List", "Increment", "Decrement", "Multiply", "Divide");
-                case "scope" -> List.of("Local", "Global", "Player");
-                default -> null;
-            };
+        String catalog = null;
+        if (optionsSource.startsWith("client:minecraft:")) {
+            catalog = optionsSource.substring("client:minecraft:".length());
+        } else if (optionsSource.startsWith("minecraft:")) {
+            catalog = optionsSource.substring("minecraft:".length());
         }
-        return null;
+        if (catalog == null) {
+            return null;
+        }
+        NodeRegistry registry = NodeRegistry.getInstance();
+        FlowOptionSourceMetadata meta = registry != null ? registry.getServerOptionSource(serverId, optionsSource) : null;
+        if (meta != null) {
+            return catalog;
+        }
+        return MinecraftCatalog.getCatalog(MinecraftAssetsManager.getInstance(), "minecraft", catalog) != null ? catalog : null;
+    }
+
+    private void seedDefaultInputValues() {
+        if (node.getInputValues() == null) {
+            node.setInputValues(new HashMap<>());
+        }
+        for (NodeDefinition.PinDefinition input : inputs) {
+            if (input.getDefaultValue() != null && !node.getInputValues().containsKey(input.getName())) {
+                node.getInputValues().put(input.getName(), convertValue(input.getDefaultValue(), input.getDataType()));
+            }
+        }
+    }
+
+    private void updatePinVisibility() {
+        visibleInputs.clear();
+        if (node.getInputValues() == null) {
+            visibleInputs.addAll(inputs);
+            createOutputWidgets();
+            return;
+        }
+        for (NodeDefinition.PinDefinition input : inputs) {
+            boolean shouldShow = evaluateVisibleWhen(input.getVisibleWhen());
+            Widget widget = inputWidgets.get(input.getName());
+            if (widget != null) {
+                widget.setVisible(shouldShow);
+            }
+            if (shouldShow) {
+                visibleInputs.add(input);
+            }
+        }
+        createOutputWidgets();
+        updateSize();
+        updateInputWidgetPositions();
+        updateOutputWidgetPositions();
+    }
+
+    private boolean evaluateVisibleWhen(Map<String, String> visibleWhen) {
+        if (visibleWhen == null || visibleWhen.isEmpty()) {
+            return true;
+        }
+        for (Map.Entry<String, String> condition : visibleWhen.entrySet()) {
+            Object actualValue = node.getInputValues().get(condition.getKey());
+            String actual = actualValue != null ? actualValue.toString() : "";
+            boolean matches = false;
+            for (String expected : condition.getValue().split(",")) {
+                if (actual.equalsIgnoreCase(expected.trim())) {
+                    matches = true;
+                    break;
+                }
+            }
+            if (!matches) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public void refreshInputWidgets() {
@@ -211,8 +456,8 @@ public class NodeWidget extends AnimatedWidget {
         inputs.clear();
         outputs.clear();
 
-        NodeDefinition.PinDefinition inputFlowPin = new NodeDefinition.PinDefinition("flow", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.INPUT, FlowType.EXECUTION);
-        NodeDefinition.PinDefinition outputFlowPin = new NodeDefinition.PinDefinition("flow", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.OUTPUT, FlowType.EXECUTION);
+        NodeDefinition.PinDefinition inputFlowPin = new NodeDefinition.PinDefinition("flow", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.INPUT, FlowDataType.EXECUTION);
+        NodeDefinition.PinDefinition outputFlowPin = new NodeDefinition.PinDefinition("flow", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.OUTPUT, FlowDataType.EXECUTION);
 
         inputs.add(inputFlowPin);
         outputs.add(outputFlowPin);
@@ -252,20 +497,8 @@ public class NodeWidget extends AnimatedWidget {
         return parameter != null && parameter.getName() != null && !parameter.getName().isBlank();
     }
 
-    private List<FlowType> getSupportedFunctionTypes() {
-        return List.of(
-            FlowType.ANY,
-            FlowType.STRING,
-            FlowType.NUMBER,
-            FlowType.BOOLEAN,
-            FlowType.PLAYER,
-            FlowType.ENTITY,
-            FlowType.LOCATION,
-            FlowType.ITEM,
-            FlowType.ITEMSTACK,
-            FlowType.LIST,
-            FlowType.JSON_OBJECT
-        );
+    private List<FlowDataType> getSupportedFunctionTypes() {
+        return FlowDataType.values();
     }
 
     public List<FlowGraph.FunctionParameter> getFunctionParameterList() {
@@ -312,10 +545,10 @@ public class NodeWidget extends AnimatedWidget {
             .placeholder("parameter_name")
             .size(200, 20)
             .build();
-        List<FlowType> types = getSupportedFunctionTypes();
-        DropDownWidget<FlowType> typeDropdown = new DropDownWidget.Builder<>(types)
-            .selectedItem(FlowType.ANY)
-            .size(200, 18)
+        List<FlowDataType> types = getSupportedFunctionTypes();
+        DropDownWidget<FlowDataType> typeDropdown = new DropDownWidget.Builder<>(types)
+            .selectedItem(FlowDataType.ANY)
+            .size(200, INPUT_WIDGET_HEIGHT)
             .build();
 
         builder.addRow("Name", true, 20, nameInput);
@@ -329,9 +562,9 @@ public class NodeWidget extends AnimatedWidget {
                 if (rawName.isBlank() || !rawName.matches("^[a-zA-Z0-9_]+$")) {
                     return;
                 }
-                FlowType type = typeDropdown.getSelectedItem();
+                FlowDataType type = typeDropdown.getSelectedItem();
                 if (type == null) {
-                    type = FlowType.ANY;
+                    type = FlowDataType.ANY;
                 }
 
                 List<FlowGraph.FunctionParameter> targetList;
@@ -423,11 +656,54 @@ public class NodeWidget extends AnimatedWidget {
         }
     }
 
-    private boolean isLiteralType(FlowType type) {
-        return type == FlowType.STRING || type == FlowType.NUMBER || type == FlowType.BOOLEAN || type == FlowType.ANY;
+    private boolean isLiteralInput(NodeDefinition.PinDefinition input) {
+        FlowDataType type = input.getDataType();
+        if (type == null) {
+            return false;
+        }
+        if (isObjectPin(type) && (input.getWidgetType() == null || input.getWidgetType() == NodeDefinition.WidgetType.AUTO)) {
+            return false;
+        }
+        if (input.getWidgetType() != null && input.getWidgetType() != NodeDefinition.WidgetType.AUTO) {
+            return true;
+        }
+        if (input.getOptions() != null && !input.getOptions().isEmpty()) {
+            return true;
+        }
+        if (input.getOptionsSource() != null && !input.getOptionsSource().isBlank()) {
+            return true;
+        }
+        NodeRegistry registry = NodeRegistry.getInstance();
+        FlowTypeMetadata meta = registry != null ? registry.getTypeMetadata(serverId, type.getId()) : null;
+        if (meta != null) {
+            return meta.isLiteralInput();
+        }
+        return type == FlowDataType.STRING || type == FlowDataType.NUMBER || type == FlowDataType.BOOLEAN || type == FlowDataType.ANY;
+    }
+
+    private boolean isObjectPin(FlowDataType type) {
+        if (type == null) {
+            return false;
+        }
+        NodeRegistry registry = NodeRegistry.getInstance();
+        FlowTypeMetadata meta = registry != null ? registry.getTypeMetadata(serverId, type.getId()) : null;
+        if (meta != null) {
+            return meta.isObjectPin();
+        }
+        return type == FlowDataType.PLAYER
+            || type == FlowDataType.ENTITY
+            || type == FlowDataType.LIVING_ENTITY
+            || type == FlowDataType.WORLD
+            || type == FlowDataType.BLOCK
+            || type == FlowDataType.LOCATION
+            || type == FlowDataType.INVENTORY
+            || type == FlowDataType.ITEMSTACK;
     }
 
     private boolean isInputWired(String pinName) {
+        if (graph == null || graph.getConnections() == null) {
+            return false;
+        }
         for (FlowConnection conn : graph.getConnections()) {
             if (conn.getTargetNodeId().equals(nodeId) && conn.getTargetPin().equals(pinName)) {
                 return true;
@@ -439,14 +715,16 @@ public class NodeWidget extends AnimatedWidget {
     private void createDefaultPins() {
         inputs.clear();
         outputs.clear();
-        inputs.add(new NodeDefinition.PinDefinition("in", NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, FlowType.ANY));
-        outputs.add(new NodeDefinition.PinDefinition("out", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.OUTPUT, FlowType.EXECUTION));
+        visibleInputs.clear();
+        inputs.add(new NodeDefinition.PinDefinition("in", NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, FlowDataType.ANY));
+        outputs.add(new NodeDefinition.PinDefinition("out", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.OUTPUT, FlowDataType.EXECUTION));
+        visibleInputs.addAll(inputs);
         visibleOutputs.clear();
         visibleOutputs.addAll(outputs);
         updateSize();
     }
 
-    private int getPinColor(FlowType dataType) {
+    public static int getPinColor(FlowDataType dataType) {
         if (dataType == null) {
             return 0xFFAAAAAA;
         }
@@ -481,8 +759,8 @@ public class NodeWidget extends AnimatedWidget {
         int rightColumnWidth = getRightColumnWidth();
         int rightColumnStart = getX() + getWidth() - PADDING - rightColumnWidth;
 
-        for (int i = 0; i < inputs.size(); i++) {
-            NodeDefinition.PinDefinition input = inputs.get(i);
+        for (int i = 0; i < visibleInputs.size(); i++) {
+            NodeDefinition.PinDefinition input = visibleInputs.get(i);
             int rowY = getRowStartY() + i * (ROW_HEIGHT + ROW_SPACING);
             int pinY = rowY + (ROW_HEIGHT - PIN_BUTTON_SIZE) / 2;
             int pinX = getX() + PADDING;
@@ -506,8 +784,8 @@ public class NodeWidget extends AnimatedWidget {
             drawPinButton(ctx, pinX, pinY, getPinColor(output.getDataType()));
         }
 
-        for (int i = inputs.size() - 1; i >= 0; i--) {
-            NodeDefinition.PinDefinition input = inputs.get(i);
+        for (int i = visibleInputs.size() - 1; i >= 0; i--) {
+            NodeDefinition.PinDefinition input = visibleInputs.get(i);
             Widget inputWidget = inputWidgets.get(input.getName());
             if (inputWidget != null) {
                 inputWidget.render(ctx, mouseX, mouseY, 0);
@@ -528,7 +806,7 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private void updateSize() {
-        int rowCount = Math.max(inputs.size(), visibleOutputs.size());
+        int rowCount = Math.max(visibleInputs.size(), visibleOutputs.size());
         int leftColumnWidth = getLeftColumnWidth();
         int rightColumnWidth = getRightColumnWidth();
         int contentWidth = leftColumnWidth + rightColumnWidth + (leftColumnWidth > 0 && rightColumnWidth > 0 ? COLUMN_GAP : 0);
@@ -536,7 +814,7 @@ public class NodeWidget extends AnimatedWidget {
         if (addBranchButton != null && addBranchButton.visible) {
             contentHeight += ROW_HEIGHT + ROW_SPACING;
         }
-        int minWidth = (inputs.isEmpty() || visibleOutputs.isEmpty()) ? SINGLE_COLUMN_MIN_WIDTH : DEFAULT_WIDTH;
+        int minWidth = (visibleInputs.isEmpty() || visibleOutputs.isEmpty()) ? SINGLE_COLUMN_MIN_WIDTH : DEFAULT_WIDTH;
         int titleWidth = tr.getWidth(definition != null ? definition.getDisplayName() : node.getType()) + PADDING * 2;
         if (closeButton.visible) {
             titleWidth += CLOSE_BUTTON_WIDTH + PADDING;
@@ -550,7 +828,7 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     public double[] getPinBounds(String pinName, boolean isInput) {
-        List<NodeDefinition.PinDefinition> pins = isInput ? inputs : visibleOutputs;
+        List<NodeDefinition.PinDefinition> pins = isInput ? visibleInputs : visibleOutputs;
         int index = -1;
 
         for (int i = 0; i < pins.size(); i++) {
@@ -588,7 +866,7 @@ public class NodeWidget extends AnimatedWidget {
     public Widget getInputWidgetAt(int wx, int wy) {
         updateInputWidgetPositions();
         for (Widget widget : inputWidgets.values()) {
-            if (widget.isMouseOver(wx, wy)) {
+            if (widget.isVisible() && widget.isMouseOver(wx, wy)) {
                 return widget;
             }
         }
@@ -723,8 +1001,8 @@ public class NodeWidget extends AnimatedWidget {
         int leftColumnWidth = getLeftColumnWidth();
         int leftColumnEnd = getX() + PADDING + leftColumnWidth;
 
-        for (int i = 0; i < inputs.size(); i++) {
-            NodeDefinition.PinDefinition input = inputs.get(i);
+        for (int i = 0; i < visibleInputs.size(); i++) {
+            NodeDefinition.PinDefinition input = visibleInputs.get(i);
             Widget inputWidget = inputWidgets.get(input.getName());
             if (inputWidget != null) {
                 int rowY = getRowStartY() + i * (ROW_HEIGHT + ROW_SPACING);
@@ -735,10 +1013,16 @@ public class NodeWidget extends AnimatedWidget {
                 inputWidget.setPosition(widgetX, widgetY);
                 inputWidget.setWidth(widgetWidth);
                 inputWidget.setHeight(widgetHeight);
-                inputWidget.setPriority(inputs.size() - i);
+                inputWidget.setPriority(visibleInputs.size() - i);
                 if (inputWidget instanceof AnimatedWidget w) {
-                    w.setLayer(inputs.size() - i);
+                    w.setLayer(visibleInputs.size() - i);
                 }
+            }
+        }
+        for (NodeDefinition.PinDefinition input : inputs) {
+            Widget inputWidget = inputWidgets.get(input.getName());
+            if (inputWidget != null && !visibleInputs.contains(input)) {
+                inputWidget.setVisible(false);
             }
         }
     }
@@ -758,7 +1042,7 @@ public class NodeWidget extends AnimatedWidget {
 
     private int getLeftColumnWidth() {
         int width = 0;
-        for (NodeDefinition.PinDefinition input : inputs) {
+        for (NodeDefinition.PinDefinition input : visibleInputs) {
             int labelWidth = tr.getWidth(input.getName());
             int rowWidth = PIN_BUTTON_SIZE + PIN_TEXT_GAP + labelWidth;
             Widget widget = inputWidgets.get(input.getName());
@@ -812,6 +1096,9 @@ public class NodeWidget extends AnimatedWidget {
                 continue;
             }
             Widget widget = entry.getValue();
+            if (!widget.isVisible()) {
+                continue;
+            }
             Object typedValue = null;
             if (widget instanceof TextInputWidget textInput) {
                 String value = textInput.getText();
@@ -829,6 +1116,22 @@ public class NodeWidget extends AnimatedWidget {
                     continue;
                 }
                 typedValue = convertValue(selected.toString(), def.getDataType());
+            } else if (widget instanceof SliderWidget slider) {
+                typedValue = slider.getValue();
+            } else if (widget instanceof TextAreaWidget textArea) {
+                String value = textArea.getText();
+                if (value.isEmpty()) {
+                    node.getInputValues().remove(entry.getKey());
+                    continue;
+                }
+                typedValue = value;
+            } else if (widget instanceof ColorFieldWidget colorField) {
+                String value = colorField.getColor();
+                if (value.isEmpty()) {
+                    node.getInputValues().remove(entry.getKey());
+                    continue;
+                }
+                typedValue = value;
             }
             if (typedValue != null) {
                 node.getInputValues().put(entry.getKey(), typedValue);
@@ -840,14 +1143,14 @@ public class NodeWidget extends AnimatedWidget {
         if (widget instanceof ToggleWidget) {
             return TOGGLE_WIDGET_WIDTH;
         }
-        return INPUT_WIDGET_WIDTH;
+        return widget.getWidth();
     }
 
     private int getInputWidgetHeight(Widget widget) {
         if (widget instanceof ToggleWidget) {
             return TOGGLE_WIDGET_HEIGHT;
         }
-        return INPUT_WIDGET_HEIGHT;
+        return widget.getHeight();
     }
 
     private NodeDefinition.PinDefinition findInputDefinition(String pinName) {
@@ -859,23 +1162,25 @@ public class NodeWidget extends AnimatedWidget {
         return null;
     }
 
-    private Object convertValue(String value, FlowType dataType) {
-        if (dataType == null || dataType == FlowType.ANY) {
+    private Object convertValue(String value, FlowDataType dataType) {
+        if (dataType == null || dataType == FlowDataType.ANY) {
             return value;
         }
+        String id = dataType.getId();
         try {
-            return switch (dataType) {
-                case STRING, EXECUTION, PLAYER, LOCATION, ITEM, LIST, ENTITY, ITEMSTACK, JSON_OBJECT -> value;
-                case NUMBER -> Double.parseDouble(value);
-                case BOOLEAN -> Boolean.parseBoolean(value);
-                case ANY -> value;
-            };
+            if ("number".equals(id)) {
+                return Double.parseDouble(value);
+            }
+            if ("boolean".equals(id)) {
+                return Boolean.parseBoolean(value);
+            }
+            return value;
         } catch (NumberFormatException e) {
             return value;
         }
     }
 
-    public FlowType getPinType(String pinName, boolean isInput) {
+    public FlowDataType getPinType(String pinName, boolean isInput) {
         if (isInput) {
             for (NodeDefinition.PinDefinition input : inputs) {
                 if (input.getName().equals(pinName)) {
@@ -918,7 +1223,7 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     public String getPinAtPosition(int wx, int wy) {
-        for (NodeDefinition.PinDefinition input : inputs) {
+        for (NodeDefinition.PinDefinition input : visibleInputs) {
             double[] bounds = getPinBounds(input.getName(), true);
             if (bounds != null && isInside(wx, wy, bounds)) {
                 return input.getName();
@@ -937,9 +1242,16 @@ public class NodeWidget extends AnimatedWidget {
         visibleOutputs.clear();
         flowBranches.clear();
 
+        List<NodeDefinition.PinDefinition> metadataVisibleOutputs = new ArrayList<>();
+        for (NodeDefinition.PinDefinition output : outputs) {
+            if (evaluateVisibleWhen(output.getVisibleWhen())) {
+                metadataVisibleOutputs.add(output);
+            }
+        }
+
         List<NodeDefinition.PinDefinition> flowOutputs = new ArrayList<>();
         List<NodeDefinition.PinDefinition> otherOutputs = new ArrayList<>();
-        for (NodeDefinition.PinDefinition output : outputs) {
+        for (NodeDefinition.PinDefinition output : metadataVisibleOutputs) {
             if (isFlowOutput(output)) {
                 flowOutputs.add(output);
             } else {
@@ -948,7 +1260,9 @@ public class NodeWidget extends AnimatedWidget {
         }
 
         if (flowOutputs.size() <= 2) {
-            visibleOutputs.addAll(outputs);
+            visibleOutputs.addAll(flowOutputs);
+            visibleOutputs.addAll(otherOutputs);
+            visibleOutputs.sort((left, right) -> Boolean.compare(!isFlowOutput(left), !isFlowOutput(right)));
             addBranchButton = null;
             return;
         }
@@ -956,19 +1270,20 @@ public class NodeWidget extends AnimatedWidget {
         List<String> selectedBranches = resolveFlowBranches(flowOutputs);
         for (String branch : selectedBranches) {
             NodeDefinition.PinDefinition pin = findOutputDefinition(branch);
-            if (pin != null) {
+            if (pin != null && metadataVisibleOutputs.contains(pin)) {
                 visibleOutputs.add(pin);
                 flowBranches.add(new FlowBranch(branch, buildBranchSelector(flowOutputs, branch)));
             }
         }
 
         visibleOutputs.addAll(otherOutputs);
+        visibleOutputs.sort((left, right) -> Boolean.compare(!isFlowOutput(left), !isFlowOutput(right)));
         saveFlowBranches();
         updateAddBranchButton(flowOutputs);
     }
 
     private boolean isFlowOutput(NodeDefinition.PinDefinition output) {
-        return output.getType() == NodeDefinition.PinType.FLOW && output.getDataType() == FlowType.EXECUTION;
+        return output.getType() == NodeDefinition.PinType.FLOW && output.getDataType() == FlowDataType.EXECUTION;
     }
 
     private NodeDefinition.PinDefinition findOutputDefinition(String name) {
@@ -1144,7 +1459,7 @@ public class NodeWidget extends AnimatedWidget {
         }
 
         if (addBranchButton != null && addBranchButton.visible) {
-            int rowCount = Math.max(inputs.size(), visibleOutputs.size());
+            int rowCount = Math.max(visibleInputs.size(), visibleOutputs.size());
             int rowY = getRowStartY() + rowCount * (ROW_HEIGHT + ROW_SPACING);
             addBranchButton.setPosition(buttonX, rowY);
             addBranchButton.setWidth(Math.min(OUTPUT_WIDGET_WIDTH, rightColumnWidth));
