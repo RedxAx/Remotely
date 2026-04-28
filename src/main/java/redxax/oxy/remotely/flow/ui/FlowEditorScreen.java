@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
@@ -39,9 +40,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     private static final float WIRE_HIT_RADIUS = 6.0f;
     private static final int WIRE_OUT_OFFSET = 26;
     private static final int WIRE_LANE_SPACING = 6;
-    private static final int SELECTION_BORDER_PADDING = 2;
     private final Set<String> selectedNodeIds = new HashSet<>();
     private final Set<String> selectionBase = new HashSet<>();
+    private final Map<String, int[]> selectedDragStartPositions = new HashMap<>();
     private boolean isSelecting = false;
     private boolean selectionAdditive = false;
     private double selectionStartX = 0;
@@ -70,6 +71,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     private NodeWidget dragPinWidget;
     private ItemSelectorWidget nodeItemSelector;
     private NodeWidget focusedNode;
+    private boolean movingSelectedNodes = false;
 
     private String pendingSourceNodeId;
     private String pendingSourcePin;
@@ -263,6 +265,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         graph.setFunctionOutputs(copyFunctionParameters(sourceGraph.getFunctionOutputs()));
         selectedNodeIds.clear();
         selectionBase.clear();
+        selectedDragStartPositions.clear();
         focusedNode = null;
         dragState.sourceNodeId = null;
         dragState.sourcePin = null;
@@ -822,6 +825,28 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
     }
 
+    public void showNodeInputSelector(List<String> options, String selected, Consumer<String> onSelected, int worldX, int worldY) {
+        closeNodeItemSelector();
+        if (options == null || options.isEmpty() || onSelected == null) {
+            return;
+        }
+        ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+        ItemSelectorWidget selector = new ItemSelectorWidget.Builder(this)
+                .size(180, 220)
+                .dismissOnSelect(true)
+                .onClose(() -> removeNodeItemSelector(selectorRef[0]))
+                .build();
+        selectorRef[0] = selector;
+        for (String option : options) {
+            selector.addItem(option, () -> onSelected.accept(option));
+        }
+        selector.setSelectedItem(selected);
+        nodeItemSelector = selector;
+        addDrawableChild(nodeItemSelector);
+        double[] screen = worldToScreen(worldX, worldY);
+        nodeItemSelector.show((int) screen[0], (int) screen[1]);
+    }
+
     @Override
     public void close() {
         if (parent != null) {
@@ -857,9 +882,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         renderWires(worldContext);
 
         for (Widget widget : worldWidgets) {
+            if (widget instanceof NodeWidget nodeWidget) {
+                String nodeId = findNodeId(nodeWidget);
+                nodeWidget.setSelected(nodeId != null && selectedNodeIds.contains(nodeId));
+            }
             widget.render(worldContext, worldMouseX, worldMouseY, delta);
         }
-        renderSelectionHighlights(worldContext);
         context.getMatrices().pop();
 
         renderSelectionBox(context);
@@ -933,6 +961,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (handleNodeItemSelectorMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
         if (paletteSidePanel != null && paletteSidePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
             return true;
         }
@@ -953,6 +984,27 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         if (dragState.isDragging) {
             return true;
+        }
+
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && movingSelectedNodes && draggedWidget instanceof NodeWidget draggedNode) {
+            double[] worldMouseNow = screenToWorld(dragMouseX, dragMouseY);
+            int newX = (int) (worldMouseNow[0] - dragOffsetX);
+            int newY = (int) (worldMouseNow[1] - dragOffsetY);
+            String draggedNodeId = findNodeId(draggedNode);
+            int[] draggedStart = draggedNodeId != null ? selectedDragStartPositions.get(draggedNodeId) : null;
+            if (draggedStart != null) {
+                int moveX = newX - draggedStart[0];
+                int moveY = newY - draggedStart[1];
+                for (String nodeId : selectedNodeIds) {
+                    NodeWidget widget = widgetCache.get(nodeId);
+                    int[] start = selectedDragStartPositions.get(nodeId);
+                    if (widget != null && start != null) {
+                        widget.setX(start[0] + moveX);
+                        widget.setY(start[1] + moveY);
+                    }
+                }
+                return true;
+            }
         }
 
         for (int i = worldWidgets.size() - 1; i >= 0; i--) {
@@ -1027,6 +1079,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (handleNodeItemSelectorMouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
         if (paletteSidePanel != null && paletteSidePanel.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
@@ -1113,6 +1168,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 }
                 bringToFront(widget);
                 selectNode(widget, hasShiftDown() || hasControlDown());
+                startSelectedNodeMove(widget, button);
                 widget.setLastScreenMouse((int) undistortedCoords[0], (int) undistortedCoords[1]);
                 widget.mouseClicked(wx, wy, button);
                 return true;
@@ -1153,6 +1209,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (handleNodeItemSelectorMouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
         if (paletteSidePanel != null && paletteSidePanel.mouseReleased(mouseX, mouseY, button)) {
             return true;
         }
@@ -1182,7 +1241,14 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && draggedWidget instanceof NodeWidget) {
             captureSnapshot();
-            syncNodePosition((NodeWidget) draggedWidget);
+            if (movingSelectedNodes) {
+                syncNodePositions();
+            } else {
+                syncNodePosition((NodeWidget) draggedWidget);
+            }
+            movingSelectedNodes = false;
+            selectedDragStartPositions.clear();
+            draggedWidget = null;
         }
 
         for (int i = worldWidgets.size() - 1; i >= 0; i--) {
@@ -1197,6 +1263,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)
                 && !(getFocusedWidget() instanceof TextInputWidget)) {
             if (!selectedNodeIds.isEmpty()) {
@@ -1256,6 +1325,14 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
 
         return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean charTyped(char chr, int modifiers) {
+        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.charTyped(chr, modifiers)) {
+            return true;
+        }
+        return super.charTyped(chr, modifiers);
     }
 
     private void syncNodePositions() {
@@ -1403,6 +1480,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 selectedNodeIds.add(nodeId);
             }
         } else {
+            if (selectedNodeIds.contains(nodeId)) {
+                return;
+            }
             selectedNodeIds.clear();
             selectedNodeIds.add(nodeId);
         }
@@ -1462,26 +1542,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             selectedNodeIds.addAll(selectionBase);
         }
         selectedNodeIds.addAll(selection);
-    }
-
-    private void renderSelectionHighlights(IDrawContext context) {
-        if (selectedNodeIds.isEmpty()) {
-            return;
-        }
-        int accentColor = ThemeManager.getDefaultAccent().getAccentColor();
-        int border = ThemeManager.getAnimatedColor("flow_node_selection_border".hashCode(),
-                (accentColor & 0x00FFFFFF) | 0xAA000000);
-        for (String nodeId : selectedNodeIds) {
-            NodeWidget widget = widgetCache.get(nodeId);
-            if (widget == null) {
-                continue;
-            }
-            int x1 = widget.getX() - SELECTION_BORDER_PADDING;
-            int y1 = widget.getY() - SELECTION_BORDER_PADDING;
-            int x2 = widget.getX() + widget.getWidth() + SELECTION_BORDER_PADDING;
-            int y2 = widget.getY() + widget.getHeight() + SELECTION_BORDER_PADDING;
-            context.fillBorder(x1, y1, x2, y2, 1, border);
-        }
     }
 
     private void renderSelectionBox(IDrawContext context) {
@@ -1592,6 +1652,63 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         worldWidgets.add(widget);
     }
 
+    private void startSelectedNodeMove(NodeWidget widget, int button) {
+        movingSelectedNodes = false;
+        selectedDragStartPositions.clear();
+        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            return;
+        }
+        String nodeId = findNodeId(widget);
+        if (nodeId == null || !selectedNodeIds.contains(nodeId) || selectedNodeIds.size() <= 1) {
+            return;
+        }
+        movingSelectedNodes = true;
+        for (String selectedNodeId : selectedNodeIds) {
+            NodeWidget selectedWidget = widgetCache.get(selectedNodeId);
+            if (selectedWidget != null) {
+                selectedDragStartPositions.put(selectedNodeId, new int[] { selectedWidget.getX(), selectedWidget.getY() });
+            }
+        }
+    }
+
+    private void closeNodeItemSelector() {
+        removeNodeItemSelector(nodeItemSelector);
+    }
+
+    private void removeNodeItemSelector(ItemSelectorWidget selector) {
+        if (selector != null) {
+            remove(selector);
+        }
+        if (selector == nodeItemSelector) {
+            nodeItemSelector = null;
+        }
+    }
+
+    private boolean handleNodeItemSelectorMouseClicked(double mouseX, double mouseY, int button) {
+        ItemSelectorWidget selector = nodeItemSelector;
+        if (selector == null || !selector.visible) {
+            return false;
+        }
+        if (selector.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (selector.isMouseOver(mouseX, mouseY)) {
+            return true;
+        }
+        removeNodeItemSelector(selector);
+        return false;
+    }
+
+    private boolean handleNodeItemSelectorMouseReleased(double mouseX, double mouseY, int button) {
+        ItemSelectorWidget selector = nodeItemSelector;
+        return selector != null && selector.visible && selector.mouseReleased(mouseX, mouseY, button);
+    }
+
+    private boolean handleNodeItemSelectorMouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        ItemSelectorWidget selector = nodeItemSelector;
+        return selector != null && selector.visible && selector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+
     private void removeExistingInputConnection(String nodeId, String pinName) {
         if (graph.getConnections() == null) return;
 
@@ -1612,10 +1729,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private void showAddNodeMenu(int x, int y, FlowDataType sourceType, boolean sourceIsInput) {
-        if (nodeItemSelector != null) {
-            remove(nodeItemSelector);
-            nodeItemSelector = null;
-        }
+        closeNodeItemSelector();
 
         clearSelection();
 
@@ -1623,7 +1737,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         int worldX = (int) worldPos[0];
         int worldY = (int) worldPos[1];
 
-        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this);
+        ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
+                .onClose(() -> removeNodeItemSelector(selectorRef[0]));
 
         if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
             List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(serverId).values());
@@ -1650,6 +1766,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
 
         nodeItemSelector = builder.build();
+        selectorRef[0] = nodeItemSelector;
         addDrawableChild(nodeItemSelector);
         nodeItemSelector.show(x, y);
     }
@@ -1674,14 +1791,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private void showAllNodesMenu(int screenX, int screenY) {
-        if (nodeItemSelector != null) {
-            remove(nodeItemSelector);
-            nodeItemSelector = null;
-        }
+        closeNodeItemSelector();
 
         clearSelection();
 
-        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this);
+        ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+        ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
+                .onClose(() -> removeNodeItemSelector(selectorRef[0]));
 
         if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
             List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(serverId).values());
@@ -1698,6 +1814,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
 
         nodeItemSelector = builder.build();
+        selectorRef[0] = nodeItemSelector;
         addDrawableChild(nodeItemSelector);
         nodeItemSelector.show(screenX, screenY);
     }
@@ -2030,6 +2147,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+            return true;
+        }
         if (paletteSidePanel != null && paletteSidePanel.isVisible() && paletteSidePanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
             return true;
         }

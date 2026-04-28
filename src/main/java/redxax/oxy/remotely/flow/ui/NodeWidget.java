@@ -34,6 +34,7 @@ import java.util.HashMap;
 import java.util.Set;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static restudio.rescreen.config.Config.shadow;
@@ -97,7 +98,8 @@ public class NodeWidget extends AnimatedWidget {
         this.nodeId = nodeId;
         this.serverId = serverId;
         this.definition = NodeRegistry.getInstance() != null ? NodeRegistry.getInstance().getDefinition(serverId, node.getType()) : null;
-        this.enableHoverColors = false;
+        this.enableHoverColors = true;
+        this.selectable = true;
         this.animateElevation = false;
         this.entranceAnimationEnabled = false;
         this.onClose = onClose;
@@ -296,6 +298,16 @@ public class NodeWidget extends AnimatedWidget {
         button.setAction(() -> {
             var screen = ScreenManager.getInstance().getCurrentScreen();
             if (screen == null) return;
+            Consumer<String> onSelected = option -> {
+                node.getInputValues().put(input.getName(), option);
+                button.setMessage(option);
+                saveInputValue();
+                updatePinVisibility();
+            };
+            if (screen instanceof FlowEditorScreen flowEditorScreen) {
+                flowEditorScreen.showNodeInputSelector(options, selected, onSelected, button.getX(), button.getY() + button.getHeight());
+                return;
+            }
             AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
             selector.set(new ItemSelectorWidget.Builder(screen)
                 .size(180, 220)
@@ -303,12 +315,7 @@ public class NodeWidget extends AnimatedWidget {
                 .onClose(() -> screen.remove(selector.get()))
                 .build());
             for (String option : options) {
-                selector.get().addItem(option, () -> {
-                    node.getInputValues().put(input.getName(), option);
-                    button.setMessage(option);
-                    saveInputValue();
-                    updatePinVisibility();
-                });
+                selector.get().addItem(option, () -> onSelected.accept(option));
             }
             selector.get().setSelectedItem(selected);
             screen.addDrawableChild(selector.get());
@@ -740,6 +747,7 @@ public class NodeWidget extends AnimatedWidget {
 
         ctx.fill(getX(), getY(), getX() + getWidth(), getY() + TITLE_HEIGHT, headerBg);
         Render.drawInnerBorder(ctx, getX(), getY(), getWidth(), TITLE_HEIGHT, borderColor);
+        ctx.fill(getX(), getY() + TITLE_HEIGHT, getWidth() + getX(), getY() + TITLE_HEIGHT + 1, this.borderColor);
         ctx.drawText(definition != null ? definition.getDisplayName() : node.getType(), getX() + 4, getY() + 4, headerText, shadow);
 
         if (closeButton.visible) {
@@ -1030,14 +1038,12 @@ public class NodeWidget extends AnimatedWidget {
     @Override
     public void tick() {
         super.tick();
+        if (selected) {
+            return;
+        }
+        bgColor = ThemeManager.getColor(ThemeColor.innerBackground);
         borderColor = ThemeManager.getColor(ThemeColor.innerBorder);
         outerBorderColor = ThemeManager.getColor(ThemeColor.globalOuterBorder);
-        bgColor = ThemeManager.getColor(ThemeColor.innerBackground);
-    }
-
-    @Override
-    protected void drawBackground(IDrawContext ctx) {
-        ctx.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), ThemeManager.getColor(ThemeColor.innerBackground));
     }
 
     private int getLeftColumnWidth() {
