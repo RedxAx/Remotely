@@ -17,16 +17,16 @@ public class FlowGraph {
 
     public static class FunctionParameter {
         private String name;
-        private FlowType type;
+        private FlowDataType type;
 
         public FunctionParameter() {
             this.name = "";
-            this.type = FlowType.ANY;
+            this.type = FlowDataType.ANY;
         }
 
-        public FunctionParameter(String name, FlowType type) {
+        public FunctionParameter(String name, FlowDataType type) {
             this.name = name;
-            this.type = type != null ? type : FlowType.ANY;
+            this.type = type != null ? type : FlowDataType.ANY;
         }
 
         public String getName() {
@@ -37,11 +37,11 @@ public class FlowGraph {
             this.name = name;
         }
 
-        public FlowType getType() {
+        public FlowDataType getType() {
             return type;
         }
 
-        public void setType(FlowType type) {
+        public void setType(FlowDataType type) {
             this.type = type;
         }
     }

@@ -4,12 +4,16 @@ import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import redxax.oxy.remotely.RemotelyClient;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import redxax.oxy.remotely.flow.data.FlowDataType;
+import redxax.oxy.remotely.flow.data.FlowDataTypeAdapter;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.cache.NodeRegistryCache;
+import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.NodeRegistryRequest;
 import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
@@ -24,6 +28,7 @@ import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.util.Notification;
 import restudio.rebase.restudio.api.ReStudioApiClient;
 
+import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -68,7 +73,21 @@ public class ReSyncFlowClient {
     private static final short CONTROL_CHANNEL_ID = 0;
     private int sequenceCounter = 0;
     private ErrorListener errorListener;
-    private final Gson gson = new Gson();
+    private final Gson gson = new GsonBuilder()
+            .registerTypeAdapter(FlowDataType.class, new FlowDataTypeAdapter())
+            .registerTypeAdapter(NodeDefinition.NodeCategory.class, new com.google.gson.TypeAdapter<NodeDefinition.NodeCategory>() {
+                @Override
+                public void write(com.google.gson.stream.JsonWriter out, NodeDefinition.NodeCategory value) throws IOException {
+                    out.value(value != null ? value.getId() : null);
+                }
+
+                @Override
+                public NodeDefinition.NodeCategory read(com.google.gson.stream.JsonReader in) throws IOException {
+                    String id = in.nextString();
+                    return NodeDefinition.NodeCategory.fromString(id);
+                }
+            })
+            .create();
     private final Queue<Runnable> pendingSends = new ConcurrentLinkedQueue<>();
     private final Map<ReSyncResourceType, Set<String>> pendingOpenResources = new ConcurrentHashMap<>();
     private final NodeRegistryCache nodeRegistryCache = NodeRegistryCache.getInstance();

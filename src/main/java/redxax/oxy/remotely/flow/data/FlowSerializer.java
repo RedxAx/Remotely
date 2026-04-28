@@ -6,6 +6,7 @@ import com.google.gson.GsonBuilder;
 public class FlowSerializer {
     private static final Gson gson = new GsonBuilder()
             .setPrettyPrinting()
+            .registerTypeAdapter(FlowDataType.class, new FlowDataTypeAdapter())
             .create();
 
     public static String serialize(FlowGraph graph) {
