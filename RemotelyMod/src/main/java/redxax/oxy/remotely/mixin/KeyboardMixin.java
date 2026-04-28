@@ -3,6 +3,7 @@ package redxax.oxy.remotely.mixin;
 import net.minecraft.client.KeyboardHandler;
 import net.minecraft.client.Minecraft;
 //#if MC >= 1.21.9 || MC >= 26.1
+import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 //#endif
 import org.lwjgl.glfw.GLFW;
@@ -23,11 +24,40 @@ public class KeyboardMixin {
     private boolean remotely$toggleDown;
 
     @Unique
+    private boolean remotely$skipToggleChar;
+
+    @Unique
+    private long remotely$skipToggleCharUntil;
+
+    @Unique
     private boolean remotely$shouldToggle(int key, int modifiers) {
         boolean alt = (modifiers & GLFW.GLFW_MOD_ALT) != 0;
         boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
         boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
         return alt && !shift && !ctrl && key == GLFW.GLFW_KEY_X;
+    }
+
+    @Unique
+    private boolean remotely$isToggleKey(int key) {
+        return key == GLFW.GLFW_KEY_X;
+    }
+
+    @Unique
+    private boolean remotely$isToggleChar(int codepoint) {
+        return codepoint == 'x' || codepoint == 'X';
+    }
+
+    @Unique
+    private void remotely$skipNextToggleChar() {
+        remotely$skipToggleChar = true;
+        remotely$skipToggleCharUntil = System.nanoTime() + 250_000_000L;
+    }
+
+    @Unique
+    private void remotely$clearSkipToggleCharIfExpired() {
+        if (remotely$skipToggleChar && System.nanoTime() > remotely$skipToggleCharUntil) {
+            remotely$skipToggleChar = false;
+        }
     }
 
     @Inject(method = "keyPress", at = @At("HEAD"), cancellable = true)
@@ -36,7 +66,15 @@ public class KeyboardMixin {
         if (remotely$shouldToggle(keyEvent.key(), keyEvent.modifiers())) {
             if (i == GLFW.GLFW_PRESS) {
                 remotely$toggleDown = ReScreenWrapper.toggleScreen();
+                remotely$skipNextToggleChar();
             } else if (i == GLFW.GLFW_RELEASE) {
+                remotely$toggleDown = false;
+            }
+            ci.cancel();
+            return;
+        }
+        if (remotely$toggleDown && remotely$isToggleKey(keyEvent.key())) {
+            if (i == GLFW.GLFW_RELEASE) {
                 remotely$toggleDown = false;
             }
             ci.cancel();
@@ -59,7 +97,15 @@ public class KeyboardMixin {
     //$$     if (remotely$shouldToggle(i, m)) {
     //$$         if (k == GLFW.GLFW_PRESS) {
     //$$             remotely$toggleDown = ReScreenWrapper.toggleScreen();
+    //$$             remotely$skipNextToggleChar();
     //$$         } else if (k == GLFW.GLFW_RELEASE) {
+    //$$             remotely$toggleDown = false;
+    //$$         }
+    //$$         ci.cancel();
+    //$$         return;
+    //$$     }
+    //$$     if (remotely$toggleDown && remotely$isToggleKey(i)) {
+    //$$         if (k == GLFW.GLFW_RELEASE) {
     //$$             remotely$toggleDown = false;
     //$$         }
     //$$         ci.cancel();
@@ -68,6 +114,25 @@ public class KeyboardMixin {
     //$$     if (((m & GLFW.GLFW_MOD_CONTROL) != 0) && i == GLFW.GLFW_KEY_B && k == GLFW.GLFW_PRESS) {
     //$$         if (client.screen == null) return;
     //$$         client.screen.keyPressed(i, j, k);
+    //$$         ci.cancel();
+    //$$     }
+    //$$ }
+    //#endif
+
+    @Inject(method = "charTyped", at = @At("HEAD"), cancellable = true)
+    //#if MC >= 1.21.9 || MC >= 26.1
+    private void onChar(long l, CharacterEvent characterEvent, CallbackInfo ci) {
+        remotely$clearSkipToggleCharIfExpired();
+        if (remotely$skipToggleChar && remotely$isToggleChar(characterEvent.codepoint())) {
+            remotely$skipToggleChar = false;
+            ci.cancel();
+        }
+    }
+    //#else
+    //$$ private void onChar(long l, int i, int j, CallbackInfo ci) {
+    //$$     remotely$clearSkipToggleCharIfExpired();
+    //$$     if (remotely$skipToggleChar && remotely$isToggleChar(i)) {
+    //$$         remotely$skipToggleChar = false;
     //$$         ci.cancel();
     //$$     }
     //$$ }
