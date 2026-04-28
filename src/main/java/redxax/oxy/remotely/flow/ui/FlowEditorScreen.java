@@ -4,7 +4,7 @@ import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
-import redxax.oxy.remotely.flow.data.FlowType;
+import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import org.lwjgl.glfw.GLFW;
@@ -51,25 +51,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     private SidePanel paletteSidePanel;
     private final Map<NodeDefinition.NodeCategory, PopupWidget> categoryPopups = new HashMap<>();
-    private static final List<NodeDefinition.NodeCategory> CATEGORY_ORDER = List.of(
-            NodeDefinition.NodeCategory.EVENT,
-            NodeDefinition.NodeCategory.ACTION,
-            NodeDefinition.NodeCategory.LOGIC,
-            NodeDefinition.NodeCategory.DATA,
-            NodeDefinition.NodeCategory.VARIABLE,
-            NodeDefinition.NodeCategory.FUNCTION,
-            NodeDefinition.NodeCategory.ENTITY,
-            NodeDefinition.NodeCategory.WORLD,
-            NodeDefinition.NodeCategory.INVENTORY,
-            NodeDefinition.NodeCategory.SCOREBOARD,
-            NodeDefinition.NodeCategory.ECONOMY,
-            NodeDefinition.NodeCategory.PERMISSION,
-            NodeDefinition.NodeCategory.VISUAL,
-            NodeDefinition.NodeCategory.UTILITY,
-            NodeDefinition.NodeCategory.DATABASE,
-            NodeDefinition.NodeCategory.HTTP,
-            NodeDefinition.NodeCategory.DISCORD
-    );
+    private List<NodeDefinition.NodeCategory> categoryOrder = List.of();
 
     private IconButton headerBackground;
     private final List<IconButton> headerButtons = new ArrayList<>();
@@ -354,7 +336,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         paletteSidePanel.container().layout(new ManagedLayout()).columns(1).padding(5);
 
         categoryPopups.clear();
-        for (NodeDefinition.NodeCategory category : CATEGORY_ORDER) {
+        categoryOrder = resolveCategoryOrder();
+        for (NodeDefinition.NodeCategory category : categoryOrder) {
             PopupWidget popup = new PopupWidget.Builder(getCategoryLabel(category)).enableCollapseOnClose(true).build();
             popup.collapse(true);
             categoryPopups.put(category, popup);
@@ -369,8 +352,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private void populateCategoryPopups() {
+        List<NodeDefinition.NodeCategory> order = categoryOrder.isEmpty() ? resolveCategoryOrder() : categoryOrder;
         Map<NodeDefinition.NodeCategory, List<NodeDefinition>> categories = new HashMap<>();
-        for (NodeDefinition.NodeCategory category : CATEGORY_ORDER) {
+        for (NodeDefinition.NodeCategory category : order) {
             categories.put(category, new ArrayList<>());
         }
 
@@ -389,7 +373,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 .comparingInt(NodeDefinition::getPriority)
                 .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER);
 
-        for (NodeDefinition.NodeCategory category : CATEGORY_ORDER) {
+        for (NodeDefinition.NodeCategory category : order) {
             PopupWidget targetPopup = getCategoryPopup(category);
             if (targetPopup == null) {
                 continue;
@@ -405,6 +389,15 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 targetPopup.addRow("", Collections.singletonList(btn), 20, true, false);
             }
         }
+    }
+
+    private List<NodeDefinition.NodeCategory> resolveCategoryOrder() {
+        List<redxax.oxy.remotely.flow.sync.FlowCategoryMetadata> meta = NodeRegistry.getInstance().getServerCategories(serverId);
+        List<NodeDefinition.NodeCategory> result = new ArrayList<>();
+        for (redxax.oxy.remotely.flow.sync.FlowCategoryMetadata m : meta) {
+            result.add(NodeDefinition.NodeCategory.fromString(m.getId()));
+        }
+        return result;
     }
 
     private void populateFallbackPopups() {
@@ -432,25 +425,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private String getCategoryLabel(NodeDefinition.NodeCategory category) {
-        return switch (category) {
-            case EVENT -> "Events";
-            case ACTION -> "Actions";
-            case LOGIC -> "Logic";
-            case DATA -> "Data";
-            case VARIABLE -> "Variables";
-            case FUNCTION -> "Functions";
-            case ENTITY -> "Entities";
-            case WORLD -> "World";
-            case INVENTORY -> "Inventory";
-            case SCOREBOARD -> "Scoreboard";
-            case ECONOMY -> "Economy";
-            case PERMISSION -> "Permissions";
-            case VISUAL -> "Visual";
-            case UTILITY -> "Utility";
-            case DATABASE -> "Database";
-            case HTTP -> "HTTP";
-            case DISCORD -> "Discord";
-        };
+        return category.getDisplayName();
     }
 
     private void addNodeAtCenter(String type) {
@@ -654,7 +629,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             }
             String parameterName = uniqueParameterName(connection.targetPin(), usedInputNames);
             usedInputNames.add(parameterName);
-            FlowType parameterType = resolveTargetPinType(connection.targetNodeId(), connection.targetPin());
+            FlowDataType parameterType = resolveTargetPinType(connection.targetNodeId(), connection.targetPin());
             functionGraph.getFunctionInputs().add(new FlowGraph.FunctionParameter(parameterName, parameterType));
             functionGraph.getConnections().add(new FlowConnection(functionStartId, parameterName, connection.targetNodeId(), connection.targetPin()));
             inboundParams.put(connection, parameterName);
@@ -666,7 +641,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             }
             String parameterName = uniqueParameterName(connection.sourcePin(), usedOutputNames);
             usedOutputNames.add(parameterName);
-            FlowType parameterType = resolveSourcePinType(connection.sourceNodeId(), connection.sourcePin());
+            FlowDataType parameterType = resolveSourcePinType(connection.sourceNodeId(), connection.sourcePin());
             functionGraph.getFunctionOutputs().add(new FlowGraph.FunctionParameter(parameterName, parameterType));
             functionGraph.getConnections().add(new FlowConnection(connection.sourceNodeId(), connection.sourcePin(), functionEndId, parameterName));
             outboundParams.put(connection, parameterName);
@@ -754,39 +729,45 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         return candidate;
     }
 
-    private FlowType resolveTargetPinType(String nodeId, String pinName) {
+    private FlowDataType resolveTargetPinType(String nodeId, String pinName) {
+        if (nodeId == null || pinName == null || nodeId.isBlank() || pinName.isBlank()) {
+            return FlowDataType.ANY;
+        }
         NodeWidget widget = widgetCache.get(nodeId);
         if (widget == null) {
-            return FlowType.ANY;
+            return FlowDataType.ANY;
         }
-        FlowType type = widget.getPinType(pinName, true);
-        return type != null ? type : FlowType.ANY;
+        FlowDataType type = widget.getPinType(pinName, true);
+        return type != null ? type : FlowDataType.ANY;
     }
 
-    private FlowType resolveSourcePinType(String nodeId, String pinName) {
+    private FlowDataType resolveSourcePinType(String nodeId, String pinName) {
+        if (nodeId == null || pinName == null || nodeId.isBlank() || pinName.isBlank()) {
+            return FlowDataType.ANY;
+        }
         NodeWidget widget = widgetCache.get(nodeId);
         if (widget == null) {
-            return FlowType.ANY;
+            return FlowDataType.ANY;
         }
-        FlowType type = widget.getPinType(pinName, false);
-        return type != null ? type : FlowType.ANY;
+        FlowDataType type = widget.getPinType(pinName, false);
+        return type != null ? type : FlowDataType.ANY;
     }
 
     private NodeDefinition buildCustomFunctionNodeDefinition(String nodeType, String functionId, FlowGraph functionGraph) {
         NodeDefinition.Builder builder = new NodeDefinition.Builder(nodeType, formatFunctionDisplayName(functionId), NodeDefinition.NodeCategory.FUNCTION);
-        builder.input("flow", NodeDefinition.PinType.FLOW, FlowType.EXECUTION);
-        builder.output("flow", NodeDefinition.PinType.FLOW, FlowType.EXECUTION);
+        builder.input("flow", NodeDefinition.PinType.FLOW, FlowDataType.EXECUTION);
+        builder.output("flow", NodeDefinition.PinType.FLOW, FlowDataType.EXECUTION);
         if (functionGraph.getFunctionInputs() != null) {
             for (FlowGraph.FunctionParameter param : functionGraph.getFunctionInputs()) {
                 if (param != null && param.getName() != null && !param.getName().isBlank()) {
-                    builder.input(param.getName(), NodeDefinition.PinType.DATA, param.getType() != null ? param.getType() : FlowType.ANY);
+                    builder.input(param.getName(), NodeDefinition.PinType.DATA, param.getType() != null ? param.getType() : FlowDataType.ANY);
                 }
             }
         }
         if (functionGraph.getFunctionOutputs() != null) {
             for (FlowGraph.FunctionParameter param : functionGraph.getFunctionOutputs()) {
                 if (param != null && param.getName() != null && !param.getName().isBlank()) {
-                    builder.output(param.getName(), NodeDefinition.PinType.DATA, param.getType() != null ? param.getType() : FlowType.ANY);
+                    builder.output(param.getName(), NodeDefinition.PinType.DATA, param.getType() != null ? param.getType() : FlowDataType.ANY);
                 }
             }
         }
@@ -914,7 +895,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                     float endX = (float) (end[0] + end[2]/2);
                     float endY = (float) (end[1] + end[3]/2);
 
-                    FlowType sourceType = source.getPinType(conn.getSourcePin(), false);
+                    FlowDataType sourceType = source.getPinType(conn.getSourcePin(), false);
                     int wireColor = (sourceType != null) ? sourceType.getColor() : ThemeManager.getColor(ThemeColor.innerBorder);
                     int laneOffset = getWireLaneOffset(conn);
                     drawWire(context, startX, startY, endX, endY, wireColor, laneOffset);
@@ -925,7 +906,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         if (dragState.isDragging && dragState.sourceNodeId != null) {
             double[] sourcePinWorld = null;
             NodeWidget source = widgetCache.get(dragState.sourceNodeId);
-            FlowType sourceType = null;
+            FlowDataType sourceType = null;
             if (source != null) {
                 double[] bounds = source.getPinBounds(dragState.sourcePin, dragState.sourceIsInput);
                 if (bounds != null) {
@@ -1520,8 +1501,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private boolean canConnect(NodeWidget sourceWidget, String sourcePin, NodeWidget targetWidget, String targetPin) {
-        FlowType sourceType = sourceWidget.getPinType(sourcePin, false);
-        FlowType targetType = targetWidget.getPinType(targetPin, true);
+        FlowDataType sourceType = sourceWidget.getPinType(sourcePin, false);
+        FlowDataType targetType = targetWidget.getPinType(targetPin, true);
         NodeDefinition.PinType sourceKind = sourceWidget.getPinKind(sourcePin, false);
         NodeDefinition.PinType targetKind = targetWidget.getPinKind(targetPin, true);
 
@@ -1530,14 +1511,24 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
 
         if (sourceKind == NodeDefinition.PinType.FLOW || targetKind == NodeDefinition.PinType.FLOW) {
-            return sourceKind == NodeDefinition.PinType.FLOW && targetKind == NodeDefinition.PinType.FLOW && sourceType == FlowType.EXECUTION && targetType == FlowType.EXECUTION;
+            return sourceKind == NodeDefinition.PinType.FLOW && targetKind == NodeDefinition.PinType.FLOW && sourceType == FlowDataType.EXECUTION && targetType == FlowDataType.EXECUTION;
         }
 
         if (sourceKind != NodeDefinition.PinType.DATA || targetKind != NodeDefinition.PinType.DATA) {
             return false;
         }
 
-        return sourceType.isCompatibleWith(targetType);
+        return isTypeCompatible(sourceType, targetType);
+    }
+
+    private boolean isTypeCompatible(FlowDataType sourceType, FlowDataType targetType) {
+        if (sourceType == null || targetType == null) {
+            return false;
+        }
+        if (sourceType.canConvertTo(targetType)) {
+            return true;
+        }
+        return NodeRegistry.getInstance().canConvertTypes(serverId, sourceType, targetType);
     }
 
     private void tryCompleteWire(double worldMouseX, double worldMouseY, double screenMouseX, double screenMouseY) {
@@ -1582,7 +1573,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
 
         if (!connected && dragPinWidget != null) {
-            FlowType sourceType = dragPinWidget.getPinType(dragState.sourcePin, dragState.sourceIsInput);
+            FlowDataType sourceType = dragPinWidget.getPinType(dragState.sourcePin, dragState.sourceIsInput);
             if (sourceType != null) {
                 pendingSourceNodeId = dragState.sourceNodeId;
                 pendingSourcePin = dragState.sourcePin;
@@ -1620,7 +1611,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         return null;
     }
 
-    private void showAddNodeMenu(int x, int y, FlowType sourceType, boolean sourceIsInput) {
+    private void showAddNodeMenu(int x, int y, FlowDataType sourceType, boolean sourceIsInput) {
         if (nodeItemSelector != null) {
             remove(nodeItemSelector);
             nodeItemSelector = null;
@@ -1663,16 +1654,19 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         nodeItemSelector.show(x, y);
     }
 
-    private String findCompatiblePin(NodeDefinition definition, FlowType sourceType, boolean sourceIsInput) {
+    private String findCompatiblePin(NodeDefinition definition, FlowDataType sourceType, boolean sourceIsInput) {
         List<NodeDefinition.PinDefinition> pins = sourceIsInput ? definition.getOutputs() : definition.getInputs();
         for (NodeDefinition.PinDefinition pin : pins) {
-            if (sourceType == FlowType.EXECUTION) {
-                if (pin.getType() == NodeDefinition.PinType.FLOW && pin.getDataType() == FlowType.EXECUTION) {
+            if (pin.getVisibleWhen() != null && !pin.getVisibleWhen().isEmpty()) {
+                continue;
+            }
+            if (sourceType == FlowDataType.EXECUTION) {
+                if (pin.getType() == NodeDefinition.PinType.FLOW && pin.getDataType() == FlowDataType.EXECUTION) {
                     return pin.getName();
                 }
                 continue;
             }
-            if (pin.getType() == NodeDefinition.PinType.DATA && sourceType.isCompatibleWith(pin.getDataType())) {
+            if (pin.getType() == NodeDefinition.PinType.DATA && isTypeCompatible(sourceType, pin.getDataType())) {
                 return pin.getName();
             }
         }

@@ -3,9 +3,11 @@ package redxax.oxy.remotely.flow.ui;
 import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
-import redxax.oxy.remotely.flow.data.FlowType;
+import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
+import redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata;
+import redxax.oxy.remotely.flow.sync.FlowTypeMetadata;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.render.Render;
@@ -29,6 +31,7 @@ import restudio.rescreen.ui.widgets.ToggleWidget;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Set;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -73,6 +76,7 @@ public class NodeWidget extends AnimatedWidget {
     private static final String FLOW_BRANCHES_KEY = "__flow_branches";
     private static final String FUNCTION_START_ID = "function_start";
     private static final String FUNCTION_END_ID = "function_end";
+
     private boolean updatingBranchSelection = false;
     private int lastScreenX;
     private int lastScreenY;
@@ -138,13 +142,13 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private void createInputWidgets() {
-        if (graph == null || nodeId == null || graph.getConnections() == null) return;
+        if (graph == null || nodeId == null) return;
 
         for (NodeDefinition.PinDefinition input : inputs) {
             if (input.getType() != NodeDefinition.PinType.DATA) {
                 continue;
             }
-            if (!isLiteralType(input.getDataType())) {
+            if (!isLiteralInput(input)) {
                 continue;
             }
             if (isInputWired(input.getName())) {
@@ -165,6 +169,9 @@ public class NodeWidget extends AnimatedWidget {
         switch (widgetType) {
             case DROPDOWN -> {
                 List<String> options = resolveOptions(input);
+                if (options.isEmpty()) {
+                    return buildTextInput(currentValue, input.getOptionsSource());
+                }
                 String selected = resolveSelected(options, currentValue, input.getDefaultValue());
                 if (options.size() > 20) {
                     return buildSearchableSelector(input, options, selected);
@@ -181,6 +188,9 @@ public class NodeWidget extends AnimatedWidget {
             }
             case SEARCHABLE_LIST -> {
                 List<String> options = resolveOptions(input);
+                if (options.isEmpty()) {
+                    return buildTextInput(currentValue, input.getOptionsSource());
+                }
                 String selected = resolveSelected(options, currentValue, input.getDefaultValue());
                 return buildSearchableSelector(input, options, selected);
             }
@@ -260,17 +270,21 @@ public class NodeWidget extends AnimatedWidget {
                     .build();
             }
             default -> {
-                String textValue = currentValue != null ? currentValue.toString() : "";
-                return new TextInputWidget.Builder()
-                    .text(textValue)
-                    .placeholder("")
-                    .forcePlaceholder(false)
-                    .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
-                    .onChange(this::saveInputValue)
-                    .entranceAnimation(false)
-                    .build();
+                return buildTextInput(currentValue, "");
             }
         }
+    }
+
+    private Widget buildTextInput(Object currentValue, String placeholder) {
+        String textValue = currentValue != null ? currentValue.toString() : "";
+        return new TextInputWidget.Builder()
+            .text(textValue)
+            .placeholder(placeholder != null ? placeholder : "")
+            .forcePlaceholder(false)
+            .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
+            .onChange(this::saveInputValue)
+            .entranceAnimation(false)
+            .build();
     }
 
     private Widget buildSearchableSelector(NodeDefinition.PinDefinition input, List<String> options, String selected) {
@@ -308,12 +322,11 @@ public class NodeWidget extends AnimatedWidget {
         if (options != null && !options.isEmpty()) {
             return options;
         }
-        String source = input.getOptionsSource();
-        if (source != null && source.startsWith("client:minecraft:")) {
-            String category = source.substring("client:minecraft:".length());
-            return MinecraftCatalog.getCatalog(MinecraftAssetsManager.getInstance(), "minecraft", category);
+        String catalog = resolveMinecraftCatalog(input.getOptionsSource());
+        if (catalog != null) {
+            return MinecraftCatalog.getCatalog(MinecraftAssetsManager.getInstance(), "minecraft", catalog);
         }
-        return List.of("");
+        return List.of();
     }
 
     private String resolveSelected(List<String> options, Object currentValue, String defaultValue) {
@@ -333,10 +346,44 @@ public class NodeWidget extends AnimatedWidget {
         if (input.getWidgetType() != null && input.getWidgetType() != NodeDefinition.WidgetType.AUTO) {
             return input.getWidgetType();
         }
-        if (input.getDataType() == FlowType.BOOLEAN) {
+        String optionsSource = input.getOptionsSource();
+        if (optionsSource != null && !optionsSource.isBlank()) {
+            NodeRegistry registry = NodeRegistry.getInstance();
+            FlowOptionSourceMetadata meta = registry != null ? registry.getServerOptionSource(serverId, optionsSource) : null;
+            if (meta != null) {
+                return meta.isSearchable() ? NodeDefinition.WidgetType.SEARCHABLE_LIST : NodeDefinition.WidgetType.DROPDOWN;
+            }
+            String catalog = resolveMinecraftCatalog(optionsSource);
+            if (catalog != null) {
+                return NodeDefinition.WidgetType.DROPDOWN;
+            }
+            return NodeDefinition.WidgetType.DROPDOWN;
+        }
+        if (input.getDataType() == FlowDataType.BOOLEAN) {
             return NodeDefinition.WidgetType.TOGGLE;
         }
         return NodeDefinition.WidgetType.TEXT;
+    }
+
+    private String resolveMinecraftCatalog(String optionsSource) {
+        if (optionsSource == null || optionsSource.isBlank()) {
+            return null;
+        }
+        String catalog = null;
+        if (optionsSource.startsWith("client:minecraft:")) {
+            catalog = optionsSource.substring("client:minecraft:".length());
+        } else if (optionsSource.startsWith("minecraft:")) {
+            catalog = optionsSource.substring("minecraft:".length());
+        }
+        if (catalog == null) {
+            return null;
+        }
+        NodeRegistry registry = NodeRegistry.getInstance();
+        FlowOptionSourceMetadata meta = registry != null ? registry.getServerOptionSource(serverId, optionsSource) : null;
+        if (meta != null) {
+            return catalog;
+        }
+        return MinecraftCatalog.getCatalog(MinecraftAssetsManager.getInstance(), "minecraft", catalog) != null ? catalog : null;
     }
 
     private void seedDefaultInputValues() {
@@ -409,8 +456,8 @@ public class NodeWidget extends AnimatedWidget {
         inputs.clear();
         outputs.clear();
 
-        NodeDefinition.PinDefinition inputFlowPin = new NodeDefinition.PinDefinition("flow", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.INPUT, FlowType.EXECUTION);
-        NodeDefinition.PinDefinition outputFlowPin = new NodeDefinition.PinDefinition("flow", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.OUTPUT, FlowType.EXECUTION);
+        NodeDefinition.PinDefinition inputFlowPin = new NodeDefinition.PinDefinition("flow", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.INPUT, FlowDataType.EXECUTION);
+        NodeDefinition.PinDefinition outputFlowPin = new NodeDefinition.PinDefinition("flow", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.OUTPUT, FlowDataType.EXECUTION);
 
         inputs.add(inputFlowPin);
         outputs.add(outputFlowPin);
@@ -450,20 +497,8 @@ public class NodeWidget extends AnimatedWidget {
         return parameter != null && parameter.getName() != null && !parameter.getName().isBlank();
     }
 
-    private List<FlowType> getSupportedFunctionTypes() {
-        return List.of(
-            FlowType.ANY,
-            FlowType.STRING,
-            FlowType.NUMBER,
-            FlowType.BOOLEAN,
-            FlowType.PLAYER,
-            FlowType.ENTITY,
-            FlowType.LOCATION,
-            FlowType.ITEM,
-            FlowType.ITEMSTACK,
-            FlowType.LIST,
-            FlowType.JSON_OBJECT
-        );
+    private List<FlowDataType> getSupportedFunctionTypes() {
+        return FlowDataType.values();
     }
 
     public List<FlowGraph.FunctionParameter> getFunctionParameterList() {
@@ -510,10 +545,10 @@ public class NodeWidget extends AnimatedWidget {
             .placeholder("parameter_name")
             .size(200, 20)
             .build();
-        List<FlowType> types = getSupportedFunctionTypes();
-        DropDownWidget<FlowType> typeDropdown = new DropDownWidget.Builder<>(types)
-            .selectedItem(FlowType.ANY)
-            .size(200, 18)
+        List<FlowDataType> types = getSupportedFunctionTypes();
+        DropDownWidget<FlowDataType> typeDropdown = new DropDownWidget.Builder<>(types)
+            .selectedItem(FlowDataType.ANY)
+            .size(200, INPUT_WIDGET_HEIGHT)
             .build();
 
         builder.addRow("Name", true, 20, nameInput);
@@ -527,9 +562,9 @@ public class NodeWidget extends AnimatedWidget {
                 if (rawName.isBlank() || !rawName.matches("^[a-zA-Z0-9_]+$")) {
                     return;
                 }
-                FlowType type = typeDropdown.getSelectedItem();
+                FlowDataType type = typeDropdown.getSelectedItem();
                 if (type == null) {
-                    type = FlowType.ANY;
+                    type = FlowDataType.ANY;
                 }
 
                 List<FlowGraph.FunctionParameter> targetList;
@@ -621,11 +656,54 @@ public class NodeWidget extends AnimatedWidget {
         }
     }
 
-    private boolean isLiteralType(FlowType type) {
-        return type == FlowType.STRING || type == FlowType.NUMBER || type == FlowType.BOOLEAN || type == FlowType.ANY;
+    private boolean isLiteralInput(NodeDefinition.PinDefinition input) {
+        FlowDataType type = input.getDataType();
+        if (type == null) {
+            return false;
+        }
+        if (isObjectPin(type) && (input.getWidgetType() == null || input.getWidgetType() == NodeDefinition.WidgetType.AUTO)) {
+            return false;
+        }
+        if (input.getWidgetType() != null && input.getWidgetType() != NodeDefinition.WidgetType.AUTO) {
+            return true;
+        }
+        if (input.getOptions() != null && !input.getOptions().isEmpty()) {
+            return true;
+        }
+        if (input.getOptionsSource() != null && !input.getOptionsSource().isBlank()) {
+            return true;
+        }
+        NodeRegistry registry = NodeRegistry.getInstance();
+        FlowTypeMetadata meta = registry != null ? registry.getTypeMetadata(serverId, type.getId()) : null;
+        if (meta != null) {
+            return meta.isLiteralInput();
+        }
+        return type == FlowDataType.STRING || type == FlowDataType.NUMBER || type == FlowDataType.BOOLEAN || type == FlowDataType.ANY;
+    }
+
+    private boolean isObjectPin(FlowDataType type) {
+        if (type == null) {
+            return false;
+        }
+        NodeRegistry registry = NodeRegistry.getInstance();
+        FlowTypeMetadata meta = registry != null ? registry.getTypeMetadata(serverId, type.getId()) : null;
+        if (meta != null) {
+            return meta.isObjectPin();
+        }
+        return type == FlowDataType.PLAYER
+            || type == FlowDataType.ENTITY
+            || type == FlowDataType.LIVING_ENTITY
+            || type == FlowDataType.WORLD
+            || type == FlowDataType.BLOCK
+            || type == FlowDataType.LOCATION
+            || type == FlowDataType.INVENTORY
+            || type == FlowDataType.ITEMSTACK;
     }
 
     private boolean isInputWired(String pinName) {
+        if (graph == null || graph.getConnections() == null) {
+            return false;
+        }
         for (FlowConnection conn : graph.getConnections()) {
             if (conn.getTargetNodeId().equals(nodeId) && conn.getTargetPin().equals(pinName)) {
                 return true;
@@ -638,15 +716,15 @@ public class NodeWidget extends AnimatedWidget {
         inputs.clear();
         outputs.clear();
         visibleInputs.clear();
-        inputs.add(new NodeDefinition.PinDefinition("in", NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, FlowType.ANY));
-        outputs.add(new NodeDefinition.PinDefinition("out", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.OUTPUT, FlowType.EXECUTION));
+        inputs.add(new NodeDefinition.PinDefinition("in", NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, FlowDataType.ANY));
+        outputs.add(new NodeDefinition.PinDefinition("out", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.OUTPUT, FlowDataType.EXECUTION));
         visibleInputs.addAll(inputs);
         visibleOutputs.clear();
         visibleOutputs.addAll(outputs);
         updateSize();
     }
 
-    private int getPinColor(FlowType dataType) {
+    public static int getPinColor(FlowDataType dataType) {
         if (dataType == null) {
             return 0xFFAAAAAA;
         }
@@ -1084,23 +1162,25 @@ public class NodeWidget extends AnimatedWidget {
         return null;
     }
 
-    private Object convertValue(String value, FlowType dataType) {
-        if (dataType == null || dataType == FlowType.ANY) {
+    private Object convertValue(String value, FlowDataType dataType) {
+        if (dataType == null || dataType == FlowDataType.ANY) {
             return value;
         }
+        String id = dataType.getId();
         try {
-            return switch (dataType) {
-                case STRING, EXECUTION, PLAYER, LOCATION, ITEM, LIST, ENTITY, ITEMSTACK, JSON_OBJECT -> value;
-                case NUMBER -> Double.parseDouble(value);
-                case BOOLEAN -> Boolean.parseBoolean(value);
-                case ANY -> value;
-            };
+            if ("number".equals(id)) {
+                return Double.parseDouble(value);
+            }
+            if ("boolean".equals(id)) {
+                return Boolean.parseBoolean(value);
+            }
+            return value;
         } catch (NumberFormatException e) {
             return value;
         }
     }
 
-    public FlowType getPinType(String pinName, boolean isInput) {
+    public FlowDataType getPinType(String pinName, boolean isInput) {
         if (isInput) {
             for (NodeDefinition.PinDefinition input : inputs) {
                 if (input.getName().equals(pinName)) {
@@ -1180,7 +1260,9 @@ public class NodeWidget extends AnimatedWidget {
         }
 
         if (flowOutputs.size() <= 2) {
-            visibleOutputs.addAll(metadataVisibleOutputs);
+            visibleOutputs.addAll(flowOutputs);
+            visibleOutputs.addAll(otherOutputs);
+            visibleOutputs.sort((left, right) -> Boolean.compare(!isFlowOutput(left), !isFlowOutput(right)));
             addBranchButton = null;
             return;
         }
@@ -1195,12 +1277,13 @@ public class NodeWidget extends AnimatedWidget {
         }
 
         visibleOutputs.addAll(otherOutputs);
+        visibleOutputs.sort((left, right) -> Boolean.compare(!isFlowOutput(left), !isFlowOutput(right)));
         saveFlowBranches();
         updateAddBranchButton(flowOutputs);
     }
 
     private boolean isFlowOutput(NodeDefinition.PinDefinition output) {
-        return output.getType() == NodeDefinition.PinType.FLOW && output.getDataType() == FlowType.EXECUTION;
+        return output.getType() == NodeDefinition.PinType.FLOW && output.getDataType() == FlowDataType.EXECUTION;
     }
 
     private NodeDefinition.PinDefinition findOutputDefinition(String name) {
