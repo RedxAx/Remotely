@@ -23,8 +23,6 @@ import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.SliderWidget;
-import restudio.rebase.minecraft.assets.MinecraftAssetsManager;
-import restudio.rebase.minecraft.assets.MinecraftCatalog;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
@@ -331,7 +329,7 @@ public class NodeWidget extends AnimatedWidget {
         }
         String catalog = resolveMinecraftCatalog(input.getOptionsSource());
         if (catalog != null) {
-            return MinecraftCatalog.getCatalog(MinecraftAssetsManager.getInstance(), "minecraft", catalog);
+            return List.of();
         }
         return List.of();
     }
@@ -390,7 +388,7 @@ public class NodeWidget extends AnimatedWidget {
         if (meta != null) {
             return catalog;
         }
-        return MinecraftCatalog.getCatalog(MinecraftAssetsManager.getInstance(), "minecraft", catalog) != null ? catalog : null;
+        return catalog;
     }
 
     private void seedDefaultInputValues() {
