@@ -25,6 +25,7 @@ import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
 import redxax.oxy.remotely.data.flow.world.WorldChannelMessage;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenGraph;
+import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
 import redxax.oxy.remotely.worldgen.registry.WorldGenNodeDefinition;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -1132,6 +1133,13 @@ public class ReSyncFlowClient {
         sendWorldGenJson((byte) 0x20, WorldGenSerializer.serialize(graph));
     }
 
+    public void sendWorldGenSave(WorldGenProject project) {
+        if (project == null) {
+            return;
+        }
+        sendWorldGenJson((byte) 0x30, WorldGenSerializer.serializeProject(project));
+    }
+
     public void sendWorldGenPreviewCreate(WorldGenGraph graph, String previewId, String environment, long seed, String playerUuid) {
         if (graph == null || previewId == null || previewId.isBlank()) {
             return;
@@ -1143,6 +1151,19 @@ public class ReSyncFlowClient {
         payload.put("seed", seed);
         payload.put("playerUuid", playerUuid);
         sendWorldGenJson((byte) 0x21, gson.toJson(payload));
+    }
+
+    public void sendWorldGenPreviewCreate(WorldGenProject project, String previewId, String environment, long seed, String playerUuid) {
+        if (project == null || previewId == null || previewId.isBlank()) {
+            return;
+        }
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("project", project);
+        payload.put("previewId", previewId);
+        payload.put("environment", environment != null && !environment.isBlank() ? environment : "NORMAL");
+        payload.put("seed", seed);
+        payload.put("playerUuid", playerUuid);
+        sendWorldGenJson((byte) 0x31, gson.toJson(payload));
     }
 
     public void sendWorldGenPreviewStop(String previewId) {

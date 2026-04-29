@@ -3,6 +3,8 @@ package redxax.oxy.remotely.worldgen.ui;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
+import redxax.oxy.remotely.worldgen.data.WorldGenProject;
+import redxax.oxy.remotely.worldgen.data.WorldGenStage;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
@@ -20,7 +22,9 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
     private final String actualServerId;
     private final Screen parentScreen;
     private final WorldGenManager manager = WorldGenManager.getInstance();
+    private final WorldGenProject project;
     private final String previewId;
+    private WorldGenStage activeStage = WorldGenStage.TERRAIN;
     private String previewEnvironment = "NORMAL";
     private long previewSeed;
     private String previewPlayerUuid = "";
@@ -29,6 +33,7 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
         super(WorldGenManager.getInstance().getOrCreateEditorGraph(serverId), WorldGenManager.registryServerId(serverId), parent);
         this.actualServerId = serverId;
         this.parentScreen = parent;
+        this.project = manager.getOrCreateProject(serverId);
         this.previewId = "worldgen_" + sanitizePreviewId(serverId);
     }
 
@@ -64,6 +69,16 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
 
     @Override
     protected void addCustomHeaderButtons() {
+        for (WorldGenStage stage : WorldGenStage.values()) {
+            IconButton tabButton = new IconButton.Builder()
+                .size(72, 18)
+                .label(stage.displayName())
+                .centered(true)
+                .onClick(() -> switchStage(stage))
+                .build();
+            addHeaderButton(tabButton);
+        }
+
         IconButton previewButton = new IconButton.Builder()
             .size(18, 18)
             .imagePath("play.png")
@@ -91,7 +106,8 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
 
     @Override
     protected void saveGraph() {
-        manager.saveWorldGen(actualServerId, graph);
+        syncProjectGraph();
+        manager.saveWorldGen(actualServerId, project);
         previewCurrentGraph();
     }
 
@@ -142,8 +158,23 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
     }
 
     private void previewCurrentGraph() {
+        syncProjectGraph();
+        manager.requestPreview(actualServerId, previewId, project, previewEnvironment, previewSeed, previewPlayerUuid);
+    }
+
+    private void switchStage(WorldGenStage stage) {
+        if (stage == null || stage == activeStage) {
+            return;
+        }
+        syncProjectGraph();
+        activeStage = stage;
+        applyGraph(manager.toFlowGraph(project.graph(activeStage)));
+        refreshNodeRegistry();
+    }
+
+    private void syncProjectGraph() {
         syncNodePositions();
-        manager.requestPreview(actualServerId, previewId, graph, previewEnvironment, previewSeed, previewPlayerUuid);
+        project.setGraph(activeStage, manager.toWorldGenGraph(graph));
     }
 
     private long parseLong(String value, long fallback) {

@@ -4,13 +4,16 @@ import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.FlowDataType;
+import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata;
 import redxax.oxy.remotely.flow.sync.FlowTypeMetadata;
+import restudio.rebase.minecraft.assets.MinecraftAssetsManager;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.render.Render;
+import restudio.rescreen.config.Config;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Widget;
@@ -34,6 +37,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicReference;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.stream.Stream;
 
 import static restudio.rescreen.config.Config.shadow;
 import static restudio.rescreen.render.TextRenderer.tr;
@@ -329,9 +335,39 @@ public class NodeWidget extends AnimatedWidget {
         }
         String catalog = resolveMinecraftCatalog(input.getOptionsSource());
         if (catalog != null) {
-            return List.of();
+            return catalogOptions(catalog);
         }
         return List.of();
+    }
+
+    private List<String> catalogOptions(String catalog) {
+        return switch (catalog) {
+            case "blocks", "material" -> minecraftBlockOptions();
+            default -> List.of();
+        };
+    }
+
+    private List<String> minecraftBlockOptions() {
+        if (!(Config.configManager instanceof RemotelyConfigManager remotelyConfigManager)) {
+            return List.of();
+        }
+        Path assetsDir = MinecraftAssetsManager.get(remotelyConfigManager).getActiveAssetsDir();
+        if (assetsDir == null) {
+            return List.of();
+        }
+        Path blockStates = assetsDir.resolve("minecraft").resolve("blockstates");
+        if (!Files.isDirectory(blockStates)) {
+            return List.of();
+        }
+        try (Stream<Path> files = Files.list(blockStates)) {
+            return files
+                .filter(path -> path.getFileName().toString().endsWith(".json"))
+                .map(path -> "minecraft:" + path.getFileName().toString().replaceFirst("\\.json$", ""))
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+        } catch (Exception ignored) {
+            return List.of();
+        }
     }
 
     private String resolveSelected(List<String> options, Object currentValue, String defaultValue) {

@@ -11,6 +11,8 @@ import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.worldgen.data.WorldGenConnection;
 import redxax.oxy.remotely.worldgen.data.WorldGenGraph;
 import redxax.oxy.remotely.worldgen.data.WorldGenNode;
+import redxax.oxy.remotely.worldgen.data.WorldGenProject;
+import redxax.oxy.remotely.worldgen.data.WorldGenStage;
 import redxax.oxy.remotely.worldgen.registry.WorldGenNodeDefinition;
 import redxax.oxy.remotely.worldgen.registry.WorldGenNodeRegistry;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
@@ -27,7 +29,7 @@ import java.util.UUID;
 
 public class WorldGenManager {
     private static final WorldGenManager INSTANCE = new WorldGenManager();
-    private final Map<String, WorldGenGraph> graphs = new HashMap<>();
+    private final Map<String, WorldGenProject> projects = new HashMap<>();
     private final Map<String, String> previewStates = new HashMap<>();
 
     public static WorldGenManager getInstance() {
@@ -39,7 +41,16 @@ public class WorldGenManager {
     }
 
     public WorldGenGraph getOrCreateGraph(String serverId) {
-        return graphs.computeIfAbsent(serverId, id -> createDefaultGraph());
+        return getOrCreateProject(serverId).getTerrainGraph();
+    }
+
+    public WorldGenProject getOrCreateProject(String serverId) {
+        return projects.computeIfAbsent(serverId, id -> createDefaultProject());
+    }
+
+    public FlowGraph getOrCreateEditorGraph(String serverId, WorldGenStage stage) {
+        ensureLocalDefinitions(serverId);
+        return toFlowGraph(getOrCreateProject(serverId).graph(stage));
     }
 
     public FlowGraph getOrCreateEditorGraph(String serverId) {
@@ -55,10 +66,19 @@ public class WorldGenManager {
         if (serverId == null || serverId.isBlank() || graph == null) {
             return;
         }
-        graphs.put(serverId, graph);
+        WorldGenProject project = getOrCreateProject(serverId);
+        project.setTerrainGraph(graph);
+        saveWorldGen(serverId, project);
+    }
+
+    public void saveWorldGen(String serverId, WorldGenProject project) {
+        if (serverId == null || serverId.isBlank() || project == null) {
+            return;
+        }
+        projects.put(serverId, project);
         ReSyncFlowClient client = flowClient(serverId);
         if (client != null) {
-            client.sendWorldGenSave(graph);
+            client.sendWorldGenSave(project);
             new Notification("World Generation", "Saved", Notification.Type.SUCCESS);
         } else {
             new Notification("World Generation", "ReSync Offline", Notification.Type.ERROR);
@@ -89,9 +109,20 @@ public class WorldGenManager {
             new Notification("World Generation", "ReSync Offline", Notification.Type.ERROR);
             return;
         }
-        graphs.put(serverId, graph);
+        WorldGenProject project = getOrCreateProject(serverId);
+        project.setTerrainGraph(graph);
+        requestPreview(serverId, previewId, project, environment, seed, playerUuid);
+    }
+
+    public void requestPreview(String serverId, String previewId, WorldGenProject project, String environment, long seed, String playerUuid) {
+        ReSyncFlowClient client = flowClient(serverId);
+        if (client == null) {
+            new Notification("World Generation", "ReSync Offline", Notification.Type.ERROR);
+            return;
+        }
+        projects.put(serverId, project);
         previewStates.put(previewKey(serverId, previewId), "creating");
-        client.sendWorldGenPreviewCreate(graph, previewId, environment, seed, isUuid(playerUuid) ? playerUuid : "");
+        client.sendWorldGenPreviewCreate(project, previewId, environment, seed, isUuid(playerUuid) ? playerUuid : "");
         new Notification("World Generation", "Creating Preview", Notification.Type.INFO);
     }
 
@@ -189,7 +220,7 @@ public class WorldGenManager {
     }
 
     private NodeDefinition toFlowDefinition(WorldGenNodeDefinition definition) {
-        NodeDefinition.Builder builder = new NodeDefinition.Builder(definition.getId(), definition.getDisplayName(), NodeDefinition.NodeCategory.WORLD_GEN)
+        NodeDefinition.Builder builder = new NodeDefinition.Builder(definition.getId(), definition.getDisplayName(), categoryFor(definition))
             .color(definition.getColor())
             .priority(definition.getPriority())
             .description(definition.getDescription())
@@ -203,6 +234,15 @@ public class WorldGenManager {
         return builder.build();
     }
 
+    private NodeDefinition.NodeCategory categoryFor(WorldGenNodeDefinition definition) {
+        String category = definition.getCategory();
+        if (category == null || category.isBlank() || "World Gen".equals(category)) {
+            return NodeDefinition.NodeCategory.WORLD_GEN;
+        }
+        String id = category.toLowerCase().replaceAll("[^a-z0-9_]+", "_");
+        return NodeDefinition.NodeCategory.registerServerCategory(id, category, definition.getColor(), definition.getPriority());
+    }
+
     private NodeDefinition.PinDefinition toFlowPin(WorldGenNodeDefinition.PinDefinition pin, NodeDefinition.PinDirection direction) {
         NodeDefinition.PinBuilder builder = new NodeDefinition.PinBuilder(pin.name(), NodeDefinition.PinType.DATA, direction, pin.dataType());
         NodeDefinition.WidgetType widgetType = widgetType(pin);
@@ -212,11 +252,34 @@ public class WorldGenManager {
         if (pin.defaultValue() != null) {
             builder.defaultValue(String.valueOf(pin.defaultValue()));
         }
+        if (pin.options() != null && !pin.options().isEmpty()) {
+            builder.options(pin.options());
+        }
         if ("distance_func".equals(pin.name())) {
             builder.options(List.of("euclidean", "euclidean_sq", "manhattan", "hybrid"));
         }
         if ("material".equalsIgnoreCase(pin.widgetType())) {
             builder.optionsSource("minecraft:blocks");
+        }
+        if (pin.dataType() == FlowDataType.BIOME) {
+            builder.widget(NodeDefinition.WidgetType.SEARCHABLE_LIST);
+            builder.optionsSource("client:minecraft:biome");
+        }
+        if (pin.dataType() == FlowDataType.ENTITY_TYPE) {
+            builder.widget(NodeDefinition.WidgetType.SEARCHABLE_LIST);
+            builder.optionsSource("client:minecraft:entity_type");
+        }
+        if ("structure_id".equals(pin.name())) {
+            builder.widget(NodeDefinition.WidgetType.SEARCHABLE_LIST);
+            builder.optionsSource("worldgen:structures");
+        }
+        if ("tree".equals(pin.name())) {
+            builder.widget(NodeDefinition.WidgetType.SEARCHABLE_LIST);
+            builder.optionsSource("worldgen:tree_features");
+        }
+        if ("feature".equals(pin.name())) {
+            builder.widget(NodeDefinition.WidgetType.SEARCHABLE_LIST);
+            builder.optionsSource("worldgen:features");
         }
         if (pin.constraints() != null && !pin.constraints().isEmpty()) {
             builder.constraints(number(pin.constraints().get("min")), number(pin.constraints().get("max")), number(pin.constraints().get("step")));
@@ -238,6 +301,7 @@ public class WorldGenManager {
             case "slider" -> NodeDefinition.WidgetType.SLIDER;
             case "toggle" -> NodeDefinition.WidgetType.TOGGLE;
             case "material" -> NodeDefinition.WidgetType.SEARCHABLE_LIST;
+            case "searchable", "searchable_list" -> NodeDefinition.WidgetType.SEARCHABLE_LIST;
             default -> NodeDefinition.WidgetType.TEXT;
         };
     }
@@ -258,29 +322,95 @@ public class WorldGenManager {
 
     private List<WorldGenNodeDefinition> defaultDefinitions() {
         return List.of(
-            WorldGenNodeDefinition.builder("simplex", "Simplex").input("seed", FlowDataType.SEED, 0, "number").input("frequency", FlowDataType.FLOAT, 0.01f, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("perlin", "Perlin").input("seed", FlowDataType.SEED, 0, "number").input("frequency", FlowDataType.FLOAT, 0.01f, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("value", "Value").input("seed", FlowDataType.SEED, 0, "number").input("frequency", FlowDataType.FLOAT, 0.01f, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("cellular", "Cellular").input("seed", FlowDataType.SEED, 0, "number").input("frequency", FlowDataType.FLOAT, 0.01f, "number").input("distance_func", FlowDataType.STRING, "euclidean", "dropdown").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("white", "White").input("seed", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("fbm", "Fractal FBm").input("source", FlowDataType.FLOAT, 0f, "number").input("octaves", FlowDataType.FLOAT, 4f, "number").input("lacunarity", FlowDataType.FLOAT, 2f, "number").input("gain", FlowDataType.FLOAT, 0.5f, "number").input("seed", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("ridged", "Fractal Ridged").input("source", FlowDataType.FLOAT, 0f, "number").input("octaves", FlowDataType.FLOAT, 4f, "number").input("lacunarity", FlowDataType.FLOAT, 2f, "number").input("gain", FlowDataType.FLOAT, 0.5f, "number").input("seed", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("ping_pong", "Ping Pong").input("source", FlowDataType.FLOAT, 0f, "number").input("octaves", FlowDataType.FLOAT, 4f, "number").input("lacunarity", FlowDataType.FLOAT, 2f, "number").input("gain", FlowDataType.FLOAT, 0.5f, "number").input("ping_pong_strength", FlowDataType.FLOAT, 2f, "number").input("seed", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("add", "Add").input("a", FlowDataType.FLOAT, 0f, "number").input("b", FlowDataType.FLOAT, 0f, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("multiply", "Multiply").input("a", FlowDataType.FLOAT, 1f, "number").input("b", FlowDataType.FLOAT, 1f, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("remap", "Remap").input("in", FlowDataType.FLOAT, 0f, "number").input("from_min", FlowDataType.FLOAT, -1f, "number").input("from_max", FlowDataType.FLOAT, 1f, "number").input("to_min", FlowDataType.FLOAT, 0f, "number").input("to_max", FlowDataType.FLOAT, 128f, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("clamp", "Clamp").input("in", FlowDataType.FLOAT, 0f, "number").input("min", FlowDataType.FLOAT, 0f, "number").input("max", FlowDataType.FLOAT, 1f, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("abs", "Abs").input("in", FlowDataType.FLOAT, 0f, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("min", "Min").input("a", FlowDataType.FLOAT, 0f, "number").input("b", FlowDataType.FLOAT, 0f, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("max", "Max").input("a", FlowDataType.FLOAT, 0f, "number").input("b", FlowDataType.FLOAT, 0f, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("domain_warp_gradient", "Domain Warp Gradient").input("source", FlowDataType.FLOAT, 0f, "number").input("amplitude", FlowDataType.FLOAT, 1f, "number").input("frequency", FlowDataType.FLOAT, 0.01f, "number").input("seed", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("domain_warp_simplex", "Domain Warp Simplex").input("source", FlowDataType.FLOAT, 0f, "number").input("amplitude", FlowDataType.FLOAT, 1f, "number").input("frequency", FlowDataType.FLOAT, 0.01f, "number").input("seed", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("terrace", "Terrace").input("in", FlowDataType.FLOAT, 0f, "number").input("step_count", FlowDataType.FLOAT, 8f, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("seed_offset", "Seed Offset").input("in", FlowDataType.FLOAT, 0f, "number").input("offset", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT).build(),
-            WorldGenNodeDefinition.builder("output_height", "Output Height").input("height", FlowDataType.FLOAT, 64f, "number").build(),
-            WorldGenNodeDefinition.builder("output_biome", "Output Biome").input("biome", FlowDataType.FLOAT, 0f, "number").input("temperature", FlowDataType.FLOAT, 0.5f, "number").input("humidity", FlowDataType.FLOAT, 0.5f, "number").build(),
-            WorldGenNodeDefinition.builder("output_block", "Output Block").input("block", FlowDataType.BLOCK, null, "material").input("y", FlowDataType.FLOAT, 0f, "number").input("replace", FlowDataType.FLOAT, 1f, "number").build()
+            terrain(WorldGenNodeDefinition.builder("simplex", "Simplex").input("seed", FlowDataType.SEED, 0, "number").input("frequency", FlowDataType.FLOAT, 0.01f, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("perlin", "Perlin").input("seed", FlowDataType.SEED, 0, "number").input("frequency", FlowDataType.FLOAT, 0.01f, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("value", "Value").input("seed", FlowDataType.SEED, 0, "number").input("frequency", FlowDataType.FLOAT, 0.01f, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("cellular", "Cellular").input("seed", FlowDataType.SEED, 0, "number").input("frequency", FlowDataType.FLOAT, 0.01f, "number").input("distance_func", FlowDataType.STRING, "euclidean", "dropdown").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("white", "White").input("seed", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("fbm", "Fractal FBm").input("source", FlowDataType.FLOAT, 0f, "number").input("octaves", FlowDataType.FLOAT, 4f, "number").input("lacunarity", FlowDataType.FLOAT, 2f, "number").input("gain", FlowDataType.FLOAT, 0.5f, "number").input("seed", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("ridged", "Fractal Ridged").input("source", FlowDataType.FLOAT, 0f, "number").input("octaves", FlowDataType.FLOAT, 4f, "number").input("lacunarity", FlowDataType.FLOAT, 2f, "number").input("gain", FlowDataType.FLOAT, 0.5f, "number").input("seed", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("ping_pong", "Ping Pong").input("source", FlowDataType.FLOAT, 0f, "number").input("octaves", FlowDataType.FLOAT, 4f, "number").input("lacunarity", FlowDataType.FLOAT, 2f, "number").input("gain", FlowDataType.FLOAT, 0.5f, "number").input("ping_pong_strength", FlowDataType.FLOAT, 2f, "number").input("seed", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("add", "Add").input("a", FlowDataType.FLOAT, 0f, "number").input("b", FlowDataType.FLOAT, 0f, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("multiply", "Multiply").input("a", FlowDataType.FLOAT, 1f, "number").input("b", FlowDataType.FLOAT, 1f, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("remap", "Remap").input("in", FlowDataType.FLOAT, 0f, "number").input("from_min", FlowDataType.FLOAT, -1f, "number").input("from_max", FlowDataType.FLOAT, 1f, "number").input("to_min", FlowDataType.FLOAT, 0f, "number").input("to_max", FlowDataType.FLOAT, 128f, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("clamp", "Clamp").input("in", FlowDataType.FLOAT, 0f, "number").input("min", FlowDataType.FLOAT, 0f, "number").input("max", FlowDataType.FLOAT, 1f, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("abs", "Abs").input("in", FlowDataType.FLOAT, 0f, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("min", "Min").input("a", FlowDataType.FLOAT, 0f, "number").input("b", FlowDataType.FLOAT, 0f, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("max", "Max").input("a", FlowDataType.FLOAT, 0f, "number").input("b", FlowDataType.FLOAT, 0f, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("domain_warp_gradient", "Domain Warp Gradient").input("source", FlowDataType.FLOAT, 0f, "number").input("amplitude", FlowDataType.FLOAT, 1f, "number").input("frequency", FlowDataType.FLOAT, 0.01f, "number").input("seed", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("domain_warp_simplex", "Domain Warp Simplex").input("source", FlowDataType.FLOAT, 0f, "number").input("amplitude", FlowDataType.FLOAT, 1f, "number").input("frequency", FlowDataType.FLOAT, 0.01f, "number").input("seed", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("terrace", "Terrace").input("in", FlowDataType.FLOAT, 0f, "number").input("step_count", FlowDataType.FLOAT, 8f, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("seed_offset", "Seed Offset").input("in", FlowDataType.FLOAT, 0f, "number").input("offset", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT)),
+            terrain(WorldGenNodeDefinition.builder("output_height", "Output Height").input("height", FlowDataType.FLOAT, 64f, "number")),
+            biome(WorldGenNodeDefinition.builder("output_biome", "Output Biome").input("biome", FlowDataType.BIOME, "minecraft:plains", "dropdown").input("temperature", FlowDataType.FLOAT, 0.5f, "number").input("humidity", FlowDataType.FLOAT, 0.5f, "number")),
+            surface(WorldGenNodeDefinition.builder("output_block", "Output Block").input("block", FlowDataType.BLOCK, null, "material").input("y", FlowDataType.FLOAT, 0f, "number").input("replace", FlowDataType.FLOAT, 1f, "number")),
+            biome(WorldGenNodeDefinition.builder("biome_constant", "Biome Constant").input("biome", FlowDataType.BIOME, "minecraft:plains", "dropdown").output("biome", FlowDataType.BIOME)),
+            biome(WorldGenNodeDefinition.builder("biome_select", "Biome Select").input("mask", FlowDataType.BOOLEAN, false, "toggle").input("true_biome", FlowDataType.BIOME, "minecraft:forest", "dropdown").input("false_biome", FlowDataType.BIOME, "minecraft:plains", "dropdown").output("biome", FlowDataType.BIOME)),
+            biome(WorldGenNodeDefinition.builder("biome_blend", "Biome Blend").input("a", FlowDataType.BIOME, "minecraft:plains", "dropdown").input("b", FlowDataType.BIOME, "minecraft:forest", "dropdown").input("weight", FlowDataType.FLOAT, 0.5f, "number").output("biome", FlowDataType.BIOME)),
+            biome(WorldGenNodeDefinition.builder("climate_map", "Climate Map").input("temperature", FlowDataType.FLOAT, 0.5f, "number").input("humidity", FlowDataType.FLOAT, 0.5f, "number").output("biome", FlowDataType.BIOME)),
+            biome(WorldGenNodeDefinition.builder("temperature", "Temperature").input("value", FlowDataType.FLOAT, 0.5f, "number").output("out", FlowDataType.FLOAT)),
+            biome(WorldGenNodeDefinition.builder("humidity", "Humidity").input("value", FlowDataType.FLOAT, 0.5f, "number").output("out", FlowDataType.FLOAT)),
+            biome(WorldGenNodeDefinition.builder("continentalness", "Continentalness").input("value", FlowDataType.FLOAT, 0f, "number").output("out", FlowDataType.FLOAT)),
+            biome(WorldGenNodeDefinition.builder("erosion", "Erosion").input("value", FlowDataType.FLOAT, 0f, "number").output("out", FlowDataType.FLOAT)),
+            biome(WorldGenNodeDefinition.builder("weirdness", "Weirdness").input("value", FlowDataType.FLOAT, 0f, "number").output("out", FlowDataType.FLOAT)),
+            surface(WorldGenNodeDefinition.builder("surface_rule", "Surface Rule").input("top", FlowDataType.BLOCK, "minecraft:grass_block", "material").input("filler", FlowDataType.BLOCK, "minecraft:dirt", "material").output("surface", FlowDataType.BLOCK)),
+            surface(WorldGenNodeDefinition.builder("material_layer", "Material Layer").input("block", FlowDataType.BLOCK, "minecraft:stone", "material").input("depth", FlowDataType.FLOAT, 3f, "number").output("surface", FlowDataType.BLOCK)),
+            surface(WorldGenNodeDefinition.builder("height_band", "Height Band").input("min", FlowDataType.FLOAT, 0f, "number").input("max", FlowDataType.FLOAT, 320f, "number").output("mask", FlowDataType.BOOLEAN)),
+            surface(WorldGenNodeDefinition.builder("slope_mask", "Slope Mask").input("min", FlowDataType.FLOAT, 0f, "number").input("max", FlowDataType.FLOAT, 1f, "number").output("mask", FlowDataType.BOOLEAN)),
+            surface(WorldGenNodeDefinition.builder("beach_rule", "Beach Rule").input("sand", FlowDataType.BLOCK, "minecraft:sand", "material").output("surface", FlowDataType.BLOCK)),
+            surface(WorldGenNodeDefinition.builder("underwater_rule", "Underwater Rule").input("block", FlowDataType.BLOCK, "minecraft:gravel", "material").output("surface", FlowDataType.BLOCK)),
+            surface(WorldGenNodeDefinition.builder("snow_rule", "Snow Rule").input("block", FlowDataType.BLOCK, "minecraft:snow_block", "material").output("surface", FlowDataType.BLOCK)),
+            cave(WorldGenNodeDefinition.builder("cave_noise", "Cave Noise").input("seed", FlowDataType.SEED, 0, "number").input("frequency", FlowDataType.FLOAT, 0.02f, "number").output("density", FlowDataType.FLOAT)),
+            cave(WorldGenNodeDefinition.builder("worm_cave", "Worm Cave").input("radius", FlowDataType.FLOAT, 3f, "number").output("density", FlowDataType.FLOAT)),
+            cave(WorldGenNodeDefinition.builder("cheese_cave", "Cheese Cave").input("threshold", FlowDataType.FLOAT, 0.6f, "number").output("density", FlowDataType.FLOAT)),
+            cave(WorldGenNodeDefinition.builder("ravine", "Ravine").input("width", FlowDataType.FLOAT, 6f, "number").output("density", FlowDataType.FLOAT)),
+            cave(WorldGenNodeDefinition.builder("carve_if", "Carve If").input("mask", FlowDataType.BOOLEAN, false, "toggle").input("density", FlowDataType.FLOAT, 0f, "number").output("density", FlowDataType.FLOAT)),
+            cave(WorldGenNodeDefinition.builder("density_combine", "Density Combine").input("a", FlowDataType.FLOAT, 0f, "number").input("b", FlowDataType.FLOAT, 0f, "number").output("density", FlowDataType.FLOAT)),
+            feature(WorldGenNodeDefinition.builder("ore_vein", "Ore Vein").input("block", FlowDataType.BLOCK, "minecraft:coal_ore", "material").input("size", FlowDataType.FLOAT, 8f, "number").output("feature", FlowDataType.STRING)),
+            feature(WorldGenNodeDefinition.builder("tree_feature", "Tree Feature").input("tree", FlowDataType.STRING, "TREE", "searchable").output("feature", FlowDataType.STRING)),
+            feature(WorldGenNodeDefinition.builder("vegetation_patch", "Vegetation Patch").input("block", FlowDataType.BLOCK, "minecraft:grass", "material").output("feature", FlowDataType.STRING)),
+            feature(WorldGenNodeDefinition.builder("liquid_lake", "Liquid Lake").input("fluid", FlowDataType.BLOCK, "minecraft:water", "material").output("feature", FlowDataType.STRING)),
+            feature(WorldGenNodeDefinition.builder("disk", "Disk").input("block", FlowDataType.BLOCK, "minecraft:clay", "material").input("radius", FlowDataType.FLOAT, 4f, "number").output("feature", FlowDataType.STRING)),
+            feature(WorldGenNodeDefinition.builder("boulder", "Boulder").input("block", FlowDataType.BLOCK, "minecraft:mossy_cobblestone", "material").output("feature", FlowDataType.STRING)),
+            feature(WorldGenNodeDefinition.builder("scatter", "Scatter").input("feature", FlowDataType.STRING, "", "text").input("chance", FlowDataType.FLOAT, 0.1f, "number").output("placement", FlowDataType.STRING)),
+            feature(WorldGenNodeDefinition.builder("poisson_scatter", "Poisson Scatter").input("feature", FlowDataType.STRING, "", "text").input("spacing", FlowDataType.FLOAT, 12f, "number").output("placement", FlowDataType.STRING)),
+            feature(WorldGenNodeDefinition.builder("biome_filter", "Biome Filter").input("biome", FlowDataType.BIOME, "minecraft:plains", "dropdown").output("mask", FlowDataType.BOOLEAN)),
+            feature(WorldGenNodeDefinition.builder("height_filter", "Height Filter").input("min", FlowDataType.FLOAT, 0f, "number").input("max", FlowDataType.FLOAT, 320f, "number").output("mask", FlowDataType.BOOLEAN)),
+            feature(WorldGenNodeDefinition.builder("chance_filter", "Chance Filter").input("chance", FlowDataType.FLOAT, 0.5f, "number").input("salt", FlowDataType.SEED, 0, "number").output("mask", FlowDataType.BOOLEAN)),
+            structure(WorldGenNodeDefinition.builder("structure_placement", "Structure Placement").input("structure_id", FlowDataType.STRING, "", "searchable").input("spacing", FlowDataType.FLOAT, 32f, "number").input("separation", FlowDataType.FLOAT, 8f, "number").input("salt", FlowDataType.SEED, 0, "number").output("structure", FlowDataType.STRING)),
+            spawn(WorldGenNodeDefinition.builder("spawn_rule", "Spawn Rule").input("entity", FlowDataType.ENTITY_TYPE, "minecraft:zombie", "dropdown").input("weight", FlowDataType.FLOAT, 10f, "number").input("min_group", FlowDataType.FLOAT, 1f, "number").input("max_group", FlowDataType.FLOAT, 4f, "number").output("spawn", FlowDataType.STRING)),
+            feature(WorldGenNodeDefinition.builder("output_features", "Output Features").input("placements", FlowDataType.STRING, "", "text")),
+            structure(WorldGenNodeDefinition.builder("output_structures", "Output Structures").input("placements", FlowDataType.STRING, "", "text")),
+            spawn(WorldGenNodeDefinition.builder("output_spawns", "Output Spawns").input("table", FlowDataType.STRING, "", "text"))
         );
+    }
+
+    private WorldGenNodeDefinition terrain(WorldGenNodeDefinition.Builder builder) {
+        return builder.category("Terrain").build();
+    }
+
+    private WorldGenNodeDefinition biome(WorldGenNodeDefinition.Builder builder) {
+        return builder.category("Biomes").build();
+    }
+
+    private WorldGenNodeDefinition surface(WorldGenNodeDefinition.Builder builder) {
+        return builder.category("Surface").build();
+    }
+
+    private WorldGenNodeDefinition cave(WorldGenNodeDefinition.Builder builder) {
+        return builder.category("Caves").build();
+    }
+
+    private WorldGenNodeDefinition feature(WorldGenNodeDefinition.Builder builder) {
+        return builder.category("Features").build();
+    }
+
+    private WorldGenNodeDefinition structure(WorldGenNodeDefinition.Builder builder) {
+        return builder.category("Structures").build();
+    }
+
+    private WorldGenNodeDefinition spawn(WorldGenNodeDefinition.Builder builder) {
+        return builder.category("Spawns").build();
     }
 
     private WorldGenGraph createDefaultGraph() {
@@ -302,6 +432,111 @@ public class WorldGenManager {
             new WorldGenConnection("simplex_1", "out", "remap_1", "in"),
             new WorldGenConnection("remap_1", "out", "output_height_1", "height")
         )));
+        return graph;
+    }
+
+    private WorldGenProject createDefaultProject() {
+        WorldGenProject project = new WorldGenProject();
+        project.setTerrainGraph(createDefaultGraph());
+        project.setBiomeGraph(createDefaultBiomeGraph());
+        project.setSurfaceGraph(createDefaultSurfaceGraph());
+        project.setCaveGraph(createDefaultCaveGraph());
+        project.setFeatureGraph(createDefaultFeatureGraph());
+        project.setStructureGraph(createDefaultStructureGraph());
+        project.setSpawnGraph(createDefaultSpawnGraph());
+        return project;
+    }
+
+    private WorldGenGraph createDefaultBiomeGraph() {
+        WorldGenGraph graph = emptyGraph("biome");
+        Map<String, WorldGenNode> nodes = new LinkedHashMap<>();
+        Map<String, Object> biomeValues = new HashMap<>();
+        biomeValues.put("biome", "minecraft:forest");
+        biomeValues.put("temperature", 0.7f);
+        biomeValues.put("humidity", 0.8f);
+        nodes.put("output_biome_1", new WorldGenNode("output_biome", 220, 120, biomeValues));
+        graph.setNodes(nodes);
+        return graph;
+    }
+
+    private WorldGenGraph createDefaultSurfaceGraph() {
+        WorldGenGraph graph = emptyGraph("surface");
+        Map<String, WorldGenNode> nodes = new LinkedHashMap<>();
+        Map<String, Object> blockValues = new HashMap<>();
+        blockValues.put("block", "minecraft:grass_block");
+        blockValues.put("y", 0f);
+        blockValues.put("replace", 1f);
+        nodes.put("output_block_1", new WorldGenNode("output_block", 220, 120, blockValues));
+        graph.setNodes(nodes);
+        return graph;
+    }
+
+    private WorldGenGraph createDefaultCaveGraph() {
+        WorldGenGraph graph = emptyGraph("cave");
+        Map<String, WorldGenNode> nodes = new LinkedHashMap<>();
+        Map<String, Object> noiseValues = new HashMap<>();
+        noiseValues.put("seed", 31);
+        noiseValues.put("frequency", 0.025f);
+        nodes.put("cave_noise_1", new WorldGenNode("cave_noise", 80, 120, noiseValues));
+        Map<String, Object> carveValues = new HashMap<>();
+        carveValues.put("mask", true);
+        nodes.put("carve_if_1", new WorldGenNode("carve_if", 330, 120, carveValues));
+        graph.setNodes(nodes);
+        graph.setConnections(new ArrayList<>(List.of(new WorldGenConnection("cave_noise_1", "density", "carve_if_1", "density"))));
+        return graph;
+    }
+
+    private WorldGenGraph createDefaultFeatureGraph() {
+        WorldGenGraph graph = emptyGraph("feature");
+        Map<String, WorldGenNode> nodes = new LinkedHashMap<>();
+        Map<String, Object> treeValues = new HashMap<>();
+        treeValues.put("tree", "TREE");
+        nodes.put("tree_feature_1", new WorldGenNode("tree_feature", 80, 120, treeValues));
+        Map<String, Object> scatterValues = new HashMap<>();
+        scatterValues.put("chance", 0.08f);
+        nodes.put("scatter_1", new WorldGenNode("scatter", 330, 120, scatterValues));
+        nodes.put("output_features_1", new WorldGenNode("output_features", 580, 120, new HashMap<>()));
+        graph.setNodes(nodes);
+        graph.setConnections(new ArrayList<>(List.of(
+            new WorldGenConnection("tree_feature_1", "feature", "scatter_1", "feature"),
+            new WorldGenConnection("scatter_1", "placement", "output_features_1", "placements")
+        )));
+        return graph;
+    }
+
+    private WorldGenGraph createDefaultStructureGraph() {
+        WorldGenGraph graph = emptyGraph("structure");
+        Map<String, WorldGenNode> nodes = new LinkedHashMap<>();
+        Map<String, Object> placementValues = new HashMap<>();
+        placementValues.put("structure_id", "");
+        placementValues.put("spacing", 32f);
+        placementValues.put("separation", 8f);
+        placementValues.put("salt", 10387313);
+        nodes.put("structure_placement_1", new WorldGenNode("structure_placement", 80, 120, placementValues));
+        nodes.put("output_structures_1", new WorldGenNode("output_structures", 330, 120, new HashMap<>()));
+        graph.setNodes(nodes);
+        graph.setConnections(new ArrayList<>(List.of(new WorldGenConnection("structure_placement_1", "structure", "output_structures_1", "placements"))));
+        return graph;
+    }
+
+    private WorldGenGraph createDefaultSpawnGraph() {
+        WorldGenGraph graph = emptyGraph("spawn");
+        Map<String, WorldGenNode> nodes = new LinkedHashMap<>();
+        Map<String, Object> spawnValues = new HashMap<>();
+        spawnValues.put("entity", "minecraft:zombie");
+        spawnValues.put("weight", 10f);
+        spawnValues.put("min_group", 1f);
+        spawnValues.put("max_group", 4f);
+        nodes.put("spawn_rule_1", new WorldGenNode("spawn_rule", 80, 120, spawnValues));
+        nodes.put("output_spawns_1", new WorldGenNode("output_spawns", 330, 120, new HashMap<>()));
+        graph.setNodes(nodes);
+        graph.setConnections(new ArrayList<>(List.of(new WorldGenConnection("spawn_rule_1", "spawn", "output_spawns_1", "table"))));
+        return graph;
+    }
+
+    private WorldGenGraph emptyGraph(String id) {
+        WorldGenGraph graph = new WorldGenGraph();
+        graph.setId(id);
         return graph;
     }
 
