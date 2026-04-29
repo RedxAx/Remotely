@@ -13,4 +13,12 @@ public class WorldGenSerializer {
     public static WorldGenGraph deserialize(String json) {
         return GSON.fromJson(json, WorldGenGraph.class);
     }
+
+    public static String serializeProject(WorldGenProject project) {
+        return GSON.toJson(project);
+    }
+
+    public static WorldGenProject deserializeProject(String json) {
+        return GSON.fromJson(json, WorldGenProject.class);
+    }
 }

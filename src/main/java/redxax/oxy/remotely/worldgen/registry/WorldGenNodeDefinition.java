@@ -91,12 +91,17 @@ public class WorldGenNodeDefinition {
         }
 
         public Builder input(String name, FlowDataType dataType, Object defaultValue, String widgetType) {
-            inputs.add(new PinDefinition(name, dataType, PinDirection.INPUT, defaultValue, widgetType, Map.of(), "", null));
+            inputs.add(new PinDefinition(name, dataType, PinDirection.INPUT, defaultValue, widgetType, Map.of(), "", null, List.of()));
+            return this;
+        }
+
+        public Builder input(String name, FlowDataType dataType, Object defaultValue, String widgetType, List<String> options) {
+            inputs.add(new PinDefinition(name, dataType, PinDirection.INPUT, defaultValue, widgetType, Map.of(), "", null, options != null ? options : List.of()));
             return this;
         }
 
         public Builder output(String name, FlowDataType dataType) {
-            outputs.add(new PinDefinition(name, dataType, PinDirection.OUTPUT, null, null, Map.of(), "", null));
+            outputs.add(new PinDefinition(name, dataType, PinDirection.OUTPUT, null, null, Map.of(), "", null, List.of()));
             return this;
         }
 
@@ -131,6 +136,6 @@ public class WorldGenNodeDefinition {
     }
 
     public record PinDefinition(String name, FlowDataType dataType, PinDirection direction, Object defaultValue, String widgetType,
-                                Map<String, Object> constraints, String description, String visibleWhen) {
+                                Map<String, Object> constraints, String description, String visibleWhen, List<String> options) {
     }
 }
