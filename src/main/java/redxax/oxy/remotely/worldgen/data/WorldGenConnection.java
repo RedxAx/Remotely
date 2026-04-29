@@ -1,17 +1,17 @@
-package redxax.oxy.remotely.flow.data;
+package redxax.oxy.remotely.worldgen.data;
 
 import redxax.oxy.remotely.nodegraph.editor.GraphConnection;
 
-public class FlowConnection implements GraphConnection {
+public class WorldGenConnection implements GraphConnection {
     private String sourceNodeId;
     private String sourcePin;
     private String targetNodeId;
     private String targetPin;
 
-    public FlowConnection() {
+    public WorldGenConnection() {
     }
 
-    public FlowConnection(String sourceNodeId, String sourcePin, String targetNodeId, String targetPin) {
+    public WorldGenConnection(String sourceNodeId, String sourcePin, String targetNodeId, String targetPin) {
         this.sourceNodeId = sourceNodeId;
         this.sourcePin = sourcePin;
         this.targetNodeId = targetNodeId;

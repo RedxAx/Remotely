@@ -1,12 +1,14 @@
 package redxax.oxy.remotely.flow.data;
 
+import redxax.oxy.remotely.nodegraph.editor.GraphModel;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-public class FlowGraph {
+public class FlowGraph implements GraphModel {
     public static final int CURRENT_VERSION = 1;
     private String id;
     private int version;

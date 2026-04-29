@@ -11,6 +11,7 @@ public final class FlowDataType {
     public static final FlowDataType ANY = new FlowDataType("any", null, 0x808080, "Any");
     public static final FlowDataType STRING = new FlowDataType("string", null, 0xDA00FF, "String");
     public static final FlowDataType NUMBER = new FlowDataType("number", null, 0x00FF93, "Number");
+    public static final FlowDataType FLOAT = new FlowDataType("float", NUMBER, 0x00BFFF, "Float");
     public static final FlowDataType BOOLEAN = new FlowDataType("boolean", null, 0xD20000, "Boolean");
     public static final FlowDataType ENTITY = new FlowDataType("entity", null, 0x8B4513, "Entity");
     public static final FlowDataType LIVING_ENTITY = new FlowDataType("living_entity", ENTITY, 0xA0522D, "Living Entity");
@@ -23,6 +24,9 @@ public final class FlowDataType {
     public static final FlowDataType BIOME = new FlowDataType("biome", null, 0x20B2AA, "Biome");
     public static final FlowDataType LOCATION = new FlowDataType("location", null, 0xFFA500, "Location");
     public static final FlowDataType VECTOR = new FlowDataType("vector", null, 0x7FFFD4, "Vector");
+    public static final FlowDataType VECTOR2 = new FlowDataType("vector2", VECTOR, 0x7FFFD4, "Vector2");
+    public static final FlowDataType VECTOR3 = new FlowDataType("vector3", VECTOR, 0x40E0D0, "Vector3");
+    public static final FlowDataType SEED = new FlowDataType("seed", NUMBER, 0xFFD700, "Seed");
     public static final FlowDataType COLOR = new FlowDataType("color", null, 0xFF66CC, "Color");
     public static final FlowDataType UUID = new FlowDataType("uuid", null, 0x708090, "UUID");
     public static final FlowDataType GAMEMODE = new FlowDataType("gamemode", null, 0x4169E1, "Gamemode");

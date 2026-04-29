@@ -43,6 +43,7 @@ public class NodeDefinition {
         public static final NodeCategory HTTP = new NodeCategory("http", "HTTP", 0xFFFF6347, 1700);
         public static final NodeCategory DISCORD = new NodeCategory("discord", "Discord", 0xFF7289DA, 1800);
         public static final NodeCategory UTILITY = new NodeCategory("utility", "Utility", 0xFFA9A9A9, 1900);
+        public static final NodeCategory WORLD_GEN = new NodeCategory("world_gen", "World Gen", 0xFF228B22, 2000);
 
         private final String id;
         private final String displayName;

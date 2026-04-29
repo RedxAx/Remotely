@@ -23,15 +23,22 @@ import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
 import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
 import redxax.oxy.remotely.data.flow.world.WorldChannelMessage;
+import redxax.oxy.remotely.worldgen.WorldGenManager;
+import redxax.oxy.remotely.worldgen.data.WorldGenGraph;
+import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
+import redxax.oxy.remotely.worldgen.registry.WorldGenNodeDefinition;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.util.Notification;
 import restudio.rebase.restudio.api.ReStudioApiClient;
 
 import java.io.IOException;
+import java.lang.reflect.Type;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
@@ -70,6 +77,7 @@ public class ReSyncFlowClient {
     private static final short FLOW_CHANNEL_ID = 1001;
     private static final short PLAYER_TRACKING_CHANNEL_ID = 1002;
     private static final short WORLD_MANAGEMENT_CHANNEL_ID = 1003;
+    private static final short WORLDGEN_CHANNEL_ID = 1004;
     private static final short CONTROL_CHANNEL_ID = 0;
     private int sequenceCounter = 0;
     private ErrorListener errorListener;
@@ -295,6 +303,7 @@ public class ReSyncFlowClient {
         sendSubscribe("flow", null);
         sendSubscribe("player_tracking", null);
         sendSubscribe("world_management", null);
+        sendSubscribe("worldgen", null);
     }
 
     private void sendSubscribe(String channelId, String data) {
@@ -452,6 +461,11 @@ public class ReSyncFlowClient {
             return;
         }
 
+        if (channel == WORLDGEN_CHANNEL_ID) {
+            handleWorldGenMessage(data);
+            return;
+        }
+
         if (channel != FLOW_CHANNEL_ID) {
             return;
         }
@@ -542,6 +556,46 @@ public class ReSyncFlowClient {
             }
         } catch (Exception e) {
             System.err.println("[ReSyncFlow] Failed to parse world management update: " + e.getMessage());
+        }
+    }
+
+    private void handleWorldGenMessage(byte[] data) {
+        if (data.length < 1) {
+            return;
+        }
+        ByteBuffer buffer = ByteBuffer.wrap(data);
+        byte packetId = buffer.get();
+        byte[] jsonBytes = new byte[buffer.remaining()];
+        buffer.get(jsonBytes);
+        String json = new String(jsonBytes, StandardCharsets.UTF_8);
+        try {
+            switch (packetId) {
+                case 0x23 -> handleWorldGenPreviewStatus(json);
+                case 0x25 -> handleWorldGenRegistrySnapshot(json);
+                default -> System.out.println("[ReSyncFlow] Unknown worldgen packet: 0x" + String.format("%02X", packetId));
+            }
+        } catch (Exception e) {
+            System.err.println("[ReSyncFlow] Failed to process worldgen packet: " + e.getMessage());
+        }
+    }
+
+    private void handleWorldGenPreviewStatus(String json) {
+        Map<?, ?> status = gson.fromJson(json, Map.class);
+        String previewId = status != null && status.get("previewId") != null ? String.valueOf(status.get("previewId")) : "";
+        String state = status != null && status.get("status") != null ? String.valueOf(status.get("status")) : "error";
+        String message = status != null && status.get("message") != null ? String.valueOf(status.get("message")) : state;
+        WorldGenManager manager = WorldGenManager.getInstance();
+        if (manager != null) {
+            manager.handlePreviewStatus(serverId, previewId, state, message);
+        }
+    }
+
+    private void handleWorldGenRegistrySnapshot(String json) {
+        Type type = com.google.gson.reflect.TypeToken.getParameterized(List.class, WorldGenNodeDefinition.class).getType();
+        List<WorldGenNodeDefinition> definitions = gson.fromJson(json, type);
+        WorldGenManager manager = WorldGenManager.getInstance();
+        if (manager != null) {
+            manager.applyRegistrySnapshot(serverId, definitions);
         }
     }
 
@@ -1070,6 +1124,50 @@ public class ReSyncFlowClient {
     public void sendGuiDelete(String guiId) { sendResourceDelete(ReSyncResourceType.GUI, guiId); }
     public void sendScoreboardDelete(String scoreboardId) { sendResourceDelete(ReSyncResourceType.SCOREBOARD, scoreboardId); }
     public void sendTabDelete(String tabId) { sendResourceDelete(ReSyncResourceType.TAB, tabId); }
+
+    public void sendWorldGenSave(WorldGenGraph graph) {
+        if (graph == null) {
+            return;
+        }
+        sendWorldGenJson((byte) 0x20, WorldGenSerializer.serialize(graph));
+    }
+
+    public void sendWorldGenPreviewCreate(WorldGenGraph graph, String previewId, String environment, long seed, String playerUuid) {
+        if (graph == null || previewId == null || previewId.isBlank()) {
+            return;
+        }
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("graph", graph);
+        payload.put("previewId", previewId);
+        payload.put("environment", environment != null && !environment.isBlank() ? environment : "NORMAL");
+        payload.put("seed", seed);
+        payload.put("playerUuid", playerUuid);
+        sendWorldGenJson((byte) 0x21, gson.toJson(payload));
+    }
+
+    public void sendWorldGenPreviewStop(String previewId) {
+        if (previewId == null || previewId.isBlank()) {
+            return;
+        }
+        sendWorldGenJson((byte) 0x22, gson.toJson(Map.of("previewId", previewId)));
+    }
+
+    public void requestWorldGenRegistry() {
+        sendWorldGenJson((byte) 0x24, gson.toJson(Map.of("pluginChecksums", Map.of())));
+    }
+
+    private void sendWorldGenJson(byte packetId, String json) {
+        if (!isConnected()) {
+            pendingSends.add(() -> sendWorldGenJson(packetId, json));
+            ensureConnected();
+            return;
+        }
+        byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
+        buffer.put(packetId);
+        buffer.put(jsonBytes);
+        sendFrame(4, buffer.array(), WORLDGEN_CHANNEL_ID);
+    }
 
     public void sendTriggerUpdate(java.util.List<TriggerBinding> bindings) {
         if (!isConnected()) {

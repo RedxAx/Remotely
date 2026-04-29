@@ -16,6 +16,7 @@ import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
+import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
 import restudio.rebase.Rebase;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.FileSystemProvider;
@@ -1958,9 +1959,16 @@ public class FlowManagerScreen extends ReScreen {
             .size(130, 18)
             .onClick(() -> flowManager.refreshWorldsFromServer(serverId))
             .build();
+        IconButton worldGenButton = new IconButton.Builder()
+            .label("World Generation")
+            .imagePath("node.png")
+            .accentType(ThemeManager.getAccent("nice"))
+            .size(170, 18)
+            .onClick(this::openWorldGenEditor)
+            .build();
         RowWidget topRow = new RowWidget.Builder()
             .size(Math.max(200, worldsContainer.getWidth() - 20), 18)
-            .addWidget(createButton, importButton, scanButton, refreshButton)
+            .addWidget(createButton, importButton, scanButton, refreshButton, worldGenButton)
             .build();
         worldsContainer.addWidget(topRow);
 
@@ -1969,6 +1977,10 @@ public class FlowManagerScreen extends ReScreen {
         for (String worldName : worldNames) {
             upsertWorldEntry(worldName);
         }
+    }
+
+    private void openWorldGenEditor() {
+        ScreenManager.getInstance().setScreen(new WorldGenEditorScreen(serverId, server, this));
     }
 
     public void upsertWorldEntry(String worldName) {
