@@ -2,20 +2,21 @@ package redxax.oxy.remotely.worldgen.registry;
 
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class WorldGenNodeRegistry {
     private static final WorldGenNodeRegistry INSTANCE = new WorldGenNodeRegistry();
-    private final Map<String, Map<String, WorldGenNodeDefinition>> definitions = new HashMap<>();
+    private final Map<String, Map<String, WorldGenNodeDefinition>> definitions = new ConcurrentHashMap<>();
 
     public static WorldGenNodeRegistry getInstance() {
         return INSTANCE;
     }
 
     public void register(String serverId, WorldGenNodeDefinition definition) {
-        definitions.computeIfAbsent(serverId, id -> new LinkedHashMap<>()).put(definition.getId(), definition);
+        definitions.computeIfAbsent(serverId, id -> new ConcurrentHashMap<>()).put(definition.getId(), definition);
     }
 
     public void replaceDefinitions(String serverId, Collection<WorldGenNodeDefinition> newDefinitions) {
@@ -27,7 +28,7 @@ public class WorldGenNodeRegistry {
                 }
             }
         }
-        definitions.put(serverId, serverDefinitions);
+        definitions.put(serverId, Map.copyOf(serverDefinitions));
     }
 
     public WorldGenNodeDefinition getDefinition(String serverId, String nodeId) {
@@ -37,7 +38,7 @@ public class WorldGenNodeRegistry {
 
     public Collection<WorldGenNodeDefinition> getAllDefinitions(String serverId) {
         Map<String, WorldGenNodeDefinition> serverDefinitions = definitions.get(serverId);
-        if (serverDefinitions == null) return java.util.List.of();
+        if (serverDefinitions == null) return List.of();
         return serverDefinitions.values().stream().sorted(Comparator.comparingInt(WorldGenNodeDefinition::getPriority)).toList();
     }
 
