@@ -17,6 +17,7 @@ import restudio.rescreen.ui.widgets.TextInputWidget;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 public class WorldGenEditorScreen extends FlowEditorScreen {
     private final String actualServerId;
@@ -185,7 +186,7 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
             .label("New")
             .onClick(() -> {
                 syncProjectGraph();
-                project = new WorldGenProject();
+                project = manager.createProjectTemplate(manager.getProjectTemplates().getFirst(), null);
                 projectIdInput.setText(project.getId());
                 activeStage = WorldGenStage.TERRAIN;
                 applyGraph(manager.toFlowGraph(project.graph(activeStage)));
@@ -207,8 +208,12 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
             .label("Duplicate")
             .onClick(() -> {
                 syncProjectGraph();
-                project.setId(projectIdInput.getText().isBlank() ? java.util.UUID.randomUUID().toString() : projectIdInput.getText().trim());
+                WorldGenProject copy = manager.copyProject(project);
+                copy.setId(projectIdInput.getText().isBlank() ? UUID.randomUUID().toString() : projectIdInput.getText().trim());
+                project = copy;
                 manager.saveWorldGen(actualServerId, project);
+                activeStage = WorldGenStage.TERRAIN;
+                applyGraph(manager.toFlowGraph(project.graph(activeStage)));
             })
             .build();
         AnimatedButton deleteButton = new AnimatedButton.Builder()

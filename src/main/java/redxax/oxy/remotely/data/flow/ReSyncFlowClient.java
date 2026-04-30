@@ -23,18 +23,15 @@ import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
 import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
 import redxax.oxy.remotely.data.flow.world.WorldChannelMessage;
-import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenGraph;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
-import redxax.oxy.remotely.worldgen.registry.WorldGenNodeDefinition;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.util.Notification;
 import restudio.rebase.restudio.api.ReStudioApiClient;
 
 import java.io.IOException;
-import java.lang.reflect.Type;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -119,6 +116,7 @@ public class ReSyncFlowClient {
     private volatile boolean shutdownRequested = false;
     private final AtomicInteger placeholderRequestCounter = new AtomicInteger(1);
     private final Map<Integer, Consumer<String>> placeholderPreviewCallbacks = new ConcurrentHashMap<>();
+    private final WorldGenProtocolHandler worldGenProtocolHandler;
 
     public ReSyncFlowClient(String serverId, ReStudioApiClient apiClient, RemotelyClient client) {
         this(serverId, apiClient, null, null, client);
@@ -130,6 +128,7 @@ public class ReSyncFlowClient {
         this.directWsUrl = directWsUrl;
         this.directApiKey = directApiKey;
         this.client = client;
+        this.worldGenProtocolHandler = new WorldGenProtocolHandler(serverId, gson);
         for (ReSyncResourceType type : ReSyncResourceType.values()) {
             pendingOpenResources.put(type, ConcurrentHashMap.newKeySet());
         }
@@ -561,78 +560,7 @@ public class ReSyncFlowClient {
     }
 
     private void handleWorldGenMessage(byte[] data) {
-        if (data.length < 1) {
-            return;
-        }
-        ByteBuffer buffer = ByteBuffer.wrap(data);
-        byte packetId = buffer.get();
-        byte[] jsonBytes = new byte[buffer.remaining()];
-        buffer.get(jsonBytes);
-        String json = new String(jsonBytes, StandardCharsets.UTF_8);
-        try {
-            switch (packetId) {
-                case 0x23 -> handleWorldGenPreviewStatus(json);
-                case 0x25 -> handleWorldGenRegistrySnapshot(json);
-                case 0x35 -> handleWorldGenProjectData(json);
-                case 0x36 -> handleWorldGenProjectList(json);
-                case 0x37 -> handleWorldGenProjectSaveAck(json);
-                case 0x38 -> handleWorldGenCompileDiagnostics(json);
-                default -> System.out.println("[ReSyncFlow] Unknown worldgen packet: 0x" + String.format("%02X", packetId));
-            }
-        } catch (Exception e) {
-            System.err.println("[ReSyncFlow] Failed to process worldgen packet: " + e.getMessage());
-        }
-    }
-
-    private void handleWorldGenPreviewStatus(String json) {
-        Map<?, ?> status = gson.fromJson(json, Map.class);
-        String previewId = status != null && status.get("previewId") != null ? String.valueOf(status.get("previewId")) : "";
-        String state = status != null && status.get("status") != null ? String.valueOf(status.get("status")) : "error";
-        String message = status != null && status.get("message") != null ? String.valueOf(status.get("message")) : state;
-        WorldGenManager manager = WorldGenManager.getInstance();
-        if (manager != null) {
-            manager.handlePreviewStatus(serverId, previewId, state, message);
-        }
-    }
-
-    private void handleWorldGenRegistrySnapshot(String json) {
-        Type type = com.google.gson.reflect.TypeToken.getParameterized(List.class, WorldGenNodeDefinition.class).getType();
-        List<WorldGenNodeDefinition> definitions = gson.fromJson(json, type);
-        WorldGenManager manager = WorldGenManager.getInstance();
-        if (manager != null) {
-            manager.applyRegistrySnapshot(serverId, definitions);
-        }
-    }
-
-    private void handleWorldGenProjectData(String json) {
-        WorldGenProject project = WorldGenSerializer.deserializeProject(json);
-        WorldGenManager manager = WorldGenManager.getInstance();
-        if (manager != null && project != null) {
-            manager.handleProjectData(serverId, project);
-        }
-    }
-
-    private void handleWorldGenProjectList(String json) {
-        Type type = com.google.gson.reflect.TypeToken.getParameterized(List.class, String.class).getType();
-        List<String> ids = gson.fromJson(json, type);
-        WorldGenManager manager = WorldGenManager.getInstance();
-        if (manager != null) {
-            manager.handleProjectList(serverId, ids != null ? ids : List.of());
-        }
-    }
-
-    private void handleWorldGenProjectSaveAck(String json) {
-        WorldGenManager manager = WorldGenManager.getInstance();
-        if (manager != null) {
-            manager.handleProjectSaved(serverId, json);
-        }
-    }
-
-    private void handleWorldGenCompileDiagnostics(String json) {
-        WorldGenManager manager = WorldGenManager.getInstance();
-        if (manager != null) {
-            manager.handleCompileDiagnostics(serverId, json);
-        }
+        worldGenProtocolHandler.handle(data);
     }
 
     private void handleResourceData(ReSyncResourceType type, ByteBuffer buffer) {

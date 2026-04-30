@@ -51,6 +51,7 @@ import java.util.function.Consumer;
 
 public class FlowManager {
     private static FlowManager INSTANCE;
+    private static final List<String> FLOW_TEMPLATES = List.of("Blank", "Command");
     private final RemotelyClient client;
     private final ReSyncConnectionManager connectionManager;
     private final ReSyncWorldService worldService;
@@ -129,6 +130,10 @@ public class FlowManager {
 
     public ReStudioApiClient getApiClient() {
         return connectionManager.getApiClient();
+    }
+
+    public List<String> getFlowTemplates() {
+        return FLOW_TEMPLATES;
     }
 
     public CompletableFuture<Boolean> isReSyncPluginInstalled(String serverId) {
@@ -395,7 +400,11 @@ public class FlowManager {
     }
 
     public FlowGraph createFlow(String serverId, String flowId, boolean function) {
-        FlowGraph graph = createDefaultFlow(function);
+        return createFlow(serverId, flowId, function, FLOW_TEMPLATES.getFirst());
+    }
+
+    public FlowGraph createFlow(String serverId, String flowId, boolean function, String templateName) {
+        FlowGraph graph = createDefaultFlow(function, templateName);
         if (flowId != null) {
             graph.setId(flowId);
         }
@@ -921,8 +930,15 @@ public class FlowManager {
     }
 
     private FlowGraph createDefaultFlow(boolean function) {
+        return createDefaultFlow(function, FLOW_TEMPLATES.getFirst());
+    }
+
+    private FlowGraph createDefaultFlow(boolean function, String templateName) {
         FlowGraph graph = new FlowGraph();
         graph.setFunction(function);
+        if (!function && "command".equalsIgnoreCase(templateName)) {
+            graph.getNodes().put(UUID.randomUUID().toString(), new FlowNode("event.resync.command", 120, 120, new HashMap<>()));
+        }
         return graph;
     }
 

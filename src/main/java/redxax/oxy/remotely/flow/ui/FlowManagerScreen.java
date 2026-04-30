@@ -1080,7 +1080,13 @@ public class FlowManagerScreen extends ReScreen {
             .size(200, 22)
             .build();
 
+        DropDownWidget<String> templateSelect = new DropDownWidget.Builder<>(flowManager.getFlowTemplates())
+            .size(200, 22)
+            .selectedItem(flowManager.getFlowTemplates().getFirst())
+            .build();
+
         builder.addRow("ID", true, 22, idInput);
+        builder.addRow("Template", true, 22, templateSelect);
 
         PopupWidget[] popupRef = new PopupWidget[1];
 
@@ -1094,7 +1100,7 @@ public class FlowManagerScreen extends ReScreen {
                          new Notification("Error", "Flow ID already exists", Notification.Type.ERROR);
                          return;
                     }
-                    FlowGraph graph = flowManager.createFlow(serverId, id, false);
+                    FlowGraph graph = flowManager.createFlow(serverId, id, false, templateSelect.getSelectedItem());
                     if (popupRef[0] != null) popupRef[0].hide();
                     flowManager.openFlowEditor(serverId, server, graph.getId());
                 } else {
@@ -2083,7 +2089,12 @@ public class FlowManagerScreen extends ReScreen {
             .placeholder("Project ID")
             .size(220, 18)
             .build();
+        DropDownWidget<String> templateSelect = new DropDownWidget.Builder<>(worldGenManager.getProjectTemplates())
+            .size(220, 18)
+            .selectedItem(worldGenManager.getProjectTemplates().getFirst())
+            .build();
         builder.addRow("ID", true, 20, idInput);
+        builder.addRow("Template", true, 20, templateSelect);
         PopupWidget[] popupRef = new PopupWidget[1];
         AnimatedButton createButton = new AnimatedButton.Builder()
             .label("Create")
@@ -2098,8 +2109,7 @@ public class FlowManagerScreen extends ReScreen {
                     new Notification("WorldGen", "Project Exists", Notification.Type.ERROR);
                     return;
                 }
-                WorldGenProject project = new WorldGenProject();
-                project.setId(id);
+                WorldGenProject project = worldGenManager.createProjectTemplate(templateSelect.getSelectedItem(), id);
                 worldGenManager.saveWorldGen(serverId, project);
                 if (popupRef[0] != null) {
                     popupRef[0].hide();
