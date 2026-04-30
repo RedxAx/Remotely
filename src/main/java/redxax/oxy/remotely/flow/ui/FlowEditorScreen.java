@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.flow.ui;
 
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
@@ -362,7 +363,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
 
         for (NodeDefinition def : NodeRegistry.getInstance().getAllDefinitions(serverId).values()) {
-            if (def.isHidden()) {
+            if (def.isHidden() || !isAllowedInCurrentEditor(def)) {
                 continue;
             }
             NodeDefinition.NodeCategory category = def.getCategory();
@@ -384,6 +385,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             targetPopup.clearRows();
             List<NodeDefinition> nodes = categories.getOrDefault(category, new ArrayList<>());
             nodes.sort(comparator);
+            if (isContentEditor() && category == NodeDefinition.NodeCategory.ABILITY && !nodes.isEmpty()) {
+                targetPopup.collapse(false);
+            }
             for (NodeDefinition def : nodes) {
                 IconButton btn = new IconButton.Builder()
                         .label(def.getDisplayName())
@@ -429,6 +433,31 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     private String getCategoryLabel(NodeDefinition.NodeCategory category) {
         return category.getDisplayName();
+    }
+
+    private boolean isContentEditor() {
+        return CustomContentGraphAdapter.isContentGraph(graph);
+    }
+
+    private boolean isAllowedInCurrentEditor(NodeDefinition definition) {
+        if (!isContentEditor()) {
+            return true;
+        }
+        String id = definition.getId();
+        if (id != null && (id.startsWith("custom_content.") || id.startsWith("ability."))) {
+            return true;
+        }
+        NodeDefinition.NodeCategory category = definition.getCategory();
+        return category == NodeDefinition.NodeCategory.LOGIC
+            || category == NodeDefinition.NodeCategory.DATA
+            || category == NodeDefinition.NodeCategory.VARIABLE
+            || category == NodeDefinition.NodeCategory.FUNCTION
+            || category == NodeDefinition.NodeCategory.ENTITY
+            || category == NodeDefinition.NodeCategory.BLOCK
+            || category == NodeDefinition.NodeCategory.ITEM
+            || category == NodeDefinition.NodeCategory.WORLD
+            || category == NodeDefinition.NodeCategory.VISUAL
+            || category == NodeDefinition.NodeCategory.UTILITY;
     }
 
     private void addNodeAtCenter(String type) {
@@ -1771,7 +1800,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
             List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(serverId).values());
-            definitions.removeIf(NodeDefinition::isHidden);
+            definitions.removeIf(def -> def.isHidden() || !isAllowedInCurrentEditor(def));
             definitions.sort(Comparator
                     .comparingInt(NodeDefinition::getPriority)
                     .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
@@ -1829,7 +1858,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
             List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(serverId).values());
-            definitions.removeIf(NodeDefinition::isHidden);
+            definitions.removeIf(def -> def.isHidden() || !isAllowedInCurrentEditor(def));
             definitions.sort(Comparator
                     .comparingInt(NodeDefinition::getPriority)
                     .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));

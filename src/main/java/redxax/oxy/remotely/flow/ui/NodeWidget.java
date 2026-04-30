@@ -10,6 +10,8 @@ import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata;
 import redxax.oxy.remotely.flow.sync.FlowTypeMetadata;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import restudio.rebase.minecraft.assets.MinecraftAssetsManager;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
@@ -153,7 +155,28 @@ public class NodeWidget extends AnimatedWidget {
         if (definition != null) {
             return definition;
         }
-        return buildContentDefinition(nodeType);
+        definition = buildContentDefinition(nodeType);
+        if (definition != null) {
+            return definition;
+        }
+        return buildAbilityDefinition(nodeType);
+    }
+
+    private static NodeDefinition buildAbilityDefinition(String nodeType) {
+        if (!"ability.particle_burst".equals(nodeType) && !"ability.spawn_particle_burst".equals(nodeType)) {
+            return null;
+        }
+        NodeDefinition.Builder builder = new NodeDefinition.Builder(nodeType, "Particle Burst", NodeDefinition.NodeCategory.ABILITY)
+            .handler("AbilityEffectHandler")
+            .handlerConfig(Map.of("operation", "particle_burst"));
+        builder.input(new NodeDefinition.PinDefinition("flow", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.INPUT, FlowDataType.EXECUTION));
+        builder.input(pin("location", FlowDataType.LOCATION).build());
+        builder.input(pin("particle", FlowDataType.STRING).widget(NodeDefinition.WidgetType.SEARCHABLE_LIST).optionsSource("client:minecraft:particle").defaultValue("FLAME").build());
+        builder.input(pin("count", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("24").build());
+        builder.input(pin("spread", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("0.6").build());
+        builder.input(pin("speed", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("0.02").build());
+        builder.output("flow", NodeDefinition.PinType.FLOW, FlowDataType.EXECUTION);
+        return builder.build();
     }
 
     private static NodeDefinition buildContentDefinition(String nodeType) {
@@ -446,8 +469,100 @@ public class NodeWidget extends AnimatedWidget {
     private List<String> catalogOptions(String catalog) {
         return switch (catalog) {
             case "blocks", "material" -> minecraftBlockOptions();
+            case "particle" -> minecraftParticleOptions();
+            case "sound" -> minecraftSoundOptions();
             default -> List.of();
         };
+    }
+
+    private List<String> minecraftSoundOptions() {
+        if (!(Config.configManager instanceof RemotelyConfigManager remotelyConfigManager)) {
+            return fallbackSoundOptions();
+        }
+        Path assetsDir = MinecraftAssetsManager.get(remotelyConfigManager).getActiveAssetsDir();
+        if (assetsDir == null) {
+            return fallbackSoundOptions();
+        }
+        Path sounds = assetsDir.resolve("minecraft").resolve("sounds.json");
+        if (!Files.isRegularFile(sounds)) {
+            return fallbackSoundOptions();
+        }
+        try {
+            JsonObject root = JsonParser.parseString(Files.readString(sounds)).getAsJsonObject();
+            List<String> options = new ArrayList<>();
+            for (String key : root.keySet()) {
+                options.add(key.toUpperCase().replace('.', '_'));
+            }
+            options.sort(String.CASE_INSENSITIVE_ORDER);
+            return options;
+        } catch (Exception ignored) {
+            return fallbackSoundOptions();
+        }
+    }
+
+    private List<String> fallbackSoundOptions() {
+        return List.of(
+            "AMBIENT_CAVE",
+            "BLOCK_AMETHYST_BLOCK_CHIME",
+            "BLOCK_ANVIL_LAND",
+            "BLOCK_BEACON_ACTIVATE",
+            "BLOCK_CHEST_OPEN",
+            "BLOCK_FIRE_EXTINGUISH",
+            "BLOCK_NOTE_BLOCK_BELL",
+            "BLOCK_NOTE_BLOCK_PLING",
+            "BLOCK_PORTAL_TRIGGER",
+            "BLOCK_WOODEN_DOOR_OPEN",
+            "ENTITY_ARROW_HIT_PLAYER",
+            "ENTITY_ENDER_DRAGON_GROWL",
+            "ENTITY_ENDERMAN_TELEPORT",
+            "ENTITY_EXPERIENCE_ORB_PICKUP",
+            "ENTITY_FIREWORK_ROCKET_BLAST",
+            "ENTITY_GENERIC_EXPLODE",
+            "ENTITY_GENERIC_HURT",
+            "ENTITY_LIGHTNING_BOLT_THUNDER",
+            "ENTITY_PLAYER_ATTACK_SWEEP",
+            "ENTITY_PLAYER_LEVELUP",
+            "ENTITY_WITHER_SPAWN",
+            "ITEM_TRIDENT_THUNDER",
+            "ITEM_TOTEM_USE",
+            "UI_BUTTON_CLICK"
+        );
+    }
+
+    private List<String> minecraftParticleOptions() {
+        return List.of(
+            "ANGRY_VILLAGER",
+            "ASH",
+            "BUBBLE",
+            "CAMPFIRE_COSY_SMOKE",
+            "CLOUD",
+            "CRIT",
+            "DAMAGE_INDICATOR",
+            "DRAGON_BREATH",
+            "DRIPPING_LAVA",
+            "DRIPPING_WATER",
+            "ELECTRIC_SPARK",
+            "ENCHANT",
+            "ENCHANTED_HIT",
+            "END_ROD",
+            "EXPLOSION",
+            "FIREWORK",
+            "FLAME",
+            "FLASH",
+            "GLOW",
+            "HAPPY_VILLAGER",
+            "HEART",
+            "LARGE_SMOKE",
+            "LAVA",
+            "PORTAL",
+            "SMALL_FLAME",
+            "SMOKE",
+            "SNOWFLAKE",
+            "SOUL",
+            "SOUL_FIRE_FLAME",
+            "SWEEP_ATTACK",
+            "WITCH"
+        );
     }
 
     private List<String> minecraftBlockOptions() {

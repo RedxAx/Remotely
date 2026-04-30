@@ -38,12 +38,13 @@ public class NodeDefinition {
         public static final NodeCategory SCOREBOARD = new NodeCategory("scoreboard", "Scoreboard", 0xFFDAA520, 1200);
         public static final NodeCategory ECONOMY = new NodeCategory("economy", "Economy", 0xFFFFFF00, 1300);
         public static final NodeCategory PERMISSION = new NodeCategory("permission", "Permission", 0xFFBA55D3, 1400);
-        public static final NodeCategory VISUAL = new NodeCategory("visual", "Visual", 0xFFFF1493, 1500);
-        public static final NodeCategory DATABASE = new NodeCategory("database", "Database", 0xFF4B0082, 1600);
-        public static final NodeCategory HTTP = new NodeCategory("http", "HTTP", 0xFFFF6347, 1700);
-        public static final NodeCategory DISCORD = new NodeCategory("discord", "Discord", 0xFF7289DA, 1800);
-        public static final NodeCategory UTILITY = new NodeCategory("utility", "Utility", 0xFFA9A9A9, 1900);
-        public static final NodeCategory WORLD_GEN = new NodeCategory("world_gen", "World Gen", 0xFF228B22, 2000);
+        public static final NodeCategory ABILITY = new NodeCategory("ability", "Ability", 0xFF00BFA5, 1500);
+        public static final NodeCategory VISUAL = new NodeCategory("visual", "Visual", 0xFFFF1493, 1600);
+        public static final NodeCategory DATABASE = new NodeCategory("database", "Database", 0xFF4B0082, 1700);
+        public static final NodeCategory HTTP = new NodeCategory("http", "HTTP", 0xFFFF6347, 1800);
+        public static final NodeCategory DISCORD = new NodeCategory("discord", "Discord", 0xFF7289DA, 1900);
+        public static final NodeCategory UTILITY = new NodeCategory("utility", "Utility", 0xFFA9A9A9, 2000);
+        public static final NodeCategory WORLD_GEN = new NodeCategory("world_gen", "World Gen", 0xFF228B22, 2100);
 
         private final String id;
         private final String displayName;
