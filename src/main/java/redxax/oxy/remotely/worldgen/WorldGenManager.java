@@ -12,9 +12,11 @@ import redxax.oxy.remotely.worldgen.data.WorldGenConnection;
 import redxax.oxy.remotely.worldgen.data.WorldGenGraph;
 import redxax.oxy.remotely.worldgen.data.WorldGenNode;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
+import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
 import redxax.oxy.remotely.worldgen.data.WorldGenStage;
 import redxax.oxy.remotely.worldgen.registry.WorldGenNodeDefinition;
 import redxax.oxy.remotely.worldgen.registry.WorldGenNodeRegistry;
+import redxax.oxy.remotely.flow.ui.FlowManagerScreen;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Notification;
@@ -30,7 +32,9 @@ import java.util.UUID;
 public class WorldGenManager {
     private static final WorldGenManager INSTANCE = new WorldGenManager();
     private final Map<String, WorldGenProject> projects = new HashMap<>();
+    private final Map<String, List<String>> projectLists = new HashMap<>();
     private final Map<String, String> previewStates = new HashMap<>();
+    private final Map<String, String> pendingDuplicateIds = new HashMap<>();
 
     public static WorldGenManager getInstance() {
         return INSTANCE;
@@ -85,6 +89,82 @@ public class WorldGenManager {
         }
     }
 
+    public void requestProject(String serverId, String projectId) {
+        ReSyncFlowClient client = flowClient(serverId);
+        if (client != null) {
+            client.requestWorldGenProject(projectId);
+        }
+    }
+
+    public void requestProjectList(String serverId) {
+        ReSyncFlowClient client = flowClient(serverId);
+        if (client != null) {
+            client.requestWorldGenProjectList();
+        }
+    }
+
+    public void deleteProject(String serverId, String projectId) {
+        ReSyncFlowClient client = flowClient(serverId);
+        if (client != null) {
+            client.sendWorldGenProjectDelete(projectId);
+            requestProjectList(serverId);
+        }
+    }
+
+    public void duplicateProject(String serverId, String sourceProjectId, String targetProjectId) {
+        if (serverId == null || sourceProjectId == null || targetProjectId == null || targetProjectId.isBlank()) {
+            return;
+        }
+        pendingDuplicateIds.put(serverId + ":" + sourceProjectId, targetProjectId);
+        requestProject(serverId, sourceProjectId);
+    }
+
+    public void handleProjectData(String serverId, WorldGenProject project) {
+        if (project == null) {
+            return;
+        }
+        String duplicateId = pendingDuplicateIds.remove(serverId + ":" + project.getId());
+        if (duplicateId != null && !duplicateId.isBlank()) {
+            WorldGenProject copy = WorldGenSerializer.deserializeProject(WorldGenSerializer.serializeProject(project));
+            copy.setId(duplicateId);
+            saveWorldGen(serverId, copy);
+            return;
+        }
+        projects.put(serverId, project);
+        ScreenManager.getInstance().execute(() -> {
+            if (ScreenManager.getInstance().getCurrentScreen() instanceof WorldGenEditorScreen screen && serverId.equals(screen.getActualServerId())) {
+                screen.loadProject(project);
+            }
+        });
+    }
+
+    public void handleProjectList(String serverId, List<String> ids) {
+        projectLists.put(serverId, new ArrayList<>(ids != null ? ids : List.of()));
+        ScreenManager.getInstance().execute(() -> {
+            if (ScreenManager.getInstance().getCurrentScreen() instanceof FlowManagerScreen screen && serverId.equals(screen.getServerId())) {
+                screen.rebuildWorldGenProjects();
+            }
+        });
+    }
+
+    public void handleProjectSaved(String serverId, String projectId) {
+        requestProjectList(serverId);
+        new Notification("World Generation", "Saved", Notification.Type.SUCCESS);
+    }
+
+    public void handleCompileDiagnostics(String serverId, String json) {
+        if (json == null || json.isBlank()) {
+            return;
+        }
+        if (json.contains("\"success\":false")) {
+            new Notification("World Generation", "Compile Failed", Notification.Type.ERROR);
+        }
+    }
+
+    public List<String> getProjectIds(String serverId) {
+        return projectLists.getOrDefault(serverId, List.of());
+    }
+
     public void requestRegistry(String serverId) {
         ensureLocalDefinitions(serverId);
         ReSyncFlowClient client = flowClient(serverId);
@@ -122,7 +202,18 @@ public class WorldGenManager {
         }
         projects.put(serverId, project);
         previewStates.put(previewKey(serverId, previewId), "creating");
-        client.sendWorldGenPreviewCreate(project, previewId, environment, seed, isUuid(playerUuid) ? playerUuid : "");
+        client.sendWorldGenPreviewApply(null, project, previewId, environment, seed, isUuid(playerUuid) ? playerUuid : "");
+        new Notification("World Generation", "Creating Preview", Notification.Type.INFO);
+    }
+
+    public void requestSavedProjectPreview(String serverId, String projectId, String previewId, String environment, long seed, String playerUuid) {
+        ReSyncFlowClient client = flowClient(serverId);
+        if (client == null) {
+            new Notification("World Generation", "ReSync Offline", Notification.Type.ERROR);
+            return;
+        }
+        previewStates.put(previewKey(serverId, previewId), "creating");
+        client.sendWorldGenPreviewApply(projectId, null, previewId, environment, seed, isUuid(playerUuid) ? playerUuid : "");
         new Notification("World Generation", "Creating Preview", Notification.Type.INFO);
     }
 
@@ -263,11 +354,11 @@ public class WorldGenManager {
         }
         if (pin.dataType() == FlowDataType.BIOME) {
             builder.widget(NodeDefinition.WidgetType.SEARCHABLE_LIST);
-            builder.optionsSource("client:minecraft:biome");
+            builder.optionsSource("worldgen:biomes");
         }
         if (pin.dataType() == FlowDataType.ENTITY_TYPE) {
             builder.widget(NodeDefinition.WidgetType.SEARCHABLE_LIST);
-            builder.optionsSource("client:minecraft:entity_type");
+            builder.optionsSource("worldgen:entity_types");
         }
         if ("structure_id".equals(pin.name())) {
             builder.widget(NodeDefinition.WidgetType.SEARCHABLE_LIST);
@@ -342,12 +433,13 @@ public class WorldGenManager {
             terrain(WorldGenNodeDefinition.builder("terrace", "Terrace").input("in", FlowDataType.FLOAT, 0f, "number").input("step_count", FlowDataType.FLOAT, 8f, "number").output("out", FlowDataType.FLOAT)),
             terrain(WorldGenNodeDefinition.builder("seed_offset", "Seed Offset").input("in", FlowDataType.FLOAT, 0f, "number").input("offset", FlowDataType.SEED, 0, "number").output("out", FlowDataType.FLOAT)),
             terrain(WorldGenNodeDefinition.builder("output_height", "Output Height").input("height", FlowDataType.FLOAT, 64f, "number")),
-            biome(WorldGenNodeDefinition.builder("output_biome", "Output Biome").input("biome", FlowDataType.BIOME, "minecraft:plains", "dropdown").input("temperature", FlowDataType.FLOAT, 0.5f, "number").input("humidity", FlowDataType.FLOAT, 0.5f, "number")),
+            biome(WorldGenNodeDefinition.builder("output_biome", "Output Biome").input("biome", FlowDataType.BIOME, "minecraft:plains", "searchable").input("temperature", FlowDataType.FLOAT, 0.5f, "number").input("humidity", FlowDataType.FLOAT, 0.5f, "number").input("keep_vanilla_features", FlowDataType.BOOLEAN, false, "toggle").input("keep_vanilla_structures", FlowDataType.BOOLEAN, false, "toggle").input("keep_vanilla_spawns", FlowDataType.BOOLEAN, false, "toggle")),
             surface(WorldGenNodeDefinition.builder("output_block", "Output Block").input("block", FlowDataType.BLOCK, null, "material").input("y", FlowDataType.FLOAT, 0f, "number").input("replace", FlowDataType.FLOAT, 1f, "number")),
-            biome(WorldGenNodeDefinition.builder("biome_constant", "Biome Constant").input("biome", FlowDataType.BIOME, "minecraft:plains", "dropdown").output("biome", FlowDataType.BIOME)),
-            biome(WorldGenNodeDefinition.builder("biome_select", "Biome Select").input("mask", FlowDataType.BOOLEAN, false, "toggle").input("true_biome", FlowDataType.BIOME, "minecraft:forest", "dropdown").input("false_biome", FlowDataType.BIOME, "minecraft:plains", "dropdown").output("biome", FlowDataType.BIOME)),
+            biome(WorldGenNodeDefinition.builder("biome_constant", "Biome Constant").input("biome", FlowDataType.BIOME, "minecraft:plains", "searchable").input("keep_vanilla_features", FlowDataType.BOOLEAN, false, "toggle").input("keep_vanilla_structures", FlowDataType.BOOLEAN, false, "toggle").input("keep_vanilla_spawns", FlowDataType.BOOLEAN, false, "toggle").output("biome", FlowDataType.BIOME)),
+            biome(WorldGenNodeDefinition.builder("biome_profile", "Biome Profile").input("profile", FlowDataType.BIOME, "minecraft:plains", "searchable").input("keep_vanilla_features", FlowDataType.BOOLEAN, false, "toggle").input("keep_vanilla_structures", FlowDataType.BOOLEAN, false, "toggle").input("keep_vanilla_spawns", FlowDataType.BOOLEAN, false, "toggle").output("biome", FlowDataType.BIOME)),
+            biome(WorldGenNodeDefinition.builder("biome_select", "Biome Select").input("mask", FlowDataType.BOOLEAN, false, "toggle").input("true_biome", FlowDataType.BIOME, "minecraft:forest", "searchable").input("false_biome", FlowDataType.BIOME, "minecraft:plains", "searchable").input("keep_vanilla_features", FlowDataType.BOOLEAN, false, "toggle").input("keep_vanilla_structures", FlowDataType.BOOLEAN, false, "toggle").input("keep_vanilla_spawns", FlowDataType.BOOLEAN, false, "toggle").output("biome", FlowDataType.BIOME)),
             biome(WorldGenNodeDefinition.builder("biome_blend", "Biome Blend").input("a", FlowDataType.BIOME, "minecraft:plains", "dropdown").input("b", FlowDataType.BIOME, "minecraft:forest", "dropdown").input("weight", FlowDataType.FLOAT, 0.5f, "number").output("biome", FlowDataType.BIOME)),
-            biome(WorldGenNodeDefinition.builder("climate_map", "Climate Map").input("temperature", FlowDataType.FLOAT, 0.5f, "number").input("humidity", FlowDataType.FLOAT, 0.5f, "number").output("biome", FlowDataType.BIOME)),
+            biome(WorldGenNodeDefinition.builder("climate_map", "Climate Map").input("temperature", FlowDataType.FLOAT, 0.5f, "number").input("humidity", FlowDataType.FLOAT, 0.5f, "number").input("keep_vanilla_features", FlowDataType.BOOLEAN, false, "toggle").input("keep_vanilla_structures", FlowDataType.BOOLEAN, false, "toggle").input("keep_vanilla_spawns", FlowDataType.BOOLEAN, false, "toggle").output("biome", FlowDataType.BIOME)),
             biome(WorldGenNodeDefinition.builder("temperature", "Temperature").input("value", FlowDataType.FLOAT, 0.5f, "number").output("out", FlowDataType.FLOAT)),
             biome(WorldGenNodeDefinition.builder("humidity", "Humidity").input("value", FlowDataType.FLOAT, 0.5f, "number").output("out", FlowDataType.FLOAT)),
             biome(WorldGenNodeDefinition.builder("continentalness", "Continentalness").input("value", FlowDataType.FLOAT, 0f, "number").output("out", FlowDataType.FLOAT)),
