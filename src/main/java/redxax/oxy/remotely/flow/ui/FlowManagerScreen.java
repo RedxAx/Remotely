@@ -784,7 +784,6 @@ public class FlowManagerScreen extends ReScreen {
         }
         if (contentViewSwitcher != null) {
             contentViewSwitcher.cleanup();
-            contentViewSwitcher = null;
         }
         contentViewSwitcher = new ViewSwitcherWidget(this, contentContainer);
         contentViewSwitcher.register("item.png", "Items", itemContentContainer);
@@ -800,7 +799,7 @@ public class FlowManagerScreen extends ReScreen {
     }
 
     private void onContentViewChanged(int viewIndex) {
-        contentViewIndex = Math.max(0, Math.min(viewIndex, 2));
+        contentViewIndex = Math.clamp(viewIndex, 0, 2);
         String type = contentViewIndex == 0 ? "item" : contentViewIndex == 1 ? "armor" : "block";
         rebuildCustomContent(type);
         if (tabsManager != null && tabsManager.getActiveTab() != null && tabsManager.getActiveTab().getContainer() == contentContainer) {

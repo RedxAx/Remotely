@@ -12,6 +12,7 @@ public class SyncedResourceCache<T> {
     private final Map<String, T> cache = new ConcurrentHashMap<>();
     private final Map<String, T> drafts = new ConcurrentHashMap<>();
     private final Map<String, String> names = new ConcurrentHashMap<>();
+    private final Map<String, SyncedResourceState> states = new ConcurrentHashMap<>();
     private final Set<String> serverIds = ConcurrentHashMap.newKeySet();
     private final Map<String, Object> pendingParents = new ConcurrentHashMap<>();
     private final Function<T, String> idExtractor;
@@ -37,6 +38,7 @@ public class SyncedResourceCache<T> {
         drafts.keySet().removeIf(k -> k.startsWith(prefix));
         serverIds.removeIf(k -> k.startsWith(prefix));
         names.keySet().removeIf(k -> k.startsWith(prefix));
+        states.keySet().removeIf(k -> k.startsWith(prefix));
     }
 
     public Map<String, T> getForServer(String serverId) {
@@ -77,6 +79,23 @@ public class SyncedResourceCache<T> {
     public void putInDraft(String serverId, T item) {
         String k = key(serverId, idExtractor.apply(item));
         drafts.put(k, item);
+        states.put(k, SyncedResourceState.DIRTY);
+    }
+
+    public void markSaving(String serverId, String resourceId) {
+        states.put(key(serverId, resourceId), SyncedResourceState.SAVING);
+    }
+
+    public void markFailed(String serverId, String resourceId) {
+        states.put(key(serverId, resourceId), SyncedResourceState.FAILED);
+    }
+
+    public void markStale(String serverId, String resourceId) {
+        states.put(key(serverId, resourceId), SyncedResourceState.STALE);
+    }
+
+    public SyncedResourceState getState(String serverId, String resourceId) {
+        return states.getOrDefault(key(serverId, resourceId), SyncedResourceState.CLEAN);
     }
 
     public void putNameIfAbsent(String serverId, String resourceId, String name) {
@@ -118,6 +137,7 @@ public class SyncedResourceCache<T> {
         drafts.remove(k);
         serverIds.remove(k);
         names.remove(k);
+        states.remove(k);
     }
 
     public void cache(String serverId, T item) {
@@ -132,7 +152,11 @@ public class SyncedResourceCache<T> {
         cache.put(k, item);
         names.putIfAbsent(k, defaultNameExtractor.apply(item));
         serverIds.add(k);
-        drafts.remove(k);
+        if (drafts.containsKey(k)) {
+            states.put(k, SyncedResourceState.STALE);
+        } else {
+            states.put(k, SyncedResourceState.CLEAN);
+        }
     }
 
     public void markSaved(String serverId, String resourceId) {
@@ -142,6 +166,7 @@ public class SyncedResourceCache<T> {
         if (draft != null) {
             cache.put(k, draft);
         }
+        states.put(k, SyncedResourceState.SAVED);
     }
 
     public void setPendingParent(String serverId, String resourceId, Object parent) {
@@ -192,8 +217,12 @@ public class SyncedResourceCache<T> {
         }
 
         serverIds.remove(oldKey);
+        SyncedResourceState state = states.remove(oldKey);
         if (wasServer) {
             serverIds.add(newKey);
+        }
+        if (state != null) {
+            states.put(newKey, state);
         }
 
         return true;
@@ -218,6 +247,7 @@ public class SyncedResourceCache<T> {
                 String k = prefix + id;
                 serverIds.add(k);
                 names.putIfAbsent(k, id);
+                states.putIfAbsent(k, SyncedResourceState.CLEAN);
             }
         }
     }

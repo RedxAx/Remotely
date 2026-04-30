@@ -521,6 +521,9 @@ public class ReSyncFlowClient {
             case 0x28:
                 handlePlaceholderPreview(buffer);
                 break;
+            case 0x38:
+                handleOptionCatalog(buffer);
+                break;
             case 0x0B:
                 handleNodeRegistrySnapshot(buffer, true);
                 break;
@@ -823,6 +826,20 @@ public class ReSyncFlowClient {
         }
     }
 
+    private void handleOptionCatalog(ByteBuffer buffer) {
+        byte[] jsonBytes = new byte[buffer.remaining()];
+        buffer.get(jsonBytes);
+        try {
+            OptionCatalogPayload payload = gson.fromJson(new String(jsonBytes, StandardCharsets.UTF_8), OptionCatalogPayload.class);
+            if (payload != null && payload.sourceId != null) {
+                OptionCatalogCache.getInstance().put(serverId, payload.sourceId, payload.revision, payload.values);
+                ScreenManager.getInstance().execute(() -> FlowEditorScreen.refreshCatalogForServer(serverId));
+            }
+        } catch (Exception e) {
+            System.err.println("[ReSyncFlow] Failed to parse option catalog: " + e.getMessage());
+        }
+    }
+
     public void requestNodeRegistry() {
         if (!isConnected()) {
             pendingSends.add(this::requestNodeRegistry);
@@ -838,6 +855,23 @@ public class ReSyncFlowClient {
         buffer.put(jsonBytes);
         sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
         scheduleNodeRegistryTimeout();
+    }
+
+    public void requestOptionCatalog(String sourceId) {
+        if (sourceId == null || sourceId.isBlank()) {
+            return;
+        }
+        if (!isConnected()) {
+            pendingSends.add(() -> requestOptionCatalog(sourceId));
+            ensureConnected();
+            return;
+        }
+        byte[] sourceBytes = sourceId.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + 4 + sourceBytes.length);
+        buffer.put((byte) 0x37);
+        buffer.putInt(sourceBytes.length);
+        buffer.put(sourceBytes);
+        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
     }
 
     private void loadCachedRegistry() {
@@ -1325,5 +1359,11 @@ public class ReSyncFlowClient {
     private static class PlayerTrackingRequest {
         private String action;
         private String playerId;
+    }
+
+    private static class OptionCatalogPayload {
+        private String sourceId;
+        private String revision;
+        private List<String> values;
     }
 }

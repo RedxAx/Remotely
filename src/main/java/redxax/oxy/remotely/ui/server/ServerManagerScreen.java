@@ -6,7 +6,6 @@ import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
-import redxax.oxy.remotely.ui.widgets.DesktopIconWidget;
 import redxax.oxy.remotely.ui.widgets.ReactorPlanWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
@@ -35,9 +34,12 @@ import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.desktop.DesktopBounds;
+import restudio.rescreen.ui.desktop.DesktopIconWidget;
+import restudio.rescreen.ui.desktop.DesktopMetrics;
+import restudio.rescreen.ui.desktop.DesktopShellScreen;
 import restudio.rescreen.ui.desktop.DesktopTaskbarHelper;
 import restudio.rescreen.ui.rescreen.Container;
-import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
 import restudio.rescreen.ui.rescreen.layout.FreeLayout;
@@ -59,7 +61,7 @@ import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
-public class ServerManagerScreen extends ReScreen implements AuthStateListener {
+public class ServerManagerScreen extends DesktopShellScreen implements AuthStateListener {
     private final RemotelyClient remotelyClient;
     private Instance instanceForDeletion;
     private PopupWidget addServerPopup;
@@ -77,9 +79,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private AnimatedButton remoteHostDeleteButton;
     private final Object parent;
     private IconButton userButton;
-    private DesktopTaskbarHelper taskbarHelper;
     private boolean restudioTabRequested;
-    int bx1 = 0, by1 = 0, bx2 = 0, by2 = 0;
 
     private static final String ROW_REMOTE_HOST_PASSWORD = "remoteHostPassword";
     private static final String ROW_REMOTE_HOST_AUTH_MODE = "remoteHostAuthMode";
@@ -171,7 +171,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         defaultIcons.put("unknown", unknown);
         iconManager.setDefaultIcons(defaultIcons);
 
-        int taskbarHeight = 28;
+        int taskbarHeight = DesktopMetrics.DEFAULT_TASKBAR_HEIGHT;
         String displayName = ReStudio.getInstance().getDisplayName();
         if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getUsername();
         if (displayName == null || displayName.isBlank()) displayName = ReStudio.getInstance().getEmail();
@@ -215,7 +215,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             .autoWidthOnTextChange(true)
             .build();
 
-        header().position(HeaderBuilder.Position.BOTTOM).size(taskbarHeight)
+        setupDesktopTaskbar(taskbarHeight);
+        header()
             .addLeft(terminalButton)
             .addLeft(fileExplorerButton)
             .addLeft(settingsButton)
@@ -223,7 +224,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             .build();
 
         if (restudio.rescreen.config.Config.desktopMode) {
-            taskbarHelper = new DesktopTaskbarHelper(this, header(), header().leftButtons.size(), () -> width / 2);
+            taskbarHelper = new DesktopTaskbarHelper(this, header(), header().leftButtons.size(), () -> desktopBounds().taskbarTabs().x());
             taskbarHelper.pinApp("server-details", terminalButton, () -> remotelyClient.openMultiTerminal(this), "Terminal");
             taskbarHelper.pinApp("file-explorer", fileExplorerButton, this::openFileExplorer, "File Explorer");
             taskbarHelper.pinApp("global-settings", settingsButton, () -> client.setScreen(SettingsScreenFactory.createGlobalSettingsScreen(this, (RemotelyConfigManager) Rebase.get().getConfigManager())), "Settings");
@@ -232,18 +233,18 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             taskbarHelper = null;
         }
 
-        tabs().builder()
-            .position(width / 2, height - taskbarHeight + 5)
-            .size(width / 2 - 5, 18)
+        TabsManager.Builder tabsBuilder = tabs().builder()
             .rightToLeft(true)
             .allowAdd(true)
             .allowRename(false).allowReorder(false).allowClose(false)
             .onPlusButtonClicked(() -> openRemoteHostPopup(false))
             .onTabSelected(this::onHostTabSelected)
-            .onTabRenamed(this::onHostTabRenamed)
-            .build();
+            .onTabRenamed(this::onHostTabRenamed);
+        layoutDesktopTabs(tabsBuilder);
+        tabsBuilder.build();
 
-        Container desktopContainer = createContainer("desktop", 0, 0, width, height - 35);
+        DesktopBounds.Bounds contentBounds = desktopBounds().content();
+        Container desktopContainer = createContainer("desktop", contentBounds.x(), contentBounds.y(), contentBounds.width(), contentBounds.height());
         DesktopLayout localLayout = new DesktopLayout();
         localLayout.setOnReorder(() -> saveServerOrder(desktopContainer, null));
         desktopContainer.layout(localLayout).backgroundDrawing(false).enableSelecting(true).enableDoubleClick(false).disableScissorRegion(true).enableDoubleClick(false);
@@ -294,7 +295,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         if (noServersOverlay != null) {
             return;
         }
-        noServersOverlay = createContainer("server_manager_no_servers_overlay", 0, 0, width, height - 35);
+        DesktopBounds.Bounds contentBounds = desktopBounds().content();
+        noServersOverlay = createContainer("server_manager_no_servers_overlay", contentBounds.x(), contentBounds.y(), contentBounds.width(), contentBounds.height());
         noServersOverlay.layout(new FreeLayout()).columns(1).padding(4).scrolling(false).enableSelecting(false).backgroundDrawing(false).disableScissorRegion(true);
         noServersOverlay.setVisible(false);
         noServersOverlay.setActive(false);
@@ -324,7 +326,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             .addHeaderButton("report.png", () -> ScreenManager.getInstance().setScreen(new FeedbackBrowserScreen(this, "Remotely")), "Reports And Feedback")
             .addHeaderButton("close.png", () -> ReStudio.getInstance().logoutFromWorkOs(), "Log Out", ThemeManager.getAccent("danger"));
 
-        showContextMenu(userButton.getX(), height - 35, builder);
+        showContextMenu(userButton.getX(), desktopBounds().taskbar().y(), builder);
     }
 
     private void onAccountButtonClick() {
@@ -467,7 +469,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         tabs().addTab("Local", activeContainer).setData(null);
 
         for (RemoteHost host : instanceManager.getRemoteHosts()) {
-            Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
+            DesktopBounds.Bounds contentBounds = desktopBounds().content();
+            Container c = createContainer("desktop_remote_" + host.name, contentBounds.x(), contentBounds.y(), contentBounds.width(), contentBounds.height());
             DesktopLayout remoteLayout = new DesktopLayout();
             remoteLayout.setOnReorder(() -> saveServerOrder(c, host));
             c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
@@ -494,7 +497,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         if (hasReStudioTab()) {
             return;
         }
-        Container container = createContainer("desktop_restudio", 0, 0, width, height - 35);
+        DesktopBounds.Bounds contentBounds = desktopBounds().content();
+        Container container = createContainer("desktop_restudio", contentBounds.x(), contentBounds.y(), contentBounds.width(), contentBounds.height());
         DesktopLayout remoteLayout = new DesktopLayout();
         container.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
         tabs().addTab("Reactors", container).setData("RESTUDIO_MARKER");
@@ -596,28 +600,30 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             });
         }
 
-        Map<String, DesktopIconWidget> existingWidgets = new HashMap<>();
-        DesktopIconWidget createButton = null;
+        Map<String, DesktopIconWidget<Instance>> existingWidgets = new HashMap<>();
+        DesktopIconWidget<Instance> createButton = null;
 
         for (AnimatedWidget w : targetContainer.getWidgets()) {
-            if (w instanceof DesktopIconWidget diw) {
-                if (diw.isCreateButton()) {
+            if (w instanceof DesktopIconWidget<?> rawWidget) {
+                DesktopIconWidget<Instance> diw = (DesktopIconWidget<Instance>) rawWidget;
+                if (diw.getItem() == null) {
                     createButton = diw;
-                } else if (diw.getInstance() != null) {
-                    existingWidgets.put(getWidgetKey(diw.getInstance()), diw);
+                } else {
+                    existingWidgets.put(getWidgetKey(diw.getItem()), diw);
                 }
             }
         }
 
         List<AnimatedWidget> toKeep = new ArrayList<>();
         for (Instance server : instances) {
-            DesktopIconWidget existing = existingWidgets.get(getWidgetKey(server));
+            DesktopIconWidget<Instance> existing = existingWidgets.get(getWidgetKey(server));
             if (existing != null) {
-                existing.setInstance(server);
+                existing.setItem(server);
+                existing.accentType = getDesktopIconAccent(server, false);
                 toKeep.add(existing);
                 existingWidgets.remove(getWidgetKey(server));
             } else {
-                DesktopIconWidget widget = createServerWidget(server, false);
+                DesktopIconWidget<Instance> widget = createServerWidget(server, false);
                 toKeep.add(widget);
             }
         }
@@ -651,8 +657,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     private void saveServerOrder(Container container, RemoteHost host) {
         List<String> newOrderIds = new ArrayList<>();
         for (AnimatedWidget w : container.getWidgets()) {
-            if (w instanceof DesktopIconWidget diw && !diw.isCreateButton()) {
-                newOrderIds.add(getWidgetKey(diw.getInstance()));
+            if (w instanceof DesktopIconWidget<?> diw && diw.getItem() instanceof Instance instance) {
+                newOrderIds.add(getWidgetKey(instance));
             }
         }
 
@@ -667,10 +673,12 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         config.setInstanceOrder(context, newOrderIds);
     }
 
-    private DesktopIconWidget createServerWidget(Instance info, boolean isCreate) {
-        DesktopIconWidget widget = new DesktopIconWidget.Builder(info, isCreate, isCreate ? serverIcon : iconManager.getQuickIcon(info))
+    private DesktopIconWidget<Instance> createServerWidget(Instance info, boolean isCreate) {
+        String label = isCreate || info == null ? "New Server" : info.getName();
+        DesktopIconWidget<Instance> widget = new DesktopIconWidget.Builder<>(info, isCreate ? serverIcon : iconManager.getQuickIcon(info), label)
             .onClick(this::onDesktopIconClick)
             .build();
+        widget.accentType = getDesktopIconAccent(info, isCreate);
         if (isCreate || info == null) {
             return widget;
         }
@@ -864,9 +872,22 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
         }
     }
 
-    private void onDesktopIconClick(DesktopIconWidget widget, int button) {
+    private restudio.rescreen.theme.Accent getDesktopIconAccent(Instance info, boolean isCreate) {
+        if (info == null || isCreate) {
+            return ThemeManager.getDefaultAccent();
+        }
+        if (info.getState() == InstanceState.RUNNING || info.getState() == InstanceState.STARTING) {
+            return ThemeManager.getAccent("nice");
+        }
+        if (info.getState() == InstanceState.CRASHED) {
+            return ThemeManager.getAccent("danger");
+        }
+        return ThemeManager.getDefaultAccent();
+    }
+
+    private void onDesktopIconClick(DesktopIconWidget<Instance> widget, int button) {
         if (button == 0) {
-            if (widget.isCreateButton()) {
+            if (widget.getItem() == null) {
                 if ("RESTUDIO_MARKER".equals(tabs().getActiveTab().getData()) && !ReStudio.getInstance().isAuthenticated()) {
                     new Notification.Builder()
                         .message("Not Authenticated")
@@ -883,14 +904,14 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 addServerPopup.setY((this.height - addServerPopup.getHeight())/2);
                 addServerPopup.show();
             } else {
-                openServerScreen(widget.getInstance());
+                openServerScreen(widget.getItem());
             }
         } else if (button == 1) {
-            if (!widget.isCreateButton()) {
+            if (widget.getItem() != null) {
                 activeContainer.clearSelection();
                 activeContainer.addSelectedWidget(widget);
 
-                Instance inst = widget.getInstance();
+                Instance inst = widget.getItem();
                 RemoteHost rh = null;
                 boolean isRestudio = false;
 
@@ -913,8 +934,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 if (inst.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(inst.getBackendConfig().type)) {
                     builder.addHeaderButton("merge.png", () -> remotelyClient.openServerTwin(this, inst), "DevMode");
                 }
-                builder.addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getInstance(), finalRh, remotelyClient)), "Edit Server's Settings");
-                builder.addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getInstance(), Path.of(widget.getInstance().getPath()), remotelyDir, false) {
+                builder.addHeaderButton("edit.png", () -> client.setScreen(new ServerConfigurationScreen(this, widget.getItem(), finalRh, remotelyClient)), "Edit Server's Settings");
+                builder.addHeaderButton("explorer.png", () -> client.setScreen(new FileExplorerScreen(this, widget.getItem(), Path.of(widget.getItem().getPath()), remotelyDir, false) {
                     public String getDesktopAppId() {
                         return "file-explorer";
                     }
@@ -929,7 +950,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 }), "Open Server's Folder");
 
                 if (rh == null) {
-                    builder.addHeaderButton("map.png", () -> openWorldScreen(widget.getInstance()), "View World Map");
+                    builder.addHeaderButton("map.png", () -> openWorldScreen(widget.getItem()), "View World Map");
                 }
 
                 final ServerModels.ClientServerView flowServerView = (inst.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(inst.getBackendConfig().type))
@@ -937,7 +958,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 builder.addHeaderButton("ReSync.png", () -> remotelyClient.openFlowManager(this, inst, flowServerView), "ReSync");
                 if (!isRestudio) {
                     builder.addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server").addHeaderButton("delete.png", () -> {
-                        instanceForDeletion = widget.getInstance();
+                        instanceForDeletion = widget.getItem();
                         deleteServerPopup.setX((this.width - deleteServerPopup.getWidth())/2);
                         deleteServerPopup.setY((this.height - deleteServerPopup.getHeight())/2);
                         deleteServerPopup.show();
@@ -1632,7 +1653,8 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 .build();
             testRemoteHostAsync(host, notification, () -> {
                 instanceManager.addRemoteHost(host);
-                Container c = createContainer("desktop_remote_" + host.name, 0, 0, width, height - 35);
+                DesktopBounds.Bounds contentBounds = desktopBounds().content();
+                Container c = createContainer("desktop_remote_" + host.name, contentBounds.x(), contentBounds.y(), contentBounds.width(), contentBounds.height());
                 DesktopLayout remoteLayout = new DesktopLayout();
                 remoteLayout.setOnReorder(() -> saveServerOrder(c, host));
                 c.layout(remoteLayout).backgroundDrawing(false).enableSelecting(true).disableScissorRegion(true);
@@ -1811,11 +1833,13 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
     @Override
     public void updatePositions() {
         super.updatePositions();
-        tabs().setPosition(width - tabs().getWidth(), height - 28 + 5);
+        DesktopBounds.Bounds tabBounds = desktopBounds().taskbarTabs();
+        tabs().setPosition(tabBounds.x(), tabBounds.y());
         positionReactorPlanSelectionCards();
         if (noServersOverlay != null) {
-            noServersOverlay.setPosition(0, 0);
-            noServersOverlay.setSize(width, height - 35);
+            DesktopBounds.Bounds contentBounds = desktopBounds().content();
+            noServersOverlay.setPosition(contentBounds.x(), contentBounds.y());
+            noServersOverlay.setSize(contentBounds.width(), contentBounds.height());
             noServersOverlay.updateWidgetPositions();
             reactorsNoServersIcon.setX(width / 2 - (reactorsNoServersIcon.getWidth() / 2));
             reactorsNoServersIcon.setY(height / 4);
@@ -1823,30 +1847,6 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
             reactorInfo.setY(reactorsNoServersIcon.getY() + reactorsNoServersIcon.getHeight() + (12 * 5));
             localNoServersIcon.setX(width / 2 - (localNoServersIcon.getWidth() / 2));
             localNoServersIcon.setY(height / 4);
-
-        }
-    }
-
-    @Override
-    public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
-        super.render(context, mouseX, mouseY, delta);
-
-        if (activeContainer != null && activeContainer.getLayout() instanceof DesktopLayout layout) {
-            int accentColor = ThemeManager.getDefaultAccent().getAccentColor();
-            int fill = ThemeManager.getAnimatedColor("selection_fill".hashCode(), layout.isSelecting() ? ((accentColor & 0x00FFFFFF) | 0x44000000) : 0x00000000);
-            int border = ThemeManager.getAnimatedColor("selection_border".hashCode(), layout.isSelecting() ? ((accentColor & 0x00FFFFFF) | 0xAA000000) : 0x00000000);
-
-            if (layout.isSelecting()) {
-                double[] box = layout.getSelectionBox();
-                if (box != null) {
-                    bx1 = (int) box[0];
-                    by1 = (int) box[1];
-                    bx2 = (int) box[2];
-                    by2 = (int) box[3];
-                }
-            }
-            context.fill(bx1, by1, bx2, by2, fill);
-            context.fillBorder(bx1, by1, bx2, by2, 1, border);
         }
     }
 
