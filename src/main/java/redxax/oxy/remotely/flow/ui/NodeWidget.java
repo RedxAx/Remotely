@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.flow.ui;
 
 import redxax.oxy.remotely.flow.data.FlowConnection;
+import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.FlowDataType;
@@ -101,7 +102,7 @@ public class NodeWidget extends AnimatedWidget {
         this.graph = graph;
         this.nodeId = nodeId;
         this.serverId = serverId;
-        this.definition = NodeRegistry.getInstance() != null ? NodeRegistry.getInstance().getDefinition(serverId, node.getType()) : null;
+        this.definition = resolveDefinition(serverId, node.getType());
         this.enableHoverColors = true;
         this.selectable = true;
         this.animateElevation = false;
@@ -145,6 +146,108 @@ public class NodeWidget extends AnimatedWidget {
         } else {
             createDefaultPins();
         }
+    }
+
+    private static NodeDefinition resolveDefinition(String serverId, String nodeType) {
+        NodeDefinition definition = NodeRegistry.getInstance() != null ? NodeRegistry.getInstance().getDefinition(serverId, nodeType) : null;
+        if (definition != null) {
+            return definition;
+        }
+        return buildContentDefinition(nodeType);
+    }
+
+    private static NodeDefinition buildContentDefinition(String nodeType) {
+        String contentType = CustomContentGraphAdapter.typeFromNode(nodeType);
+        if (contentType == null) {
+            return null;
+        }
+        NodeDefinition.Builder builder = new NodeDefinition.Builder(nodeType, contentTitle(contentType), contentCategory(contentType))
+            .handler("CustomContentHandler")
+            .handlerConfig(Map.of("operation", "content_start"));
+        addContentInputs(builder, contentType);
+        addContentOutputs(builder, contentType);
+        return builder.build();
+    }
+
+    private static void addContentInputs(NodeDefinition.Builder builder, String contentType) {
+        builder.input(pin("content_id", FlowDataType.STRING).defaultValue("new_" + contentType).build());
+        builder.input(pin("name", FlowDataType.STRING).defaultValue("New " + contentTitle(contentType)).build());
+        builder.input(pin("material", FlowDataType.STRING).optionsSource("client:minecraft:material").defaultValue(defaultContentMaterial(contentType)).build());
+        if ("armor".equals(contentType)) {
+            builder.input(pin("armor_slot", FlowDataType.STRING).widget(NodeDefinition.WidgetType.DROPDOWN).options(List.of("head", "chest", "legs", "feet")).defaultValue("chest").build());
+        }
+        builder.input(pin("provider", FlowDataType.STRING).widget(NodeDefinition.WidgetType.DROPDOWN).options(List.of("vanilla", "oraxen", "itemsadder", "nexo")).defaultValue("vanilla").build());
+        builder.input(pin("external_id", FlowDataType.STRING).build());
+        builder.input(pin("cooldown_scope", FlowDataType.STRING).widget(NodeDefinition.WidgetType.DROPDOWN).options(cooldownScopes(contentType)).defaultValue("player").build());
+        builder.input(pin("cooldown_ticks", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("0").build());
+        builder.input(pin("permission", FlowDataType.STRING).build());
+        builder.input(pin("cancel_event", FlowDataType.BOOLEAN).defaultValue("false").build());
+        builder.input(pin("consume_event", FlowDataType.BOOLEAN).defaultValue("false").build());
+        builder.input(pin("require_sneaking", FlowDataType.BOOLEAN).defaultValue("false").build());
+        builder.input(pin("require_on_ground", FlowDataType.BOOLEAN).defaultValue("false").build());
+        if (!"armor".equals(contentType)) {
+            builder.input(pin("hand_filter", FlowDataType.STRING).widget(NodeDefinition.WidgetType.DROPDOWN).options(List.of("any", "main hand", "offhand")).defaultValue("any").build());
+        }
+        builder.input(pin("target_filter", FlowDataType.STRING).widget(NodeDefinition.WidgetType.DROPDOWN).options(List.of("any", "player", "living entity", "hostile", "passive")).defaultValue("any").build());
+        builder.input(pin("allowed_worlds", FlowDataType.STRING).build());
+        builder.input(pin("denied_worlds", FlowDataType.STRING).build());
+        builder.input(pin("chance_percent", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("100").build());
+        builder.input(pin("max_activations_per_tick", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("0").build());
+    }
+
+    private static void addContentOutputs(NodeDefinition.Builder builder, String contentType) {
+        for (String branch : contentBranches(contentType)) {
+            builder.output(branch, NodeDefinition.PinType.FLOW, FlowDataType.EXECUTION);
+        }
+        builder.output("player", NodeDefinition.PinType.DATA, FlowDataType.PLAYER);
+        builder.output("content_id", NodeDefinition.PinType.DATA, FlowDataType.STRING);
+        builder.output("content_type", NodeDefinition.PinType.DATA, FlowDataType.STRING);
+        builder.output("trigger", NodeDefinition.PinType.DATA, FlowDataType.STRING);
+        builder.output("item", NodeDefinition.PinType.DATA, FlowDataType.ITEMSTACK);
+        if (!"armor".equals(contentType)) {
+            builder.output("block", NodeDefinition.PinType.DATA, FlowDataType.BLOCK);
+        }
+        builder.output("target", NodeDefinition.PinType.DATA, FlowDataType.ENTITY);
+        builder.output("location", NodeDefinition.PinType.DATA, FlowDataType.LOCATION);
+        if (!"block".equals(contentType)) {
+            builder.output("damage", NodeDefinition.PinType.DATA, FlowDataType.NUMBER);
+        }
+    }
+
+    private static NodeDefinition.PinBuilder pin(String name, FlowDataType dataType) {
+        return new NodeDefinition.PinBuilder(name, NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, dataType);
+    }
+
+    private static NodeDefinition.NodeCategory contentCategory(String contentType) {
+        return "block".equals(contentType) ? NodeDefinition.NodeCategory.BLOCK : NodeDefinition.NodeCategory.ITEM;
+    }
+
+    private static String contentTitle(String contentType) {
+        return switch (contentType) {
+            case "block" -> "Block";
+            case "armor" -> "Armor";
+            default -> "Item";
+        };
+    }
+
+    private static String defaultContentMaterial(String contentType) {
+        return switch (contentType) {
+            case "block" -> "STONE";
+            case "armor" -> "IRON_CHESTPLATE";
+            default -> "STICK";
+        };
+    }
+
+    private static List<String> cooldownScopes(String contentType) {
+        return "block".equals(contentType) ? List.of("player", "content", "global") : List.of("player", "item instance", "content", "global");
+    }
+
+    private static List<String> contentBranches(String contentType) {
+        return switch (contentType) {
+            case "block" -> List.of("place", "break", "interact", "step_on", "nearby_player", "redstone", "tick");
+            case "armor" -> List.of("equip", "unequip", "damaged", "tick", "full_set", "full_set_tick");
+            default -> List.of("use", "left_click", "right_click", "hit_entity", "damage_entity", "break_block", "consume", "drop", "pickup");
+        };
     }
 
     private void createInputWidgets() {

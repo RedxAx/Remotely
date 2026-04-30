@@ -2,6 +2,7 @@ package redxax.oxy.remotely.data.flow;
 
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowSerializer;
+import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
@@ -63,6 +64,17 @@ public enum ReSyncResourceType {
             (item, newId) -> ((TabDefinition) item).setId(newId),
             item -> ((TabDefinition) item).getId(),
             item -> ((TabDefinition) item).getId()
+    ),
+
+    CUSTOM_CONTENT(
+            0x30, 0x36, 0x32, 0x31, 0x33, 0x34, 0x35,
+            "Custom Content", item -> FlowSerializer.serializeCustomContent((CustomContentDefinition) item), FlowSerializer::deserializeCustomContent,
+            (item, newId) -> ((CustomContentDefinition) item).setId(newId),
+            item -> ((CustomContentDefinition) item).getId(),
+            item -> {
+                CustomContentDefinition content = (CustomContentDefinition) item;
+                return content.getDisplayName() != null ? content.getDisplayName() : content.getId();
+            }
     );
 
     @FunctionalInterface

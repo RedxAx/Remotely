@@ -45,4 +45,12 @@ public class FlowSerializer {
         return gson.fromJson(json, TabDefinition.class);
     }
 
+    public static String serializeCustomContent(CustomContentDefinition content) {
+        return gson.toJson(content);
+    }
+
+    public static CustomContentDefinition deserializeCustomContent(String json) {
+        return gson.fromJson(json, CustomContentDefinition.class);
+    }
+
 }

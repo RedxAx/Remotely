@@ -11,7 +11,9 @@ import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import redxax.oxy.remotely.data.flow.world.WorldProfileSettings;
 import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
 import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
+import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
@@ -97,20 +99,28 @@ public class FlowManagerScreen extends ReScreen {
     private Container flowsContainer;
     private Container functionsContainer;
     private Container guisContainer;
+    private Container contentContainer;
     private Container customizationContainer;
     private Container scoreboardsContainer;
+    private Container customContentContainer;
+    private Container itemContentContainer;
+    private Container armorContentContainer;
+    private Container blockContentContainer;
     private Container worldsContainer;
     private Container worldGenContainer;
     private Container inventoryGroupsContainer;
     private Container tabsContainer;
     private ViewSwitcherWidget customizationViewSwitcher;
     private int customizationViewIndex;
+    private ViewSwitcherWidget contentViewSwitcher;
+    private int contentViewIndex;
     private ViewSwitcherWidget blueprintsViewSwitcher;
     private int blueprintsViewIndex;
     private final Map<String, MountableButtonWidget> flowEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> functionEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> guiEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> scoreboardEntries = new HashMap<>();
+    private final Map<String, MountableButtonWidget> customContentEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> worldEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> worldGenEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> inventoryGroupEntries = new HashMap<>();
@@ -490,6 +500,10 @@ public class FlowManagerScreen extends ReScreen {
             blueprintsViewSwitcher.cleanup();
             blueprintsViewSwitcher = null;
         }
+        if (contentViewSwitcher != null) {
+            contentViewSwitcher.cleanup();
+            contentViewSwitcher = null;
+        }
 
         int contentY = 60;
         int contentHeight = height - contentY - 10;
@@ -505,10 +519,20 @@ public class FlowManagerScreen extends ReScreen {
 
         guisContainer = createContainer("guis", 5, contentY, width - 10, contentHeight);
         guisContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
+        contentContainer = createContainer("content", 5, contentY, width - 10, contentHeight);
+        contentContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
         customizationContainer = createContainer("customization", 5, contentY, width - 10, contentHeight);
         customizationContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
         scoreboardsContainer = createContainer("scoreboards", 5, contentY, width - 10, contentHeight);
         scoreboardsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
+        customContentContainer = createContainer("custom-content", 5, contentY, width - 10, contentHeight);
+        customContentContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
+        itemContentContainer = createContainer("content-items", 5, contentY, width - 10, contentHeight);
+        itemContentContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
+        armorContentContainer = createContainer("content-armor", 5, contentY, width - 10, contentHeight);
+        armorContentContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
+        blockContentContainer = createContainer("content-blocks", 5, contentY, width - 10, contentHeight);
+        blockContentContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
         worldsContainer = createContainer("worlds", 5, contentY, width - 10, contentHeight);
         worldsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
         worldGenContainer = createContainer("worldgen", 5, contentY, width - 10, contentHeight);
@@ -522,6 +546,7 @@ public class FlowManagerScreen extends ReScreen {
 
         tabsManager.addTab("Blueprints", blueprintsContainer);
         tabsManager.addTab("GUIs", guisContainer);
+        tabsManager.addTab("Content", contentContainer);
         tabsManager.addTab("Customization", customizationContainer);
         tabsManager.addTab("Worlds", worldsContainer);
         tabsManager.addTab("WorldGen", worldGenContainer);
@@ -530,6 +555,8 @@ public class FlowManagerScreen extends ReScreen {
         rebuildBlueprints();
         rebuildBlueprintsViews();
         rebuildGuis();
+        rebuildContentViews();
+        rebuildContent();
         rebuildCustomizationViews();
         rebuildCustomization();
         rebuildWorlds();
@@ -733,6 +760,9 @@ public class FlowManagerScreen extends ReScreen {
             onBlueprintsViewChanged(blueprintsViewIndex);
         } else if (tab.getContainer() == guisContainer) {
             rebuildGuis();
+        } else if (tab.getContainer() == contentContainer) {
+            rebuildContent();
+            onContentViewChanged(contentViewIndex);
         } else if (tab.getContainer() == customizationContainer) {
             rebuildCustomization();
         } else if (tab.getContainer() == worldsContainer) {
@@ -745,6 +775,42 @@ public class FlowManagerScreen extends ReScreen {
         }
         updateCustomizationSwitcherVisibility();
         updateBlueprintsSwitcherVisibility();
+        updateContentSwitcherVisibility();
+    }
+
+    private void rebuildContentViews() {
+        if (contentContainer == null) {
+            return;
+        }
+        if (contentViewSwitcher != null) {
+            contentViewSwitcher.cleanup();
+            contentViewSwitcher = null;
+        }
+        contentViewSwitcher = new ViewSwitcherWidget(this, contentContainer);
+        contentViewSwitcher.register("item.png", "Items", itemContentContainer);
+        contentViewSwitcher.register("armor.png", "Armor", armorContentContainer);
+        contentViewSwitcher.register("block.png", "Blocks", blockContentContainer);
+        contentViewSwitcher.setOnChange(this::onContentViewChanged);
+        contentViewSwitcher.build();
+        if (contentViewSwitcher.getWidget() != null) {
+            contentViewSwitcher.getWidget().recreateButtons();
+        }
+        updateContentSwitcherVisibility();
+        onContentViewChanged(Math.clamp(contentViewIndex, 0, 2));
+    }
+
+    private void onContentViewChanged(int viewIndex) {
+        contentViewIndex = Math.max(0, Math.min(viewIndex, 2));
+        String type = contentViewIndex == 0 ? "item" : contentViewIndex == 1 ? "armor" : "block";
+        rebuildCustomContent(type);
+        if (tabsManager != null && tabsManager.getActiveTab() != null && tabsManager.getActiveTab().getContainer() == contentContainer) {
+            setActiveContainer(contentViewIndex == 0 ? itemContentContainer : contentViewIndex == 1 ? armorContentContainer : blockContentContainer);
+        }
+        updateContentSwitcherVisibility();
+    }
+
+    private void rebuildContent() {
+        onContentViewChanged(contentViewIndex);
     }
 
     private void rebuildCustomizationViews() {
@@ -755,39 +821,35 @@ public class FlowManagerScreen extends ReScreen {
             customizationViewSwitcher.cleanup();
             customizationViewSwitcher = null;
         }
-        if (!tabMethodsAvailable || tabsContainer == null) {
-            customizationViewIndex = 0;
-            return;
-        }
         customizationViewSwitcher = new ViewSwitcherWidget(this, customizationContainer);
         customizationViewSwitcher.register("panel.png", "Scoreboard", scoreboardsContainer);
-        customizationViewSwitcher.register("topPanel.png", "Tab", tabsContainer);
+        if (tabMethodsAvailable && tabsContainer != null) {
+            customizationViewSwitcher.register("topPanel.png", "Tab", tabsContainer);
+        }
         customizationViewSwitcher.setOnChange(this::onCustomizationViewChanged);
         customizationViewSwitcher.build();
         if (customizationViewSwitcher.getWidget() != null) {
             customizationViewSwitcher.getWidget().recreateButtons();
         }
         updateCustomizationSwitcherVisibility();
-        onCustomizationViewChanged(Math.clamp(customizationViewIndex, 0, 1));
+        onCustomizationViewChanged(Math.clamp(customizationViewIndex, 0, tabMethodsAvailable && tabsContainer != null ? 1 : 0));
     }
 
     private void onCustomizationViewChanged(int viewIndex) {
         customizationViewIndex = Math.max(0, viewIndex);
-        if (!tabMethodsAvailable || tabsContainer == null) {
-            customizationViewIndex = 0;
-        } else if (customizationViewIndex > 1) {
-            customizationViewIndex = 1;
+        int maxView = tabMethodsAvailable && tabsContainer != null ? 1 : 0;
+        if (customizationViewIndex > maxView) {
+            customizationViewIndex = maxView;
         }
 
-        boolean showScoreboards = customizationViewIndex == 0 || tabsContainer == null;
-        if (showScoreboards) {
+        if (customizationViewIndex == 0) {
             rebuildScoreboards();
         } else {
             rebuildTabs();
         }
 
         if (tabsManager != null && tabsManager.getActiveTab() != null && tabsManager.getActiveTab().getContainer() == customizationContainer) {
-            setActiveContainer(showScoreboards ? scoreboardsContainer : tabsContainer);
+            setActiveContainer(customizationViewIndex == 0 ? scoreboardsContainer : tabsContainer);
         }
 
         updateCustomizationSwitcherVisibility();
@@ -797,13 +859,172 @@ public class FlowManagerScreen extends ReScreen {
         onCustomizationViewChanged(customizationViewIndex);
     }
 
+    private void rebuildCustomContent() {
+        rebuildCustomContent(null);
+    }
+
+    private void rebuildCustomContent(String typeFilter) {
+        if (customContentContainer == null) {
+            return;
+        }
+        Container targetContainer = contentContainerForType(typeFilter);
+        if (targetContainer == null) {
+            targetContainer = customContentContainer;
+        }
+        targetContainer.clearWidgets();
+        customContentEntries.clear();
+
+        if (typeFilter != null) {
+            AnimatedButton createButton = new AnimatedButton.Builder()
+                .label("New " + contentTypeTitle(typeFilter))
+                .size(140, 22)
+                .onClick(() -> showCreateContentFlowPopup(typeFilter))
+                .build();
+            targetContainer.addWidget(createButton);
+        }
+
+        Map<String, FlowGraph> content = flowManager.getContentGraphsForServer(serverId, typeFilter);
+        List<String> ids = new ArrayList<>(content.keySet());
+        ids.sort(Comparator.naturalOrder());
+        for (String id : ids) {
+            upsertCustomContentEntry(id, targetContainer);
+        }
+    }
+
+    public void upsertCustomContentEntry(String contentId) {
+        FlowGraph graph = flowManager.getFlowsForServer(serverId).get(contentId);
+        if (graph == null) {
+            CustomContentDefinition definition = flowManager.getCustomContentForServer(serverId).get(contentId);
+            if (definition != null && definition.getFlowId() != null) {
+                graph = flowManager.getFlowsForServer(serverId).get(definition.getFlowId());
+            }
+        }
+        Container target = contentContainerForType(CustomContentGraphAdapter.contentType(graph));
+        upsertCustomContentEntry(contentId, target != null ? target : customContentContainer);
+    }
+
+    private void upsertCustomContentEntry(String contentId, Container targetContainer) {
+        if (targetContainer == null || contentId == null) {
+            return;
+        }
+        FlowGraph graph = flowManager.getFlowsForServer(serverId).get(contentId);
+        if (graph == null) {
+            CustomContentDefinition stored = flowManager.getCustomContentForServer(serverId).get(contentId);
+            if (stored != null && stored.getFlowId() != null) {
+                graph = flowManager.getFlowsForServer(serverId).get(stored.getFlowId());
+            }
+        }
+        if (graph == null || !CustomContentGraphAdapter.isContentGraph(graph)) {
+            return;
+        }
+        FlowGraph contentGraph = graph;
+        String flowId = contentGraph.getId();
+        CustomContentDefinition content = CustomContentGraphAdapter.toDefinition(contentGraph);
+        MountableButtonWidget existing = customContentEntries.remove(flowId);
+        if (existing != null) {
+            targetContainer.removeWidget(existing);
+        }
+        String title = CustomContentGraphAdapter.displayName(contentGraph);
+        String subtitle = CustomContentGraphAdapter.material(contentGraph) + "  " + (content != null ? content.getAbilities().size() : 0) + " Events";
+        SquareButtonWidget saveButton = new SquareButtonWidget.Builder()
+            .imagePath("save.png")
+            .onClick(() -> flowManager.saveFlow(serverId, contentGraph))
+            .build();
+        SquareButtonWidget deleteButton = new SquareButtonWidget.Builder()
+            .imagePath("delete.png")
+            .accentType(ThemeManager.getAccent("danger"))
+            .onClick(() -> {
+                if (content != null) {
+                    flowManager.deleteCustomContent(serverId, content.getId());
+                }
+                flowManager.deleteFlow(serverId, flowId);
+                onContentViewChanged(contentViewIndex);
+                rebuildBlueprints();
+            })
+            .build();
+        MountableButtonWidget widget = new MountableButtonWidget.Builder(title)
+            .description(subtitle)
+            .onClick(() -> flowManager.openFlowEditor(serverId, server, flowId))
+            .addButton(saveButton)
+            .addButton(deleteButton)
+            .build();
+        widget.setSize(Math.max(200, targetContainer.getWidth() - 20), 28);
+        customContentEntries.put(flowId, widget);
+        targetContainer.addWidget(widget);
+    }
+
+    private void showCreateContentFlowPopup(String type) {
+        String normalizedType = type == null || type.isBlank() ? "item" : type.toLowerCase(Locale.ROOT);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Create " + contentTypeTitle(normalizedType)).setResizable(false);
+
+        TextInputWidget idInput = new TextInputWidget.Builder()
+            .text(normalizedType + "_" + Integer.toHexString(secureRandom.nextInt()).replace("-", ""))
+            .placeholder("ID")
+            .size(220, 22)
+            .build();
+        TextInputWidget nameInput = new TextInputWidget.Builder()
+            .text("New " + contentTypeTitle(normalizedType))
+            .placeholder("Name")
+            .size(220, 22)
+            .build();
+
+        builder.addRow("ID", true, 22, idInput);
+        builder.addRow("Name", true, 22, nameInput);
+
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton createButton = new AnimatedButton.Builder()
+            .label("Create")
+            .accentType(ThemeManager.getAccent("nice"))
+            .onClick(() -> {
+                String id = safeText(idInput.getText()).trim();
+                if (!id.matches("^[a-zA-Z0-9_]+$")) {
+                    new Notification("Content", "Invalid ID", Notification.Type.ERROR);
+                    return;
+                }
+                if (flowManager.getFlowsForServer(serverId).containsKey(id) || flowManager.getCustomContentForServer(serverId).containsKey(id)) {
+                    new Notification("Content", "ID Exists", Notification.Type.ERROR);
+                    return;
+                }
+                FlowGraph graph = flowManager.createContentFlow(serverId, id, normalizedType, safeText(nameInput.getText()).trim());
+                flowManager.saveFlow(serverId, graph);
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+                flowManager.openFlowEditor(serverId, server, graph.getId());
+            })
+            .build();
+        builder.addRow("", true, 22, createButton);
+
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private Container contentContainerForType(String type) {
+        if (type == null) {
+            return customContentContainer;
+        }
+        return switch (type.toLowerCase(Locale.ROOT)) {
+            case "item" -> itemContentContainer;
+            case "armor" -> armorContentContainer;
+            case "block" -> blockContentContainer;
+            default -> customContentContainer;
+        };
+    }
+
+    private String contentTypeTitle(String type) {
+        return switch (type.toLowerCase(Locale.ROOT)) {
+            case "armor" -> "Armor";
+            case "block" -> "Block";
+            default -> "Item";
+        };
+    }
+
     private void updateSwitcherLayout() {
         if (tabsManager == null) return;
 
         Widget customizationWidget = customizationViewSwitcher != null ? customizationViewSwitcher.getWidget() : null;
-        boolean customizationVisible = tabMethodsAvailable
-            && tabsContainer != null
-            && customizationWidget != null
+        boolean customizationVisible = customizationWidget != null
             && tabsManager.getActiveTab() != null
             && tabsManager.getActiveTab().getContainer() == customizationContainer;
         if (customizationWidget != null) {
@@ -818,12 +1039,23 @@ public class FlowManagerScreen extends ReScreen {
             blueprintsWidget.setVisible(blueprintsVisible);
         }
 
+        Widget contentWidget = contentViewSwitcher != null ? contentViewSwitcher.getWidget() : null;
+        boolean contentVisible = contentWidget != null
+            && tabsManager.getActiveTab() != null
+            && tabsManager.getActiveTab().getContainer() == contentContainer;
+        if (contentWidget != null) {
+            contentWidget.setVisible(contentVisible);
+        }
+
         int tabsWidth = width - 10;
         if (blueprintsVisible && blueprintsWidget != null) {
             tabsWidth = Math.max(120, tabsWidth - blueprintsWidget.getWidth() - 2);
         }
         if (customizationVisible && customizationWidget != null) {
             tabsWidth = Math.max(120, tabsWidth - customizationWidget.getWidth() - 2);
+        }
+        if (contentVisible && contentWidget != null) {
+            tabsWidth = Math.max(120, tabsWidth - contentWidget.getWidth() - 2);
         }
 
         if (tabsManager.getWidth() != tabsWidth || tabsManager.getHeight() != 18) {
@@ -837,6 +1069,10 @@ public class FlowManagerScreen extends ReScreen {
     }
 
     private void updateBlueprintsSwitcherVisibility() {
+        updateSwitcherLayout();
+    }
+
+    private void updateContentSwitcherVisibility() {
         updateSwitcherLayout();
     }
 
@@ -915,7 +1151,7 @@ public class FlowManagerScreen extends ReScreen {
 
         for (String flowId : flowIds) {
             FlowGraph graph = flows.get(flowId);
-            if (graph != null && !graph.isFunction()) {
+            if (graph != null && !graph.isFunction() && !CustomContentGraphAdapter.isContentGraph(graph)) {
                 upsertFlowEntry(flowId);
             }
         }
@@ -947,6 +1183,10 @@ public class FlowManagerScreen extends ReScreen {
     public void upsertFlowEntry(String flowId) {
         FlowGraph graph = flowManager.getFlowsForServer(serverId).get(flowId);
         if (graph == null || flowId == null) return;
+        if (CustomContentGraphAdapter.isContentGraph(graph)) {
+            upsertCustomContentEntry(flowId);
+            return;
+        }
         if (graph.isFunction()) {
             upsertFunctionEntry(flowId);
             return;
@@ -3851,8 +4091,13 @@ public class FlowManagerScreen extends ReScreen {
         updateContainerBounds(flowsContainer, contentY, contentWidth, contentHeight);
         updateContainerBounds(functionsContainer, contentY, contentWidth, contentHeight);
         updateContainerBounds(guisContainer, contentY, contentWidth, contentHeight);
+        updateContainerBounds(contentContainer, contentY, contentWidth, contentHeight);
         updateContainerBounds(customizationContainer, contentY, contentWidth, contentHeight);
         updateContainerBounds(scoreboardsContainer, contentY, contentWidth, contentHeight);
+        updateContainerBounds(customContentContainer, contentY, contentWidth, contentHeight);
+        updateContainerBounds(itemContentContainer, contentY, contentWidth, contentHeight);
+        updateContainerBounds(armorContentContainer, contentY, contentWidth, contentHeight);
+        updateContainerBounds(blockContentContainer, contentY, contentWidth, contentHeight);
         updateContainerBounds(worldsContainer, contentY, contentWidth, contentHeight);
         updateContainerBounds(worldGenContainer, contentY, contentWidth, contentHeight);
         updateContainerBounds(inventoryGroupsContainer, contentY, contentWidth, contentHeight);
@@ -3869,16 +4114,28 @@ public class FlowManagerScreen extends ReScreen {
     private void positionSwitchers() {
         Widget customizationWidget = customizationViewSwitcher != null ? customizationViewSwitcher.getWidget() : null;
         Widget blueprintsWidget = blueprintsViewSwitcher != null ? blueprintsViewSwitcher.getWidget() : null;
+        Widget contentWidget = contentViewSwitcher != null ? contentViewSwitcher.getWidget() : null;
 
         if (customizationWidget != null && customizationWidget.isVisible()) {
             int switcherX = width - 5 - customizationWidget.getWidth();
             customizationViewSwitcher.setPosition(switcherX, 36);
         }
 
+        if (contentWidget != null && contentWidget.isVisible()) {
+            int switcherX = width - 5 - contentWidget.getWidth();
+            if (customizationWidget != null && customizationWidget.isVisible()) {
+                switcherX -= customizationWidget.getWidth() + 2;
+            }
+            contentViewSwitcher.setPosition(switcherX, 36);
+        }
+
         if (blueprintsWidget != null && blueprintsWidget.isVisible()) {
             int switcherX = width - 5 - blueprintsWidget.getWidth();
             if (customizationWidget != null && customizationWidget.isVisible()) {
                 switcherX -= customizationWidget.getWidth() + 2;
+            }
+            if (contentWidget != null && contentWidget.isVisible()) {
+                switcherX -= contentWidget.getWidth() + 2;
             }
             blueprintsViewSwitcher.setPosition(switcherX, 36);
         }

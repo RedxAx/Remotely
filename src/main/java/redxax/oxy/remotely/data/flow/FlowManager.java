@@ -14,6 +14,8 @@ import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
+import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
+import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.GuiElement;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
@@ -60,6 +62,7 @@ public class FlowManager {
     private final SyncedResourceCache<GuiDefinition> guiStore = new SyncedResourceCache<>(GuiDefinition::getId, g -> g.getTitle() != null ? g.getTitle() : g.getId());
     private final SyncedResourceCache<ScoreboardDefinition> scoreboardStore = new SyncedResourceCache<>(ScoreboardDefinition::getId, s -> s.getTitle() != null ? s.getTitle() : s.getId());
     private final SyncedResourceCache<TabDefinition> tabStore = new SyncedResourceCache<>(TabDefinition::getId, TabDefinition::getId);
+    private final SyncedResourceCache<CustomContentDefinition> customContentStore = new SyncedResourceCache<>(CustomContentDefinition::getId, c -> c.getDisplayName() != null ? c.getDisplayName() : c.getId());
     private final Map<String, List<TriggerBinding>> triggerBindings = new ConcurrentHashMap<>();
     private volatile boolean overlayEditable;
     private volatile String overlayServerId;
@@ -107,6 +110,7 @@ public class FlowManager {
             guiStore.clearForServer(serverId);
             scoreboardStore.clearForServer(serverId);
             tabStore.clearForServer(serverId);
+            customContentStore.clearForServer(serverId);
             playerService.clearCache(serverId);
             worldService.clearCache(serverId);
         });
@@ -168,6 +172,7 @@ public class FlowManager {
         refreshGuisFromServer(serverId);
         refreshScoreboardsFromServer(serverId);
         refreshTabsFromServer(serverId);
+        refreshCustomContentFromServer(serverId);
         refreshWorldsFromServer(serverId);
     }
 
@@ -276,15 +281,57 @@ public class FlowManager {
 
     public void saveFlow(String serverId, FlowGraph graph) {
         flowStore.putInCache(serverId, graph);
+        CustomContentDefinition derivedContent = CustomContentGraphAdapter.toDefinition(graph);
+        if (derivedContent != null) {
+            customContentStore.putInCache(serverId, derivedContent);
+            customContentStore.putNameIfAbsent(serverId, derivedContent.getId(), derivedContent.getDisplayName());
+        }
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
             flowClient.sendFlowSave(graph);
+            if (derivedContent != null) {
+                flowClient.sendCustomContentSave(derivedContent);
+            } else {
+                for (FlowGraph contentGraph : getDefaultContentGraphs(serverId, graph)) {
+                    CustomContentDefinition content = CustomContentGraphAdapter.toDefinition(contentGraph);
+                    flowClient.sendFlowSave(contentGraph);
+                    if (content != null) {
+                        flowClient.sendCustomContentSave(content);
+                    }
+                }
+                for (CustomContentDefinition content : customContentStore.getForServer(serverId).values()) {
+                    if (graph != null && graph.getId() != null && graph.getId().equals(content.getFlowId())) {
+                        flowClient.sendCustomContentSave(content);
+                    }
+                }
+            }
         }
+    }
+
+    private List<FlowGraph> getDefaultContentGraphs(String serverId, FlowGraph graph) {
+        if (graph == null || graph.getId() == null || graph.isFunction() || CustomContentGraphAdapter.isContentGraph(graph)) {
+            return List.of();
+        }
+        List<FlowGraph> graphs = new ArrayList<>();
+        for (String suffix : List.of("_default_item", "_default_block", "_default_armor")) {
+            FlowGraph contentGraph = flowStore.get(serverId, graph.getId() + suffix);
+            if (contentGraph != null && CustomContentGraphAdapter.isContentGraph(contentGraph)) {
+                graphs.add(contentGraph);
+            }
+        }
+        return graphs;
     }
 
     public void cacheFlow(String serverId, FlowGraph graph) {
         flowStore.cache(serverId, graph);
         if (graph != null && graph.getId() != null) {
+            CustomContentDefinition derivedContent = CustomContentGraphAdapter.toDefinition(graph);
+            if (derivedContent != null) {
+                customContentStore.cache(serverId, derivedContent);
+                customContentStore.putNameIfAbsent(serverId, derivedContent.getId(), derivedContent.getDisplayName());
+                upsertFlowManagerEntry(serverId, graph.getId(), ReSyncResourceType.CUSTOM_CONTENT);
+                return;
+            }
             upsertFlowManagerEntry(serverId, graph.getId(), ReSyncResourceType.FLOW);
         }
     }
@@ -366,6 +413,31 @@ public class FlowManager {
         refreshFlowManagerScreen(serverId);
     }
 
+    public void saveCustomContent(String serverId, CustomContentDefinition content) {
+        if (serverId == null || content == null || content.getId() == null) {
+            return;
+        }
+        customContentStore.putInCache(serverId, content);
+        customContentStore.putNameIfAbsent(serverId, content.getId(), content.getDisplayName() != null ? content.getDisplayName() : content.getId());
+        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        if (flowClient != null) {
+            flowClient.sendCustomContentSave(content);
+        }
+    }
+
+    public void cacheCustomContent(String serverId, CustomContentDefinition content) {
+        customContentStore.cache(serverId, content);
+        if (content != null && content.getId() != null) {
+            upsertFlowManagerEntry(serverId, content.getId(), ReSyncResourceType.CUSTOM_CONTENT);
+        }
+        refreshFlowManagerScreen(serverId);
+    }
+
+    public void markCustomContentSaved(String serverId, String contentId) {
+        customContentStore.markSaved(serverId, contentId);
+        refreshFlowManagerScreen(serverId);
+    }
+
     public Map<String, FlowGraph> getFlowsForServer(String serverId) {
         return flowStore.getForServer(serverId);
     }
@@ -382,6 +454,23 @@ public class FlowManager {
         return tabStore.getForServer(serverId);
     }
 
+    public Map<String, CustomContentDefinition> getCustomContentForServer(String serverId) {
+        return customContentStore.getForServer(serverId);
+    }
+
+    public Map<String, FlowGraph> getContentGraphsForServer(String serverId, String type) {
+        String normalizedType = type != null ? type.toLowerCase(Locale.ROOT) : "";
+        Map<String, FlowGraph> result = new HashMap<>();
+        for (Map.Entry<String, FlowGraph> entry : flowStore.getForServer(serverId).entrySet()) {
+            FlowGraph graph = entry.getValue();
+            String contentType = CustomContentGraphAdapter.contentType(graph);
+            if (contentType != null && (normalizedType.isBlank() || normalizedType.equals(contentType))) {
+                result.put(entry.getKey(), graph);
+            }
+        }
+        return result;
+    }
+
     public String getFlowName(String serverId, String flowId) { return flowStore.getName(serverId, flowId); }
     public void setFlowName(String serverId, String flowId, String name) { flowStore.putName(serverId, flowId, name); }
     public String getGuiName(String serverId, String guiId) { return guiStore.getName(serverId, guiId); }
@@ -390,6 +479,8 @@ public class FlowManager {
     public void setScoreboardName(String serverId, String scoreboardId, String name) { scoreboardStore.putName(serverId, scoreboardId, name); }
     public String getTabName(String serverId, String tabId) { return tabStore.getName(serverId, tabId); }
     public void setTabName(String serverId, String tabId, String name) { tabStore.putName(serverId, tabId, name); }
+    public String getCustomContentName(String serverId, String contentId) { return customContentStore.getName(serverId, contentId); }
+    public void setCustomContentName(String serverId, String contentId, String name) { customContentStore.putName(serverId, contentId, name); }
 
     public FlowGraph createFlow(String serverId) {
         return createFlow(serverId, null);
@@ -410,7 +501,35 @@ public class FlowManager {
         }
         flowStore.putInDraft(serverId, graph);
         flowStore.putNameIfAbsent(serverId, graph.getId(), graph.getId());
+        if (!function && !CustomContentGraphAdapter.isContentGraph(graph)) {
+            createDefaultContentFlows(serverId, graph.getId());
+        }
         return graph;
+    }
+
+    public FlowGraph createContentFlow(String serverId, String flowId, String type, String displayName) {
+        FlowGraph graph = CustomContentGraphAdapter.createContentGraph(flowId, type, displayName);
+        flowStore.putInDraft(serverId, graph);
+        flowStore.putNameIfAbsent(serverId, graph.getId(), CustomContentGraphAdapter.displayName(graph));
+        CustomContentDefinition definition = CustomContentGraphAdapter.toDefinition(graph);
+        if (definition != null) {
+            customContentStore.putInDraft(serverId, definition);
+            customContentStore.putNameIfAbsent(serverId, definition.getId(), definition.getDisplayName());
+        }
+        return graph;
+    }
+
+    private void createDefaultContentFlows(String serverId, String flowId) {
+        createDefaultContentFlow(serverId, flowId + "_default_item", "item", "Default Item");
+        createDefaultContentFlow(serverId, flowId + "_default_block", "block", "Default Block");
+        createDefaultContentFlow(serverId, flowId + "_default_armor", "armor", "Default Armor");
+    }
+
+    private void createDefaultContentFlow(String serverId, String contentFlowId, String type, String name) {
+        if (flowStore.get(serverId, contentFlowId) != null) {
+            return;
+        }
+        createContentFlow(serverId, contentFlowId, type, name);
     }
 
     public GuiDefinition createGui(String serverId, String id) {
@@ -464,6 +583,25 @@ public class FlowManager {
         if (flowClient != null) {
             flowClient.sendTabDelete(tabId);
         }
+    }
+
+    public void deleteCustomContent(String serverId, String contentId) {
+        customContentStore.remove(serverId, contentId);
+        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        if (flowClient != null) {
+            flowClient.sendResourceDelete(ReSyncResourceType.CUSTOM_CONTENT, contentId);
+        }
+    }
+
+    public CustomContentDefinition createCustomContent(String serverId, String type) {
+        String normalizedType = type != null ? type.toLowerCase(Locale.ROOT) : "item";
+        String id = normalizedType + "_" + UUID.randomUUID().toString().substring(0, 8);
+        FlowGraph graph = createContentFlow(serverId, id, normalizedType, null);
+        CustomContentDefinition content = CustomContentGraphAdapter.toDefinition(graph);
+        if (content != null) {
+            saveFlow(serverId, graph);
+        }
+        return content;
     }
 
     public boolean renameFlow(String serverId, String flowId, String newFlowId) {
@@ -525,6 +663,12 @@ public class FlowManager {
         refreshFlowManagerScreen(serverId);
     }
 
+    public void refreshCustomContentFromServer(String serverId) {
+        customContentStore.clearForServer(serverId);
+        connectionManager.ensureFlowClient(serverId, true).requestCustomContentList();
+        refreshFlowManagerScreen(serverId);
+    }
+
     public void refreshWorldsFromServer(String serverId) {
         if (serverId == null || serverId.isBlank()) {
             return;
@@ -574,6 +718,17 @@ public class FlowManager {
         if (tabIds != null) {
             for (String tabId : tabIds) {
                 flowClient.requestTab(tabId, false);
+            }
+        }
+        refreshFlowManagerScreen(serverId);
+    }
+
+    public void applyServerCustomContentList(String serverId, List<String> contentIds) {
+        customContentStore.applyServerList(serverId, contentIds);
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (contentIds != null) {
+            for (String contentId : contentIds) {
+                flowClient.requestCustomContent(contentId, false);
             }
         }
         refreshFlowManagerScreen(serverId);
@@ -911,6 +1066,7 @@ public class FlowManager {
                     case GUI -> screen.upsertGuiEntry(resourceId);
                     case SCOREBOARD -> screen.upsertScoreboardEntry(resourceId);
                     case TAB -> screen.upsertTabEntry(resourceId);
+                    case CUSTOM_CONTENT -> screen.upsertCustomContentEntry(resourceId);
                 }
             }
         });
