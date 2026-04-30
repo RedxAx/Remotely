@@ -8,6 +8,7 @@ import com.google.gson.GsonBuilder;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowDataTypeAdapter;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
@@ -617,6 +618,7 @@ public class ReSyncFlowClient {
         else if (type == ReSyncResourceType.GUI) fm.cacheGui(serverId, (GuiDefinition) item);
         else if (type == ReSyncResourceType.SCOREBOARD) fm.cacheScoreboard(serverId, (ScoreboardDefinition) item);
         else if (type == ReSyncResourceType.TAB) fm.cacheTab(serverId, (TabDefinition) item);
+        else if (type == ReSyncResourceType.CUSTOM_CONTENT) fm.cacheCustomContent(serverId, (CustomContentDefinition) item);
     }
 
     private void handleResourceDataReceived(FlowManager fm, ReSyncResourceType type, Object item) {
@@ -630,6 +632,7 @@ public class ReSyncFlowClient {
         else if (type == ReSyncResourceType.GUI) fm.markGuiSaved(serverId, id);
         else if (type == ReSyncResourceType.SCOREBOARD) fm.markScoreboardSaved(serverId, id);
         else if (type == ReSyncResourceType.TAB) fm.markTabSaved(serverId, id);
+        else if (type == ReSyncResourceType.CUSTOM_CONTENT) fm.markCustomContentSaved(serverId, id);
     }
 
     private void applyServerResourceList(FlowManager fm, ReSyncResourceType type, java.util.List<String> ids) {
@@ -637,6 +640,7 @@ public class ReSyncFlowClient {
         else if (type == ReSyncResourceType.GUI) fm.applyServerGuiList(serverId, ids);
         else if (type == ReSyncResourceType.SCOREBOARD) fm.applyServerScoreboardList(serverId, ids);
         else if (type == ReSyncResourceType.TAB) fm.applyServerTabList(serverId, ids);
+        else if (type == ReSyncResourceType.CUSTOM_CONTENT) fm.applyServerCustomContentList(serverId, ids);
     }
 
     private void handleFlowData(ByteBuffer buffer) {
@@ -964,6 +968,18 @@ public class ReSyncFlowClient {
         requestResourceList(ReSyncResourceType.TAB);
     }
 
+    public void requestCustomContent(String contentId) {
+        requestCustomContent(contentId, true);
+    }
+
+    public void requestCustomContent(String contentId, boolean openWhenReceived) {
+        requestResource(ReSyncResourceType.CUSTOM_CONTENT, contentId, openWhenReceived);
+    }
+
+    public void requestCustomContentList() {
+        requestResourceList(ReSyncResourceType.CUSTOM_CONTENT);
+    }
+
     public void requestPlaceholderPreview(String text, boolean usePapi, Consumer<String> callback) {
         String value = text != null ? text : "";
         if (callback == null) {
@@ -1084,6 +1100,7 @@ public class ReSyncFlowClient {
     public void sendGuiSave(GuiDefinition gui) { sendResourceSave(ReSyncResourceType.GUI, gui); }
     public void sendScoreboardSave(ScoreboardDefinition scoreboard) { sendResourceSave(ReSyncResourceType.SCOREBOARD, scoreboard); }
     public void sendTabSave(TabDefinition tab) { sendResourceSave(ReSyncResourceType.TAB, tab); }
+    public void sendCustomContentSave(CustomContentDefinition content) { sendResourceSave(ReSyncResourceType.CUSTOM_CONTENT, content); }
     public void sendFlowDelete(String flowId) { sendResourceDelete(ReSyncResourceType.FLOW, flowId); }
     public void sendGuiDelete(String guiId) { sendResourceDelete(ReSyncResourceType.GUI, guiId); }
     public void sendScoreboardDelete(String scoreboardId) { sendResourceDelete(ReSyncResourceType.SCOREBOARD, scoreboardId); }
