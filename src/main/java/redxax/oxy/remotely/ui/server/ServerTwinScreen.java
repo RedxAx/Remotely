@@ -9,8 +9,12 @@ import restudio.rebase.twin.ServerTwinManager.DeploymentMode;
 import restudio.rebase.twin.ServerTwinManager.DeploymentRecord;
 import restudio.rebase.twin.ServerTwinManager.FileChange;
 import restudio.rebase.twin.ServerTwinManager.FileChangeType;
+import restudio.rebase.twin.ServerTwinManager.IgnoredChange;
+import restudio.rebase.twin.ServerTwinManager.RemoteDrift;
 import restudio.rebase.twin.ServerTwinManager.ScopeProfile;
 import restudio.rebase.twin.ServerTwinManager.ServerTwin;
+import restudio.rebase.twin.ServerTwinManager.TwinDeployRequest;
+import restudio.rebase.twin.ServerTwinManager.TwinInspection;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rebase.ui.widgets.editor.plugins.impl.DiffPlugin;
@@ -42,13 +46,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static restudio.rescreen.config.Config.desktopMode;
 
 public class ServerTwinScreen extends ReScreen {
-    private static final long AUTO_REFRESH_INTERVAL_MS = 1500L;
+    private static final long AUTO_REFRESH_INTERVAL_MS = 10000L;
 
     private final Object parent;
     private final RemotelyClient remotelyClient;
@@ -61,15 +66,22 @@ public class ServerTwinScreen extends ReScreen {
     private SidePanel detailsSidePanel;
     private Container detailsContainer;
 
+    private TabsManager.Tab statusTab;
     private TabsManager.Tab changesTab;
-    private TabsManager.Tab deploymentsTab;
+    private TabsManager.Tab historyTab;
 
     private final Map<String, List<FileChange>> changeCache = new HashMap<>();
     private final Map<String, String> previewCache = new HashMap<>();
+    private final Set<String> selectedDeployPaths = new LinkedHashSet<>();
     private List<ServerTwin> twins = new ArrayList<>();
+    private TwinInspection currentInspection;
+    private MountableButtonWidget reviewToolbarRow;
+    private MountableButtonWidget checkpointStatusRow;
+    private MountableButtonWidget deployStatusRow;
     private String selectedTwinId;
     private String selectedChangePath;
     private String selectedDeploymentId;
+    private String selectedPathsSeedKey;
     private long changesRequestNonce;
     private long previewRequestNonce;
     private long nextAutoRefreshAtMs;
@@ -77,6 +89,7 @@ public class ServerTwinScreen extends ReScreen {
     private CodeEditorWidget activeDiffLeftEditor;
     private CodeEditorWidget activeDiffRightEditor;
     private final Map<String, ParsedDiff> parsedPreviewCache = new HashMap<>();
+    private final Set<String> expandedDiffPreviews = new LinkedHashSet<>();
 
     public ServerTwinScreen(Object parent, RemotelyClient remotelyClient, Instance sourceInstance) {
         super();
@@ -179,13 +192,9 @@ public class ServerTwinScreen extends ReScreen {
         if (!desktopMode) {
             header().addRight("close.png", this::close, "Close");
         }
-        header().addRight("delete.png", this::openDeleteTwinPopup, "Disable DevMode");
         header().addLeft("create.png", this::openCreateTwinPopup, "Enable DevMode");
-        header().addLeft("explorer.png", this::openSelectedTwinWorkspace, "Workspace");
         header().addLeft("terminal.png", this::openSelectedTwinTerminal, "Terminal");
-        header().addLeft("reload.png", this::pullSelectedTwin, "Pull");
-        header().addLeft("edit.png", this::openDeployPopup, "Commit");
-        header().addLeft("reverse.png", this::pushSelectedTwin, "Push");
+        header().addRight("delete.png", this::openDeleteTwinPopup, "Disable DevMode");
         header().build();
         refreshHeaderButtons();
     }
@@ -208,13 +217,12 @@ public class ServerTwinScreen extends ReScreen {
         changesContainer = createListContainer("twinChanges", containerY, containerHeight);
         deploymentsContainer = createListContainer("twinDeployments", containerY, containerHeight);
 
+        statusTab = tabs().addTab("Status", overviewContainer);
         changesTab = tabs().addTab("Changes", changesContainer);
-        deploymentsTab = tabs().addTab("Commits", deploymentsContainer);
+        historyTab = tabs().addTab("History", deploymentsContainer);
 
-        detailsSidePanel = createSidePanel("twinDetails").width(280).y(containerY).height(containerHeight).show();
-        detailsContainer = detailsSidePanel.container();
-        detailsContainer.layout(new ManagedLayout()).columns(1).padding(6).verticalSpacing(4).scrolling(true).backgroundDrawing(true);
-        updateDetailsWidth();
+        detailsSidePanel = null;
+        detailsContainer = null;
 
         tabs().setActiveTab(0);
     }
@@ -284,32 +292,31 @@ public class ServerTwinScreen extends ReScreen {
 
     private void refreshHeaderButtons() {
         boolean hasTwin = getSelectedTwin() != null;
-        header().setButtonVisible("explorer.png", hasTwin);
         header().setButtonVisible("terminal.png", hasTwin);
-        header().setButtonVisible("reload.png", hasTwin);
-        header().setButtonVisible("edit.png", hasTwin);
-        header().setButtonVisible("upload.png", hasTwin);
         header().setButtonVisible("delete.png", hasTwin);
+        header().setButtonVisible("create.png", !hasTwin);
     }
 
     private void refreshOverviewRows() {
         overviewContainer.clearWidgets();
         ServerTwin selectedTwin = getSelectedTwin();
         if (selectedTwin == null) {
-            overviewContainer.addWidget(createInfoRow(overviewContainer, "DevMode Off", "Enable DevMode To Start"));
-            overviewContainer.addWidget(createInfoRow(overviewContainer, "Source", sourceInstance.getName()));
+            overviewContainer.addWidget(createInfoRow(overviewContainer, "DevMode Off", sourceInstance.getName()));
+            AnimatedButton enableButton = new AnimatedButton.Builder().label("Enable DevMode").accentType(ThemeManager.getAccent("nice")).size(120, 18).build();
+            enableButton.setAction(this::openCreateTwinPopup);
+            overviewContainer.addWidget(enableButton);
             overviewContainer.updateWidgetPositions();
             return;
         }
-        overviewContainer.addWidget(createInfoRow(overviewContainer, "DevMode", selectedTwin.name));
-        overviewContainer.addWidget(createInfoRow(overviewContainer, "Source", valueOrDash(selectedTwin.sourceName)));
-        overviewContainer.addWidget(createInfoRow(overviewContainer, "Backend", valueOrDash(selectedTwin.sourceBackendType)));
-        overviewContainer.addWidget(createInfoRow(overviewContainer, "Scope", selectedTwin.scope == null ? "empty" : selectedTwin.scope.summary()));
-        overviewContainer.addWidget(createInfoRow(overviewContainer, "Git", selectedTwin.gitEnabled ? "Enabled" : "Disabled"));
-        overviewContainer.addWidget(createInfoRow(overviewContainer, "Status", selectedTwin.statusSummary()));
-        overviewContainer.addWidget(createInfoRow(overviewContainer, "Workspace", valueOrDash(selectedTwin.workspacePath)));
-        overviewContainer.addWidget(createInfoRow(overviewContainer, "LastPull", formatTime(selectedTwin.lastPulledAt)));
-        overviewContainer.addWidget(createInfoRow(overviewContainer, "LastCommit", formatTime(selectedTwin.lastDeployedAt)));
+        overviewContainer.addWidget(createInfoRow(overviewContainer, selectedTwin.name, formatStatusSummary(selectedTwin)));
+        overviewContainer.addWidget(createInfoRow(overviewContainer, "Source", valueOrDash(selectedTwin.sourceName) + " / " + valueOrDash(selectedTwin.sourceBackendType)));
+        if (currentInspection != null && currentInspection.twin() != null && Objects.equals(currentInspection.twin().id, selectedTwin.id)) {
+            overviewContainer.addWidget(createInfoRow(overviewContainer, "Review", buildReviewSummary(currentInspection)));
+        }
+        overviewContainer.addWidget(createStatusActionRow("Refresh From Server", "Replace baseline and workspace from source", "reload.png", () -> pullTwin(selectedTwin), ThemeManager.getAccent("calm")));
+        overviewContainer.addWidget(createStatusActionRow("Save Checkpoint", selectedDeployPaths.size() + " Selected", "save.png", () -> openDeployPopup(selectedTwin), ThemeManager.getDefaultAccent()));
+        overviewContainer.addWidget(createStatusActionRow("Deploy Selected", selectedDeployPaths.size() + " Selected", "upload.png", () -> pushTwin(selectedTwin), ThemeManager.getAccent("nice")));
+        overviewContainer.addWidget(createStatusActionRow("Workspace", selectedTwin.workspacePath == null ? "Open Workspace" : selectedTwin.workspacePath, "explorer.png", this::openSelectedTwinWorkspace, ThemeManager.getAccent("calm")));
         overviewContainer.updateWidgetPositions();
     }
 
@@ -322,10 +329,10 @@ public class ServerTwinScreen extends ReScreen {
             updateDetailsForCurrentTab();
             return;
         }
-        changesContainer.addWidget(createInfoRow(changesContainer, "Loading Changes", selectedTwin.name));
+        changesContainer.addWidget(createInfoRow(changesContainer, "Loading Review", selectedTwin.name));
         changesContainer.updateWidgetPositions();
         long nonce = ++changesRequestNonce;
-        twinManager.listChanges(selectedTwin.id).whenComplete((changes, throwable) -> ScreenManager.getInstance().execute(() -> {
+        twinManager.inspectTwin(sourceInstance, selectedTwin.id).whenComplete((inspection, throwable) -> ScreenManager.getInstance().execute(() -> {
             if (nonce != changesRequestNonce || !Objects.equals(selectedTwinId, selectedTwin.id)) {
                 return;
             }
@@ -336,15 +343,41 @@ public class ServerTwinScreen extends ReScreen {
                 updateDetailsForCurrentTab();
                 return;
             }
-            changeCache.put(selectedTwin.id, changes);
-            renderChangeRows(selectedTwin, changes);
+            currentInspection = inspection;
+            changeCache.put(selectedTwin.id, inspection.visibleChanges());
+            seedSelectedDeployPaths(selectedTwin.id, inspection.visibleChanges());
+            refreshOverviewRows();
+            renderChangeRows(selectedTwin, inspection.visibleChanges());
         }));
     }
 
     private void renderChangeRows(ServerTwin twin, List<FileChange> changes) {
         changesContainer.clearWidgets();
+        List<IgnoredChange> ignoredChanges = currentInspection == null || currentInspection.ignoredChanges() == null ? List.of() : currentInspection.ignoredChanges();
+        List<RemoteDrift> remoteDrift = currentInspection == null || currentInspection.remoteDrift() == null ? List.of() : currentInspection.remoteDrift();
+        selectedDeployPaths.removeIf(path -> changes.stream().noneMatch(change -> Objects.equals(change.relativePath(), path)));
+        changesContainer.addWidget(createReviewToolbar(twin, changes, ignoredChanges, remoteDrift));
+        if (!remoteDrift.isEmpty()) {
+            MountableButtonWidget row = new MountableButtonWidget.Builder("Refresh Required")
+                    .hiddenText(remoteDrift.size() + " Remote Changes")
+                    .description("Server changed after baseline")
+                    .addButton(actionButton("reload.png", "Refresh", () -> pullTwin(twin), ThemeManager.getAccent("calm")))
+                    .build();
+            styleRow(row, changesContainer, ThemeManager.getAccent("danger"), 30);
+            changesContainer.addWidget(row);
+        }
+        if (!ignoredChanges.isEmpty()) {
+            MountableButtonWidget row = new MountableButtonWidget.Builder("Ignored Changes")
+                    .hiddenText(String.valueOf(ignoredChanges.size()))
+                    .description("Managed Filter")
+                    .addButton(actionButton("search.png", "View Ignored", () -> openIgnoredChangesPopup(ignoredChanges), ThemeManager.getAccent("calm")))
+                    .addButton(actionButton("settings.png", "Rules", () -> openIgnoreRulesPopup(twin), ThemeManager.getAccent("calm")))
+                    .build();
+            styleRow(row, changesContainer, ThemeManager.getAccent("calm"), 30);
+            changesContainer.addWidget(row);
+        }
         if (changes.isEmpty()) {
-            changesContainer.addWidget(createInfoRow(changesContainer, "No Changes", twin.name));
+            changesContainer.addWidget(createInfoRow(changesContainer, remoteDrift.isEmpty() ? "No Changes" : "Deploy Blocked", remoteDrift.isEmpty() ? twin.name : "Refresh From Server"));
             changesContainer.updateWidgetPositions();
             if (Objects.equals(selectedTwinId, twin.id)) {
                 selectedChangePath = null;
@@ -353,24 +386,38 @@ public class ServerTwinScreen extends ReScreen {
             return;
         }
         boolean selectedExists = false;
+        Map<FileChangeType, List<FileChange>> grouped = new TreeMap<>(Comparator.comparing(FileChangeType::name));
         for (FileChange change : changes) {
-            boolean selected = Objects.equals(change.relativePath(), selectedChangePath);
-            if (selected) {
-                selectedExists = true;
+            grouped.computeIfAbsent(change.type() == null ? FileChangeType.MODIFIED : change.type(), ignored -> new ArrayList<>()).add(change);
+        }
+        for (FileChangeType type : List.of(FileChangeType.MODIFIED, FileChangeType.ADDED, FileChangeType.DELETED)) {
+            List<FileChange> group = grouped.getOrDefault(type, List.of());
+            if (group.isEmpty()) {
+                continue;
             }
-            String hidden = change.summary();
-            String description = change.directory()
-                    ? formatSize(change.baselineSize()) + " • " + formatSize(change.workspaceSize()) + " • directory"
-                    : formatSize(change.baselineSize()) + " → " + formatSize(change.workspaceSize());
-            MountableButtonWidget row = new MountableButtonWidget.Builder(change.relativePath())
-                    .hiddenText(hidden)
-                    .description(description)
-                    .onClick(() -> selectChange(change.relativePath()))
-                    .addButton(actionButton("edit.png", "Preview", () -> openChangePreview(twin, change)))
-                    .addButton(actionButton("reload.png", "Restore Path", () -> restoreChange(twin, change), ThemeManager.getAccent("calm")))
-                    .build();
-            styleRow(row, changesContainer, accentForChangeType(change.type()), 34);
-            changesContainer.addWidget(row);
+            changesContainer.addWidget(createInfoRow(changesContainer, formatChangeType(type), group.size() + " Changes"));
+            group.sort(Comparator.comparing(FileChange::relativePath, String.CASE_INSENSITIVE_ORDER));
+            for (FileChange change : group) {
+                boolean selected = Objects.equals(change.relativePath(), selectedChangePath);
+                if (selected) {
+                    selectedExists = true;
+                }
+                ToggleWidget selectedToggle = new ToggleWidget.Builder().toggled(selectedDeployPaths.contains(change.relativePath())).build();
+                selectedToggle.setOnChange(() -> updateChangeSelection(change.relativePath(), selectedToggle.getValue(), changes.size(), ignoredChanges.size()));
+                String description = formatSize(change.baselineSize()) + " -> " + formatSize(change.workspaceSize());
+                MountableButtonWidget row = new MountableButtonWidget.Builder(change.relativePath())
+                        .description(description)
+                        .onClick(() -> {
+                            selectChange(change.relativePath());
+                            openChangePreview(twin, change);
+                        })
+                        .addWidget(selectedToggle)
+                        .addButton(actionButton("edit.png", "Preview", () -> openChangePreview(twin, change), ThemeManager.getAccent("calm")))
+                        .addButton(actionButton("goback.png", "Restore", () -> restoreChange(twin, change), ThemeManager.getDefaultAccent()))
+                        .build();
+                styleRow(row, changesContainer, accentForChangeType(change.type()), 30);
+                changesContainer.addWidget(row);
+            }
         }
         changesContainer.updateWidgetPositions();
         if (!selectedExists) {
@@ -389,7 +436,7 @@ public class ServerTwinScreen extends ReScreen {
             return;
         }
         if (selectedTwin.deployments.isEmpty()) {
-            deploymentsContainer.addWidget(createInfoRow(deploymentsContainer, "No Commits", selectedTwin.name));
+            deploymentsContainer.addWidget(createInfoRow(deploymentsContainer, "No Deploys", selectedTwin.name));
             deploymentsContainer.updateWidgetPositions();
             selectedDeploymentId = null;
             updateDetailsForCurrentTab();
@@ -398,12 +445,12 @@ public class ServerTwinScreen extends ReScreen {
         for (DeploymentRecord deployment : selectedTwin.deployments) {
             boolean selected = Objects.equals(deployment.id, selectedDeploymentId);
             MountableButtonWidget row = new MountableButtonWidget.Builder(deployment.label)
-                    .hiddenText(selected ? "active • " + formatDeploymentMode(deployment.mode) : formatDeploymentMode(deployment.mode))
-                    .description(formatTime(deployment.createdAt) + " • " + deployment.changes.size() + " changes" + (deployment.gitCommitShortHash == null || deployment.gitCommitShortHash.isBlank() ? "" : " • " + deployment.gitCommitShortHash))
+                    .hiddenText(selected ? "Active" : formatDeploymentMode(deployment.mode))
+                    .description(formatTime(deployment.createdAt) + " / " + deployment.changes.size() + " Changes" + (deployment.gitCommitShortHash == null || deployment.gitCommitShortHash.isBlank() ? "" : " / " + deployment.gitCommitShortHash))
                     .onClick(() -> selectDeployment(deployment.id))
                     .addButton(actionButton("goback.png", "Rollback", () -> rollbackDeployment(selectedTwin, deployment), ThemeManager.getAccent("calm")))
                     .build();
-            styleRow(row, deploymentsContainer, selected ? ThemeManager.getAccent("calm") : ThemeManager.getDefaultAccent(), 34);
+            styleRow(row, deploymentsContainer, selected ? ThemeManager.getAccent("calm") : ThemeManager.getDefaultAccent(), 30);
             deploymentsContainer.addWidget(row);
         }
         deploymentsContainer.updateWidgetPositions();
@@ -448,21 +495,27 @@ public class ServerTwinScreen extends ReScreen {
         }
         boolean twinsChangedSnapshot = twinsChanged;
         long nonce = ++changesRequestNonce;
-        twinManager.listChanges(selectedTwin.id).whenComplete((changes, throwable) -> ScreenManager.getInstance().execute(() -> {
+        twinManager.inspectTwin(sourceInstance, selectedTwin.id).whenComplete((inspection, throwable) -> ScreenManager.getInstance().execute(() -> {
             if (nonce != changesRequestNonce || !Objects.equals(selectedTwinId, selectedTwin.id)) {
                 return;
             }
             if (throwable != null) {
                 return;
             }
+            List<FileChange> changes = inspection.visibleChanges();
             List<FileChange> cachedChanges = changeCache.get(selectedTwin.id);
-            if (sameChangeSnapshot(cachedChanges, changes)) {
+            boolean sameIgnored = currentInspection != null && currentInspection.ignoredChanges().size() == inspection.ignoredChanges().size();
+            boolean sameDrift = currentInspection != null && currentInspection.remoteDrift().size() == inspection.remoteDrift().size();
+            if (sameChangeSnapshot(cachedChanges, changes) && sameIgnored && sameDrift) {
                 if (twinsChangedSnapshot) {
                     updateDetailsForCurrentTab();
                 }
                 return;
             }
+            currentInspection = inspection;
             changeCache.put(selectedTwin.id, changes);
+            seedSelectedDeployPaths(selectedTwin.id, changes);
+            refreshOverviewRows();
             previewCache.keySet().removeIf(key -> key.startsWith(selectedTwin.id + "::"));
             renderChangeRows(selectedTwin, changes);
         }));
@@ -476,6 +529,41 @@ public class ServerTwinScreen extends ReScreen {
     private void selectDeployment(String deploymentId) {
         selectedDeploymentId = deploymentId;
         updateDetailsForCurrentTab();
+    }
+
+    private void updateChangeSelection(String relativePath, boolean selected, int visibleCount, int ignoredCount) {
+        if (selected) {
+            selectedDeployPaths.add(relativePath);
+        } else {
+            selectedDeployPaths.remove(relativePath);
+        }
+        updateSelectionLabels(visibleCount, ignoredCount);
+        updateDetailsForCurrentTab();
+    }
+
+    private void updateSelectionLabels(int visibleCount, int ignoredCount) {
+        String selectedText = selectedDeployPaths.size() + " Selected";
+        if (reviewToolbarRow != null) {
+            reviewToolbarRow.setDescription(selectedText + " / " + visibleCount + " Visible / " + ignoredCount + " Ignored");
+        }
+        if (checkpointStatusRow != null) {
+            checkpointStatusRow.setDescription(selectedText);
+        }
+        if (deployStatusRow != null) {
+            deployStatusRow.setDescription(selectedText);
+        }
+    }
+
+    private void seedSelectedDeployPaths(String twinId, List<FileChange> changes) {
+        String seedKey = twinId + ":" + changes.stream()
+                .map(change -> change.relativePath() + ":" + change.type() + ":" + change.workspaceSize() + ":" + change.baselineSize())
+                .reduce("", (left, right) -> left + "|" + right);
+        if (Objects.equals(selectedPathsSeedKey, seedKey)) {
+            return;
+        }
+        selectedPathsSeedKey = seedKey;
+        selectedDeployPaths.clear();
+        changes.stream().map(FileChange::relativePath).forEach(selectedDeployPaths::add);
     }
 
     private void updateDetailsForCurrentTab() {
@@ -499,7 +587,7 @@ public class ServerTwinScreen extends ReScreen {
             updateDetailsWidth();
             return;
         }
-        if (activeTab == deploymentsTab) {
+        if (activeTab == historyTab) {
             buildDeploymentDetailsRows(selectedTwin);
             detailsContainer.updateWidgetPositions();
             updateDetailsWidth();
@@ -524,6 +612,11 @@ public class ServerTwinScreen extends ReScreen {
         addDetailsRow("Added", String.valueOf(added), ThemeManager.getAccent("nice"));
         addDetailsRow("Modified", String.valueOf(modified), ThemeManager.getAccent("calm"));
         addDetailsRow("Deleted", String.valueOf(deleted), ThemeManager.getAccent("danger"));
+        addDetailsRow("Selected", String.valueOf(selectedDeployPaths.size()), ThemeManager.getAccent("nice"));
+        if (currentInspection != null) {
+            addDetailsRow("Ignored", String.valueOf(currentInspection.ignoredChanges().size()), ThemeManager.getAccent("calm"));
+            addDetailsRow("Remote Drift", String.valueOf(currentInspection.remoteDrift().size()), currentInspection.remoteDrift().isEmpty() ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger"));
+        }
         if (changes.isEmpty()) {
             return;
         }
@@ -547,12 +640,12 @@ public class ServerTwinScreen extends ReScreen {
         addDetailsRow("Backend", valueOrDash(twin.sourceBackendType), ThemeManager.getDefaultAccent());
         addDetailsRow("Scope", twin.scope == null ? "empty" : twin.scope.summary(), ThemeManager.getDefaultAccent());
         addDetailsRow("Git", twin.gitEnabled ? "Enabled" : "Disabled", twin.gitEnabled ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger"));
-        addDetailsRow("Status", twin.statusSummary(), "ready".equalsIgnoreCase(twin.statusSummary()) ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger"));
+        addDetailsRow("Status", formatStatusSummary(twin), "ready".equalsIgnoreCase(twin.statusSummary()) ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger"));
         addDetailsRow("Workspace", valueOrDash(twin.workspacePath), ThemeManager.getDefaultAccent());
         addDetailsRow("Baseline", valueOrDash(twin.baselinePath), ThemeManager.getDefaultAccent());
         addDetailsRow("Created", formatTime(twin.createdAt), ThemeManager.getDefaultAccent());
-        addDetailsRow("LastPull", formatTime(twin.lastPulledAt), ThemeManager.getAccent("calm"));
-        addDetailsRow("LastCommit", formatTime(twin.lastDeployedAt), ThemeManager.getAccent("nice"));
+        addDetailsRow("LastRefresh", formatTime(twin.lastPulledAt), ThemeManager.getAccent("calm"));
+        addDetailsRow("LastDeploy", formatTime(twin.lastDeployedAt), ThemeManager.getAccent("nice"));
         if (twin.lastError != null && !twin.lastError.isBlank()) {
             addDetailsRow("LastError", twin.lastError, ThemeManager.getAccent("danger"));
         }
@@ -561,7 +654,7 @@ public class ServerTwinScreen extends ReScreen {
     private void buildDeploymentDetailsRows(ServerTwin twin) {
         DeploymentRecord selected = twin.deployments.stream().filter(record -> Objects.equals(record.id, selectedDeploymentId)).findFirst().orElse(twin.deployments.isEmpty() ? null : twin.deployments.getFirst());
         if (selected == null) {
-            addDetailsRow("Commits", "No Commits", ThemeManager.getDefaultAccent());
+            addDetailsRow("History", "No Deploys", ThemeManager.getDefaultAccent());
             return;
         }
         addDetailsRow("Label", selected.label, ThemeManager.getAccent("nice"));
@@ -739,14 +832,35 @@ public class ServerTwinScreen extends ReScreen {
     }
 
     private void pushTwin(ServerTwin twin) {
-        Notification notification = loadingNotification("Pushing DevMode", twin.name);
-        twinManager.pushTwin(sourceInstance, twin.id, notification).whenComplete((result, throwable) -> ScreenManager.getInstance().execute(() -> {
+        if (currentInspection != null && currentInspection.remoteDrift() != null && !currentInspection.remoteDrift().isEmpty()) {
+            new Notification.Builder().message("Refresh Required").description("Server changed after baseline").type(Notification.Type.ERROR).build();
+            return;
+        }
+        if (selectedDeployPaths.isEmpty()) {
+            new Notification.Builder().message("Deploy Blocked").description("No changes selected").type(Notification.Type.ERROR).build();
+            return;
+        }
+        openDeployToServerPopup(twin);
+    }
+
+    private void deploySelectedTwin(ServerTwin twin, String label, DeploymentMode mode) {
+        Notification notification = loadingNotification("Deploying", twin.name);
+        TwinDeployRequest request = new TwinDeployRequest();
+        request.twinId = twin.id;
+        request.label = label;
+        request.mode = mode == null ? DeploymentMode.DIRECT : mode;
+        request.selectedPaths = new ArrayList<>(selectedDeployPaths);
+        request.createGitCheckpoint = true;
+        request.failOnRemoteDrift = true;
+        twinManager.deployTwin(sourceInstance, request, notification).whenComplete((result, throwable) -> ScreenManager.getInstance().execute(() -> {
             if (throwable != null) {
-                finishNotification(notification, "Push Failed", resolveThrowable(throwable), Notification.Type.ERROR);
+                finishNotification(notification, "Deploy Failed", resolveThrowable(throwable), Notification.Type.ERROR);
                 return;
             }
-            finishNotification(notification, "Push Complete", twin.name, Notification.Type.SUCCESS);
+            finishNotification(notification, "Deploy Complete", result.deployment().label, Notification.Type.SUCCESS);
             selectedTwinId = twin.id;
+            selectedDeploymentId = result.deployment().id;
+            selectedDeployPaths.clear();
             changeCache.remove(twin.id);
             previewCache.keySet().removeIf(key -> key.startsWith(twin.id + "::"));
             parsedPreviewCache.keySet().removeIf(key -> key.startsWith(twin.id + "::"));
@@ -762,21 +876,25 @@ public class ServerTwinScreen extends ReScreen {
     }
 
     private void openDeployPopup(ServerTwin twin) {
-        TextInputWidget labelInput = new TextInputWidget.Builder().placeholder("Commit Message").build();
+        TextInputWidget labelInput = new TextInputWidget.Builder().placeholder("Checkpoint Message").build();
         List<DeploymentMode> modes = List.of(DeploymentMode.DIRECT, DeploymentMode.STAGED);
         DropDownWidget<DeploymentMode> modeDropdown = new DropDownWidget.Builder<>(modes)
                 .displayFunction(this::formatDeploymentMode)
-                .selectedItem(DeploymentMode.DIRECT)
+                .selectedItem(DeploymentMode.STAGED)
                 .size(180, 18)
                 .build();
-        PopupWidget.Builder builder = new PopupWidget.Builder("Commit Changes").size(320, 150).setResizable(false);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Save Checkpoint").size(340, 150).setResizable(false);
         builder.addRow("label", "Message", true, 18, labelInput);
         builder.addRow("mode", "Mode", true, 18, modeDropdown);
-        AnimatedButton deployButton = new AnimatedButton.Builder().label("Commit").accentType(ThemeManager.getAccent("nice")).size(90, 18).build();
+        AnimatedButton deployButton = new AnimatedButton.Builder().label("Save").accentType(ThemeManager.getAccent("nice")).size(90, 18).build();
         AnimatedButton cancelButton = new AnimatedButton.Builder().label("Cancel").accentType(ThemeManager.getAccent("danger")).size(90, 18).build();
         builder.addRow("", true, 22, deployButton, cancelButton);
         PopupWidget popup = builder.build();
         deployButton.setAction(() -> {
+            if (labelInput.getText() == null || labelInput.getText().isBlank()) {
+                new Notification.Builder().message("Message Required").description("Checkpoint needs a message").type(Notification.Type.ERROR).build();
+                return;
+            }
             popup.hide();
             deployTwin(twin, labelInput.getText(), modeDropdown.getSelectedItem());
         });
@@ -785,16 +903,49 @@ public class ServerTwinScreen extends ReScreen {
         popup.show();
     }
 
-    private void deployTwin(ServerTwin twin, String label, DeploymentMode mode) {
-        Notification notification = loadingNotification("Committing", twin.name);
-        twinManager.deployTwin(sourceInstance, twin.id, label, mode, notification).whenComplete((record, throwable) -> ScreenManager.getInstance().execute(() -> {
-            if (throwable != null) {
-                finishNotification(notification, "Commit Failed", resolveThrowable(throwable), Notification.Type.ERROR);
+    private void openDeployToServerPopup(ServerTwin twin) {
+        TextInputWidget labelInput = new TextInputWidget.Builder().placeholder("Deploy Message").build();
+        DropDownWidget<DeploymentMode> modeDropdown = new DropDownWidget.Builder<>(List.of(DeploymentMode.DIRECT, DeploymentMode.STAGED, DeploymentMode.RESTART_REQUIRED))
+                .displayFunction(this::formatDeploymentMode)
+                .selectedItem(DeploymentMode.DIRECT)
+                .size(180, 18)
+                .build();
+        PopupWidget.Builder builder = new PopupWidget.Builder("Deploy Changes").size(360, 164).setResizable(false);
+        builder.addRow("label", "Message", true, 18, labelInput);
+        builder.addRow("mode", "Mode", true, 18, modeDropdown);
+        builder.addRow("selected", "Selected", true, 18, createInfoRow(changesContainer, String.valueOf(selectedDeployPaths.size()), "Changes"));
+        AnimatedButton deployButton = new AnimatedButton.Builder().label("Deploy").accentType(ThemeManager.getAccent("nice")).size(90, 18).build();
+        AnimatedButton cancelButton = new AnimatedButton.Builder().label("Cancel").accentType(ThemeManager.getAccent("danger")).size(90, 18).build();
+        builder.addRow("", true, 22, deployButton, cancelButton);
+        PopupWidget popup = builder.build();
+        deployButton.setAction(() -> {
+            if (labelInput.getText() == null || labelInput.getText().isBlank()) {
+                new Notification.Builder().message("Message Required").description("Deploy needs a message").type(Notification.Type.ERROR).build();
                 return;
             }
-            finishNotification(notification, "Commit Created", record.gitCommitShortHash == null || record.gitCommitShortHash.isBlank() ? record.label : record.label + " • " + record.gitCommitShortHash, Notification.Type.SUCCESS);
+            popup.hide();
+            deploySelectedTwin(twin, labelInput.getText(), modeDropdown.getSelectedItem());
+        });
+        cancelButton.setAction(popup::hide);
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    private void deployTwin(ServerTwin twin, String label, DeploymentMode mode) {
+        if (selectedDeployPaths.isEmpty()) {
+            new Notification.Builder().message("Checkpoint Blocked").description("No changes selected").type(Notification.Type.ERROR).build();
+            return;
+        }
+        Notification notification = loadingNotification("Saving Checkpoint", twin.name);
+        twinManager.saveCheckpoint(sourceInstance, twin.id, label, new ArrayList<>(selectedDeployPaths), notification).whenComplete((record, throwable) -> ScreenManager.getInstance().execute(() -> {
+            if (throwable != null) {
+                finishNotification(notification, "Checkpoint Failed", resolveThrowable(throwable), Notification.Type.ERROR);
+                return;
+            }
+            finishNotification(notification, "Checkpoint Saved", record.gitCommitShortHash == null || record.gitCommitShortHash.isBlank() ? record.label : record.label + " • " + record.gitCommitShortHash, Notification.Type.SUCCESS);
             selectedTwinId = twin.id;
             selectedDeploymentId = record.id;
+            selectedDeployPaths.clear();
             changeCache.remove(twin.id);
             previewCache.keySet().removeIf(key -> key.startsWith(twin.id + "::"));
             parsedPreviewCache.keySet().removeIf(key -> key.startsWith(twin.id + "::"));
@@ -857,6 +1008,49 @@ public class ServerTwinScreen extends ReScreen {
         }));
     }
 
+    private void openIgnoredChangesPopup(List<IgnoredChange> ignoredChanges) {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Ignored Changes").size(440, 320).setResizable(true);
+        Container list = new Container(0, 0, 420, 260);
+        list.layout(new ManagedLayout()).columns(1).padding(4).verticalSpacing(4).scrolling(true).backgroundDrawing(true);
+        for (IgnoredChange ignoredChange : ignoredChanges.stream().limit(80).toList()) {
+            MountableButtonWidget row = new MountableButtonWidget.Builder(ignoredChange.relativePath())
+                    .hiddenText(ignoredChange.reason())
+                    .description(formatChangeType(ignoredChange.type()))
+                    .build();
+            styleRow(row, list, ThemeManager.getAccent("calm"), 30);
+            list.addWidget(row);
+        }
+        builder.addRow("ignored", "", true, 260, list);
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    private void openIgnoreRulesPopup(ServerTwin twin) {
+        TextInputWidget ignoreInput = new TextInputWidget.Builder().placeholder("logs, cache, plugins/.paper-remapped").build();
+        ignoreInput.setText(String.join(", ", twin.ignorePaths == null ? List.of() : twin.ignorePaths));
+        PopupWidget.Builder builder = new PopupWidget.Builder("Ignore Rules").size(420, 140).setResizable(false);
+        builder.addRow("paths", "Paths", true, 18, ignoreInput);
+        AnimatedButton saveButton = new AnimatedButton.Builder().label("Save").accentType(ThemeManager.getAccent("nice")).size(90, 18).build();
+        AnimatedButton cancelButton = new AnimatedButton.Builder().label("Cancel").accentType(ThemeManager.getAccent("danger")).size(90, 18).build();
+        builder.addRow("", true, 22, saveButton, cancelButton);
+        PopupWidget popup = builder.build();
+        saveButton.setAction(() -> {
+            popup.hide();
+            twinManager.updateTwinIgnorePaths(twin.id, parsePathList(ignoreInput.getText())).whenComplete((updated, throwable) -> ScreenManager.getInstance().execute(() -> {
+                if (throwable != null) {
+                    new Notification.Builder().message("Save Failed").description(resolveThrowable(throwable)).type(Notification.Type.ERROR).build();
+                    return;
+                }
+                selectedDeployPaths.clear();
+                refreshAll();
+            }));
+        });
+        cancelButton.setAction(popup::hide);
+        addDrawableChild(popup);
+        popup.show();
+    }
+
     private void showDiffPreviewPopup(ServerTwin twin, String relativePath, String preview) {
         String previewKey = buildPreviewKey(twin.id, relativePath);
         ParsedDiff parsedDiff = parsedPreviewCache.get(previewKey);
@@ -864,44 +1058,59 @@ public class ServerTwinScreen extends ReScreen {
             parsedDiff = parseDiffPreview(preview);
             parsedPreviewCache.put(previewKey, parsedDiff);
         }
-        RenderedSplitDiff splitRendered = renderPairedSplitDiff(parsedDiff);
+        ParsedDiff sourceDiff = parsedDiff;
+        boolean expanded = expandedDiffPreviews.contains(previewKey);
+        RenderedDiff rendered = renderUnifiedDiff(expanded ? sourceDiff : compactDiff(sourceDiff, 3));
 
         int padding = 8;
         int popupWidth = Math.max(360, width - padding * 2);
         int popupHeight = Math.max(260, height - padding * 2);
-        int gutter = 8;
-        int halfWidth = Math.max(160, (popupWidth - 12 - gutter) / 2);
-        int editorHeight = Math.max(120, popupHeight - 16 - 12);
+        int editorWidth = Math.max(320, popupWidth - 16);
+        int editorHeight = Math.max(120, popupHeight - 44);
 
-        CodeEditorWidget leftEditor = buildDiffEditor(splitRendered.leftText(), splitRendered.leftLineTypes(), halfWidth, editorHeight);
-        CodeEditorWidget rightEditor = buildDiffEditor(splitRendered.rightText(), splitRendered.rightLineTypes(), halfWidth, editorHeight);
-        leftEditor.registerPlugin(new DiffPlugin(splitRendered.leftLineTypes()));
-        rightEditor.registerPlugin(new DiffPlugin(splitRendered.rightLineTypes()));
+        CodeEditorWidget editor = buildDiffEditor(rendered.text(), rendered.lineTypes(), editorWidth, editorHeight);
+        DiffPlugin[] diffPlugin = {new DiffPlugin(rendered.lineTypes())};
+        editor.registerPlugin(diffPlugin[0]);
+        AnimatedButton toggleButton = new AnimatedButton.Builder()
+                .label(expanded ? "Compact" : "Expand")
+                .accentType(ThemeManager.getAccent("calm"))
+                .size(90, 18)
+                .build();
+        toggleButton.setAction(() -> {
+            boolean nowExpanded = expandedDiffPreviews.contains(previewKey);
+            if (nowExpanded) {
+                expandedDiffPreviews.remove(previewKey);
+            } else {
+                expandedDiffPreviews.add(previewKey);
+            }
+            boolean nextExpanded = expandedDiffPreviews.contains(previewKey);
+            RenderedDiff nextRendered = renderUnifiedDiff(nextExpanded ? sourceDiff : compactDiff(sourceDiff, 3));
+            editor.unregisterPlugin(diffPlugin[0]);
+            diffPlugin[0] = new DiffPlugin(nextRendered.lineTypes());
+            editor.setText(nextRendered.text());
+            editor.setScrollOffsetY(0f);
+            editor.setScrollOffsetX(0f);
+            editor.registerPlugin(diffPlugin[0]);
+            toggleButton.setMessage(nextExpanded ? "Compact" : "Expand");
+        });
 
         PopupWidget popup = new PopupWidget(padding, padding, popupWidth, popupHeight, "") {
             @Override
             public void tick() {
                 super.tick();
                 if (isResizing) {
-                    int currentHalfWidth = Math.max(160, (getWidth() - 12 - gutter) / 2);
-                    int currentEditorHeight = Math.max(120, getHeight() - 16 - 12);
+                    int currentEditorWidth = Math.max(320, getWidth() - 16);
+                    int currentEditorHeight = Math.max(120, getHeight() - 44);
                     rows.stream()
-                            .filter(row -> "splitRow".equals(row.id) && row.widgets.size() >= 2)
+                            .filter(row -> "diffRow".equals(row.id) && !row.widgets.isEmpty())
                             .findFirst()
                             .ifPresent(row -> {
-                                var leftWidget = row.widgets.get(0);
-                                var rightWidget = row.widgets.get(1);
-                                if (leftWidget.getWidth() != currentHalfWidth) {
-                                    leftWidget.setWidth(currentHalfWidth);
+                                var diffWidget = row.widgets.getFirst();
+                                if (diffWidget.getWidth() != currentEditorWidth) {
+                                    diffWidget.setWidth(currentEditorWidth);
                                 }
-                                if (rightWidget.getWidth() != currentHalfWidth) {
-                                    rightWidget.setWidth(currentHalfWidth);
-                                }
-                                if (leftWidget.getHeight() != currentEditorHeight) {
-                                    leftWidget.setHeight(currentEditorHeight);
-                                }
-                                if (rightWidget.getHeight() != currentEditorHeight) {
-                                    rightWidget.setHeight(currentEditorHeight);
+                                if (diffWidget.getHeight() != currentEditorHeight) {
+                                    diffWidget.setHeight(currentEditorHeight);
                                 }
                             });
                 }
@@ -910,15 +1119,16 @@ public class ServerTwinScreen extends ReScreen {
         };
         clearActiveDiffPopup();
         activeDiffContainer = popup;
-        activeDiffLeftEditor = leftEditor;
-        activeDiffRightEditor = rightEditor;
+        activeDiffLeftEditor = editor;
+        activeDiffRightEditor = null;
         popup.resizable = true;
-        popup.addRow("splitRow", "", List.of(leftEditor, rightEditor), editorHeight, true, false);
-        popup.setRowVisibility("splitRow", true);
+        popup.addRow("actions", "", List.of(toggleButton), 22, true, false);
+        popup.addRow("diffRow", "", List.of(editor), editorHeight, true, false);
+        popup.setRowVisibility("actions", true);
+        popup.setRowVisibility("diffRow", true);
 
-        leftEditor.setFocused(true);
-        rightEditor.setFocused(false);
-        popup.setFocusedWidget(leftEditor);
+        editor.setFocused(true);
+        popup.setFocusedWidget(editor);
 
         addDrawableChild(popup);
         popup.show();
@@ -1039,6 +1249,66 @@ public class ServerTwinScreen extends ReScreen {
         return row;
     }
 
+    private MountableButtonWidget createStatusActionRow(String title, String description, String iconPath, Runnable action, Accent accent) {
+        MountableButtonWidget row = new MountableButtonWidget.Builder(title)
+                .description(description)
+                .onClick(action)
+                .addButton(actionButton(iconPath, title, action, accent))
+                .build();
+        styleRow(row, overviewContainer, accent, 30);
+        if ("Save Checkpoint".equals(title)) {
+            checkpointStatusRow = row;
+        } else if ("Deploy Selected".equals(title)) {
+            deployStatusRow = row;
+        }
+        return row;
+    }
+
+    private MountableButtonWidget createReviewToolbar(ServerTwin twin, List<FileChange> changes, List<IgnoredChange> ignoredChanges, List<RemoteDrift> remoteDrift) {
+        String description = selectedDeployPaths.size() + " Selected / " + changes.size() + " Visible / " + ignoredChanges.size() + " Ignored";
+        MountableButtonWidget row = new MountableButtonWidget.Builder(remoteDrift.isEmpty() ? "Review Changes" : "Deploy Blocked")
+                .hiddenText(remoteDrift.isEmpty() ? "Ready" : remoteDrift.size() + " Drift")
+                .description(description)
+                .addButton(actionButton("checkmark.png", "Select All", () -> {
+                    selectedDeployPaths.clear();
+                    changes.stream().map(FileChange::relativePath).forEach(selectedDeployPaths::add);
+                    refreshOverviewRows();
+                    renderChangeRows(twin, changes);
+                }, ThemeManager.getAccent("nice")))
+                .addButton(actionButton("close.png", "Clear", () -> {
+                    selectedDeployPaths.clear();
+                    refreshOverviewRows();
+                    renderChangeRows(twin, changes);
+                }, ThemeManager.getDefaultAccent()))
+                .addButton(actionButton("upload.png", "Deploy", () -> pushTwin(twin), remoteDrift.isEmpty() ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")))
+                .build();
+        styleRow(row, changesContainer, remoteDrift.isEmpty() ? ThemeManager.getAccent("calm") : ThemeManager.getAccent("danger"), 30);
+        reviewToolbarRow = row;
+        return row;
+    }
+
+    private String buildReviewSummary(TwinInspection inspection) {
+        if (inspection == null) {
+            return "Loading";
+        }
+        return inspection.visibleChanges().size() + " Visible / " + inspection.ignoredChanges().size() + " Ignored / " + inspection.remoteDrift().size() + " Drift";
+    }
+
+    private Container createActionRow(ServerTwin twin) {
+        Container row = new Container(0, 0, Math.max(140, changesContainer == null ? width - 20 : changesContainer.getEffectiveWidth() - 10), 26);
+        row.layout(new ManagedLayout()).columns(3).padding(0).verticalSpacing(0).scrolling(false).backgroundDrawing(false);
+        AnimatedButton refreshButton = new AnimatedButton.Builder().label("Refresh From Server").accentType(ThemeManager.getAccent("calm")).size(130, 18).build();
+        AnimatedButton checkpointButton = new AnimatedButton.Builder().label("Checkpoint").accentType(ThemeManager.getDefaultAccent()).size(110, 18).build();
+        AnimatedButton deployButton = new AnimatedButton.Builder().label("Deploy").accentType(ThemeManager.getAccent("nice")).size(90, 18).build();
+        refreshButton.setAction(() -> pullTwin(twin));
+        checkpointButton.setAction(() -> openDeployPopup(twin));
+        deployButton.setAction(() -> pushTwin(twin));
+        row.addWidget(refreshButton);
+        row.addWidget(checkpointButton);
+        row.addWidget(deployButton);
+        return row;
+    }
+
     private SquareButtonWidget actionButton(String iconPath, String hint, Runnable action) {
         return actionButton(iconPath, hint, action, ThemeManager.getDefaultAccent());
     }
@@ -1066,6 +1336,8 @@ public class ServerTwinScreen extends ReScreen {
         int rowWidth = Math.max(140, container.getEffectiveWidth() - 10);
         container.getWidgets().forEach(widget -> {
             if (widget instanceof MountableButtonWidget row) {
+                row.setSize(rowWidth, Math.max(18, row.getHeight()));
+            } else if (widget instanceof Container row) {
                 row.setSize(rowWidth, Math.max(18, row.getHeight()));
             }
         });
@@ -1130,6 +1402,13 @@ public class ServerTwinScreen extends ReScreen {
 
     private String formatChangeType(FileChangeType type) {
         return formatEnum(type == null ? FileChangeType.MODIFIED.name() : type.name());
+    }
+
+    private String formatStatusSummary(ServerTwin twin) {
+        if (twin == null) {
+            return "DevMode Off";
+        }
+        return formatEnum(twin.statusSummary());
     }
 
     private String formatEnum(String value) {
@@ -1282,6 +1561,11 @@ public class ServerTwinScreen extends ReScreen {
             int newLine = parseNewStart(hunk.header());
             for (ParsedDiffLine line : hunk.lines()) {
                 char marker = line.marker();
+                if (marker == '§') {
+                    out.add(" ".repeat(oldWidth) + " " + " ".repeat(newWidth) + "   ... " + line.content());
+                    types.put(lineIndex++, DiffPlugin.LineType.HEADER);
+                    continue;
+                }
                 if (marker == '+') {
                     out.add(formatUnifiedLine(-1, newLine, marker, line.content(), oldWidth, newWidth));
                     types.put(lineIndex++, DiffPlugin.LineType.ADD);
@@ -1306,6 +1590,50 @@ public class ServerTwinScreen extends ReScreen {
             }
         }
         return new RenderedDiff(String.join("\n", out), types);
+    }
+
+    private ParsedDiff compactDiff(ParsedDiff parsed, int contextLines) {
+        if (parsed == null || parsed.hunks().isEmpty()) {
+            return parsed;
+        }
+        int context = Math.max(0, contextLines);
+        List<ParsedHunk> compactHunks = new ArrayList<>();
+        for (ParsedHunk hunk : parsed.hunks()) {
+            List<ParsedDiffLine> lines = hunk.lines();
+            if (lines.size() <= context * 2 + 12) {
+                compactHunks.add(hunk);
+                continue;
+            }
+            boolean[] keep = new boolean[lines.size()];
+            for (int i = 0; i < lines.size(); i++) {
+                char marker = lines.get(i).marker();
+                if (marker != ' ') {
+                    int start = Math.max(0, i - context);
+                    int end = Math.min(lines.size() - 1, i + context);
+                    for (int j = start; j <= end; j++) {
+                        keep[j] = true;
+                    }
+                }
+            }
+            List<ParsedDiffLine> compactLines = new ArrayList<>();
+            int hidden = 0;
+            for (int i = 0; i < lines.size(); i++) {
+                if (keep[i]) {
+                    if (hidden > 0) {
+                        compactLines.add(new ParsedDiffLine('§', hidden + " unchanged lines"));
+                        hidden = 0;
+                    }
+                    compactLines.add(lines.get(i));
+                } else {
+                    hidden++;
+                }
+            }
+            if (hidden > 0) {
+                compactLines.add(new ParsedDiffLine('§', hidden + " unchanged lines"));
+            }
+            compactHunks.add(new ParsedHunk(hunk.header(), List.copyOf(compactLines)));
+        }
+        return new ParsedDiff(List.copyOf(compactHunks), parsed.added(), parsed.removed(), parsed.fallbackText(), parsed.visibleLineCount(), parsed.totalLineCount());
     }
 
     private RenderedSplitDiff renderPairedSplitDiff(ParsedDiff parsed) {
@@ -1373,6 +1701,9 @@ public class ServerTwinScreen extends ReScreen {
             int cursor = oldSide ? parseOldStart(hunk.header()) : parseNewStart(hunk.header());
             maxLine = Math.max(maxLine, cursor);
             for (ParsedDiffLine line : hunk.lines()) {
+                if (line.marker() == '§') {
+                    continue;
+                }
                 if (oldSide && line.marker() == '+') {
                     continue;
                 }
