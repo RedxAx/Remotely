@@ -504,7 +504,7 @@ public class ResourceContainer extends Container {
             InstanceResource currentResource = getCurrentResources().get(Math.min(current - 1, getCurrentResources().size() - 1));
             String resourceName = currentResource != null ? currentResource.getName() : "Unknown";
             String progress = String.format("(%d/%d) %d%%", current, total, total > 0 ? (int) ((current * 100.0) / total) : 0);
-            checkingNotification.update().message("Checking " + resourceName).description(progress);
+            checkingNotification.update().message("Checking " + resourceName).description(progress).progress(current, total).commit();
         }).thenAcceptAsync(updates -> {
             getCurrentResources().forEach(r -> {
                 if (r.getProjectId() != null && updates.containsKey(r.getProjectId())) {
