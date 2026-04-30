@@ -280,16 +280,18 @@ public class FlowManager {
     }
 
     public void saveFlow(String serverId, FlowGraph graph) {
-        flowStore.putInCache(serverId, graph);
+        flowStore.putInDraft(serverId, graph);
         CustomContentDefinition derivedContent = CustomContentGraphAdapter.toDefinition(graph);
         if (derivedContent != null) {
-            customContentStore.putInCache(serverId, derivedContent);
+            customContentStore.putInDraft(serverId, derivedContent);
             customContentStore.putNameIfAbsent(serverId, derivedContent.getId(), derivedContent.getDisplayName());
         }
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
+            flowStore.markSaving(serverId, graph.getId());
             flowClient.sendFlowSave(graph);
             if (derivedContent != null) {
+                customContentStore.markSaving(serverId, derivedContent.getId());
                 flowClient.sendCustomContentSave(derivedContent);
             } else {
                 for (FlowGraph contentGraph : getDefaultContentGraphs(serverId, graph)) {
@@ -340,10 +342,11 @@ public class FlowManager {
         if (serverId == null || gui == null || gui.getId() == null) {
             return;
         }
-        guiStore.putInCache(serverId, gui);
+        guiStore.putInDraft(serverId, gui);
         guiStore.putNameIfAbsent(serverId, gui.getId(), gui.getTitle() != null ? gui.getTitle() : gui.getId());
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
+            guiStore.markSaving(serverId, gui.getId());
             flowClient.sendGuiSave(gui);
         }
     }
@@ -369,10 +372,11 @@ public class FlowManager {
         if (serverId == null || scoreboard == null || scoreboard.getId() == null) {
             return;
         }
-        scoreboardStore.putInCache(serverId, scoreboard);
+        scoreboardStore.putInDraft(serverId, scoreboard);
         scoreboardStore.putNameIfAbsent(serverId, scoreboard.getId(), scoreboard.getTitle() != null ? scoreboard.getTitle() : scoreboard.getId());
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
+            scoreboardStore.markSaving(serverId, scoreboard.getId());
             flowClient.sendScoreboardSave(scoreboard);
         }
     }
@@ -393,10 +397,11 @@ public class FlowManager {
         if (serverId == null || tab == null || tab.getId() == null) {
             return;
         }
-        tabStore.putInCache(serverId, tab);
+        tabStore.putInDraft(serverId, tab);
         tabStore.putNameIfAbsent(serverId, tab.getId(), tab.getId());
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
+            tabStore.markSaving(serverId, tab.getId());
             flowClient.sendTabSave(tab);
         }
     }
@@ -417,10 +422,11 @@ public class FlowManager {
         if (serverId == null || content == null || content.getId() == null) {
             return;
         }
-        customContentStore.putInCache(serverId, content);
+        customContentStore.putInDraft(serverId, content);
         customContentStore.putNameIfAbsent(serverId, content.getId(), content.getDisplayName() != null ? content.getDisplayName() : content.getId());
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
+            customContentStore.markSaving(serverId, content.getId());
             flowClient.sendCustomContentSave(content);
         }
     }

@@ -30,10 +30,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 
 public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
+    private static final Set<FlowEditorScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     protected final FlowGraph graph;
     protected final String serverId;
     private static Screen parent;
@@ -206,6 +208,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         this.dragState = new DragState();
         this.dragPinWidget = null;
         this.nodeItemSelector = null;
+        OPEN_SCREENS.add(this);
 
         for (var entry : graph.getNodes().entrySet()) {
             String nodeId = entry.getKey();
@@ -217,6 +220,15 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     public String getServerId() {
         return serverId;
+    }
+
+    public static void refreshCatalogForServer(String serverId) {
+        for (FlowEditorScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.getServerId())) {
+                screen.closeNodeItemSelector();
+                screen.refreshNodeRegistry();
+            }
+        }
     }
 
     public String getFlowId() {
@@ -894,6 +906,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     @Override
     public void close() {
+        OPEN_SCREENS.remove(this);
         if (parent != null) {
             client.setScreen(parent);
         }
@@ -1815,7 +1828,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 String pinName = compatiblePin;
                 int finalWorldX = worldX;
                 int finalWorldY = worldY;
-                builder.addItem(def.getDisplayName(), () -> {
+                builder.addItem(selectorLabel(def), () -> {
                     captureSnapshot();
                     addNode(finalWorldX, finalWorldY, def.getId(), pinName);
                 });
@@ -1831,7 +1844,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     private String findCompatiblePin(NodeDefinition definition, FlowDataType sourceType, boolean sourceIsInput) {
         List<NodeDefinition.PinDefinition> pins = sourceIsInput ? definition.getOutputs() : definition.getInputs();
         for (NodeDefinition.PinDefinition pin : pins) {
-            if (pin.getVisibleWhen() != null && !pin.getVisibleWhen().isEmpty()) {
+            if (pin.getVisibleWhen() != null && !pin.getVisibleWhen().isEmpty() && !canExposeCompatibleFamilyPin(definition, pin)) {
                 continue;
             }
             if (sourceType == FlowDataType.EXECUTION) {
@@ -1845,6 +1858,30 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             }
         }
         return null;
+    }
+
+    private boolean canExposeCompatibleFamilyPin(NodeDefinition definition, NodeDefinition.PinDefinition candidate) {
+        if (definition.getKind() != NodeDefinition.NodeKind.FAMILY || candidate.getVisibleWhen() == null || candidate.getVisibleWhen().isEmpty()) {
+            return false;
+        }
+        for (NodeDefinition.PinDefinition input : definition.getInputs()) {
+            if (input.getDirection() == NodeDefinition.PinDirection.INPUT
+                    && input.getType() == NodeDefinition.PinType.DATA
+                    && (input.getName().equalsIgnoreCase("mode") || input.getName().equalsIgnoreCase("action"))) {
+                if (input.getOptions() == null) {
+                    return false;
+                }
+                for (String value : candidate.getVisibleWhen().values()) {
+                    for (String option : value.split(",")) {
+                        if (input.getOptions().contains(option.trim())) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+        }
+        return false;
     }
 
     private void showAllNodesMenu(int screenX, int screenY) {
@@ -1863,7 +1900,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                     .comparingInt(NodeDefinition::getPriority)
                     .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
             for (NodeDefinition def : definitions) {
-                builder.addItem(def.getDisplayName(), () -> {
+                builder.addItem(selectorLabel(def), () -> {
                     captureSnapshot();
                     addNodeAtCenter(def.getId());
                 });
@@ -1874,6 +1911,32 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         selectorRef[0] = nodeItemSelector;
         addDrawableChild(nodeItemSelector);
         nodeItemSelector.show(screenX, screenY);
+    }
+
+    private String selectorLabel(NodeDefinition definition) {
+        StringBuilder label = new StringBuilder(definition.getDisplayName());
+        if (definition.getCategory() != null) {
+            label.append(" - ").append(definition.getCategory().getDisplayName());
+        }
+        if (definition.getDescription() != null && !definition.getDescription().isBlank()) {
+            label.append(" - ").append(definition.getDescription());
+        }
+        appendSearchTerms(label, definition.getAliases());
+        appendSearchTerms(label, definition.getTags());
+        appendSearchTerms(label, definition.getExamples());
+        for (NodeDefinition.PinDefinition pin : definition.getInputs()) {
+            label.append(" ").append(pin.getName());
+        }
+        for (NodeDefinition.PinDefinition pin : definition.getOutputs()) {
+            label.append(" ").append(pin.getName());
+        }
+        return label.toString();
+    }
+
+    private void appendSearchTerms(StringBuilder label, List<String> values) {
+        if (values != null && !values.isEmpty()) {
+            label.append(" - ").append(String.join(" ", values));
+        }
     }
 
     private void addNode(int x, int y, String type) {

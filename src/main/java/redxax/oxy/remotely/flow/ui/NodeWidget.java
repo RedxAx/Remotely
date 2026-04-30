@@ -6,6 +6,8 @@ import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
+import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata;
@@ -171,7 +173,7 @@ public class NodeWidget extends AnimatedWidget {
             .handlerConfig(Map.of("operation", "particle_burst"));
         builder.input(new NodeDefinition.PinDefinition("flow", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.INPUT, FlowDataType.EXECUTION));
         builder.input(pin("location", FlowDataType.LOCATION).build());
-        builder.input(pin("particle", FlowDataType.STRING).widget(NodeDefinition.WidgetType.SEARCHABLE_LIST).optionsSource("client:minecraft:particle").defaultValue("FLAME").build());
+        builder.input(pin("particle", FlowDataType.STRING).widget(NodeDefinition.WidgetType.SEARCHABLE_LIST).optionsSource("server:minecraft:particle").defaultValue("FLAME").build());
         builder.input(pin("count", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("24").build());
         builder.input(pin("spread", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("0.6").build());
         builder.input(pin("speed", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("0.02").build());
@@ -195,7 +197,7 @@ public class NodeWidget extends AnimatedWidget {
     private static void addContentInputs(NodeDefinition.Builder builder, String contentType) {
         builder.input(pin("content_id", FlowDataType.STRING).defaultValue("new_" + contentType).build());
         builder.input(pin("name", FlowDataType.STRING).defaultValue("New " + contentTitle(contentType)).build());
-        builder.input(pin("material", FlowDataType.STRING).optionsSource("client:minecraft:material").defaultValue(defaultContentMaterial(contentType)).build());
+        builder.input(pin("material", FlowDataType.STRING).optionsSource("server:minecraft:material").defaultValue(defaultContentMaterial(contentType)).build());
         if ("armor".equals(contentType)) {
             builder.input(pin("armor_slot", FlowDataType.STRING).widget(NodeDefinition.WidgetType.DROPDOWN).options(List.of("head", "chest", "legs", "feet")).defaultValue("chest").build());
         }
@@ -429,6 +431,9 @@ public class NodeWidget extends AnimatedWidget {
             var screen = ScreenManager.getInstance().getCurrentScreen();
             if (screen == null) return;
             Consumer<String> onSelected = option -> {
+                if ("Loading".equals(option)) {
+                    return;
+                }
                 node.getInputValues().put(input.getName(), option);
                 button.setMessage(option);
                 saveInputValue();
@@ -459,6 +464,18 @@ public class NodeWidget extends AnimatedWidget {
         if (options != null && !options.isEmpty()) {
             return options;
         }
+        String source = input.getOptionsSource();
+        if (source != null && source.startsWith("server:")) {
+            List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
+            if (!values.isEmpty()) {
+                return values;
+            }
+            FlowManager manager = FlowManager.getInstance();
+            if (manager != null) {
+                manager.ensureFlowClient(serverId).requestOptionCatalog(source);
+            }
+            return List.of("Loading");
+        }
         String catalog = resolveMinecraftCatalog(input.getOptionsSource());
         if (catalog != null) {
             return catalogOptions(catalog);
@@ -468,7 +485,7 @@ public class NodeWidget extends AnimatedWidget {
 
     private List<String> catalogOptions(String catalog) {
         return switch (catalog) {
-            case "blocks", "material" -> minecraftBlockOptions();
+            case "blocks", "block", "material" -> minecraftBlockOptions();
             case "particle" -> minecraftParticleOptions();
             case "sound" -> minecraftSoundOptions();
             default -> List.of();
@@ -629,7 +646,9 @@ public class NodeWidget extends AnimatedWidget {
             return null;
         }
         String catalog = null;
-        if (optionsSource.startsWith("client:minecraft:")) {
+        if (optionsSource.startsWith("server:minecraft:")) {
+            catalog = optionsSource.substring("server:minecraft:".length());
+        } else if (optionsSource.startsWith("client:minecraft:")) {
             catalog = optionsSource.substring("client:minecraft:".length());
         } else if (optionsSource.startsWith("minecraft:")) {
             catalog = optionsSource.substring("minecraft:".length());
@@ -1374,6 +1393,12 @@ public class NodeWidget extends AnimatedWidget {
                     continue;
                 }
                 typedValue = convertValue(selected.toString(), def.getDataType());
+            } else if (widget instanceof AnimatedButton button) {
+                String value = button.getMessage();
+                if (value == null || value.isBlank() || "Loading".equals(value)) {
+                    continue;
+                }
+                typedValue = convertValue(value, def.getDataType());
             } else if (widget instanceof SliderWidget slider) {
                 typedValue = slider.getValue();
             } else if (widget instanceof TextAreaWidget textArea) {
