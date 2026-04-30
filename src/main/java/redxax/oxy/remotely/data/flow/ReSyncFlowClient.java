@@ -573,6 +573,10 @@ public class ReSyncFlowClient {
             switch (packetId) {
                 case 0x23 -> handleWorldGenPreviewStatus(json);
                 case 0x25 -> handleWorldGenRegistrySnapshot(json);
+                case 0x35 -> handleWorldGenProjectData(json);
+                case 0x36 -> handleWorldGenProjectList(json);
+                case 0x37 -> handleWorldGenProjectSaveAck(json);
+                case 0x38 -> handleWorldGenCompileDiagnostics(json);
                 default -> System.out.println("[ReSyncFlow] Unknown worldgen packet: 0x" + String.format("%02X", packetId));
             }
         } catch (Exception e) {
@@ -597,6 +601,37 @@ public class ReSyncFlowClient {
         WorldGenManager manager = WorldGenManager.getInstance();
         if (manager != null) {
             manager.applyRegistrySnapshot(serverId, definitions);
+        }
+    }
+
+    private void handleWorldGenProjectData(String json) {
+        WorldGenProject project = WorldGenSerializer.deserializeProject(json);
+        WorldGenManager manager = WorldGenManager.getInstance();
+        if (manager != null && project != null) {
+            manager.handleProjectData(serverId, project);
+        }
+    }
+
+    private void handleWorldGenProjectList(String json) {
+        Type type = com.google.gson.reflect.TypeToken.getParameterized(List.class, String.class).getType();
+        List<String> ids = gson.fromJson(json, type);
+        WorldGenManager manager = WorldGenManager.getInstance();
+        if (manager != null) {
+            manager.handleProjectList(serverId, ids != null ? ids : List.of());
+        }
+    }
+
+    private void handleWorldGenProjectSaveAck(String json) {
+        WorldGenManager manager = WorldGenManager.getInstance();
+        if (manager != null) {
+            manager.handleProjectSaved(serverId, json);
+        }
+    }
+
+    private void handleWorldGenCompileDiagnostics(String json) {
+        WorldGenManager manager = WorldGenManager.getInstance();
+        if (manager != null) {
+            manager.handleCompileDiagnostics(serverId, json);
         }
     }
 
@@ -1140,6 +1175,24 @@ public class ReSyncFlowClient {
         sendWorldGenJson((byte) 0x30, WorldGenSerializer.serializeProject(project));
     }
 
+    public void requestWorldGenProject(String projectId) {
+        if (projectId == null || projectId.isBlank()) {
+            return;
+        }
+        sendWorldGenJson((byte) 0x32, projectId);
+    }
+
+    public void sendWorldGenProjectDelete(String projectId) {
+        if (projectId == null || projectId.isBlank()) {
+            return;
+        }
+        sendWorldGenJson((byte) 0x33, projectId);
+    }
+
+    public void requestWorldGenProjectList() {
+        sendWorldGenJson((byte) 0x34, "{}");
+    }
+
     public void sendWorldGenPreviewCreate(WorldGenGraph graph, String previewId, String environment, long seed, String playerUuid) {
         if (graph == null || previewId == null || previewId.isBlank()) {
             return;
@@ -1158,7 +1211,28 @@ public class ReSyncFlowClient {
             return;
         }
         Map<String, Object> payload = new HashMap<>();
-        payload.put("project", project);
+        payload.put("draftProject", project);
+        payload.put("previewId", previewId);
+        payload.put("environment", environment != null && !environment.isBlank() ? environment : "NORMAL");
+        payload.put("seed", seed);
+        payload.put("playerUuid", playerUuid);
+        sendWorldGenJson((byte) 0x31, gson.toJson(payload));
+    }
+
+    public void sendWorldGenPreviewApply(String projectId, WorldGenProject draftProject, String previewId, String environment, long seed, String playerUuid) {
+        if ((projectId == null || projectId.isBlank()) && draftProject == null) {
+            return;
+        }
+        if (previewId == null || previewId.isBlank()) {
+            return;
+        }
+        Map<String, Object> payload = new HashMap<>();
+        if (projectId != null && !projectId.isBlank()) {
+            payload.put("projectId", projectId);
+        }
+        if (draftProject != null) {
+            payload.put("draftProject", draftProject);
+        }
         payload.put("previewId", previewId);
         payload.put("environment", environment != null && !environment.isBlank() ? environment : "NORMAL");
         payload.put("seed", seed);

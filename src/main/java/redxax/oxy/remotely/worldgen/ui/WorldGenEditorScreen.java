@@ -22,7 +22,7 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
     private final String actualServerId;
     private final Screen parentScreen;
     private final WorldGenManager manager = WorldGenManager.getInstance();
-    private final WorldGenProject project;
+    private WorldGenProject project;
     private final String previewId;
     private WorldGenStage activeStage = WorldGenStage.TERRAIN;
     private String previewEnvironment = "NORMAL";
@@ -45,6 +45,7 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
     public void init() {
         super.init();
         manager.requestRegistry(actualServerId);
+        manager.requestProjectList(actualServerId);
     }
 
     @Override
@@ -69,6 +70,13 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
 
     @Override
     protected void addCustomHeaderButtons() {
+        IconButton projectButton = new IconButton.Builder()
+            .size(18, 18)
+            .imagePath("folder.png")
+            .onClick(this::showProjectPopup)
+            .build();
+        addHeaderButton(projectButton);
+
         for (WorldGenStage stage : WorldGenStage.values()) {
             IconButton tabButton = new IconButton.Builder()
                 .size(72, 18)
@@ -155,6 +163,83 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
         popupRef[0].show();
+    }
+
+    private void showProjectPopup() {
+        manager.requestProjectList(actualServerId);
+        PopupWidget.Builder builder = new PopupWidget.Builder("WorldGen Projects").setResizable(false);
+        List<String> ids = manager.getProjectIds(actualServerId);
+        DropDownWidget<String> projectSelect = new DropDownWidget.Builder<>(ids.isEmpty() ? List.of(project.getId()) : ids)
+            .size(240, 18)
+            .selectedItem(project.getId())
+            .build();
+        TextInputWidget projectIdInput = new TextInputWidget.Builder()
+            .placeholder("Project ID")
+            .size(240, 18)
+            .build();
+        projectIdInput.setText(project.getId());
+        builder.addRow("Project", true, 20, projectSelect);
+        builder.addRow("Project ID", true, 20, projectIdInput);
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton newButton = new AnimatedButton.Builder()
+            .label("New")
+            .onClick(() -> {
+                syncProjectGraph();
+                project = new WorldGenProject();
+                projectIdInput.setText(project.getId());
+                activeStage = WorldGenStage.TERRAIN;
+                applyGraph(manager.toFlowGraph(project.graph(activeStage)));
+            })
+            .build();
+        AnimatedButton openButton = new AnimatedButton.Builder()
+            .label("Open")
+            .onClick(() -> {
+                String selected = safeText(projectSelect.getSelectedItem()).trim();
+                if (!selected.isBlank()) {
+                    manager.requestProject(actualServerId, selected);
+                }
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+            })
+            .build();
+        AnimatedButton duplicateButton = new AnimatedButton.Builder()
+            .label("Duplicate")
+            .onClick(() -> {
+                syncProjectGraph();
+                project.setId(projectIdInput.getText().isBlank() ? java.util.UUID.randomUUID().toString() : projectIdInput.getText().trim());
+                manager.saveWorldGen(actualServerId, project);
+            })
+            .build();
+        AnimatedButton deleteButton = new AnimatedButton.Builder()
+            .label("Delete")
+            .accentType(ThemeManager.getAccent("danger"))
+            .onClick(() -> {
+                String selected = safeText(projectSelect.getSelectedItem()).trim();
+                if (!selected.isBlank()) {
+                    manager.deleteProject(actualServerId, selected);
+                }
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+            })
+            .build();
+        builder.addRow("", true, 20, newButton, openButton);
+        builder.addRow("", true, 20, duplicateButton, deleteButton);
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    public void loadProject(WorldGenProject project) {
+        if (project == null) {
+            return;
+        }
+        syncProjectGraph();
+        this.project = project;
+        activeStage = WorldGenStage.TERRAIN;
+        applyGraph(manager.toFlowGraph(project.graph(activeStage)));
+        refreshNodeRegistry();
     }
 
     private void previewCurrentGraph() {

@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.worldgen.data;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 public class WorldGenProject {
@@ -14,6 +16,7 @@ public class WorldGenProject {
     private WorldGenGraph structureGraph;
     private WorldGenGraph spawnGraph;
     private WorldGenProjectSettings settings;
+    private List<WorldGenBiomeProfile> biomeProfiles;
 
     public WorldGenProject() {
         this.id = UUID.randomUUID().toString();
@@ -26,6 +29,7 @@ public class WorldGenProject {
         this.structureGraph = new WorldGenGraph();
         this.spawnGraph = new WorldGenGraph();
         this.settings = new WorldGenProjectSettings();
+        this.biomeProfiles = new ArrayList<>();
     }
 
     public WorldGenGraph graph(WorldGenStage stage) {
@@ -130,5 +134,13 @@ public class WorldGenProject {
 
     public void setSettings(WorldGenProjectSettings settings) {
         this.settings = settings != null ? settings : new WorldGenProjectSettings();
+    }
+
+    public List<WorldGenBiomeProfile> getBiomeProfiles() {
+        return biomeProfiles;
+    }
+
+    public void setBiomeProfiles(List<WorldGenBiomeProfile> biomeProfiles) {
+        this.biomeProfiles = biomeProfiles != null ? biomeProfiles : new ArrayList<>();
     }
 }

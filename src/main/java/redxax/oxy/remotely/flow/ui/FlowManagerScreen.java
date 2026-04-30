@@ -16,6 +16,8 @@ import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
+import redxax.oxy.remotely.worldgen.WorldGenManager;
+import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
 import restudio.rebase.Rebase;
 import restudio.rebase.backend.BackendConfig;
@@ -98,6 +100,7 @@ public class FlowManagerScreen extends ReScreen {
     private Container customizationContainer;
     private Container scoreboardsContainer;
     private Container worldsContainer;
+    private Container worldGenContainer;
     private Container inventoryGroupsContainer;
     private Container tabsContainer;
     private ViewSwitcherWidget customizationViewSwitcher;
@@ -109,6 +112,7 @@ public class FlowManagerScreen extends ReScreen {
     private final Map<String, MountableButtonWidget> guiEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> scoreboardEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> worldEntries = new HashMap<>();
+    private final Map<String, MountableButtonWidget> worldGenEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> inventoryGroupEntries = new HashMap<>();
     private final Map<String, MountableButtonWidget> tabEntries = new HashMap<>();
     private final Gson gson = new Gson();
@@ -121,6 +125,7 @@ public class FlowManagerScreen extends ReScreen {
     private boolean setupRunning;
     private long lastStartupProbeAt;
     private final SecureRandom secureRandom = new SecureRandom();
+    private final WorldGenManager worldGenManager = WorldGenManager.getInstance();
 
     private static class CommandBindingContext {
         private String command;
@@ -457,6 +462,7 @@ public class FlowManagerScreen extends ReScreen {
         if (flowManager != null) {
             flowManager.ensureFlowClientForStartup(serverId, server, true);
             flowManager.requestInitialFlowData(serverId);
+            worldGenManager.requestProjectList(serverId);
         }
         refresh();
     }
@@ -505,6 +511,8 @@ public class FlowManagerScreen extends ReScreen {
         scoreboardsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
         worldsContainer = createContainer("worlds", 5, contentY, width - 10, contentHeight);
         worldsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
+        worldGenContainer = createContainer("worldgen", 5, contentY, width - 10, contentHeight);
+        worldGenContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
         inventoryGroupsContainer = createContainer("inventory-groups", 5, contentY, width - 10, contentHeight);
         inventoryGroupsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
         if (tabMethodsAvailable) {
@@ -516,6 +524,7 @@ public class FlowManagerScreen extends ReScreen {
         tabsManager.addTab("GUIs", guisContainer);
         tabsManager.addTab("Customization", customizationContainer);
         tabsManager.addTab("Worlds", worldsContainer);
+        tabsManager.addTab("WorldGen", worldGenContainer);
         tabsManager.addTab("Groups", inventoryGroupsContainer);
 
         rebuildBlueprints();
@@ -524,6 +533,7 @@ public class FlowManagerScreen extends ReScreen {
         rebuildCustomizationViews();
         rebuildCustomization();
         rebuildWorlds();
+        rebuildWorldGenProjects();
         rebuildInventoryGroups();
 
         tabsManager.setActiveTab(0);
@@ -727,6 +737,9 @@ public class FlowManagerScreen extends ReScreen {
             rebuildCustomization();
         } else if (tab.getContainer() == worldsContainer) {
             rebuildWorlds();
+        } else if (tab.getContainer() == worldGenContainer) {
+            worldGenManager.requestProjectList(serverId);
+            rebuildWorldGenProjects();
         } else if (tab.getContainer() == inventoryGroupsContainer) {
             rebuildInventoryGroups();
         }
@@ -1981,6 +1994,148 @@ public class FlowManagerScreen extends ReScreen {
 
     private void openWorldGenEditor() {
         ScreenManager.getInstance().setScreen(new WorldGenEditorScreen(serverId, server, this));
+    }
+
+    public void rebuildWorldGenProjects() {
+        if (worldGenContainer == null) {
+            return;
+        }
+        worldGenContainer.clearWidgets();
+        worldGenEntries.clear();
+
+        IconButton createButton = new IconButton.Builder()
+            .label("New Project")
+            .accentType(ThemeManager.getAccent("nice"))
+            .imagePath("create.png")
+            .size(140, 18)
+            .onClick(this::showCreateWorldGenProjectPopup)
+            .build();
+        IconButton refreshButton = new IconButton.Builder()
+            .label("Refresh")
+            .imagePath("reload.png")
+            .size(130, 18)
+            .onClick(() -> worldGenManager.requestProjectList(serverId))
+            .build();
+        RowWidget topRow = new RowWidget.Builder()
+            .size(Math.max(200, worldGenContainer.getWidth() - 20), 18)
+            .addWidget(createButton, refreshButton)
+            .build();
+        worldGenContainer.addWidget(topRow);
+
+        List<String> projectIds = new ArrayList<>(worldGenManager.getProjectIds(serverId));
+        projectIds.sort(Comparator.naturalOrder());
+        for (String projectId : projectIds) {
+            upsertWorldGenProjectEntry(projectId);
+        }
+    }
+
+    private void upsertWorldGenProjectEntry(String projectId) {
+        if (worldGenContainer == null || projectId == null || projectId.isBlank()) {
+            return;
+        }
+        MountableButtonWidget existing = worldGenEntries.remove(projectId);
+        if (existing != null) {
+            worldGenContainer.removeWidget(existing);
+        }
+
+        SquareButtonWidget previewButton = new SquareButtonWidget.Builder()
+            .imagePath("play.png")
+            .onClick(() -> worldGenManager.requestSavedProjectPreview(serverId, projectId, "worldgen", "NORMAL", 0L, ""))
+            .build();
+        SquareButtonWidget duplicateButton = new SquareButtonWidget.Builder()
+            .imagePath("copy.png")
+            .onClick(() -> duplicateWorldGenProject(projectId))
+            .build();
+        SquareButtonWidget deleteButton = new SquareButtonWidget.Builder()
+            .imagePath("delete.png")
+            .accentType(ThemeManager.getAccent("danger"))
+            .onClick(() -> {
+                worldGenManager.deleteProject(serverId, projectId);
+                worldGenEntries.remove(projectId);
+                rebuildWorldGenProjects();
+            })
+            .build();
+
+        MountableButtonWidget widget = new MountableButtonWidget.Builder(projectId)
+            .description("Saved WorldGen Project")
+            .onClick(() -> openWorldGenEditor(projectId))
+            .addButton(previewButton)
+            .addButton(duplicateButton)
+            .addButton(deleteButton)
+            .build();
+        widget.setSize(Math.max(200, worldGenContainer.getWidth() - 20), 28);
+
+        List<String> sortedIds = new ArrayList<>(worldGenEntries.keySet());
+        sortedIds.add(projectId);
+        sortedIds.sort(Comparator.naturalOrder());
+        int insertIndex = 1 + sortedIds.indexOf(projectId);
+        if (insertIndex >= worldGenContainer.getWidgets().size()) {
+            worldGenContainer.addWidget(widget);
+        } else {
+            worldGenContainer.insertWidget(widget, insertIndex);
+        }
+        worldGenEntries.put(projectId, widget);
+    }
+
+    private void showCreateWorldGenProjectPopup() {
+        PopupWidget.Builder builder = new PopupWidget.Builder("Create WorldGen Project").setResizable(false);
+        TextInputWidget idInput = new TextInputWidget.Builder()
+            .placeholder("Project ID")
+            .size(220, 18)
+            .build();
+        builder.addRow("ID", true, 20, idInput);
+        PopupWidget[] popupRef = new PopupWidget[1];
+        AnimatedButton createButton = new AnimatedButton.Builder()
+            .label("Create")
+            .accentType(ThemeManager.getAccent("nice"))
+            .onClick(() -> {
+                String id = safeText(idInput.getText()).trim();
+                if (!id.matches("^[a-zA-Z0-9_\\-]+$")) {
+                    new Notification("WorldGen", "Invalid ID", Notification.Type.ERROR);
+                    return;
+                }
+                if (worldGenManager.getProjectIds(serverId).contains(id)) {
+                    new Notification("WorldGen", "Project Exists", Notification.Type.ERROR);
+                    return;
+                }
+                WorldGenProject project = new WorldGenProject();
+                project.setId(id);
+                worldGenManager.saveWorldGen(serverId, project);
+                if (popupRef[0] != null) {
+                    popupRef[0].hide();
+                }
+                openWorldGenEditor(id);
+            })
+            .build();
+        builder.addRow("", true, 20, createButton);
+        popupRef[0] = builder.build();
+        addDrawableChild(popupRef[0]);
+        popupRef[0].show();
+    }
+
+    private void openWorldGenEditor(String projectId) {
+        WorldGenEditorScreen screen = new WorldGenEditorScreen(serverId, server, this);
+        ScreenManager.getInstance().setScreen(screen);
+        if (projectId != null && !projectId.isBlank()) {
+            worldGenManager.requestProject(serverId, projectId);
+        }
+    }
+
+    private void duplicateWorldGenProject(String projectId) {
+        String targetId = uniqueWorldGenProjectId(projectId + "_copy");
+        worldGenManager.duplicateProject(serverId, projectId, targetId);
+    }
+
+    private String uniqueWorldGenProjectId(String baseId) {
+        List<String> ids = worldGenManager.getProjectIds(serverId);
+        if (!ids.contains(baseId)) {
+            return baseId;
+        }
+        int index = 2;
+        while (ids.contains(baseId + "_" + index)) {
+            index++;
+        }
+        return baseId + "_" + index;
     }
 
     public void upsertWorldEntry(String worldName) {
@@ -3689,6 +3844,7 @@ public class FlowManagerScreen extends ReScreen {
         updateContainerBounds(customizationContainer, contentY, contentWidth, contentHeight);
         updateContainerBounds(scoreboardsContainer, contentY, contentWidth, contentHeight);
         updateContainerBounds(worldsContainer, contentY, contentWidth, contentHeight);
+        updateContainerBounds(worldGenContainer, contentY, contentWidth, contentHeight);
         updateContainerBounds(inventoryGroupsContainer, contentY, contentWidth, contentHeight);
         updateContainerBounds(tabsContainer, contentY, contentWidth, contentHeight);
 

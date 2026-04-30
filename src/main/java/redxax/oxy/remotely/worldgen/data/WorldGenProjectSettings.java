@@ -11,9 +11,9 @@ public class WorldGenProjectSettings {
     private String defaultBlock = "minecraft:stone";
     private String defaultFluid = "minecraft:water";
     private boolean vanillaBiomesEnabled;
-    private boolean vanillaFeaturesEnabled = true;
-    private boolean vanillaStructuresEnabled = true;
-    private boolean vanillaSpawnsEnabled = true;
+    private boolean vanillaFeaturesEnabled;
+    private boolean vanillaStructuresEnabled;
+    private boolean vanillaSpawnsEnabled;
     private Map<String, Boolean> biomeVanillaFeatureOverrides = new HashMap<>();
     private String previewEnvironment = "NORMAL";
     private String activePreviewPlayer = "";
