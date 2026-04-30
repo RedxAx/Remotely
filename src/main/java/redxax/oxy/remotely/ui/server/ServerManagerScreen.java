@@ -1441,6 +1441,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                     ScreenManager.getInstance().execute(() -> {
                         notification.update()
                             .description("Connecting... 100%")
+                            .progress(100, 100)
                             .commit();
                         notification.update()
                             .message("Host Ready")
@@ -1626,6 +1627,7 @@ public class ServerManagerScreen extends ReScreen implements AuthStateListener {
                 .description("Connecting... 0%")
                 .type(Notification.Type.INFO)
                 .loading(true)
+                .progress(0, 100)
                 .autoSlideOut(false)
                 .build();
             testRemoteHostAsync(host, notification, () -> {

@@ -277,11 +277,15 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 tabStore.add(UUID.randomUUID().toString());
             }
         }
-        for (Object tabInfo : tabStore) {
-            createAndAddTab(tabInfo, false);
+        int activeIndex = getSavedTabIndex();
+        if (activeIndex < 0 || activeIndex >= tabStore.size()) {
+            activeIndex = 0;
         }
 
-        int activeIndex = getSavedTabIndex();
+        for (int i = 0; i < tabStore.size(); i++) {
+            createAndAddTab(tabStore.get(i), false, i == activeIndex);
+        }
+
         if (activeIndex >= 0 && activeIndex < tabs().getTabs().size()) {
             tabs().setActiveTab(activeIndex);
         } else if (!tabs().getTabs().isEmpty()) {
@@ -310,6 +314,10 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     private void createAndAddTab(Object tabInfo, boolean setActive) {
+        createAndAddTab(tabInfo, setActive, true);
+    }
+
+    private void createAndAddTab(Object tabInfo, boolean setActive, boolean initialize) {
         Instance inst = (tabInfo instanceof Instance) ? (Instance) tabInfo : null;
         String localId = (tabInfo instanceof String) ? (String) tabInfo : null;
         String name = inst != null ? inst.getName() : "Terminal";
@@ -325,6 +333,37 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         TabContext ctx = inst != null ? new ServerTabStatusContext(inst, tabInfo) : new TabContext(null, tabInfo);
         ctx.mainContainer = main;
 
+        if (initialize) {
+            initializeTabContext(ctx, tabInfo, inst, localId, statusPad);
+        }
+
+        contextInfos.put(ctx, initialize ? remotelyClient.getSessionManager().getSession(tabInfo) : null);
+        TabsManager.Tab tab = tabs().addTab(name, main);
+        registerTab(tab, ctx);
+        if (ctx instanceof TabStatusContext statusContext) {
+            registerStatusContext(tab, statusContext);
+        }
+
+        if (setActive) {
+            tabs().setActiveTab(tabs().getTabs().size() - 1);
+        }
+    }
+
+    private TerminalSession initializeTabContext(TabContext ctx) {
+        if (ctx == null) return null;
+        TerminalSession existing = contextInfos.get(ctx);
+        if (existing != null && existing.getTerminalWidget() != null) return existing;
+
+        Object tabInfo = ctx.id;
+        Instance inst = ctx.instance;
+        String localId = (tabInfo instanceof String) ? (String) tabInfo : null;
+        int statusPad = inst != null ? 15 : 0;
+        TerminalSession info = initializeTabContext(ctx, tabInfo, inst, localId, statusPad);
+        contextInfos.put(ctx, info);
+        return info;
+    }
+
+    private TerminalSession initializeTabContext(TabContext ctx, Object tabInfo, Instance inst, String localId, int statusPad) {
         TerminalSession info = remotelyClient.getSessionManager().getSession(tabInfo);
         if (info == null) {
             info = remotelyClient.getSessionManager().createSession(tabInfo, inst, localId);
@@ -366,32 +405,25 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             if (info.getPlayersContainer() != null) info.getPlayersContainer().setHost(this);
         }
 
-        ctx.addView(info.getTerminalWidget(), "terminal.png", "Terminal", null);
+        if (ctx.views.isEmpty()) {
+            ctx.addView(info.getTerminalWidget(), "terminal.png", "Terminal", null);
 
-        if (inst != null && inst.isServer()) {
-            ResourceContainer res = info.getResourceContainer();
-            if (res != null) {
-                List<AnimatedWidget> resTools = new ArrayList<>();
-                resTools.add(res.getSelectorsRow());
-                ctx.addView(res, "resources.png", "Resources", resTools);
+            if (inst != null && inst.isServer()) {
+                ResourceContainer res = info.getResourceContainer();
+                if (res != null) {
+                    List<AnimatedWidget> resTools = new ArrayList<>();
+                    resTools.add(res.getSelectorsRow());
+                    ctx.addView(res, "resources.png", "Resources", resTools);
+                }
+
+                PlayersContainer players = info.getPlayersContainer();
+                if (players != null) {
+                    ctx.addView(players, "steve.png", "Players", null);
+                }
             }
-
-            PlayersContainer players = info.getPlayersContainer();
-            if (players != null) {
-                ctx.addView(players, "steve.png", "Players", null);
-            }
         }
 
-        contextInfos.put(ctx, info);
-        TabsManager.Tab tab = tabs().addTab(name, main);
-        registerTab(tab, ctx);
-        if (ctx instanceof TabStatusContext statusContext) {
-            registerStatusContext(tab, statusContext);
-        }
-
-        if (setActive) {
-            tabs().setActiveTab(tabs().getTabs().size() - 1);
-        }
+        return info;
     }
 
     private void setupTerminalListeners(Instance inst, TerminalSession info) {
@@ -527,7 +559,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     @Override
     protected void onTabSelected(TabsManager.Tab tab) {
         for (TerminalSession session : contextInfos.values()) {
-            if (session.getResourceContainer() != null) {
+            if (session != null && session.getResourceContainer() != null) {
                 session.getResourceContainer().setSelectorsVisible(false);
             }
         }
@@ -536,6 +568,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             sidecarInstance.getBackend().disconnect();
             sidecarInstance = null;
         }
+
+        TabContext selectedContext = tabContexts.get(tab);
+        initializeTabContext(selectedContext);
 
         super.onTabSelected(tab);
         applyStatusBarForActiveTab();

@@ -267,12 +267,14 @@ public class ServerBackupSettingsController {
                             status.set(newStatus);
                             ScreenManager.getInstance().execute(() -> notification.update()
                                     .description(formatTransferDescription(status.get(), progress, false))
+                                    .progress(progress.getPercentage(), 100)
                                     .commit());
                         },
                         (transferred, total) -> {
                             progress.update(transferred, total);
                             ScreenManager.getInstance().execute(() -> notification.update()
                                     .description(formatTransferDescription(status.get(), progress, false))
+                                    .progress(progress.getPercentage(), 100)
                                     .commit());
                         }
                 )
@@ -461,6 +463,7 @@ public class ServerBackupSettingsController {
             progress.update(transferred, total);
             ScreenManager.getInstance().execute(() -> notification.update()
                     .description(formatTransferDescription("Downloading Backup", progress, true))
+                    .progress(progress.getPercentage(), 100)
                     .commit());
         }, cancelled::get).thenAccept(path -> ScreenManager.getInstance().execute(() -> notification.update()
                 .message("Backup Downloaded")

@@ -917,9 +917,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             paletteSidePanel.renderHeader(context);
         }
 
-        for (Notification notification : Notification.getActiveNotifications()) {
-            notification.render(context, mouseX, mouseY, delta);
-        }
     }
 
     private void renderWires(IDrawContext context) {
