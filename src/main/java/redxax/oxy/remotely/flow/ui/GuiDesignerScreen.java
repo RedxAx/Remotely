@@ -2,6 +2,7 @@ package redxax.oxy.remotely.flow.ui;
 
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.GuiElement;
@@ -40,6 +41,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArraySet;
 
 import org.lwjgl.glfw.GLFW;
 
@@ -64,8 +66,10 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private static final int PLAYER_INVENTORY_ROWS = 4;
     private static final int TITLE_COLOR = 0xFF404040;
     private static final int OVERLAY_COLOR = 0xA0101010;
+    private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
+    private static final Set<GuiDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
 
-    private static final List<String> MATERIAL_OPTIONS = List.of(
+    private static final List<String> FALLBACK_MATERIAL_OPTIONS = List.of(
         "STONE", "COBBLESTONE", "OAK_PLANKS", "OAK_LOG", "GLASS", "GLASS_PANE",
         "GRAY_STAINED_GLASS_PANE", "WHITE_STAINED_GLASS_PANE", "BLACK_STAINED_GLASS_PANE",
         "RED_STAINED_GLASS_PANE", "GREEN_STAINED_GLASS_PANE", "BLUE_STAINED_GLASS_PANE",
@@ -152,7 +156,16 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         this.parent = parent;
         this.forceSuperScreen = forceSuperScreen;
         this.autoResizeContainers = false;
+        OPEN_SCREENS.add(this);
         ensureGuiDefaults();
+    }
+
+    public static void refreshCatalogForServer(String serverId) {
+        for (GuiDesignerScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.serverId)) {
+                screen.refreshMaterialSelector();
+            }
+        }
     }
 
     public String getDesktopAppId() {
@@ -239,6 +252,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             return;
         }
         closeCompleted = true;
+        OPEN_SCREENS.remove(this);
         super.close();
         if (parent != null) {
             if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
@@ -588,7 +602,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             return;
         }
         materialSelector.clearItems();
-        Set<String> options = new HashSet<>(MATERIAL_OPTIONS);
+        Set<String> options = new HashSet<>(materialOptions());
         if (selectedElement != null && selectedElement.getVisual() != null) {
             String current = selectedElement.getVisual().getMaterial();
             if (current != null && !current.isBlank()) {
@@ -604,6 +618,18 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             String current = selectedElement.getVisual().getMaterial();
             setSelectorSelection(materialSelector, formatMaterialLabel(current));
         }
+    }
+
+    private List<String> materialOptions() {
+        List<String> values = OptionCatalogCache.getInstance().getValues(serverId, MATERIAL_OPTIONS_SOURCE);
+        if (!values.isEmpty()) {
+            return values;
+        }
+        FlowManager flowManager = FlowManager.getInstance();
+        if (flowManager != null && serverId != null) {
+            flowManager.ensureFlowClient(serverId).requestOptionCatalog(MATERIAL_OPTIONS_SOURCE);
+        }
+        return FALLBACK_MATERIAL_OPTIONS;
     }
 
     private void refreshFlowSelector() {
