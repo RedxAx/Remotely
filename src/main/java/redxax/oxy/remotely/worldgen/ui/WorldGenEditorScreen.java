@@ -117,7 +117,6 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
     protected void saveGraph() {
         syncProjectGraph();
         manager.saveWorldGen(actualServerId, project);
-        previewCurrentGraph();
     }
 
     public void refreshStatus() {

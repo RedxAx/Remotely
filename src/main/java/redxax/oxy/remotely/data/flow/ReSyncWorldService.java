@@ -127,8 +127,20 @@ public class ReSyncWorldService {
             }
             return;
         }
+        if ("auditSnapshot".equalsIgnoreCase(action) && message.getData() != null) {
+            ScreenManager.getInstance().execute(() -> {
+                FlowManagerScreen screen = FlowManagerScreen.getOpenScreen(serverId);
+                if (screen != null) {
+                    screen.handleWorldAuditSnapshot(message.getData());
+                }
+            });
+            return;
+        }
         if ("error".equalsIgnoreCase(message.getType())) {
             ScreenManager.getInstance().execute(() -> new Notification("ReSync", prettyWorldMessage(message.getMessage()), Notification.Type.ERROR));
+            return;
+        }
+        if ("response".equalsIgnoreCase(message.getType()) && "OperationStarted".equalsIgnoreCase(message.getMessage())) {
             return;
         }
         if ("response".equalsIgnoreCase(message.getType()) && message.getData() != null) {

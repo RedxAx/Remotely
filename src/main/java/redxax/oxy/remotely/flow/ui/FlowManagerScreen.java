@@ -1,6 +1,9 @@
 package redxax.oxy.remotely.flow.ui;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
@@ -2196,37 +2199,43 @@ public class FlowManagerScreen extends ReScreen {
             .label("New World")
             .accentType(ThemeManager.getAccent("nice"))
             .imagePath("create.png")
-            .size(120, 18)
+            .size(110, 18)
             .onClick(this::showCreateWorldPopup)
             .build();
         IconButton importButton = new IconButton.Builder()
             .label("Import")
             .imagePath("download.png")
-            .size(130, 18)
+            .size(105, 18)
             .onClick(() -> flowManager.importWorlds(serverId))
             .build();
         IconButton scanButton = new IconButton.Builder()
             .label("Scan")
             .imagePath("search.png")
-            .size(120, 18)
+            .size(90, 18)
             .onClick(() -> flowManager.scanWorlds(serverId))
             .build();
         IconButton refreshButton = new IconButton.Builder()
             .label("Refresh")
             .imagePath("reload.png")
-            .size(130, 18)
+            .size(105, 18)
             .onClick(() -> flowManager.refreshWorldsFromServer(serverId))
             .build();
         IconButton worldGenButton = new IconButton.Builder()
-            .label("World Generation")
+            .label("World Gen")
             .imagePath("node.png")
             .accentType(ThemeManager.getAccent("nice"))
-            .size(170, 18)
+            .size(120, 18)
             .onClick(this::openWorldGenEditor)
+            .build();
+        IconButton historyButton = new IconButton.Builder()
+            .label("History")
+            .imagePath("history.png")
+            .size(100, 18)
+            .onClick(() -> flowManager.requestWorldAuditSnapshot(serverId))
             .build();
         RowWidget topRow = new RowWidget.Builder()
             .size(Math.max(200, worldsContainer.getWidth() - 20), 18)
-            .addWidget(createButton, importButton, scanButton, refreshButton, worldGenButton)
+            .addWidget(createButton, importButton, scanButton, refreshButton, worldGenButton, historyButton)
             .build();
         worldsContainer.addWidget(topRow);
 
@@ -3474,14 +3483,10 @@ public class FlowManagerScreen extends ReScreen {
         String action = safeText(result.getAction()).trim().toLowerCase(Locale.ROOT);
         switch (action) {
             case "whoworld" -> showWorldWhoPopup(result);
-            case "purgeworld" -> showWorldPurgeResultPopup(result);
             case "createworld", "loadworld", "unloadworld" -> {
                 String worldName = resultWorldName(result);
                 if (!worldName.isBlank()) {
                     upsertWorldEntry(worldName);
-                }
-                if ("unloadworld".equals(action)) {
-                    showWorldStateResultPopup(result);
                 }
             }
             case "deleteworld" -> {
@@ -3489,7 +3494,6 @@ public class FlowManagerScreen extends ReScreen {
                 if (!worldName.isBlank()) {
                     removeWorldEntry(worldName);
                 }
-                showWorldStateResultPopup(result);
             }
             case "createinventorygroup", "updateinventorygroup" -> {
                 WorldInventoryGroup group = resultData(result, "group", WorldInventoryGroup.class);
@@ -3501,6 +3505,71 @@ public class FlowManagerScreen extends ReScreen {
             default -> {
             }
         }
+    }
+
+    public void handleWorldAuditSnapshot(JsonElement data) {
+        JsonArray records = data != null && data.isJsonArray() ? data.getAsJsonArray() : new JsonArray();
+        PopupWidget.Builder builder = new PopupWidget.Builder("World History")
+            .setResizable(false)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(560, Math.min(330, 120 + Math.min(records.size(), 9) * 22));
+        if (records.isEmpty()) {
+            builder.addRow("Status", true, 18, readOnlyLabel("No Operations"));
+        } else {
+            int shown = 0;
+            for (JsonElement element : records) {
+                if (shown >= 9) {
+                    break;
+                }
+                if (element == null || !element.isJsonObject()) {
+                    continue;
+                }
+                JsonObject object = element.getAsJsonObject();
+                boolean success = auditBoolean(object, "success");
+                String status = success ? "Ok" : "Failed";
+                String action = formatTitleWords(auditText(object, "action").isBlank() ? "Operation" : auditText(object, "action"));
+                String world = auditText(object, "targetWorld");
+                String message = success ? auditText(object, "message") : auditText(object, "failureReason");
+                long durationMillis = Math.max(0L, auditLong(object, "durationMillis"));
+                String backup = auditBoolean(object, "backupAvailable") ? "Backup Ready" : "No Backup";
+                String text = action
+                    + (world.isBlank() ? "" : " - " + world)
+                    + " - " + durationMillis + "ms"
+                    + " - " + backup
+                    + (message.isBlank() ? "" : " - " + message);
+                builder.addRow(status, true, 18, readOnlyLabel(fitHistoryText(text)));
+                shown++;
+            }
+        }
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    private String auditText(JsonObject object, String key) {
+        if (object == null || key == null || !object.has(key) || object.get(key).isJsonNull()) {
+            return "";
+        }
+        return safeText(object.get(key).getAsString());
+    }
+
+    private boolean auditBoolean(JsonObject object, String key) {
+        return object != null && key != null && object.has(key) && !object.get(key).isJsonNull() && object.get(key).getAsBoolean();
+    }
+
+    private long auditLong(JsonObject object, String key) {
+        if (object == null || key == null || !object.has(key) || object.get(key).isJsonNull()) {
+            return 0L;
+        }
+        return object.get(key).getAsLong();
+    }
+
+    private String fitHistoryText(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() > 72 ? text.substring(0, 69) + "..." : text;
     }
 
     private void showWorldPurgeResultPopup(WorldOperationResult result) {

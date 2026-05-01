@@ -1,5 +1,9 @@
 package redxax.oxy.remotely.worldgen;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.ReSyncFlowClient;
 import redxax.oxy.remotely.flow.data.FlowConnection;
@@ -105,7 +109,6 @@ public class WorldGenManager {
         ReSyncFlowClient client = flowClient(serverId);
         if (client != null) {
             client.sendWorldGenSave(project);
-            new Notification("World Generation", "Saved", Notification.Type.SUCCESS);
         } else {
             new Notification("World Generation", "ReSync Offline", Notification.Type.ERROR);
         }
@@ -179,9 +182,47 @@ public class WorldGenManager {
         if (json == null || json.isBlank()) {
             return;
         }
-        if (json.contains("\"success\":false")) {
-            new Notification("World Generation", "Compile Failed", Notification.Type.ERROR);
+        try {
+            JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+            boolean success = root.has("success") && root.get("success").getAsBoolean();
+            JsonArray diagnostics = root.has("diagnostics") && root.get("diagnostics").isJsonArray() ? root.getAsJsonArray("diagnostics") : new JsonArray();
+            if (!success) {
+                new Notification("World Generation", firstDiagnostic(diagnostics, "Compile Failed"), Notification.Type.ERROR);
+                return;
+            }
+        } catch (Exception ignored) {
+            if (json.contains("\"success\":false")) {
+                new Notification("World Generation", "Compile Failed", Notification.Type.ERROR);
+            }
         }
+    }
+
+    private String firstDiagnostic(JsonArray diagnostics, String fallback) {
+        for (JsonElement element : diagnostics) {
+            if (element != null && element.isJsonObject()) {
+                JsonObject object = element.getAsJsonObject();
+                if (object.has("message")) {
+                    String message = object.get("message").getAsString();
+                    if (message != null && !message.isBlank()) {
+                        return message;
+                    }
+                }
+            }
+        }
+        return fallback;
+    }
+
+    private String firstWarning(JsonArray diagnostics) {
+        for (JsonElement element : diagnostics) {
+            if (element != null && element.isJsonObject()) {
+                JsonObject object = element.getAsJsonObject();
+                String severity = object.has("severity") ? object.get("severity").getAsString() : "";
+                if ("warning".equalsIgnoreCase(severity) && object.has("message")) {
+                    return object.get("message").getAsString();
+                }
+            }
+        }
+        return "";
     }
 
     public List<String> getProjectIds(String serverId) {

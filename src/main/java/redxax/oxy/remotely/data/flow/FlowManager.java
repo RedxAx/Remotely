@@ -806,6 +806,10 @@ public class FlowManager {
         worldService.requestWorldMapSnapshot(serverId, worldName, centerX, centerZ, zoom, this);
     }
 
+    public void requestWorldAuditSnapshot(String serverId) {
+        sendWorldAction(serverId, ReSyncWorldService.worldAction("auditSnapshot", "limit", 25));
+    }
+
     public void suppressNextWorldSuccessNotification(String serverId, String action) {
         worldService.suppressNextWorldSuccessNotification(serverId, action);
     }
