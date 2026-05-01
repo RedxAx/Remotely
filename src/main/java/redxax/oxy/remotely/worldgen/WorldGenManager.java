@@ -587,10 +587,10 @@ public class WorldGenManager {
             feature(WorldGenNodeDefinition.builder("biome_filter", "Biome Filter").input("biome", FlowDataType.BIOME, "minecraft:plains", "dropdown").output("mask", FlowDataType.BOOLEAN)),
             feature(WorldGenNodeDefinition.builder("height_filter", "Height Filter").input("min", FlowDataType.FLOAT, 0f, "number").input("max", FlowDataType.FLOAT, 320f, "number").output("mask", FlowDataType.BOOLEAN)),
             feature(WorldGenNodeDefinition.builder("chance_filter", "Chance Filter").input("chance", FlowDataType.FLOAT, 0.5f, "number").input("salt", FlowDataType.SEED, 0, "number").output("mask", FlowDataType.BOOLEAN)),
-            structure(WorldGenNodeDefinition.builder("structure_placement", "Structure Placement").input("structure_id", FlowDataType.STRING, "", "searchable").input("spacing", FlowDataType.FLOAT, 32f, "number").input("separation", FlowDataType.FLOAT, 8f, "number").input("salt", FlowDataType.SEED, 0, "number").output("structure", FlowDataType.STRING).hidden(true)),
+            structure(WorldGenNodeDefinition.builder("structure_placement", "Structure Placement").input("structure_id", FlowDataType.STRING, "", "searchable").input("spacing", FlowDataType.FLOAT, 32f, "number").input("separation", FlowDataType.FLOAT, 8f, "number").input("salt", FlowDataType.SEED, 0, "number").input("y_offset", FlowDataType.FLOAT, 0f, "number").output("structure", FlowDataType.STRING)),
             spawn(WorldGenNodeDefinition.builder("spawn_rule", "Spawn Rule").input("entity", FlowDataType.ENTITY_TYPE, "minecraft:zombie", "dropdown").input("weight", FlowDataType.FLOAT, 10f, "number").input("min_group", FlowDataType.FLOAT, 1f, "number").input("max_group", FlowDataType.FLOAT, 4f, "number").output("spawn", FlowDataType.STRING)),
             feature(WorldGenNodeDefinition.builder("output_features", "Output Features").input("placements", FlowDataType.STRING, "", "text").hidden(true)),
-            structure(WorldGenNodeDefinition.builder("output_structures", "Output Structures").input("placements", FlowDataType.STRING, "", "text").hidden(true)),
+            structure(WorldGenNodeDefinition.builder("output_structures", "Output Structures").input("placements", FlowDataType.STRING, "", "text")),
             spawn(WorldGenNodeDefinition.builder("output_spawns", "Output Spawns").input("table", FlowDataType.STRING, "", "text"))
         );
     }
@@ -626,76 +626,26 @@ public class WorldGenManager {
     private WorldGenGraph createDefaultGraph() {
         WorldGenGraph graph = new WorldGenGraph();
         Map<String, WorldGenNode> nodes = new LinkedHashMap<>();
-        Map<String, Object> shelfValues = new HashMap<>();
-        shelfValues.put("scale", 1.15f);
-        shelfValues.put("ocean", 0.34f);
-        shelfValues.put("seed", 12001);
-        nodes.put("continental_shelf_1", new WorldGenNode("continental_shelf", 80, 70, shelfValues));
-        Map<String, Object> mountainValues = new HashMap<>();
-        mountainValues.put("amount", 0.92f);
-        mountainValues.put("scale", 0.85f);
-        mountainValues.put("seed", 12002);
-        nodes.put("mountain_range_1", new WorldGenNode("mountain_range", 80, 230, mountainValues));
-        Map<String, Object> riverValues = new HashMap<>();
-        riverValues.put("density", 1.1f);
-        riverValues.put("depth", 28f);
-        riverValues.put("seed", 12003);
-        nodes.put("river_network_1", new WorldGenNode("river_network", 80, 390, riverValues));
-        nodes.put("add_land_mountains", new WorldGenNode("add", 360, 150, new HashMap<>()));
-        nodes.put("add_rivers", new WorldGenNode("add", 640, 240, new HashMap<>()));
+        Map<String, Object> noiseValues = new HashMap<>();
+        noiseValues.put("seed", 12001);
+        noiseValues.put("frequency", 0.006f);
+        nodes.put("terrain_noise_1", new WorldGenNode("simplex", 80, 120, noiseValues));
+        Map<String, Object> remapValues = new HashMap<>();
+        remapValues.put("from_min", -1f);
+        remapValues.put("from_max", 1f);
+        remapValues.put("to_min", 58f);
+        remapValues.put("to_max", 92f);
+        nodes.put("height_remap_1", new WorldGenNode("remap", 360, 120, remapValues));
         Map<String, Object> clampValues = new HashMap<>();
-        clampValues.put("min", 30f);
-        clampValues.put("max", 238f);
-        nodes.put("height_clamp", new WorldGenNode("clamp", 920, 240, clampValues));
-        nodes.put("output_height_1", new WorldGenNode("output_height", 1260, 90, new HashMap<>()));
-        Map<String, Object> continentalValues = new HashMap<>();
-        continentalValues.put("seed", 41001);
-        continentalValues.put("frequency", 0.0014f);
-        nodes.put("continentalness_noise_1", new WorldGenNode("simplex", 80, 560, continentalValues));
-        Map<String, Object> erosionValues = new HashMap<>();
-        erosionValues.put("seed", 41002);
-        erosionValues.put("frequency", 0.0022f);
-        nodes.put("erosion_noise_1", new WorldGenNode("perlin", 80, 700, erosionValues));
-        Map<String, Object> weirdnessValues = new HashMap<>();
-        weirdnessValues.put("seed", 41003);
-        weirdnessValues.put("frequency", 0.0048f);
-        nodes.put("weirdness_noise_1", new WorldGenNode("simplex", 80, 840, weirdnessValues));
-        Map<String, Object> depthValues = new HashMap<>();
-        depthValues.put("seed", 41004);
-        depthValues.put("frequency", 0.0032f);
-        nodes.put("depth_noise_1", new WorldGenNode("perlin", 80, 980, depthValues));
-        Map<String, Object> densityValues = new HashMap<>();
-        densityValues.put("base", 64f);
-        densityValues.put("seed", 41005);
-        nodes.put("terrain_density_1", new WorldGenNode("terrain_density", 430, 760, densityValues));
-        nodes.put("output_density_1", new WorldGenNode("output_density", 780, 760, new HashMap<>()));
-        nodes.put("output_continentalness_1", new WorldGenNode("output_continentalness", 430, 560, new HashMap<>()));
-        nodes.put("output_erosion_1", new WorldGenNode("output_erosion", 430, 650, new HashMap<>()));
-        nodes.put("output_weirdness_1", new WorldGenNode("output_weirdness", 430, 840, new HashMap<>()));
-        nodes.put("output_depth_1", new WorldGenNode("output_depth", 430, 930, new HashMap<>()));
-        Map<String, Object> temperatureValues = new HashMap<>();
-        temperatureValues.put("temperature", 0.5f);
-        nodes.put("output_temperature_1", new WorldGenNode("output_temperature", 780, 930, temperatureValues));
-        Map<String, Object> humidityValues = new HashMap<>();
-        humidityValues.put("humidity", 0.5f);
-        nodes.put("output_humidity_1", new WorldGenNode("output_humidity", 780, 1020, humidityValues));
+        clampValues.put("min", 48f);
+        clampValues.put("max", 128f);
+        nodes.put("height_clamp_1", new WorldGenNode("clamp", 640, 120, clampValues));
+        nodes.put("output_height_1", new WorldGenNode("output_height", 920, 120, new HashMap<>()));
         graph.setNodes(nodes);
         graph.setConnections(new ArrayList<>(List.of(
-            new WorldGenConnection("continental_shelf_1", "out", "add_land_mountains", "a"),
-            new WorldGenConnection("mountain_range_1", "out", "add_land_mountains", "b"),
-            new WorldGenConnection("add_land_mountains", "out", "add_rivers", "a"),
-            new WorldGenConnection("river_network_1", "out", "add_rivers", "b"),
-            new WorldGenConnection("add_rivers", "out", "height_clamp", "in"),
-            new WorldGenConnection("height_clamp", "out", "output_height_1", "height"),
-            new WorldGenConnection("continentalness_noise_1", "out", "terrain_density_1", "continentalness"),
-            new WorldGenConnection("erosion_noise_1", "out", "terrain_density_1", "erosion"),
-            new WorldGenConnection("weirdness_noise_1", "out", "terrain_density_1", "weirdness"),
-            new WorldGenConnection("depth_noise_1", "out", "terrain_density_1", "depth"),
-            new WorldGenConnection("terrain_density_1", "density", "output_density_1", "density"),
-            new WorldGenConnection("continentalness_noise_1", "out", "output_continentalness_1", "continentalness"),
-            new WorldGenConnection("erosion_noise_1", "out", "output_erosion_1", "erosion"),
-            new WorldGenConnection("weirdness_noise_1", "out", "output_weirdness_1", "weirdness"),
-            new WorldGenConnection("depth_noise_1", "out", "output_depth_1", "depth")
+            new WorldGenConnection("terrain_noise_1", "out", "height_remap_1", "in"),
+            new WorldGenConnection("height_remap_1", "out", "height_clamp_1", "in"),
+            new WorldGenConnection("height_clamp_1", "out", "output_height_1", "height")
         )));
         return graph;
     }
@@ -717,32 +667,27 @@ public class WorldGenManager {
         switch (normalized) {
             case "alpine" -> {
                 project.getSettings().setTerrainTemplate("alpine");
-                setNodeInput(project.getTerrainGraph(), "continental_shelf_1", "scale", 0.75f);
-                setNodeInput(project.getTerrainGraph(), "continental_shelf_1", "ocean", 0.26f);
-                setNodeInput(project.getTerrainGraph(), "mountain_range_1", "amount", 1.32f);
-                setNodeInput(project.getTerrainGraph(), "mountain_range_1", "scale", 0.65f);
-                setNodeInput(project.getTerrainGraph(), "river_network_1", "depth", 34f);
-                setNodeInput(project.getTerrainGraph(), "height_clamp", "max", 286f);
+                setNodeInput(project.getTerrainGraph(), "terrain_noise_1", "frequency", 0.009f);
+                setNodeInput(project.getTerrainGraph(), "height_remap_1", "to_min", 72f);
+                setNodeInput(project.getTerrainGraph(), "height_remap_1", "to_max", 156f);
+                setNodeInput(project.getTerrainGraph(), "height_clamp_1", "max", 224f);
                 setNodeInput(project.getBiomeGraph(), "biome_climate_router_1", "temperature_scale", 0.75f);
                 setNodeInput(project.getBiomeGraph(), "biome_climate_router_1", "humidity_scale", 1.15f);
             }
             case "islands" -> {
                 project.getSettings().setTerrainTemplate("islands");
                 project.getSettings().setSeaLevel(68);
-                setNodeInput(project.getTerrainGraph(), "continental_shelf_1", "scale", 0.55f);
-                setNodeInput(project.getTerrainGraph(), "continental_shelf_1", "ocean", 1.35f);
-                setNodeInput(project.getTerrainGraph(), "mountain_range_1", "amount", 0.42f);
-                setNodeInput(project.getTerrainGraph(), "mountain_range_1", "scale", 1.2f);
-                setNodeInput(project.getTerrainGraph(), "river_network_1", "depth", 14f);
-                setNodeInput(project.getTerrainGraph(), "height_clamp", "min", 18f);
+                setNodeInput(project.getTerrainGraph(), "terrain_noise_1", "frequency", 0.012f);
+                setNodeInput(project.getTerrainGraph(), "height_remap_1", "to_min", 42f);
+                setNodeInput(project.getTerrainGraph(), "height_remap_1", "to_max", 86f);
+                setNodeInput(project.getTerrainGraph(), "height_clamp_1", "min", 28f);
             }
             case "badlands" -> {
                 project.getSettings().setTerrainTemplate("badlands");
                 project.getSettings().setDefaultBlock("minecraft:terracotta");
-                setNodeInput(project.getTerrainGraph(), "continental_shelf_1", "ocean", 0.22f);
-                setNodeInput(project.getTerrainGraph(), "mountain_range_1", "amount", 0.68f);
-                setNodeInput(project.getTerrainGraph(), "mountain_range_1", "scale", 1.28f);
-                setNodeInput(project.getTerrainGraph(), "river_network_1", "depth", 40f);
+                setNodeInput(project.getTerrainGraph(), "terrain_noise_1", "frequency", 0.0075f);
+                setNodeInput(project.getTerrainGraph(), "height_remap_1", "to_min", 64f);
+                setNodeInput(project.getTerrainGraph(), "height_remap_1", "to_max", 118f);
                 setNodeInput(project.getBiomeGraph(), "output_biome_1", "biome", "minecraft:badlands");
                 setNodeInput(project.getBiomeGraph(), "biome_climate_router_1", "temperature_scale", 1.45f);
                 setNodeInput(project.getBiomeGraph(), "biome_climate_router_1", "humidity_scale", 0.55f);
@@ -750,17 +695,17 @@ public class WorldGenManager {
             case "frozen" -> {
                 project.getSettings().setTerrainTemplate("frozen");
                 project.getSettings().setDefaultFluid("minecraft:water");
-                setNodeInput(project.getTerrainGraph(), "continental_shelf_1", "ocean", 0.4f);
-                setNodeInput(project.getTerrainGraph(), "mountain_range_1", "amount", 1.05f);
-                setNodeInput(project.getTerrainGraph(), "mountain_range_1", "scale", 0.82f);
+                setNodeInput(project.getTerrainGraph(), "terrain_noise_1", "frequency", 0.005f);
+                setNodeInput(project.getTerrainGraph(), "height_remap_1", "to_min", 60f);
+                setNodeInput(project.getTerrainGraph(), "height_remap_1", "to_max", 96f);
                 setNodeInput(project.getBiomeGraph(), "output_biome_1", "biome", "minecraft:snowy_plains");
                 setNodeInput(project.getBiomeGraph(), "biome_climate_router_1", "temperature_scale", 0.45f);
                 setNodeInput(project.getBiomeGraph(), "biome_climate_router_1", "humidity_scale", 1.25f);
             }
             case "caves" -> {
                 project.getSettings().setTerrainTemplate("caves");
-                setNodeInput(project.getTerrainGraph(), "continental_shelf_1", "ocean", 0.55f);
-                setNodeInput(project.getTerrainGraph(), "mountain_range_1", "amount", 0.36f);
+                setNodeInput(project.getTerrainGraph(), "height_remap_1", "to_min", 48f);
+                setNodeInput(project.getTerrainGraph(), "height_remap_1", "to_max", 80f);
                 setNodeInput(project.getCaveGraph(), "cave_system_1", "amount", 1.6f);
                 setNodeInput(project.getCaveGraph(), "cave_system_1", "scale", 1.35f);
                 setNodeInput(project.getBiomeGraph(), "output_biome_1", "biome", "minecraft:dripstone_caves");

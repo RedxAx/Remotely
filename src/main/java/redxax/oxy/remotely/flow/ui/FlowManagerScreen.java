@@ -803,6 +803,7 @@ public class FlowManagerScreen extends ReScreen {
         if (contentViewSwitcher.getWidget() != null) {
             contentViewSwitcher.getWidget().recreateButtons();
         }
+        contentViewSwitcher.setActiveIndex(contentViewIndex);
         updateContentSwitcherVisibility();
         onContentViewChanged(Math.clamp(contentViewIndex, 0, 2));
     }
@@ -827,7 +828,6 @@ public class FlowManagerScreen extends ReScreen {
         }
         if (customizationViewSwitcher != null) {
             customizationViewSwitcher.cleanup();
-            customizationViewSwitcher = null;
         }
         customizationViewSwitcher = new ViewSwitcherWidget(this, customizationContainer);
         customizationViewSwitcher.register("panel.png", "Scoreboard", scoreboardsContainer);
@@ -839,6 +839,7 @@ public class FlowManagerScreen extends ReScreen {
         if (customizationViewSwitcher.getWidget() != null) {
             customizationViewSwitcher.getWidget().recreateButtons();
         }
+        customizationViewSwitcher.setActiveIndex(customizationViewIndex);
         updateCustomizationSwitcherVisibility();
         onCustomizationViewChanged(Math.clamp(customizationViewIndex, 0, tabMethodsAvailable && tabsContainer != null ? 1 : 0));
     }
@@ -934,9 +935,9 @@ public class FlowManagerScreen extends ReScreen {
         }
         String title = CustomContentGraphAdapter.displayName(contentGraph);
         String subtitle = CustomContentGraphAdapter.material(contentGraph) + "  " + (content != null ? content.getAbilities().size() : 0) + " Events";
-        SquareButtonWidget saveButton = new SquareButtonWidget.Builder()
-            .imagePath("save.png")
-            .onClick(() -> flowManager.saveFlow(serverId, contentGraph))
+        SquareButtonWidget editButton = new SquareButtonWidget.Builder()
+            .imagePath("edit.png")
+            .onClick(() -> showRenameFlowPopup(flowId))
             .build();
         SquareButtonWidget deleteButton = new SquareButtonWidget.Builder()
             .imagePath("delete.png")
@@ -953,7 +954,7 @@ public class FlowManagerScreen extends ReScreen {
         MountableButtonWidget widget = new MountableButtonWidget.Builder(title)
             .description(subtitle)
             .onClick(() -> flowManager.openFlowEditor(serverId, server, flowId))
-            .addButton(saveButton)
+            .addButton(editButton)
             .addButton(deleteButton)
             .build();
         widget.setSize(Math.max(200, targetContainer.getWidth() - 20), 28);
@@ -966,12 +967,10 @@ public class FlowManagerScreen extends ReScreen {
         PopupWidget.Builder builder = new PopupWidget.Builder("Create " + contentTypeTitle(normalizedType)).setResizable(false);
 
         TextInputWidget idInput = new TextInputWidget.Builder()
-            .text(normalizedType + "_" + Integer.toHexString(secureRandom.nextInt()).replace("-", ""))
-            .placeholder("ID")
+            .placeholder(contentTypeTitle(normalizedType) + " ID")
             .size(220, 22)
             .build();
         TextInputWidget nameInput = new TextInputWidget.Builder()
-            .text("New " + contentTypeTitle(normalizedType))
             .placeholder("Name")
             .size(220, 22)
             .build();
@@ -1070,6 +1069,7 @@ public class FlowManagerScreen extends ReScreen {
             tabsManager.setSize(tabsWidth, 18);
             tabsManager.updateLayout();
         }
+        positionSwitchers();
     }
 
     private void updateCustomizationSwitcherVisibility() {
@@ -1098,6 +1098,7 @@ public class FlowManagerScreen extends ReScreen {
         if (blueprintsViewSwitcher.getWidget() != null) {
             blueprintsViewSwitcher.getWidget().recreateButtons();
         }
+        blueprintsViewSwitcher.setActiveIndex(blueprintsViewIndex);
         updateBlueprintsSwitcherVisibility();
         onBlueprintsViewChanged(Math.clamp(blueprintsViewIndex, 0, 1));
     }
@@ -2226,13 +2227,6 @@ public class FlowManagerScreen extends ReScreen {
             .size(105, 18)
             .onClick(() -> flowManager.refreshWorldsFromServer(serverId))
             .build();
-        IconButton worldGenButton = new IconButton.Builder()
-            .label("World Gen")
-            .imagePath("node.png")
-            .accentType(ThemeManager.getAccent("nice"))
-            .size(120, 18)
-            .onClick(this::openWorldGenEditor)
-            .build();
         IconButton historyButton = new IconButton.Builder()
             .label("History")
             .imagePath("history.png")
@@ -2241,7 +2235,7 @@ public class FlowManagerScreen extends ReScreen {
             .build();
         RowWidget topRow = new RowWidget.Builder()
             .size(Math.max(200, worldsContainer.getWidth() - 20), 18)
-            .addWidget(createButton, importButton, scanButton, refreshButton, worldGenButton, historyButton)
+            .addWidget(createButton, importButton, scanButton, refreshButton, historyButton)
             .build();
         worldsContainer.addWidget(topRow);
 
@@ -2250,10 +2244,6 @@ public class FlowManagerScreen extends ReScreen {
         for (String worldName : worldNames) {
             upsertWorldEntry(worldName);
         }
-    }
-
-    private void openWorldGenEditor() {
-        ScreenManager.getInstance().setScreen(new WorldGenEditorScreen(serverId, server, this));
     }
 
     public void rebuildWorldGenProjects() {
