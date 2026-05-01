@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 plugins {
     id("java-library")
     id("application")
@@ -80,6 +82,55 @@ java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
     }
+}
+
+val generatedContractsDir = layout.buildDirectory.dir("generated/sources/resyncContracts/java")
+val protocolContractFile = layout.projectDirectory.file("../shared/generated-contracts/resync-protocol.json")
+
+sourceSets {
+    main {
+        java.srcDir(generatedContractsDir)
+    }
+}
+
+val generateReSyncProtocolContract by tasks.registering {
+    inputs.file(protocolContractFile)
+    outputs.dir(generatedContractsDir)
+    doLast {
+        val root = JsonSlurper().parse(protocolContractFile.asFile) as Map<*, *>
+        val packageNames = root["packageNames"] as Map<*, *>
+        val constants = root["constants"] as Map<*, *>
+        val byteConstants = (root["byteConstants"] as List<*>).map { it.toString() }.toSet()
+        val shortConstants = (root["shortConstants"] as List<*>).map { it.toString() }.toSet()
+        val packageName = packageNames["remotely"].toString()
+        val packageDir = generatedContractsDir.get().asFile.resolve(packageName.replace('.', '/'))
+        packageDir.mkdirs()
+        val output = packageDir.resolve("ReSyncProtocolContract.java")
+        output.writeText(buildString {
+            appendLine("package $packageName;")
+            appendLine()
+            appendLine("public final class ReSyncProtocolContract {")
+            constants.forEach { (rawName, rawValue) ->
+                val name = rawName.toString()
+                val value = rawValue ?: return@forEach
+                val line = when {
+                    value is String -> "    public static final String $name = \"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\";"
+                    byteConstants.contains(name) -> "    public static final byte $name = (byte) 0x${(value as Number).toInt().toString(16).uppercase().padStart(2, '0')};"
+                    shortConstants.contains(name) -> "    public static final short $name = ${(value as Number).toInt()};"
+                    else -> "    public static final int $name = ${(value as Number).toInt()};"
+                }
+                appendLine(line)
+            }
+            appendLine()
+            appendLine("    private ReSyncProtocolContract() {")
+            appendLine("    }")
+            appendLine("}")
+        })
+    }
+}
+
+tasks.compileJava {
+    dependsOn(generateReSyncProtocolContract)
 }
 
 tasks.jar {

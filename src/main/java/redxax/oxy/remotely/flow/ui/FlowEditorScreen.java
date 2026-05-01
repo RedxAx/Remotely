@@ -959,6 +959,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             paletteSidePanel.renderHeader(context);
         }
 
+        for (Widget widget : hudWidgets) {
+            if (widget instanceof AnimatedWidget animated) {
+                animated.renderHintOverlay(context);
+            }
+        }
     }
 
     private void renderWires(IDrawContext context) {
@@ -1828,7 +1833,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 String pinName = compatiblePin;
                 int finalWorldX = worldX;
                 int finalWorldY = worldY;
-                builder.addItem(selectorLabel(def), () -> {
+                addSelectorItem(builder, selectorLabel(def), selectorHint(def), selectorSearchTerms(def), () -> {
                     captureSnapshot();
                     addNode(finalWorldX, finalWorldY, def.getId(), pinName);
                 });
@@ -1900,7 +1905,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                     .comparingInt(NodeDefinition::getPriority)
                     .thenComparing(NodeDefinition::getDisplayName, String.CASE_INSENSITIVE_ORDER));
             for (NodeDefinition def : definitions) {
-                builder.addItem(selectorLabel(def), () -> {
+                addSelectorItem(builder, selectorLabel(def), selectorHint(def), selectorSearchTerms(def), () -> {
                     captureSnapshot();
                     addNodeAtCenter(def.getId());
                 });
@@ -1918,8 +1923,24 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         if (definition.getCategory() != null) {
             label.append(" - ").append(definition.getCategory().getDisplayName());
         }
+        return label.toString();
+    }
+
+    private void addSelectorItem(ItemSelectorWidget.Builder builder, String label, String hint, String searchTerms, Runnable action) {
+        builder.addItem(label, hint, searchTerms, action);
+    }
+
+    private String selectorHint(NodeDefinition definition) {
         if (definition.getDescription() != null && !definition.getDescription().isBlank()) {
-            label.append(" - ").append(definition.getDescription());
+            return definition.getDescription();
+        }
+        return "";
+    }
+
+    private String selectorSearchTerms(NodeDefinition definition) {
+        StringBuilder label = new StringBuilder();
+        if (definition.getDescription() != null && !definition.getDescription().isBlank()) {
+            label.append(definition.getDescription());
         }
         appendSearchTerms(label, definition.getAliases());
         appendSearchTerms(label, definition.getTags());

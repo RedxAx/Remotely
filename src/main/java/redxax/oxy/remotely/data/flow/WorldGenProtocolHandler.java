@@ -12,14 +12,17 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 final class WorldGenProtocolHandler {
     private final String serverId;
     private final Gson gson;
+    private final Consumer<com.google.gson.JsonObject> jobConsumer;
 
-    WorldGenProtocolHandler(String serverId, Gson gson) {
+    WorldGenProtocolHandler(String serverId, Gson gson, Consumer<com.google.gson.JsonObject> jobConsumer) {
         this.serverId = serverId;
         this.gson = gson;
+        this.jobConsumer = jobConsumer;
     }
 
     void handle(byte[] data) {
@@ -39,6 +42,7 @@ final class WorldGenProtocolHandler {
                 case 0x36 -> handleProjectList(json);
                 case 0x37 -> handleProjectSaveAck(json);
                 case 0x38 -> handleCompileDiagnostics(json);
+                case 0x39 -> handleJob(json);
                 default -> System.out.println("[ReSyncFlow] Unknown worldgen packet: 0x" + String.format("%02X", packetId));
             }
         } catch (Exception e) {
@@ -89,5 +93,11 @@ final class WorldGenProtocolHandler {
 
     private void handleCompileDiagnostics(String json) {
         WorldGenManager.getInstance().handleCompileDiagnostics(serverId, json);
+    }
+
+    private void handleJob(String json) {
+        if (jobConsumer != null) {
+            jobConsumer.accept(gson.fromJson(json, com.google.gson.JsonObject.class));
+        }
     }
 }

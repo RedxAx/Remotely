@@ -8,6 +8,7 @@ import com.google.gson.GsonBuilder;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowDataTypeAdapter;
 import redxax.oxy.remotely.flow.data.FlowGraph;
+import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
@@ -19,6 +20,7 @@ import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.NodeRegistryRequest;
 import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
+import redxax.oxy.remotely.flow.ui.GuiEditOverlayState;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
@@ -36,7 +38,9 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -53,8 +57,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
-import java.util.zip.DataFormatException;
-import java.util.zip.Inflater;
 
 public class ReSyncFlowClient {
     public interface ErrorListener {
@@ -70,14 +72,15 @@ public class ReSyncFlowClient {
     private final AtomicBoolean authenticated = new AtomicBoolean(false);
     private final AtomicBoolean connecting = new AtomicBoolean(false);
     private String apiKey;
-    private final Inflater inflater = new Inflater();
-    private static final int PROTOCOL_VERSION = 2;
+    private final ReSyncFrameCodec frameCodec = new ReSyncFrameCodec();
+    private static final int PROTOCOL_VERSION = ReSyncProtocolContract.PROTOCOL_VERSION;
     private static final String CLIENT_VERSION = "2.0.0";
-    private static final short FLOW_CHANNEL_ID = 1001;
-    private static final short PLAYER_TRACKING_CHANNEL_ID = 1002;
-    private static final short WORLD_MANAGEMENT_CHANNEL_ID = 1003;
-    private static final short WORLDGEN_CHANNEL_ID = 1004;
-    private static final short CONTROL_CHANNEL_ID = 0;
+    private static final short FLOW_CHANNEL_ID = ReSyncProtocolContract.CHANNEL_FLOW_ID;
+    private static final short PLAYER_TRACKING_CHANNEL_ID = ReSyncProtocolContract.CHANNEL_PLAYER_TRACKING_ID;
+    private static final short WORLD_MANAGEMENT_CHANNEL_ID = ReSyncProtocolContract.CHANNEL_WORLD_MANAGEMENT_ID;
+    private static final short WORLDGEN_CHANNEL_ID = ReSyncProtocolContract.CHANNEL_WORLDGEN_ID;
+    private static final short CONTROL_CHANNEL_ID = ReSyncProtocolContract.CHANNEL_CONTROL_ID;
+    private final Map<String, Short> channelIds = new ConcurrentHashMap<>();
     private int sequenceCounter = 0;
     private ErrorListener errorListener;
     private final Gson gson = new GsonBuilder()
@@ -97,6 +100,9 @@ public class ReSyncFlowClient {
             .create();
     private final Queue<Runnable> pendingSends = new ConcurrentLinkedQueue<>();
     private final Map<ReSyncResourceType, Set<String>> pendingOpenResources = new ConcurrentHashMap<>();
+    private final Map<String, WorldChannelMessage> worldJobs = new ConcurrentHashMap<>();
+    private final Map<String, com.google.gson.JsonObject> jobs = new ConcurrentHashMap<>();
+    private final Set<String> terminalJobNotifications = ConcurrentHashMap.newKeySet();
     private final NodeRegistryCache nodeRegistryCache = NodeRegistryCache.getInstance();
     private final ScheduledExecutorService nodeRegistryScheduler = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> nodeRegistryTimeout;
@@ -118,6 +124,7 @@ public class ReSyncFlowClient {
     private final AtomicInteger placeholderRequestCounter = new AtomicInteger(1);
     private final Map<Integer, Consumer<String>> placeholderPreviewCallbacks = new ConcurrentHashMap<>();
     private final WorldGenProtocolHandler worldGenProtocolHandler;
+    private final String stableClientId;
 
     public ReSyncFlowClient(String serverId, ReStudioApiClient apiClient, RemotelyClient client) {
         this(serverId, apiClient, null, null, client);
@@ -129,7 +136,8 @@ public class ReSyncFlowClient {
         this.directWsUrl = directWsUrl;
         this.directApiKey = directApiKey;
         this.client = client;
-        this.worldGenProtocolHandler = new WorldGenProtocolHandler(serverId, gson);
+        this.worldGenProtocolHandler = new WorldGenProtocolHandler(serverId, gson, this::trackGenericJob);
+        this.stableClientId = "remotely-" + UUID.nameUUIDFromBytes((serverId == null ? "default" : serverId).getBytes(StandardCharsets.UTF_8));
         for (ReSyncResourceType type : ReSyncResourceType.values()) {
             pendingOpenResources.put(type, ConcurrentHashMap.newKeySet());
         }
@@ -161,7 +169,7 @@ public class ReSyncFlowClient {
                 return CompletableFuture.completedFuture(null);
             }
             System.out.println("[ReSyncFlow] Connecting with direct endpoint: " + directWsUrl);
-            initWebSocketConnection(directWsUrl);
+            initWebSocketConnection(normalizeWsUrl(directWsUrl));
             return CompletableFuture.completedFuture(null);
         }
 
@@ -183,9 +191,10 @@ public class ReSyncFlowClient {
                     return apiClient.getReSyncApiKey(serverId).thenAccept(key -> {
                         this.apiKey = key;
                         if (this.apiKey != null && !this.apiKey.isEmpty()) {
-                            System.out.println("[ReSyncFlow] Connecting to: ws://" + serverUrl);
-                            System.out.println("[ReSyncFlow] Using API key: " + apiKey.substring(0, 8) + "...");
-                            initWebSocketConnection("ws://" + serverUrl);
+                            String wsUrl = normalizeWsUrl(serverUrl);
+                            System.out.println("[ReSyncFlow] Connecting to: " + wsUrl);
+                            System.out.println("[ReSyncFlow] Using API key: " + maskApiKey(apiKey));
+                            initWebSocketConnection(wsUrl);
                         } else {
                             System.err.println("[ReSyncFlow] API key is empty or null");
                             connecting.set(false);
@@ -245,7 +254,7 @@ public class ReSyncFlowClient {
 
                 @Override
                 public void onMessage(ByteBuffer bytes) {
-                    handleBinaryMessage(bytes.array());
+                    handleBinaryMessage(copyRemaining(bytes));
                 }
 
                 @Override
@@ -279,7 +288,7 @@ public class ReSyncFlowClient {
     }
 
     private void sendHandshake() {
-        String clientId = java.util.UUID.randomUUID().toString();
+        String clientId = stableClientId;
         System.out.println("[ReSyncFlow] Client ID: " + clientId);
 
         ByteBuffer buffer = ByteBuffer.allocate(
@@ -323,64 +332,69 @@ public class ReSyncFlowClient {
     private void sendFrame(int messageType, byte[] payload, short channel) {
         WebSocketClient client = wsClient.get();
         if (client != null && client.isOpen()) {
-            ByteBuffer frame = ByteBuffer.allocate(12 + payload.length);
-
-            byte flags = 0;
-            frame.put(flags);
-            frame.put((byte) messageType);
-            frame.putShort(channel);
-            frame.putInt(sequenceCounter++);
-            frame.putInt(payload.length);
-            frame.put(payload);
-
-            client.send(frame.array());
+            client.send(frameCodec.encode(messageType, payload, channel, sequenceCounter++));
         }
     }
 
+    private static byte[] copyRemaining(ByteBuffer buffer) {
+        ByteBuffer copy = buffer.slice();
+        byte[] bytes = new byte[copy.remaining()];
+        copy.get(bytes);
+        return bytes;
+    }
+
     private void handleBinaryMessage(byte[] data) {
-        if (data.length < 12) return;
-
-        ByteBuffer buffer = ByteBuffer.wrap(data);
-        byte flags = buffer.get();
-        boolean compressed = (flags & 0x80) != 0;
-        boolean batch = (flags & 0x40) != 0;
-        byte messageType = buffer.get();
-        short channel = buffer.getShort();
-        int sequence = buffer.getInt();
-        int payloadLength = buffer.getInt();
-
-        if (data.length < 12 + payloadLength) return;
-
-        byte[] payload = new byte[payloadLength];
-        buffer.get(payload);
-
-        System.out.println("[ReSyncFlow] Received message: Type=" + messageType + ", Channel=" + channel + ", Sequence=" + sequence + ", Compressed=" + compressed + ", PayloadSize=" + payloadLength);
-
         try {
-            switch (messageType) {
-                case 1:
+            ReSyncDecodedFrame frame = frameCodec.decode(data, validDataChannels());
+            System.out.println("[ReSyncFlow] Received message: Type=" + frame.messageType() + ", Channel=" + frame.channel() + ", Sequence=" + frame.sequence() + ", Compressed=" + frame.compressed() + ", PayloadSize=" + frame.payload().length);
+            switch (frame.messageType()) {
+                case ReSyncProtocolContract.MESSAGE_HANDSHAKE_RESPONSE:
                     System.out.println("[ReSyncFlow] Processing handshake response");
-                    handleHandshakeResponse(payload);
+                    handleHandshakeResponse(frame.payload());
                     break;
-                case 4:
-                    System.out.println("[ReSyncFlow] Processing data message on channel " + channel);
-                    handleDataMessage(channel, payload, compressed);
+                case ReSyncProtocolContract.MESSAGE_DATA:
+                    System.out.println("[ReSyncFlow] Processing data message on channel " + frame.channel());
+                    handleDataMessage(frame.channel(), frame.payload());
                     break;
-                case 5:
+                case ReSyncProtocolContract.MESSAGE_HEARTBEAT:
                     break;
-                case 7:
+                case ReSyncProtocolContract.MESSAGE_ERROR:
                     System.err.println("[ReSyncFlow] Processing error message");
-                    handleError(payload);
+                    handleError(frame.payload());
                     break;
+                default:
+                    protocolError("Unknown message type: " + (frame.messageType() & 0xFF));
             }
+        } catch (IllegalArgumentException exception) {
+            protocolError(exception.getMessage());
         } catch (Exception e) {
             System.err.println("[ReSyncFlow] Error processing message: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
+    private Set<Short> validDataChannels() {
+        return Set.of(
+            numericChannel("flow", FLOW_CHANNEL_ID),
+            numericChannel("player_tracking", PLAYER_TRACKING_CHANNEL_ID),
+            numericChannel("world_management", WORLD_MANAGEMENT_CHANNEL_ID),
+            numericChannel("worldgen", WORLDGEN_CHANNEL_ID)
+        );
+    }
+
+    private void protocolError(String message) {
+        System.err.println("[ReSyncFlow] Protocol error: " + message);
+        if (errorListener != null) {
+            errorListener.onError(null, "ReSyncProtocolError: " + message);
+        }
+    }
+
     private void handleHandshakeResponse(byte[] payload) {
         ByteBuffer buffer = ByteBuffer.wrap(payload);
+        if (buffer.remaining() < 1) {
+            protocolError("Handshake response too short");
+            return;
+        }
 
         byte success = buffer.get();
         if (success != 1) {
@@ -388,17 +402,73 @@ public class ReSyncFlowClient {
             return;
         }
 
+        if (buffer.remaining() < 4) {
+            protocolError("Handshake message length missing");
+            return;
+        }
         int messageLen = buffer.getInt();
+        if (messageLen < 0 || messageLen > buffer.remaining()) {
+            protocolError("Invalid handshake message length");
+            return;
+        }
         buffer.position(buffer.position() + messageLen);
 
+        if (buffer.remaining() < 4) {
+            protocolError("Handshake protocol version missing");
+            return;
+        }
         int protocolVersion = buffer.getInt();
         System.out.println("[ReSyncFlow] Server protocol version: " + protocolVersion);
 
+        if (buffer.remaining() < 4) {
+            protocolError("Handshake server version length missing");
+            return;
+        }
         int serverVersionLen = buffer.getInt();
+        if (serverVersionLen < 0 || serverVersionLen > buffer.remaining()) {
+            protocolError("Invalid handshake server version length");
+            return;
+        }
         buffer.position(buffer.position() + serverVersionLen);
 
+        if (buffer.remaining() < 4) {
+            protocolError("Handshake world count missing");
+            return;
+        }
         int worldCount = buffer.getInt();
+        if (worldCount < 0) {
+            protocolError("Invalid handshake world count");
+            return;
+        }
         System.out.println("[ReSyncFlow] Available worlds: " + worldCount);
+        for (int i = 0; i < worldCount; i++) {
+            if (readSizedString(buffer) == null) {
+                protocolError("Invalid handshake world entry");
+                return;
+            }
+        }
+        if (buffer.remaining() >= 4) {
+            int tileSizeCount = buffer.getInt();
+            if (tileSizeCount < 0 || buffer.remaining() < tileSizeCount * Integer.BYTES) {
+                protocolError("Invalid handshake tile size list");
+                return;
+            }
+            buffer.position(buffer.position() + tileSizeCount * Integer.BYTES);
+        }
+        if (buffer.remaining() >= 4) {
+            int channelCount = buffer.getInt();
+            for (int i = 0; i < channelCount; i++) {
+                String channelName = readSizedString(buffer);
+                if (channelName == null || buffer.remaining() < 4) {
+                    protocolError("Invalid handshake channel entry");
+                    return;
+                }
+                int numericId = buffer.getInt();
+                if (numericId >= 0 && numericId <= 0xFFFF) {
+                    channelIds.put(channelName, (short) numericId);
+                }
+            }
+        }
 
         authenticated.set(true);
         connecting.set(false);
@@ -406,7 +476,32 @@ public class ReSyncFlowClient {
         System.out.println("[ReSyncFlow] Handshake complete, client authenticated");
         startHeartbeat();
         requestNodeRegistry();
+        requestJobSnapshots();
         flushPendingSends();
+    }
+
+    private String readSizedString(ByteBuffer buffer) {
+        if (buffer.remaining() < 4) {
+            return null;
+        }
+        int length = buffer.getInt();
+        if (length < 0 || buffer.remaining() < length) {
+            return null;
+        }
+        byte[] bytes = new byte[length];
+        buffer.get(bytes);
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    private String readRemainingJson(ByteBuffer buffer) {
+        byte[] bytes = new byte[buffer.remaining()];
+        buffer.get(bytes);
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    private short numericChannel(String channelId, short fallback) {
+        Short numericId = channelIds.get(channelId);
+        return numericId == null ? fallback : numericId;
     }
 
     private void scheduleConnectTimeout() {
@@ -433,46 +528,32 @@ public class ReSyncFlowClient {
         }
     }
 
-    private void handleDataMessage(short channel, byte[] payload, boolean compressed) {
-        byte[] data = payload;
-        if (compressed) {
-            try {
-                inflater.reset();
-                inflater.setInput(data);
-                java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-                byte[] tempBuffer = new byte[8192];
-                while (!inflater.finished()) {
-                    int count = inflater.inflate(tempBuffer);
-                    baos.write(tempBuffer, 0, count);
-                }
-                data = baos.toByteArray();
-            } catch (DataFormatException e) {
-                System.err.println("[ReSyncFlow] Decompression error: " + e.getMessage());
-                return;
-            }
-        }
-
-        if (channel == PLAYER_TRACKING_CHANNEL_ID) {
+    private void handleDataMessage(short channel, byte[] data) {
+        if (channel == numericChannel("player_tracking", PLAYER_TRACKING_CHANNEL_ID)) {
             handlePlayerTrackingMessage(data);
             return;
         }
 
-        if (channel == WORLD_MANAGEMENT_CHANNEL_ID) {
+        if (channel == numericChannel("world_management", WORLD_MANAGEMENT_CHANNEL_ID)) {
             handleWorldManagementMessage(data);
             return;
         }
 
-        if (channel == WORLDGEN_CHANNEL_ID) {
+        if (channel == numericChannel("worldgen", WORLDGEN_CHANNEL_ID)) {
             handleWorldGenMessage(data);
             return;
         }
 
-        if (channel != FLOW_CHANNEL_ID) {
+        if (channel != numericChannel("flow", FLOW_CHANNEL_ID)) {
+            protocolError("Unknown channel: " + (channel & 0xFFFF));
             return;
         }
 
         ByteBuffer buffer = ByteBuffer.wrap(data);
-        if (!buffer.hasRemaining()) return;
+        if (!buffer.hasRemaining()) {
+            protocolError("Empty flow packet");
+            return;
+        }
         byte packetId = buffer.get();
 
         switch (packetId) {
@@ -518,6 +599,18 @@ public class ReSyncFlowClient {
             case 0x26:
                 handleTabSaveAck(buffer);
                 break;
+            case 0x31:
+                handleCustomContentList(buffer);
+                break;
+            case 0x32:
+                handleCustomContentData(buffer);
+                break;
+            case 0x35:
+                handleCustomContentSaveAck(buffer);
+                break;
+            case 0x44:
+                handleFlowJob(buffer);
+                break;
             case 0x28:
                 handlePlaceholderPreview(buffer);
                 break;
@@ -555,12 +648,141 @@ public class ReSyncFlowClient {
             if (message == null) {
                 return;
             }
+            trackWorldJob(message);
             if (client != null && client.getFlowManager() != null) {
                 client.getFlowManager().applyWorldManagementMessage(serverId, message);
             }
         } catch (Exception e) {
             System.err.println("[ReSyncFlow] Failed to parse world management update: " + e.getMessage());
         }
+    }
+
+    private void trackWorldJob(WorldChannelMessage message) {
+        if (message == null || message.getData() == null) {
+            return;
+        }
+        if (!"job".equals(message.getType()) && !"jobStatus".equals(message.getAction()) && !"jobAccepted".equals(message.getAction())) {
+            return;
+        }
+        if (message.getData().isJsonArray()) {
+            for (com.google.gson.JsonElement item : message.getData().getAsJsonArray()) {
+                if (item.isJsonObject()) {
+                    trackWorldJobData(message, item.getAsJsonObject());
+                    trackGenericJob(item.getAsJsonObject());
+                }
+            }
+            return;
+        }
+        if (message.getData().isJsonObject()) {
+            com.google.gson.JsonObject data = message.getData().getAsJsonObject();
+            trackWorldJobData(message, data);
+            trackGenericJob(data);
+        }
+    }
+
+    private void trackWorldJobData(WorldChannelMessage message, com.google.gson.JsonObject data) {
+        String jobId = stringField(data, "jobId");
+        if (jobId == null || jobId.isBlank()) {
+            jobId = stringField(data, "operationId");
+        }
+        if (jobId != null && !jobId.isBlank()) {
+            worldJobs.put(jobId, message);
+        }
+    }
+
+    private void handleFlowJob(ByteBuffer buffer) {
+        String json = readRemainingJson(buffer);
+        com.google.gson.JsonObject envelope = gson.fromJson(json, com.google.gson.JsonObject.class);
+        if (envelope != null && envelope.has("data")) {
+            trackJobElement(envelope.get("data"));
+        } else {
+            trackGenericJob(envelope);
+        }
+    }
+
+    private void trackJobElement(com.google.gson.JsonElement element) {
+        if (element == null || element.isJsonNull()) {
+            return;
+        }
+        if (element.isJsonArray()) {
+            for (com.google.gson.JsonElement item : element.getAsJsonArray()) {
+                trackJobElement(item);
+            }
+            return;
+        }
+        if (element.isJsonObject()) {
+            trackGenericJob(element.getAsJsonObject());
+        }
+    }
+
+    private void trackGenericJob(com.google.gson.JsonObject data) {
+        if (data == null) {
+            return;
+        }
+        if (data.has("data")) {
+            trackJobElement(data.get("data"));
+            return;
+        }
+        String jobId = stringField(data, "jobId");
+        if (jobId == null || jobId.isBlank()) {
+            jobId = stringField(data, "operationId");
+        }
+        if (jobId == null || jobId.isBlank()) {
+            return;
+        }
+        com.google.gson.JsonObject previous = jobs.put(jobId, data);
+        String status = stringField(data, "status");
+        String action = stringField(data, "action");
+        String previousStatus = previous != null ? stringField(previous, "status") : null;
+        boolean duplicateTerminal = status != null && status.equalsIgnoreCase(previousStatus) && isTerminalJobStatus(status);
+        if (duplicateTerminal) {
+            return;
+        }
+        if ("succeeded".equalsIgnoreCase(status)) {
+            refreshAfterJob(action);
+        } else if ("failed".equalsIgnoreCase(status)) {
+            if (!terminalJobNotifications.add(jobId)) {
+                return;
+            }
+            String reason = stringField(data, "errorText");
+            if (reason == null || reason.isBlank()) {
+                reason = stringField(data, "message");
+            }
+            String title = action == null || action.isBlank() ? "ReSync Failed" : action + " Failed";
+            String message = reason == null || reason.isBlank() ? "Failed" : reason;
+            ScreenManager.getInstance().execute(() -> new Notification(title, message, Notification.Type.ERROR));
+        }
+    }
+
+    private void refreshAfterJob(String action) {
+        if (action == null || action.isBlank()) {
+            return;
+        }
+        switch (action) {
+            case "saveFlow", "deleteFlow" -> requestFlowList();
+            case "saveGui", "deleteGui" -> requestGuiList();
+            case "saveScoreboard", "deleteScoreboard" -> requestScoreboardList();
+            case "saveTab", "deleteTab" -> requestTabList();
+            case "saveCustomContent", "deleteCustomContent" -> requestCustomContentList();
+            case "saveWorldGenProject", "deleteWorldGenProject" -> requestWorldGenProjectList();
+            default -> {
+            }
+        }
+    }
+
+    public Map<String, com.google.gson.JsonObject> getJobs() {
+        return Map.copyOf(jobs);
+    }
+
+    private boolean isTerminalJobStatus(String status) {
+        return "succeeded".equalsIgnoreCase(status) || "failed".equalsIgnoreCase(status) || "cancelled".equalsIgnoreCase(status);
+    }
+
+    private String stringField(com.google.gson.JsonObject data, String name) {
+        if (data == null || !data.has(name) || data.get(name).isJsonNull()) {
+            return null;
+        }
+        return data.get(name).getAsString();
     }
 
     private void handleWorldGenMessage(byte[] data) {
@@ -638,7 +860,7 @@ public class ReSyncFlowClient {
         else if (type == ReSyncResourceType.CUSTOM_CONTENT) fm.markCustomContentSaved(serverId, id);
     }
 
-    private void applyServerResourceList(FlowManager fm, ReSyncResourceType type, java.util.List<String> ids) {
+    private void applyServerResourceList(FlowManager fm, ReSyncResourceType type, List<String> ids) {
         if (type == ReSyncResourceType.FLOW) fm.applyServerFlowList(serverId, ids);
         else if (type == ReSyncResourceType.GUI) fm.applyServerGuiList(serverId, ids);
         else if (type == ReSyncResourceType.SCOREBOARD) fm.applyServerScoreboardList(serverId, ids);
@@ -660,6 +882,10 @@ public class ReSyncFlowClient {
 
     private void handleTabData(ByteBuffer buffer) {
         handleResourceData(ReSyncResourceType.TAB, buffer);
+    }
+
+    private void handleCustomContentData(ByteBuffer buffer) {
+        handleResourceData(ReSyncResourceType.CUSTOM_CONTENT, buffer);
     }
 
     private void handleGuiState(ByteBuffer buffer) {
@@ -687,9 +913,9 @@ public class ReSyncFlowClient {
             }
         }
         if (editable) {
-            redxax.oxy.remotely.flow.ui.GuiEditOverlayState.update(serverId, guiId, flowId, true);
+            GuiEditOverlayState.update(serverId, guiId, flowId, true);
         } else {
-            redxax.oxy.remotely.flow.ui.GuiEditOverlayState.clear();
+            GuiEditOverlayState.clear();
         }
         if (client != null && client.getFlowManager() != null) {
             client.getFlowManager().handleGuiStatePacket(serverId, editable, guiId, flowId);
@@ -727,9 +953,12 @@ public class ReSyncFlowClient {
         buffer.get(idBytes);
         String id = new String(idBytes, StandardCharsets.UTF_8);
 
-        ScreenManager.getInstance().execute(() ->
-            new Notification(type.displayName() + " Saved", "ID: " + id, Notification.Type.SUCCESS)
-        );
+        boolean showNotification = !isBackingContentFlowAck(type, id);
+        if (showNotification) {
+            ScreenManager.getInstance().execute(() ->
+                new Notification(type.displayName() + " Saved", "ID: " + id, Notification.Type.SUCCESS)
+            );
+        }
 
         if (client != null && client.getFlowManager() != null) {
             if (type == ReSyncResourceType.TAB) {
@@ -743,17 +972,26 @@ public class ReSyncFlowClient {
         }
     }
 
+    private boolean isBackingContentFlowAck(ReSyncResourceType type, String id) {
+        if (type != ReSyncResourceType.FLOW || client == null || client.getFlowManager() == null || id == null) {
+            return false;
+        }
+        FlowGraph graph = client.getFlowManager().getFlowsForServer(serverId).get(id);
+        return CustomContentGraphAdapter.isContentGraph(graph);
+    }
+
     private void handleFlowSaveAck(ByteBuffer buffer) { handleResourceSaveAck(ReSyncResourceType.FLOW, buffer); }
     private void handleGuiSaveAck(ByteBuffer buffer) { handleResourceSaveAck(ReSyncResourceType.GUI, buffer); }
     private void handleScoreboardSaveAck(ByteBuffer buffer) { handleResourceSaveAck(ReSyncResourceType.SCOREBOARD, buffer); }
     private void handleTabSaveAck(ByteBuffer buffer) { handleResourceSaveAck(ReSyncResourceType.TAB, buffer); }
+    private void handleCustomContentSaveAck(ByteBuffer buffer) { handleResourceSaveAck(ReSyncResourceType.CUSTOM_CONTENT, buffer); }
 
     private void handleResourceList(ReSyncResourceType type, ByteBuffer buffer) {
         if (buffer.remaining() < 4) {
             return;
         }
         int count = buffer.getInt();
-        java.util.List<String> ids = new java.util.ArrayList<>();
+        List<String> ids = new ArrayList<>();
         for (int i = 0; i < count; i++) {
             if (buffer.remaining() < 4) {
                 break;
@@ -783,6 +1021,7 @@ public class ReSyncFlowClient {
     private void handleGuiList(ByteBuffer buffer) { handleResourceList(ReSyncResourceType.GUI, buffer); }
     private void handleScoreboardList(ByteBuffer buffer) { handleResourceList(ReSyncResourceType.SCOREBOARD, buffer); }
     private void handleTabList(ByteBuffer buffer) { handleResourceList(ReSyncResourceType.TAB, buffer); }
+    private void handleCustomContentList(ByteBuffer buffer) { handleResourceList(ReSyncResourceType.CUSTOM_CONTENT, buffer); }
 
     private void handleNodeRegistrySnapshot(ByteBuffer buffer, boolean fullSync) {
         byte[] jsonBytes = new byte[buffer.remaining()];
@@ -853,7 +1092,7 @@ public class ReSyncFlowClient {
         ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
         buffer.put((byte) 0x0C);
         buffer.put(jsonBytes);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+        sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
         scheduleNodeRegistryTimeout();
     }
 
@@ -871,7 +1110,29 @@ public class ReSyncFlowClient {
         buffer.put((byte) 0x37);
         buffer.putInt(sourceBytes.length);
         buffer.put(sourceBytes);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+        sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
+    }
+
+    private void requestJobSnapshots() {
+        requestFlowJobSnapshot();
+        requestWorldJobSnapshot();
+        requestWorldGenJobSnapshot();
+    }
+
+    private void requestFlowJobSnapshot() {
+        ByteBuffer buffer = ByteBuffer.allocate(1);
+        buffer.put((byte) 0x45);
+        sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
+    }
+
+    private void requestWorldJobSnapshot() {
+        LinkedHashMap<String, Object> request = new LinkedHashMap<>();
+        request.put("action", "jobSnapshot");
+        sendWorldRequest(request);
+    }
+
+    private void requestWorldGenJobSnapshot() {
+        sendWorldGenJson((byte) 0x3A, "{}");
     }
 
     private void loadCachedRegistry() {
@@ -925,7 +1186,7 @@ public class ReSyncFlowClient {
         ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
         buffer.put(type.requestByte());
         buffer.put(idBytes);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+        sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
 
     private void requestResource(ReSyncResourceType type, String id, boolean openWhenReceived) {
@@ -951,7 +1212,7 @@ public class ReSyncFlowClient {
         }
         ByteBuffer buffer = ByteBuffer.allocate(1);
         buffer.put(type.listRequestByte());
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+        sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
 
     public void requestFlow(String flowId) {
@@ -1033,7 +1294,7 @@ public class ReSyncFlowClient {
         buffer.put((byte) (usePapi ? 1 : 0));
         buffer.putInt(valueBytes.length);
         buffer.put(valueBytes);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+        sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
 
     public void requestPlayerTrackingSnapshot() {
@@ -1045,13 +1306,13 @@ public class ReSyncFlowClient {
     }
 
     public void requestWorldSnapshot() {
-        java.util.LinkedHashMap<String, Object> request = new java.util.LinkedHashMap<>();
+        LinkedHashMap<String, Object> request = new LinkedHashMap<>();
         request.put("action", "snapshot");
         sendWorldRequest(request);
     }
 
     public void requestWorldMapSnapshot(String worldName, double centerX, double centerZ, int zoom) {
-        java.util.LinkedHashMap<String, Object> request = new java.util.LinkedHashMap<>();
+        LinkedHashMap<String, Object> request = new LinkedHashMap<>();
         request.put("action", "mapSnapshot");
         request.put("worldName", worldName);
         request.put("centerX", centerX);
@@ -1077,7 +1338,7 @@ public class ReSyncFlowClient {
         request.action = action;
         request.playerId = playerId != null ? playerId.toString() : null;
         byte[] jsonBytes = gson.toJson(request).getBytes(StandardCharsets.UTF_8);
-        sendFrame(4, jsonBytes, PLAYER_TRACKING_CHANNEL_ID);
+        sendFrame(4, jsonBytes, numericChannel("player_tracking", PLAYER_TRACKING_CHANNEL_ID));
     }
 
     private void sendWorldRequest(Map<String, Object> request) {
@@ -1090,7 +1351,7 @@ public class ReSyncFlowClient {
             return;
         }
         byte[] jsonBytes = gson.toJson(request).getBytes(StandardCharsets.UTF_8);
-        sendFrame(4, jsonBytes, WORLD_MANAGEMENT_CHANNEL_ID);
+        sendFrame(4, jsonBytes, numericChannel("world_management", WORLD_MANAGEMENT_CHANNEL_ID));
     }
 
     void sendResourceSave(ReSyncResourceType type, Object item) {
@@ -1111,7 +1372,7 @@ public class ReSyncFlowClient {
         ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
         buffer.put(type.saveByte());
         buffer.put(jsonBytes);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+        sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
 
     void sendResourceDelete(ReSyncResourceType type, String id) {
@@ -1127,7 +1388,7 @@ public class ReSyncFlowClient {
         ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
         buffer.put(type.deleteByte());
         buffer.put(idBytes);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+        sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
 
     public void sendFlowSave(FlowGraph graph) { sendResourceSave(ReSyncResourceType.FLOW, graph); }
@@ -1240,10 +1501,10 @@ public class ReSyncFlowClient {
         ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
         buffer.put(packetId);
         buffer.put(jsonBytes);
-        sendFrame(4, buffer.array(), WORLDGEN_CHANNEL_ID);
+        sendFrame(4, buffer.array(), numericChannel("worldgen", WORLDGEN_CHANNEL_ID));
     }
 
-    public void sendTriggerUpdate(java.util.List<TriggerBinding> bindings) {
+    public void sendTriggerUpdate(List<TriggerBinding> bindings) {
         if (!isConnected()) {
             System.err.println("[ReSyncFlow] WebSocket not connected - queueing trigger update");
             pendingSends.add(() -> sendTriggerUpdate(bindings));
@@ -1251,18 +1512,18 @@ public class ReSyncFlowClient {
             return;
         }
 
-        String json = gson.toJson(bindings != null ? bindings : java.util.List.of());
+        String json = gson.toJson(bindings != null ? bindings : List.of());
         byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
         buffer.put((byte) 0x06);
         buffer.put(jsonBytes);
-        sendFrame(4, buffer.array(), FLOW_CHANNEL_ID);
+        sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
 
     private void sendAck(int sequence) {
         ByteBuffer buffer = ByteBuffer.allocate(4);
         buffer.putInt(sequence);
-        sendFrame(6, buffer.array(), FLOW_CHANNEL_ID);
+        sendFrame(6, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
 
     private void startHeartbeat() {
@@ -1292,6 +1553,31 @@ public class ReSyncFlowClient {
         ByteBuffer buffer = ByteBuffer.allocate(8);
         buffer.putLong(System.currentTimeMillis());
         sendFrame(5, buffer.array(), CONTROL_CHANNEL_ID);
+    }
+
+    private String normalizeWsUrl(String value) {
+        String raw = value == null ? "" : value.trim();
+        if (raw.isBlank()) {
+            return raw;
+        }
+        if (raw.startsWith("ws://") || raw.startsWith("wss://")) {
+            return raw;
+        }
+        if (raw.startsWith("http://")) {
+            return "ws://" + raw.substring("http://".length());
+        }
+        if (raw.startsWith("https://")) {
+            return "wss://" + raw.substring("https://".length());
+        }
+        return "ws://" + raw;
+    }
+
+    private String maskApiKey(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        int visible = Math.min(4, value.length());
+        return value.substring(0, visible) + "...";
     }
 
     private void scheduleReconnect() {
