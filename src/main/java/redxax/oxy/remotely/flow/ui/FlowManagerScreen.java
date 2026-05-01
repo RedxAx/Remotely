@@ -703,7 +703,13 @@ public class FlowManagerScreen extends ReScreen {
         Path configDir = pluginsPath.resolve("ReSync");
         ensureDirectory(fs, configDir);
         String apiKey = generateApiKey();
-        String configText = "port=" + RESYNC_PORT + "\napi-key=" + apiKey + "\n";
+        boolean localBackend = instance.getBackendConfig() != null && "LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
+        String bindHost = localBackend ? "127.0.0.1" : "0.0.0.0";
+        String publicBindEnabled = localBackend ? "false" : "true";
+        String configText = "port=" + RESYNC_PORT + "\n"
+            + "api-key=" + apiKey + "\n"
+            + "bind-host=" + bindHost + "\n"
+            + "public-bind-enabled=" + publicBindEnabled + "\n";
         fs.write(configDir.resolve("config.properties"), configText).get(30, TimeUnit.SECONDS);
 
         BackendConfig backendConfig = instance.getBackendConfig();

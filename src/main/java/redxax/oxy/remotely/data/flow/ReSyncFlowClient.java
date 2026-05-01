@@ -193,7 +193,7 @@ public class ReSyncFlowClient {
                         if (this.apiKey != null && !this.apiKey.isEmpty()) {
                             String wsUrl = normalizeWsUrl(serverUrl);
                             System.out.println("[ReSyncFlow] Connecting to: " + wsUrl);
-                            System.out.println("[ReSyncFlow] Using API key: " + maskApiKey(apiKey));
+                            System.out.println("[ReSyncFlow] Using API key");
                             initWebSocketConnection(wsUrl);
                         } else {
                             System.err.println("[ReSyncFlow] API key is empty or null");
@@ -1072,7 +1072,10 @@ public class ReSyncFlowClient {
             OptionCatalogPayload payload = gson.fromJson(new String(jsonBytes, StandardCharsets.UTF_8), OptionCatalogPayload.class);
             if (payload != null && payload.sourceId != null) {
                 OptionCatalogCache.getInstance().put(serverId, payload.sourceId, payload.revision, payload.values);
-                ScreenManager.getInstance().execute(() -> FlowEditorScreen.refreshCatalogForServer(serverId));
+                ScreenManager.getInstance().execute(() -> {
+                    FlowEditorScreen.refreshCatalogForServer(serverId);
+                    GuiDesignerScreen.refreshCatalogForServer(serverId);
+                });
             }
         } catch (Exception e) {
             System.err.println("[ReSyncFlow] Failed to parse option catalog: " + e.getMessage());
@@ -1345,6 +1348,7 @@ public class ReSyncFlowClient {
         if (request == null || request.isEmpty()) {
             return;
         }
+        attachRequestId(request);
         if (!isConnected()) {
             pendingSends.add(() -> sendWorldRequest(request));
             ensureConnected();
@@ -1352,6 +1356,22 @@ public class ReSyncFlowClient {
         }
         byte[] jsonBytes = gson.toJson(request).getBytes(StandardCharsets.UTF_8);
         sendFrame(4, jsonBytes, numericChannel("world_management", WORLD_MANAGEMENT_CHANNEL_ID));
+    }
+
+    private void attachRequestId(Map<String, Object> request) {
+        Object actionValue = request.get("action");
+        String action = actionValue instanceof String value ? value : "";
+        if (action.isBlank() || isReadOnlyWorldAction(action) || request.containsKey("requestId")) {
+            return;
+        }
+        request.put("requestId", stableClientId + ":" + action + ":" + UUID.randomUUID());
+    }
+
+    private boolean isReadOnlyWorldAction(String action) {
+        return switch (action) {
+            case "snapshot", "auditSnapshot", "jobSnapshot", "operationStatus", "mapSnapshot", "whoWorld", "scanUnregisteredWorlds" -> true;
+            default -> false;
+        };
     }
 
     void sendResourceSave(ReSyncResourceType type, Object item) {
@@ -1369,8 +1389,11 @@ public class ReSyncFlowClient {
         if (type == ReSyncResourceType.FLOW) {
             System.out.println("[ReSyncFlow] Sending flow save: " + jsonBytes.length + " bytes");
         }
-        ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
+        byte[] requestIdBytes = mutationRequestId(type.displayName(), type.extractId(item)).getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + 4 + requestIdBytes.length + jsonBytes.length);
         buffer.put(type.saveByte());
+        buffer.putInt(requestIdBytes.length);
+        buffer.put(requestIdBytes);
         buffer.put(jsonBytes);
         sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
@@ -1384,9 +1407,12 @@ public class ReSyncFlowClient {
             ensureConnected();
             return;
         }
+        byte[] requestIdBytes = mutationRequestId(type.displayName() + "Delete", id).getBytes(StandardCharsets.UTF_8);
         byte[] idBytes = id.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buffer = ByteBuffer.allocate(1 + idBytes.length);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + 4 + requestIdBytes.length + idBytes.length);
         buffer.put(type.deleteByte());
+        buffer.putInt(requestIdBytes.length);
+        buffer.put(requestIdBytes);
         buffer.put(idBytes);
         sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
@@ -1405,14 +1431,14 @@ public class ReSyncFlowClient {
         if (graph == null) {
             return;
         }
-        sendWorldGenJson((byte) 0x20, WorldGenSerializer.serialize(graph));
+        sendWorldGenMutationJson((byte) 0x20, "worldGenGraphSave", serverId, WorldGenSerializer.serialize(graph));
     }
 
     public void sendWorldGenSave(WorldGenProject project) {
         if (project == null) {
             return;
         }
-        sendWorldGenJson((byte) 0x30, WorldGenSerializer.serializeProject(project));
+        sendWorldGenMutationJson((byte) 0x30, "worldGenProjectSave", project.getId(), WorldGenSerializer.serializeProject(project));
     }
 
     public void requestWorldGenProject(String projectId) {
@@ -1426,7 +1452,7 @@ public class ReSyncFlowClient {
         if (projectId == null || projectId.isBlank()) {
             return;
         }
-        sendWorldGenJson((byte) 0x33, projectId);
+        sendWorldGenMutationJson((byte) 0x33, "worldGenProjectDelete", projectId, projectId);
     }
 
     public void requestWorldGenProjectList() {
@@ -1443,7 +1469,7 @@ public class ReSyncFlowClient {
         payload.put("environment", environment != null && !environment.isBlank() ? environment : "NORMAL");
         payload.put("seed", seed);
         payload.put("playerUuid", playerUuid);
-        sendWorldGenJson((byte) 0x21, gson.toJson(payload));
+        sendWorldGenMutationJson((byte) 0x21, "worldGenPreviewCreate", previewId, gson.toJson(payload));
     }
 
     public void sendWorldGenPreviewCreate(WorldGenProject project, String previewId, String environment, long seed, String playerUuid) {
@@ -1456,7 +1482,7 @@ public class ReSyncFlowClient {
         payload.put("environment", environment != null && !environment.isBlank() ? environment : "NORMAL");
         payload.put("seed", seed);
         payload.put("playerUuid", playerUuid);
-        sendWorldGenJson((byte) 0x31, gson.toJson(payload));
+        sendWorldGenMutationJson((byte) 0x31, "worldGenPreviewApply", previewId, gson.toJson(payload));
     }
 
     public void sendWorldGenPreviewApply(String projectId, WorldGenProject draftProject, String previewId, String environment, long seed, String playerUuid) {
@@ -1477,14 +1503,14 @@ public class ReSyncFlowClient {
         payload.put("environment", environment != null && !environment.isBlank() ? environment : "NORMAL");
         payload.put("seed", seed);
         payload.put("playerUuid", playerUuid);
-        sendWorldGenJson((byte) 0x31, gson.toJson(payload));
+        sendWorldGenMutationJson((byte) 0x31, "worldGenPreviewApply", previewId, gson.toJson(payload));
     }
 
     public void sendWorldGenPreviewStop(String previewId) {
         if (previewId == null || previewId.isBlank()) {
             return;
         }
-        sendWorldGenJson((byte) 0x22, gson.toJson(Map.of("previewId", previewId)));
+        sendWorldGenMutationJson((byte) 0x22, "worldGenPreviewStop", previewId, gson.toJson(Map.of("previewId", previewId)));
     }
 
     public void requestWorldGenRegistry() {
@@ -1504,6 +1530,22 @@ public class ReSyncFlowClient {
         sendFrame(4, buffer.array(), numericChannel("worldgen", WORLDGEN_CHANNEL_ID));
     }
 
+    private void sendWorldGenMutationJson(byte packetId, String action, String target, String json) {
+        if (!isConnected()) {
+            pendingSends.add(() -> sendWorldGenMutationJson(packetId, action, target, json));
+            ensureConnected();
+            return;
+        }
+        byte[] requestIdBytes = mutationRequestId(action, target).getBytes(StandardCharsets.UTF_8);
+        byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + 4 + requestIdBytes.length + jsonBytes.length);
+        buffer.put(packetId);
+        buffer.putInt(requestIdBytes.length);
+        buffer.put(requestIdBytes);
+        buffer.put(jsonBytes);
+        sendFrame(4, buffer.array(), numericChannel("worldgen", WORLDGEN_CHANNEL_ID));
+    }
+
     public void sendTriggerUpdate(List<TriggerBinding> bindings) {
         if (!isConnected()) {
             System.err.println("[ReSyncFlow] WebSocket not connected - queueing trigger update");
@@ -1514,10 +1556,17 @@ public class ReSyncFlowClient {
 
         String json = gson.toJson(bindings != null ? bindings : List.of());
         byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
+        byte[] requestIdBytes = mutationRequestId("triggerUpdate", serverId).getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + 4 + requestIdBytes.length + jsonBytes.length);
         buffer.put((byte) 0x06);
+        buffer.putInt(requestIdBytes.length);
+        buffer.put(requestIdBytes);
         buffer.put(jsonBytes);
         sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
+    }
+
+    private String mutationRequestId(String action, String target) {
+        return stableClientId + ":" + action + ":" + (target != null ? target : "") + ":" + UUID.randomUUID();
     }
 
     private void sendAck(int sequence) {
@@ -1570,14 +1619,6 @@ public class ReSyncFlowClient {
             return "wss://" + raw.substring("https://".length());
         }
         return "ws://" + raw;
-    }
-
-    private String maskApiKey(String value) {
-        if (value == null || value.isBlank()) {
-            return "";
-        }
-        int visible = Math.min(4, value.length());
-        return value.substring(0, visible) + "...";
     }
 
     private void scheduleReconnect() {

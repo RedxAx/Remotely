@@ -1833,8 +1833,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     @Override
     public void updatePositions() {
         super.updatePositions();
-        DesktopBounds.Bounds tabBounds = desktopBounds().taskbarTabs();
-        tabs().setPosition(tabBounds.x(), tabBounds.y());
+        relayoutDesktopTabs();
         positionReactorPlanSelectionCards();
         if (noServersOverlay != null) {
             DesktopBounds.Bounds contentBounds = desktopBounds().content();
