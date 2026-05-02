@@ -10,4 +10,7 @@ import org.spongepowered.asm.mixin.gen.Invoker;
 public interface ScreenAccessor {
     @Invoker("addRenderableWidget")
     <T extends GuiEventListener & NarratableEntry> T remotely$addRenderableWidget(T widget);
+
+    @Invoker("removeWidget")
+    void remotely$removeWidget(GuiEventListener widget);
 }

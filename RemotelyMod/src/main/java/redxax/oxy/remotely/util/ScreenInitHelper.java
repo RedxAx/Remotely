@@ -3,6 +3,8 @@ package redxax.oxy.remotely.util;
 import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.TitleScreen;
+import net.minecraft.client.resources.language.I18n;
 import net.minecraft.network.chat.Component;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.adapters.ICustomWidgetHolder;
@@ -10,13 +12,52 @@ import redxax.oxy.remotely.mixin.accessor.ScreenAccessor;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Set;
+import java.util.WeakHashMap;
+
 import static redxax.oxy.remotely.config.Config.mainMenuStyle;
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public class ScreenInitHelper {
 
+    private static final Set<Screen> initializedTitleScreens = Collections.newSetFromMap(new WeakHashMap<>());
+    private static final WeakHashMap<Screen, List<AbstractButton>> titleScreenButtons = new WeakHashMap<>();
+
     public static void init(Screen screen, AbstractButton anchorButton) {
         init(screen, anchorButton, false);
+    }
+
+    public static void resetTitleScreen(Screen screen) {
+        initializedTitleScreens.remove(screen);
+        List<AbstractButton> buttons = titleScreenButtons.remove(screen);
+        if (buttons == null) return;
+        for (AbstractButton button : buttons) {
+            ((ScreenAccessor) screen).remotely$removeWidget(button);
+        }
+    }
+
+    public static void ensureTitleScreenButtons(Screen screen) {
+        if (!(screen instanceof TitleScreen) || initializedTitleScreens.contains(screen)) return;
+
+        String optionsButtonText = I18n.get("menu.options");
+        AbstractButton optionsButton = screen.children().stream()
+            .filter(child -> child instanceof AbstractButton)
+            .map(child -> (AbstractButton) child)
+            .filter(button -> button.getMessage().getString().equals(optionsButtonText))
+            .findFirst()
+            .orElse(null);
+
+        if (optionsButton == null) {
+            System.err.println("[Remotely] Could not find Options button to attach additional buttons.");
+            initializedTitleScreens.add(screen);
+            return;
+        }
+
+        init(screen, optionsButton, true);
+        initializedTitleScreens.add(screen);
     }
 
     public static void init(Screen screen, AbstractButton anchorButton, boolean isTitleScreen) {
@@ -35,7 +76,7 @@ public class ScreenInitHelper {
         switch (mainMenuStyle) {
             case "Vanilla" -> {
                 int buttonX = anchorX;
-                int buttonY = anchorY + anchorHeight + 5;
+                int buttonY = getAnchoredY(screen, anchorY, anchorHeight, 5, 20, isTitleScreen);
                 int smallButtonWidth = 50;
                 int largeButtonWidth = 100;
                 int gap = 5;
@@ -50,6 +91,9 @@ public class ScreenInitHelper {
                 ((ScreenAccessor) screen).remotely$addRenderableWidget(fileExplorerButton);
                 AbstractButton terminalButton = Button.builder(Component.literal("Terminal"), btn -> openMultiTerminalScreen(screen)).bounds(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY, smallButtonWidth, 20).build();
                 ((ScreenAccessor) screen).remotely$addRenderableWidget(terminalButton);
+                if (isTitleScreen) {
+                    titleScreenButtons.put(screen, new ArrayList<>(List.of(serverButton, fileExplorerButton, terminalButton)));
+                }
                 //#else
                 //$$ AbstractButton serverButton = new Button(buttonX, buttonY, smallButtonWidth, 20, Component.literal("Servers"), btn -> openServerManagerScreen(screen));
                 //$$ ((ScreenAccessor) screen).remotely$addRenderableWidget(serverButton);
@@ -63,7 +107,7 @@ public class ScreenInitHelper {
                 int spacing = 4;
                 int buttonSize = 18;
                 int startX = anchorX + 1;
-                int buttonY = anchorY + anchorHeight + 4;
+                int buttonY = getAnchoredY(screen, anchorY, anchorHeight, 4, 18, isTitleScreen);
 
                 SquareButtonWidget serverBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("manager.png").onClick(() -> openServerManagerScreen(screen)).build();
                 serverBtn.setPosition(startX, buttonY);
@@ -79,7 +123,7 @@ public class ScreenInitHelper {
             }
             case "Normal" -> {
                 int buttonX = anchorX + 1;
-                int buttonY = anchorY + anchorHeight + 18;
+                int buttonY = getAnchoredY(screen, anchorY, anchorHeight, 4, 18, isTitleScreen);
                 int smallButtonWidth = 50;
                 int largeButtonWidth = 100;
                 int gap = 5;
@@ -100,6 +144,20 @@ public class ScreenInitHelper {
                 widgetHolder.remotely$addWidget(terminalBtn);
             }
         }
+    }
+
+    private static int getAnchoredY(Screen screen, int anchorY, int anchorHeight, int offset, int buttonHeight, boolean isTitleScreen) {
+        int buttonY = anchorY + anchorHeight + offset;
+        if (!isTitleScreen) return buttonY;
+
+        int topMargin = 6;
+        int bottomY = screen.height - buttonHeight - topMargin;
+        if (buttonY <= bottomY) return Math.max(topMargin, buttonY);
+
+        int aboveY = anchorY - offset - buttonHeight;
+        if (aboveY >= topMargin) return aboveY;
+
+        return Math.max(topMargin, bottomY);
     }
 
     private static void openServerManagerScreen(Screen screen) {
