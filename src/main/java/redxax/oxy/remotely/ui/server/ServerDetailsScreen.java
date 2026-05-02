@@ -829,8 +829,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         api.console().startServer().thenAccept(command -> ScreenManager.getInstance().execute(() -> {
             String type = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
             if ("SSH".equalsIgnoreCase(type)) {
-                if (info.getTerminalWidget() != null) {
-                    info.getTerminalWidget().stopProcess();
+                if (info.getTerminalWidget() != null && !info.getTerminalWidget().isTerminalReady()) {
                     info.getTerminalWidget().startServerProcess();
                 }
                 return;

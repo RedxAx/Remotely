@@ -26,6 +26,10 @@ public class OptionCatalogCache {
         return catalog != null && !catalog.values().isEmpty();
     }
 
+    public boolean hasCatalog(String serverId, String sourceId) {
+        return catalogs.containsKey(key(serverId, sourceId));
+    }
+
     private String key(String serverId, String sourceId) {
         return (serverId != null ? serverId : "") + ":" + (sourceId != null ? sourceId : "");
     }

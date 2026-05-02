@@ -37,7 +37,6 @@ import restudio.rescreen.ui.widgets.ToggleWidget;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Set;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -107,6 +106,9 @@ public class NodeWidget extends AnimatedWidget {
         this.nodeId = nodeId;
         this.serverId = serverId;
         this.definition = resolveDefinition(serverId, node.getType());
+        if (definition == null) {
+            requestNodeRegistry();
+        }
         this.enableHoverColors = true;
         this.selectable = true;
         this.animateElevation = false;
@@ -148,7 +150,7 @@ public class NodeWidget extends AnimatedWidget {
             createOutputWidgets();
             updateSize();
         } else {
-            createDefaultPins();
+            createLoadingState();
         }
     }
 
@@ -157,122 +159,14 @@ public class NodeWidget extends AnimatedWidget {
         if (definition != null) {
             return definition;
         }
-        definition = buildContentDefinition(nodeType);
-        if (definition != null) {
-            return definition;
+        return null;
+    }
+
+    private void requestNodeRegistry() {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager != null) {
+            manager.ensureFlowClient(serverId).requestNodeRegistry();
         }
-        return buildAbilityDefinition(nodeType);
-    }
-
-    private static NodeDefinition buildAbilityDefinition(String nodeType) {
-        if (!"ability.particle_burst".equals(nodeType) && !"ability.spawn_particle_burst".equals(nodeType)) {
-            return null;
-        }
-        NodeDefinition.Builder builder = new NodeDefinition.Builder(nodeType, "Particle Burst", NodeDefinition.NodeCategory.ABILITY)
-            .handler("AbilityEffectHandler")
-            .handlerConfig(Map.of("operation", "particle_burst"));
-        builder.input(new NodeDefinition.PinDefinition("flow", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.INPUT, FlowDataType.EXECUTION));
-        builder.input(pin("location", FlowDataType.LOCATION).build());
-        builder.input(pin("particle", FlowDataType.STRING).widget(NodeDefinition.WidgetType.SEARCHABLE_LIST).optionsSource("server:minecraft:particle").defaultValue("FLAME").build());
-        builder.input(pin("count", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("24").build());
-        builder.input(pin("spread", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("0.6").build());
-        builder.input(pin("speed", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("0.02").build());
-        builder.output("flow", NodeDefinition.PinType.FLOW, FlowDataType.EXECUTION);
-        return builder.build();
-    }
-
-    private static NodeDefinition buildContentDefinition(String nodeType) {
-        String contentType = CustomContentGraphAdapter.typeFromNode(nodeType);
-        if (contentType == null) {
-            return null;
-        }
-        NodeDefinition.Builder builder = new NodeDefinition.Builder(nodeType, contentTitle(contentType), contentCategory(contentType))
-            .handler("CustomContentHandler")
-            .handlerConfig(Map.of("operation", "content_start"));
-        addContentInputs(builder, contentType);
-        addContentOutputs(builder, contentType);
-        return builder.build();
-    }
-
-    private static void addContentInputs(NodeDefinition.Builder builder, String contentType) {
-        builder.input(pin("content_id", FlowDataType.STRING).defaultValue("new_" + contentType).build());
-        builder.input(pin("name", FlowDataType.STRING).defaultValue("New " + contentTitle(contentType)).build());
-        builder.input(pin("material", FlowDataType.STRING).optionsSource("server:minecraft:material").defaultValue(defaultContentMaterial(contentType)).build());
-        if ("armor".equals(contentType)) {
-            builder.input(pin("armor_slot", FlowDataType.STRING).widget(NodeDefinition.WidgetType.DROPDOWN).options(List.of("head", "chest", "legs", "feet")).defaultValue("chest").build());
-        }
-        builder.input(pin("provider", FlowDataType.STRING).widget(NodeDefinition.WidgetType.DROPDOWN).options(List.of("vanilla", "oraxen", "itemsadder", "nexo")).defaultValue("vanilla").build());
-        builder.input(pin("external_id", FlowDataType.STRING).build());
-        builder.input(pin("cooldown_scope", FlowDataType.STRING).widget(NodeDefinition.WidgetType.DROPDOWN).options(cooldownScopes(contentType)).defaultValue("player").build());
-        builder.input(pin("cooldown_ticks", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("0").build());
-        builder.input(pin("permission", FlowDataType.STRING).build());
-        builder.input(pin("cancel_event", FlowDataType.BOOLEAN).defaultValue("false").build());
-        builder.input(pin("consume_event", FlowDataType.BOOLEAN).defaultValue("false").build());
-        builder.input(pin("require_sneaking", FlowDataType.BOOLEAN).defaultValue("false").build());
-        builder.input(pin("require_on_ground", FlowDataType.BOOLEAN).defaultValue("false").build());
-        if (!"armor".equals(contentType)) {
-            builder.input(pin("hand_filter", FlowDataType.STRING).widget(NodeDefinition.WidgetType.DROPDOWN).options(List.of("any", "main hand", "offhand")).defaultValue("any").build());
-        }
-        builder.input(pin("target_filter", FlowDataType.STRING).widget(NodeDefinition.WidgetType.DROPDOWN).options(List.of("any", "player", "living entity", "hostile", "passive")).defaultValue("any").build());
-        builder.input(pin("allowed_worlds", FlowDataType.STRING).build());
-        builder.input(pin("denied_worlds", FlowDataType.STRING).build());
-        builder.input(pin("chance_percent", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("100").build());
-        builder.input(pin("max_activations_per_tick", FlowDataType.NUMBER).widget(NodeDefinition.WidgetType.NUMBER).defaultValue("0").build());
-    }
-
-    private static void addContentOutputs(NodeDefinition.Builder builder, String contentType) {
-        for (String branch : contentBranches(contentType)) {
-            builder.output(branch, NodeDefinition.PinType.FLOW, FlowDataType.EXECUTION);
-        }
-        builder.output("player", NodeDefinition.PinType.DATA, FlowDataType.PLAYER);
-        builder.output("content_id", NodeDefinition.PinType.DATA, FlowDataType.STRING);
-        builder.output("content_type", NodeDefinition.PinType.DATA, FlowDataType.STRING);
-        builder.output("trigger", NodeDefinition.PinType.DATA, FlowDataType.STRING);
-        builder.output("item", NodeDefinition.PinType.DATA, FlowDataType.ITEMSTACK);
-        if (!"armor".equals(contentType)) {
-            builder.output("block", NodeDefinition.PinType.DATA, FlowDataType.BLOCK);
-        }
-        builder.output("target", NodeDefinition.PinType.DATA, FlowDataType.ENTITY);
-        builder.output("location", NodeDefinition.PinType.DATA, FlowDataType.LOCATION);
-        if (!"block".equals(contentType)) {
-            builder.output("damage", NodeDefinition.PinType.DATA, FlowDataType.NUMBER);
-        }
-    }
-
-    private static NodeDefinition.PinBuilder pin(String name, FlowDataType dataType) {
-        return new NodeDefinition.PinBuilder(name, NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, dataType);
-    }
-
-    private static NodeDefinition.NodeCategory contentCategory(String contentType) {
-        return "block".equals(contentType) ? NodeDefinition.NodeCategory.BLOCK : NodeDefinition.NodeCategory.ITEM;
-    }
-
-    private static String contentTitle(String contentType) {
-        return switch (contentType) {
-            case "block" -> "Block";
-            case "armor" -> "Armor";
-            default -> "Item";
-        };
-    }
-
-    private static String defaultContentMaterial(String contentType) {
-        return switch (contentType) {
-            case "block" -> "STONE";
-            case "armor" -> "IRON_CHESTPLATE";
-            default -> "STICK";
-        };
-    }
-
-    private static List<String> cooldownScopes(String contentType) {
-        return "block".equals(contentType) ? List.of("player", "content", "global") : List.of("player", "item instance", "content", "global");
-    }
-
-    private static List<String> contentBranches(String contentType) {
-        return switch (contentType) {
-            case "block" -> List.of("place", "break", "interact", "step_on", "nearby_player", "redstone", "tick");
-            case "armor" -> List.of("equip", "unequip", "damaged", "tick", "full_set", "full_set_tick");
-            default -> List.of("use", "left_click", "right_click", "hit_entity", "damage_entity", "break_block", "consume", "drop", "pickup");
-        };
     }
 
     private void createInputWidgets() {
@@ -313,8 +207,7 @@ public class NodeWidget extends AnimatedWidget {
                 return new DropDownWidget.Builder<>(options)
                     .selectedItem(selected)
                     .onSelectionChanged(value -> {
-                        saveInputValue();
-                        updatePinVisibility();
+                        handleInputValueChanged(input);
                     })
                     .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
                     .entranceAnimation(false)
@@ -333,8 +226,7 @@ public class NodeWidget extends AnimatedWidget {
                 ToggleWidget widget = new ToggleWidget.Builder()
                     .toggled(toggled)
                     .onChange(() -> {
-                        saveInputValue();
-                        updatePinVisibility();
+                        handleInputValueChanged(input);
                     })
                     .entranceAnimation(false)
                     .build();
@@ -361,8 +253,7 @@ public class NodeWidget extends AnimatedWidget {
                     .step(step)
                     .value(value)
                     .onChange(() -> {
-                        saveInputValue();
-                        updatePinVisibility();
+                        handleInputValueChanged(input);
                     })
                     .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
                     .entranceAnimation(false)
@@ -396,8 +287,7 @@ public class NodeWidget extends AnimatedWidget {
                 return new ColorFieldWidget.Builder()
                     .color(textValue)
                     .onChange(() -> {
-                        saveInputValue();
-                        updatePinVisibility();
+                        handleInputValueChanged(input);
                     })
                     .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
                     .entranceAnimation(false)
@@ -421,6 +311,15 @@ public class NodeWidget extends AnimatedWidget {
             .build();
     }
 
+    private void handleInputValueChanged(NodeDefinition.PinDefinition input) {
+        saveInputValue();
+        if (isCustomContentProviderInput(input)) {
+            refreshInputWidgets();
+            return;
+        }
+        updatePinVisibility();
+    }
+
     private Widget buildSearchableSelector(NodeDefinition.PinDefinition input, List<String> options, String selected) {
         AnimatedButton button = new AnimatedButton.Builder()
             .label(selected)
@@ -436,8 +335,7 @@ public class NodeWidget extends AnimatedWidget {
                 }
                 node.getInputValues().put(input.getName(), option);
                 button.setMessage(option);
-                saveInputValue();
-                updatePinVisibility();
+                handleInputValueChanged(input);
             };
             if (screen instanceof FlowEditorScreen flowEditorScreen) {
                 flowEditorScreen.showNodeInputSelector(options, selected, onSelected, button.getX(), button.getY() + button.getHeight());
@@ -464,23 +362,65 @@ public class NodeWidget extends AnimatedWidget {
         if (options != null && !options.isEmpty()) {
             return options;
         }
+        if (isNexoExternalIdInput(input)) {
+            return resolveNexoExternalIdOptions();
+        }
         String source = input.getOptionsSource();
         if (source != null && source.startsWith("server:")) {
             List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
             if (!values.isEmpty()) {
                 return values;
             }
-            FlowManager manager = FlowManager.getInstance();
-            if (manager != null) {
-                manager.ensureFlowClient(serverId).requestOptionCatalog(source);
+            if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
+                requestOptionCatalog(source);
+                return List.of("Loading");
             }
-            return List.of("Loading");
+            return List.of();
         }
         String catalog = resolveMinecraftCatalog(input.getOptionsSource());
         if (catalog != null) {
             return catalogOptions(catalog);
         }
         return List.of();
+    }
+
+    private List<String> resolveNexoExternalIdOptions() {
+        List<String> values = new ArrayList<>();
+        boolean loading = false;
+        for (String source : nexoExternalIdSources()) {
+            List<String> sourceValues = OptionCatalogCache.getInstance().getValues(serverId, source);
+            if (!sourceValues.isEmpty()) {
+                values.addAll(sourceValues);
+                continue;
+            }
+            if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
+                requestOptionCatalog(source);
+                loading = true;
+            }
+        }
+        if (!values.isEmpty()) {
+            return values.stream()
+                .distinct()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+        }
+        return loading ? List.of("Loading") : List.of();
+    }
+
+    private List<String> nexoExternalIdSources() {
+        String contentType = CustomContentGraphAdapter.typeFromNode(node.getType());
+        return switch (contentType) {
+            case "block" -> List.of("server:custom_content:nexo_block", "server:custom_content:nexo_furniture");
+            case "armor" -> List.of("server:custom_content:nexo_armor");
+            default -> List.of("server:custom_content:nexo_item");
+        };
+    }
+
+    private void requestOptionCatalog(String source) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager != null) {
+            manager.ensureFlowClient(serverId).requestOptionCatalog(source);
+        }
     }
 
     private List<String> catalogOptions(String catalog) {
@@ -622,6 +562,9 @@ public class NodeWidget extends AnimatedWidget {
         if (input.getWidgetType() != null && input.getWidgetType() != NodeDefinition.WidgetType.AUTO) {
             return input.getWidgetType();
         }
+        if (isCustomContentExternalIdInput(input)) {
+            return isNexoProviderSelected() ? NodeDefinition.WidgetType.SEARCHABLE_LIST : NodeDefinition.WidgetType.TEXT;
+        }
         String optionsSource = input.getOptionsSource();
         if (optionsSource != null && !optionsSource.isBlank()) {
             NodeRegistry registry = NodeRegistry.getInstance();
@@ -639,6 +582,26 @@ public class NodeWidget extends AnimatedWidget {
             return NodeDefinition.WidgetType.TOGGLE;
         }
         return NodeDefinition.WidgetType.TEXT;
+    }
+
+    private boolean isCustomContentProviderInput(NodeDefinition.PinDefinition input) {
+        return "provider".equals(input.getName()) && CustomContentGraphAdapter.typeFromNode(node.getType()) != null;
+    }
+
+    private boolean isCustomContentExternalIdInput(NodeDefinition.PinDefinition input) {
+        return "external_id".equals(input.getName()) && CustomContentGraphAdapter.typeFromNode(node.getType()) != null;
+    }
+
+    private boolean isNexoExternalIdInput(NodeDefinition.PinDefinition input) {
+        return isCustomContentExternalIdInput(input) && isNexoProviderSelected();
+    }
+
+    private boolean isNexoProviderSelected() {
+        if (node.getInputValues() == null) {
+            return false;
+        }
+        Object provider = node.getInputValues().get("provider");
+        return provider != null && "nexo".equalsIgnoreCase(provider.toString());
     }
 
     private String resolveMinecraftCatalog(String optionsSource) {
@@ -682,6 +645,7 @@ public class NodeWidget extends AnimatedWidget {
             createOutputWidgets();
             return;
         }
+        seedFlowBranches();
         for (NodeDefinition.PinDefinition input : inputs) {
             boolean shouldShow = evaluateVisibleWhen(input.getVisibleWhen());
             Widget widget = inputWidgets.get(input.getName());
@@ -698,16 +662,30 @@ public class NodeWidget extends AnimatedWidget {
         updateOutputWidgetPositions();
     }
 
+    private void seedFlowBranches() {
+        List<NodeDefinition.PinDefinition> flowOutputs = new ArrayList<>();
+        for (NodeDefinition.PinDefinition output : outputs) {
+            if (isFlowOutput(output) && evaluateVisibleWhen(output.getVisibleWhen())) {
+                flowOutputs.add(output);
+            }
+        }
+        if (flowOutputs.size() > 2) {
+            node.getInputValues().put(FLOW_BRANCHES_KEY, resolveFlowBranches(flowOutputs));
+        }
+    }
+
     private boolean evaluateVisibleWhen(Map<String, String> visibleWhen) {
         if (visibleWhen == null || visibleWhen.isEmpty()) {
             return true;
         }
+        if (node.getInputValues() == null) {
+            return true;
+        }
         for (Map.Entry<String, String> condition : visibleWhen.entrySet()) {
             Object actualValue = node.getInputValues().get(condition.getKey());
-            String actual = actualValue != null ? actualValue.toString() : "";
             boolean matches = false;
             for (String expected : condition.getValue().split(",")) {
-                if (actual.equalsIgnoreCase(expected.trim())) {
+                if (matchesVisibleValue(actualValue, expected.trim())) {
                     matches = true;
                     break;
                 }
@@ -717,6 +695,22 @@ public class NodeWidget extends AnimatedWidget {
             }
         }
         return true;
+    }
+
+    private boolean matchesVisibleValue(Object actualValue, String expected) {
+        if (expected == null || expected.isBlank()) {
+            return false;
+        }
+        if (actualValue instanceof Iterable<?> values) {
+            for (Object value : values) {
+                if (value != null && expected.equalsIgnoreCase(value.toString().trim())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        String actual = actualValue != null ? actualValue.toString().trim() : "";
+        return actual.equalsIgnoreCase(expected);
     }
 
     public void refreshInputWidgets() {
@@ -990,15 +984,11 @@ public class NodeWidget extends AnimatedWidget {
         return false;
     }
 
-    private void createDefaultPins() {
+    private void createLoadingState() {
         inputs.clear();
         outputs.clear();
         visibleInputs.clear();
-        inputs.add(new NodeDefinition.PinDefinition("in", NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.INPUT, FlowDataType.ANY));
-        outputs.add(new NodeDefinition.PinDefinition("out", NodeDefinition.PinType.FLOW, NodeDefinition.PinDirection.OUTPUT, FlowDataType.EXECUTION));
-        visibleInputs.addAll(inputs);
         visibleOutputs.clear();
-        visibleOutputs.addAll(outputs);
         updateSize();
     }
 
@@ -1019,7 +1009,7 @@ public class NodeWidget extends AnimatedWidget {
         ctx.fill(getX(), getY(), getX() + getWidth(), getY() + TITLE_HEIGHT, headerBg);
         Render.drawInnerBorder(ctx, getX(), getY(), getWidth(), TITLE_HEIGHT, borderColor);
         ctx.fill(getX(), getY() + TITLE_HEIGHT, getWidth() + getX(), getY() + TITLE_HEIGHT + 1, this.borderColor);
-        ctx.drawText(definition != null ? definition.getDisplayName() : node.getType(), getX() + 4, getY() + 4, headerText, shadow);
+        ctx.drawText(definition != null ? definition.getDisplayName() : "Loading", getX() + 4, getY() + 4, headerText, shadow);
 
         if (closeButton.visible) {
             int closeX = getX() + getWidth() - PADDING - CLOSE_BUTTON_WIDTH;
@@ -1034,6 +1024,14 @@ public class NodeWidget extends AnimatedWidget {
 
         updateInputWidgetPositions();
         updateOutputWidgetPositions();
+
+        if (definition == null) {
+            String text = node.getType() == null || node.getType().isBlank() ? "Loading Definition" : "Loading " + node.getType();
+            int textX = getX() + PADDING;
+            int textY = getY() + TITLE_HEIGHT + PADDING + 2;
+            ctx.drawText(text, textX, textY, labelText, shadow);
+            return;
+        }
 
         int rightColumnWidth = getRightColumnWidth();
         int rightColumnStart = getX() + getWidth() - PADDING - rightColumnWidth;
@@ -1663,8 +1661,7 @@ public class NodeWidget extends AnimatedWidget {
         }
 
         saveFlowBranches();
-        createOutputWidgets();
-        updateSize();
+        updatePinVisibility();
     }
 
     private void updateAddBranchButton(List<NodeDefinition.PinDefinition> flowOutputs) {
@@ -1705,8 +1702,7 @@ public class NodeWidget extends AnimatedWidget {
             }
         }
         saveFlowBranches();
-        createOutputWidgets();
-        updateSize();
+        updatePinVisibility();
     }
 
     private void saveFlowBranches() {

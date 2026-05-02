@@ -23,6 +23,7 @@ import java.util.Map;
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public class NodeRegistryCache {
+    private static final int CACHE_SCHEMA_VERSION = 2;
     private static NodeRegistryCache INSTANCE;
     private final Gson gson = new GsonBuilder()
             .registerTypeAdapter(FlowDataType.class, new FlowDataTypeAdapter())
@@ -64,6 +65,8 @@ public class NodeRegistryCache {
         }
         NodeRegistrySnapshot snapshot = new NodeRegistrySnapshot();
         snapshot.setFullSync(true);
+        snapshot.setRegistryChecksum(cache.registryChecksum);
+        snapshot.setGeneratedAt(cache.generatedAt);
         snapshot.setNodeIds(new ArrayList<>(cache.nodeIds));
         snapshot.setPlugins(new ArrayList<>(cache.plugins.values()));
         snapshot.setRemovedPlugins(new ArrayList<>());
@@ -112,8 +115,22 @@ public class NodeRegistryCache {
         if (snapshot.getNodeIds() != null && !snapshot.getNodeIds().isEmpty()) {
             cache.nodeIds = new ArrayList<>(snapshot.getNodeIds());
         }
+        if (snapshot.getRegistryChecksum() != null && !snapshot.getRegistryChecksum().isBlank()) {
+            cache.registryChecksum = snapshot.getRegistryChecksum();
+        }
+        if (snapshot.getGeneratedAt() > 0) {
+            cache.generatedAt = snapshot.getGeneratedAt();
+        }
         cache.updatedAt = System.currentTimeMillis();
         save();
+    }
+
+    public synchronized CacheDiagnostic getDiagnostic(String serverId) {
+        ServerCache cache = serverId != null ? state.servers.get(serverId) : null;
+        if (cache == null) {
+            return new CacheDiagnostic(false, 0, 0, 0, "", 0, 0);
+        }
+        return new CacheDiagnostic(true, cache.nodeIds.size(), cache.plugins.size(), cache.updatedAt, cache.registryChecksum, cache.generatedAt, state.schemaVersion);
     }
 
     private void load() {
@@ -124,7 +141,12 @@ public class NodeRegistryCache {
             String json = Files.readString(cachePath);
             CacheState loaded = gson.fromJson(json, CacheState.class);
             if (loaded != null && loaded.servers != null) {
-                this.state = loaded;
+                if (loaded.schemaVersion == CACHE_SCHEMA_VERSION) {
+                    this.state = loaded;
+                } else {
+                    this.state = new CacheState();
+                    save();
+                }
             }
         } catch (IOException | JsonSyntaxException e) {
             System.err.println("[Flow] Failed to load node registry cache: " + e.getMessage());
@@ -141,12 +163,18 @@ public class NodeRegistryCache {
     }
 
     private static class CacheState {
+        private int schemaVersion = CACHE_SCHEMA_VERSION;
         private Map<String, ServerCache> servers = new HashMap<>();
     }
 
     private static class ServerCache {
         private List<String> nodeIds = new ArrayList<>();
         private Map<String, NodePluginPayload> plugins = new HashMap<>();
+        private String registryChecksum = "";
+        private long generatedAt = 0L;
         private long updatedAt = 0L;
+    }
+
+    public record CacheDiagnostic(boolean present, int nodeCount, int pluginCount, long updatedAt, String registryChecksum, long generatedAt, int schemaVersion) {
     }
 }
