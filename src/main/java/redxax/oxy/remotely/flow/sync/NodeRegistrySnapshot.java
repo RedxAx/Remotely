@@ -8,6 +8,8 @@ import java.util.Map;
 
 public class NodeRegistrySnapshot {
     private boolean fullSync;
+    private String registryChecksum;
+    private long generatedAt;
     private List<String> nodeIds = new ArrayList<>();
     private List<NodePluginPayload> plugins = new ArrayList<>();
     private List<String> removedPlugins = new ArrayList<>();
@@ -24,6 +26,22 @@ public class NodeRegistrySnapshot {
 
     public void setFullSync(boolean fullSync) {
         this.fullSync = fullSync;
+    }
+
+    public String getRegistryChecksum() {
+        return registryChecksum;
+    }
+
+    public void setRegistryChecksum(String registryChecksum) {
+        this.registryChecksum = registryChecksum;
+    }
+
+    public long getGeneratedAt() {
+        return generatedAt;
+    }
+
+    public void setGeneratedAt(long generatedAt) {
+        this.generatedAt = generatedAt;
     }
 
     public List<String> getNodeIds() {
