@@ -34,6 +34,7 @@ import redxax.oxy.remotely.servers.ReverseProxyManager;
 import redxax.oxy.remotely.ui.tests.ContainerTestingScreen;
 import redxax.oxy.remotely.ui.tests.WidgetsTestingScreen;
 import redxax.oxy.remotely.util.CursorUtils;
+import redxax.oxy.remotely.util.ScreenInitHelper;
 import restudio.rescreen.Main;
 import restudio.rescreen.ui.MouseCursor;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -105,6 +106,7 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
         CursorUtils.tick();
         Config.globalCursorAnimatedColor = CursorUtils.blendColor();
 
+        ScreenInitHelper.ensureTitleScreenButtons((Screen) (Object) this);
         remotely$updateEditOverlay();
 
         boolean hasWidgets = !remotely$customWidgets.isEmpty();
