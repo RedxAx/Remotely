@@ -74,6 +74,8 @@ public class NodeWidget extends AnimatedWidget {
     private static final int INPUT_WIDGET_WIDTH = 90;
     private static final int INPUT_WIDGET_HEIGHT = 16;
     private static final int OUTPUT_WIDGET_WIDTH = 100;
+    private static final int PASSTHROUGH_DASH_SIZE = 7;
+    private static final int PASSTHROUGH_DASH_GAP = 5;
     private static final int TOGGLE_WIDGET_WIDTH = 28;
     private static final int TOGGLE_WIDGET_HEIGHT = 12;
     private static final int COLUMN_GAP = 12;
@@ -83,6 +85,7 @@ public class NodeWidget extends AnimatedWidget {
     private static final int CLOSE_BUTTON_WIDTH = 12;
     private static final int CLOSE_BUTTON_HEIGHT = 8;
     private static final String FLOW_BRANCHES_KEY = "__flow_branches";
+    private static final String PASSTHROUGH_OUTPUT_PREFIX = "__passthrough:";
     private static final String FUNCTION_START_ID = "function_start";
     private static final String FUNCTION_END_ID = "function_end";
 
@@ -999,6 +1002,21 @@ public class NodeWidget extends AnimatedWidget {
         return dataType.getColor();
     }
 
+    public static boolean isPassthroughOutputPin(String pinName) {
+        return pinName != null && pinName.startsWith(PASSTHROUGH_OUTPUT_PREFIX);
+    }
+
+    public static String passthroughOutputPin(String inputPin) {
+        return PASSTHROUGH_OUTPUT_PREFIX + inputPin;
+    }
+
+    public static String passthroughInputPin(String outputPin) {
+        if (!isPassthroughOutputPin(outputPin)) {
+            return outputPin;
+        }
+        return outputPin.substring(PASSTHROUGH_OUTPUT_PREFIX.length());
+    }
+
     @Override
     protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
         int headerBg = ThemeManager.getColor(ThemeColor.inClickableBackground);
@@ -1036,6 +1054,8 @@ public class NodeWidget extends AnimatedWidget {
         int rightColumnWidth = getRightColumnWidth();
         int rightColumnStart = getX() + getWidth() - PADDING - rightColumnWidth;
 
+        drawPassthroughGuides(ctx);
+
         for (int i = 0; i < visibleInputs.size(); i++) {
             NodeDefinition.PinDefinition input = visibleInputs.get(i);
             int rowY = getRowStartY() + i * (ROW_HEIGHT + ROW_SPACING);
@@ -1054,9 +1074,10 @@ public class NodeWidget extends AnimatedWidget {
             int textY = rowY + (ROW_HEIGHT - ITextRenderer.fontHeight) / 2 + 1;
             DropDownWidget<String> branchWidget = getBranchWidget(output.getName());
             if (branchWidget == null) {
-                int labelWidth = tr.getWidth(output.getName());
+                String outputLabel = passthroughInputPin(output.getName());
+                int labelWidth = tr.getWidth(outputLabel);
                 int labelX = pinX - PIN_TEXT_GAP - labelWidth;
-                ctx.drawText(output.getName(), labelX, textY, labelText, shadow);
+                ctx.drawText(outputLabel, labelX, textY, labelText, shadow);
             }
             drawPinButton(ctx, pinX, pinY, getPinColor(output.getDataType()));
         }
@@ -1082,6 +1103,30 @@ public class NodeWidget extends AnimatedWidget {
         }
     }
 
+    @Override
+    public void renderHintOverlay(IDrawContext context) {
+        super.renderHintOverlay(context);
+        if (closeButton.visible) {
+            closeButton.renderHintOverlay(context);
+        }
+        if (paramButton != null) {
+            paramButton.renderHintOverlay(context);
+        }
+        for (Widget widget : inputWidgets.values()) {
+            if (widget instanceof AnimatedWidget animated && widget.isVisible()) {
+                animated.renderHintOverlay(context);
+            }
+        }
+        for (FlowBranch branch : flowBranches) {
+            if (branch.widget != null && branch.widget.isVisible()) {
+                branch.widget.renderHintOverlay(context);
+            }
+        }
+        if (addBranchButton != null && addBranchButton.visible) {
+            addBranchButton.renderHintOverlay(context);
+        }
+    }
+
     private void updateSize() {
         int rowCount = Math.max(visibleInputs.size(), visibleOutputs.size());
         int leftColumnWidth = getLeftColumnWidth();
@@ -1102,6 +1147,57 @@ public class NodeWidget extends AnimatedWidget {
 
         setWidth(Math.max(minWidth, Math.max(titleWidth, PADDING * 2 + contentWidth)));
         setHeight(TITLE_HEIGHT + PADDING * 2 + contentHeight);
+    }
+
+    private void drawPassthroughGuides(IDrawContext ctx) {
+        for (NodeDefinition.PinDefinition output : visibleOutputs) {
+            if (!isPassthroughOutputPin(output.getName())) {
+                continue;
+            }
+            String inputPin = passthroughInputPin(output.getName());
+            double[] input = getPinBounds(inputPin, true);
+            double[] outputBounds = getPinBounds(output.getName(), false);
+            if (input == null || outputBounds == null) {
+                continue;
+            }
+            int x1 = (int) (input[0] + input[2]);
+            int y1 = (int) (input[1] + input[3] / 2);
+            int x2 = (int) outputBounds[0];
+            int y2 = (int) (outputBounds[1] + outputBounds[3] / 2);
+            int midX = getX() + getWidth() / 2;
+            int fill = getPinColor(output.getDataType());
+            int border = ThemeManager.getColor(ThemeColor.innerBorder);
+            drawDashedGuide(ctx, x1, y1, midX, y1, fill, border);
+            drawDashedGuide(ctx, midX, y1, midX, y2, fill, border);
+            drawDashedGuide(ctx, midX, y2, x2, y2, fill, border);
+        }
+    }
+
+    private void drawDashedGuide(IDrawContext ctx, int x1, int y1, int x2, int y2, int fill, int border) {
+        if (x1 == x2) {
+            int minY = Math.min(y1, y2);
+            int maxY = Math.max(y1, y2);
+            for (int y = minY; y <= maxY; y += PASSTHROUGH_DASH_SIZE + PASSTHROUGH_DASH_GAP) {
+                drawPassthroughDash(ctx, x1, y, fill, border);
+            }
+            return;
+        }
+        if (y1 == y2) {
+            int minX = Math.min(x1, x2);
+            int maxX = Math.max(x1, x2);
+            for (int x = minX; x <= maxX; x += PASSTHROUGH_DASH_SIZE + PASSTHROUGH_DASH_GAP) {
+                drawPassthroughDash(ctx, x, y1, fill, border);
+            }
+        }
+    }
+
+    private void drawPassthroughDash(IDrawContext ctx, int centerX, int centerY, int fill, int border) {
+        int half = PASSTHROUGH_DASH_SIZE / 2;
+        int x = centerX - half;
+        int y = centerY - half;
+        ctx.fill(x, y, x + PASSTHROUGH_DASH_SIZE, y + PASSTHROUGH_DASH_SIZE, ThemeManager.getColor(ThemeColor.inClickableBackground));
+        Render.drawInnerBorder(ctx, x, y, PASSTHROUGH_DASH_SIZE, PASSTHROUGH_DASH_SIZE, border);
+        ctx.fill(x + 2, y + 2, x + PASSTHROUGH_DASH_SIZE - 2, y + PASSTHROUGH_DASH_SIZE - 2, fill);
     }
 
     public double[] getPinBounds(String pinName, boolean isInput) {
@@ -1474,6 +1570,11 @@ public class NodeWidget extends AnimatedWidget {
                     return output.getDataType();
                 }
             }
+            for (NodeDefinition.PinDefinition output : visibleOutputs) {
+                if (output.getName().equals(pinName)) {
+                    return output.getDataType();
+                }
+            }
         }
         return null;
     }
@@ -1495,6 +1596,11 @@ public class NodeWidget extends AnimatedWidget {
             }
         } else {
             for (NodeDefinition.PinDefinition output : outputs) {
+                if (output.getName().equals(pinName)) {
+                    return output.getType();
+                }
+            }
+            for (NodeDefinition.PinDefinition output : visibleOutputs) {
                 if (output.getName().equals(pinName)) {
                     return output.getType();
                 }
@@ -1544,6 +1650,7 @@ public class NodeWidget extends AnimatedWidget {
             visibleOutputs.addAll(flowOutputs);
             visibleOutputs.addAll(otherOutputs);
             visibleOutputs.sort((left, right) -> Boolean.compare(!isFlowOutput(left), !isFlowOutput(right)));
+            appendPassthroughOutputs();
             addBranchButton = null;
             return;
         }
@@ -1559,8 +1666,44 @@ public class NodeWidget extends AnimatedWidget {
 
         visibleOutputs.addAll(otherOutputs);
         visibleOutputs.sort((left, right) -> Boolean.compare(!isFlowOutput(left), !isFlowOutput(right)));
+        appendPassthroughOutputs();
         saveFlowBranches();
         updateAddBranchButton(flowOutputs);
+    }
+
+    private void appendPassthroughOutputs() {
+        if (graph == null || graph.getEditorPassthroughs() == null) {
+            return;
+        }
+        for (FlowGraph.EditorPassthrough passthrough : graph.getEditorPassthroughs()) {
+            if (passthrough == null || !nodeId.equals(passthrough.getNodeId())) {
+                continue;
+            }
+            NodeDefinition.PinDefinition input = findVisibleInputDefinition(passthrough.getInputPin());
+            if (input == null || input.getType() != NodeDefinition.PinType.DATA) {
+                continue;
+            }
+            String outputName = passthroughOutputPin(input.getName());
+            boolean exists = false;
+            for (NodeDefinition.PinDefinition output : visibleOutputs) {
+                if (outputName.equals(output.getName())) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                visibleOutputs.add(new NodeDefinition.PinDefinition(outputName, NodeDefinition.PinType.DATA, NodeDefinition.PinDirection.OUTPUT, input.getDataType()));
+            }
+        }
+    }
+
+    private NodeDefinition.PinDefinition findVisibleInputDefinition(String pinName) {
+        for (NodeDefinition.PinDefinition input : visibleInputs) {
+            if (input.getName().equals(pinName)) {
+                return input;
+            }
+        }
+        return null;
     }
 
     private boolean isFlowOutput(NodeDefinition.PinDefinition output) {

@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,6 +44,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     private static final float WIRE_HIT_RADIUS = 6.0f;
     private static final int WIRE_OUT_OFFSET = 26;
     private static final int WIRE_LANE_SPACING = 6;
+    private static final int JUNCTION_SIZE = 12;
+    private static final int JUNCTION_HALF = JUNCTION_SIZE / 2;
     private final Set<String> selectedNodeIds = new HashSet<>();
     private final Set<String> selectionBase = new HashSet<>();
     private final Map<String, int[]> selectedDragStartPositions = new HashMap<>();
@@ -82,6 +85,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     private double dragMouseX = 0;
     private double dragMouseY = 0;
+    private FlowGraph.EditorJunction draggedJunction;
+    private FlowGraph.EditorJunction dragSourceJunction;
+    private double junctionDragOffsetX;
+    private double junctionDragOffsetY;
 
     private static class ClipboardData {
         final List<CopiedNode> nodes = new ArrayList<>();
@@ -125,16 +132,21 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         final boolean function;
         final List<FlowGraph.FunctionParameter> functionInputs;
         final List<FlowGraph.FunctionParameter> functionOutputs;
+        final List<FlowGraph.EditorJunction> editorJunctions;
+        final List<FlowGraph.EditorPassthrough> editorPassthroughs;
 
         private GraphSnapshot(Map<String, FlowNode> nodes, List<FlowConnection> connections, Set<String> selectedIds,
                               boolean function, List<FlowGraph.FunctionParameter> functionInputs,
-                              List<FlowGraph.FunctionParameter> functionOutputs) {
+                              List<FlowGraph.FunctionParameter> functionOutputs, List<FlowGraph.EditorJunction> editorJunctions,
+                              List<FlowGraph.EditorPassthrough> editorPassthroughs) {
             this.nodes = nodes;
             this.connections = connections;
             this.selectedIds = selectedIds;
             this.function = function;
             this.functionInputs = functionInputs;
             this.functionOutputs = functionOutputs;
+            this.editorJunctions = editorJunctions;
+            this.editorPassthroughs = editorPassthroughs;
         }
 
         GraphSnapshot(Map<String, FlowNode> nodes, List<FlowConnection> connections, Set<String> selectedIds) {
@@ -153,12 +165,16 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             Set<String> copiedSelectedIds = new HashSet<>(selectedIds);
             List<FlowGraph.FunctionParameter> emptyInputs = new ArrayList<>();
             List<FlowGraph.FunctionParameter> emptyOutputs = new ArrayList<>();
+            List<FlowGraph.EditorJunction> emptyJunctions = new ArrayList<>();
+            List<FlowGraph.EditorPassthrough> emptyPassthroughs = new ArrayList<>();
             this.nodes = immutableNodes;
             this.connections = copiedConnections;
             this.selectedIds = copiedSelectedIds;
             this.function = false;
             this.functionInputs = emptyInputs;
             this.functionOutputs = emptyOutputs;
+            this.editorJunctions = emptyJunctions;
+            this.editorPassthroughs = emptyPassthroughs;
         }
 
         GraphSnapshot(FlowGraph graph, Set<String> selectedIds) {
@@ -168,7 +184,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 new HashSet<>(selectedIds),
                 graph.isFunction(),
                 copyFunctionParameters(graph.getFunctionInputs()),
-                copyFunctionParameters(graph.getFunctionOutputs())
+                copyFunctionParameters(graph.getFunctionOutputs()),
+                copyEditorJunctions(graph.getEditorJunctions()),
+                copyEditorPassthroughs(graph.getEditorPassthroughs())
             );
         }
 
@@ -191,6 +209,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private record OutboundBoundary(String sourceNodeId, String sourcePin, String targetNodeId, String targetPin) {
+    }
+
+    private record WireSegment(double x1, double y1, double x2, double y2) {
     }
 
     private final List<GraphSnapshot> undoStack = new ArrayList<>();
@@ -276,6 +297,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         graph.setFunction(sourceGraph.isFunction());
         graph.setFunctionInputs(copyFunctionParameters(sourceGraph.getFunctionInputs()));
         graph.setFunctionOutputs(copyFunctionParameters(sourceGraph.getFunctionOutputs()));
+        graph.setEditorJunctions(copyEditorJunctions(sourceGraph.getEditorJunctions()));
+        graph.setEditorPassthroughs(copyEditorPassthroughs(sourceGraph.getEditorPassthroughs()));
+        ensureEditorJunctions();
         selectedNodeIds.clear();
         selectionBase.clear();
         selectedDragStartPositions.clear();
@@ -497,6 +521,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 .onClick(this::onSave)
                 .build();
         addHeaderButton(saveButton);
+
+        IconButton organizeButton = new IconButton.Builder()
+                .size(18, 18)
+                .imagePath("layout.png")
+                .onClick(this::organizeGraph)
+                .build();
+        addHeaderButton(organizeButton);
 
         if (showExtractButton()) {
             IconButton extractButton = new IconButton.Builder()
@@ -882,6 +913,127 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
     }
 
+    private void organizeGraph() {
+        if (graph.getNodes() == null || graph.getNodes().isEmpty()) {
+            return;
+        }
+        captureSnapshot();
+
+        Map<String, List<String>> predecessors = new HashMap<>();
+        for (String nodeId : graph.getNodes().keySet()) {
+            predecessors.put(nodeId, new ArrayList<>());
+        }
+        if (graph.getConnections() != null) {
+            for (FlowConnection connection : graph.getConnections()) {
+                if (connection == null) {
+                    continue;
+                }
+                if (!graph.getNodes().containsKey(connection.getSourceNodeId()) || !graph.getNodes().containsKey(connection.getTargetNodeId())) {
+                    continue;
+                }
+                predecessors.computeIfAbsent(connection.getTargetNodeId(), ignored -> new ArrayList<>()).add(connection.getSourceNodeId());
+            }
+        }
+
+        Map<String, Integer> layers = new HashMap<>();
+        for (String nodeId : graph.getNodes().keySet()) {
+            computeOrganizeLayer(nodeId, predecessors, layers, new HashSet<>());
+        }
+
+        Map<Integer, List<String>> layerNodes = new LinkedHashMap<>();
+        int maxLayer = 0;
+        for (Map.Entry<String, Integer> entry : layers.entrySet()) {
+            int layer = Math.max(0, entry.getValue());
+            maxLayer = Math.max(maxLayer, layer);
+            layerNodes.computeIfAbsent(layer, ignored -> new ArrayList<>()).add(entry.getKey());
+        }
+        for (int layer = 0; layer <= maxLayer; layer++) {
+            layerNodes.computeIfAbsent(layer, ignored -> new ArrayList<>());
+        }
+
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxWidth = 0;
+        for (Map.Entry<String, FlowNode> entry : graph.getNodes().entrySet()) {
+            FlowNode node = entry.getValue();
+            FlowNodeWidget widget = widgetCache.get(entry.getKey());
+            if (node == null) {
+                continue;
+            }
+            minX = Math.min(minX, (int) Math.round(node.getX()));
+            minY = Math.min(minY, (int) Math.round(node.getY()));
+            if (widget != null) {
+                maxWidth = Math.max(maxWidth, widget.getWidth());
+            }
+        }
+        if (minX == Integer.MAX_VALUE) {
+            minX = (int) screenToWorld(width / 2.0, height / 2.0)[0];
+            minY = (int) screenToWorld(width / 2.0, height / 2.0)[1];
+        }
+
+        int xSpacing = Math.max(280, maxWidth + 120);
+        int ySpacing = 48;
+        for (int layer = 0; layer <= maxLayer; layer++) {
+            List<String> nodes = layerNodes.getOrDefault(layer, new ArrayList<>());
+            nodes.sort(Comparator
+                .comparingInt(this::organizeSortPriority)
+                .thenComparingDouble(id -> graph.getNodes().get(id).getY())
+                .thenComparingDouble(id -> graph.getNodes().get(id).getX())
+                .thenComparing(id -> id));
+            int y = minY;
+            for (String nodeId : nodes) {
+                FlowNode node = graph.getNodes().get(nodeId);
+                FlowNodeWidget widget = widgetCache.get(nodeId);
+                if (node == null || widget == null) {
+                    continue;
+                }
+                int x = minX + layer * xSpacing;
+                widget.setX(x);
+                widget.setY(y);
+                node.setX(x);
+                node.setY(y);
+                y += widget.getHeight() + ySpacing;
+            }
+        }
+
+        organizeEditorJunctions();
+    }
+
+    private int computeOrganizeLayer(String nodeId, Map<String, List<String>> predecessors, Map<String, Integer> layers, Set<String> visiting) {
+        Integer existing = layers.get(nodeId);
+        if (existing != null) {
+            return existing;
+        }
+        if (!visiting.add(nodeId)) {
+            return 0;
+        }
+        int layer = 0;
+        for (String predecessor : predecessors.getOrDefault(nodeId, new ArrayList<>())) {
+            if (predecessor == null || predecessor.equals(nodeId)) {
+                continue;
+            }
+            layer = Math.max(layer, computeOrganizeLayer(predecessor, predecessors, layers, visiting) + 1);
+        }
+        visiting.remove(nodeId);
+        layers.put(nodeId, layer);
+        return layer;
+    }
+
+    private int organizeSortPriority(String nodeId) {
+        FlowNode node = graph.getNodes().get(nodeId);
+        if (node == null || node.getType() == null) {
+            return 50;
+        }
+        String type = node.getType();
+        if (type.startsWith("event:") || "function_start".equals(type)) {
+            return 0;
+        }
+        if ("function_end".equals(type)) {
+            return 90;
+        }
+        return 50;
+    }
+
     public void showNodeInputSelector(List<String> options, String selected, Consumer<String> onSelected, int worldX, int worldY) {
         closeNodeItemSelector();
         if (options == null || options.isEmpty() || onSelected == null) {
@@ -946,6 +1098,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             }
             widget.render(worldContext, worldMouseX, worldMouseY, delta);
         }
+        for (Widget widget : worldWidgets) {
+            if (widget instanceof AnimatedWidget animated) {
+                animated.renderHintOverlay(worldContext);
+            }
+        }
         context.getMatrices().pop();
 
         renderSelectionBox(context);
@@ -969,6 +1126,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     private void renderWires(IDrawContext context) {
         if (graph.getConnections() == null) return;
 
+        ensureEditorJunctions();
+        Set<String> renderedJunctionSources = new HashSet<>();
+        Set<String> renderedPassthroughInputs = new HashSet<>();
         for (FlowConnection conn : graph.getConnections()) {
             FlowNodeWidget source = widgetCache.get(conn.getSourceNodeId());
             FlowNodeWidget target = widgetCache.get(conn.getTargetNodeId());
@@ -985,22 +1145,53 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
                     FlowDataType sourceType = source.getPinType(conn.getSourcePin(), false);
                     int wireColor = (sourceType != null) ? sourceType.getColor() : ThemeManager.getColor(ThemeColor.innerBorder);
-                    int laneOffset = getWireLaneOffset(conn);
-                    drawWire(context, startX, startY, endX, endY, wireColor, laneOffset);
+                    FlowGraph.EditorPassthrough passthrough = findPassthroughRoute(conn);
+                    if (passthrough != null) {
+                        FlowNodeWidget passthroughWidget = widgetCache.get(passthrough.getNodeId());
+                        double[] input = passthroughWidget != null ? passthroughWidget.getPinBounds(passthrough.getInputPin(), true) : null;
+                        double[] output = passthroughWidget != null ? passthroughWidget.getPinBounds(NodeWidget.passthroughOutputPin(passthrough.getInputPin()), false) : null;
+                        if (input != null && output != null) {
+                            String key = passthrough.getNodeId() + ":" + passthrough.getInputPin();
+                            if (renderedPassthroughInputs.add(key)) {
+                                drawWire(context, startX, startY, (float) (input[0] + input[2] / 2), (float) (input[1] + input[3] / 2), wireColor, 0);
+                            }
+                            if (!passthrough.getNodeId().equals(conn.getTargetNodeId()) || !passthrough.getInputPin().equals(conn.getTargetPin())) {
+                                drawWire(context, (float) (output[0] + output[2] / 2), (float) (output[1] + output[3] / 2), endX, endY, wireColor, getWireLaneOffset(conn) / 2);
+                            }
+                            continue;
+                        }
+                    }
+                    FlowGraph.EditorJunction junction = findEditorJunction(conn.getSourceNodeId(), conn.getSourcePin());
+                    if (junction != null && fanoutCount(conn.getSourceNodeId(), conn.getSourcePin()) > 1) {
+                        String key = conn.getSourceNodeId() + ":" + conn.getSourcePin();
+                        if (renderedJunctionSources.add(key)) {
+                            drawWire(context, startX, startY, (float) junction.getX(), (float) junction.getY(), wireColor, 0);
+                        }
+                        drawWire(context, (float) junction.getX(), (float) junction.getY(), endX, endY, wireColor, getWireLaneOffset(conn) / 2);
+                    } else {
+                        int laneOffset = getWireLaneOffset(conn);
+                        drawWire(context, startX, startY, endX, endY, wireColor, laneOffset);
+                    }
                 }
             }
         }
+
+        renderEditorJunctions(context);
 
         if (dragState.isDragging && dragState.sourceNodeId != null) {
             double[] sourcePinWorld = null;
             FlowNodeWidget source = widgetCache.get(dragState.sourceNodeId);
             FlowDataType sourceType = null;
-            if (source != null) {
+            if (dragSourceJunction != null) {
+                sourcePinWorld = new double[] { dragSourceJunction.getX(), dragSourceJunction.getY() };
+            } else if (source != null) {
                 double[] bounds = source.getPinBounds(dragState.sourcePin, dragState.sourceIsInput);
                 if (bounds != null) {
                     sourcePinWorld = new double[] { bounds[0] + bounds[2]/2, bounds[1] + bounds[3]/2 };
-                    sourceType = source.getPinType(dragState.sourcePin, dragState.sourceIsInput);
                 }
+            }
+            if (source != null) {
+                sourceType = source.getPinType(dragState.sourcePin, dragState.sourceIsInput);
             }
 
             if (sourcePinWorld != null) {
@@ -1039,6 +1230,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             selectionEndX = undistortedCoords[0];
             selectionEndY = undistortedCoords[1];
             updateSelectionFromBox();
+            return true;
+        }
+
+        if (draggedJunction != null && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            draggedJunction.setX(worldMouse[0] - junctionDragOffsetX);
+            draggedJunction.setY(worldMouse[1] - junctionDragOffsetY);
             return true;
         }
 
@@ -1090,17 +1287,29 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         int inX = x2 - WIRE_OUT_OFFSET - laneOffset;
         int midY = Math.round((startY + endY) / 2f) + laneOffset;
 
-        drawSegmentBorder(context, x1, y1, outX, y1, borderColor);
-        drawSegmentBorder(context, outX, y1, outX, midY, borderColor);
-        drawSegmentBorder(context, outX, midY, inX, midY, borderColor);
-        drawSegmentBorder(context, inX, midY, inX, y2, borderColor);
-        drawSegmentBorder(context, inX, y2, x2, y2, borderColor);
+        for (WireSegment segment : wireSegments(x1, y1, x2, y2, laneOffset)) {
+            drawSegmentBorder(context, (int) segment.x1(), (int) segment.y1(), (int) segment.x2(), (int) segment.y2(), borderColor);
+        }
+        for (WireSegment segment : wireSegments(x1, y1, x2, y2, laneOffset)) {
+            drawSegmentFill(context, (int) segment.x1(), (int) segment.y1(), (int) segment.x2(), (int) segment.y2(), color);
+        }
+    }
 
-        drawSegmentFill(context, x1, y1, outX, y1, color);
-        drawSegmentFill(context, outX, y1, outX, midY, color);
-        drawSegmentFill(context, outX, midY, inX, midY, color);
-        drawSegmentFill(context, inX, midY, inX, y2, color);
-        drawSegmentFill(context, inX, y2, x2, y2, color);
+    private List<WireSegment> wireSegments(double x1, double y1, double x2, double y2, int laneOffset) {
+        int startX = Math.round((float) x1);
+        int startY = Math.round((float) y1);
+        int endX = Math.round((float) x2);
+        int endY = Math.round((float) y2);
+        int outX = startX + WIRE_OUT_OFFSET + laneOffset;
+        int inX = endX - WIRE_OUT_OFFSET - laneOffset;
+        int midY = Math.round((startY + endY) / 2f) + laneOffset;
+        return List.of(
+            new WireSegment(startX, startY, outX, startY),
+            new WireSegment(outX, startY, outX, midY),
+            new WireSegment(outX, midY, inX, midY),
+            new WireSegment(inX, midY, inX, endY),
+            new WireSegment(inX, endY, endX, endY)
+        );
     }
 
     private void drawSegmentBorder(IDrawContext context, int x1, int y1, int x2, int y2, int color) {
@@ -1137,6 +1346,160 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         return lane * WIRE_LANE_SPACING;
     }
 
+    private void ensureEditorJunctions() {
+        if (graph.getConnections() == null) {
+            return;
+        }
+        Map<String, List<FlowConnection>> fanouts = new LinkedHashMap<>();
+        for (FlowConnection connection : graph.getConnections()) {
+            FlowNodeWidget source = widgetCache.get(connection.getSourceNodeId());
+            if (source == null || source.getPinKind(connection.getSourcePin(), false) != NodeDefinition.PinType.DATA) {
+                continue;
+            }
+            fanouts.computeIfAbsent(connection.getSourceNodeId() + ":" + connection.getSourcePin(), ignored -> new ArrayList<>()).add(connection);
+        }
+        Set<String> activeFanouts = new HashSet<>();
+        for (Map.Entry<String, List<FlowConnection>> entry : fanouts.entrySet()) {
+            if (entry.getValue().size() > 1) {
+                activeFanouts.add(entry.getKey());
+            }
+        }
+        graph.getEditorJunctions().removeIf(junction -> !activeFanouts.contains(junction.getSourceNodeId() + ":" + junction.getSourcePin()));
+        for (Map.Entry<String, List<FlowConnection>> entry : fanouts.entrySet()) {
+            if (entry.getValue().size() <= 1) {
+                continue;
+            }
+            FlowConnection first = entry.getValue().getFirst();
+            if (findEditorJunction(first.getSourceNodeId(), first.getSourcePin()) != null) {
+                continue;
+            }
+            FlowGraph.EditorJunction junction = new FlowGraph.EditorJunction(UUID.randomUUID().toString(), first.getSourceNodeId(), first.getSourcePin(), 0, 0);
+            if (placeEditorJunction(junction)) {
+                graph.getEditorJunctions().add(junction);
+            }
+        }
+    }
+
+    private void organizeEditorJunctions() {
+        ensureEditorJunctions();
+        if (graph.getConnections() == null) {
+            return;
+        }
+        for (FlowGraph.EditorJunction junction : graph.getEditorJunctions()) {
+            placeEditorJunction(junction);
+        }
+    }
+
+    private boolean placeEditorJunction(FlowGraph.EditorJunction junction) {
+        FlowNodeWidget source = widgetCache.get(junction.getSourceNodeId());
+        if (source == null || graph.getConnections() == null) {
+            return false;
+        }
+        double[] sourceBounds = source.getPinBounds(junction.getSourcePin(), false);
+        if (sourceBounds == null) {
+            return false;
+        }
+        double sourceX = sourceBounds[0] + sourceBounds[2] / 2;
+        double sourceY = sourceBounds[1] + sourceBounds[3] / 2;
+        List<Double> targetYs = new ArrayList<>();
+        double minTargetX = Double.MAX_VALUE;
+        for (FlowConnection connection : graph.getConnections()) {
+            if (!junction.getSourceNodeId().equals(connection.getSourceNodeId()) || !junction.getSourcePin().equals(connection.getSourcePin())) {
+                continue;
+            }
+            FlowNodeWidget target = widgetCache.get(connection.getTargetNodeId());
+            double[] targetBounds = target != null ? target.getPinBounds(connection.getTargetPin(), true) : null;
+            if (targetBounds == null) {
+                continue;
+            }
+            minTargetX = Math.min(minTargetX, targetBounds[0] + targetBounds[2] / 2);
+            targetYs.add(targetBounds[1] + targetBounds[3] / 2);
+        }
+        targetYs.sort(Double::compareTo);
+        double targetY = targetYs.isEmpty() ? sourceY : targetYs.get(targetYs.size() / 2);
+        double targetX = minTargetX == Double.MAX_VALUE ? sourceX + 180 : minTargetX;
+        double junctionX = targetX > sourceX + 180 ? sourceX + Math.min(220, (targetX - sourceX) * 0.45) : sourceX + 110;
+        junction.setX(Math.round(junctionX));
+        junction.setY(Math.round(targetY));
+        return true;
+    }
+
+    private FlowGraph.EditorJunction findEditorJunction(String sourceNodeId, String sourcePin) {
+        for (FlowGraph.EditorJunction junction : graph.getEditorJunctions()) {
+            if (sourceNodeId.equals(junction.getSourceNodeId()) && sourcePin.equals(junction.getSourcePin())) {
+                return junction;
+            }
+        }
+        return null;
+    }
+
+    private FlowGraph.EditorPassthrough findPassthroughRoute(FlowConnection connection) {
+        if (connection == null || graph.getConnections() == null) {
+            return null;
+        }
+        for (FlowGraph.EditorPassthrough passthrough : graph.getEditorPassthroughs()) {
+            if (passthrough == null) {
+                continue;
+            }
+            FlowConnection incoming = findIncomingConnection(passthrough.getNodeId(), passthrough.getInputPin());
+            if (incoming == null) {
+                continue;
+            }
+            if (connection.getSourceNodeId().equals(incoming.getSourceNodeId()) && connection.getSourcePin().equals(incoming.getSourcePin())) {
+                return passthrough;
+            }
+        }
+        return null;
+    }
+
+    private FlowConnection findIncomingConnection(String nodeId, String inputPin) {
+        if (graph.getConnections() == null) {
+            return null;
+        }
+        for (FlowConnection connection : graph.getConnections()) {
+            if (nodeId.equals(connection.getTargetNodeId()) && inputPin.equals(connection.getTargetPin())) {
+                return connection;
+            }
+        }
+        return null;
+    }
+
+    private int fanoutCount(String sourceNodeId, String sourcePin) {
+        int count = 0;
+        if (graph.getConnections() == null) {
+            return 0;
+        }
+        for (FlowConnection connection : graph.getConnections()) {
+            if (sourceNodeId.equals(connection.getSourceNodeId()) && sourcePin.equals(connection.getSourcePin())) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private void renderEditorJunctions(IDrawContext context) {
+        int fill = ThemeManager.getColor(ThemeColor.inClickableBackground);
+        int border = ThemeManager.getColor(ThemeColor.innerBorder);
+        int accent = ThemeManager.getDefaultAccent().getAccentColor();
+        for (FlowGraph.EditorJunction junction : graph.getEditorJunctions()) {
+            int x = Math.round((float) junction.getX());
+            int y = Math.round((float) junction.getY());
+            context.fill(x - JUNCTION_HALF, y - JUNCTION_HALF, x + JUNCTION_HALF, y + JUNCTION_HALF, fill);
+            context.fillBorder(x - JUNCTION_HALF, y - JUNCTION_HALF, x + JUNCTION_HALF, y + JUNCTION_HALF, 1, border);
+            context.fill(x - 2, y - 2, x + 2, y + 2, accent);
+        }
+    }
+
+    private FlowGraph.EditorJunction findEditorJunctionAt(int wx, int wy) {
+        for (int i = graph.getEditorJunctions().size() - 1; i >= 0; i--) {
+            FlowGraph.EditorJunction junction = graph.getEditorJunctions().get(i);
+            if (Math.abs(wx - junction.getX()) <= JUNCTION_HALF && Math.abs(wy - junction.getY()) <= JUNCTION_HALF) {
+                return junction;
+            }
+        }
+        return null;
+    }
+
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (handleNodeItemSelectorMouseClicked(mouseX, mouseY, button)) {
@@ -1162,6 +1525,29 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             return true;
         }
 
+        FlowGraph.EditorJunction junction = findEditorJunctionAt(wx, wy);
+        if (junction != null) {
+            dragMouseX = undistortedCoords[0];
+            dragMouseY = undistortedCoords[1];
+            focusedNode = null;
+            setFocusedWidget(null);
+            clearSelection();
+            if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE || (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && (hasShiftDown() || hasControlDown()))) {
+                startJunctionWireDrag(junction);
+                return true;
+            }
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                captureSnapshot();
+                draggedJunction = junction;
+                junctionDragOffsetX = worldMouse[0] - junction.getX();
+                junctionDragOffsetY = worldMouse[1] - junction.getY();
+                draggedWidget = null;
+                movingSelectedNodes = false;
+                selectedDragStartPositions.clear();
+                return true;
+            }
+        }
+
         for (int i = worldWidgets.size() - 1; i >= 0; i--) {
             FlowNodeWidget widget = (FlowNodeWidget) worldWidgets.get(i);
 
@@ -1184,6 +1570,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 if (pinName != null) {
                     double[] inputBounds = widget.getPinBounds(pinName, true);
                     if (isInside(wx, wy, inputBounds)) {
+                        if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE && widget.getPinKind(pinName, true) == NodeDefinition.PinType.DATA) {
+                            toggleInputPassthrough(widget, pinName);
+                            return true;
+                        }
                         dragMouseX = undistortedCoords[0];
                         dragMouseY = undistortedCoords[1];
                         startWireDrag(widget, pinName, true);
@@ -1262,9 +1652,39 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         dragState.sourcePin = pinName;
         dragState.sourceIsInput = isInput;
         dragPinWidget = widget;
+        dragSourceJunction = null;
         pendingSourceNodeId = null;
         pendingSourcePin = null;
         pendingSourceIsInput = false;
+    }
+
+    private void startJunctionWireDrag(FlowGraph.EditorJunction junction) {
+        FlowNodeWidget source = widgetCache.get(junction.getSourceNodeId());
+        if (source == null) {
+            return;
+        }
+        dragState.isDragging = true;
+        dragState.sourceNodeId = junction.getSourceNodeId();
+        dragState.sourcePin = junction.getSourcePin();
+        dragState.sourceIsInput = false;
+        dragPinWidget = source;
+        dragSourceJunction = junction;
+        pendingSourceNodeId = null;
+        pendingSourcePin = null;
+        pendingSourceIsInput = false;
+    }
+
+    private void toggleInputPassthrough(FlowNodeWidget widget, String inputPin) {
+        String nodeId = findNodeId(widget);
+        if (nodeId == null) {
+            return;
+        }
+        captureSnapshot();
+        boolean removed = graph.getEditorPassthroughs().removeIf(passthrough -> nodeId.equals(passthrough.getNodeId()) && inputPin.equals(passthrough.getInputPin()));
+        if (!removed) {
+            graph.getEditorPassthroughs().add(new FlowGraph.EditorPassthrough(nodeId, inputPin));
+        }
+        widget.refreshInputWidgets();
     }
 
     @Override
@@ -1296,6 +1716,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             dragState.sourceNodeId = null;
             dragState.sourcePin = null;
             dragState.sourceIsInput = false;
+            dragSourceJunction = null;
+            return true;
+        }
+
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && draggedJunction != null) {
+            draggedJunction = null;
             return true;
         }
 
@@ -1461,10 +1887,16 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 refreshInputWidgets(targetId);
             }
         }
+        graph.getEditorJunctions().removeIf(junction -> nodeId.equals(junction.getSourceNodeId()));
+        graph.getEditorPassthroughs().removeIf(passthrough -> nodeId.equals(passthrough.getNodeId()));
+        if (draggedJunction != null && nodeId.equals(draggedJunction.getSourceNodeId())) {
+            draggedJunction = null;
+        }
         if (dragState.isDragging && nodeId.equals(dragState.sourceNodeId)) {
             dragState.isDragging = false;
             dragState.sourceNodeId = null;
             dragState.sourcePin = null;
+            dragSourceJunction = null;
         }
         if (widget == focusedNode) {
             focusedNode = null;
@@ -1684,7 +2116,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                         boolean onOutput = isInside(wx, wy, outputBounds);
 
                         if (!dragState.sourceIsInput && onInput && canConnect(dragPinWidget, dragState.sourcePin, targetWidget, targetPin)) {
-                                FlowConnection newConnection = new FlowConnection(dragState.sourceNodeId, dragState.sourcePin, targetNodeId, targetPin);
+                                FlowConnection sourceConnection = resolveDragSourceConnection();
+                                if (sourceConnection == null) {
+                                    break;
+                                }
+                                FlowConnection newConnection = new FlowConnection(sourceConnection.getSourceNodeId(), sourceConnection.getSourcePin(), targetNodeId, targetPin);
                                 removeExistingInputConnection(targetNodeId, targetPin);
                                 graph.getConnections().add(newConnection);
                                 refreshInputWidgets(targetNodeId);
@@ -1709,13 +2145,30 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         if (!connected && dragPinWidget != null) {
             FlowDataType sourceType = dragPinWidget.getPinType(dragState.sourcePin, dragState.sourceIsInput);
-            if (sourceType != null) {
-                pendingSourceNodeId = dragState.sourceNodeId;
-                pendingSourcePin = dragState.sourcePin;
+            FlowConnection sourceConnection = !dragState.sourceIsInput ? resolveDragSourceConnection() : null;
+            if (sourceType != null && (dragState.sourceIsInput || sourceConnection != null)) {
+                pendingSourceNodeId = dragState.sourceIsInput ? dragState.sourceNodeId : sourceConnection.getSourceNodeId();
+                pendingSourcePin = dragState.sourceIsInput ? dragState.sourcePin : sourceConnection.getSourcePin();
                 pendingSourceIsInput = dragState.sourceIsInput;
                 showAddNodeMenu((int) screenMouseX, (int) screenMouseY, sourceType, dragState.sourceIsInput);
             }
         }
+    }
+
+    private FlowConnection resolveDragSourceConnection() {
+        if (!NodeWidget.isPassthroughOutputPin(dragState.sourcePin)) {
+            return new FlowConnection(dragState.sourceNodeId, dragState.sourcePin, "", "");
+        }
+        String inputPin = NodeWidget.passthroughInputPin(dragState.sourcePin);
+        if (graph.getConnections() == null) {
+            return null;
+        }
+        for (FlowConnection connection : graph.getConnections()) {
+            if (dragState.sourceNodeId.equals(connection.getTargetNodeId()) && inputPin.equals(connection.getTargetPin())) {
+                return connection;
+            }
+        }
+        return null;
     }
 
 
@@ -2047,7 +2500,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             return null;
         }
         double hitRadius = WIRE_HIT_RADIUS / Math.max(zoomLevel, 0.1f);
-        double hitRadiusSq = hitRadius * hitRadius;
 
         for (FlowConnection conn : graph.getConnections()) {
             FlowNodeWidget source = widgetCache.get(conn.getSourceNodeId());
@@ -2064,23 +2516,82 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             float startY = (float) (start[1] + start[3] / 2);
             float endX = (float) (end[0] + end[2] / 2);
             float endY = (float) (end[1] + end[3] / 2);
+            FlowGraph.EditorPassthrough passthrough = findPassthroughRoute(conn);
+            if (passthrough != null) {
+                FlowNodeWidget passthroughWidget = widgetCache.get(passthrough.getNodeId());
+                double[] input = passthroughWidget != null ? passthroughWidget.getPinBounds(passthrough.getInputPin(), true) : null;
+                double[] output = passthroughWidget != null ? passthroughWidget.getPinBounds(NodeWidget.passthroughOutputPin(passthrough.getInputPin()), false) : null;
+                FlowConnection incoming = findIncomingConnection(passthrough.getNodeId(), passthrough.getInputPin());
+                if (input != null && output != null && incoming != null) {
+                    float inputX = (float) (input[0] + input[2] / 2);
+                    float inputY = (float) (input[1] + input[3] / 2);
+                    float outputX = (float) (output[0] + output[2] / 2);
+                    float outputY = (float) (output[1] + output[3] / 2);
+                    for (WireSegment segment : wireSegments(startX, startY, inputX, inputY, 0)) {
+                        if (isNearWireSegment(worldX, worldY, segment, hitRadius)) {
+                            return incoming;
+                        }
+                    }
+                    if (!passthrough.getNodeId().equals(conn.getTargetNodeId()) || !passthrough.getInputPin().equals(conn.getTargetPin())) {
+                        for (WireSegment segment : wireSegments(outputX, outputY, endX, endY, getWireLaneOffset(conn) / 2)) {
+                            if (isNearWireSegment(worldX, worldY, segment, hitRadius)) {
+                                return conn;
+                            }
+                        }
+                    }
+                    continue;
+                }
+            }
+            FlowGraph.EditorJunction junction = findEditorJunction(conn.getSourceNodeId(), conn.getSourcePin());
 
-            float c1x = startX + 50 * zoomLevel;
-            float c2x = endX - 50 * zoomLevel;
-
-            float step = 0.05f;
-            for (float t = 0; t <= 1; t += step) {
-                double x = Math.pow(1 - t, 3) * startX + 3 * Math.pow(1 - t, 2) * t * c1x + 3 * (1 - t) * Math.pow(t, 2) * c2x + Math.pow(t, 3) * endX;
-                double y = Math.pow(1 - t, 3) * startY + 3 * Math.pow(1 - t, 2) * t * startY + 3 * (1 - t) * Math.pow(t, 2) * endY + Math.pow(t, 3) * endY;
-
-                double dx = worldX - x;
-                double dy = worldY - y;
-                if (dx * dx + dy * dy <= hitRadiusSq) {
-                    return conn;
+            if (junction != null && fanoutCount(conn.getSourceNodeId(), conn.getSourcePin()) > 1) {
+                for (WireSegment segment : wireSegments(startX, startY, junction.getX(), junction.getY(), 0)) {
+                    if (isNearWireSegment(worldX, worldY, segment, hitRadius)) {
+                        return conn;
+                    }
+                }
+                for (WireSegment segment : wireSegments(junction.getX(), junction.getY(), endX, endY, getWireLaneOffset(conn) / 2)) {
+                    if (isNearWireSegment(worldX, worldY, segment, hitRadius)) {
+                        return conn;
+                    }
+                }
+            } else {
+                for (WireSegment segment : wireSegments(startX, startY, endX, endY, getWireLaneOffset(conn))) {
+                    if (isNearWireSegment(worldX, worldY, segment, hitRadius)) {
+                        return conn;
+                    }
                 }
             }
         }
         return null;
+    }
+
+    private boolean isNearWireSegment(double x, double y, WireSegment segment, double radius) {
+        double minX = Math.min(segment.x1(), segment.x2()) - radius;
+        double maxX = Math.max(segment.x1(), segment.x2()) + radius;
+        double minY = Math.min(segment.y1(), segment.y2()) - radius;
+        double maxY = Math.max(segment.y1(), segment.y2()) + radius;
+        if (segment.x1() == segment.x2()) {
+            return Math.abs(x - segment.x1()) <= radius && y >= minY && y <= maxY;
+        }
+        if (segment.y1() == segment.y2()) {
+            return Math.abs(y - segment.y1()) <= radius && x >= minX && x <= maxX;
+        }
+        double dx = segment.x2() - segment.x1();
+        double dy = segment.y2() - segment.y1();
+        double lengthSq = dx * dx + dy * dy;
+        if (lengthSq == 0) {
+            double pointDx = x - segment.x1();
+            double pointDy = y - segment.y1();
+            return pointDx * pointDx + pointDy * pointDy <= radius * radius;
+        }
+        double t = ((x - segment.x1()) * dx + (y - segment.y1()) * dy) / lengthSq;
+        t = Math.max(0, Math.min(1, t));
+        double nearestX = segment.x1() + t * dx;
+        double nearestY = segment.y1() + t * dy;
+        double pointDx = x - nearestX;
+        double pointDy = y - nearestY;
+        return pointDx * pointDx + pointDy * pointDy <= radius * radius;
     }
 
     private void removeConnection(FlowConnection conn) {
@@ -2262,6 +2773,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         graph.setFunction(snapshot.function);
         graph.setFunctionInputs(copyFunctionParameters(snapshot.functionInputs));
         graph.setFunctionOutputs(copyFunctionParameters(snapshot.functionOutputs));
+        graph.setEditorJunctions(copyEditorJunctions(snapshot.editorJunctions));
+        graph.setEditorPassthroughs(copyEditorPassthroughs(snapshot.editorPassthroughs));
+        draggedJunction = null;
+        dragSourceJunction = null;
 
         for (String nodeId : snapshot.nodes.keySet()) {
             refreshInputWidgets(nodeId);
@@ -2286,6 +2801,40 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 continue;
             }
             copied.add(new FlowGraph.FunctionParameter(parameter.getName(), parameter.getType()));
+        }
+        return copied;
+    }
+
+    private static List<FlowGraph.EditorJunction> copyEditorJunctions(List<FlowGraph.EditorJunction> junctions) {
+        List<FlowGraph.EditorJunction> copied = new ArrayList<>();
+        if (junctions == null) {
+            return copied;
+        }
+        for (FlowGraph.EditorJunction junction : junctions) {
+            if (junction == null) {
+                continue;
+            }
+            copied.add(new FlowGraph.EditorJunction(
+                junction.getId(),
+                junction.getSourceNodeId(),
+                junction.getSourcePin(),
+                junction.getX(),
+                junction.getY()
+            ));
+        }
+        return copied;
+    }
+
+    private static List<FlowGraph.EditorPassthrough> copyEditorPassthroughs(List<FlowGraph.EditorPassthrough> passthroughs) {
+        List<FlowGraph.EditorPassthrough> copied = new ArrayList<>();
+        if (passthroughs == null) {
+            return copied;
+        }
+        for (FlowGraph.EditorPassthrough passthrough : passthroughs) {
+            if (passthrough == null) {
+                continue;
+            }
+            copied.add(new FlowGraph.EditorPassthrough(passthrough.getNodeId(), passthrough.getInputPin()));
         }
         return copied;
     }
