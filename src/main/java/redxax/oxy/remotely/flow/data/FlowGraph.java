@@ -18,6 +18,8 @@ public class FlowGraph implements GraphModel {
     private boolean function;
     private List<FunctionParameter> functionInputs;
     private List<FunctionParameter> functionOutputs;
+    private List<EditorJunction> editorJunctions;
+    private List<EditorPassthrough> editorPassthroughs;
 
     public static class FunctionParameter {
         private String name;
@@ -50,6 +52,99 @@ public class FlowGraph implements GraphModel {
         }
     }
 
+    public static class EditorJunction {
+        private String id;
+        private String sourceNodeId;
+        private String sourcePin;
+        private double x;
+        private double y;
+
+        public EditorJunction() {
+            this.id = UUID.randomUUID().toString();
+            this.sourceNodeId = "";
+            this.sourcePin = "";
+        }
+
+        public EditorJunction(String id, String sourceNodeId, String sourcePin, double x, double y) {
+            this.id = id != null ? id : UUID.randomUUID().toString();
+            this.sourceNodeId = sourceNodeId;
+            this.sourcePin = sourcePin;
+            this.x = x;
+            this.y = y;
+        }
+
+        public String getId() {
+            return id;
+        }
+
+        public void setId(String id) {
+            this.id = id;
+        }
+
+        public String getSourceNodeId() {
+            return sourceNodeId;
+        }
+
+        public void setSourceNodeId(String sourceNodeId) {
+            this.sourceNodeId = sourceNodeId;
+        }
+
+        public String getSourcePin() {
+            return sourcePin;
+        }
+
+        public void setSourcePin(String sourcePin) {
+            this.sourcePin = sourcePin;
+        }
+
+        public double getX() {
+            return x;
+        }
+
+        public void setX(double x) {
+            this.x = x;
+        }
+
+        public double getY() {
+            return y;
+        }
+
+        public void setY(double y) {
+            this.y = y;
+        }
+    }
+
+    public static class EditorPassthrough {
+        private String nodeId;
+        private String inputPin;
+
+        public EditorPassthrough() {
+            this.nodeId = "";
+            this.inputPin = "";
+        }
+
+        public EditorPassthrough(String nodeId, String inputPin) {
+            this.nodeId = nodeId;
+            this.inputPin = inputPin;
+        }
+
+        public String getNodeId() {
+            return nodeId;
+        }
+
+        public void setNodeId(String nodeId) {
+            this.nodeId = nodeId;
+        }
+
+        public String getInputPin() {
+            return inputPin;
+        }
+
+        public void setInputPin(String inputPin) {
+            this.inputPin = inputPin;
+        }
+    }
+
     public FlowGraph() {
         this.id = UUID.randomUUID().toString();
         this.version = CURRENT_VERSION;
@@ -59,6 +154,8 @@ public class FlowGraph implements GraphModel {
         this.function = false;
         this.functionInputs = new ArrayList<>();
         this.functionOutputs = new ArrayList<>();
+        this.editorJunctions = new ArrayList<>();
+        this.editorPassthroughs = new ArrayList<>();
     }
 
     public FlowGraph(String id, Map<String, FlowNode> nodes, List<FlowConnection> connections, List<FlowVariable> localVariables) {
@@ -75,6 +172,8 @@ public class FlowGraph implements GraphModel {
         this.function = function;
         this.functionInputs = functionInputs != null ? functionInputs : new ArrayList<>();
         this.functionOutputs = functionOutputs != null ? functionOutputs : new ArrayList<>();
+        this.editorJunctions = new ArrayList<>();
+        this.editorPassthroughs = new ArrayList<>();
     }
 
     public String getId() {
@@ -139,5 +238,27 @@ public class FlowGraph implements GraphModel {
 
     public void setFunctionOutputs(List<FunctionParameter> functionOutputs) {
         this.functionOutputs = functionOutputs;
+    }
+
+    public List<EditorJunction> getEditorJunctions() {
+        if (editorJunctions == null) {
+            editorJunctions = new ArrayList<>();
+        }
+        return editorJunctions;
+    }
+
+    public void setEditorJunctions(List<EditorJunction> editorJunctions) {
+        this.editorJunctions = editorJunctions != null ? editorJunctions : new ArrayList<>();
+    }
+
+    public List<EditorPassthrough> getEditorPassthroughs() {
+        if (editorPassthroughs == null) {
+            editorPassthroughs = new ArrayList<>();
+        }
+        return editorPassthroughs;
+    }
+
+    public void setEditorPassthroughs(List<EditorPassthrough> editorPassthroughs) {
+        this.editorPassthroughs = editorPassthroughs != null ? editorPassthroughs : new ArrayList<>();
     }
 }
