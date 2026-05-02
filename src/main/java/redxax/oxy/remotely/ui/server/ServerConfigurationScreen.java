@@ -63,6 +63,7 @@ public class ServerConfigurationScreen extends ReScreen {
     private ServerPlanSettingsController planController;
     private ServerBackupSettingsController backupController;
     private ServerSubuserSettingsController subuserController;
+    private ServerNetworkSettingsController networkController;
     private volatile boolean screenClosed;
 
     private static final Set<String> REINSTALL_TRIGGERING_VARS = Set.of(
@@ -284,6 +285,11 @@ public class ServerConfigurationScreen extends ReScreen {
         }
 
         if (isEditMode && isReStudioBackend) {
+            if (networkController == null) {
+                networkController = new ServerNetworkSettingsController(this, tempInstance);
+            }
+            settingsByTab.put("Network", networkController::getSettings);
+
             if (subuserController == null) {
                 subuserController = new ServerSubuserSettingsController(this, tempInstance);
             }
