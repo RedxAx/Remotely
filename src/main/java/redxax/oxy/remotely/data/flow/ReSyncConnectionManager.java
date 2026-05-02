@@ -21,8 +21,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 public class ReSyncConnectionManager {
-    private static final String RESYNC_API_KEY_KEY = "resyncApiKey";
-    private static final String RESYNC_PORT_KEY = "resyncPort";
     private final RemotelyClient client;
     private final ReStudioApiClient apiClient;
     private final Map<String, ReSyncFlowClient> flowClients = new ConcurrentHashMap<>();
@@ -70,6 +68,11 @@ public class ReSyncConnectionManager {
 
     private ReSyncFlowClient ensureFlowClient(String serverId, ReSyncConnectionProfile profile, boolean showNotifications, boolean connectIfNeeded) {
         ReSyncFlowClient flowClient = flowClients.get(serverId);
+        if (flowClient != null && profile != null && !flowClient.isConnectedState() && !flowClient.matchesDirectProfile(profile.wsUrl(), profile.apiKey())) {
+            flowClient.shutdown();
+            flowClients.remove(serverId);
+            flowClient = null;
+        }
         if (flowClient == null) {
             if (profile != null && profile.wsUrl() != null && !profile.wsUrl().isBlank()) {
                 flowClient = new ReSyncFlowClient(serverId, apiClient, profile.wsUrl(), profile.apiKey(), client);
@@ -120,36 +123,14 @@ public class ReSyncConnectionManager {
             return null;
         }
         Instance instance = findInstanceByServerId(serverId, null);
-        if (instance == null || instance.getBackendConfig() == null || instance.getBackendConfig().credentials == null) {
-            return tryReadReSyncConfigFromBackend(instance);
+        if (instance == null || instance.getBackendConfig() == null) {
+            return null;
         }
         BackendConfig backendConfig = instance.getBackendConfig();
         if ("RESTUDIO".equalsIgnoreCase(backendConfig.type)) {
             return null;
         }
-        Map<String, String> credentials = backendConfig.credentials;
-        String port = safeText(credentials.get(RESYNC_PORT_KEY));
-        String host;
-        if ("LOCAL".equalsIgnoreCase(backendConfig.type)) {
-            host = "127.0.0.1";
-        } else {
-            host = safeText(credentials.get("host"));
-        }
-        String apiKey = safeText(credentials.get(RESYNC_API_KEY_KEY));
-        if (port.isBlank() || apiKey.isBlank()) {
-            ReSyncConnectionProfile fsProfile = tryReadReSyncConfigFromBackend(instance);
-            if (fsProfile != null) {
-                return fsProfile;
-            }
-        }
-        String wsUrl = null;
-        if (!host.isBlank() && !port.isBlank()) {
-            wsUrl = normalizeWsUrl(host + ":" + port);
-        }
-        if (apiKey.isBlank()) {
-            return new ReSyncConnectionProfile(wsUrl, null);
-        }
-        return new ReSyncConnectionProfile(wsUrl, apiKey);
+        return tryReadReSyncConfigFromBackend(instance);
     }
 
     public String getFlowAvailabilityIssue(String serverId, ClientServerView server) {

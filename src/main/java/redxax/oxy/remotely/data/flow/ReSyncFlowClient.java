@@ -43,6 +43,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
@@ -151,6 +152,11 @@ public class ReSyncFlowClient {
     public CompletableFuture<Void> connect() {
         if (isConnected() || connecting.get()) {
             return CompletableFuture.completedFuture(null);
+        }
+        WebSocketClient existingClient = wsClient.get();
+        if (existingClient != null && existingClient.isOpen() && !authenticated.get()) {
+            existingClient.close();
+            wsClient.compareAndSet(existingClient, null);
         }
         connecting.set(true);
         nodeRegistrySynced = false;
@@ -309,7 +315,9 @@ public class ReSyncFlowClient {
         buffer.put(CLIENT_VERSION.getBytes());
 
         sendFrame(0, buffer.array(), (short) 0);
+    }
 
+    private void subscribeStartupChannels() {
         sendSubscribe("flow", null);
         sendSubscribe("player_tracking", null);
         sendSubscribe("world_management", null);
@@ -474,6 +482,7 @@ public class ReSyncFlowClient {
         connecting.set(false);
         cancelConnectTimeout();
         System.out.println("[ReSyncFlow] Handshake complete, client authenticated");
+        subscribeStartupChannels();
         startHeartbeat();
         requestNodeRegistry();
         requestJobSnapshots();
@@ -512,8 +521,9 @@ public class ReSyncFlowClient {
             }
             connecting.set(false);
             WebSocketClient client = wsClient.get();
-            if (client != null && !client.isOpen()) {
+            if (client != null && !authenticated.get()) {
                 client.close();
+                wsClient.compareAndSet(client, null);
             }
             if (errorListener != null) {
                 errorListener.onError(null, "ReSync Connection Timed Out");
@@ -1663,6 +1673,10 @@ public class ReSyncFlowClient {
         return isConnected();
     }
 
+    public boolean matchesDirectProfile(String wsUrl, String apiKey) {
+        return Objects.equals(normalizeWsUrl(directWsUrl), normalizeWsUrl(wsUrl)) && Objects.equals(directApiKey, apiKey);
+    }
+
     private boolean isConnected() {
         WebSocketClient client = wsClient.get();
         return client != null && client.isOpen() && authenticated.get();
@@ -1671,7 +1685,8 @@ public class ReSyncFlowClient {
     private void ensureConnected() {
         WebSocketClient client = wsClient.get();
         if (client != null && client.isOpen() && !authenticated.get()) {
-            return;
+            client.close();
+            wsClient.compareAndSet(client, null);
         }
         connect();
     }

@@ -199,7 +199,7 @@ public class FlowManagerScreen extends ReScreen {
             enterReadyState();
             return;
         }
-        if ((startupState == StartupState.LOADING || startupState == StartupState.SERVER_STOPPED) && !startupProbeRunning) {
+        if ((startupState == StartupState.LOADING || startupState == StartupState.SERVER_STOPPED || startupState == StartupState.INSTALLED) && !startupProbeRunning) {
             beginStartupProbe(false);
         }
     }
@@ -226,6 +226,7 @@ public class FlowManagerScreen extends ReScreen {
                 .accentType(ThemeManager.getAccent("nice"))
                 .size(180, 20)
                 .autoWidthOnTextChange(true)
+                .entranceAnimation(false)
                 .onClick(this::runSetupFlow)
                 .build();
             setupReSyncButton.setVisible(false);
@@ -238,6 +239,7 @@ public class FlowManagerScreen extends ReScreen {
                 .accentType(ThemeManager.getAccent("nice"))
                 .size(180, 20)
                 .autoWidthOnTextChange(true)
+                .entranceAnimation(false)
                 .onClick(this::openServerScreen)
                 .build();
             welcomeServerButton.setVisible(false);
@@ -323,7 +325,10 @@ public class FlowManagerScreen extends ReScreen {
                 enterReadyState();
                 return;
             }
-            if (startupState == StartupState.INSTALLED || startupState == StartupState.INSTALLING) {
+            if (startupState == StartupState.INSTALLING) {
+                return;
+            }
+            if (startupState == StartupState.INSTALLED && resolvedState != StartupState.READY && resolvedState != StartupState.LOADING) {
                 return;
             }
             switch (resolvedState) {
@@ -366,6 +371,9 @@ public class FlowManagerScreen extends ReScreen {
         if (instance != null && isReSyncResourcePresent(instance)) {
             if (!isRunning) {
                 return StartupState.SERVER_STOPPED;
+            }
+            if (flowManager.getFlowAvailabilityIssue(serverId, server) != null) {
+                return StartupState.SETUP;
             }
             return StartupState.LOADING;
         }
@@ -697,8 +705,10 @@ public class FlowManagerScreen extends ReScreen {
 
         Path serverPath = Path.of(instance.getPath());
         Path pluginsPath = serverPath.resolve(resolvePluginsDirectory(instance));
+        Path reSyncJarPath = pluginsPath.resolve("ReSync.jar");
         ensureDirectory(fs, pluginsPath);
-        transfer.downloadFile(RESYNC_RELEASE_URL, pluginsPath.resolve("ReSync.jar"), null).get(90, TimeUnit.SECONDS);
+        transfer.downloadFile(RESYNC_RELEASE_URL, reSyncJarPath, null).get(90, TimeUnit.SECONDS);
+        registerReSyncResource(instance, reSyncJarPath);
 
         Path configDir = pluginsPath.resolve("ReSync");
         ensureDirectory(fs, configDir);
@@ -718,11 +728,26 @@ public class FlowManagerScreen extends ReScreen {
                 backendConfig.credentials = new HashMap<>();
             }
             backendConfig.credentials.put("resyncEnabled", "true");
-            backendConfig.credentials.put("resyncPort", String.valueOf(RESYNC_PORT));
-            backendConfig.credentials.put("resyncApiKey", apiKey);
             instance.save();
         }
         return true;
+    }
+
+    private void registerReSyncResource(Instance instance, Path reSyncJarPath) {
+        if (instance == null || reSyncJarPath == null) {
+            return;
+        }
+        try {
+            boolean remoteBackend = instance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
+            if (remoteBackend) {
+                Rebase.get().getResourceManager().invalidateCache(instance);
+                Rebase.get().getResourceManager().getResources(instance).get(30, TimeUnit.SECONDS);
+                return;
+            }
+            Rebase.get().getResourceManager().loadResource(instance, reSyncJarPath).get(30, TimeUnit.SECONDS);
+        } catch (Exception ignored) {
+            Rebase.get().getResourceManager().invalidateCache(instance);
+        }
     }
 
     private String generateApiKey() {
@@ -4223,7 +4248,7 @@ public class FlowManagerScreen extends ReScreen {
                 enterReadyState();
                 return;
             }
-            if (startupState == StartupState.LOADING || startupState == StartupState.SERVER_STOPPED) {
+            if (startupState == StartupState.LOADING || startupState == StartupState.SERVER_STOPPED || startupState == StartupState.INSTALLED) {
                 beginStartupProbe(false);
             }
             return;
