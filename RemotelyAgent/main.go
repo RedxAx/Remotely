@@ -22,7 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentVersion = "1.0.0"
+const agentVersion = "1.1.0"
 
 type RemoteIndex struct {
 	GeneratedAt  int64            `json:"generatedAt"`
@@ -94,6 +94,18 @@ func main() {
 		cmdCheckZipType(os.Args[2:])
 	case "flatten-zip":
 		cmdFlattenZip(os.Args[2:])
+	case "lifecycle-start":
+		cmdLifecycleStart(os.Args[2:])
+	case "lifecycle-stop":
+		cmdLifecycleStop(os.Args[2:])
+	case "lifecycle-send":
+		cmdLifecycleSend(os.Args[2:])
+	case "lifecycle-status":
+		cmdLifecycleStatus(os.Args[2:])
+	case "lifecycle-console":
+		cmdLifecycleConsole(os.Args[2:])
+	case "lifecycle-supervise":
+		cmdLifecycleSupervise(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -111,6 +123,11 @@ Usage:
   remotely-agent check-zip-type --zip <zip_path>
   remotely-agent flatten-zip --zip <zip_path> --target <target_dir>
   remotely-agent install-curseforge-zip --zip <zip_path> --project-id <project_id> --file-id <file_id>
+  remotely-agent lifecycle-start --dir <instance_dir> --command <command>
+  remotely-agent lifecycle-stop --dir <instance_dir> [--timeout <seconds>]
+  remotely-agent lifecycle-send --dir <instance_dir> --command <command>
+  remotely-agent lifecycle-status --dir <instance_dir>
+  remotely-agent lifecycle-console --dir <instance_dir>
  `)
 }
 
@@ -683,7 +700,7 @@ func fetchAll(mf FetchManifest) error {
 			sb.WriteString(e.Error())
 			sb.WriteByte('\n')
 		}
-		return fmt.Errorf(sb.String())
+		return fmt.Errorf("%s", sb.String())
 	}
 	return nil
 }

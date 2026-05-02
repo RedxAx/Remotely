@@ -1075,6 +1075,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 TabContext active = getActiveContext();
                 if (active == ctx) {
                     statusCtx.update(usage);
+                    if (usage != null && usage.uptimeMs() > 0 && ctx.instance.getState() == InstanceState.STOPPED) {
+                        ctx.instance.setState(InstanceState.RUNNING);
+                    }
                 }
                 statusCtx.finishRequest();
             })).exceptionally(e -> {
@@ -1088,6 +1091,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             statusCtx.finishRequest();
             statusCtx.update(null);
         });
+
     }
 
     private static String formatBytes(long bytes) {
