@@ -9,6 +9,7 @@ import net.minecraft.resources.Identifier;
 //#endif
 import redxax.oxy.remotely.adapters.MinecraftTextRendererAdapter;
 import redxax.oxy.remotely.adapters.ReScreenWrapper;
+import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.platform.ClipboardHandler;
@@ -39,6 +40,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
     public void setScreen(Screen screen) {
         //#if MC >= 26.2
         //$$ if (screen == null) {
+        //$$     RematrixScreen.closeExplicitly();
         //$$     mc.gui.setScreen(null);
         //$$     return;
         //$$ }
@@ -59,6 +61,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
         //$$ mc.gui.setScreen(new ReScreenWrapper(screen));
         //#else
         if (screen == null) {
+            RematrixScreen.closeExplicitly();
             mc.setScreen(null);
             return;
         }
@@ -130,6 +133,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
         //$$ } else if (parent instanceof Screen) {
         //$$     setScreen((Screen) parent);
         //$$ } else {
+        //$$     RematrixScreen.closeExplicitly();
         //$$     setScreen(null);
         //$$ }
         //#else
