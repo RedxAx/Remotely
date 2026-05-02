@@ -32,7 +32,9 @@ import java.lang.reflect.Field;
 public class RematrixScreen extends Screen {
     private static restudio.rescreen.ui.core.Screen suspendedScreen;
     private static Screen suspendedMinecraftScreen;
-    private static boolean skipCloseCleanup;
+    private static boolean shortcutHide;
+    private static boolean userClose;
+    private static boolean restoreQueued;
     private final restudio.rescreen.ui.core.Screen libScreen;
     private final ScreenManager sm = ScreenManager.getInstance();
     private long lastFrameTime;
@@ -347,15 +349,27 @@ public class RematrixScreen extends Screen {
 
     @Override
     public void onClose() {
+        closeExplicitly();
         super.onClose();
-        if (skipCloseCleanup) {
-            skipCloseCleanup = false;
+    }
+
+    @Override
+    public void removed() {
+        super.removed();
+        if (shortcutHide) {
+            shortcutHide = false;
+            return;
+        }
+        if (!userClose) {
+            reopenAfterMinecraftClose();
             return;
         }
         restudio.rescreen.ui.core.Screen current = sm.getCurrentScreen();
         if (current != null) current.removed();
         sm.setScreen(null);
         suspendedScreen = null;
+        userClose = false;
+        restoreQueued = false;
     }
 
     public void onDisplayed() {
@@ -375,7 +389,7 @@ public class RematrixScreen extends Screen {
         //$$     suspendedScreen = target != null ? target : wrapper.getScreen();
         //$$     Screen restoreScreen = suspendedMinecraftScreen;
         //$$     suspendedMinecraftScreen = null;
-        //$$     skipCloseCleanup = true;
+        //$$     shortcutHide = true;
         //$$     mc.gui.setScreen(restoreScreen);
         //$$     return true;
         //$$ }
@@ -391,7 +405,7 @@ public class RematrixScreen extends Screen {
             suspendedScreen = target != null ? target : wrapper.getScreen();
             Screen restoreScreen = suspendedMinecraftScreen;
             suspendedMinecraftScreen = null;
-            skipCloseCleanup = true;
+            shortcutHide = true;
             mc.setScreen(restoreScreen);
             return true;
         }
@@ -400,6 +414,43 @@ public class RematrixScreen extends Screen {
         mc.setScreen(new RematrixScreen(suspendedScreen));
         return true;
         //#endif
+    }
+
+    public static void closeExplicitly() {
+        Minecraft mc = Minecraft.getInstance();
+        //#if MC >= 26.2
+        //$$ userClose = mc.gui.screen() instanceof RematrixScreen;
+        //$$ shortcutHide = false;
+        //#else
+        userClose = mc.screen instanceof RematrixScreen;
+        shortcutHide = false;
+        //#endif
+    }
+
+    public static boolean shouldBlockMinecraftClose() {
+        return !userClose && !shortcutHide;
+    }
+
+    public static void rememberMinecraftScreen(Screen screen) {
+        suspendedMinecraftScreen = screen;
+    }
+
+    private void reopenAfterMinecraftClose() {
+        suspendedScreen = libScreen;
+        if (restoreQueued) return;
+        restoreQueued = true;
+        Minecraft mc = Minecraft.getInstance();
+        mc.execute(() -> {
+            restoreQueued = false;
+            if (!shouldBlockMinecraftClose()) return;
+            //#if MC >= 26.2
+            //$$ if (mc.gui.screen() instanceof RematrixScreen) return;
+            //$$ mc.gui.setScreen(this);
+            //#else
+            if (mc.screen instanceof RematrixScreen) return;
+            mc.setScreen(this);
+            //#endif
+        });
     }
 
     private double getInputScale() {
