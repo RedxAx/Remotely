@@ -1403,7 +1403,7 @@ public class NodeWidget extends AnimatedWidget {
     @Override
     public void tick() {
         super.tick();
-        if (selected) {
+        if (selected || !ThemeManager.getDefaultAccent().equals(accentType)) {
             return;
         }
         bgColor = ThemeManager.getColor(ThemeColor.innerBackground);

@@ -56,6 +56,7 @@ public class FlowManager {
     private static final List<String> FLOW_TEMPLATES = List.of("Blank", "Command");
     private final RemotelyClient client;
     private final ReSyncConnectionManager connectionManager;
+    private final FlowDebugController debugController;
     private final ReSyncWorldService worldService;
     private final ReSyncPlayerService playerService;
     private final SyncedResourceCache<FlowGraph> flowStore = new SyncedResourceCache<>(FlowGraph::getId, FlowGraph::getId);
@@ -73,6 +74,7 @@ public class FlowManager {
     public FlowManager(RemotelyClient client, ReStudioApiClient apiClient) {
         this.client = client;
         this.connectionManager = new ReSyncConnectionManager(client, apiClient);
+        this.debugController = new FlowDebugController(this);
         this.worldService = new ReSyncWorldService();
         this.playerService = new ReSyncPlayerService();
         INSTANCE = this;
@@ -102,6 +104,10 @@ public class FlowManager {
 
     public ReSyncFlowClient ensureFlowClient(String serverId) {
         return connectionManager.ensureFlowClient(serverId);
+    }
+
+    public FlowDebugController getDebugController() {
+        return debugController;
     }
 
     public void closeServerConnection(String serverId) {
@@ -294,13 +300,6 @@ public class FlowManager {
                 customContentStore.markSaving(serverId, derivedContent.getId());
                 flowClient.sendCustomContentSave(derivedContent);
             } else {
-                for (FlowGraph contentGraph : getDefaultContentGraphs(serverId, graph)) {
-                    CustomContentDefinition content = CustomContentGraphAdapter.toDefinition(contentGraph);
-                    flowClient.sendFlowSave(contentGraph);
-                    if (content != null) {
-                        flowClient.sendCustomContentSave(content);
-                    }
-                }
                 for (CustomContentDefinition content : customContentStore.getForServer(serverId).values()) {
                     if (graph != null && graph.getId() != null && graph.getId().equals(content.getFlowId())) {
                         flowClient.sendCustomContentSave(content);
@@ -308,20 +307,6 @@ public class FlowManager {
                 }
             }
         }
-    }
-
-    private List<FlowGraph> getDefaultContentGraphs(String serverId, FlowGraph graph) {
-        if (graph == null || graph.getId() == null || graph.isFunction() || CustomContentGraphAdapter.isContentGraph(graph)) {
-            return List.of();
-        }
-        List<FlowGraph> graphs = new ArrayList<>();
-        for (String suffix : List.of("_default_item", "_default_block", "_default_armor")) {
-            FlowGraph contentGraph = flowStore.get(serverId, graph.getId() + suffix);
-            if (contentGraph != null && CustomContentGraphAdapter.isContentGraph(contentGraph)) {
-                graphs.add(contentGraph);
-            }
-        }
-        return graphs;
     }
 
     public void cacheFlow(String serverId, FlowGraph graph) {
@@ -507,9 +492,6 @@ public class FlowManager {
         }
         flowStore.putInDraft(serverId, graph);
         flowStore.putNameIfAbsent(serverId, graph.getId(), graph.getId());
-        if (!function && !CustomContentGraphAdapter.isContentGraph(graph)) {
-            createDefaultContentFlows(serverId, graph.getId());
-        }
         return graph;
     }
 
@@ -523,19 +505,6 @@ public class FlowManager {
             customContentStore.putNameIfAbsent(serverId, definition.getId(), definition.getDisplayName());
         }
         return graph;
-    }
-
-    private void createDefaultContentFlows(String serverId, String flowId) {
-        createDefaultContentFlow(serverId, flowId + "_default_item", "item", "Default Item");
-        createDefaultContentFlow(serverId, flowId + "_default_block", "block", "Default Block");
-        createDefaultContentFlow(serverId, flowId + "_default_armor", "armor", "Default Armor");
-    }
-
-    private void createDefaultContentFlow(String serverId, String contentFlowId, String type, String name) {
-        if (flowStore.get(serverId, contentFlowId) != null) {
-            return;
-        }
-        createContentFlow(serverId, contentFlowId, type, name);
     }
 
     public GuiDefinition createGui(String serverId, String id) {

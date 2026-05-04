@@ -627,6 +627,15 @@ public class ReSyncFlowClient {
             case 0x38:
                 handleOptionCatalog(buffer);
                 break;
+            case 0x41:
+                handleTraceSnapshot(buffer);
+                break;
+            case 0x42:
+                handleTraceEvent(buffer);
+                break;
+            case 0x47:
+                handleDebugSnapshot(buffer);
+                break;
             case 0x0B:
                 handleNodeRegistrySnapshot(buffer, true);
                 break;
@@ -707,6 +716,30 @@ public class ReSyncFlowClient {
             trackJobElement(envelope.get("data"));
         } else {
             trackGenericJob(envelope);
+        }
+    }
+
+    private void handleTraceSnapshot(ByteBuffer buffer) {
+        String json = readRemainingJson(buffer);
+        FlowManager manager = client != null ? client.getFlowManager() : null;
+        if (manager != null && manager.getDebugController() != null) {
+            manager.getDebugController().applyTraceSnapshot(serverId, json);
+        }
+    }
+
+    private void handleTraceEvent(ByteBuffer buffer) {
+        String json = readRemainingJson(buffer);
+        FlowManager manager = client != null ? client.getFlowManager() : null;
+        if (manager != null && manager.getDebugController() != null) {
+            manager.getDebugController().applyTraceEvent(serverId, json);
+        }
+    }
+
+    private void handleDebugSnapshot(ByteBuffer buffer) {
+        String json = readRemainingJson(buffer);
+        FlowManager manager = client != null ? client.getFlowManager() : null;
+        if (manager != null && manager.getDebugController() != null) {
+            manager.getDebugController().applyDebugSnapshot(serverId, json);
         }
     }
 
@@ -1238,6 +1271,22 @@ public class ReSyncFlowClient {
 
     public void requestFlowList() {
         requestResourceList(ReSyncResourceType.FLOW);
+    }
+
+    public void sendDebugCommand(Map<String, Object> command) {
+        if (command == null || command.isEmpty()) {
+            return;
+        }
+        if (!isConnected()) {
+            pendingSends.add(() -> sendDebugCommand(command));
+            ensureConnected();
+            return;
+        }
+        byte[] jsonBytes = gson.toJson(command).getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + jsonBytes.length);
+        buffer.put((byte) 0x46);
+        buffer.put(jsonBytes);
+        sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
 
     public void requestGui(String guiId) {
