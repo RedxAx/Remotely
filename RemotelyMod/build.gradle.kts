@@ -1,8 +1,9 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import dev.deftu.gradle.utils.version.MinecraftVersions
-import dev.deftu.gradle.utils.includeOrShade
-import net.fabricmc.loom.api.LoomGradleExtensionAPI
+import org.gradle.api.artifacts.ExternalModuleDependency
 import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.api.file.FileCollection
+import org.gradle.api.tasks.Copy
 import org.gradle.jvm.tasks.Jar
 import org.gradle.language.jvm.tasks.ProcessResources
 import java.util.Properties
@@ -18,6 +19,16 @@ plugins {
     id("com.hypherionmc.modutils.modpublisher") version "2.1.8"
 }
 
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.release.set(21)
+}
+
 toolkitMultiversion {
     moveBuildsToRootProject.set(true)
 }
@@ -28,7 +39,20 @@ val fabricApiVersionOverride = (findProperty("dgt.fabric.api.version") as String
     ?: (findProperty("fabric.api.version") as String?)
 val fabricLoaderVersion = (findProperty("dgt.fabric.loader.version") as String?)
     ?: (findProperty("fabric.loader.version") as String?)
-    ?: "0.17.2"
+    ?: "0.18.4"
+val publishingRequested = gradle.startParameter.taskNames.any {
+    val taskName = it.lowercase()
+    taskName.contains("publish") || taskName.contains("modrinth") || taskName.contains("curse") || taskName.contains("github") || taskName.contains("nightbloom")
+}
+val bundledTransitives = configurations.create("bundledTransitives") {
+    isCanBeResolved = true
+    isCanBeConsumed = false
+    exclude(group = "com.mojang")
+    exclude(group = "net.fabricmc")
+    exclude(group = "net.minecraft")
+    exclude(group = "org.joml")
+    exclude(group = "org.lwjgl")
+}
 
 toolkitLoomHelper {
     if (!isDropFabric) {
@@ -55,56 +79,87 @@ repositories {
     maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
     maven("https://maven.firstdark.dev/releases")
 
+    ivy {
+        name = "remotelyBuildLibs"
+        url = uri(rootProject.file("../build/libs"))
+        patternLayout {
+            artifact("[artifact].[ext]")
+        }
+        metadataSources {
+            artifact()
+        }
+    }
+
     flatDir {
         dirs(rootProject.file("libs"))
     }
 }
 
 dependencies {
+    val remotelyAppBuild = gradle.includedBuild("RemotelyApp").task(":jar")
+    val remotelyAppJar = files(rootProject.file("../build/libs/Remotely-App.jar"))
+        .builtBy(remotelyAppBuild)
 
-    val remotely = "dev.restudio:Remotely-App:1.0"
-    val reScreen = "dev.restudio:ReScreen:1.0"
-    val remodel = "dev.restudio:Remodel:1.0.0"
-    val rebase = "dev.restudio:Rebase:1.0-SNAPSHOT"
+    fun bundled(dependency: String) {
+        implementation(dependency)
+        add("bundledTransitives", dependency)
+        val nestedDependency = dependencies.create(dependency) as ExternalModuleDependency
+        if (mcData.isFabric || mcData.isNeoForge) {
+            add("include", nestedDependency)
+        }
+        if (mcData.isNeoForge) {
+            val runtimeDependency = dependencies.create(dependency) as ExternalModuleDependency
+            runtimeDependency.isTransitive = false
+            if (dependency.startsWith("dev.restudio:remotely-app:")) {
+                add("localRuntime", runtimeDependency)
+            } else {
+                add("localRuntime", runtimeDependency)
+                val forgeRuntimeDependency = dependencies.create(dependency) as ExternalModuleDependency
+                forgeRuntimeDependency.isTransitive = false
+                add("forgeRuntimeLibrary", forgeRuntimeDependency)
+            }
+        }
+    }
 
-    implementation(remotely)
-    implementation(reScreen)
-    implementation(remodel)
-    implementation(rebase)
+    fun bundledFile(fileCollection: FileCollection, forgeLibrary: Boolean = true, nestedDependency: ExternalModuleDependency? = null) {
+        implementation(fileCollection)
+        if (mcData.isFabric || mcData.isNeoForge) {
+            add("include", nestedDependency ?: fileCollection)
+        }
+        if (mcData.isNeoForge) {
+            add("localRuntime", fileCollection)
+            if (forgeLibrary) {
+                add("forgeRuntimeLibrary", fileCollection)
+            }
+        }
+    }
 
-    shade(remotely)
-    shade(reScreen)
-    shade(remodel)
-    shade(rebase)
+    val remotelyAppNested = dependencies.create("dev.restudio:remotely-app:2.2.0") as ExternalModuleDependency
+    remotelyAppNested.isTransitive = false
+    remotelyAppNested.artifact {
+        name = "Remotely-App"
+        type = "jar"
+        extension = "jar"
+    }
 
-    implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
-    implementation("com.hierynomus:sshj:0.40.0")
-    implementation("com.github.javakeyring:java-keyring:1.0.4")
-    implementation("net.java.dev.jna:jna-platform:5.13.0")
-    implementation("com.vladsch.flexmark:flexmark-all:0.64.8")
-    implementation("org.apache.xmlgraphics:batik-transcoder:1.19")
-    implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
-    implementation("org.java-websocket:Java-WebSocket:1.5.7")
-    implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:0.24.0")
-    implementation("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.24.0")
+    bundledFile(remotelyAppJar, forgeLibrary = false, nestedDependency = remotelyAppNested)
+    bundled("dev.restudio:rescreen:1.0")
+    bundled("dev.restudio:remodel:1.0.0")
+    bundled("dev.restudio:rebase:1.0-SNAPSHOT")
 
-    implementation("org.jetbrains.pty4j:pty4j:0.13.10-1")
-    implementation("org.jetbrains.jediterm:jediterm-core:3.54")
-    implementation("org.jetbrains.jediterm:jediterm-pty:2.69")
-
-    shade("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
-    shade("com.hierynomus:sshj:0.40.0")
-    shade("com.github.javakeyring:java-keyring:1.0.4")
-    shade("net.java.dev.jna:jna-platform:5.13.0")
-    shade("com.vladsch.flexmark:flexmark-all:0.64.8")
-    shade("org.apache.xmlgraphics:batik-transcoder:1.19")
-    shade("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
-    shade("org.java-websocket:Java-WebSocket:1.5.7")
-    shade("org.eclipse.lsp4j:org.eclipse.lsp4j:0.24.0")
-    shade("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.24.0")
-    shade("org.jetbrains.pty4j:pty4j:0.13.10-1")
-    shade("org.jetbrains.jediterm:jediterm-core:3.54")
-    shade("org.jetbrains.jediterm:jediterm-pty:2.69")
+    bundled("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
+    bundled("com.hierynomus:sshj:0.40.0")
+    bundled("com.github.javakeyring:java-keyring:1.0.4")
+    bundled("net.java.dev.jna:jna-platform:5.13.0")
+    bundled("com.vladsch.flexmark:flexmark-all:0.64.8")
+    bundled("org.apache.xmlgraphics:batik-transcoder:1.19")
+    bundled("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
+    bundled("org.java-websocket:Java-WebSocket:1.5.7")
+    bundled("org.eclipse.lsp4j:org.eclipse.lsp4j:0.24.0")
+    bundled("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.24.0")
+    bundled("org.jetbrains.pty4j:pty4j:0.13.10-1")
+    bundled("org.jetbrains.jediterm:jediterm-core:3.54")
+    bundled("org.jetbrains.jediterm:jediterm-pty:2.69")
 
     val fabricApiVersion = if (mcData.isFabric && !mcData.isLegacyFabric) {
         runCatching { mcData.dependencies.fabric.fabricApiVersion }.getOrNull()
@@ -130,7 +185,46 @@ dependencies {
     }
 
     if (mcData.version <= MinecraftVersions.VERSION_1_12_2) {
-        add("modImplementation", includeOrShade("org.spongepowered:mixin:0.7.11-SNAPSHOT")!!)
+        add("modImplementation", "org.spongepowered:mixin:0.7.11-SNAPSHOT")
+    }
+}
+
+afterEvaluate {
+    bundledTransitives.resolvedConfiguration.resolvedArtifacts
+        .map { it.moduleVersion.id.toString() }
+        .distinct()
+        .forEach { dependency ->
+            val nestedDependency = project.dependencies.create(dependency) as ExternalModuleDependency
+            nestedDependency.isTransitive = false
+            project.dependencies.add("include", nestedDependency)
+        }
+}
+
+val remotelyAppBuild = gradle.includedBuild("RemotelyApp").task(":jar")
+val remotelyAppRuntime = files(rootProject.file("../build/libs/Remotely-App.jar"))
+    .builtBy(remotelyAppBuild)
+
+tasks.matching { it.name == "processIncludeJars" }.configureEach {
+    dependsOn(remotelyAppBuild)
+}
+
+if (mcData.isNeoForge) {
+    val mergeRemotelyAppRuntime = tasks.register<Copy>("mergeRemotelyAppRuntime") {
+        from({ remotelyAppRuntime.files.map { zipTree(it) } })
+        into(layout.buildDirectory.dir("classes/java/main"))
+        exclude("META-INF/MANIFEST.MF", "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+    }
+
+    tasks.named("classes") {
+        finalizedBy(mergeRemotelyAppRuntime)
+    }
+
+    tasks.withType<JavaExec>().configureEach {
+        dependsOn(mergeRemotelyAppRuntime)
+    }
+
+    tasks.withType<Jar>().configureEach {
+        dependsOn(mergeRemotelyAppRuntime)
     }
 }
 
@@ -147,9 +241,9 @@ tasks {
     }
 
     named<Jar>("jar") {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
         if (isDropFabric) {
             dependsOn(fatJar)
-            duplicatesStrategy = DuplicatesStrategy.EXCLUDE
             from(fatJar.flatMap { it.archiveFile }.map { zipTree(it.asFile) })
         }
     }
@@ -188,6 +282,7 @@ tasks {
 }
 
 
+if (publishingRequested) {
 publisher {
 
     apiKeys {
@@ -380,4 +475,5 @@ publisher {
         modrinthDepends.required.set(listOf("fabric-api"))
         modrinthDepends.incompatible.set(listOf("essential"))
     }
+}
 }

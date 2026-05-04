@@ -1,9 +1,9 @@
 import groovy.json.JsonSlurper
+import org.gradle.api.file.DuplicatesStrategy
 
 plugins {
     id("java-library")
     id("application")
-    id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
 group = "redxax.oxy"
@@ -19,9 +19,9 @@ repositories {
 }
 
 dependencies {
-    implementation(files("libs/ReScreen-1.0.jar"))
-    implementation(files("libs/Remodel-1.0.0.jar"))
-    implementation(files("libs/Rebase-1.0-SNAPSHOT.jar"))
+    api("dev.restudio:rescreen:1.0")
+    api("dev.restudio:remodel:1.0.0")
+    api("dev.restudio:rebase:1.0-SNAPSHOT")
 
     implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:0.24.0")
     implementation("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.24.0")
@@ -137,18 +137,13 @@ tasks.jar {
     manifest {
         attributes["Main-Class"] = "redxax.oxy.remotely.RemotelyInit"
         attributes["Implementation-Version"] = project.version.toString()
-        attributes["Class-Path"] = configurations.runtimeClasspath.get().joinToString(separator = " ") { it.name }
+    }
+    doFirst {
+        manifest {
+            attributes["Class-Path"] = configurations.runtimeClasspath.get().joinToString(separator = " ") { it.name }
+        }
     }
     archiveFileName.set("Remotely-App.jar")
-}
-
-tasks.register<Copy>("exportToMod") {
-    dependsOn(tasks.jar)
-    from(tasks.jar)
-    into(file("RemotelyMod/libs"))
-    doLast {
-        println("SUCCESS: App Jar copied to RemotelyMod/libs/Remotely-App.jar")
-    }
 }
 
 tasks.register<Exec>("createInstaller") {
@@ -212,8 +207,17 @@ tasks.register<Exec>("createInstaller") {
     )
 }
 
-tasks.shadowJar {
+tasks.register<Jar>("fatJar") {
+    group = "build"
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     archiveFileName.set("Remotely-Fat.jar")
+    from(sourceSets.main.get().output)
+    from({
+        configurations.runtimeClasspath.get().filter { it.exists() }.map {
+            if (it.isDirectory) it else zipTree(it)
+        }
+    })
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     manifest {
         attributes["Main-Class"] = "redxax.oxy.remotely.RemotelyInit"
         attributes["Implementation-Version"] = project.version.toString()

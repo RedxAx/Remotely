@@ -32,17 +32,39 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version ("0.8.+")
 }
 
-val dropFabricProjectPattern = Regex("""^\d+\.\d+(?:-(?:snapshot|pre|rc)-\d+)?-fabric$""")
+val dropFabricProjectPattern = Regex("""^\d+\.\d+(?:\.\d+)?(?:-(?:snapshot|pre|rc)-\d+)?-fabric$""")
 
 gradle.beforeProject {
     if (dropFabricProjectPattern.matches(name)) {
-        extensions.extraProperties["fabric.loom.disableObfuscation"] = "true"
-        extensions.extraProperties["dgt.loom.mappings.use"] = "false"
         extensions.extraProperties["dgt.fabric.loader.version"] = "0.18.4"
     }
 }
 
-rootProject.name = extra["mod.name"]?.toString()
+rootProject.name = "RemotelyMod"
+
+includeBuild("../../ReScreen") {
+    dependencySubstitution {
+        substitute(module("dev.restudio:rescreen")).using(project(":"))
+    }
+}
+
+includeBuild("../../Remodel") {
+    dependencySubstitution {
+        substitute(module("dev.restudio:remodel")).using(project(":"))
+    }
+}
+
+includeBuild("../../Rebase") {
+    dependencySubstitution {
+        substitute(module("dev.restudio:rebase")).using(project(":"))
+    }
+}
+
+includeBuild("..") {
+    name = "RemotelyApp"
+}
+
+extra["mod.name"]?.toString()
     ?: throw MissingPropertyException("mod.name has not been set.")
 rootProject.buildFileName = "root.gradle.kts"
 
@@ -90,28 +112,31 @@ listOf(
 //    "1.21.4-neoforge",
     "1.21.4-fabric",
 
-//    "1.21.5-neoforge",
+    "1.21.5-neoforge",
     "1.21.5-fabric",
 
-//    "1.21.6-neoforge",
+    "1.21.6-neoforge",
     "1.21.6-fabric",
 
 //    "1.21.7-neoforge",
 //    "1.21.7-fabric",
 
 //    "1.21.8-neoforge",
+    "1.21.8-neoforge",
     "1.21.8-fabric",
 
 //    "1.21.9-neoforge",
 //    "1.21.9-fabric",
 
 //    "1.21.10-neoforge",
+    "1.21.10-neoforge",
     "1.21.10-fabric",
 
+    "1.21.11-neoforge",
     "1.21.11-fabric",
 
-    "26.2-snapshot-1-fabric",
-    "26.1-pre-1-fabric",
+//    "26.2-snapshot-1-fabric",
+//    "26.1-pre-1-fabric",
 ).forEach { version ->
     include(":$version")
     project(":$version").apply {
