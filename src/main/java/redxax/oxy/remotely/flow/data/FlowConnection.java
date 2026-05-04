@@ -7,6 +7,8 @@ public class FlowConnection implements GraphConnection {
     private String sourcePin;
     private String targetNodeId;
     private String targetPin;
+    private String editorSourceNodeId;
+    private String editorSourcePin;
 
     public FlowConnection() {
     }
@@ -48,5 +50,21 @@ public class FlowConnection implements GraphConnection {
 
     public void setTargetPin(String targetPin) {
         this.targetPin = targetPin;
+    }
+
+    public String getEditorSourceNodeId() {
+        return editorSourceNodeId;
+    }
+
+    public void setEditorSourceNodeId(String editorSourceNodeId) {
+        this.editorSourceNodeId = editorSourceNodeId;
+    }
+
+    public String getEditorSourcePin() {
+        return editorSourcePin;
+    }
+
+    public void setEditorSourcePin(String editorSourcePin) {
+        this.editorSourcePin = editorSourcePin;
     }
 }
