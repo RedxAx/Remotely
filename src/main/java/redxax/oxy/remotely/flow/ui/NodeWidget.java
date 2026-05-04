@@ -1238,12 +1238,15 @@ public class NodeWidget extends AnimatedWidget {
 
     public Widget getInputWidgetAt(int wx, int wy) {
         updateInputWidgetPositions();
+        Widget bestWidget = null;
         for (Widget widget : inputWidgets.values()) {
             if (widget.isVisible() && widget.isMouseOver(wx, wy)) {
-                return widget;
+                if (bestWidget == null || widget.getPriority() > bestWidget.getPriority()) {
+                    bestWidget = widget;
+                }
             }
         }
-        return null;
+        return bestWidget;
     }
 
     @Override
