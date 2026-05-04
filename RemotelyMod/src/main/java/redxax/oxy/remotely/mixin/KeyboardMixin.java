@@ -12,7 +12,10 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.adapters.ReScreenWrapper;
+import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
+import redxax.oxy.remotely.util.InitializationManager;
 
 @Mixin(value = KeyboardHandler.class)
 public class KeyboardMixin {
@@ -48,6 +51,37 @@ public class KeyboardMixin {
     }
 
     @Unique
+    private boolean remotely$toggleScreen() {
+        //#if MC >= 26.2
+        //$$ if (client.gui.screen() instanceof RematrixScreen) {
+        //$$     return ReScreenWrapper.toggleScreen();
+        //$$ }
+        //$$ if (ReScreenWrapper.toggleScreen()) {
+        //$$     return true;
+        //$$ }
+        //$$ InitializationManager.ensureInitialized();
+        //$$ if (RemotelyClient.INSTANCE == null) {
+        //$$     return false;
+        //$$ }
+        //$$ RemotelyClient.INSTANCE.openServerManager(client.gui.screen());
+        //$$ return true;
+        //#else
+        if (client.screen instanceof RematrixScreen) {
+            return ReScreenWrapper.toggleScreen();
+        }
+        if (ReScreenWrapper.toggleScreen()) {
+            return true;
+        }
+        InitializationManager.ensureInitialized();
+        if (RemotelyClient.INSTANCE == null) {
+            return false;
+        }
+        RemotelyClient.INSTANCE.openServerManager(client.screen);
+        return true;
+        //#endif
+    }
+
+    @Unique
     private void remotely$skipNextToggleChar() {
         remotely$skipToggleChar = true;
         remotely$skipToggleCharUntil = System.nanoTime() + 250_000_000L;
@@ -65,7 +99,7 @@ public class KeyboardMixin {
     private void onKey(long l, int i, KeyEvent keyEvent, CallbackInfo ci) {
         if (remotely$shouldToggle(keyEvent.key(), keyEvent.modifiers())) {
             if (i == GLFW.GLFW_PRESS) {
-                remotely$toggleDown = ReScreenWrapper.toggleScreen();
+                remotely$toggleDown = remotely$toggleScreen();
                 remotely$skipNextToggleChar();
             } else if (i == GLFW.GLFW_RELEASE) {
                 remotely$toggleDown = false;
@@ -96,7 +130,7 @@ public class KeyboardMixin {
     //$$ private void onKey(long l, int i, int j, int k, int m, CallbackInfo ci) {
     //$$     if (remotely$shouldToggle(i, m)) {
     //$$         if (k == GLFW.GLFW_PRESS) {
-    //$$             remotely$toggleDown = ReScreenWrapper.toggleScreen();
+    //$$             remotely$toggleDown = remotely$toggleScreen();
     //$$             remotely$skipNextToggleChar();
     //$$         } else if (k == GLFW.GLFW_RELEASE) {
     //$$             remotely$toggleDown = false;
