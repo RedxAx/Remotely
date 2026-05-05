@@ -47,7 +47,7 @@ dependencies {
     implementation("org.java-websocket:Java-WebSocket:1.5.7")
 
     implementation("org.jetbrains.pty4j:pty4j:0.13.10-1")
-    implementation("org.jetbrains.jediterm:jediterm-core:3.54")
+    implementation("org.jetbrains.jediterm:jediterm-core:3.66")
     implementation("org.jetbrains.jediterm:jediterm-pty:2.69")
 
     val lwjglVersion = "3.3.6"
