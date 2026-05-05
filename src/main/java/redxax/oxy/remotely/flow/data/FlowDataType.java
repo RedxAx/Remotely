@@ -22,8 +22,8 @@ public final class FlowDataType {
     public static final FlowDataType ITEMSTACK = ITEM;
     public static final FlowDataType WORLD = new FlowDataType("world", null, 0x00CED1, "World");
     public static final FlowDataType BIOME = new FlowDataType("biome", null, 0x20B2AA, "Biome");
-    public static final FlowDataType LOCATION = new FlowDataType("location", null, 0xFFA500, "Location");
     public static final FlowDataType VECTOR = new FlowDataType("vector", null, 0x7FFFD4, "Vector");
+    public static final FlowDataType LOCATION = new FlowDataType("location", VECTOR, 0xFFA500, "Location");
     public static final FlowDataType VECTOR2 = new FlowDataType("vector2", VECTOR, 0x7FFFD4, "Vector2");
     public static final FlowDataType VECTOR3 = new FlowDataType("vector3", VECTOR, 0x40E0D0, "Vector3");
     public static final FlowDataType SEED = new FlowDataType("seed", NUMBER, 0xFFD700, "Seed");
@@ -50,10 +50,10 @@ public final class FlowDataType {
     public static final FlowDataType STACK = new FlowDataType("stack", null, 0x4682B4, "Stack");
 
     private final String id;
-    private final FlowDataType parent;
-    private final int color;
-    private final String displayName;
-    private final boolean canStringify;
+    private FlowDataType parent;
+    private int color;
+    private String displayName;
+    private boolean canStringify;
 
     private FlowDataType(String id, FlowDataType parent, int color, String displayName) {
         this(id, parent, color, displayName, !"execution".equals(id) && !"any".equals(id));
@@ -126,6 +126,10 @@ public final class FlowDataType {
         }
         FlowDataType existing = REGISTRY.get(id.toLowerCase());
         if (existing != null) {
+            existing.parent = parent;
+            existing.color = color;
+            existing.displayName = displayName != null && !displayName.isBlank() ? displayName : existing.displayName;
+            existing.canStringify = canStringify;
             return existing;
         }
         FlowDataType type = new FlowDataType(id, parent, color, displayName, canStringify);
