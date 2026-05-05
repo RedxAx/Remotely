@@ -5,13 +5,18 @@ import restudio.rebase.backend.impl.LocalBackend;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
+import restudio.rebase.api.unified.InstanceApi;
+import restudio.rebase.api.unified.adapter.UnifiedFileSystemProvider;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.ui.widgets.TerminalWidget;
+import redxax.oxy.remotely.packcontent.GlyphPreviewRenderer;
+import redxax.oxy.remotely.packcontent.RemotelyPackContentIntegration;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.IconMessage;
 
+import java.nio.file.Path;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -48,6 +53,7 @@ public class ServerTerminal extends TerminalWidget {
 
     private final Consumer<InstanceState> stateListener;
     private final Consumer<String> logListener;
+    private GlyphPreviewRenderer glyphPreviewRenderer;
 
     public ServerTerminal(int x, int y, int width, int height, Instance instance, ExecutionProvider executionProvider) {
         super(x, y, width, height, instance, executionProvider);
@@ -67,6 +73,7 @@ public class ServerTerminal extends TerminalWidget {
 
         this.addOutputListener(this::onTerminalOutput);
         this.setOnConnectionLost(this::handleConnectionLost);
+        installGlyphPreview();
 
         Instance inst = getInstance();
         if (inst != null) {
@@ -210,6 +217,28 @@ public class ServerTerminal extends TerminalWidget {
             }
             handleConnectionLost("Server is offline");
         }
+    }
+
+    private void installGlyphPreview() {
+        Instance inst = getInstance();
+        if (inst == null || inst.getPath() == null) {
+            return;
+        }
+        Path root = Path.of(inst.getPath());
+        var provider = new UnifiedFileSystemProvider(InstanceApi.of(inst).files());
+        RemotelyPackContentIntegration.refresh(inst, provider, root);
+        glyphPreviewRenderer = new GlyphPreviewRenderer(inst, provider, root, null, null);
+        setTextDecoration(new restudio.rebase.ui.widgets.TerminalTextDecoration() {
+            @Override
+            public boolean draw(TerminalTextDecorationContext context) {
+                return glyphPreviewRenderer.replaceTerminal(context, RemotelyPackContentIntegration.mode());
+            }
+
+            @Override
+            public boolean mouseClicked(double mouseX, double mouseY, int button) {
+                return glyphPreviewRenderer.openHoveredAsset(mouseX, mouseY, button);
+            }
+        });
     }
 
     private void onLogLine(String msg) {

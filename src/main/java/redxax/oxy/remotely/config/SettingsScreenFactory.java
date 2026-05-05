@@ -1,7 +1,17 @@
 package redxax.oxy.remotely.config;
 
 import redxax.oxy.remotely.ui.settings.controllers.ServerClientSettingsController;
-import restudio.rebase.settings.controllers.*;
+import redxax.oxy.remotely.ui.settings.controllers.PackContentSettingsController;
+import restudio.rebase.settings.controllers.AppearanceSettingsController;
+import restudio.rebase.settings.controllers.BackupSettingsController;
+import restudio.rebase.settings.controllers.ExplorerSettingsController;
+import restudio.rebase.settings.controllers.JavaManagerController;
+import restudio.rebase.settings.controllers.LspSettingsController;
+import restudio.rebase.settings.controllers.MinecraftAssetsSettingsController;
+import restudio.rebase.settings.controllers.PresetSettingsController;
+import restudio.rebase.settings.controllers.ReStudioAccountSettingsController;
+import restudio.rebase.settings.controllers.SoundSettingsController;
+import restudio.rebase.settings.controllers.ThemeController;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.SettingsScreen;
@@ -35,6 +45,9 @@ public class SettingsScreenFactory {
 
         ServerClientSettingsController serverController = new ServerClientSettingsController(configManager);
         settingsByTab.put("Servers", serverController::getSettings);
+
+        PackContentSettingsController packContentController = new PackContentSettingsController(configManager);
+        settingsByTab.put("Pack Content", packContentController::getSettings);
 
         JavaManagerController javaController = new JavaManagerController();
         settingsByTab.put("Java", javaController::getSettings);
