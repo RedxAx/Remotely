@@ -50,13 +50,35 @@ val bundledTransitives = configurations.create("bundledTransitives") {
     exclude(group = "com.mojang")
     exclude(group = "net.fabricmc")
     exclude(group = "net.minecraft")
+    exclude(group = "com.google.code.gson", module = "gson")
+    exclude(group = "com.google.guava", module = "guava")
+    exclude(group = "com.ibm.icu", module = "icu4j")
+    exclude(group = "com.googlecode.soundlibs", module = "jorbis")
+    exclude(group = "commons-codec", module = "commons-codec")
+    exclude(group = "commons-io", module = "commons-io")
+    exclude(group = "net.java.dev.jna", module = "jna")
+    exclude(group = "net.java.dev.jna", module = "jna-platform")
+    exclude(group = "org.apache.commons", module = "commons-compress")
+    exclude(group = "org.apache.commons", module = "commons-lang3")
+    exclude(group = "org.slf4j", module = "slf4j-api")
     exclude(group = "org.joml")
+    exclude(group = "org.jetbrains.jediterm")
     exclude(group = "org.lwjgl")
+    exclude(group = "commons-logging", module = "commons-logging")
+    exclude(group = "xml-apis", module = "xml-apis")
+}
+val mergedNeoForgeLibraries = configurations.create("mergedNeoForgeLibraries") {
+    isCanBeResolved = true
+    isCanBeConsumed = false
 }
 
 toolkitLoomHelper {
-    if (!isDropFabric) {
+    if (!isDropFabric && !mcData.isNeoForge) {
         useDevAuth("1.2.2")
+        useMixinExtras("0.5.0")
+    }
+
+    if (mcData.isNeoForge) {
         useMixinExtras("0.5.0")
     }
 
@@ -100,8 +122,37 @@ dependencies {
     val remotelyAppJar = files(rootProject.file("../build/libs/Remotely-App.jar"))
         .builtBy(remotelyAppBuild)
 
+    fun isPlatformProvided(dependency: String): Boolean {
+        return dependency.startsWith("com.google.code.gson:gson:")
+                || dependency.startsWith("com.google.guava:guava:")
+                || dependency.startsWith("com.ibm.icu:icu4j:")
+                || dependency.startsWith("commons-codec:commons-codec:")
+                || dependency.startsWith("commons-io:commons-io:")
+                || dependency.startsWith("net.java.dev.jna:jna:")
+                || dependency.startsWith("net.java.dev.jna:jna-platform:")
+                || dependency.startsWith("org.apache.commons:commons-compress:")
+                || dependency.startsWith("org.apache.commons:commons-lang3:")
+                || dependency.startsWith("org.slf4j:slf4j-api:")
+                || dependency.startsWith("org.joml:joml:")
+                || dependency.startsWith("org.lwjgl:")
+    }
+
+    fun isMergedNeoForgeLibrary(dependency: String): Boolean {
+        return dependency.startsWith("org.jetbrains.jediterm:jediterm-core:")
+                || dependency.startsWith("org.jetbrains.jediterm:jediterm-pty:")
+    }
+
     fun bundled(dependency: String) {
         implementation(dependency)
+        if (isPlatformProvided(dependency)) {
+            return
+        }
+        if (mcData.isNeoForge && isMergedNeoForgeLibrary(dependency)) {
+            val mergedDependency = dependencies.create(dependency) as ExternalModuleDependency
+            mergedDependency.isTransitive = false
+            add("mergedNeoForgeLibraries", mergedDependency)
+            return
+        }
         add("bundledTransitives", dependency)
         val nestedDependency = dependencies.create(dependency) as ExternalModuleDependency
         if (mcData.isFabric || mcData.isNeoForge) {
@@ -142,7 +193,11 @@ dependencies {
         extension = "jar"
     }
 
-    bundledFile(remotelyAppJar, forgeLibrary = false, nestedDependency = remotelyAppNested)
+    if (mcData.isNeoForge) {
+        implementation(remotelyAppJar)
+    } else {
+        bundledFile(remotelyAppJar, forgeLibrary = false, nestedDependency = remotelyAppNested)
+    }
     bundled("dev.restudio:rescreen:1.0")
     bundled("dev.restudio:remodel:1.0.0")
     bundled("dev.restudio:rebase:1.0-SNAPSHOT")
@@ -197,6 +252,15 @@ afterEvaluate {
             val nestedDependency = project.dependencies.create(dependency) as ExternalModuleDependency
             nestedDependency.isTransitive = false
             project.dependencies.add("include", nestedDependency)
+            if (mcData.isNeoForge) {
+                val localRuntimeDependency = project.dependencies.create(dependency) as ExternalModuleDependency
+                localRuntimeDependency.isTransitive = false
+                project.dependencies.add("localRuntime", localRuntimeDependency)
+
+                val forgeRuntimeDependency = project.dependencies.create(dependency) as ExternalModuleDependency
+                forgeRuntimeDependency.isTransitive = false
+                project.dependencies.add("forgeRuntimeLibrary", forgeRuntimeDependency)
+            }
         }
 }
 
@@ -214,17 +278,26 @@ if (mcData.isNeoForge) {
         into(layout.buildDirectory.dir("classes/java/main"))
         exclude("META-INF/MANIFEST.MF", "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     }
+    val mergeNeoForgeLibraries = tasks.register<Copy>("mergeNeoForgeLibraries") {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+        from({ mergedNeoForgeLibraries.files.map { zipTree(it) } })
+        into(layout.buildDirectory.dir("classes/java/main"))
+        exclude("META-INF/MANIFEST.MF", "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+    }
 
     tasks.named("classes") {
         finalizedBy(mergeRemotelyAppRuntime)
+        finalizedBy(mergeNeoForgeLibraries)
     }
 
     tasks.withType<JavaExec>().configureEach {
         dependsOn(mergeRemotelyAppRuntime)
+        dependsOn(mergeNeoForgeLibraries)
     }
 
     tasks.withType<Jar>().configureEach {
         dependsOn(mergeRemotelyAppRuntime)
+        dependsOn(mergeNeoForgeLibraries)
     }
 }
 

@@ -29,6 +29,7 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     implementation("org.apache.commons:commons-compress:1.28.0")
+    implementation("org.yaml:snakeyaml:2.6")
 
     implementation("com.vladsch.flexmark:flexmark:0.64.8")
     implementation("com.vladsch.flexmark:flexmark-ext-autolink:0.64.8")
