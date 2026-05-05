@@ -63,6 +63,7 @@ val bundledTransitives = configurations.create("bundledTransitives") {
     exclude(group = "org.slf4j", module = "slf4j-api")
     exclude(group = "org.joml")
     exclude(group = "org.jetbrains.jediterm")
+    exclude(group = "org.jetbrains.pty4j")
     exclude(group = "org.lwjgl")
     exclude(group = "commons-logging", module = "commons-logging")
     exclude(group = "xml-apis", module = "xml-apis")
@@ -137,20 +138,9 @@ dependencies {
                 || dependency.startsWith("org.lwjgl:")
     }
 
-    fun isMergedNeoForgeLibrary(dependency: String): Boolean {
-        return dependency.startsWith("org.jetbrains.jediterm:jediterm-core:")
-                || dependency.startsWith("org.jetbrains.jediterm:jediterm-pty:")
-    }
-
     fun bundled(dependency: String) {
         implementation(dependency)
         if (isPlatformProvided(dependency)) {
-            return
-        }
-        if (mcData.isNeoForge && isMergedNeoForgeLibrary(dependency)) {
-            val mergedDependency = dependencies.create(dependency) as ExternalModuleDependency
-            mergedDependency.isTransitive = false
-            add("mergedNeoForgeLibraries", mergedDependency)
             return
         }
         add("bundledTransitives", dependency)
@@ -185,7 +175,7 @@ dependencies {
         }
     }
 
-    val remotelyAppNested = dependencies.create("dev.restudio:remotely-app:2.2.0") as ExternalModuleDependency
+    val remotelyAppNested = dependencies.create("dev.restudio:remotely-app:2.2.1") as ExternalModuleDependency
     remotelyAppNested.isTransitive = false
     remotelyAppNested.artifact {
         name = "Remotely-App"
@@ -212,9 +202,6 @@ dependencies {
     bundled("org.java-websocket:Java-WebSocket:1.5.7")
     bundled("org.eclipse.lsp4j:org.eclipse.lsp4j:0.24.0")
     bundled("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.24.0")
-    bundled("org.jetbrains.pty4j:pty4j:0.13.10-1")
-    bundled("org.jetbrains.jediterm:jediterm-core:3.54")
-    bundled("org.jetbrains.jediterm:jediterm-pty:2.69")
 
     val fabricApiVersion = if (mcData.isFabric && !mcData.isLegacyFabric) {
         runCatching { mcData.dependencies.fabric.fabricApiVersion }.getOrNull()
