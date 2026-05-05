@@ -2,6 +2,7 @@ package redxax.oxy.remotely;
 
 import redxax.oxy.remotely.host.ApplicationHost;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
+import redxax.oxy.remotely.packcontent.RemotelyPackContentIntegration;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.restudio.ReStudio;
@@ -38,6 +39,7 @@ public class RemotelyInit {
         RemotelyManager remotelyManager = new RemotelyManager();
         Rebase.initialize(remotelyManager);
         RebaseLogger.setLogger(remotelyManager::log);
+        RemotelyPackContentIntegration.install();
     }
 
     public static void initClient(ApplicationHost host) {

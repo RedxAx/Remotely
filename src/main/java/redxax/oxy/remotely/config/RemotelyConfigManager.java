@@ -1,5 +1,6 @@
 package redxax.oxy.remotely.config;
 
+import redxax.oxy.remotely.packcontent.GlyphPreviewMode;
 import restudio.rebase.config.RebaseConfigManager;
 
 import java.nio.file.Path;
@@ -66,6 +67,9 @@ public class RemotelyConfigManager extends RebaseConfigManager {
 
     public float getConsoleScrollSpeed() { return Float.parseFloat(properties.getProperty("ui.consoleScrollSpeed", "7.0")); }
     public void setConsoleScrollSpeed(float speed) { properties.setProperty("ui.consoleScrollSpeed", String.valueOf(speed)); save(); apply(); }
+
+    public GlyphPreviewMode getGlyphPreviewMode() { return GlyphPreviewMode.fromConfig(properties.getProperty("remotely.glyphPreviews", "Inline + Hover")); }
+    public void setGlyphPreviewMode(GlyphPreviewMode mode) { properties.setProperty("remotely.glyphPreviews", (mode != null ? mode : GlyphPreviewMode.INLINE_HOVER).displayName()); save(); apply(); }
 
     public List<String> getInstanceOrder(String context) {
         String val = properties.getProperty("remotely.order." + context, "");
