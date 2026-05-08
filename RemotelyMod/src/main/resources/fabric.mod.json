@@ -17,6 +17,9 @@
   "entrypoints": {
     "main": [
       "redxax.oxy.remotely.Entrypoint"
+    ],
+    "client": [
+      "redxax.oxy.remotely.Entrypoint"
     ]
   },
   "mixins": [

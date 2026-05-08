@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.Sync
+
 plugins {
     id("dev.deftu.gradle.multiversion-root")
 }
@@ -10,10 +12,23 @@ fun versionProjects(loader: String? = null) = subprojects
     .sortedBy { it.name }
 
 fun registerBuildAggregate(name: String, descriptionText: String, loader: String? = null) {
+    val projects = versionProjects(loader)
+    val syncName = "sync${name.removePrefix("build")}Jars"
+    val syncTask = tasks.register(syncName, Sync::class.java) {
+        group = "build"
+        description = "Copies production jars for ${loader ?: "all loaders"} into build/versions."
+        into(layout.buildDirectory.dir("versions"))
+        projects.forEach { project ->
+            dependsOn("${project.path}:build")
+            from(project.layout.buildDirectory.dir("libs")) {
+                include("Remotely-${rootProject.property("mod.version")}+${project.name}.jar")
+            }
+        }
+    }
     tasks.register(name) {
         group = "build"
         description = descriptionText
-        dependsOn(versionProjects(loader).map { "${it.path}:build" })
+        dependsOn(syncTask)
     }
 }
 
@@ -42,14 +57,16 @@ gradle.projectsEvaluated {
 preprocess {
     strictExtraMappings.set(true)
 
-    "1.21.11-fabric"(1_21_11, "srg") {
-        "1.21.11-neoforge"(1_21_11, "srg") {
-            "1.21.10-neoforge"(1_21_10, "srg") {
-                "1.21.8-neoforge"(1_21_08, "srg") {
-                    "1.21.6-neoforge"(1_21_06, "srg") {
-                        "1.21.5-neoforge"(1_21_05, "srg") {
-                            "1.21.4-neoforge"(1_21_04, "srg") {
-                                "1.21.1-neoforge"(1_21_01, "srg") {
+    "26.1.2-fabric"(26_01_02, "srg") {
+        "26.1-neoforge"(26_01, "srg") {
+            "1.21.11-neoforge"(1_21_11, "srg") {
+                "1.21.10-neoforge"(1_21_10, "srg") {
+                    "1.21.8-neoforge"(1_21_08, "srg") {
+                        "1.21.6-neoforge"(1_21_06, "srg") {
+                            "1.21.5-neoforge"(1_21_05, "srg") {
+                                "1.21.4-neoforge"(1_21_04, "srg") {
+                                    "1.21.1-neoforge"(1_21_01, "srg") {
+                                    }
                                 }
                             }
                         }
@@ -57,13 +74,15 @@ preprocess {
                 }
             }
         }
-        "1.21.10-fabric"(1_21_10, "srg") {
-            "1.21.8-fabric"(1_21_08, "srg") {
-                "1.21.6-fabric"(1_21_06, "srg") {
-                    "1.21.5-fabric"(1_21_05, "srg") {
-                        "1.21.4-fabric"(1_21_04, "srg") {
-                            "1.21.1-fabric"(1_21_01, "srg") {
-                                "1.20.1-fabric"(1_20_1, "srg") {
+        "1.21.11-fabric"(1_21_11, "srg") {
+            "1.21.10-fabric"(1_21_10, "srg") {
+                "1.21.8-fabric"(1_21_08, "srg") {
+                    "1.21.6-fabric"(1_21_06, "srg") {
+                        "1.21.5-fabric"(1_21_05, "srg") {
+                            "1.21.4-fabric"(1_21_04, "srg") {
+                                "1.21.1-fabric"(1_21_01, "srg") {
+                                    "1.20.1-fabric"(1_20_1, "srg") {
+                                    }
                                 }
                             }
                         }

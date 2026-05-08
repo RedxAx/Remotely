@@ -1,6 +1,8 @@
 import groovy.lang.MissingPropertyException
 
 pluginManagement {
+    includeBuild("build-logic")
+
     repositories {
         // Repositories
         maven("https://maven.deftu.dev/releases")
@@ -25,6 +27,7 @@ pluginManagement {
         kotlin("jvm") version("2.2.10")
         id("dev.deftu.gradle.multiversion-root") version("2.73.0")
         id("com.hypherionmc.modutils.modpublisher") version "2.1.8"
+        id("net.neoforged.moddev") version "2.0.141"
     }
 }
 
@@ -32,10 +35,12 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version ("0.8.+")
 }
 
-val dropFabricProjectPattern = Regex("""^\d+\.\d+(?:\.\d+)?(?:-(?:snapshot|pre|rc)-\d+)?-fabric$""")
+val dropFabricProjectPattern = Regex("""^\d{2,}\.\d+(?:\.\d+)?(?:-(?:snapshot|pre|rc)-\d+)?-fabric$""")
 
 gradle.beforeProject {
     if (dropFabricProjectPattern.matches(name)) {
+        extensions.extraProperties["fabric.loom.disableObfuscation"] = "true"
+        extensions.extraProperties["dgt.loom.mappings.use"] = "false"
         extensions.extraProperties["dgt.fabric.loader.version"] = "0.18.4"
     }
 }
@@ -136,7 +141,8 @@ listOf(
     "1.21.11-fabric",
 
 //    "26.2-snapshot-1-fabric",
-//    "26.1-pre-1-fabric",
+    "26.1-neoforge",
+    "26.1.2-fabric",
 ).forEach { version ->
     include(":$version")
     project(":$version").apply {
