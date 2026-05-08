@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.ui.server;
 
+
+import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
@@ -126,6 +128,15 @@ public class ServerTwinScreen extends ReScreen {
         setupLayout();
         refreshAll();
     }
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            close();
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
 
     @Override
     public void close() {
@@ -1195,6 +1206,7 @@ public class ServerTwinScreen extends ReScreen {
             return;
         }
         client.setScreen(new FileExplorerScreen(this, twinInstance, Path.of(twinInstance.getPath()), Path.of(remotelyDir.toString(), "data"), false) {
+
             @Override
             public void close() {
                 if (desktopMode && isDesktopWindow()) {

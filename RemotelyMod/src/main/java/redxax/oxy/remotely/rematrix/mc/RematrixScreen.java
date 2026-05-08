@@ -19,9 +19,10 @@ import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 //#endif
 import net.minecraft.network.chat.Component;
+import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
-import redxax.oxy.remotely.ui.server.ServerManagerScreen;
 import restudio.rescreen.config.Config;
+import restudio.rescreen.render.Render;
 import restudio.rescreen.ui.core.ScreenManager;
 //#if MC >= 26.2
 //$$ import org.lwjgl.glfw.GLFW;
@@ -116,6 +117,8 @@ public class RematrixScreen extends Screen {
     //$$     pose.scale(renderScale, renderScale);
     //$$     sm.render(libCtx, (int) (mouseX * mouseScale), (int) (mouseY * mouseScale), deltaSeconds);
     //$$     sm.processTasks();
+    //$$     Config.deltaTime = deltaSeconds;
+    //$$     Render.animatedScaling();
     //$$     pose.popMatrix();
         //$$
         //#if MC >= 26.2
@@ -171,6 +174,8 @@ public class RematrixScreen extends Screen {
         //#endif
         sm.render(libCtx, (int) (mouseX * mouseScale), (int) (mouseY * mouseScale), deltaSeconds);
         sm.processTasks();
+        Config.deltaTime = deltaSeconds;
+        Render.animatedScaling();
         //#if MC >= 1.21.9 || MC >= 26.1
         pose.popMatrix();
         //#endif
@@ -267,6 +272,9 @@ public class RematrixScreen extends Screen {
     //#if MC >= 1.20.3
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (scaleScroll(verticalAmount)) {
+            return true;
+        }
         double sf = getInputScale();
         boolean handled = sm.mouseScrolled(mouseX * sf, mouseY * sf, horizontalAmount, verticalAmount);
         return handled || super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
@@ -275,6 +283,9 @@ public class RematrixScreen extends Screen {
     //#if MC < 1.20.3
     //$$ @Override
     //$$ public boolean mouseScrolled(double mouseX, double mouseY, double amount) {
+    //$$     if (scaleScroll(amount)) {
+    //$$         return true;
+    //$$     }
     //$$     double sf = getInputScale();
     //$$     boolean handled = sm.mouseScrolled(mouseX * sf, mouseY * sf, 0.0, amount);
     //$$     return handled || super.mouseScrolled(mouseX, mouseY, amount);
@@ -284,21 +295,33 @@ public class RematrixScreen extends Screen {
     //#if MC >= 1.21.9 || MC >= 26.1
     @Override
     public boolean keyPressed(KeyEvent keyEvent) {
-        if (keyEvent.key() == 256 && sm.getCurrentScreen() instanceof ServerManagerScreen) {
-            sm.getCurrentScreen().close();
+        if (scaleScroll(keyEvent.key(), keyEvent.modifiers())) {
+            return true;
+        }
+        if (keyEvent.key() == GLFW.GLFW_KEY_ESCAPE && Config.desktopMode) {
+            closeDesktopSuperScreen();
             return true;
         }
         boolean handled = sm.keyPressed(keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers());
+        if (keyEvent.key() == GLFW.GLFW_KEY_ESCAPE) {
+            return true;
+        }
         return handled || super.keyPressed(keyEvent);
     }
     //#else
     //$$ @Override
     //$$ public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-    //$$     if (keyCode == 256 && sm.getCurrentScreen() instanceof ServerManagerScreen) {
-    //$$         sm.getCurrentScreen().close();
+    //$$     if (scaleScroll(keyCode, modifiers)) {
+    //$$         return true;
+    //$$     }
+    //$$     if (keyCode == GLFW.GLFW_KEY_ESCAPE && Config.desktopMode) {
+    //$$         closeDesktopSuperScreen();
     //$$         return true;
     //$$     }
     //$$     boolean handled = sm.keyPressed(keyCode, scanCode, modifiers);
+    //$$     if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+    //$$         return true;
+    //$$     }
     //$$     return handled || super.keyPressed(keyCode, scanCode, modifiers);
     //$$ }
     //#endif
@@ -433,6 +456,53 @@ public class RematrixScreen extends Screen {
 
     public static void rememberMinecraftScreen(Screen screen) {
         suspendedMinecraftScreen = screen;
+    }
+
+    private void closeDesktopSuperScreen() {
+        restudio.rescreen.ui.core.Screen superScreen = sm.getDesktopSuperScreen();
+        if (superScreen != null) {
+            superScreen.close();
+        }
+    }
+
+    private boolean scaleScroll(double verticalAmount) {
+        if (!isControlDown()) {
+            return false;
+        }
+        Config.targetScaleFactor = Math.max(1f, Math.min(4f, Config.targetScaleFactor + (verticalAmount > 0 ? 1f : -1f)));
+        Config.globalScaleFactor = Config.targetScaleFactor;
+        return true;
+    }
+
+    private boolean scaleScroll(int keyCode, int modifiers) {
+        if ((modifiers & GLFW.GLFW_MOD_CONTROL) == 0) {
+            return false;
+        }
+        if (keyCode == GLFW.GLFW_KEY_KP_ADD || keyCode == GLFW.GLFW_KEY_EQUAL) {
+            Config.targetScaleFactor = Math.max(1f, Math.min(4f, Config.targetScaleFactor + 1f));
+            Config.globalScaleFactor = Config.targetScaleFactor;
+            return true;
+        }
+        if (keyCode == GLFW.GLFW_KEY_KP_SUBTRACT || keyCode == GLFW.GLFW_KEY_MINUS) {
+            Config.targetScaleFactor = Math.max(1f, Math.min(4f, Config.targetScaleFactor - 1f));
+            Config.globalScaleFactor = Config.targetScaleFactor;
+            return true;
+        }
+        return false;
+    }
+
+    private boolean isControlDown() {
+        long handle = getWindowHandle();
+        return GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS
+                || GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
+    }
+
+    private long getWindowHandle() {
+        //#if MC >= 1.21.9 || MC >= 26.1
+        return Minecraft.getInstance().getWindow().handle();
+        //#else
+        //$$ return Minecraft.getInstance().getWindow().getWindow();
+        //#endif
     }
 
     private void reopenAfterMinecraftClose() {
