@@ -76,6 +76,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         boolean isDragging;
         boolean sourceIsInput;
     }
+
+    private record NodeSelectorVariant(NodeDefinition.PinDefinition selectorPin, String option) {
+    }
+
     private final DragState dragState;
     private FlowNodeWidget dragPinWidget;
     private ItemSelectorWidget nodeItemSelector;
@@ -2465,6 +2469,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                     captureSnapshot();
                     addNode(finalWorldX, finalWorldY, def.getId(), pinName);
                 });
+                addSelectorVariantItems(builder, def, finalWorldX, finalWorldY, pinName);
             }
         }
 
@@ -2537,6 +2542,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                     captureSnapshot();
                     addNodeAtCenter(def.getId());
                 });
+                addSelectorVariantItemsAtCenter(builder, def);
             }
         }
 
@@ -2556,6 +2562,145 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     private void addSelectorItem(ItemSelectorWidget.Builder builder, String label, String hint, String searchTerms, Runnable action) {
         builder.addItem(label, hint, searchTerms, action);
+    }
+
+    private void addSelectorVariantItems(ItemSelectorWidget.Builder builder, NodeDefinition definition, int x, int y, String autoWirePin) {
+        for (NodeSelectorVariant variant : selectorVariants(definition)) {
+            if (autoWirePin != null && !variantExposesPin(definition, variant, autoWirePin)) {
+                continue;
+            }
+            addSelectorItem(builder, selectorVariantLabel(definition, variant), selectorVariantHint(definition, variant), selectorVariantSearchTerms(definition, variant), () -> {
+                captureSnapshot();
+                addNode(x, y, definition.getId(), autoWirePin, Map.of(variant.selectorPin().getName(), variant.option()));
+            });
+        }
+    }
+
+    private void addSelectorVariantItemsAtCenter(ItemSelectorWidget.Builder builder, NodeDefinition definition) {
+        for (NodeSelectorVariant variant : selectorVariants(definition)) {
+            addSelectorItem(builder, selectorVariantLabel(definition, variant), selectorVariantHint(definition, variant), selectorVariantSearchTerms(definition, variant), () -> {
+                captureSnapshot();
+                addNodeAtCenter(definition.getId(), Map.of(variant.selectorPin().getName(), variant.option()));
+            });
+        }
+    }
+
+    private List<NodeSelectorVariant> selectorVariants(NodeDefinition definition) {
+        List<NodeSelectorVariant> variants = new ArrayList<>();
+        for (NodeDefinition.PinDefinition input : definition.getInputs()) {
+            if (!isModeSelectorPin(input)) {
+                continue;
+            }
+            for (String option : input.getOptions()) {
+                if (option != null && !option.isBlank()) {
+                    variants.add(new NodeSelectorVariant(input, option));
+                }
+            }
+        }
+        return variants;
+    }
+
+    private boolean isModeSelectorPin(NodeDefinition.PinDefinition input) {
+        return input.getDirection() == NodeDefinition.PinDirection.INPUT
+            && input.getType() == NodeDefinition.PinType.DATA
+            && (input.getName().equalsIgnoreCase("mode") || input.getName().equalsIgnoreCase("action"))
+            && input.getOptions() != null
+            && !input.getOptions().isEmpty();
+    }
+
+    private boolean variantExposesPin(NodeDefinition definition, NodeSelectorVariant variant, String pinName) {
+        NodeDefinition.PinDefinition pin = findPin(definition, pinName);
+        if (pin == null || pin.getVisibleWhen() == null || pin.getVisibleWhen().isEmpty()) {
+            return true;
+        }
+        String expected = pin.getVisibleWhen().get(variant.selectorPin().getName());
+        if (expected == null || expected.isBlank()) {
+            return true;
+        }
+        for (String option : expected.split(",")) {
+            if (option.trim().equalsIgnoreCase(variant.option())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private NodeDefinition.PinDefinition findPin(NodeDefinition definition, String pinName) {
+        for (NodeDefinition.PinDefinition input : definition.getInputs()) {
+            if (input.getName().equals(pinName)) {
+                return input;
+            }
+        }
+        for (NodeDefinition.PinDefinition output : definition.getOutputs()) {
+            if (output.getName().equals(pinName)) {
+                return output;
+            }
+        }
+        return null;
+    }
+
+    private String selectorVariantLabel(NodeDefinition definition, NodeSelectorVariant variant) {
+        StringBuilder label = new StringBuilder(definition.getDisplayName())
+            .append(" - ")
+            .append(formatSelectorOption(variant.option()))
+            .append(" ")
+            .append(formatSelectorModeName(variant.selectorPin().getName()));
+        if (definition.getCategory() != null) {
+            label.append(" - ").append(definition.getCategory().getDisplayName());
+        }
+        return label.toString();
+    }
+
+    private String selectorVariantHint(NodeDefinition definition, NodeSelectorVariant variant) {
+        String modeText = formatSelectorOption(variant.option()) + " " + formatSelectorModeName(variant.selectorPin().getName());
+        String baseHint = selectorHint(definition);
+        if (baseHint.isBlank()) {
+            return "Adds " + definition.getDisplayName() + " In " + modeText;
+        }
+        return "Adds " + definition.getDisplayName() + " In " + modeText + "\n" + baseHint;
+    }
+
+    private String selectorVariantSearchTerms(NodeDefinition definition, NodeSelectorVariant variant) {
+        StringBuilder label = new StringBuilder(selectorSearchTerms(definition));
+        label.append(" ")
+            .append(definition.getDisplayName())
+            .append(" ")
+            .append(variant.selectorPin().getName())
+            .append(" ")
+            .append(variant.option())
+            .append(" ")
+            .append(formatSelectorOption(variant.option()))
+            .append(" ")
+            .append(formatSelectorModeName(variant.selectorPin().getName()));
+        if (definition.getCategory() != null) {
+            label.append(" ").append(definition.getCategory().getDisplayName());
+        }
+        return label.toString();
+    }
+
+    private String formatSelectorModeName(String name) {
+        return "action".equalsIgnoreCase(name) ? "Action" : "Mode";
+    }
+
+    private String formatSelectorOption(String option) {
+        if (option == null || option.isBlank()) {
+            return "";
+        }
+        String[] parts = option.replace('-', '_').split("_");
+        StringBuilder result = new StringBuilder();
+        for (String part : parts) {
+            if (part.isBlank()) {
+                continue;
+            }
+            if (!result.isEmpty()) {
+                result.append(" ");
+            }
+            result.append(part.substring(0, 1).toUpperCase());
+            if (part.length() > 1) {
+                result.append(part.substring(1).toLowerCase());
+            }
+        }
+        return result.toString();
     }
 
     private String selectorHint(NodeDefinition definition) {
@@ -2593,8 +2738,19 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private void addNode(int x, int y, String type, String autoWirePin) {
+        addNode(x, y, type, autoWirePin, Map.of());
+    }
+
+    private void addNodeAtCenter(String type, Map<String, Object> inputValues) {
+        double[] center = screenToWorld(width / 2.0, height / 2.0);
+        int x = (int) (center[0] - 50);
+        int y = (int) (center[1] - 20);
+        addNode(x, y, type, null, inputValues);
+    }
+
+    private void addNode(int x, int y, String type, String autoWirePin, Map<String, Object> inputValues) {
         String id = UUID.randomUUID().toString();
-        FlowNode node = new FlowNode(type, x, y, new HashMap<>());
+        FlowNode node = new FlowNode(type, x, y, new HashMap<>(inputValues));
         graph.getNodes().put(id, node);
 
         FlowNodeWidget widget = new FlowNodeWidget(x, y, node, graph, id, serverId, () -> deleteNode(id));
