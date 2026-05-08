@@ -2,7 +2,7 @@ package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
-import redxax.oxy.remotely.servers.ReverseProxyManager;
+import redxax.oxy.remotely.servers.ReProxyManager;
 import redxax.oxy.remotely.session.TerminalSession;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
 import redxax.oxy.remotely.ui.server.containers.ResourceContainer;
@@ -185,11 +185,11 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
         Runnable reverseAction = () -> {
             if (instance != null) {
-                ReverseProxyManager.reverse(instance, () -> ScreenManager.getInstance().execute(() -> onViewChanged(getActiveContext(), null)));
+                ReProxyManager.start(instance, () -> ScreenManager.getInstance().execute(() -> onViewChanged(getActiveContext(), null)));
             }
         };
-        header().addLeft("reverse.png", reverseAction, "Open Server To The Public");
-        header().addLeft("closeReverse.png", reverseAction, "Close Reverse Proxy");
+        header().addLeft("reverse.png", reverseAction, "Start ReProxy");
+        header().addLeft("closeReverse.png", reverseAction, "Stop ReProxy");
         header().addLeft("download.png", () -> {
             TerminalSession info = getCurrentInfo();
             if (info != null && !info.isLocalTerminalMode() && info.getResourceContainer() != null) {
@@ -532,7 +532,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             boolean showResources = modLoader != null;
             header().setButtonVisible("resources.png", showResources);
 
-            boolean isReversed = ReverseProxyManager.isPortForwarded(context.instance);
+            boolean isReversed = ReProxyManager.isForwarded(context.instance);
             boolean isLocal = context.instance.getBackend() instanceof LocalBackend;
             header().setButtonVisible("reverse.png", !isReversed && isLocal);
             header().setButtonVisible("closeReverse.png", isReversed && isLocal);

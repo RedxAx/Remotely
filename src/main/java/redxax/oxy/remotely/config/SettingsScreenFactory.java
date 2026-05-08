@@ -2,6 +2,7 @@ package redxax.oxy.remotely.config;
 
 import redxax.oxy.remotely.ui.settings.controllers.ServerClientSettingsController;
 import redxax.oxy.remotely.ui.settings.controllers.PackContentSettingsController;
+import redxax.oxy.remotely.ui.settings.controllers.ReProxySettingsController;
 import restudio.rebase.settings.controllers.AppearanceSettingsController;
 import restudio.rebase.settings.controllers.BackupSettingsController;
 import restudio.rebase.settings.controllers.ExplorerSettingsController;
@@ -45,6 +46,9 @@ public class SettingsScreenFactory {
 
         ServerClientSettingsController serverController = new ServerClientSettingsController(configManager);
         settingsByTab.put("Servers", serverController::getSettings);
+
+        ReProxySettingsController reProxyController = new ReProxySettingsController();
+        settingsByTab.put("ReProxy", reProxyController::getSettings);
 
         PackContentSettingsController packContentController = new PackContentSettingsController(configManager);
         settingsByTab.put("Pack Content", packContentController::getSettings);
