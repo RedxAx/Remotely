@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.ui.integrations.luckperms;
 
+
+import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsDTOs.*;
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
 import restudio.rebase.account.Account;
@@ -930,6 +932,15 @@ public class LuckPermsDashboardScreen extends ReScreen {
         setScrollOffset(c, value);
         ScreenManager.getInstance().execute(() -> setScrollOffset(c, value));
     }
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            close();
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
 
     @Override
     public void close() {

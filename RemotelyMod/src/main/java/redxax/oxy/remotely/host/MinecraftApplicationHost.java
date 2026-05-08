@@ -133,6 +133,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
     public void openParentScreen(Screen currentScreen, Object parent) {
         //#if MC >= 26.2
         //$$ if (parent instanceof net.minecraft.client.gui.screens.Screen) {
+        //$$     RematrixScreen.closeExplicitly();
         //$$     mc.gui.setScreen((net.minecraft.client.gui.screens.Screen) parent);
         //$$ } else if (parent instanceof Screen) {
         //$$     setScreen((Screen) parent);
@@ -142,6 +143,7 @@ public class MinecraftApplicationHost implements ApplicationHost {
         //$$ }
         //#else
         if (parent instanceof net.minecraft.client.gui.screens.Screen) {
+            RematrixScreen.closeExplicitly();
             mc.setScreen((net.minecraft.client.gui.screens.Screen) parent);
         } else if (parent instanceof Screen) {
             setScreen((Screen) parent);

@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.flow.ui;
 
+
+import org.lwjgl.glfw.GLFW;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -4276,6 +4278,15 @@ public class FlowManagerScreen extends ReScreen {
     public static FlowManagerScreen getOpenScreen(String serverId) {
         return OPEN_SCREENS.get(serverId);
     }
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            close();
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
 
     @Override
     public void close() {
