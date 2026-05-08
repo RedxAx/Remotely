@@ -8,14 +8,14 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
-import redxax.oxy.remotely.servers.ReverseProxyManager;
+import redxax.oxy.remotely.servers.ReProxyManager;
 
 @Mixin(Minecraft.class)
 public class MinecraftClientMixin {
     @Inject(method = "close", at = @At("HEAD"))
     private void onClose(CallbackInfo ci) {
         RemotelyClient.INSTANCE.shutdownAllTerminals();
-        ReverseProxyManager.shutdownAll();
+        ReProxyManager.stopAll();
     }
 
     @Inject(method = "setScreen", at = @At("HEAD"), cancellable = true)

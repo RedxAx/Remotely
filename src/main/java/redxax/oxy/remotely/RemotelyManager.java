@@ -24,6 +24,7 @@ import restudio.rebase.util.PlaytimeManager;
 import restudio.rebase.instance.loaders.FabricHandler;
 import restudio.rebase.instance.loaders.ForgeHandler;
 import restudio.rebase.instance.loaders.NeoForgeHandler;
+import restudio.rebase.instance.loaders.QuiltHandler;
 import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.instance.loaders.ModLoaderHandler;
 import restudio.rebase.instance.loaders.ModLoaderVersion;
@@ -105,6 +106,7 @@ public class RemotelyManager implements IRebaseManager {
         this.versionsDir = applicationDir.resolve("versions");
         try { Files.createDirectories(this.versionsDir); } catch (IOException ignored) {}
         modLoaderHandlers.put(ModLoader.FABRIC, new FabricHandler(applicationDir));
+        modLoaderHandlers.put(ModLoader.QUILT, new QuiltHandler(applicationDir));
         modLoaderHandlers.put(ModLoader.FORGE, new ForgeHandler(applicationDir));
         modLoaderHandlers.put(ModLoader.NEOFORGE, new NeoForgeHandler(applicationDir));
         init();
@@ -164,6 +166,13 @@ public class RemotelyManager implements IRebaseManager {
                                 if (parts.length >= 4) {
                                     loaderVersion = String.join("-", Arrays.copyOfRange(parts, 2, parts.length - 1));
                                 }
+                            }
+                        } else if (id.startsWith("quilt-loader-")) {
+                            loader = ModLoader.QUILT;
+                            String prefix = "quilt-loader-";
+                            String suffix = "-" + inheritsFrom;
+                            if (id.startsWith(prefix) && id.endsWith(suffix) && id.length() > prefix.length() + suffix.length()) {
+                                loaderVersion = id.substring(prefix.length(), id.length() - suffix.length());
                             }
                         } else if (id.contains("-forge-")) {
                             loader = ModLoader.FORGE;

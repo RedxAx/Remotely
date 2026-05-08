@@ -542,8 +542,11 @@ public final class RematrixContext implements ReContext {
         if (handle == null) return;
         int dw = Math.max(1, (int) Math.ceil(width <= 0 ? handle.getWidth() : width));
         int dh = Math.max(1, (int) Math.ceil(height <= 0 ? handle.getHeight() : height));
-        //#if MC >= 1.21.9 || MC >= 26.1
+        //#if FABRIC && MC >= 1.21.9 || MC >= 1.21.11 || MC >= 26.1
         withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, (Identifier) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
+        //#endif
+        //#if NEOFORGE && MC >= 1.21.9 && MC < 1.21.11
+        //$$ withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));
         //#endif
         //#if MC >= 1.21.6 && MC < 1.21.9
         //$$ withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, (ResourceLocation) handle.getId(), (int) Math.round(x), (int) Math.round(y), 0f, 0f, dw, dh, handle.getWidth(), handle.getHeight(), handle.getWidth(), handle.getHeight()));

@@ -30,7 +30,7 @@ import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.rematrix.mc.RematrixContext;
 import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
-import redxax.oxy.remotely.servers.ReverseProxyManager;
+import redxax.oxy.remotely.servers.ReProxyManager;
 import redxax.oxy.remotely.ui.tests.ContainerTestingScreen;
 import redxax.oxy.remotely.ui.tests.WidgetsTestingScreen;
 import redxax.oxy.remotely.util.CursorUtils;
@@ -112,10 +112,14 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
         boolean hasWidgets = !remotely$customWidgets.isEmpty();
         boolean renderCursor = restudio.rescreen.config.Config.customMouse && !(((Object) this) instanceof RematrixScreen);
 
-        if (hasWidgets || renderCursor) {
+        boolean renderPinned = !(((Object) this) instanceof RematrixScreen);
+
+        if (hasWidgets || renderCursor || renderPinned) {
             MouseCursor.beginFrame();
 
-            //#if MC >= 1.21.6 || MC >= 26.1
+            //#if NEOFORGE && MC < 1.21.10
+            //$$ Main.setWindow(Minecraft.getInstance().getWindow().getWindow());
+            //#elseif MC >= 1.21.6 || MC >= 26.1
             Main.setWindow(Minecraft.getInstance().getWindow().handle());
             //#else
             //$$ Main.setWindow(Minecraft.getInstance().getWindow().getWindow());
@@ -155,6 +159,41 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
                     widget.render(adapter, mouseX, mouseY, f);
                 }
             }
+            if (renderPinned) {
+                ScreenManager sm = ScreenManager.getInstance();
+                int windowWidth = Minecraft.getInstance().getWindow().getWidth();
+                int windowHeight = Minecraft.getInstance().getWindow().getHeight();
+                sm.updateDimensions(windowWidth, windowHeight);
+                float mcScale = (float) Minecraft.getInstance().getWindow().getGuiScale();
+                float reScale = sm.getGuiScale();
+                if (mcScale != 0 && reScale != 0) {
+                    float renderScale = reScale / mcScale;
+                    float mouseScale = mcScale / reScale;
+                    //#if MC >= 26.1
+                    //$$ pose.pushMatrix();
+                    //$$ pose.scale(renderScale, renderScale);
+                    //#endif
+                    //#if MC >= 1.21.6 && MC < 26.1
+                    pose.pushMatrix();
+                    pose.scale(renderScale, renderScale);
+                    //#endif
+                    //#if MC < 1.21.6 && MC < 26.1
+                    //$$ guiGraphics.pose().pushPose();
+                    //$$ guiGraphics.pose().scale(renderScale, renderScale, 1f);
+                    //#endif
+                    sm.renderPinnedInGameWindows(adapter, (int) (mouseX * mouseScale), (int) (mouseY * mouseScale), f);
+                    sm.processTasks();
+                    //#if MC >= 26.1
+                    //$$ pose.popMatrix();
+                    //#endif
+                    //#if MC >= 1.21.6 && MC < 26.1
+                    pose.popMatrix();
+                    //#endif
+                    //#if MC < 1.21.6 && MC < 26.1
+                    //$$ guiGraphics.pose().popPose();
+                    //#endif
+                }
+            }
             if (renderCursor) {
                 MouseCursor.updateAndRender(adapter, mouseX, mouseY);
             }
@@ -173,7 +212,9 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
 
     @Unique
     private void remotely$handleInput(int mouseX, int mouseY) {
-        //#if MC >= 1.21.6 || MC >= 26.1 || MC == 1.21.10
+        //#if NEOFORGE && MC < 1.21.10
+        //$$ long handle = Minecraft.getInstance().getWindow().getWindow();
+        //#elseif MC >= 1.21.6 || MC >= 26.1 || MC == 1.21.10
         long handle = Minecraft.getInstance().getWindow().handle();
         //#else
         //$$ long handle = Minecraft.getInstance().getWindow().getWindow();
@@ -332,7 +373,7 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             ScreenManager.getInstance().setScreen(new ContainerTestingScreen());
         }
         if (key == GLFW.GLFW_KEY_P && all) {
-            ReverseProxyManager.listActivePorts();
+            new Notification("ReProxy Tunnels", String.join(", ", ReProxyManager.listActiveTunnels()), Notification.Type.INFO);
         }
     }
 
@@ -344,6 +385,21 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
     //#else
     //$$ private void keyPressed(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
     //$$     remotely$handleDebugKeys(keyCode, modifiers);
+    //$$ }
+    //#endif
+
+    @Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true)
+    //#if MC >= 1.21.9 || MC >= 26.1
+    private void keyPressedPinnedInGame(KeyEvent keyEvent, CallbackInfoReturnable<Boolean> cir) {
+        if (ScreenManager.getInstance().keyPressedPinnedInGame(keyEvent.key(), keyEvent.scancode(), keyEvent.modifiers())) {
+            cir.setReturnValue(true);
+        }
+    }
+    //#else
+    //$$ private void keyPressedPinnedInGame(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
+    //$$     if (ScreenManager.getInstance().keyPressedPinnedInGame(keyCode, scanCode, modifiers)) {
+    //$$         cir.setReturnValue(true);
+    //$$     }
     //$$ }
     //#endif
 }
