@@ -155,6 +155,7 @@ public class NodeWidget extends AnimatedWidget {
         } else {
             createLoadingState();
         }
+        setAnimateLayout(true);
     }
 
     private static NodeDefinition resolveDefinition(String serverId, String nodeType) {
@@ -1018,6 +1019,29 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     @Override
+    public void setX(int x) {
+        this.x = x;
+        targetX = animatedX = x;
+        recomputeRelativeScissor();
+    }
+
+    @Override
+    public void setY(int y) {
+        this.y = y;
+        targetY = animatedY = y;
+        recomputeRelativeScissor();
+    }
+
+    @Override
+    public void setPosition(int x, int y) {
+        this.x = x;
+        this.y = y;
+        targetX = animatedX = x;
+        targetY = animatedY = y;
+        recomputeRelativeScissor();
+    }
+
+    @Override
     protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
         int headerBg = ThemeManager.getColor(ThemeColor.inClickableBackground);
         int headerText = ThemeManager.getColor(ThemeColor.text);
@@ -1040,6 +1064,9 @@ public class NodeWidget extends AnimatedWidget {
             closeButton.render(ctx, mouseX, mouseY, 0);
         }
 
+        ctx.pushScissorState();
+        ctx.enableScissor(getX(), getY() + TITLE_HEIGHT + 1, getX() + getWidth(), getY() + getHeight());
+
         updateInputWidgetPositions();
         updateOutputWidgetPositions();
 
@@ -1048,6 +1075,8 @@ public class NodeWidget extends AnimatedWidget {
             int textX = getX() + PADDING;
             int textY = getY() + TITLE_HEIGHT + PADDING + 2;
             ctx.drawText(text, textX, textY, labelText, shadow);
+            ctx.disableScissor();
+            ctx.popScissorState();
             return;
         }
 
@@ -1100,6 +1129,23 @@ public class NodeWidget extends AnimatedWidget {
 
         if (addBranchButton != null && addBranchButton.visible) {
             addBranchButton.render(ctx, mouseX, mouseY, 0);
+        }
+
+        ctx.disableScissor();
+        ctx.popScissorState();
+        renderExpandedDropdownOverlays(ctx, mouseX, mouseY);
+    }
+
+    private void renderExpandedDropdownOverlays(IDrawContext ctx, int mouseX, int mouseY) {
+        for (Widget widget : inputWidgets.values()) {
+            if (widget instanceof DropDownWidget<?> dropdown && dropdown.isVisible() && dropdown.isExpanded()) {
+                dropdown.render(ctx, mouseX, mouseY, 0);
+            }
+        }
+        for (FlowBranch branch : flowBranches) {
+            if (branch.widget != null && branch.widget.isVisible() && branch.widget.isExpanded()) {
+                branch.widget.render(ctx, mouseX, mouseY, 0);
+            }
         }
     }
 
@@ -1280,7 +1326,7 @@ public class NodeWidget extends AnimatedWidget {
         Widget inputWidget = getInputWidgetAt(wx, wy);
         if (inputWidget != null) {
             inputWidget.mouseClicked(mouseX, mouseY, button);
-            if (inputWidget instanceof TextInputWidget) {
+            if (inputWidget instanceof TextInputWidget || inputWidget instanceof DropDownWidget<?>) {
                 if (ScreenManager.getInstance().getCurrentScreen() != null) {
                     ScreenManager.getInstance().getCurrentScreen().setFocusedWidget(inputWidget);
                 }
@@ -1817,7 +1863,7 @@ public class NodeWidget extends AnimatedWidget {
         }
         if (addBranchButton == null) {
             addBranchButton = new AnimatedButton.Builder()
-                .label("add flow branch")
+                .label("Add Branch")
                 .onClick(this::addFlowBranch)
                 .animateElevation(false)
                 .entranceAnimation(false)
