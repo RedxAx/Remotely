@@ -66,7 +66,7 @@ public class ReactorPlanWidget extends AnimatedWidget {
         }
 
         String displayTitle = title == null ? "" : title.trim();
-        ctx.drawText(displayTitle, metrics.textLeftX(), metrics.titleY(), primaryColor, Config.shadow);
+        ctx.drawText(fitText(displayTitle, metrics.titleMaxWidth()), metrics.textLeftX(), metrics.titleY(), primaryColor, Config.shadow);
 
         String displaySubtitle = subtitle == null ? "" : subtitle.trim();
         ctx.drawText(displaySubtitle, metrics.textLeftX(), metrics.subtitleY(), dimText, Config.shadow);
@@ -102,16 +102,17 @@ public class ReactorPlanWidget extends AnimatedWidget {
 
         int iconY = startY;
         int priceZoneWidth = Math.clamp((int) Math.round(getWidth() * 0.24), 66, 96);
+        int titleMaxWidth = Math.max(42, priceRightX - textLeftX - priceZoneWidth - 18);
         int titleY = startY;
         int subtitleY = titleY + titleHeight + SUBTITLE_GAP;
         int priceY = titleY;
         int dividerY = startY + topRowHeight + 1;
         int specsY = dividerY + TOP_GAP;
 
-        return new LayoutMetrics(centerX, iconX, iconY, textLeftX, titleY, subtitleY, priceRightX, priceY, priceZoneWidth, dividerY, iconX, priceRightX, specsY, priceRightX - iconX);
+        return new LayoutMetrics(centerX, iconX, iconY, textLeftX, titleY, subtitleY, priceRightX, priceY, priceZoneWidth, titleMaxWidth, dividerY, iconX, priceRightX, specsY, priceRightX - iconX);
     }
 
-    private record LayoutMetrics(int centerX, int iconX, int iconY, int textLeftX, int titleY, int subtitleY, int priceRightX, int priceY, int priceMaxWidth, int dividerY, int dividerX1, int dividerX2, int specsY, int specsMaxWidth) {
+    private record LayoutMetrics(int centerX, int iconX, int iconY, int textLeftX, int titleY, int subtitleY, int priceRightX, int priceY, int priceMaxWidth, int titleMaxWidth, int dividerY, int dividerX1, int dividerX2, int specsY, int specsMaxWidth) {
     }
 
     @Override

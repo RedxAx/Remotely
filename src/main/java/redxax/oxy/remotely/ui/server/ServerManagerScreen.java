@@ -1186,15 +1186,16 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         reactorPlans.clear();
 
         List<ServerModels.Plan> fallbackPlans = List.of(
-                createFallbackPlan("Starter", 4096, 20480, 125, 1, 2, 1, 699),
-                createFallbackPlan("Standard", 8192, 40960, 200, 3, 4, 2, 1499),
-                createFallbackPlan("Pro", 12288, 61440, 300, 5, 8, 3, 2499)
+                createFallbackPlan("Relay", 4096, 102400, 200, 5, 5, 5, 700),
+                createFallbackPlan("Refine", 6144, 102400, 300, 5, 5, 5, 1100),
+                createFallbackPlan("Revenge", 8192, 102400, 400, 5, 5, 5, 1400)
         );
 
         ReStudio.getInstance().getApi().getPlans().thenAccept(plans -> ScreenManager.getInstance().execute(() -> {
             List<ServerModels.Plan> source = plans == null || plans.isEmpty() ? fallbackPlans : plans;
             source.stream()
                     .filter(Objects::nonNull)
+                    .filter(plan -> plan.name == null || !"custom".equalsIgnoreCase(plan.name))
                     .sorted(Comparator.comparingLong(plan -> plan.priceCents))
                     .limit(3)
                     .forEach(reactorPlans::add);
@@ -1222,9 +1223,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
 
         List<ServerModels.Plan> items = reactorPlans.isEmpty() ? List.of(
-                createFallbackPlan("Starter", 4096, 20480, 125, 1, 2, 1, 699),
-                createFallbackPlan("Standard", 8192, 40960, 200, 3, 4, 2, 1499),
-                createFallbackPlan("Pro", 12288, 61440, 300, 5, 8, 3, 2499)
+                createFallbackPlan("Relay", 4096, 102400, 200, 5, 5, 5, 700),
+                createFallbackPlan("Refine", 6144, 102400, 300, 5, 5, 5, 1100),
+                createFallbackPlan("Revenge", 8192, 102400, 400, 5, 5, 5, 1400)
         ) : reactorPlans;
 
         for (int i = 0; i < reactorPlanCards.size(); i++) {
@@ -1862,7 +1863,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             reloadInstancesSmartly();
             return true;
         }
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE && RemotelyClient.INSTANCE.getHost().getGameVersion() == null) {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             close();
             return true;
         }
