@@ -42,6 +42,9 @@ public class ServerManagementSettingsController {
             .bind(() -> Boolean.parseBoolean(p.getProperty("management-server-enabled", "false")),
                 val -> {
                     p.setProperty("management-server-enabled", String.valueOf(val));
+                    if (val && isRemote && !Boolean.parseBoolean(p.getProperty("management-server-tls-enabled", p.getProperty("management.server.tls.enabled", "false")))) {
+                        new Notification.Builder().message("MSMP Without TLS Is Insecure").description("Enable TLS For Remote MSMP").type(Notification.Type.WARN).build();
+                    }
                     String currentPort = p.getProperty("management-server-port", "0");
                     if (currentPort.isEmpty() || "0".equals(currentPort)) {
                         p.setProperty("management-server-port", "25585");
@@ -97,6 +100,9 @@ public class ServerManagementSettingsController {
                 val -> {
                     p.setProperty("management-server-tls-enabled", String.valueOf(val));
                     p.setProperty("management.server.tls.enabled", String.valueOf(val));
+                    if (!val && isRemote && Boolean.parseBoolean(p.getProperty("management-server-enabled", "false"))) {
+                        new Notification.Builder().message("MSMP Without TLS Is Insecure").description("Enable TLS For Remote MSMP").type(Notification.Type.WARN).build();
+                    }
                 })
             .defaultValue(false)
             .dependsOn(enableManagement)

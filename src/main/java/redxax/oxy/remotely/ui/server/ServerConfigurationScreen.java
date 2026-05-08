@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.ui.server;
 
+
+import org.lwjgl.glfw.GLFW;
 import com.google.gson.Gson;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.ui.settings.controllers.*;
@@ -387,8 +389,8 @@ public class ServerConfigurationScreen extends ReScreen {
 
         String subdomain = planController.getSubdomain();
 
-        ReStudio.getInstance().getApi().createCheckoutSession(tempInstance.getName(), planName, null, remoteVariables, fileConfigs, subdomain).thenAccept(url -> {
-            openBrowser(url);
+        ReStudio.getInstance().getApi().createCheckoutSessionDetails(tempInstance.getName(), planName, null, remoteVariables, fileConfigs, null, subdomain, null, planController.getCustomPlanRequest()).thenAccept(checkout -> {
+            openBrowser(checkout.url);
             ScreenManager.getInstance().execute(this::close);
         }).exceptionally(e -> {
             ScreenManager.getInstance().execute(() -> new Notification("Checkout Error", e.getMessage(), Notification.Type.ERROR));
@@ -447,6 +449,8 @@ public class ServerConfigurationScreen extends ReScreen {
 
         ModLoader oldLoader = originalInstance.getModLoader();
         String oldVersion = originalInstance.getVersionId();
+        String oldServerSoftware = originalInstance.getServerSoftwareType();
+        String oldServerBuild = originalInstance.getServerBuildNumber();
 
         originalInstance.setModLoader(tempInstance.getModLoader());
         originalInstance.setVersionId(tempInstance.getVersionId());
@@ -463,7 +467,7 @@ public class ServerConfigurationScreen extends ReScreen {
 
         scriptFuture.thenRun(() -> ScreenManager.getInstance().execute(() -> {
             if (isReStudioBackend) {
-                saveRemoteVariables();
+                saveRemoteVariables(resolveAllowedReStudioStartupChanges(oldLoader, oldVersion, oldServerSoftware, oldServerBuild));
             }
 
             boolean versionChanged = oldLoader != originalInstance.getModLoader() || (oldVersion == null ? originalInstance.getVersionId() != null : !oldVersion.equals(originalInstance.getVersionId()));
@@ -524,7 +528,25 @@ public class ServerConfigurationScreen extends ReScreen {
         }));
     }
 
-    private void saveRemoteVariables() {
+    private Set<String> resolveAllowedReStudioStartupChanges(ModLoader oldLoader, String oldVersion, String oldServerSoftware, String oldServerBuild) {
+        Set<String> allowed = new HashSet<>();
+        if (oldVersion == null ? originalInstance.getVersionId() != null : !oldVersion.equals(originalInstance.getVersionId())) {
+            allowed.add("VERSION");
+        }
+        if (oldLoader != originalInstance.getModLoader() || !Objects.equals(normalized(oldServerSoftware), normalized(originalInstance.getServerSoftwareType()))) {
+            allowed.add("SOFTWARE");
+        }
+        if (!Objects.equals(normalized(oldServerBuild), normalized(originalInstance.getServerBuildNumber()))) {
+            allowed.add("BUILD");
+        }
+        return allowed;
+    }
+
+    private String normalized(String value) {
+        return value == null || value.isBlank() || "latest".equalsIgnoreCase(value) ? null : value.trim();
+    }
+
+    private void saveRemoteVariables(Set<String> allowedReinstallVariables) {
         if (!isReStudioBackend || remoteVariables.isEmpty()) return;
 
         Set<String> reinstallTriggeringChanges = new HashSet<>();
@@ -536,6 +558,9 @@ public class ServerConfigurationScreen extends ReScreen {
             String oldValue = originalRemoteVariables.get(key);
 
             if (!newValue.equals(oldValue)) {
+                if (REINSTALL_TRIGGERING_VARS.contains(key) && (allowedReinstallVariables == null || !allowedReinstallVariables.contains(key))) {
+                    continue;
+                }
                 futures.add(ReStudio.getInstance().getApi().updateServerStartupVariable(serverIdentifier, key, newValue));
 
                 if (REINSTALL_TRIGGERING_VARS.contains(key)) {
@@ -567,6 +592,15 @@ public class ServerConfigurationScreen extends ReScreen {
     public void onDisplayed() {
         playSound(Sound.SCREEN);
     }
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            close();
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
 
     public void close() {
         screenClosed = true;
