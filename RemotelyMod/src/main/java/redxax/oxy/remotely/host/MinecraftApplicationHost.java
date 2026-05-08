@@ -67,7 +67,11 @@ public class MinecraftApplicationHost implements ApplicationHost {
         }
         if (Config.desktopMode) {
             ScreenManager sm = ScreenManager.getInstance();
+            //#if NEOFORGE && MC < 1.21.10
+            //$$ long handle = Minecraft.getInstance().getWindow().getWindow();
+            //#else
             long handle = Minecraft.getInstance().getWindow().handle();
+            //#endif
             sm.setWindowHandle(handle);
             try {
                 Field f = restudio.rescreen.Main.class.getDeclaredField("window");
