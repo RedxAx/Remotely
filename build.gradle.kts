@@ -138,6 +138,7 @@ tasks.jar {
     manifest {
         attributes["Main-Class"] = "redxax.oxy.remotely.RemotelyInit"
         attributes["Implementation-Version"] = project.version.toString()
+        attributes["Automatic-Module-Name"] = "dev.restudio.remotely.app"
     }
     doFirst {
         manifest {
@@ -222,5 +223,6 @@ tasks.register<Jar>("fatJar") {
     manifest {
         attributes["Main-Class"] = "redxax.oxy.remotely.RemotelyInit"
         attributes["Implementation-Version"] = project.version.toString()
+        attributes["Automatic-Module-Name"] = "dev.restudio.remotely.app"
     }
 }
