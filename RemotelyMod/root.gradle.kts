@@ -33,12 +33,11 @@ fun registerBuildAggregate(name: String, descriptionText: String, loader: String
 }
 
 fun registerPublishAggregate(name: String, descriptionText: String, taskName: String, loader: String? = null) {
+    val projects = versionProjects(loader)
     tasks.register(name) {
         group = "publishing"
         description = descriptionText
-        dependsOn(versionProjects(loader).mapNotNull { project ->
-            project.tasks.findByName(taskName)?.let { project.tasks.named(taskName) }
-        })
+        dependsOn(projects.map { project -> "${project.path}:$taskName" })
     }
 }
 
@@ -46,13 +45,11 @@ registerBuildAggregate("buildAllVersions", "Builds every enabled RemotelyMod ver
 registerBuildAggregate("buildAllFabric", "Builds every enabled Fabric RemotelyMod version.", "fabric")
 registerBuildAggregate("buildAllNeoForge", "Builds every enabled NeoForge RemotelyMod version.", "neoforge")
 
-gradle.projectsEvaluated {
-    registerPublishAggregate("publishAllVersions", "Publishes every enabled RemotelyMod version.", "publishMod")
-    registerPublishAggregate("publishAllFabric", "Publishes every enabled Fabric RemotelyMod version.", "publishMod", "fabric")
-    registerPublishAggregate("publishAllNeoForge", "Publishes every enabled NeoForge RemotelyMod version.", "publishMod", "neoforge")
-    registerPublishAggregate("publishAllVersionsToModrinth", "Publishes every enabled RemotelyMod version to Modrinth.", "publishModrinth")
-    registerPublishAggregate("publishAllVersionsToCurseForge", "Publishes every enabled RemotelyMod version to CurseForge.", "publishCurseforge")
-}
+registerPublishAggregate("publishAllVersions", "Publishes every enabled RemotelyMod version.", "publishMod")
+registerPublishAggregate("publishAllFabric", "Publishes every enabled Fabric RemotelyMod version.", "publishMod", "fabric")
+registerPublishAggregate("publishAllNeoForge", "Publishes every enabled NeoForge RemotelyMod version.", "publishMod", "neoforge")
+registerPublishAggregate("publishAllVersionsToModrinth", "Publishes every enabled RemotelyMod version to Modrinth.", "publishModrinth")
+registerPublishAggregate("publishAllVersionsToCurseForge", "Publishes every enabled RemotelyMod version to CurseForge.", "publishCurseforge")
 
 preprocess {
     strictExtraMappings.set(true)

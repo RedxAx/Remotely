@@ -1,4 +1,5 @@
 import groovy.lang.MissingPropertyException
+import java.util.Properties
 
 pluginManagement {
     includeBuild("build-logic")
@@ -36,8 +37,16 @@ plugins {
 }
 
 val dropFabricProjectPattern = Regex("""^\d{2,}\.\d+(?:\.\d+)?(?:-(?:snapshot|pre|rc)-\d+)?-fabric$""")
+val remotelyAppProperties = Properties().apply {
+    file("../gradle.properties").inputStream().use(::load)
+}
+val remotelyVersion = remotelyAppProperties.getProperty("remotely.version")
+    ?: throw MissingPropertyException("remotely.version has not been set.")
 
 gradle.beforeProject {
+    extensions.extraProperties["remotely.version"] = remotelyVersion
+    extensions.extraProperties["mod.version"] = remotelyVersion
+
     if (dropFabricProjectPattern.matches(name)) {
         extensions.extraProperties["fabric.loom.disableObfuscation"] = "true"
         extensions.extraProperties["dgt.loom.mappings.use"] = "false"

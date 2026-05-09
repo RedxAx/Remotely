@@ -363,17 +363,11 @@ private fun Project.configureResources() {
 private fun Project.configurePublishingGuard() {
     val requestedTasks = gradle.startParameter.taskNames.map { it.lowercase() }
     val publishingRequested = requestedTasks.any {
-        val taskName = it.lowercase()
-        taskName.contains("publish") || taskName.contains("modrinth") || taskName.contains("curse") || taskName.contains("github") || taskName.contains("nightbloom")
+        val taskName = it.substringAfterLast(":")
+        taskName.startsWith("publish") || taskName.contains("modrinth") || taskName.contains("curse") || taskName.contains("github") || taskName.contains("nightbloom")
     }
     if (!publishingRequested) {
         return
-    }
-    val publishingAllowed = rootProject.findProperty("remotely.allowPublish")?.toString()?.toBooleanStrictOrNull()
-        ?: findProperty("remotely.allowPublish")?.toString()?.toBooleanStrictOrNull()
-        ?: false
-    if (!publishingAllowed) {
-        throw GradleException("Publishing is disabled. Re-run with -Premotely.allowPublish=true to enable publishing tasks.")
     }
     pluginManager.apply("com.hypherionmc.modutils.modpublisher")
     pluginManager.withPlugin("com.hypherionmc.modutils.modpublisher") {
@@ -425,14 +419,12 @@ private fun Project.publishingProperties(): Properties {
     }
 }
 
-private fun Project.publishingArtifact() = tasks.named(publishingArtifactTaskName(), AbstractArchiveTask::class.java)
-    .flatMap { task -> task.archiveFile }
-
-private fun Project.publishingArtifactTaskName(): String {
-    return when {
-        loader() == "fabric" && isDropVersion() -> "jar"
-        loader() == "neoforge" -> "jar"
-        else -> "remapJar"
+private fun Project.publishingArtifact() = rootProject.layout.buildDirectory.file("versions/Remotely-${modVersion()}+$name.jar").also { artifact ->
+    gradle.taskGraph.whenReady {
+        val file = artifact.get().asFile
+        if (!file.isFile) {
+            throw GradleException("Publishing artifact is missing: ${file.absolutePath}. Run buildAllVersions before publishing.")
+        }
     }
 }
 
@@ -512,6 +504,7 @@ private fun Project.configureNeoForgeModDev() {
         task.duplicatesStrategy = DuplicatesStrategy.EXCLUDE
         task.into(layout.buildDirectory.dir("classes/java/main"))
         task.exclude("META-INF/MANIFEST.MF", "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+        task.exclude("com/pty4j/**", "com/jediterm/**", "org/jetbrains/jediterm/**")
     })
 
     extensions.configure(NeoForgeExtension::class.java, action<NeoForgeExtension> { extension ->
@@ -886,14 +879,35 @@ private fun shouldCoalesceNeoForgeClass(jar: File, name: String, outerPackages: 
         return false
     }
     val classPackage = classPackage(name) ?: return false
+    if (jar.name == "Remotely-App.jar") {
+        return true
+    }
     return classPackage in outerPackages
 }
 
 private fun shouldDropNestedJarEntry(jar: File, name: String): Boolean {
+    if (jar.name == "Rebase-1.0-SNAPSHOT.jar" && isRebaseEmbeddedTerminalLibrary(name)) {
+        return true
+    }
+    if (jar.name == "jediterm-pty-2.69.jar" && isJeditermCorePackage(name)) {
+        return true
+    }
     if (jar.name == "ReScreen-1.0.jar" && isReScreenConflictingResource(name)) {
         return true
     }
     return jar.name == "Remotely-App.jar" && isRemotelyMonoAsset(name)
+}
+
+private fun isRebaseEmbeddedTerminalLibrary(name: String): Boolean {
+    return name.startsWith("com/pty4j/")
+            || name.startsWith("com/jediterm/")
+            || name.startsWith("org/jetbrains/jediterm/")
+}
+
+private fun isJeditermCorePackage(name: String): Boolean {
+    return name.startsWith("com/jediterm/terminal/")
+            && !name.startsWith("com/jediterm/terminal/debug/")
+            && !name.startsWith("com/jediterm/terminal/ui/")
 }
 
 private fun isReScreenConflictingResource(name: String): Boolean {
