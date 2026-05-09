@@ -29,6 +29,6 @@ gradlePlugin {
 
 dependencies {
     compileOnly("com.github.johnrengelman:shadow:8.1.1")
-    compileOnly("com.hypherionmc.modutils:modpublisher:2.1.8")
+    implementation("com.hypherionmc.modutils:modpublisher:2.1.8")
     implementation("net.neoforged:moddev-gradle:2.0.141")
 }
