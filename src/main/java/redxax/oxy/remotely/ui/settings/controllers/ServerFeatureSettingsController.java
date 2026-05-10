@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.ui.settings.controllers;
 
 import restudio.rebase.instance.Instance;
+import restudio.rebase.localcontrol.LocalServerControllerClient;
 import restudio.rescreen.ui.settings.Setting;
 import restudio.rescreen.ui.settings.options.ConfigOption;
 
@@ -18,6 +19,51 @@ public class ServerFeatureSettingsController {
         Setting.Builder builder = new Setting.Builder("Features & Integrations");
         Properties s = instance.getSettings();
         Properties props = instance.getServerProperties();
+        boolean isLocal = instance.getBackendConfig() == null || "LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
+
+        if (isLocal) {
+            builder.addOption(ConfigOption.<Boolean>builder("Keep Running")
+                    .description("Keep Server Running After Remotely Closes.")
+                    .bind(instance::isLocalLifecyclePersistent,
+                            val -> {
+                                instance.setLocalLifecyclePersistent(val);
+                                updateLocalController();
+                            })
+                    .defaultValue(false)
+                    .build());
+            builder.addOption(ConfigOption.<Boolean>builder("Auto Restart")
+                    .description("Restart Persistent Servers After A Crash.")
+                    .bind(instance::isLocalRestartOnCrash,
+                            val -> {
+                                instance.setLocalRestartOnCrash(val);
+                                if (val) {
+                                    instance.setLocalLifecyclePersistent(true);
+                                }
+                                updateLocalController();
+                            })
+                    .defaultValue(false)
+                    .build());
+            builder.addOption(ConfigOption.<Integer>builder("Restart Delay")
+                    .description("Seconds Before Restarting After A Crash.")
+                    .range(1, 300)
+                    .bind(instance::getLocalRestartDelaySeconds,
+                            val -> {
+                                instance.setLocalRestartDelaySeconds(val);
+                                updateLocalController();
+                            })
+                    .defaultValue(5)
+                    .build());
+            builder.addOption(ConfigOption.<Integer>builder("Restart Attempts")
+                    .description("Maximum Consecutive Crash Restarts.")
+                    .range(1, 50)
+                    .bind(instance::getLocalRestartMaxAttempts,
+                            val -> {
+                                instance.setLocalRestartMaxAttempts(val);
+                                updateLocalController();
+                            })
+                    .defaultValue(3)
+                    .build());
+        }
 
         builder.addOption(ConfigOption.<Boolean>builder("Enable MSMP")
                 .description("Minecraft Server Management Protocol support.")
@@ -84,5 +130,9 @@ public class ServerFeatureSettingsController {
                 .build());
 
         return List.of(builder.build());
+    }
+
+    private void updateLocalController() {
+        Thread.ofVirtual().name("Remotely Local Controller Configure").start(() -> LocalServerControllerClient.configure(instance));
     }
 }

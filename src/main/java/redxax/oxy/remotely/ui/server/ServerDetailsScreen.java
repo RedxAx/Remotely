@@ -26,6 +26,9 @@ import restudio.rebase.instance.InstanceRepairer;
 import restudio.rebase.instance.InstanceManager;
 import restudio.rebase.instance.InstanceState;
 import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.localcontrol.LocalServerControllerClient;
+import restudio.rebase.localcontrol.LocalServerControllerModels;
+import restudio.rebase.localcontrol.LifecycleManager;
 import restudio.rebase.msmp.MSMPManager;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.instance.InstanceDetailsScreen;
@@ -79,6 +82,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private SearchMode headerSearchMode;
     private SearchMode resourcesSearchMode;
     private SearchMode playersSearchMode;
+    private static final long LOCAL_STOP_GRACE_MS = 15_000;
 
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
         this(parent, client, null);
@@ -709,6 +713,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             api.console().stopServer();
             String t = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
             if ("LOCAL".equalsIgnoreCase(t)) {
+                LifecycleManager.requestStop(context.instance);
                 info.getTerminalWidget().stopProcess();
                 context.instance.setState(InstanceState.STOPPED);
                 TerminalWidget.shutdown(context.instance.getInstanceId());
@@ -796,15 +801,20 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
 
             ExecutionProvider exec = new UnifiedExecutionProvider(InstanceApi.of(context.instance).console());
-             TerminalWidget tw = ServerTerminal.getOrCreate(context.instance, exec, 5, 60, width - 10, height - 66);
-             info.setTerminalWidget(tw);
+            TerminalWidget tw = ServerTerminal.getOrCreate(context.instance, exec, 5, 60, width - 10, height - 66);
+            info.setTerminalWidget(tw);
             if (info.getPlayersContainer() != null) {
                 info.getPlayersContainer().setTerminalWidget(tw);
             }
 
-             tw.addOutputListener(context.instance.getMSMPManager()::handleConsoleLine);
+            tw.addOutputListener(context.instance.getMSMPManager()::handleConsoleLine);
             tw.setForceDirectLaunch(true);
-            tw.start();
+            tw.clearLog();
+            LifecycleManager.requestStart(context.instance);
+            if (tw instanceof ServerTerminal st) {
+                st.notifyStartRequested();
+            }
+            startLocalServerWhenReady(context, tw);
             context.instance.attachTerminalListener(tw);
 
             for (int i = 0; i < context.views.size(); i++) {
@@ -842,6 +852,36 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 info.getTerminalWidget().startServerProcess();
             }
         }));
+    }
+
+    private void startLocalServerWhenReady(TabContext context, TerminalWidget terminal) {
+        if (context == null || context.instance == null || terminal == null) {
+            return;
+        }
+        Thread.ofVirtual().name("Remotely Local Start Gate").start(() -> {
+            long deadline = System.currentTimeMillis() + LOCAL_STOP_GRACE_MS;
+            while (System.currentTimeMillis() < deadline) {
+                LocalServerControllerModels.StatusResponse status = LocalServerControllerClient.status(context.instance);
+                if (status == null || !status.knownSession || "STOPPED".equalsIgnoreCase(status.state) || "CRASHED".equalsIgnoreCase(status.state)) {
+                    break;
+                }
+                if ("RUNNING".equalsIgnoreCase(status.state)) {
+                    if (!LifecycleManager.isStopPending(context.instance)) {
+                        break;
+                    }
+                }
+                try {
+                    Thread.sleep(250);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            ScreenManager.getInstance().execute(() -> {
+                LifecycleManager.beginStart(context.instance);
+                terminal.startServerProcess();
+            });
+        });
     }
 
     private void showEulaPopup(TabContext context, TerminalSession info) {
@@ -1024,7 +1064,6 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             TerminalSession info = contextInfos.get(ctx);
             if (ctx != null && !ctx.views.isEmpty()) onViewChanged(ctx, ctx.views.get(ctx.selectedViewIndex));
             if (info != null && info.getPlayersContainer() != null) info.getPlayersContainer().fullRefresh();
-            if (ctx != null && ctx.instance != null) ctx.instance.getMSMPManager().handleInstanceStateChange(newState);
         });
     }
 
@@ -1063,6 +1102,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     private void refreshActiveStatusBarResources() {
         TabContext ctx = getActiveContext();
         if (!(ctx instanceof ServerTabStatusContext statusCtx)) return;
+        TerminalSession info = contextInfos.get(ctx);
 
         long nowMs = System.currentTimeMillis();
         statusCtx.refreshConnectionInfo(nowMs);
@@ -1075,16 +1115,26 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
 
         ctx.instance.getBackend().getFeature(ResourceUsageFeature.class).ifPresentOrElse(feature -> {
-            feature.getResources().thenAccept(usage -> ScreenManager.getInstance().execute(() -> {
-                TabContext active = getActiveContext();
-                if (active == ctx) {
-                    statusCtx.update(usage);
-                    if (usage != null && usage.uptimeMs() > 0 && ctx.instance.getState() == InstanceState.STOPPED) {
-                        ctx.instance.setState(InstanceState.RUNNING);
+            feature.getResources().thenAccept(usage -> {
+                LocalServerControllerModels.StatusResponse localStatus = localControllerStatus(ctx);
+                ScreenManager.getInstance().execute(() -> {
+                    TabContext active = getActiveContext();
+                    if (active == ctx) {
+                        boolean resourceRunning = usage != null && usage.uptimeMs() > 0;
+                        if (!resourceRunning || localStatus == null || "RUNNING".equalsIgnoreCase(localStatus.state)) {
+                            applyLocalControllerState(ctx, info, localStatus);
+                        }
+                        statusCtx.update(usage);
+                        boolean controllerAllowsRunning = resourceRunning || localStatus == null || !localStatus.knownSession || "RUNNING".equalsIgnoreCase(localStatus.state);
+                        if (controllerAllowsRunning && resourceRunning && ctx.instance.getState() == InstanceState.STOPPED) {
+                            ctx.instance.setState(InstanceState.RUNNING);
+                        } else if (ctx.instance.getBackend() instanceof LocalBackend && (localStatus == null || !localStatus.knownSession) && (usage == null || usage.uptimeMs() <= 0) && ctx.instance.getState() == InstanceState.RUNNING) {
+                            ctx.instance.setState(InstanceState.STOPPED);
+                        }
                     }
-                }
-                statusCtx.finishRequest();
-            })).exceptionally(e -> {
+                    statusCtx.finishRequest();
+                });
+            }).exceptionally(e -> {
                 ScreenManager.getInstance().execute(() -> {
                     statusCtx.finishRequest();
                     statusCtx.update(null);
@@ -1096,6 +1146,40 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             statusCtx.update(null);
         });
 
+    }
+
+    private LocalServerControllerModels.StatusResponse localControllerStatus(TabContext ctx) {
+        if (ctx == null || ctx.instance == null || !(ctx.instance.getBackend() instanceof LocalBackend)) {
+            return null;
+        }
+        return LocalServerControllerClient.status(ctx.instance);
+    }
+
+    private void applyLocalControllerState(TabContext ctx, TerminalSession info, LocalServerControllerModels.StatusResponse status) {
+        if (status == null || !status.knownSession) {
+            return;
+        }
+        String state = status.state != null ? status.state.trim().toUpperCase(Locale.ROOT) : "";
+        switch (state) {
+            case "STARTING" -> {
+                ctx.instance.setState(InstanceState.STARTING);
+            }
+            case "RUNNING" -> {
+                ctx.instance.setState(InstanceState.RUNNING);
+            }
+            case "STOPPING", "STOPPED" -> {
+                ctx.instance.setState(InstanceState.STOPPED);
+                if (ctx.instance.getState() == InstanceState.STOPPED && info != null && info.getTerminalWidget() instanceof ServerTerminal st && st.isTerminalReady()) {
+                    st.stopProcess();
+                }
+            }
+            case "CRASHED" -> {
+                ctx.instance.setState(InstanceState.CRASHED);
+                if (ctx.instance.getState() == InstanceState.CRASHED && info != null && info.getTerminalWidget() instanceof ServerTerminal st && st.isTerminalReady()) {
+                    st.stopProcess();
+                }
+            }
+        }
     }
 
     private static String formatBytes(long bytes) {

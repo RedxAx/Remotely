@@ -5,6 +5,8 @@ import restudio.rebase.backend.impl.LocalBackend;
 import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceState;
+import restudio.rebase.localcontrol.LocalServerControllerClient;
+import restudio.rebase.localcontrol.LifecycleManager;
 import restudio.rebase.api.unified.InstanceApi;
 import restudio.rebase.api.unified.adapter.UnifiedFileSystemProvider;
 import restudio.rebase.restudio.ReStudio;
@@ -77,13 +79,20 @@ public class ServerTerminal extends TerminalWidget {
 
         Instance inst = getInstance();
         if (inst != null) {
+            if (isLocalInstance(inst)) {
+                setForceDirectLaunch(true);
+            }
             InstanceState state = inst.getState();
             if (state == InstanceState.STARTING || state == InstanceState.RUNNING) {
                 ScreenManager.getInstance().execute(() -> {
                     forceStoppedView = false;
                     explicitDisconnect = false;
                     if (!isTerminalReady() && !isReconnecting) {
-                        startServerProcess();
+                        if (isLocalInstance(inst)) {
+                            start();
+                        } else {
+                            startServerProcess();
+                        }
                     }
                 });
             }
@@ -97,7 +106,11 @@ public class ServerTerminal extends TerminalWidget {
 
         TerminalWidget cached = getCached(instance.getInstanceId());
         if (cached instanceof ServerTerminal) {
-            return (ServerTerminal) cached;
+            ServerTerminal serverTerminal = (ServerTerminal) cached;
+            if (serverTerminal.isLocalInstance(instance)) {
+                serverTerminal.setForceDirectLaunch(true);
+            }
+            return serverTerminal;
         } else if (cached != null) {
             shutdown(instance.getInstanceId());
         }
@@ -109,6 +122,20 @@ public class ServerTerminal extends TerminalWidget {
 
     private void handleConnectionLost(String reason) {
         if (getInstance() != null && getInstance().getBackend() instanceof LocalBackend) {
+            ScreenManager.getInstance().execute(() -> {
+                if (desiredPower == DesiredPower.STOPPED || explicitDisconnect) {
+                    isReconnecting = false;
+                    forceStoppedView = true;
+                    explicitDisconnect = true;
+                    stopProcess();
+                    return;
+                }
+                desiredPower = DesiredPower.RUNNING;
+                isReconnecting = false;
+                forceStoppedView = false;
+                explicitDisconnect = false;
+                stopProcess();
+            });
             return;
         }
 
@@ -144,14 +171,37 @@ public class ServerTerminal extends TerminalWidget {
     }
 
     private void onStateChange(InstanceState newState) {
+        Instance inst = getInstance();
+        if (isLocalInstance(inst)) {
+            if (newState == InstanceState.STARTING || newState == InstanceState.RUNNING) {
+                desiredPower = DesiredPower.RUNNING;
+                lastStartRequestedMs = 0;
+                explicitDisconnect = false;
+                forceStoppedView = false;
+            } else if (newState == InstanceState.CRASHED && inst.isLocalRestartOnCrash()) {
+                desiredPower = DesiredPower.RUNNING;
+                explicitDisconnect = false;
+                forceStoppedView = false;
+                isReconnecting = false;
+            } else if (newState == InstanceState.STOPPED || newState == InstanceState.CRASHED) {
+                desiredPower = DesiredPower.STOPPED;
+                explicitDisconnect = true;
+                forceStoppedView = true;
+                isReconnecting = false;
+            }
+            return;
+        }
         if (newState == InstanceState.RUNNING) {
             desiredPower = DesiredPower.RUNNING;
+        } else if (newState == InstanceState.STOPPED || newState == InstanceState.CRASHED) {
+            desiredPower = DesiredPower.STOPPED;
         }
     }
 
     @Override
     public void tick() {
         super.tick();
+        pollLocalStatusIfNeeded();
         pollReStudioStatusIfNeeded();
         if (isReconnecting) {
             long now = System.currentTimeMillis();
@@ -258,6 +308,10 @@ public class ServerTerminal extends TerminalWidget {
         Instance inst = getInstance();
         BackendConfig cfg = inst != null ? inst.getBackendConfig() : null;
         return cfg != null && cfg.type != null && cfg.type.equalsIgnoreCase("RESTUDIO");
+    }
+
+    private boolean isLocalInstance(Instance inst) {
+        return inst != null && (inst.getBackendConfig() == null || inst.getBackendConfig().type == null || "LOCAL".equalsIgnoreCase(inst.getBackendConfig().type));
     }
 
     private String getReStudioServerId() {
@@ -369,6 +423,85 @@ public class ServerTerminal extends TerminalWidget {
         });
     }
 
+    private void pollLocalStatusIfNeeded() {
+        Instance inst = getInstance();
+        if (!isLocalInstance(inst)) return;
+
+        long now = System.currentTimeMillis();
+        if (now - lastStatusPollMs < STATUS_POLL_MS) return;
+        lastStatusPollMs = now;
+
+        Thread.ofVirtual().name("Remotely Local Status Poll").start(() -> {
+            var status = LocalServerControllerClient.status(inst);
+            if (status == null || !status.knownSession) return;
+            ScreenManager.getInstance().execute(() -> applyLocalControllerStatus(status));
+        });
+    }
+
+    private void applyLocalControllerStatus(restudio.rebase.localcontrol.LocalServerControllerModels.StatusResponse status) {
+        Instance inst = getInstance();
+        if (inst == null || status == null) return;
+
+        String state = status.state != null ? status.state.trim().toUpperCase(java.util.Locale.ROOT) : "";
+
+        switch (state) {
+            case "STARTING" -> {
+                desiredPower = DesiredPower.RUNNING;
+                inst.setState(InstanceState.STARTING);
+                explicitDisconnect = false;
+                forceStoppedView = false;
+                attachLocalControllerIfNeeded();
+            }
+            case "RUNNING" -> {
+                desiredPower = DesiredPower.RUNNING;
+                inst.setState(InstanceState.RUNNING);
+                if (inst.getState() == InstanceState.RUNNING) {
+                    lastStartRequestedMs = 0;
+                    explicitDisconnect = false;
+                    forceStoppedView = false;
+                }
+                attachLocalControllerIfNeeded();
+            }
+            case "STOPPING", "STOPPED" -> {
+                lastStopRequestedMs = 0;
+                inst.setState(InstanceState.STOPPED);
+                if (inst.getState() == InstanceState.STOPPED) {
+                    desiredPower = DesiredPower.STOPPED;
+                    explicitDisconnect = true;
+                    forceStoppedView = true;
+                    isReconnecting = false;
+                    if (isTerminalReady()) {
+                        stopProcess();
+                    }
+                } else {
+                    desiredPower = DesiredPower.RUNNING;
+                    explicitDisconnect = false;
+                    forceStoppedView = false;
+                }
+            }
+            case "CRASHED" -> {
+                lastStopRequestedMs = 0;
+                inst.setState(InstanceState.CRASHED);
+                desiredPower = inst.isLocalRestartOnCrash() ? DesiredPower.RUNNING : DesiredPower.STOPPED;
+                explicitDisconnect = !inst.isLocalRestartOnCrash();
+                forceStoppedView = !inst.isLocalRestartOnCrash();
+                isReconnecting = false;
+                if (isTerminalReady()) {
+                    stopProcess();
+                }
+            }
+        }
+    }
+
+    private void attachLocalControllerIfNeeded() {
+        long now = System.currentTimeMillis();
+        if (isTerminalReady() || isReconnecting || now - lastConnectAttemptMs < CONNECT_ATTEMPT_COOLDOWN_MS) {
+            return;
+        }
+        lastConnectAttemptMs = now;
+        start();
+    }
+
     public void notifyStartRequested() {
         ScreenManager.getInstance().execute(() -> {
             desiredPower = DesiredPower.RUNNING;
@@ -376,8 +509,10 @@ public class ServerTerminal extends TerminalWidget {
             lastStopRequestedMs = 0;
             forceStoppedView = false;
             explicitDisconnect = false;
+            clearLog();
             Instance inst = getInstance();
-            if (inst != null && inst.getState() == InstanceState.STOPPED) {
+            if (inst != null) {
+                LifecycleManager.requestStart(inst);
                 inst.setState(InstanceState.STARTING);
             }
         });
@@ -394,6 +529,10 @@ public class ServerTerminal extends TerminalWidget {
             stopProcess();
             Instance inst = getInstance();
             if (inst != null) {
+                LifecycleManager.requestStop(inst);
+                if (inst.getBackend() instanceof LocalBackend) {
+                    Thread.ofVirtual().name("Remotely Local Server Stop").start(() -> LocalServerControllerClient.stop(inst));
+                }
                 inst.setState(InstanceState.STOPPED);
             }
         });

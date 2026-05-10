@@ -24,6 +24,9 @@ import restudio.rebase.Rebase;
 import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.instance.InstanceManager;
+import restudio.rebase.localcontrol.LocalServerControllerClient;
+import restudio.rebase.localcontrol.LocalServerControllerModels;
+import restudio.rebase.localcontrol.LocalServerProcessDetector;
 import restudio.rebase.resource.ResourceType;
 import restudio.rebase.ui.screens.explorer.FileExplorerScreen;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
@@ -105,6 +108,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private boolean reactorPlanSelectionVisible;
     private static final int REACTOR_PLAN_CARD_GAP = 14;
     private static final int REACTOR_PLAN_CARD_SIDE_MARGIN = 14;
+    private long lastPersistentLocalProcessPollMs;
+    private volatile boolean persistentLocalProcessPollInFlight;
+    private static final long PERSISTENT_LOCAL_PROCESS_POLL_MS = 2000;
 
     public ServerManagerScreen(Object parent, RemotelyClient remotelyClient) {
         super();
@@ -547,6 +553,92 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         loadServersForTab(tabs().getActiveTab());
     }
 
+    private boolean refreshVisibleServerWidget(Instance instance) {
+        TabsManager.Tab activeTab = tabs().getActiveTab();
+        if (activeTab == null || activeTab.getContainer() == null || instance == null) {
+            return false;
+        }
+        String key = getWidgetKey(instance);
+        for (AnimatedWidget widget : activeTab.getContainer().getWidgets()) {
+            if (!(widget instanceof DesktopIconWidget<?> rawWidget)) {
+                continue;
+            }
+            DesktopIconWidget<Instance> desktopIcon = (DesktopIconWidget<Instance>) rawWidget;
+            Instance item = desktopIcon.getItem();
+            if (item == null || !key.equals(getWidgetKey(item))) {
+                continue;
+            }
+            desktopIcon.setItem(instance);
+            desktopIcon.accentType = getDesktopIconAccent(instance, false);
+            return true;
+        }
+        return false;
+    }
+
+    private boolean isPersistentLocalInstance(Instance instance) {
+        if (instance == null || !instance.isLocalLifecyclePersistent()) {
+            return false;
+        }
+        BackendConfig config = instance.getBackendConfig();
+        return config == null || config.type == null || "LOCAL".equalsIgnoreCase(config.type);
+    }
+
+    private void pollPersistentLocalServerStates(List<Instance> visibleInstances, boolean force) {
+        if (visibleInstances == null || visibleInstances.isEmpty()) {
+            return;
+        }
+        List<Instance> persistentInstances = visibleInstances.stream()
+            .filter(this::isPersistentLocalInstance)
+            .toList();
+        if (persistentInstances.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (persistentLocalProcessPollInFlight || (!force && now - lastPersistentLocalProcessPollMs < PERSISTENT_LOCAL_PROCESS_POLL_MS)) {
+            return;
+        }
+        lastPersistentLocalProcessPollMs = now;
+        persistentLocalProcessPollInFlight = true;
+        Thread.ofVirtual().name("Remotely Persistent Server State").start(() -> {
+            try {
+                Map<Instance, LocalServerControllerModels.StatusResponse> controllerStatuses = new HashMap<>();
+                List<Instance> fallbackInstances = new ArrayList<>();
+                for (Instance instance : persistentInstances) {
+                    LocalServerControllerModels.StatusResponse status = LocalServerControllerClient.status(instance);
+                    if (status != null) {
+                        controllerStatuses.put(instance, status);
+                    }
+                    if (status == null || (status.pid <= 0 && !"STOPPING".equalsIgnoreCase(status.state))) {
+                        fallbackInstances.add(instance);
+                    }
+                }
+                Map<Instance, ProcessHandle> running = fallbackInstances.isEmpty() ? Map.of() : LocalServerProcessDetector.findAll(fallbackInstances);
+                ScreenManager.getInstance().execute(() -> {
+                    for (Instance instance : persistentInstances) {
+                        LocalServerControllerModels.StatusResponse status = controllerStatuses.get(instance);
+                        if (status != null && status.pid > 0 && "RUNNING".equalsIgnoreCase(status.state)) {
+                            instance.setState(InstanceState.RUNNING);
+                        } else if (status != null && "STARTING".equalsIgnoreCase(status.state)) {
+                            instance.setState(InstanceState.STARTING);
+                        } else if (status != null && "STOPPING".equalsIgnoreCase(status.state)) {
+                            instance.setState(InstanceState.STOPPED);
+                        } else if (running.containsKey(instance)) {
+                            instance.setState(InstanceState.RUNNING);
+                        } else if (status != null && ("STOPPED".equalsIgnoreCase(status.state) || "CRASHED".equalsIgnoreCase(status.state))) {
+                            instance.setState("CRASHED".equalsIgnoreCase(status.state) ? InstanceState.CRASHED : InstanceState.STOPPED);
+                        } else if (instance.getState() == InstanceState.RUNNING) {
+                            instance.setState(InstanceState.STOPPED);
+                        }
+                        refreshVisibleServerWidget(instance);
+                    }
+                    persistentLocalProcessPollInFlight = false;
+                });
+            } catch (Throwable ignored) {
+                persistentLocalProcessPollInFlight = false;
+            }
+        });
+    }
+
     private void loadServersForTab(TabsManager.Tab tab) {
         if (tab == null) {
             updateNoServersOverlayVisibility(false);
@@ -641,6 +733,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         targetContainer.updateWidgetPositions();
         if (tab == tabs().getActiveTab()) {
             updateNoServersOverlayVisibility(forceNoServersOverlay || instances.isEmpty());
+            if (!(tabData instanceof RemoteHost) && !"RESTUDIO_MARKER".equals(tabData)) {
+                pollPersistentLocalServerStates(instances, true);
+            }
         }
     }
 
@@ -1847,6 +1942,15 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             reactorInfo.setY(reactorsNoServersIcon.getY() + reactorsNoServersIcon.getHeight() + (12 * 5));
             localNoServersIcon.setX(width / 2 - (localNoServersIcon.getWidth() / 2));
             localNoServersIcon.setY(height / 4);
+        }
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        Object data = tabs().getActiveTab() != null ? tabs().getActiveTab().getData() : null;
+        if (!(data instanceof RemoteHost) && !"RESTUDIO_MARKER".equals(data)) {
+            pollPersistentLocalServerStates(getCurrentServers(), false);
         }
     }
 
