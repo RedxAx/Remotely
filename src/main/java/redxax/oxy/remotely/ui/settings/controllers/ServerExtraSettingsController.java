@@ -122,6 +122,7 @@ public class ServerExtraSettingsController {
         if (n.endsWith(".yml") || n.endsWith(".yaml")) return "yaml";
         if (n.endsWith(".properties")) return "properties";
         if (n.endsWith(".json")) return "json";
+        if (n.endsWith(".sk")) return "skript";
         return "plain";
     }
 }
