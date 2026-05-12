@@ -88,6 +88,13 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     }
 
     @Override
+    public void drawItemPreview(Object item, int x, int y, int z, float scale, float rotationX, float rotationY, boolean paused) {
+        if (ctx instanceof RematrixContext mc) {
+            mc.drawItemPreview(item, x, y, z, scale, rotationX, rotationY, paused);
+        }
+    }
+
+    @Override
     public void drawStyledText(Object text, int x, int y, int color, boolean shadow) {
         if (ctx instanceof RematrixContext mc) {
             mc.drawStyledText(text, x, y, color, shadow);

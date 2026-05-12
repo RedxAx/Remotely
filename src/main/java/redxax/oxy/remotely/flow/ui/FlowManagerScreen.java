@@ -961,10 +961,18 @@ public class FlowManagerScreen extends ReScreen {
             targetContainer.removeWidget(existing);
         }
         String title = CustomContentGraphAdapter.displayName(contentGraph);
-        String subtitle = CustomContentGraphAdapter.material(contentGraph) + "  " + (content != null ? content.getAbilities().size() : 0) + " Events";
+        String subtitle = contentCardSubtitle(contentGraph, content);
         SquareButtonWidget editButton = new SquareButtonWidget.Builder()
             .imagePath("edit.png")
             .onClick(() -> showRenameFlowPopup(flowId))
+            .build();
+        SquareButtonWidget nodesButton = new SquareButtonWidget.Builder()
+            .imagePath("graph.png")
+            .onClick(() -> flowManager.openFlowEditor(serverId, server, flowId))
+            .build();
+        SquareButtonWidget duplicateButton = new SquareButtonWidget.Builder()
+            .imagePath("copy.png")
+            .onClick(() -> duplicateContentFlow(contentGraph))
             .build();
         SquareButtonWidget deleteButton = new SquareButtonWidget.Builder()
             .imagePath("delete.png")
@@ -980,8 +988,10 @@ public class FlowManagerScreen extends ReScreen {
             .build();
         MountableButtonWidget widget = new MountableButtonWidget.Builder(title)
             .description(subtitle)
-            .onClick(() -> flowManager.openFlowEditor(serverId, server, flowId))
+            .onClick(() -> openContentStudio(flowId))
             .addButton(editButton)
+            .addButton(nodesButton)
+            .addButton(duplicateButton)
             .addButton(deleteButton)
             .build();
         widget.setSize(Math.max(200, targetContainer.getWidth() - 20), 28);
@@ -1024,7 +1034,7 @@ public class FlowManagerScreen extends ReScreen {
                 if (popupRef[0] != null) {
                     popupRef[0].hide();
                 }
-                flowManager.openFlowEditor(serverId, server, graph.getId());
+                openContentStudio(graph.getId());
             })
             .build();
         builder.addRow("", true, 22, createButton);
@@ -1047,7 +1057,7 @@ public class FlowManagerScreen extends ReScreen {
     }
 
     private String contentTypeTitle(String type) {
-        return switch (type.toLowerCase(Locale.ROOT)) {
+        return switch (safeText(type).toLowerCase(Locale.ROOT)) {
             case "armor" -> "Armor";
             case "block" -> "Block";
             default -> "Item";
@@ -4285,6 +4295,46 @@ public class FlowManagerScreen extends ReScreen {
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    private void openContentStudio(String flowId) {
+        ScreenManager.getInstance().setScreen(new ContentStudioScreen(serverId, server, flowId, this));
+    }
+
+    private String contentCardSubtitle(FlowGraph graph, CustomContentDefinition content) {
+        String provider = content != null ? safeText(content.getProvider()) : "vanilla";
+        String type = CustomContentGraphAdapter.contentType(graph);
+        int events = content != null ? content.getAbilities().size() : 0;
+        String state = flowManager.getFlowState(serverId, graph.getId()).name().toLowerCase(Locale.ROOT);
+        return contentTypeTitle(type) + "  " + provider + "  " + CustomContentGraphAdapter.material(graph) + "  " + events + " Events  " + state;
+    }
+
+    private void duplicateContentFlow(FlowGraph source) {
+        if (source == null) {
+            return;
+        }
+        String id = uniqueContentId(source.getId() + "_copy");
+        FlowGraph copy = gson.fromJson(gson.toJson(source), FlowGraph.class);
+        copy.setId(id);
+        CustomContentGraphAdapter.setContentProperty(copy, "content_id", id);
+        CustomContentGraphAdapter.setContentProperty(copy, "name", CustomContentGraphAdapter.displayName(source) + " Copy");
+        flowManager.saveFlow(serverId, copy);
+        onContentViewChanged(contentViewIndex);
+        openContentStudio(id);
+    }
+
+    private String uniqueContentId(String baseId) {
+        String normalized = safeText(baseId).replaceAll("[^a-zA-Z0-9_]", "_");
+        if (normalized.isBlank()) {
+            normalized = "content_copy";
+        }
+        String candidate = normalized;
+        int index = 2;
+        while (flowManager.getFlowsForServer(serverId).containsKey(candidate) || flowManager.getCustomContentForServer(serverId).containsKey(candidate)) {
+            candidate = normalized + "_" + index;
+            index++;
+        }
+        return candidate;
     }
 
 
