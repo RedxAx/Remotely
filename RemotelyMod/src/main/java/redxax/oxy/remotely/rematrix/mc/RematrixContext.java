@@ -187,6 +187,18 @@ public final class RematrixContext implements ReContext {
         renderItemWithScissor(renderStack, x, y, z);
     }
 
+    @Override
+    public void drawItemPreview(Object item, int x, int y, int z, float scale, float rotationX, float rotationY, boolean paused) {
+        if (item == null) return;
+        matrices.push();
+        matrices.translate(x + 8.0f, y + 8.0f, z);
+        matrices.scale(scale, scale, scale);
+        matrices.rotate(rotationX, 1.0f, 0.0f, 0.0f);
+        matrices.rotate(rotationY, 0.0f, 1.0f, 0.0f);
+        drawItem(item, -8, -8, z);
+        matrices.pop();
+    }
+
     private MinecraftRenderItem adaptRenderItem(Object item) {
         if (item instanceof MinecraftRenderItem renderItem) {
             return renderItem;

@@ -57,7 +57,12 @@ public final class CustomContentGraphAdapter {
         inputs.put("provider", "vanilla");
         inputs.put("external_id", "");
         inputs.put("material", defaultMaterial(normalizedType));
+        inputs.put("custom_model_data", "");
+        inputs.put("lore", "");
+        inputs.put("tags", "");
         inputs.put("armor_slot", "armor".equals(normalizedType) ? "chest" : "");
+        inputs.put("enabled", true);
+        inputs.put("priority", 0);
         inputs.put("cooldown_scope", "player");
         inputs.put("cooldown_ticks", 0);
         inputs.put("permission", "");
@@ -114,9 +119,69 @@ public final class CustomContentGraphAdapter {
         definition.setProvider(text(inputs.get("provider"), "vanilla"));
         definition.setExternalId(text(inputs.get("external_id"), ""));
         definition.setMaterial(normalizeMaterial(text(inputs.get("material"), defaultMaterial(type))));
+        definition.setCustomModelData(nullableInt(inputs.get("custom_model_data")));
+        definition.setLore(csv(inputs.get("lore")));
+        definition.setTags(csv(inputs.get("tags")));
         definition.setArmorSlot(text(inputs.get("armor_slot"), "armor".equals(type) ? "chest" : ""));
         definition.setAbilities(abilities(graph, node, type, id, inputs));
         return definition;
+    }
+
+    public static FlowNode findOrCreateStartNode(FlowGraph graph, String type, String displayName) {
+        FlowNode node = findStartNode(graph);
+        if (node != null) {
+            return node;
+        }
+        if (graph == null) {
+            return null;
+        }
+        FlowGraph template = createContentGraph(graph.getId(), type, displayName);
+        FlowNode templateNode = findStartNode(template);
+        if (templateNode != null) {
+            graph.getNodes().put(UUID.randomUUID().toString(), templateNode);
+        }
+        return templateNode;
+    }
+
+    public static Object getContentProperty(FlowGraph graph, String key, Object fallback) {
+        FlowNode node = findStartNode(graph);
+        if (node == null || node.getInputValues() == null) {
+            return fallback;
+        }
+        return node.getInputValues().getOrDefault(key, fallback);
+    }
+
+    public static void setContentProperty(FlowGraph graph, String key, Object value) {
+        FlowNode node = findOrCreateStartNode(graph, contentType(graph), graph != null ? graph.getId() : "");
+        if (node != null) {
+            node.getInputValues().put(key, value);
+        }
+    }
+
+    public static List<String> getEnabledTriggerBranches(FlowGraph graph) {
+        FlowNode node = findStartNode(graph);
+        String type = contentType(graph);
+        if (node == null || type == null) {
+            return List.of();
+        }
+        return selectedBranches(graph, node, type, node.getInputValues() != null ? node.getInputValues() : Map.of());
+    }
+
+    public static void setEnabledTriggerBranches(FlowGraph graph, List<String> branches) {
+        setContentProperty(graph, FLOW_BRANCHES_KEY, branches != null ? new ArrayList<>(branches) : new ArrayList<>());
+    }
+
+    public static String createOrOpenBranchFlowArea(FlowGraph graph, String trigger) {
+        String pin = pinForTrigger(trigger);
+        if (pin == null) {
+            pin = trigger;
+        }
+        List<String> branches = new ArrayList<>(getEnabledTriggerBranches(graph));
+        if (pin != null && !pin.isBlank() && !branches.contains(pin)) {
+            branches.add(pin);
+            setEnabledTriggerBranches(graph, branches);
+        }
+        return pin;
     }
 
     public static String displayName(FlowGraph graph) {
@@ -175,6 +240,10 @@ public final class CustomContentGraphAdapter {
         return null;
     }
 
+    public static List<TriggerDescriptor> triggersForType(String type) {
+        return TRIGGERS.getOrDefault(normalizeType(type), List.of());
+    }
+
     private static List<CustomAbilityBinding> abilities(FlowGraph graph, FlowNode node, String type, String contentId, Map<String, Object> inputs) {
         List<String> branches = selectedBranches(graph, node, type, inputs);
         CustomTriggerRule rule = rule(inputs);
@@ -186,6 +255,7 @@ public final class CustomContentGraphAdapter {
             }
             CustomAbilityBinding binding = new CustomAbilityBinding(contentId + "." + trigger.replace('.', '_'), trigger, graph.getId());
             binding.setRule(rule);
+            binding.setEnabled(rule.isEnabled());
             bindings.add(binding);
         }
         return bindings;
@@ -194,7 +264,9 @@ public final class CustomContentGraphAdapter {
     private static List<String> selectedBranches(FlowGraph graph, FlowNode node, String type, Map<String, Object> inputs) {
         Object stored = inputs.get(FLOW_BRANCHES_KEY);
         List<String> branches = new ArrayList<>();
+        boolean storedBranchesPresent = false;
         if (stored instanceof List<?> list) {
+            storedBranchesPresent = true;
             for (Object entry : list) {
                 if (entry != null) {
                     branches.add(entry.toString());
@@ -209,7 +281,7 @@ public final class CustomContentGraphAdapter {
                 }
             }
         }
-        if (branches.isEmpty()) {
+        if (branches.isEmpty() && !storedBranchesPresent) {
             branches.add(defaultBranch(type));
         }
         return branches;
@@ -229,6 +301,8 @@ public final class CustomContentGraphAdapter {
 
     private static CustomTriggerRule rule(Map<String, Object> inputs) {
         CustomTriggerRule rule = new CustomTriggerRule();
+        rule.setEnabled(bool(inputs.getOrDefault("enabled", true)));
+        rule.setPriority(number(inputs.get("priority"), 0).intValue());
         rule.setCooldownScope(text(inputs.get("cooldown_scope"), "player"));
         rule.setCooldownTicks(number(inputs.get("cooldown_ticks"), 0).intValue());
         rule.setPermission(text(inputs.get("permission"), ""));
@@ -251,13 +325,20 @@ public final class CustomContentGraphAdapter {
             return List.of();
         }
         List<String> values = new ArrayList<>();
-        for (String part : text.split(",")) {
+        for (String part : text.split("[,\\r\\n]+")) {
             String trimmed = part.trim();
             if (!trimmed.isBlank()) {
                 values.add(trimmed);
             }
         }
         return values;
+    }
+
+    private static Integer nullableInt(Object value) {
+        if (value == null || value.toString().isBlank()) {
+            return null;
+        }
+        return number(value, 0).intValue();
     }
 
     private static Number number(Object value, Number fallback) {

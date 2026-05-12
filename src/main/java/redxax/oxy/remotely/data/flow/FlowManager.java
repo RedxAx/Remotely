@@ -189,11 +189,19 @@ public class FlowManager {
     }
 
     public void openFlowEditor(String serverId, ClientServerView server, String flowId) {
+        openFlowEditor(serverId, server, flowId, null);
+    }
+
+    public void openFlowEditor(String serverId, ClientServerView server, String flowId, String branchPin) {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(actualServerId);
         FlowGraph graph = flowStore.getFromDraft(actualServerId, flowId);
         if (graph != null) {
-            client.getHost().setScreen(new FlowEditorScreen(graph, actualServerId, ScreenManager.getInstance().getCurrentScreen()));
+            FlowEditorScreen screen = new FlowEditorScreen(graph, actualServerId, ScreenManager.getInstance().getCurrentScreen());
+            if (branchPin != null) {
+                screen.focusContentBranch(branchPin);
+            }
+            client.getHost().setScreen(screen);
             return;
         }
         if (flowStore.containsServerId(actualServerId, flowId)) {
@@ -207,7 +215,11 @@ public class FlowManager {
         String actualFlowId = newGraph.getId();
         flowStore.putInDraft(actualServerId, newGraph);
         flowStore.putNameIfAbsent(actualServerId, actualFlowId, actualFlowId);
-        client.getHost().setScreen(new FlowEditorScreen(newGraph, actualServerId, ScreenManager.getInstance().getCurrentScreen()));
+        FlowEditorScreen screen = new FlowEditorScreen(newGraph, actualServerId, ScreenManager.getInstance().getCurrentScreen());
+        if (branchPin != null) {
+            screen.focusContentBranch(branchPin);
+        }
+        client.getHost().setScreen(screen);
     }
 
     public void openGuiDesigner(String serverId, ClientServerView server) {
@@ -447,6 +459,14 @@ public class FlowManager {
 
     public Map<String, CustomContentDefinition> getCustomContentForServer(String serverId) {
         return customContentStore.getForServer(serverId);
+    }
+
+    public SyncedResourceState getFlowState(String serverId, String flowId) {
+        return flowStore.getState(serverId, flowId);
+    }
+
+    public SyncedResourceState getCustomContentState(String serverId, String contentId) {
+        return customContentStore.getState(serverId, contentId);
     }
 
     public Map<String, FlowGraph> getContentGraphsForServer(String serverId, String type) {

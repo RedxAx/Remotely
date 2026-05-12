@@ -145,6 +145,26 @@ public class PackContentRegistry {
         return result;
     }
 
+    public List<PackAssetOption> assetOptions(String providerId) {
+        List<PackAssetOption> result = new ArrayList<>();
+        for (ProviderSession session : sessions.values()) {
+            for (PackContentProvider provider : session.providers.values()) {
+                if (providerId != null && !providerId.isBlank() && !provider.id().equalsIgnoreCase(providerId)) {
+                    continue;
+                }
+                provider.capability(GlyphContentProvider.class).ifPresent(capability -> {
+                    for (GlyphDefinition glyph : capability.glyphs().values()) {
+                        BufferedImage image = glyph.frames().isEmpty() ? null : glyph.frames().getFirst().image();
+                        String texture = glyph.assetRef() != null ? glyph.assetRef().value() : "";
+                        result.add(new PackAssetOption(provider.id(), provider.displayName(), glyph.id(), texture, image));
+                    }
+                });
+            }
+        }
+        result.sort((a, b) -> (a.providerName() + a.id()).compareToIgnoreCase(b.providerName() + b.id()));
+        return result;
+    }
+
     private String workspaceName(PackContentContext context) {
         if (context == null) {
             return "Unknown";
@@ -210,5 +230,8 @@ public class PackContentRegistry {
     }
 
     public record ProviderStatus(String sessionKey, String workspaceName, String providerName, Path workspaceRoot, Path root, int glyphCount, int frameCount, int diagnosticCount, long refreshedAt) {
+    }
+
+    public record PackAssetOption(String providerId, String providerName, String id, String texture, BufferedImage preview) {
     }
 }

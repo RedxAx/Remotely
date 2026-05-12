@@ -180,7 +180,7 @@ public class NodeWidget extends AnimatedWidget {
             if (input.getType() != NodeDefinition.PinType.DATA) {
                 continue;
             }
-            if (!isLiteralInput(input)) {
+            if (!shouldShowInputPin(input) || !shouldShowLiteralInput(input) || !isLiteralInput(input)) {
                 continue;
             }
             if (isInputWired(input.getName())) {
@@ -313,6 +313,14 @@ public class NodeWidget extends AnimatedWidget {
             .onChange(this::saveInputValue)
             .entranceAnimation(false)
             .build();
+    }
+
+    protected boolean shouldShowLiteralInput(NodeDefinition.PinDefinition input) {
+        return true;
+    }
+
+    protected boolean shouldShowInputPin(NodeDefinition.PinDefinition input) {
+        return true;
     }
 
     private void handleInputValueChanged(NodeDefinition.PinDefinition input) {
@@ -645,13 +653,17 @@ public class NodeWidget extends AnimatedWidget {
     private void updatePinVisibility() {
         visibleInputs.clear();
         if (node.getInputValues() == null) {
-            visibleInputs.addAll(inputs);
+            for (NodeDefinition.PinDefinition input : inputs) {
+                if (shouldShowInputPin(input)) {
+                    visibleInputs.add(input);
+                }
+            }
             createOutputWidgets();
             return;
         }
         seedFlowBranches();
         for (NodeDefinition.PinDefinition input : inputs) {
-            boolean shouldShow = evaluateVisibleWhen(input.getVisibleWhen());
+            boolean shouldShow = shouldShowInputPin(input) && evaluateVisibleWhen(input.getVisibleWhen());
             Widget widget = inputWidgets.get(input.getName());
             if (widget != null) {
                 widget.setVisible(shouldShow);
@@ -1775,9 +1787,11 @@ public class NodeWidget extends AnimatedWidget {
         }
 
         List<String> selected = new ArrayList<>();
+        boolean storedBranchesPresent = false;
         if (node.getInputValues() != null) {
             Object stored = node.getInputValues().get(FLOW_BRANCHES_KEY);
             if (stored instanceof List<?> list) {
+                storedBranchesPresent = true;
                 for (Object entry : list) {
                     if (entry instanceof String name && options.contains(name)) {
                         if (!selected.contains(name)) {
@@ -1798,7 +1812,7 @@ public class NodeWidget extends AnimatedWidget {
             }
         }
 
-        if (selected.isEmpty() && !options.isEmpty()) {
+        if (selected.isEmpty() && !storedBranchesPresent && !options.isEmpty()) {
             selected.add(options.getFirst());
         }
         return selected;
