@@ -245,7 +245,7 @@ public class ServerConfigurationScreen extends ReScreen {
             versionController = new VersionSettingsController(tempInstance);
         }
 
-        ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance);
+        ServerGeneralSettingsController generalController = new ServerGeneralSettingsController(tempInstance, isEditMode);
 
         if (isReStudioCreation) {
             planController = new ServerPlanSettingsController();
@@ -382,6 +382,10 @@ public class ServerConfigurationScreen extends ReScreen {
             tempInstance.getServerProperties().store(writer, "Minecraft server properties");
             tempInstance.getServerProperties().remove("server-port");
             fileConfigs.put("server.properties", writer.toString());
+            String opsJson = createOpMeFileContent(tempInstance);
+            if (opsJson != null) {
+                fileConfigs.put("ops.json", opsJson);
+            }
         } catch (IOException e) {
             new Notification("Error", "Failed to prepare server properties: " + e.getMessage(), Notification.Type.ERROR);
             return;
@@ -614,24 +618,30 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     private void handleOpMe(Instance instance) {
-        if (Boolean.parseBoolean(instance.getSettings().getProperty("op-me", "false"))) {
-            Gson gson = new Gson();
+        String json = createOpMeFileContent(instance);
+        if (json == null) return;
 
-            Map<String, Object> op = new HashMap<>();
-            op.put("uuid", RemotelyClient.INSTANCE.getHost().getGameUUID());
-            op.put("name", RemotelyClient.INSTANCE.getHost().getGameUserName());
-            op.put("level", 4);
-            op.put("bypassesPlayerLimit", false);
+        Path opsFile = Path.of(instance.getPath(), "ops.json");
+        RebaseAPI api = RebaseApiFactory.get(instance);
+        api.writeFile(opsFile, json).exceptionally(e -> {
+            System.err.println("Failed to write ops.json: " + e.getMessage());
+            return null;
+        });
+    }
 
-            List<Map<String, Object>> ops = List.of(op);
-            String json = gson.toJson(ops);
+    private String createOpMeFileContent(Instance instance) {
+        if (!Boolean.parseBoolean(instance.getSettings().getProperty("op-me", "false"))) return null;
+        String uuid = RemotelyClient.INSTANCE.getHost().getGameUUID();
+        String name = RemotelyClient.INSTANCE.getHost().getGameUserName();
+        if (uuid == null || uuid.isBlank() || name == null || name.isBlank()) return null;
 
-            Path opsFile = Path.of(instance.getPath(), "ops.json");
-            RebaseAPI api = RebaseApiFactory.get(instance);
-            api.writeFile(opsFile, json).exceptionally(e -> {
-                System.err.println("Failed to write ops.json: " + e.getMessage());
-                return null;
-            });
-        }
+        Gson gson = new Gson();
+        Map<String, Object> op = new HashMap<>();
+        op.put("uuid", uuid);
+        op.put("name", name);
+        op.put("level", 4);
+        op.put("bypassesPlayerLimit", false);
+
+        return gson.toJson(List.of(op));
     }
 }

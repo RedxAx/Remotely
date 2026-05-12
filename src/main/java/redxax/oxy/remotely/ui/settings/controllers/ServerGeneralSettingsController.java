@@ -9,9 +9,15 @@ import java.util.*;
 
 public class ServerGeneralSettingsController {
     private final Instance instance;
+    private final boolean editMode;
 
     public ServerGeneralSettingsController(Instance instance) {
+        this(instance, false);
+    }
+
+    public ServerGeneralSettingsController(Instance instance, boolean editMode) {
         this.instance = instance;
+        this.editMode = editMode;
     }
 
     private String capitalize(String str) {
@@ -50,10 +56,10 @@ public class ServerGeneralSettingsController {
                 .defaultValue("Normal")
                 .build());
 
-        if (RemotelyClient.INSTANCE.getHost().getGameUserName() != null) {
-            general.addOption(ConfigOption.<Boolean>builder("OP Me")
-                .description("Set You (" + RemotelyClient.INSTANCE.getHost().getGameUserName() + ") As OP On This Server.")
-                .bind(() -> Boolean.parseBoolean(instance.getSettings().getProperty("op-me", "false")),
+        if (!editMode && RemotelyClient.INSTANCE.getHost().getGameUserName() != null) {
+            general.addOption(ConfigOption.<Boolean>builder("Op Me")
+                .description("Grant " + RemotelyClient.INSTANCE.getHost().getGameUserName() + " Operator.")
+                .bind(() -> Boolean.parseBoolean(instance.getSettings().getProperty("op-me", "true")),
                     val -> instance.getSettings().setProperty("op-me", String.valueOf(val)))
                 .defaultValue(true)
                 .resettable(false)
