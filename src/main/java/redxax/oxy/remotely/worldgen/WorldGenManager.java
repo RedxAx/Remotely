@@ -12,6 +12,7 @@ import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
+import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.worldgen.data.WorldGenConnection;
 import redxax.oxy.remotely.worldgen.data.WorldGenGraph;
 import redxax.oxy.remotely.worldgen.data.WorldGenNode;
@@ -76,6 +77,10 @@ public class WorldGenManager {
             return createProjectTemplate(PROJECT_TEMPLATES.getFirst(), null);
         }
         return projectStore.copyProject(project, () -> createProjectTemplate(PROJECT_TEMPLATES.getFirst(), null));
+    }
+
+    public WorldGenProject getCachedProject(String serverId, String projectId) {
+        return projectStore.cachedProject(serverId, projectId);
     }
 
     public FlowGraph getOrCreateEditorGraph(String serverId, WorldGenStage stage) {
@@ -160,6 +165,8 @@ public class WorldGenManager {
         ScreenManager.getInstance().execute(() -> {
             if (ScreenManager.getInstance().getCurrentScreen() instanceof WorldGenEditorScreen screen && serverId.equals(screen.getActualServerId())) {
                 screen.loadProject(project);
+            } else if (ScreenManager.getInstance().getCurrentScreen() instanceof FlowEditorScreen screen && serverId.equals(screen.getServerId())) {
+                screen.loadStudioWorldGenProject(project);
             }
         });
     }
@@ -342,12 +349,11 @@ public class WorldGenManager {
     public void ensureLocalDefinitions(String serverId) {
         WorldGenNodeRegistry registry = WorldGenNodeRegistry.getInstance();
         if (!registry.hasDefinitions(serverId)) {
+            registerFallbackDefinitions(serverId);
             ReSyncFlowClient client = flowClient(serverId);
             if (client != null && client.isConnectedState()) {
                 client.requestWorldGenRegistry();
-                return;
             }
-            registerFallbackDefinitions(serverId);
         }
         registerFlowDefinitions(serverId, registry.getAllDefinitions(serverId));
     }

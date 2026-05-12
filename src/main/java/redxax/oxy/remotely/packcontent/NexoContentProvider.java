@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.packcontent;
 
 import restudio.rebase.backend.FileSystemProvider;
+import restudio.rebase.util.Executors;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
@@ -22,6 +23,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -29,7 +31,8 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
     private static final Pattern GLYPH_TAG = Pattern.compile("<(glyph|g):([^>]+)>");
     private static final Pattern SHIFT_TAG = Pattern.compile("<shift:([-+]?\\d+)>");
     private final Map<String, GlyphDefinition> glyphs = new LinkedHashMap<>();
-    private final Map<String, List<GlyphPreviewFrame>> frameVariants = new HashMap<>();
+    private final Map<String, List<GlyphPreviewFrame>> frameVariants = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<List<GlyphPreviewFrame>>> frameLoads = new ConcurrentHashMap<>();
     private Path root;
 
     @Override
@@ -59,6 +62,7 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
         root = context.providerRoot();
         glyphs.clear();
         frameVariants.clear();
+        frameLoads.clear();
         diagnostics.clear();
         Path glyphRoot = root.resolve("glyphs");
         return walk(context.fileSystem(), glyphRoot).thenCompose(paths -> {
@@ -224,13 +228,17 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
     }
 
     public List<GlyphPreviewFrame> framesFor(PackContentContext context, GlyphDefinition glyph, Integer requestedIndex) {
+        return framesFor(context, glyph, requestedIndex, true);
+    }
+
+    public List<GlyphPreviewFrame> framesFor(PackContentContext context, GlyphDefinition glyph, Integer requestedIndex, boolean allowLoad) {
         if (glyph == null) {
             return List.of();
         }
         if (glyph.isReference()) {
             GlyphDefinition referenced = glyphs.get(glyph.reference());
             Integer index = glyph.index() != null ? glyph.index() : requestedIndex;
-            return framesFor(context, referenced, index);
+            return framesFor(context, referenced, index, allowLoad);
         }
         if (requestedIndex == null) {
             return glyph.frames();
@@ -239,6 +247,14 @@ public class NexoContentProvider extends AbstractPackContentProvider implements 
         List<GlyphPreviewFrame> cached = frameVariants.get(key);
         if (cached != null) {
             return cached;
+        }
+        if (!allowLoad) {
+            frameLoads.computeIfAbsent(key, ignored -> CompletableFuture.supplyAsync(() -> {
+                List<GlyphPreviewFrame> frames = loadFrames(context, glyph.assetRef(), glyph.rows(), glyph.columns(), requestedIndex);
+                frameVariants.put(key, frames);
+                return frames;
+            }, Executors.IO).whenComplete((frames, e) -> frameLoads.remove(key)));
+            return List.of();
         }
         List<GlyphPreviewFrame> frames = loadFrames(context, glyph.assetRef(), glyph.rows(), glyph.columns(), requestedIndex);
         frameVariants.put(key, frames);

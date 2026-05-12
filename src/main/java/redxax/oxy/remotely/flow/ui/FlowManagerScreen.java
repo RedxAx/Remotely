@@ -20,6 +20,7 @@ import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
+import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
@@ -495,90 +496,22 @@ public class FlowManagerScreen extends ReScreen {
             return;
         }
         contentBuilt = true;
-
-        tabsManager = new TabsManager(this).builder()
-            .position(5, 35).size(width - 10, 18)
-            .allowAdd(false)
-            .allowClose(false)
-            .allowReorder(false)
-            .onTabSelected(this::onTabSelected)
-            .build();
-        addDrawableChild(tabsManager);
-
-        if (customizationViewSwitcher != null) {
-            customizationViewSwitcher.cleanup();
-            customizationViewSwitcher = null;
-        }
-        if (blueprintsViewSwitcher != null) {
-            blueprintsViewSwitcher.cleanup();
-            blueprintsViewSwitcher = null;
-        }
-        if (contentViewSwitcher != null) {
-            contentViewSwitcher.cleanup();
-            contentViewSwitcher = null;
-        }
-
         int contentY = 60;
-        int contentHeight = height - contentY - 10;
-
-        blueprintsContainer = createContainer("blueprints", 5, contentY, width - 10, contentHeight);
-        blueprintsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-
-        flowsContainer = createContainer("flows", 5, contentY, width - 10, contentHeight);
-        flowsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-
-        functionsContainer = createContainer("functions", 5, contentY, width - 10, contentHeight);
-        functionsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-
-        guisContainer = createContainer("guis", 5, contentY, width - 10, contentHeight);
-        guisContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-        contentContainer = createContainer("content", 5, contentY, width - 10, contentHeight);
-        contentContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-        customizationContainer = createContainer("customization", 5, contentY, width - 10, contentHeight);
-        customizationContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-        scoreboardsContainer = createContainer("scoreboards", 5, contentY, width - 10, contentHeight);
-        scoreboardsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-        customContentContainer = createContainer("custom-content", 5, contentY, width - 10, contentHeight);
-        customContentContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-        itemContentContainer = createContainer("content-items", 5, contentY, width - 10, contentHeight);
-        itemContentContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-        armorContentContainer = createContainer("content-armor", 5, contentY, width - 10, contentHeight);
-        armorContentContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-        blockContentContainer = createContainer("content-blocks", 5, contentY, width - 10, contentHeight);
-        blockContentContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-        worldsContainer = createContainer("worlds", 5, contentY, width - 10, contentHeight);
-        worldsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-        worldGenContainer = createContainer("worldgen", 5, contentY, width - 10, contentHeight);
-        worldGenContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-        inventoryGroupsContainer = createContainer("inventory-groups", 5, contentY, width - 10, contentHeight);
-        inventoryGroupsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-        if (tabMethodsAvailable) {
-            tabsContainer = createContainer("tabs", 5, contentY, width - 10, contentHeight);
-            tabsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true);
-        }
-
-        tabsManager.addTab("Blueprints", blueprintsContainer);
-        tabsManager.addTab("GUIs", guisContainer);
-        tabsManager.addTab("Content", contentContainer);
-        tabsManager.addTab("Customization", customizationContainer);
-        tabsManager.addTab("Worlds", worldsContainer);
-        tabsManager.addTab("WorldGen", worldGenContainer);
-        tabsManager.addTab("Groups", inventoryGroupsContainer);
-
-        rebuildBlueprints();
-        rebuildBlueprintsViews();
-        rebuildGuis();
-        rebuildContentViews();
-        rebuildContent();
-        rebuildCustomizationViews();
-        rebuildCustomization();
-        rebuildWorlds();
-        rebuildWorldGenProjects();
-        rebuildInventoryGroups();
-
-        tabsManager.setActiveTab(0);
-        updateSwitcherLayout();
-        positionSwitchers();
+        int contentHeight = Math.max(80, height - contentY - 10);
+        blueprintsContainer = createContainer("studio-launcher", 5, contentY, width - 10, contentHeight);
+        blueprintsContainer.layout(new ManagedLayout()).columns(1).padding(5).scrolling(false);
+        AnimatedButton openStudioButton = new AnimatedButton.Builder()
+            .label("Open Studio")
+            .size(120, 22)
+            .accentType(ThemeManager.getAccent("nice"))
+            .onClick(() -> {
+                if (flowManager != null) {
+                    flowManager.openFlowEditor(serverId, server);
+                }
+            })
+            .build();
+        blueprintsContainer.addWidget(openStudioButton);
+        setActiveContainer(blueprintsContainer);
     }
 
     private void runSetupFlow() {
@@ -968,7 +901,7 @@ public class FlowManagerScreen extends ReScreen {
             .build();
         SquareButtonWidget nodesButton = new SquareButtonWidget.Builder()
             .imagePath("graph.png")
-            .onClick(() -> flowManager.openFlowEditor(serverId, server, flowId))
+            .onClick(() -> openWorkspaceFlowEditor(flowId))
             .build();
         SquareButtonWidget duplicateButton = new SquareButtonWidget.Builder()
             .imagePath("copy.png")
@@ -1025,7 +958,7 @@ public class FlowManagerScreen extends ReScreen {
                     new Notification("Content", "Invalid ID", Notification.Type.ERROR);
                     return;
                 }
-                if (flowManager.getFlowsForServer(serverId).containsKey(id) || flowManager.getCustomContentForServer(serverId).containsKey(id)) {
+                if (flowManager.getCustomContentForServer(serverId).containsKey(id)) {
                     new Notification("Content", "ID Exists", Notification.Type.ERROR);
                     return;
                 }
@@ -1278,7 +1211,7 @@ public class FlowManagerScreen extends ReScreen {
 
         MountableButtonWidget widget = new MountableButtonWidget.Builder(displayName)
             .description(description)
-            .onClick(() -> flowManager.openFlowEditor(serverId, server, flowId))
+            .onClick(() -> openWorkspaceFlowEditor(flowId))
             .addButton(editButton)
             .addButton(commandButton)
             .addButton(deleteButton)
@@ -1340,7 +1273,7 @@ public class FlowManagerScreen extends ReScreen {
 
         MountableButtonWidget widget = new MountableButtonWidget.Builder(displayName)
             .description(description)
-            .onClick(() -> flowManager.openFlowEditor(serverId, server, flowId))
+            .onClick(() -> openWorkspaceFlowEditor(flowId))
             .addButton(editButton)
             .addButton(deleteButton)
             .build();
@@ -1388,7 +1321,7 @@ public class FlowManagerScreen extends ReScreen {
                     }
                     FlowGraph graph = flowManager.createFlow(serverId, id, false, templateSelect.getSelectedItem());
                     if (popupRef[0] != null) popupRef[0].hide();
-                    flowManager.openFlowEditor(serverId, server, graph.getId());
+                    openWorkspaceFlowEditor(graph.getId());
                 } else {
                      new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
                 }
@@ -1426,7 +1359,7 @@ public class FlowManagerScreen extends ReScreen {
                     }
                     FlowGraph graph = flowManager.createFlow(serverId, id, true);
                     if (popupRef[0] != null) popupRef[0].hide();
-                    flowManager.openFlowEditor(serverId, server, graph.getId());
+                    openWorkspaceFlowEditor(graph.getId());
                 } else {
                      new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
                 }
@@ -1786,7 +1719,7 @@ public class FlowManagerScreen extends ReScreen {
         MountableButtonWidget widget = new MountableButtonWidget.Builder(displayName)
             .description(description)
             .hiddenText("ID: " + guiId)
-            .onClick(() -> flowManager.openGuiDesigner(serverId, server, guiId))
+            .onClick(() -> openWorkspaceGuiDesigner(guiId))
             .addButton(editButton)
             .addButton(deleteButton)
             .build();
@@ -1830,7 +1763,7 @@ public class FlowManagerScreen extends ReScreen {
                     if (popupRef[0] != null) {
                         popupRef[0].hide();
                     }
-                    flowManager.openGuiDesigner(serverId, server, gui.getId());
+                    openWorkspaceGuiDesigner(gui.getId());
                 } else {
                     new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
                 }
@@ -1959,7 +1892,7 @@ public class FlowManagerScreen extends ReScreen {
         MountableButtonWidget widget = new MountableButtonWidget.Builder(displayName)
             .description(description)
             .hiddenText("ID: " + scoreboardId)
-            .onClick(() -> flowManager.openScoreboardDesigner(serverId, server, scoreboardId))
+            .onClick(() -> openWorkspaceScoreboardDesigner(scoreboardId))
             .addButton(editButton)
             .addButton(deleteButton)
             .build();
@@ -2004,7 +1937,7 @@ public class FlowManagerScreen extends ReScreen {
                     if (popupRef[0] != null) {
                         popupRef[0].hide();
                     }
-                    flowManager.openScoreboardDesigner(serverId, server, scoreboard.getId());
+                    openWorkspaceScoreboardDesigner(scoreboard.getId());
                 } else {
                     new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
                 }
@@ -2124,7 +2057,7 @@ public class FlowManagerScreen extends ReScreen {
         MountableButtonWidget widget = new MountableButtonWidget.Builder(displayName)
             .description(description)
             .hiddenText("ID: " + tabId)
-            .onClick(() -> flowManager.openTabDesigner(serverId, server, tabId))
+            .onClick(() -> openWorkspaceTabDesigner(tabId))
             .addButton(editButton)
             .addButton(deleteButton)
             .build();
@@ -2168,7 +2101,7 @@ public class FlowManagerScreen extends ReScreen {
                     if (popupRef[0] != null) {
                         popupRef[0].hide();
                     }
-                    flowManager.openTabDesigner(serverId, server, tab.getId());
+                    openWorkspaceTabDesigner(tab.getId());
                 } else {
                     new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
                 }
@@ -2405,6 +2338,10 @@ public class FlowManagerScreen extends ReScreen {
     }
 
     private void openWorldGenEditor(String projectId) {
+        openWorldGenStandalone(projectId);
+    }
+
+    private void openWorldGenStandalone(String projectId) {
         WorldGenEditorScreen screen = new WorldGenEditorScreen(serverId, server, this);
         ScreenManager.getInstance().setScreen(screen);
         if (projectId != null && !projectId.isBlank()) {
@@ -4203,7 +4140,6 @@ public class FlowManagerScreen extends ReScreen {
         updateContainerBounds(worldGenContainer, contentY, contentWidth, contentHeight);
         updateContainerBounds(inventoryGroupsContainer, contentY, contentWidth, contentHeight);
         updateContainerBounds(tabsContainer, contentY, contentWidth, contentHeight);
-
         if (tabsManager != null) {
             tabsManager.setPosition(5, 35);
         }
@@ -4297,8 +4233,105 @@ public class FlowManagerScreen extends ReScreen {
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
+    @Override
+    public boolean charTyped(char chr, int modifiers) {
+        return super.charTyped(chr, modifiers);
+    }
+
+    public void openWorkspaceFlowEditor(String flowId) {
+        openWorkspaceFlowEditor(flowId, null);
+    }
+
+    public void openWorkspaceFlowEditor(String flowId, String branchPin) {
+        FlowGraph graph = flowManager != null ? flowManager.getFlowsForServer(serverId).get(flowId) : null;
+        if (graph == null) {
+            if (flowManager != null) {
+                flowManager.openFlowEditor(serverId, server, flowId, branchPin);
+            }
+            return;
+        }
+        openStudioGraph(graph, flowId);
+    }
+
+    public void openWorkspaceGuiDesigner(String guiId) {
+        GuiDefinition gui = flowManager != null ? flowManager.getGuisForServer(serverId).get(guiId) : null;
+        if (gui != null) {
+            ScreenManager.getInstance().setScreen(new GuiDesignerScreen(gui, serverId, this));
+        }
+    }
+
+    public void openWorkspaceScoreboardDesigner(String scoreboardId) {
+        ScoreboardDefinition scoreboard = flowManager != null ? flowManager.getScoreboardsForServer(serverId).get(scoreboardId) : null;
+        if (scoreboard != null) {
+            ScreenManager.getInstance().setScreen(new ScoreboardDesignerScreen(scoreboard, serverId, this));
+        }
+    }
+
+    public void openWorkspaceTabDesigner(String tabId) {
+        TabDefinition tab = flowManager != null ? flowManager.getTabsForServer(serverId).get(tabId) : null;
+        if (tab != null) {
+            ScreenManager.getInstance().setScreen(new TabDesignerScreen(tab, serverId, this));
+        }
+    }
+
     private void openContentStudio(String flowId) {
-        ScreenManager.getInstance().setScreen(new ContentStudioScreen(serverId, server, flowId, this));
+        if (flowId == null || flowId.isBlank() || flowManager == null) {
+            return;
+        }
+        FlowGraph graph = flowManager.getFlowsForServer(serverId).get(flowId);
+        if (graph != null) {
+            openStudioGraph(graph, flowId);
+        }
+    }
+
+    private String resolveGuiTitle(String guiId, GuiDefinition gui) {
+        String title = flowManager.getGuiName(serverId, guiId);
+        if ((title == null || title.isBlank()) && gui != null) {
+            title = gui.getTitle();
+        }
+        return title == null || title.isBlank() ? guiId : title;
+    }
+
+    private String resolveScoreboardTitle(String scoreboardId, ScoreboardDefinition scoreboard) {
+        String title = flowManager.getScoreboardName(serverId, scoreboardId);
+        if ((title == null || title.isBlank()) && scoreboard != null) {
+            title = scoreboard.getTitle();
+        }
+        return title == null || title.isBlank() ? scoreboardId : title;
+    }
+
+    private String resolveTabTitle(String tabId) {
+        String title = flowManager.getTabName(serverId, tabId);
+        return title == null || title.isBlank() ? tabId : title;
+    }
+
+    private void openWorkspaceResource(ReSyncResourceDragPayload payload) {
+        if (payload == null || payload.isFolder()) {
+            return;
+        }
+        if (payload.isGraphResource() && flowManager != null) {
+            FlowGraph graph = flowManager.getFlowsForServer(serverId).get(payload.id());
+            if (graph != null) {
+                openStudioGraph(graph, payload.id());
+                return;
+            }
+        }
+    }
+
+    private void openStudioGraph(FlowGraph graph, String flowId) {
+        if (graph == null) {
+            return;
+        }
+        String title = CustomContentGraphAdapter.isContentGraph(graph) ? CustomContentGraphAdapter.displayName(graph) : flowManager.getFlowName(serverId, flowId);
+        if (title == null || title.isBlank()) {
+            title = flowId;
+        }
+        Screen current = ScreenManager.getInstance().getCurrentScreen();
+        if (current instanceof FlowEditorScreen editor && serverId.equals(editor.getServerId())) {
+            editor.openStudioFlow(graph, title);
+            return;
+        }
+        ScreenManager.getInstance().setScreen(new FlowEditorScreen(graph, serverId, this).enableStudioMode());
     }
 
     private String contentCardSubtitle(FlowGraph graph, CustomContentDefinition content) {
@@ -4315,12 +4348,12 @@ public class FlowManagerScreen extends ReScreen {
         }
         String id = uniqueContentId(source.getId() + "_copy");
         FlowGraph copy = gson.fromJson(gson.toJson(source), FlowGraph.class);
-        copy.setId(id);
         CustomContentGraphAdapter.setContentProperty(copy, "content_id", id);
+        copy.setId(CustomContentGraphAdapter.contentFlowId(CustomContentGraphAdapter.contentType(copy), id));
         CustomContentGraphAdapter.setContentProperty(copy, "name", CustomContentGraphAdapter.displayName(source) + " Copy");
         flowManager.saveFlow(serverId, copy);
         onContentViewChanged(contentViewIndex);
-        openContentStudio(id);
+        openContentStudio(copy.getId());
     }
 
     private String uniqueContentId(String baseId) {
@@ -4330,7 +4363,7 @@ public class FlowManagerScreen extends ReScreen {
         }
         String candidate = normalized;
         int index = 2;
-        while (flowManager.getFlowsForServer(serverId).containsKey(candidate) || flowManager.getCustomContentForServer(serverId).containsKey(candidate)) {
+        while (flowManager.getCustomContentForServer(serverId).containsKey(candidate)) {
             candidate = normalized + "_" + index;
             index++;
         }

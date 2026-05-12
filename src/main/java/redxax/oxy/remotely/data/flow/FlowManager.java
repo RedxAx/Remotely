@@ -18,6 +18,8 @@ import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.GuiElement;
+import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
+import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
@@ -30,6 +32,7 @@ import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
 import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
+import redxax.oxy.remotely.worldgen.WorldGenManager;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.restudio.api.ReStudioApiClient;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
@@ -64,6 +67,7 @@ public class FlowManager {
     private final SyncedResourceCache<ScoreboardDefinition> scoreboardStore = new SyncedResourceCache<>(ScoreboardDefinition::getId, s -> s.getTitle() != null ? s.getTitle() : s.getId());
     private final SyncedResourceCache<TabDefinition> tabStore = new SyncedResourceCache<>(TabDefinition::getId, TabDefinition::getId);
     private final SyncedResourceCache<CustomContentDefinition> customContentStore = new SyncedResourceCache<>(CustomContentDefinition::getId, c -> c.getDisplayName() != null ? c.getDisplayName() : c.getId());
+    private final SyncedResourceCache<ReSyncProjectMetadata> projectMetadataStore = new SyncedResourceCache<>(m -> m.getServerId() == null || m.getServerId().isBlank() ? "project" : m.getServerId(), m -> "Project");
     private final Map<String, List<TriggerBinding>> triggerBindings = new ConcurrentHashMap<>();
     private volatile boolean overlayEditable;
     private volatile String overlayServerId;
@@ -117,6 +121,7 @@ public class FlowManager {
             scoreboardStore.clearForServer(serverId);
             tabStore.clearForServer(serverId);
             customContentStore.clearForServer(serverId);
+            projectMetadataStore.clearForServer(serverId);
             playerService.clearCache(serverId);
             worldService.clearCache(serverId);
         });
@@ -179,6 +184,7 @@ public class FlowManager {
         refreshScoreboardsFromServer(serverId);
         refreshTabsFromServer(serverId);
         refreshCustomContentFromServer(serverId);
+        refreshProjectMetadataFromServer(serverId);
         refreshWorldsFromServer(serverId);
     }
 
@@ -197,6 +203,11 @@ public class FlowManager {
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(actualServerId);
         FlowGraph graph = flowStore.getFromDraft(actualServerId, flowId);
         if (graph != null) {
+            FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(actualServerId);
+            if (managerScreen != null) {
+                managerScreen.openWorkspaceFlowEditor(flowId, branchPin);
+                return;
+            }
             FlowEditorScreen screen = new FlowEditorScreen(graph, actualServerId, ScreenManager.getInstance().getCurrentScreen());
             if (branchPin != null) {
                 screen.focusContentBranch(branchPin);
@@ -215,6 +226,11 @@ public class FlowManager {
         String actualFlowId = newGraph.getId();
         flowStore.putInDraft(actualServerId, newGraph);
         flowStore.putNameIfAbsent(actualServerId, actualFlowId, actualFlowId);
+        FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(actualServerId);
+        if (managerScreen != null) {
+            managerScreen.openWorkspaceFlowEditor(actualFlowId, branchPin);
+            return;
+        }
         FlowEditorScreen screen = new FlowEditorScreen(newGraph, actualServerId, ScreenManager.getInstance().getCurrentScreen());
         if (branchPin != null) {
             screen.focusContentBranch(branchPin);
@@ -239,6 +255,11 @@ public class FlowManager {
             connectionManager.ensureFlowClient(actualServerId).requestGui(guiId, false);
             return;
         }
+        FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(actualServerId);
+        if (managerScreen != null) {
+            managerScreen.openWorkspaceGuiDesigner(guiId);
+            return;
+        }
         client.getHost().setScreen(new GuiDesignerScreen(gui, actualServerId, parent));
     }
 
@@ -259,6 +280,11 @@ public class FlowManager {
             connectionManager.ensureFlowClient(actualServerId).requestScoreboard(scoreboardId, false);
             return;
         }
+        FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(actualServerId);
+        if (managerScreen != null) {
+            managerScreen.openWorkspaceScoreboardDesigner(scoreboardId);
+            return;
+        }
         client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, actualServerId, parent));
     }
 
@@ -277,6 +303,11 @@ public class FlowManager {
         if (tab == null) {
             tabStore.setPendingParent(actualServerId, tabId, parent);
             connectionManager.ensureFlowClient(actualServerId).requestTab(tabId, false);
+            return;
+        }
+        FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(actualServerId);
+        if (managerScreen != null) {
+            managerScreen.openWorkspaceTabDesigner(tabId);
             return;
         }
         client.getHost().setScreen(new TabDesignerScreen(tab, actualServerId, parent));
@@ -306,12 +337,12 @@ public class FlowManager {
         }
         ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
         if (flowClient != null) {
-            flowStore.markSaving(serverId, graph.getId());
-            flowClient.sendFlowSave(graph);
             if (derivedContent != null) {
                 customContentStore.markSaving(serverId, derivedContent.getId());
                 flowClient.sendCustomContentSave(derivedContent);
             } else {
+                flowStore.markSaving(serverId, graph.getId());
+                flowClient.sendFlowSave(graph);
                 for (CustomContentDefinition content : customContentStore.getForServer(serverId).values()) {
                     if (graph != null && graph.getId() != null && graph.getId().equals(content.getFlowId())) {
                         flowClient.sendCustomContentSave(content);
@@ -431,6 +462,11 @@ public class FlowManager {
     public void cacheCustomContent(String serverId, CustomContentDefinition content) {
         customContentStore.cache(serverId, content);
         if (content != null && content.getId() != null) {
+            FlowGraph graph = content.getGraph();
+            if (graph != null && graph.getId() != null) {
+                flowStore.cache(serverId, graph);
+                flowStore.putNameIfAbsent(serverId, graph.getId(), content.getDisplayName() != null ? content.getDisplayName() : content.getId());
+            }
             upsertFlowManagerEntry(serverId, content.getId(), ReSyncResourceType.CUSTOM_CONTENT);
         }
         refreshFlowManagerScreen(serverId);
@@ -438,6 +474,35 @@ public class FlowManager {
 
     public void markCustomContentSaved(String serverId, String contentId) {
         customContentStore.markSaved(serverId, contentId);
+        refreshFlowManagerScreen(serverId);
+    }
+
+    public void saveProjectMetadata(String serverId, ReSyncProjectMetadata metadata) {
+        if (serverId == null || metadata == null) {
+            return;
+        }
+        metadata.setServerId(serverId);
+        projectMetadataStore.putInDraft(serverId, metadata);
+        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        if (flowClient != null) {
+            projectMetadataStore.markSaving(serverId, serverId);
+            flowClient.sendProjectMetadataSave(metadata);
+        }
+        refreshFlowManagerScreen(serverId);
+    }
+
+    public void cacheProjectMetadata(String serverId, ReSyncProjectMetadata metadata) {
+        if (serverId == null || metadata == null) {
+            return;
+        }
+        metadata.setServerId(serverId);
+        metadata.ensureDefaultFolders();
+        projectMetadataStore.cache(serverId, metadata);
+        refreshFlowManagerScreen(serverId);
+    }
+
+    public void markProjectMetadataSaved(String serverId) {
+        projectMetadataStore.markSaved(serverId, serverId);
         refreshFlowManagerScreen(serverId);
     }
 
@@ -459,6 +524,46 @@ public class FlowManager {
 
     public Map<String, CustomContentDefinition> getCustomContentForServer(String serverId) {
         return customContentStore.getForServer(serverId);
+    }
+
+    public ReSyncProjectMetadata getProjectMetadata(String serverId) {
+        ReSyncProjectMetadata metadata = projectMetadataStore.getFromDraft(serverId, serverId);
+        if (metadata == null) {
+            metadata = projectMetadataStore.get(serverId, serverId);
+        }
+        if (metadata == null) {
+            metadata = new ReSyncProjectMetadata(serverId);
+            projectMetadataStore.putInDraft(serverId, metadata);
+        }
+        hydrateProjectMetadata(serverId, metadata);
+        return metadata;
+    }
+
+    public void moveProjectResource(String serverId, ReSyncResourceDragPayload payload, String folderPath) {
+        if (payload == null || payload.id() == null || payload.id().isBlank()) {
+            return;
+        }
+        ReSyncProjectMetadata metadata = getProjectMetadata(serverId);
+        metadata.moveResource(payload.type(), payload.id(), folderPath);
+        saveProjectMetadata(serverId, metadata);
+    }
+
+    public void createProjectFolder(String serverId, String parentPath, String folderName) {
+        String name = folderName == null ? "" : folderName.trim();
+        if (name.isBlank()) {
+            return;
+        }
+        ReSyncProjectMetadata metadata = getProjectMetadata(serverId);
+        String parent = ReSyncProjectMetadata.normalizePath(parentPath);
+        String path = parent.isBlank() ? name : parent + "/" + name;
+        metadata.ensureFolder(path, parent, metadata.getFolders().size());
+        saveProjectMetadata(serverId, metadata);
+    }
+
+    public void setProjectFolderCollapsed(String serverId, String folderPath, boolean collapsed) {
+        ReSyncProjectMetadata metadata = getProjectMetadata(serverId);
+        metadata.setFolderCollapsed(folderPath, collapsed);
+        saveProjectMetadata(serverId, metadata);
     }
 
     public SyncedResourceState getFlowState(String serverId, String flowId) {
@@ -664,6 +769,14 @@ public class FlowManager {
         refreshFlowManagerScreen(serverId);
     }
 
+    public void refreshProjectMetadataFromServer(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        connectionManager.ensureFlowClient(serverId, true).requestProjectMetadataList();
+        refreshFlowManagerScreen(serverId);
+    }
+
     public void refreshWorldsFromServer(String serverId) {
         if (serverId == null || serverId.isBlank()) {
             return;
@@ -727,6 +840,62 @@ public class FlowManager {
             }
         }
         refreshFlowManagerScreen(serverId);
+    }
+
+    public void applyServerProjectMetadataList(String serverId, List<String> metadataIds) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (metadataIds != null && !metadataIds.isEmpty()) {
+            flowClient.requestProjectMetadata(metadataIds.getFirst());
+        }
+        refreshFlowManagerScreen(serverId);
+    }
+
+    private void hydrateProjectMetadata(String serverId, ReSyncProjectMetadata metadata) {
+        metadata.setServerId(serverId);
+        metadata.ensureDefaultFolders();
+        List<String> commandFlowIds = getBindings(serverId).stream()
+            .filter(binding -> binding != null && binding.getType() == TriggerType.COMMAND && binding.getFlowId() != null && !binding.getFlowId().isBlank())
+            .map(TriggerBinding::getFlowId)
+            .toList();
+        metadata.getResources().removeIf(resource -> resource != null && ReSyncResourceDragPayload.FLOW.equals(resource.getType()) && commandFlowIds.contains(resource.getId()));
+        for (Map.Entry<String, FlowGraph> entry : flowStore.getForServer(serverId).entrySet()) {
+            FlowGraph graph = entry.getValue();
+            if (graph == null || CustomContentGraphAdapter.isContentGraph(graph) || commandFlowIds.contains(entry.getKey())) {
+                continue;
+            }
+            String type = graph.isFunction() ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW;
+            metadata.ensureResource(type, entry.getKey(), getFlowName(serverId, entry.getKey()), graph.isFunction() ? "Blueprints/Functions" : "Blueprints/Flows");
+        }
+        for (Map.Entry<String, CustomContentDefinition> entry : customContentStore.getForServer(serverId).entrySet()) {
+            CustomContentDefinition content = entry.getValue();
+            String contentType = content != null && content.getType() != null ? content.getType().toLowerCase(Locale.ROOT) : "item";
+            metadata.ensureResource(ReSyncResourceDragPayload.CUSTOM_CONTENT, entry.getKey(), getCustomContentName(serverId, entry.getKey()), switch (contentType) {
+                case "armor" -> "Content/Armor";
+                case "block" -> "Content/Blocks";
+                default -> "Content/Items";
+            });
+        }
+        for (Map.Entry<String, GuiDefinition> entry : guiStore.getForServer(serverId).entrySet()) {
+            metadata.ensureResource(ReSyncResourceDragPayload.GUI, entry.getKey(), getGuiName(serverId, entry.getKey()), "GUIs");
+        }
+        for (Map.Entry<String, ScoreboardDefinition> entry : scoreboardStore.getForServer(serverId).entrySet()) {
+            metadata.ensureResource(ReSyncResourceDragPayload.SCOREBOARD, entry.getKey(), getScoreboardName(serverId, entry.getKey()), "Customization/Scoreboards");
+        }
+        for (Map.Entry<String, TabDefinition> entry : tabStore.getForServer(serverId).entrySet()) {
+            metadata.ensureResource(ReSyncResourceDragPayload.TAB, entry.getKey(), getTabName(serverId, entry.getKey()), "Customization/Tabs");
+        }
+        for (String commandFlowId : commandFlowIds) {
+            metadata.ensureResource(ReSyncResourceDragPayload.COMMAND, commandFlowId, getFlowName(serverId, commandFlowId), "Blueprints/Commands");
+        }
+        for (String projectId : WorldGenManager.getInstance().getProjectIds(serverId)) {
+            metadata.ensureResource(ReSyncResourceDragPayload.WORLDGEN, projectId, projectId, "WorldGen");
+        }
+        for (String worldName : getWorldsForServer(serverId).keySet()) {
+            metadata.ensureResource(ReSyncResourceDragPayload.WORLD, worldName, worldName, "Worlds");
+        }
     }
 
     public void applyPlayerTrackingUpdate(String serverId, PlayerTrackingUpdate update) {
@@ -1023,6 +1192,11 @@ public class FlowManager {
         }
         Object parent = guiStore.removePendingParent(serverId, gui.getId());
         if (parent != null) {
+            FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(serverId);
+            if (managerScreen != null) {
+                managerScreen.openWorkspaceGuiDesigner(gui.getId());
+                return;
+            }
             client.getHost().setScreen(new GuiDesignerScreen(gui, serverId, parent));
         }
     }
@@ -1033,6 +1207,11 @@ public class FlowManager {
         }
         Object parent = scoreboardStore.removePendingParent(serverId, scoreboard.getId());
         if (parent != null) {
+            FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(serverId);
+            if (managerScreen != null) {
+                managerScreen.openWorkspaceScoreboardDesigner(scoreboard.getId());
+                return;
+            }
             client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, serverId, parent));
         }
     }
@@ -1043,6 +1222,11 @@ public class FlowManager {
         }
         Object parent = tabStore.removePendingParent(serverId, tab.getId());
         if (parent != null) {
+            FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(serverId);
+            if (managerScreen != null) {
+                managerScreen.openWorkspaceTabDesigner(tab.getId());
+                return;
+            }
             client.getHost().setScreen(new TabDesignerScreen(tab, serverId, parent));
         }
     }
@@ -1066,6 +1250,7 @@ public class FlowManager {
                     case SCOREBOARD -> screen.upsertScoreboardEntry(resourceId);
                     case TAB -> screen.upsertTabEntry(resourceId);
                     case CUSTOM_CONTENT -> screen.upsertCustomContentEntry(resourceId);
+                    case PROJECT_METADATA -> screen.refresh();
                 }
             }
         });

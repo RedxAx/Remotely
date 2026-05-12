@@ -49,9 +49,9 @@ public final class CustomContentGraphAdapter {
 
     public static FlowGraph createContentGraph(String id, String type, String displayName) {
         FlowGraph graph = new FlowGraph();
-        graph.setId(id);
-        Map<String, Object> inputs = new HashMap<>();
         String normalizedType = normalizeType(type);
+        graph.setId(contentFlowId(normalizedType, id));
+        Map<String, Object> inputs = new HashMap<>();
         inputs.put("content_id", id);
         inputs.put("name", displayName == null || displayName.isBlank() ? defaultName(normalizedType) : displayName);
         inputs.put("provider", "vanilla");
@@ -114,6 +114,7 @@ public final class CustomContentGraphAdapter {
         CustomContentDefinition definition = new CustomContentDefinition();
         definition.setId(id);
         definition.setFlowId(graph.getId());
+        definition.setGraph(graph);
         definition.setType(type);
         definition.setDisplayName(text(inputs.get("name"), defaultName(type)));
         definition.setProvider(text(inputs.get("provider"), "vanilla"));
@@ -215,6 +216,10 @@ public final class CustomContentGraphAdapter {
             case "armor" -> ARMOR_NODE;
             default -> ITEM_NODE;
         };
+    }
+
+    public static String contentFlowId(String type, String contentId) {
+        return "content." + normalizeType(type) + "." + text(contentId, "content");
     }
 
     public static String triggerForPin(String type, String pin) {
