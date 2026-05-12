@@ -1967,11 +1967,14 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             reloadInstancesSmartly();
             return true;
         }
+        if (super.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             close();
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return false;
     }
 
     @Override
@@ -2064,6 +2067,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     @Override
     public void close() {
+        if (parent == null && !remotelyClient.getHost().shouldCloseRootScreen()) {
+            return;
+        }
         remotelyClient.getHost().openParentScreen(this, parent);
     }
 }
