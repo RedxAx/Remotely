@@ -154,6 +154,11 @@ public class MinecraftApplicationHost implements ApplicationHost {
     }
 
     @Override
+    public boolean shouldCloseRootScreen() {
+        return true;
+    }
+
+    @Override
     public String getGameVersion() {
         return Minecraft.getInstance().getLaunchedVersion();
     }

@@ -65,9 +65,12 @@ public class ReScreenApplicationHost implements ApplicationHost {
     public void openParentScreen(Screen currentScreen, Object parent) {
         if (parent instanceof Screen) {
             sm.setScreen((Screen) parent);
-        } else {
-            sm.setScreen(null);
         }
+    }
+
+    @Override
+    public boolean shouldCloseRootScreen() {
+        return false;
     }
 
     @Override

@@ -11,6 +11,7 @@ public interface ApplicationHost {
     Object getFontIdentifier(String namespace, String path);
     void openParentScreen(Screen currentScreen, Object parent);
     void setClipboard(String text);
+    boolean shouldCloseRootScreen();
 
 
     String getGameVersion();
