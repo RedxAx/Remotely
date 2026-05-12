@@ -1,6 +1,6 @@
 package redxax.oxy.remotely.worldgen.ui;
 
-import redxax.oxy.remotely.flow.data.FlowDataType;
+import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
@@ -31,11 +31,22 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
     private String previewPlayerUuid = "";
 
     public WorldGenEditorScreen(String serverId, ClientServerView server, Screen parent) {
-        super(WorldGenManager.getInstance().getOrCreateEditorGraph(serverId), WorldGenManager.registryServerId(serverId), parent);
+        this(serverId, server, parent, null);
+    }
+
+    public WorldGenEditorScreen(String serverId, ClientServerView server, Screen parent, WorldGenProject project) {
+        super(initialGraph(serverId, project), WorldGenManager.registryServerId(serverId), parent);
         this.actualServerId = serverId;
         this.parentScreen = parent;
-        this.project = manager.getOrCreateProject(serverId);
+        this.project = project != null ? project : manager.getOrCreateProject(serverId);
         this.previewId = "worldgen_" + sanitizePreviewId(serverId);
+    }
+
+    private static FlowGraph initialGraph(String serverId, WorldGenProject project) {
+        WorldGenManager manager = WorldGenManager.getInstance();
+        manager.ensureLocalDefinitions(serverId);
+        WorldGenProject targetProject = project != null ? project : manager.getOrCreateProject(serverId);
+        return manager.toFlowGraph(targetProject.graph(WorldGenStage.TERRAIN));
     }
 
     public String getActualServerId() {

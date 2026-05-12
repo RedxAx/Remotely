@@ -1,9 +1,11 @@
 package redxax.oxy.remotely.data.flow;
 
+import com.google.gson.Gson;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowSerializer;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
+import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
 
@@ -75,6 +77,14 @@ public enum ReSyncResourceType {
                 CustomContentDefinition content = (CustomContentDefinition) item;
                 return content.getDisplayName() != null ? content.getDisplayName() : content.getId();
             }
+    ),
+
+    PROJECT_METADATA(
+            0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56,
+            "Project Metadata", item -> new Gson().toJson(item), json -> new Gson().fromJson(json, ReSyncProjectMetadata.class),
+            (item, newId) -> ((ReSyncProjectMetadata) item).setServerId(newId),
+            item -> ((ReSyncProjectMetadata) item).getServerId() == null || ((ReSyncProjectMetadata) item).getServerId().isBlank() ? "project" : ((ReSyncProjectMetadata) item).getServerId(),
+            item -> "Project"
     );
 
     @FunctionalInterface

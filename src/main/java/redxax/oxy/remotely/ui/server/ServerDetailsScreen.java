@@ -1100,6 +1100,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     private void refreshActiveStatusBarResources() {
+        if (!shouldRefreshStatusResources()) return;
         TabContext ctx = getActiveContext();
         if (!(ctx instanceof ServerTabStatusContext statusCtx)) return;
         TerminalSession info = contextInfos.get(ctx);
@@ -1146,6 +1147,16 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             statusCtx.update(null);
         });
 
+    }
+
+    private boolean shouldRefreshStatusResources() {
+        if (!desktopMode) return ScreenManager.getInstance().getCurrentScreen() == this;
+        if (isDesktopWindow()) {
+            var overlay = ScreenManager.getInstance().getDesktopWindowsOverlay();
+            var activeWindow = overlay != null ? overlay.getActiveWindow() : null;
+            return activeWindow != null && activeWindow.getScreen() == this && activeWindow.isVisible() && !activeWindow.isMinimized();
+        }
+        return ScreenManager.getInstance().getCurrentScreen() == this;
     }
 
     private LocalServerControllerModels.StatusResponse localControllerStatus(TabContext ctx) {

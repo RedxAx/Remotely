@@ -2,6 +2,7 @@ package redxax.oxy.remotely.packcontent;
 
 import restudio.rebase.backend.FileSystemProvider;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.util.Executors;
 
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
@@ -25,27 +26,36 @@ public class PackContentRegistry {
         if (fileSystem == null || workspaceRoot == null) {
             return CompletableFuture.completedFuture(null);
         }
-        String key = key(instance, workspaceRoot);
-        PackContentContext base = new PackContentContext(instance, fileSystem, workspaceRoot, workspaceRoot, Map.of());
-        ProviderSession session = new ProviderSession(base);
-        List<CompletableFuture<Void>> refreshes = new ArrayList<>();
-        for (PackContentProvider provider : providers()) {
-            Optional<Path> detected = provider.detectRoot(base);
-            detected.ifPresent(root -> {
-                PackContentContext providerContext = base.withProviderRoot(root);
-                session.contexts.put(provider.id(), providerContext);
-                session.providers.put(provider.id(), provider);
-                refreshes.add(provider.refresh(providerContext));
+        return CompletableFuture.supplyAsync(() -> {
+            PackContentContext base = new PackContentContext(instance, fileSystem, workspaceRoot, workspaceRoot, Map.of());
+            ProviderSession session = new ProviderSession(base);
+            List<CompletableFuture<Void>> refreshes = new ArrayList<>();
+            for (PackContentProvider provider : providers()) {
+                Optional<Path> detected;
+                try {
+                    detected = provider.detectRoot(base);
+                } catch (Exception e) {
+                    detected = Optional.empty();
+                }
+                detected.ifPresent(root -> {
+                    PackContentContext providerContext = base.withProviderRoot(root);
+                    session.contexts.put(provider.id(), providerContext);
+                    session.providers.put(provider.id(), provider);
+                    refreshes.add(provider.refresh(providerContext));
+                });
+            }
+            return new RefreshPlan(session, refreshes);
+        }, Executors.IO).thenCompose(plan -> {
+            String key = key(instance, workspaceRoot);
+            if (plan.refreshes().isEmpty()) {
+                plan.session().refreshedAt = System.currentTimeMillis();
+                sessions.put(key, plan.session());
+                return CompletableFuture.completedFuture(null);
+            }
+            return CompletableFuture.allOf(plan.refreshes().toArray(CompletableFuture[]::new)).thenRun(() -> {
+                plan.session().refreshedAt = System.currentTimeMillis();
+                sessions.put(key, plan.session());
             });
-        }
-        if (refreshes.isEmpty()) {
-            session.refreshedAt = System.currentTimeMillis();
-            sessions.put(key, session);
-            return CompletableFuture.completedFuture(null);
-        }
-        return CompletableFuture.allOf(refreshes.toArray(CompletableFuture[]::new)).thenRun(() -> {
-            session.refreshedAt = System.currentTimeMillis();
-            sessions.put(key, session);
         });
     }
 
@@ -201,7 +211,7 @@ public class PackContentRegistry {
 
     private List<GlyphPreviewFrame> framesFor(PackContentContext context, PackContentProvider provider, GlyphDefinition glyph, Integer index) {
         if (provider instanceof NexoContentProvider nexo) {
-            return nexo.framesFor(context, glyph, index);
+            return nexo.framesFor(context, glyph, index, false);
         }
         return glyph.frames();
     }
@@ -224,6 +234,9 @@ public class PackContentRegistry {
         ProviderSession(PackContentContext baseContext) {
             this.baseContext = baseContext;
         }
+    }
+
+    private record RefreshPlan(ProviderSession session, List<CompletableFuture<Void>> refreshes) {
     }
 
     public record ResolvedGlyphPreview(String providerName, GlyphDefinition glyph, GlyphTagMatch match, List<GlyphPreviewFrame> frames) {

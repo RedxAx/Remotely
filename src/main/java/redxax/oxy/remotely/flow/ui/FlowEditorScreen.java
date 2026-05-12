@@ -1,44 +1,60 @@
 package redxax.oxy.remotely.flow.ui;
 
+import com.google.gson.Gson;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
 import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
+import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.data.FlowDataType;
+import redxax.oxy.remotely.flow.data.GuiDefinition;
+import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
+import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
+import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
+import redxax.oxy.remotely.flow.data.TabDefinition;
+import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
+import redxax.oxy.remotely.flow.sync.FlowCategoryMetadata;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioView;
+import redxax.oxy.remotely.flow.ui.studio.ScreenBackedStudioView;
+import redxax.oxy.remotely.flow.ui.studio.StudioHeaderProvider;
+import redxax.oxy.remotely.worldgen.WorldGenManager;
+import redxax.oxy.remotely.worldgen.data.WorldGenProject;
+import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
 import org.lwjgl.glfw.GLFW;
+import restudio.rebase.backend.FileSystemProvider;
+import restudio.rebase.ui.screens.editor.WorkspaceTreeExplorer;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.UiHost;
+import restudio.rescreen.ui.desktop.DesktopIconWidget;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
+import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.InfiniteScreen;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.rescreen.*;
+import restudio.rescreen.ui.rescreen.ReScreen.HeaderBuilder.Position;
 import restudio.rescreen.ui.widgets.*;
+import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
+import restudio.rescreen.util.ResourceManager;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.awt.image.BufferedImage;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 
-public class FlowEditorScreen extends InfiniteScreen implements UiHost {
+public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHeaderProvider {
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
     private static final Set<FlowEditorScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
-    protected final FlowGraph graph;
+    protected FlowGraph graph;
     protected final String serverId;
     private static Screen parent;
     protected final Map<String, FlowNodeWidget> widgetCache = new HashMap<>();
@@ -60,6 +76,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     private IconButton headerBackground;
     protected final List<IconButton> headerButtons = new ArrayList<>();
+    private final List<AnimatedWidget> activeViewHeaderButtons = new ArrayList<>();
     private IconButton debugToggleButton;
     private IconButton debugResumeButton;
     private IconButton debugStepButton;
@@ -69,6 +86,915 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     private int initialWidth;
     private int initialHeight;
+    private boolean studioMode;
+    private TabsManager studioTabsManager;
+    private ReSyncContentBrowserWidget studioContentBrowser;
+    private SidePanel studioResourcePanel;
+    private final List<StudioDocument> studioDocuments = new ArrayList<>();
+    private StudioDocument activeStudioDocument;
+    private final FlowGraph studioEmptyGraph = new FlowGraph();
+    private String activeNodeRegistryServerId;
+    private final Gson gson = new Gson();
+    private TextInputWidget commandLabelInput;
+    private TextInputWidget commandPathsInput;
+    private ToggleWidget commandStructuredToggle;
+    private static final int STUDIO_CONTENT_BROWSER_HEIGHT = 158;
+
+    private record StudioDocument(String type, String id, String title, FlowGraph graph, ReSyncStudioView view) {
+        String key() {
+            return ReSyncProjectMetadata.resourceKey(type, id);
+        }
+    }
+
+    private static class CommandBindingContext {
+        private String command;
+        private List<String> subcommands;
+        private Boolean structured;
+    }
+
+    private class ReSyncContentBrowserWidget extends AnimatedWidget {
+        private final Path projectRoot = Path.of("ReSync");
+        private String currentFolder = "";
+        private ReSyncProjectMetadata.ResourceEntry selectedResource;
+        private ReSyncProjectMetadata.FolderEntry selectedFolder;
+        private AnimatedWidget lastGridReleasedWidget;
+        private long lastGridReleaseTime;
+        private final Container treeContainer;
+        private final Container gridContainer;
+        private final TextInputWidget nameInput;
+        private final ReSyncProjectTreeProvider treeProvider;
+        private final WorkspaceTreeExplorer treeExplorer;
+        private final SquareButtonWidget createButton;
+        private final BufferedImage folderIcon;
+        private final BufferedImage flowIcon;
+        private final BufferedImage commandIcon;
+        private final BufferedImage contentIcon;
+        private final BufferedImage guiIcon;
+        private final BufferedImage scoreboardIcon;
+        private final BufferedImage tabIcon;
+        private final BufferedImage worldGenIcon;
+
+        private ReSyncContentBrowserWidget(int x, int y, int width, int height) {
+            super(x, y, width, height, "");
+            animateElevation = false;
+            entranceAnimationEnabled = false;
+            enableHoverColors = false;
+            nameInput = new TextInputWidget.Builder()
+                .placeholder("Selected")
+                .size(110, 18)
+                .build();
+            treeContainer = new Container("studio-content-tree", x + 4, y + 6, 210, height - 10);
+            treeContainer.layout(new ManagedLayout()).columns(1).padding(2).scrolling(true).backgroundDrawing(false);
+            gridContainer = new Container("studio-content-grid", x + 220, y + 6, width - 224, height - 10);
+            gridContainer.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true).enableDoubleClick(false);
+            treeProvider = new ReSyncProjectTreeProvider();
+            treeExplorer = new WorkspaceTreeExplorer(FlowEditorScreen.this, treeContainer, this::openTreeFile, false);
+            treeExplorer.setToggleDirectoriesOnActivation(false);
+            treeExplorer.setOnNodeActivated(this::activateTreeNode);
+            treeExplorer.setOnNodeOpened(this::openTreeNode);
+            treeExplorer.setOnNodeRightClick(this::rightClickTreeNode);
+            createButton = new SquareButtonWidget.Builder()
+                .imagePath("add.png")
+                .size(18, 18)
+                .hint("Create")
+                .onClick(this::showCreateMenu)
+                .build();
+            gridContainer.setOnSelectionChanged(widgets -> {
+                selectedResource = null;
+                selectedFolder = null;
+                if (!widgets.isEmpty() && widgets.getFirst() instanceof DesktopIconWidget<?> icon) {
+                    Object item = icon.getItem();
+                    if (item instanceof ReSyncProjectMetadata.ResourceEntry resource) {
+                        selectedResource = resource;
+                        nameInput.setText(resource.getId());
+                    } else if (item instanceof ReSyncProjectMetadata.FolderEntry folder) {
+                        selectedFolder = folder;
+                        nameInput.setText(folder.getName());
+                    }
+                }
+            });
+            ResourceManager resources = ResourceManager.getInstance();
+            folderIcon = resources.getImage(Identifier.icon("folder.png"));
+            flowIcon = resources.getImage(Identifier.icon("graph.png"));
+            commandIcon = resources.getImage(Identifier.icon("terminal.png"));
+            contentIcon = resources.getImage(Identifier.icon("resources.png"));
+            guiIcon = resources.getImage(Identifier.icon("panel.png"));
+            scoreboardIcon = resources.getImage(Identifier.icon("report.png"));
+            tabIcon = resources.getImage(Identifier.icon("newTab.png"));
+            worldGenIcon = resources.getImage(Identifier.icon("earth.png"));
+            rebuild();
+        }
+
+        @Override
+        protected void drawContent(IDrawContext context, int mouseX, int mouseY) {
+            int border = ThemeManager.getColor(ThemeColor.innerBorder);
+            int dividerX = getX() + currentFolderWidth() + 4;
+            context.fill(dividerX, getY() + 5, dividerX + 1, getY() + getHeight() - 1, border);
+            treeContainer.render(context, mouseX, mouseY, 0);
+            gridContainer.render(context, mouseX, mouseY, 0);
+            createButton.render(context, mouseX, mouseY, 0);
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (!isMouseOver(mouseX, mouseY)) {
+                return false;
+            }
+            if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                if (treeContainer.isMouseOver(mouseX, mouseY) && treeContainer.mouseClicked(mouseX, mouseY, button)) {
+                    return true;
+                }
+                selectGridItemAt(mouseX, mouseY);
+                showExplorerMenu((int) mouseX, (int) mouseY);
+                return true;
+            }
+            if (createButton.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+            if (treeContainer.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+            return gridContainer.mouseClicked(mouseX, mouseY, button);
+        }
+
+        @Override
+        public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            if (!isMouseOver(mouseX, mouseY)) {
+                return false;
+            }
+            if (treeContainer.mouseReleased(mouseX, mouseY, button)) {
+                return true;
+            }
+            if (handleGridIconRelease(mouseX, mouseY, button)) {
+                return true;
+            }
+            return gridContainer.mouseReleased(mouseX, mouseY, button);
+        }
+
+        @Override
+        public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+            if (!isMouseOver(mouseX, mouseY)) {
+                return false;
+            }
+            return treeContainer.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || gridContainer.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        }
+
+        @Override
+        public boolean mouseScrolled(int mouseX, int mouseY, double amount) {
+            if (!isMouseOver(mouseX, mouseY)) {
+                return false;
+            }
+            return treeContainer.mouseScrolled(mouseX, mouseY, amount) || gridContainer.mouseScrolled(mouseX, mouseY, amount);
+        }
+
+        @Override
+        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            return treeContainer.keyPressed(keyCode, scanCode, modifiers) || gridContainer.keyPressed(keyCode, scanCode, modifiers);
+        }
+
+        @Override
+        public boolean charTyped(char chr, int modifiers) {
+            return treeContainer.charTyped(chr, modifiers) || gridContainer.charTyped(chr, modifiers);
+        }
+
+        @Override
+        public void setPosition(int x, int y) {
+            super.setPosition(x, y);
+            updateContainers();
+        }
+
+        @Override
+        public void setSize(int width, int height) {
+            super.setSize(width, height);
+            updateContainers();
+        }
+
+        private void rebuild() {
+            rebuildTree();
+            rebuildGrid();
+        }
+
+        private void rebuildTree() {
+            treeProvider.rebuild();
+            treeExplorer.setWorkspace(projectRoot, treeProvider, true);
+        }
+
+        private void rebuildGrid() {
+            gridContainer.clearWidgets();
+            selectedResource = null;
+            selectedFolder = null;
+            for (ReSyncProjectMetadata.FolderEntry folder : studioFolders(currentFolder)) {
+                DesktopIconWidget<ReSyncProjectMetadata.FolderEntry> widget = new DesktopIconWidget.Builder<>(folder, folderIcon, folder.getName()).build();
+                gridContainer.addWidget(widget);
+            }
+            for (ReSyncProjectMetadata.ResourceEntry resource : studioResources(currentFolder)) {
+                DesktopIconWidget<ReSyncProjectMetadata.ResourceEntry> widget = new DesktopIconWidget.Builder<>(resource, iconFor(resource), resource.getDisplayName()).build();
+                gridContainer.addWidget(widget);
+            }
+            gridContainer.updateWidgetPositions();
+        }
+
+        private void selectFolder(String path) {
+            currentFolder = path;
+            nameInput.setText("");
+            rebuildTree();
+            rebuildGrid();
+        }
+
+        private void openTreeFile(Path path) {
+            ReSyncProjectMetadata.ResourceEntry resource = treeProvider.resource(path);
+            if (resource == null) {
+                return;
+            }
+            selectedResource = resource;
+            selectedFolder = null;
+            nameInput.setText(resource.getId());
+            openStudioResource(resource);
+        }
+
+        private void openTreeNode(WorkspaceTreeExplorer.NodeRef ref) {
+            if (ref == null) {
+                return;
+            }
+            if (ref.directory()) {
+                String path = treeProvider.folderPath(ref.path());
+                if (path != null) {
+                    selectFolder(path);
+                }
+                return;
+            }
+            openTreeFile(ref.path());
+        }
+
+        private void activateTreeNode(WorkspaceTreeExplorer.NodeRef ref) {
+            if (ref == null) {
+                return;
+            }
+            if (ref.directory()) {
+                selectedResource = null;
+                selectedFolder = treeProvider.folder(ref.path());
+                if (selectedFolder != null) {
+                    nameInput.setText(selectedFolder.getName());
+                } else if (projectRoot.equals(ref.path())) {
+                    nameInput.setText("");
+                }
+                return;
+            }
+            ReSyncProjectMetadata.ResourceEntry resource = treeProvider.resource(ref.path());
+            if (resource != null) {
+                selectedResource = resource;
+                selectedFolder = null;
+                nameInput.setText(resource.getId());
+            }
+        }
+
+        private void rightClickTreeNode(WorkspaceTreeExplorer.NodeRef ref) {
+            selectedFolder = null;
+            selectedResource = null;
+            if (ref != null && ref.directory()) {
+                selectedFolder = treeProvider.folder(ref.path());
+                if (selectedFolder != null) {
+                    nameInput.setText(selectedFolder.getName());
+                } else if (projectRoot.equals(ref.path())) {
+                    nameInput.setText("");
+                }
+            } else if (ref != null) {
+                selectedResource = treeProvider.resource(ref.path());
+                if (selectedResource != null) {
+                    nameInput.setText(selectedResource.getId());
+                }
+            }
+            showExplorerMenu(getMouseX(), getMouseY());
+        }
+
+        private void openFolder(ReSyncProjectMetadata.FolderEntry folder, int button) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                selectFolder(folder.getPath());
+            } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                selectedFolder = folder;
+                selectedResource = null;
+                nameInput.setText(folder.getName());
+            }
+        }
+
+        private void openResource(ReSyncProjectMetadata.ResourceEntry resource, int button) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                selectedResource = resource;
+                selectedFolder = null;
+                nameInput.setText(resource.getId());
+                openStudioResource(resource);
+            } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                selectedResource = resource;
+                selectedFolder = null;
+                nameInput.setText(resource.getId());
+            }
+        }
+
+        private boolean showExplorerMenu(int mouseX, int mouseY) {
+            if (selectedResource == null && selectedFolder == null) {
+                return false;
+            }
+            ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(FlowEditorScreen.this)
+                .addHeaderButton("edit.png", this::renameSelected, "Rename")
+                .addHeaderButton("delete.png", this::deleteSelected, "Delete", ThemeManager.getAccent("danger"))
+                .addIconItem("Open", "open.png", this::openSelected, "Open");
+            if (selectedResource != null) {
+                builder.addIconItem("Reveal", "explorer.png", () -> selectFolder(selectedResource.getPath()), "Reveal");
+            }
+            showContextMenu(mouseX, mouseY, builder);
+            return true;
+        }
+
+        private void showCreateMenu() {
+            ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(FlowEditorScreen.this)
+                .addIconItem("New Folder", "folder.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FOLDER), "Create Folder")
+                .addIconItem("New Flow", "graph.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FLOW), "Create Flow")
+                .addIconItem("New Function", "snippets.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FUNCTION), "Create Function")
+                .addIconItem("New Command", "terminal.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.COMMAND), "Create Command")
+                .addIconItem("New Item", "resources.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CUSTOM_CONTENT), "Create Item")
+                .addIconItem("New GUI", "panel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.GUI), "Create GUI")
+                .addIconItem("New Scoreboard", "report.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.SCOREBOARD), "Create Scoreboard")
+                .addIconItem("New Tab", "newTab.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TAB), "Create Tab")
+                .addIconItem("New WorldGen", "earth.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.WORLDGEN), "Create WorldGen");
+            showContextMenu(createButton.getX(), createButton.getY() + createButton.getHeight() + 2, builder);
+        }
+
+        private void selectGridItemAt(double mouseX, double mouseY) {
+            selectedResource = null;
+            selectedFolder = null;
+            for (AnimatedWidget widget : gridContainer.getWidgets()) {
+                if (widget.isMouseOver(mouseX, mouseY) && widget instanceof DesktopIconWidget<?> icon) {
+                    Object item = icon.getItem();
+                    if (item instanceof ReSyncProjectMetadata.ResourceEntry resource) {
+                        selectedResource = resource;
+                        nameInput.setText(resource.getId());
+                    } else if (item instanceof ReSyncProjectMetadata.FolderEntry folder) {
+                        selectedFolder = folder;
+                        nameInput.setText(folder.getName());
+                    }
+                    gridContainer.clearSelection();
+                    gridContainer.addSelectedWidget(widget);
+                    return;
+                }
+            }
+            gridContainer.clearSelection();
+        }
+
+        private boolean handleGridIconRelease(double mouseX, double mouseY, int button) {
+            if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                return false;
+            }
+            for (AnimatedWidget widget : gridContainer.getWidgets()) {
+                if (!widget.isMouseOver(mouseX, mouseY) || !(widget instanceof DesktopIconWidget<?> icon)) {
+                    continue;
+                }
+                long now = System.currentTimeMillis();
+                boolean doubleClick = widget == lastGridReleasedWidget && now - lastGridReleaseTime <= 320L;
+                lastGridReleasedWidget = widget;
+                lastGridReleaseTime = now;
+                if (!doubleClick) {
+                    return true;
+                }
+                lastGridReleasedWidget = null;
+                lastGridReleaseTime = 0L;
+                Object item = icon.getItem();
+                if (item instanceof ReSyncProjectMetadata.ResourceEntry resource) {
+                    openResource(resource, button);
+                    return true;
+                }
+                if (item instanceof ReSyncProjectMetadata.FolderEntry folder) {
+                    openFolder(folder, button);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void openSelected() {
+            if (selectedResource != null) {
+                openStudioResource(selectedResource);
+            } else if (selectedFolder != null) {
+                selectFolder(selectedFolder.getPath());
+            }
+        }
+
+        private void showCreateResourcePopup(String type) {
+            PopupWidget.Builder builder = new PopupWidget.Builder(createPopupTitle(type)).setResizable(false);
+            TextInputWidget idInput = new TextInputWidget.Builder()
+                .placeholder(createIdPlaceholder(type))
+                .size(220, 22)
+                .build();
+            builder.addRow(ReSyncResourceDragPayload.FOLDER.equals(type) ? "Name" : "ID", true, 22, idInput);
+            DropDownWidget<String> templateSelect = null;
+            FlowManager manager = FlowManager.getInstance();
+            if (ReSyncResourceDragPayload.FLOW.equals(type) && manager != null && !manager.getFlowTemplates().isEmpty()) {
+                templateSelect = new DropDownWidget.Builder<>(manager.getFlowTemplates())
+                    .size(220, 22)
+                    .selectedItem(manager.getFlowTemplates().getFirst())
+                    .build();
+                builder.addRow("Template", true, 22, templateSelect);
+            }
+
+            PopupWidget[] popupRef = new PopupWidget[1];
+            DropDownWidget<String> finalTemplateSelect = templateSelect;
+            AnimatedButton createButton = new AnimatedButton.Builder()
+                .label("Create")
+                .accentType(ThemeManager.getAccent("nice"))
+                .onClick(() -> {
+                    String value = idInput.getText() != null ? idInput.getText().trim() : "";
+                    if (ReSyncResourceDragPayload.FOLDER.equals(type)) {
+                        if (value.isBlank()) {
+                            new Notification("Explorer", "Invalid Name", Notification.Type.ERROR);
+                            return;
+                        }
+                    } else if (!value.matches("^[a-zA-Z0-9_]+$")) {
+                        new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
+                        return;
+                    }
+                    String template = finalTemplateSelect != null ? finalTemplateSelect.getSelectedItem() : null;
+                    if (createResource(type, value, template)) {
+                        if (popupRef[0] != null) {
+                            popupRef[0].hide();
+                        }
+                    }
+                })
+                .build();
+            builder.addRow("", true, 20, createButton);
+            popupRef[0] = builder.build();
+            addDrawableChild(popupRef[0]);
+            popupRef[0].show();
+        }
+
+        private String createPopupTitle(String type) {
+            return switch (type) {
+                case ReSyncResourceDragPayload.FOLDER -> "Create Folder";
+                case ReSyncResourceDragPayload.FUNCTION -> "Create New Function";
+                case ReSyncResourceDragPayload.COMMAND -> "Create New Command";
+                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Create Item";
+                case ReSyncResourceDragPayload.GUI -> "Create New GUI";
+                case ReSyncResourceDragPayload.SCOREBOARD -> "Create New Scoreboard";
+                case ReSyncResourceDragPayload.TAB -> "Create New Tab";
+                case ReSyncResourceDragPayload.WORLDGEN -> "Create WorldGen Project";
+                default -> "Create New Flow";
+            };
+        }
+
+        private String createIdPlaceholder(String type) {
+            return switch (type) {
+                case ReSyncResourceDragPayload.FOLDER -> "Folder Name";
+                case ReSyncResourceDragPayload.FUNCTION -> "Function ID (e.g. calculateDamage)";
+                case ReSyncResourceDragPayload.COMMAND -> "Command ID (e.g. shop)";
+                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Item ID (e.g. fire_sword)";
+                case ReSyncResourceDragPayload.GUI -> "GUI ID (e.g. main_menu)";
+                case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboard ID (e.g. main_sidebar)";
+                case ReSyncResourceDragPayload.TAB -> "Tab ID (e.g. default_tab)";
+                case ReSyncResourceDragPayload.WORLDGEN -> "Project ID (e.g. overworld)";
+                default -> "Flow ID (e.g. openLootBox)";
+            };
+        }
+
+        private boolean createResource(String type, String id, String template) {
+            FlowManager manager = FlowManager.getInstance();
+            if (manager == null) {
+                return false;
+            }
+            if (ReSyncResourceDragPayload.FOLDER.equals(type)) {
+                manager.createProjectFolder(serverId, currentFolder, id);
+                rebuild();
+                return true;
+            }
+            if (manager.getProjectMetadata(serverId).findResource(type, id) != null || resourceExists(manager, type, id)) {
+                new Notification("Error", resourceTypeName(type) + " ID already exists", Notification.Type.ERROR);
+                return false;
+            }
+            switch (type) {
+                case ReSyncResourceDragPayload.FLOW -> {
+                    String selectedTemplate = template != null ? template : manager.getFlowTemplates().isEmpty() ? "Empty" : manager.getFlowTemplates().getFirst();
+                    openStudioGraphDocument(type, id, id, manager.createFlow(serverId, id, false, selectedTemplate));
+                }
+                case ReSyncResourceDragPayload.FUNCTION -> openStudioGraphDocument(type, id, id, manager.createFlow(serverId, id, true));
+                case ReSyncResourceDragPayload.COMMAND -> {
+                    FlowGraph commandGraph = manager.createFlow(serverId, id, false, "Command");
+                    manager.setCommandBinding(serverId, id, id);
+                    openStudioGraphDocument(type, id, id, commandGraph);
+                }
+                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> {
+                    FlowGraph contentGraph = manager.createContentFlow(serverId, id, "item", id);
+                    openStudioViewDocument(type, id, id, contentGraph, new ScreenBackedStudioView(FlowEditorScreen.this, new ContentStudioScreen(serverId, null, contentGraph.getId(), FlowEditorScreen.this)));
+                }
+                case ReSyncResourceDragPayload.GUI -> manager.createGui(serverId, id);
+                case ReSyncResourceDragPayload.SCOREBOARD -> {
+                    ScoreboardDefinition scoreboard = manager.createScoreboard(serverId, id);
+                    scoreboard.setDisplaySlot("sidebar");
+                }
+                case ReSyncResourceDragPayload.TAB -> manager.createTab(serverId, id);
+                case ReSyncResourceDragPayload.WORLDGEN -> {
+                    WorldGenProject project = WorldGenManager.getInstance().createProjectTemplate("Continental", id);
+                    WorldGenManager.getInstance().saveWorldGen(serverId, project);
+                    WorldGenManager.getInstance().ensureLocalDefinitions(serverId);
+                    openStudioWorldGenDocument(id, id, project);
+                }
+                default -> {
+                    return false;
+                }
+            }
+            ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+            metadata.ensureResource(type, id, id, currentFolder);
+            manager.saveProjectMetadata(serverId, metadata);
+            rebuild();
+            if (ReSyncResourceDragPayload.GUI.equals(type) || ReSyncResourceDragPayload.SCOREBOARD.equals(type) || ReSyncResourceDragPayload.TAB.equals(type)) {
+                openStudioDesigner(type, id);
+            }
+            return true;
+        }
+
+        private boolean resourceExists(FlowManager manager, String type, String id) {
+            return switch (type) {
+                case ReSyncResourceDragPayload.FLOW -> manager.getProjectMetadata(serverId).findResource(ReSyncResourceDragPayload.FLOW, id) != null;
+                case ReSyncResourceDragPayload.FUNCTION -> manager.getProjectMetadata(serverId).findResource(ReSyncResourceDragPayload.FUNCTION, id) != null;
+                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> manager.getCustomContentForServer(serverId).containsKey(id);
+                case ReSyncResourceDragPayload.COMMAND -> manager.getProjectMetadata(serverId).findResource(ReSyncResourceDragPayload.COMMAND, id) != null || manager.getCommandBinding(serverId, id) != null;
+                case ReSyncResourceDragPayload.GUI -> manager.getGuisForServer(serverId).containsKey(id);
+                case ReSyncResourceDragPayload.SCOREBOARD -> manager.getScoreboardsForServer(serverId).containsKey(id);
+                case ReSyncResourceDragPayload.TAB -> manager.getTabsForServer(serverId).containsKey(id);
+                default -> false;
+            };
+        }
+
+        private String resourceTypeName(String type) {
+            return switch (type) {
+                case ReSyncResourceDragPayload.FUNCTION -> "Function";
+                case ReSyncResourceDragPayload.COMMAND -> "Command";
+                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Item";
+                case ReSyncResourceDragPayload.GUI -> "GUI";
+                case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboard";
+                case ReSyncResourceDragPayload.TAB -> "Tab";
+                case ReSyncResourceDragPayload.WORLDGEN -> "WorldGen";
+                default -> "Flow";
+            };
+        }
+
+        private void renameSelected() {
+            if (selectedFolder == null && selectedResource == null) {
+                return;
+            }
+            PopupWidget.Builder builder = new PopupWidget.Builder(selectedFolder != null ? "Rename Folder" : "Rename " + resourceTypeName(selectedResource.getType())).setResizable(false);
+            TextInputWidget idInput = new TextInputWidget.Builder()
+                .text(selectedFolder != null ? selectedFolder.getName() : selectedResource.getId())
+                .placeholder(selectedFolder != null ? "Folder Name" : resourceTypeName(selectedResource.getType()) + " ID")
+                .size(220, 22)
+                .build();
+            builder.addRow(selectedFolder != null ? "Name" : "ID", true, 22, idInput);
+
+            PopupWidget[] popupRef = new PopupWidget[1];
+            AnimatedButton saveButton = new AnimatedButton.Builder()
+                .label("Save")
+                .accentType(ThemeManager.getAccent("nice"))
+                .onClick(() -> {
+                    String value = idInput.getText() != null ? idInput.getText().trim() : "";
+                    if (selectedFolder != null) {
+                        if (value.isBlank()) {
+                            new Notification("Explorer", "Invalid Name", Notification.Type.ERROR);
+                            return;
+                        }
+                    } else if (!value.matches("^[a-zA-Z0-9_]+$")) {
+                        new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
+                        return;
+                    }
+                    if (renameSelectedTo(value)) {
+                        if (popupRef[0] != null) {
+                            popupRef[0].hide();
+                        }
+                    }
+                })
+                .build();
+            builder.addRow("", true, 20, saveButton);
+            popupRef[0] = builder.build();
+            addDrawableChild(popupRef[0]);
+            popupRef[0].show();
+        }
+
+        private boolean renameSelectedTo(String newId) {
+            FlowManager manager = FlowManager.getInstance();
+            if (manager == null) {
+                return false;
+            }
+            if (selectedFolder != null) {
+                renameSelectedFolder(manager, newId);
+                return true;
+            }
+            if (selectedResource == null || newId.isBlank() || selectedResource.getId().equals(newId)) {
+                return true;
+            }
+            if (resourceExists(manager, selectedResource.getType(), newId)) {
+                new Notification("Error", resourceTypeName(selectedResource.getType()) + " ID already exists", Notification.Type.ERROR);
+                return false;
+            }
+            boolean renamed = switch (selectedResource.getType()) {
+                case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION, ReSyncResourceDragPayload.CUSTOM_CONTENT -> manager.renameFlow(serverId, selectedResource.getId(), newId);
+                case ReSyncResourceDragPayload.COMMAND -> renameCommandResource(manager, selectedResource.getId(), newId);
+                case ReSyncResourceDragPayload.GUI -> manager.renameGui(serverId, selectedResource.getId(), newId);
+                case ReSyncResourceDragPayload.SCOREBOARD -> manager.renameScoreboard(serverId, selectedResource.getId(), newId);
+                case ReSyncResourceDragPayload.TAB -> manager.renameTab(serverId, selectedResource.getId(), newId);
+                default -> false;
+            };
+            if (!renamed) {
+                new Notification("Explorer", "Rename Failed", Notification.Type.ERROR);
+                return false;
+            }
+            ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+            ReSyncProjectMetadata.ResourceEntry entry = metadata.findResource(selectedResource.getType(), selectedResource.getId());
+            String oldKey = selectedResource.key();
+            if (entry != null) {
+                entry.setId(newId);
+                entry.setDisplayName(newId);
+                manager.saveProjectMetadata(serverId, metadata);
+            }
+            for (int i = 0; i < studioDocuments.size(); i++) {
+                StudioDocument document = studioDocuments.get(i);
+                if (document.key().equals(oldKey)) {
+                    studioDocuments.set(i, new StudioDocument(document.type(), newId, newId, document.graph(), document.view()));
+                    break;
+                }
+            }
+            rebuild();
+            rebuildStudioDocumentTabs();
+            return true;
+        }
+
+        private void deleteSelected() {
+            FlowManager manager = FlowManager.getInstance();
+            if (manager == null) {
+                return;
+            }
+            if (selectedFolder != null) {
+                deleteSelectedFolder(manager);
+                return;
+            }
+            if (selectedResource == null) {
+                return;
+            }
+            switch (selectedResource.getType()) {
+                case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> manager.deleteFlow(serverId, selectedResource.getId());
+                case ReSyncResourceDragPayload.COMMAND -> {
+                    manager.clearCommandBinding(serverId, selectedResource.getId());
+                    manager.deleteFlow(serverId, selectedResource.getId());
+                }
+                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> manager.deleteCustomContent(serverId, selectedResource.getId());
+                case ReSyncResourceDragPayload.GUI -> manager.deleteGui(serverId, selectedResource.getId());
+                case ReSyncResourceDragPayload.SCOREBOARD -> manager.deleteScoreboard(serverId, selectedResource.getId());
+                case ReSyncResourceDragPayload.TAB -> manager.deleteTab(serverId, selectedResource.getId());
+                case ReSyncResourceDragPayload.WORLDGEN -> WorldGenManager.getInstance().deleteProject(serverId, selectedResource.getId());
+                default -> {
+                    return;
+                }
+            }
+            ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+            metadata.getResources().removeIf(entry -> entry.key().equals(selectedResource.key()));
+            manager.saveProjectMetadata(serverId, metadata);
+            studioDocuments.removeIf(document -> document.key().equals(selectedResource.key()));
+            rebuildStudioDocumentTabs();
+            rebuild();
+        }
+
+        private boolean renameCommandResource(FlowManager manager, String oldId, String newId) {
+            TriggerBinding binding = manager.getCommandBinding(serverId, oldId);
+            String context = binding != null ? binding.getContext() : oldId;
+            if (!manager.renameFlow(serverId, oldId, newId)) {
+                return false;
+            }
+            manager.clearCommandBinding(serverId, oldId);
+            CommandBindingContext command = parseCommandContext(context);
+            if (command.command == null || command.command.isBlank() || oldId.equals(command.command)) {
+                command.command = newId;
+            }
+            manager.setCommandBinding(serverId, newId, encodeCommandContext(command));
+            return true;
+        }
+
+        private void renameSelectedFolder(FlowManager manager, String newName) {
+            String name = newName == null ? "" : newName.trim();
+            if (name.isBlank()) {
+                return;
+            }
+            ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+            String oldPath = selectedFolder.getPath();
+            String parent = selectedFolder.getParentPath();
+            String newPath = parent.isBlank() ? name : parent + "/" + name;
+            for (ReSyncProjectMetadata.FolderEntry folder : metadata.getFolders()) {
+                if (folder.getPath().equals(oldPath)) {
+                    folder.setPath(newPath);
+                    folder.setName(name);
+                } else if (folder.getPath().startsWith(oldPath + "/")) {
+                    folder.setPath(newPath + folder.getPath().substring(oldPath.length()));
+                }
+                if (folder.getParentPath().equals(oldPath)) {
+                    folder.setParentPath(newPath);
+                } else if (folder.getParentPath().startsWith(oldPath + "/")) {
+                    folder.setParentPath(newPath + folder.getParentPath().substring(oldPath.length()));
+                }
+            }
+            for (ReSyncProjectMetadata.ResourceEntry resource : metadata.getResources()) {
+                if (resource.getPath().equals(oldPath)) {
+                    resource.setPath(newPath);
+                } else if (resource.getPath().startsWith(oldPath + "/")) {
+                    resource.setPath(newPath + resource.getPath().substring(oldPath.length()));
+                }
+            }
+            if (currentFolder.equals(oldPath) || currentFolder.startsWith(oldPath + "/")) {
+                currentFolder = newPath + currentFolder.substring(oldPath.length());
+            }
+            manager.saveProjectMetadata(serverId, metadata);
+            rebuild();
+        }
+
+        private void deleteSelectedFolder(FlowManager manager) {
+            ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+            String path = selectedFolder.getPath();
+            metadata.getFolders().removeIf(folder -> folder.getPath().equals(path) || folder.getPath().startsWith(path + "/"));
+            metadata.getResources().removeIf(resource -> resource.getPath().equals(path) || resource.getPath().startsWith(path + "/"));
+            if (currentFolder.equals(path) || currentFolder.startsWith(path + "/")) {
+                currentFolder = selectedFolder.getParentPath();
+            }
+            manager.saveProjectMetadata(serverId, metadata);
+            rebuild();
+        }
+
+        private String sanitizeResourceId(String text) {
+            String value = text == null ? "" : text.trim();
+            return value.matches("^[a-zA-Z0-9_]+$") ? value : "";
+        }
+
+        private BufferedImage iconFor(ReSyncProjectMetadata.ResourceEntry resource) {
+            return switch (iconPathFor(resource)) {
+                case "terminal.png" -> commandIcon;
+                case "resources.png" -> contentIcon;
+                case "panel.png" -> guiIcon;
+                case "report.png" -> scoreboardIcon;
+                case "newTab.png" -> tabIcon;
+                case "earth.png" -> worldGenIcon;
+                default -> flowIcon;
+            };
+        }
+
+        private String iconPathFor(ReSyncProjectMetadata.ResourceEntry resource) {
+            return switch (resource.getType()) {
+                case ReSyncResourceDragPayload.COMMAND -> "terminal.png";
+                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "resources.png";
+                case ReSyncResourceDragPayload.GUI -> "panel.png";
+                case ReSyncResourceDragPayload.SCOREBOARD -> "report.png";
+                case ReSyncResourceDragPayload.TAB -> "newTab.png";
+                case ReSyncResourceDragPayload.WORLDGEN -> "earth.png";
+                case ReSyncResourceDragPayload.WORLD -> "earth.png";
+                default -> "graph.png";
+            };
+        }
+
+        private void updateContainers() {
+            int folderWidth = currentFolderWidth();
+            treeContainer.setPosition(getX() + 4, getY() + 6);
+            treeContainer.setSize(folderWidth - 8, getHeight() - 10);
+            gridContainer.setPosition(getX() + folderWidth + 8, getY() + 6);
+            gridContainer.setSize(getWidth() - folderWidth - 12, getHeight() - 10);
+            createButton.setPosition(getX() + getWidth() - 24, getY() + 8);
+            treeContainer.updateWidgetPositions();
+            gridContainer.updateWidgetPositions();
+        }
+
+        private int currentFolderWidth() {
+            return Math.min(216, Math.max(160, getWidth() / 5));
+        }
+
+        private class ReSyncProjectTreeProvider implements FileSystemProvider {
+            private final Map<Path, String> folderPaths = new HashMap<>();
+            private final Map<Path, ReSyncProjectMetadata.FolderEntry> folders = new HashMap<>();
+            private final Map<Path, ReSyncProjectMetadata.ResourceEntry> resources = new HashMap<>();
+
+            private void rebuild() {
+                folderPaths.clear();
+                folders.clear();
+                resources.clear();
+                folderPaths.put(projectRoot, "");
+                for (ReSyncProjectMetadata.FolderEntry folder : studioAllFolders()) {
+                    Path path = pathForFolder(folder.getPath());
+                    folderPaths.put(path, folder.getPath());
+                    folders.put(path, folder);
+                }
+                for (ReSyncProjectMetadata.ResourceEntry resource : studioAllResources()) {
+                    resources.put(pathForResource(resource), resource);
+                }
+            }
+
+            private String folderPath(Path path) {
+                return folderPaths.get(path);
+            }
+
+            private ReSyncProjectMetadata.FolderEntry folder(Path path) {
+                return folders.get(path);
+            }
+
+            private ReSyncProjectMetadata.ResourceEntry resource(Path path) {
+                return resources.get(path);
+            }
+
+            @Override
+            public CompletableFuture<List<FileSystemProvider.FileEntry>> ls(Path path) {
+                String folder = folderPaths.get(path);
+                if (folder == null) {
+                    return CompletableFuture.completedFuture(List.of());
+                }
+                List<FileSystemProvider.FileEntry> entries = new ArrayList<>();
+                for (ReSyncProjectMetadata.FolderEntry child : studioFolders(folder)) {
+                    FileSystemProvider.FileEntry entry = new FileSystemProvider.FileEntry(pathForFolder(child.getPath()), true, "-", "", child.getName());
+                    entry.metadata.put("icon", "folder.png");
+                    entries.add(entry);
+                }
+                for (ReSyncProjectMetadata.ResourceEntry resource : studioResources(folder)) {
+                    FileSystemProvider.FileEntry entry = new FileSystemProvider.FileEntry(pathForResource(resource), false, "", "", resource.getDisplayName());
+                    entry.metadata.put("icon", iconPathFor(resource));
+                    entries.add(entry);
+                }
+                return CompletableFuture.completedFuture(entries);
+            }
+
+            @Override
+            public CompletableFuture<Void> copy(List<Path> sources, Path destination) {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public CompletableFuture<Void> move(List<Path> sources, Path destination) {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public CompletableFuture<Void> delete(List<Path> paths) {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public CompletableFuture<String> read(Path path) {
+                return CompletableFuture.completedFuture("");
+            }
+
+            @Override
+            public CompletableFuture<Void> write(Path path, String content) {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public CompletableFuture<Void> upload(List<Path> localPaths, Path remotePath) {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public CompletableFuture<Void> download(List<Path> remotePaths, Path localPath) {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public CompletableFuture<Void> rename(Path oldPath, Path newPath) {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public CompletableFuture<Void> createFile(Path path) {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public CompletableFuture<Void> createDirectory(Path path) {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            @Override
+            public CompletableFuture<Boolean> exists(Path path) {
+                return CompletableFuture.completedFuture(folderPaths.containsKey(path) || resources.containsKey(path));
+            }
+
+            @Override
+            public String getMetadata(String key) {
+                return "type".equals(key) ? "RESYNC" : null;
+            }
+        }
+
+        private Path pathForFolder(String path) {
+            if (path == null || path.isBlank()) {
+                return projectRoot;
+            }
+            Path result = projectRoot;
+            for (String part : path.split("/")) {
+                if (!part.isBlank()) {
+                    result = result.resolve(part);
+                }
+            }
+            return result;
+        }
+
+        private Path pathForResource(ReSyncProjectMetadata.ResourceEntry resource) {
+            return pathForFolder(resource.getPath()).resolve(resource.getType() + "__" + resource.getId());
+        }
+    }
 
     private static class DragState {
         String sourceNodeId;
@@ -242,8 +1168,133 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
     }
 
+    public FlowEditorScreen enableStudioMode() {
+        this.studioMode = true;
+        String title = FlowManager.getInstance() != null ? FlowManager.getInstance().getFlowName(serverId, graph.getId()) : graph.getId();
+        if (title == null || title.isBlank()) {
+            title = graph.getId();
+        }
+        addStudioDocument(graph.isFunction() ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW, graph.getId(), title, graph, null);
+        return this;
+    }
+
+    public void openStudioFlow(FlowGraph targetGraph, String title) {
+        if (targetGraph == null) {
+            return;
+        }
+        openStudioGraphDocument(targetGraph.isFunction() ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW,
+            targetGraph.getId(), title == null || title.isBlank() ? targetGraph.getId() : title, targetGraph);
+    }
+
+    private void openStudioGraphDocument(String type, String id, String title, FlowGraph targetGraph) {
+        if (targetGraph == null) {
+            return;
+        }
+        addStudioDocument(type, id, title == null || title.isBlank() ? id : title, targetGraph, null);
+        rebuildStudioDocumentTabs();
+        selectStudioDocument(ReSyncProjectMetadata.resourceKey(type, id));
+    }
+
+    private void openStudioDocument(String type, String id, String title) {
+        addStudioDocument(type, id, title == null || title.isBlank() ? id : title, null, null);
+        rebuildStudioDocumentTabs();
+        selectStudioDocument(ReSyncProjectMetadata.resourceKey(type, id));
+    }
+
+    private void openStudioDesigner(String type, String id) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || id == null) {
+            return;
+        }
+        if (ReSyncResourceDragPayload.GUI.equals(type)) {
+            GuiDefinition gui = manager.getGuisForServer(serverId).get(id);
+            if (gui != null) {
+                openStudioViewDocument(type, id, manager.getGuiName(serverId, id), new ScreenBackedStudioView(this, new GuiDesignerScreen(gui, serverId, this)));
+            }
+            return;
+        }
+        if (ReSyncResourceDragPayload.SCOREBOARD.equals(type)) {
+            ScoreboardDefinition scoreboard = manager.getScoreboardsForServer(serverId).get(id);
+            if (scoreboard != null) {
+                openStudioViewDocument(type, id, manager.getScoreboardName(serverId, id), new ScreenBackedStudioView(this, new ScoreboardDesignerScreen(scoreboard, serverId, this)));
+            }
+            return;
+        }
+        if (ReSyncResourceDragPayload.TAB.equals(type)) {
+            TabDefinition tab = manager.getTabsForServer(serverId).get(id);
+            if (tab != null) {
+                openStudioViewDocument(type, id, manager.getTabName(serverId, id), new ScreenBackedStudioView(this, new TabDesignerScreen(tab, serverId, this)));
+            }
+        }
+    }
+
+    private void openStudioWorldGenDocument(String id, String title, WorldGenProject project) {
+        WorldGenManager.getInstance().ensureLocalDefinitions(serverId);
+        WorldGenProject initialProject = project != null ? project : WorldGenManager.getInstance().createProjectTemplate("Continental", id);
+        openStudioViewDocument(ReSyncResourceDragPayload.WORLDGEN, id, title, new ScreenBackedStudioView(this, new WorldGenEditorScreen(serverId, null, this, initialProject)));
+        if (project == null) {
+            WorldGenManager.getInstance().requestProject(serverId, id);
+        }
+    }
+
+    private void openStudioViewDocument(String type, String id, String title, ReSyncStudioView view) {
+        openStudioViewDocument(type, id, title, null, view);
+    }
+
+    private void openStudioViewDocument(String type, String id, String title, FlowGraph targetGraph, ReSyncStudioView view) {
+        addStudioDocument(type, id, title == null || title.isBlank() ? id : title, targetGraph, view);
+        rebuildStudioDocumentTabs();
+        selectStudioDocument(ReSyncProjectMetadata.resourceKey(type, id));
+    }
+
+    private void addStudioDocument(String type, String id, String title, FlowGraph targetGraph, ReSyncStudioView view) {
+        String key = ReSyncProjectMetadata.resourceKey(type, id);
+        for (StudioDocument document : studioDocuments) {
+            if (document.key().equals(key)) {
+                activeStudioDocument = document;
+                FlowManager manager = FlowManager.getInstance();
+                if (manager != null) {
+                    ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+                    metadata.addOpenDocument(type, id, title);
+                    manager.saveProjectMetadata(serverId, metadata);
+                }
+                return;
+            }
+        }
+        StudioDocument document = new StudioDocument(type, id, title, targetGraph, view);
+        studioDocuments.add(document);
+        activeStudioDocument = document;
+        FlowManager manager = FlowManager.getInstance();
+        if (manager != null) {
+            ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+            metadata.addOpenDocument(type, id, title);
+            manager.saveProjectMetadata(serverId, metadata);
+        }
+    }
+
     public String getServerId() {
         return serverId;
+    }
+
+    public boolean loadStudioWorldGenProject(WorldGenProject project) {
+        if (project == null) {
+            return false;
+        }
+        boolean loaded = false;
+        for (StudioDocument document : studioDocuments) {
+            if (!ReSyncResourceDragPayload.WORLDGEN.equals(document.type()) || !project.getId().equals(document.id())) {
+                continue;
+            }
+            if (document.view() instanceof ScreenBackedStudioView screenView && screenView.screen() instanceof WorldGenEditorScreen worldGenEditor) {
+                worldGenEditor.loadProject(project);
+                loaded = true;
+            }
+        }
+        return loaded;
+    }
+
+    private String nodeRegistryServerId() {
+        return activeNodeRegistryServerId != null && !activeNodeRegistryServerId.isBlank() ? activeNodeRegistryServerId : serverId;
     }
 
     public static void refreshCatalogForServer(String serverId) {
@@ -371,7 +1422,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     protected FlowNodeWidget createNodeWidget(String nodeId, FlowNode node) {
-        return new FlowNodeWidget((int) node.getX(), (int) node.getY(), node, graph, nodeId, serverId, () -> deleteNode(nodeId));
+        return new FlowNodeWidget((int) node.getX(), (int) node.getY(), node, graph, nodeId, nodeRegistryServerId(), () -> deleteNode(nodeId));
     }
 
     @Override
@@ -381,12 +1432,19 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         this.initialHeight = height;
 
         if (!initialized) {
-            headerBackground = new IconButton.Builder().pos(10, 10).size(1, 28).entranceAnimation(false).build();
-            headerBackground.active = false;
-            addHudWidget(headerBackground);
+            if (!studioMode) {
+                headerBackground = new IconButton.Builder().pos(10, 10).size(1, 28).entranceAnimation(false).build();
+                headerBackground.active = false;
+                addHudWidget(headerBackground);
+            } else {
+                header().position(Position.TOP).size(30).visible(true);
+            }
 
             createPaletteSidePanel();
             createHeaderButtons();
+            if (studioMode) {
+                createStudioWorkspaceChrome();
+            }
             initialized = true;
         }
 
@@ -394,13 +1452,16 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             syncDebugHeaderVisibility();
             layoutHeaderButtons();
         }
+        if (studioMode) {
+            updateStudioLayout();
+        }
     }
 
     private void refreshPalette() {
         if (paletteSidePanel == null) {
             return;
         }
-        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(nodeRegistryServerId())) {
             populateCategoryPopups();
         } else {
             populateFallbackPopups();
@@ -408,7 +1469,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private void createPaletteSidePanel() {
-        paletteSidePanel = new SidePanel(this, "palettePanel", this::updatePositions).width(120).y(54).height(height - 65).show();
+        paletteSidePanel = new SidePanel(this, "palettePanel", this::updatePositions).width(120).y(palettePanelTop()).height(palettePanelHeight()).show();
         paletteSidePanel.container().layout(new ManagedLayout()).columns(1).padding(5);
 
         categoryPopups.clear();
@@ -420,10 +1481,421 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             paletteSidePanel.addWidget(popup);
         }
 
-        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(nodeRegistryServerId())) {
             populateCategoryPopups();
         } else {
             populateFallbackPopups();
+        }
+    }
+
+    private void createStudioWorkspaceChrome() {
+        studioTabsManager = tabs().builder()
+            .position(10, 10)
+            .size(width - 220, 18)
+            .allowAdd(false)
+            .allowClose(true)
+            .allowReorder(true)
+            .onTabClosed(tab -> {
+                Object data = tab.getData();
+                if (data instanceof String key) {
+                    studioDocuments.removeIf(document -> {
+                        boolean match = document.key().equals(key);
+                        if (match && document.view() != null) {
+                            document.view().closed();
+                        }
+                        return match;
+                    });
+                    activeStudioDocument = studioDocuments.isEmpty() ? null : studioDocuments.getFirst();
+                    if (activeStudioDocument != null) {
+                        selectStudioDocument(activeStudioDocument.key());
+                    } else {
+                        refreshActiveViewHeaderButtons();
+                        refreshStudioResourcePanel();
+                    }
+                }
+            })
+            .onTabSelected(tab -> {
+                Object data = tab.getData();
+                if (data instanceof String key) {
+                    selectStudioDocument(key);
+                }
+            })
+            .build();
+        studioContentBrowser = new ReSyncContentBrowserWidget(8, height - STUDIO_CONTENT_BROWSER_HEIGHT - 8, width - 16, STUDIO_CONTENT_BROWSER_HEIGHT);
+        addHudWidget(studioContentBrowser);
+        studioResourcePanel = new SidePanel(this, "studioResourcePanel", this::updatePositions).width(180).y(54).height(height - 65 - STUDIO_CONTENT_BROWSER_HEIGHT).show();
+        studioResourcePanel.container().layout(new ManagedLayout()).columns(1).padding(5);
+        studioResourcePanel.hide();
+        rebuildStudioDocumentTabs();
+        if (activeStudioDocument != null) {
+            selectStudioDocument(activeStudioDocument.key());
+        } else {
+            refreshActiveViewHeaderButtons();
+        }
+    }
+
+    private void openStudioResource(ReSyncProjectMetadata.ResourceEntry resource) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || resource == null) {
+            return;
+        }
+        if (ReSyncResourceDragPayload.FLOW.equals(resource.getType()) || ReSyncResourceDragPayload.FUNCTION.equals(resource.getType()) || ReSyncResourceDragPayload.COMMAND.equals(resource.getType())) {
+            FlowGraph targetGraph = manager.getFlowsForServer(serverId).get(resource.getId());
+            if (targetGraph == null && ReSyncResourceDragPayload.COMMAND.equals(resource.getType())) {
+                targetGraph = manager.createFlow(serverId, resource.getId(), false, "Command");
+                manager.setCommandBinding(serverId, resource.getId(), resource.getId());
+            }
+            if (targetGraph != null) {
+                openStudioGraphDocument(resource.getType(), resource.getId(), resource.getDisplayName(), targetGraph);
+            }
+            return;
+        }
+        if (ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(resource.getType())) {
+            String graphId = resource.getId();
+            CustomContentDefinition content = manager.getCustomContentForServer(serverId).get(resource.getId());
+            if (content != null && content.getFlowId() != null && !content.getFlowId().isBlank()) {
+                graphId = content.getFlowId();
+            }
+            FlowGraph contentGraph = manager.getFlowsForServer(serverId).get(graphId);
+            openStudioViewDocument(resource.getType(), resource.getId(), resource.getDisplayName(), contentGraph, new ScreenBackedStudioView(this, new ContentStudioScreen(serverId, null, graphId, this)));
+            return;
+        }
+        if (ReSyncResourceDragPayload.WORLDGEN.equals(resource.getType())) {
+            WorldGenManager worldGenManager = WorldGenManager.getInstance();
+            WorldGenProject project = worldGenManager.getCachedProject(serverId, resource.getId());
+            openStudioWorldGenDocument(resource.getId(), resource.getDisplayName(), project);
+            return;
+        }
+        if (ReSyncResourceDragPayload.GUI.equals(resource.getType())
+            || ReSyncResourceDragPayload.SCOREBOARD.equals(resource.getType())
+            || ReSyncResourceDragPayload.TAB.equals(resource.getType())) {
+            openStudioDesigner(resource.getType(), resource.getId());
+            return;
+        }
+        if (ReSyncResourceDragPayload.WORLD.equals(resource.getType())) {
+            openStudioDocument(resource.getType(), resource.getId(), resource.getDisplayName());
+        }
+    }
+
+    private List<ReSyncProjectMetadata.FolderEntry> studioFolders(String parentPath) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return List.of();
+        }
+        ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+        return metadata.getFolders().stream()
+            .filter(folder -> parentPath.equals(folder.getParentPath()))
+            .sorted(Comparator.comparingInt(ReSyncProjectMetadata.FolderEntry::getSortOrder).thenComparing(ReSyncProjectMetadata.FolderEntry::getName))
+            .toList();
+    }
+
+    private List<ReSyncProjectMetadata.FolderEntry> studioAllFolders() {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return List.of();
+        }
+        ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+        return metadata.getFolders();
+    }
+
+    private List<ReSyncProjectMetadata.ResourceEntry> studioResources(String folderPath) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return List.of();
+        }
+        ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+        return metadata.getResources().stream()
+            .filter(resource -> folderPath.equals(resource.getPath()))
+            .sorted(Comparator.comparing(ReSyncProjectMetadata.ResourceEntry::getDisplayName))
+            .toList();
+    }
+
+    private List<ReSyncProjectMetadata.ResourceEntry> studioAllResources() {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return List.of();
+        }
+        ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+        return metadata.getResources();
+    }
+
+    private void rebuildStudioDocumentTabs() {
+        if (studioTabsManager == null) {
+            return;
+        }
+        studioTabsManager.clearTabs();
+        for (StudioDocument document : studioDocuments) {
+            Container container = new Container("document-" + document.key(), 0, 0, 1, 1);
+            TabsManager.Tab tab = studioTabsManager.addTab(document.title(), container);
+            tab.setData(document.key());
+            if (document == activeStudioDocument) {
+                studioTabsManager.setActiveTab(container);
+            }
+        }
+    }
+
+    private void refreshStudioResourcePanel() {
+        if (studioResourcePanel == null) {
+            return;
+        }
+        commandLabelInput = null;
+        commandPathsInput = null;
+        commandStructuredToggle = null;
+        studioResourcePanel.container().clearWidgets();
+        if (activeStudioDocument == null) {
+            studioResourcePanel.hide();
+            return;
+        }
+        if (ReSyncResourceDragPayload.FLOW.equals(activeStudioDocument.type())
+            || ReSyncResourceDragPayload.FUNCTION.equals(activeStudioDocument.type())
+            || ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(activeStudioDocument.type())) {
+            studioResourcePanel.hide();
+            return;
+        }
+        if (ReSyncResourceDragPayload.COMMAND.equals(activeStudioDocument.type())) {
+            studioResourcePanel.left();
+        } else {
+            studioResourcePanel.right();
+        }
+        studioResourcePanel.show();
+        if (ReSyncResourceDragPayload.GUI.equals(activeStudioDocument.type())) {
+            buildGuiResourcePanel();
+        } else if (ReSyncResourceDragPayload.COMMAND.equals(activeStudioDocument.type())) {
+            buildCommandResourcePanel();
+        } else if (ReSyncResourceDragPayload.SCOREBOARD.equals(activeStudioDocument.type())) {
+            buildScoreboardResourcePanel();
+        } else if (ReSyncResourceDragPayload.TAB.equals(activeStudioDocument.type())) {
+            buildTabResourcePanel();
+        } else if (ReSyncResourceDragPayload.WORLDGEN.equals(activeStudioDocument.type())) {
+            buildWorldGenResourcePanel();
+        } else if (ReSyncResourceDragPayload.WORLD.equals(activeStudioDocument.type())) {
+            buildWorldResourcePanel();
+        }
+        studioResourcePanel.container().updateWidgetPositions();
+    }
+
+    private void buildCommandResourcePanel() {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return;
+        }
+        TriggerBinding binding = manager.getCommandBinding(serverId, activeStudioDocument.id());
+        CommandBindingContext command = parseCommandContext(binding != null ? binding.getContext() : activeStudioDocument.id());
+        commandLabelInput = panelInput("Command", command.command != null && !command.command.isBlank() ? command.command : activeStudioDocument.id());
+        commandPathsInput = panelInput("Paths | separated", String.join("|", command.subcommands != null ? command.subcommands : List.of()));
+        commandStructuredToggle = new ToggleWidget.Builder()
+            .label("Structured")
+            .toggled(command.structured != null && command.structured)
+            .size(170, 18)
+            .build();
+        studioResourcePanel.addWidget(commandLabelInput, commandPathsInput, commandStructuredToggle);
+    }
+
+    private void buildGuiResourcePanel() {
+        FlowManager manager = FlowManager.getInstance();
+        GuiDefinition gui = manager != null ? manager.getGuisForServer(serverId).get(activeStudioDocument.id()) : null;
+        if (gui == null) {
+            return;
+        }
+        TextInputWidget title = panelInput("Title", gui.getTitle());
+        TextInputWidget rows = panelInput("Rows", String.valueOf(gui.getRows()));
+        ToggleWidget playerInventory = new ToggleWidget.Builder()
+            .label("Inventory")
+            .toggled(gui.isExtendToPlayerInventory())
+            .size(170, 18)
+            .build();
+        studioResourcePanel.addWidget(title, rows, playerInventory, panelSaveButton(() -> {
+            gui.setTitle(title.getText());
+            gui.setRows(parseInt(rows.getText(), gui.getRows(), 1, 6));
+            gui.setExtendToPlayerInventory(playerInventory.getValue());
+            manager.saveGui(serverId, gui);
+        }));
+    }
+
+    private void buildScoreboardResourcePanel() {
+        FlowManager manager = FlowManager.getInstance();
+        ScoreboardDefinition scoreboard = manager != null ? manager.getScoreboardsForServer(serverId).get(activeStudioDocument.id()) : null;
+        if (scoreboard == null) {
+            return;
+        }
+        TextInputWidget title = panelInput("Title", scoreboard.getTitle());
+        TextInputWidget objective = panelInput("Objective", scoreboard.getObjectiveId());
+        TextInputWidget lines = panelInput("Lines | separated", String.join("|", scoreboard.getLines()));
+        studioResourcePanel.addWidget(title, objective, lines, panelSaveButton(() -> {
+            scoreboard.setTitle(title.getText());
+            scoreboard.setObjectiveId(objective.getText());
+            scoreboard.setLines(parseLines(lines.getText()));
+            manager.saveScoreboard(serverId, scoreboard);
+        }));
+    }
+
+    private void buildTabResourcePanel() {
+        FlowManager manager = FlowManager.getInstance();
+        TabDefinition tab = manager != null ? manager.getTabsForServer(serverId).get(activeStudioDocument.id()) : null;
+        if (tab == null) {
+            return;
+        }
+        TextInputWidget header = panelInput("Header", tab.getHeader());
+        TextInputWidget entry = panelInput("Entry", tab.getEntryFormat());
+        TextInputWidget footer = panelInput("Footer", tab.getFooter());
+        studioResourcePanel.addWidget(header, entry, footer, panelSaveButton(() -> {
+            tab.setHeader(header.getText());
+            tab.setEntryFormat(entry.getText());
+            tab.setFooter(footer.getText());
+            manager.saveTab(serverId, tab);
+        }));
+    }
+
+    private void buildWorldGenResourcePanel() {
+        TextInputWidget id = panelInput("Project", activeStudioDocument.id());
+        id.active = false;
+        studioResourcePanel.addWidget(id, panelSaveButton(() -> {
+            WorldGenProject project = WorldGenManager.getInstance().createProjectTemplate("Continental", activeStudioDocument.id());
+            WorldGenManager.getInstance().saveWorldGen(serverId, project);
+        }));
+    }
+
+    private void buildWorldResourcePanel() {
+        TextInputWidget id = panelInput("World", activeStudioDocument.id());
+        id.active = false;
+        studioResourcePanel.addWidget(id);
+    }
+
+    private TextInputWidget panelInput(String placeholder, String value) {
+        return new TextInputWidget.Builder()
+            .placeholder(placeholder)
+            .text(value != null ? value : "")
+            .size(170, 20)
+            .build();
+    }
+
+    private AnimatedButton panelSaveButton(Runnable action) {
+        return new AnimatedButton.Builder()
+            .label("Save")
+            .size(170, 18)
+            .accentType(ThemeManager.getAccent("nice"))
+            .onClick(action)
+            .build();
+    }
+
+    private int parseInt(String value, int fallback, int min, int max) {
+        try {
+            return Math.clamp(Integer.parseInt(value), min, max);
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private List<String> parseLines(String text) {
+        if (text == null || text.isBlank()) {
+            return new ArrayList<>();
+        }
+        List<String> lines = new ArrayList<>();
+        for (String line : text.split("\\|")) {
+            if (!line.isBlank()) {
+                lines.add(line.trim());
+            }
+        }
+        return lines;
+    }
+
+    private List<String> parseCommandPaths(String text) {
+        if (text == null || text.isBlank()) {
+            return new ArrayList<>();
+        }
+        List<String> paths = new ArrayList<>();
+        for (String path : text.split("\\|")) {
+            String value = path.trim();
+            if (!value.isBlank()) {
+                paths.add(value);
+            }
+        }
+        return paths;
+    }
+
+    private CommandBindingContext parseCommandContext(String context) {
+        CommandBindingContext parsed = new CommandBindingContext();
+        parsed.subcommands = new ArrayList<>();
+        parsed.structured = false;
+        if (context == null || context.isBlank()) {
+            return parsed;
+        }
+        String trimmed = context.trim();
+        if (trimmed.startsWith("{")) {
+            try {
+                CommandBindingContext decoded = gson.fromJson(trimmed, CommandBindingContext.class);
+                if (decoded != null) {
+                    parsed.command = normalizeCommandLabel(decoded.command);
+                    parsed.subcommands = decoded.subcommands != null ? decoded.subcommands : new ArrayList<>();
+                    parsed.structured = decoded.structured != null && decoded.structured;
+                    return parsed;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        parsed.command = normalizeCommandLabel(trimmed);
+        return parsed;
+    }
+
+    private String encodeCommandContext(CommandBindingContext command) {
+        if (command == null) {
+            return "";
+        }
+        command.command = normalizeCommandLabel(command.command);
+        command.subcommands = command.subcommands != null ? command.subcommands : new ArrayList<>();
+        command.structured = command.structured != null && command.structured;
+        return command.subcommands.isEmpty() && !command.structured ? command.command : gson.toJson(command);
+    }
+
+    private String normalizeCommandLabel(String label) {
+        String command = label != null ? label.trim().toLowerCase(Locale.ROOT) : "";
+        if (command.startsWith("/")) {
+            command = command.substring(1);
+        }
+        return command.matches("^[a-zA-Z0-9:_-]+$") ? command : "";
+    }
+
+    private void selectStudioDocument(String key) {
+        for (StudioDocument document : studioDocuments) {
+            if (document.key().equals(key)) {
+                syncNodePositions();
+                activeStudioDocument = document;
+                if (document.view() != null) {
+                    document.view().selected();
+                }
+                refreshActiveViewHeaderButtons();
+                activeNodeRegistryServerId = ReSyncResourceDragPayload.WORLDGEN.equals(document.type()) ? WorldGenManager.registryServerId(serverId) : serverId;
+                graph = document.graph() != null ? document.graph() : studioEmptyGraph;
+                selectedNodeIds.clear();
+                selectionBase.clear();
+                selectedDragStartPositions.clear();
+                focusedNode = null;
+                dragState.isDragging = false;
+                pendingSourceNodeId = null;
+                pendingSourcePin = null;
+                undoStack.clear();
+                redoStack.clear();
+                refreshNodeRegistry();
+                if (paletteSidePanel != null) {
+                    if (document.view() != null || document.graph() == null || ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(document.type())) {
+                        paletteSidePanel.hide();
+                    } else {
+                        paletteSidePanel.show();
+                    }
+                }
+                if (studioResourcePanel != null) {
+                    if (document.view() != null) {
+                        studioResourcePanel.hide();
+                    } else {
+                        studioResourcePanel.show();
+                    }
+                }
+                if (document.view() == null) {
+                    refreshStudioResourcePanel();
+                }
+                updatePositions();
+                return;
+            }
         }
     }
 
@@ -434,7 +1906,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
             categories.put(category, new ArrayList<>());
         }
 
-        for (NodeDefinition def : NodeRegistry.getInstance().getAllDefinitions(serverId).values()) {
+        for (NodeDefinition def : NodeRegistry.getInstance().getAllDefinitions(nodeRegistryServerId()).values()) {
             if (def.isHidden() || !isAllowedInCurrentEditor(def)) {
                 continue;
             }
@@ -471,9 +1943,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private List<NodeDefinition.NodeCategory> resolveCategoryOrder() {
-        List<redxax.oxy.remotely.flow.sync.FlowCategoryMetadata> meta = NodeRegistry.getInstance().getServerCategories(serverId);
+        List<FlowCategoryMetadata> meta = NodeRegistry.getInstance().getServerCategories(nodeRegistryServerId());
         List<NodeDefinition.NodeCategory> result = new ArrayList<>();
-        for (redxax.oxy.remotely.flow.sync.FlowCategoryMetadata m : meta) {
+        for (FlowCategoryMetadata m : meta) {
             result.add(NodeDefinition.NodeCategory.fromString(m.getId()));
         }
         return result;
@@ -673,7 +2145,23 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         }
         headerButtons.add(button);
         button.entranceAnimationEnabled = false;
-        addDrawableChild(button);
+        if (studioMode) {
+            button.visible = false;
+        } else {
+            addDrawableChild(button);
+        }
+    }
+
+    @Override
+    public List<AnimatedWidget> getStudioHeaderButtons() {
+        List<IconButton> source = headerButtons;
+        if (parent instanceof FlowEditorScreen && !headerButtons.isEmpty()) {
+            source = headerButtons.subList(1, headerButtons.size());
+        }
+        return source.stream()
+            .filter(button -> button != null && button.visible)
+            .map(button -> (AnimatedWidget) button)
+            .toList();
     }
 
     protected boolean showExtractButton() {
@@ -1009,6 +2497,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private void layoutHeaderButtons() {
+        if (studioMode) return;
         int padding = 5;
         int totalWidth = 0;
 
@@ -1040,12 +2529,77 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     public void updatePositions() {
         super.updatePositions();
         if (paletteSidePanel != null && paletteSidePanel.isVisible()) {
-            paletteSidePanel.height(height - 65).y(54).update();
+            updatePalettePanelBounds();
+        }
+        if (studioResourcePanel != null && studioResourcePanel.isVisible()) {
+            int bottomReserve = studioMode ? STUDIO_CONTENT_BROWSER_HEIGHT + 18 : 0;
+            studioResourcePanel.height(Math.max(80, height - 65 - bottomReserve)).y(54).update();
         }
         if (headerBackground != null) {
             syncDebugHeaderVisibility();
             layoutHeaderButtons();
         }
+        if (studioMode) {
+            updateStudioLayout();
+        }
+    }
+
+    private void updateStudioLayout() {
+        if (studioTabsManager != null) {
+            studioTabsManager.setPosition(10, 5);
+            studioTabsManager.setSize(Math.max(80, width - studioHeaderRightReserve() - 20), 18);
+        }
+        if (studioContentBrowser != null) {
+            studioContentBrowser.setPosition(8, height - STUDIO_CONTENT_BROWSER_HEIGHT - 8);
+            studioContentBrowser.setSize(width - 16, STUDIO_CONTENT_BROWSER_HEIGHT);
+        }
+        if (paletteSidePanel != null && paletteSidePanel.isVisible()) {
+            updatePalettePanelBounds();
+        }
+        if (studioResourcePanel != null) {
+            studioResourcePanel.width(180).y(54).height(Math.max(80, height - 65 - STUDIO_CONTENT_BROWSER_HEIGHT - 18)).update();
+        }
+        for (StudioDocument document : studioDocuments) {
+            if (document.view() != null) {
+                document.view().resize(width, studioEditorHeight());
+            }
+        }
+    }
+
+    private int studioEditorHeight() {
+        int bottom = studioContentBrowser != null ? studioContentBrowser.getY() - 8 : height;
+        return Math.max(80, bottom);
+    }
+
+    private int palettePanelHeight() {
+        int bottom = studioMode && studioContentBrowser != null ? studioContentBrowser.getY() - 5 : height - 11;
+        return Math.max(0, bottom - palettePanelTop());
+    }
+
+    private int palettePanelTop() {
+        return 59;
+    }
+
+    private void updatePalettePanelBounds() {
+        int panelHeight = palettePanelHeight();
+        if (panelHeight <= 0) {
+            paletteSidePanel.hide();
+            return;
+        }
+        paletteSidePanel.y(palettePanelTop()).height(panelHeight).update();
+    }
+
+    private int studioHeaderRightReserve() {
+        int reserve = 0;
+        List<AnimatedWidget> buttons = visibleStudioHeaderButtons();
+        int visibleCount = 0;
+        for (AnimatedWidget button : buttons) {
+            if (button != null) {
+                reserve += button.getWidth();
+                visibleCount++;
+            }
+        }
+        return reserve + visibleCount * 5;
     }
 
     private void organizeGraph() {
@@ -1212,6 +2766,14 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
         renderBackground(context, mouseX, mouseY, delta);
 
+        ReSyncStudioView activeView = activeStudioView();
+        if (activeView != null) {
+            activeView.resize(width, studioEditorHeight());
+            activeView.render(context, mouseX, mouseY, delta);
+            renderStudioOverlays(context, mouseX, mouseY, delta);
+            return;
+        }
+
         context.getMatrices().push();
         context.getMatrices().translate(getWidth() / 2.0f, getHeight() / 2.0f, 0);
         context.getMatrices().scale(zoomLevel, zoomLevel, 1.0f);
@@ -1251,14 +2813,116 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         context.getMatrices().pop();
 
         renderSelectionBox(context);
+        renderStudioDocumentPreview(context);
+
+        renderStudioOverlays(context, mouseX, mouseY, delta);
+    }
+
+    private ReSyncStudioView activeStudioView() {
+        return studioMode && activeStudioDocument != null ? activeStudioDocument.view() : null;
+    }
+
+    private void refreshActiveViewHeaderButtons() {
+        List<AnimatedWidget> nextButtons = new ArrayList<>();
+        ReSyncStudioView view = activeStudioView();
+        if (view != null) {
+            nextButtons.addAll(view.headerButtons());
+        }
+        activeViewHeaderButtons.clear();
+        activeViewHeaderButtons.addAll(nextButtons);
+        for (AnimatedWidget button : activeViewHeaderButtons) {
+            if (button != null) {
+                button.entranceAnimationEnabled = false;
+            }
+        }
+        rebuildStudioHeaderButtons();
+    }
+
+    private List<AnimatedWidget> visibleStudioHeaderButtons() {
+        List<AnimatedWidget> buttons = new ArrayList<>();
+        if (activeStudioView() == null) {
+            buttons.addAll(headerButtons);
+        } else {
+            buttons.addAll(activeViewHeaderButtons);
+        }
+        return buttons;
+    }
+
+    private void layoutStudioHeaderButtons() {
+        if (!studioMode) {
+            return;
+        }
+        header().build();
+    }
+
+    private void rebuildStudioHeaderButtons() {
+        if (!studioMode) {
+            return;
+        }
+        header().clearHeaderWidgets();
+        for (AnimatedWidget button : headerButtons) {
+            if (button != null) {
+                button.visible = false;
+            }
+        }
+        for (AnimatedWidget button : activeViewHeaderButtons) {
+            if (button != null) {
+                button.visible = false;
+            }
+        }
+        List<AnimatedWidget> buttons = visibleStudioHeaderButtons();
+        for (AnimatedWidget button : buttons) {
+            if (button != null) {
+                button.visible = true;
+                button.entranceAnimationEnabled = false;
+                header().addRight(button);
+            }
+        }
+        if (activeStudioView() == null) {
+            syncDebugHeaderVisibility();
+        }
+        header().build();
+    }
+
+    private void renderStudioOverlays(IDrawContext context, int mouseX, int mouseY, float delta) {
+        if (studioMode) {
+            renderDesktopChromeBackground(context, mouseX, mouseY, delta);
+            layoutStudioHeaderButtons();
+            for (AnimatedWidget button : header().leftButtons) {
+                if (button != null && button.visible) {
+                    button.render(context, mouseX, mouseY, delta);
+                }
+            }
+            for (AnimatedWidget button : header().rightButtons) {
+                if (button != null && button.visible) {
+                    button.render(context, mouseX, mouseY, delta);
+                }
+            }
+        }
+
+        if (studioTabsManager != null) {
+            studioTabsManager.render(context, mouseX, mouseY, delta);
+        }
 
         for (Widget widget : hudWidgets) {
             widget.render(context, mouseX, mouseY, delta);
         }
 
-        if (paletteSidePanel != null) {
+        if (activeStudioView() == null && paletteSidePanel != null) {
             paletteSidePanel.update();
+            paletteSidePanel.container().render(context, mouseX, mouseY, delta);
             paletteSidePanel.renderHeader(context);
+        }
+        if (activeStudioView() == null && studioResourcePanel != null) {
+            studioResourcePanel.update();
+            studioResourcePanel.container().render(context, mouseX, mouseY, delta);
+            studioResourcePanel.renderHeader(context);
+        }
+
+        for (Widget widget : widgets) {
+            if (widget instanceof ItemSelectorWidget || widget instanceof ContextMenuWidget) {
+                widget.render(context, mouseX, mouseY, delta);
+            }
         }
 
         for (Widget widget : hudWidgets) {
@@ -1266,6 +2930,99 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
                 animated.renderHintOverlay(context);
             }
         }
+        for (Widget widget : widgets) {
+            if (widget instanceof ItemSelectorWidget selector && selector.visible) {
+                selector.renderHintOverlay(context);
+            } else if (widget instanceof ContextMenuWidget menu && menu.isVisible()) {
+                menu.renderHintOverlay(context);
+            }
+        }
+    }
+
+    private void renderStudioDocumentPreview(IDrawContext context) {
+        if (!studioMode || activeStudioDocument == null || activeStudioDocument.graph() != null) {
+            return;
+        }
+        int top = 42;
+        int bottom = studioContentBrowser != null ? studioContentBrowser.getY() - 8 : height - 8;
+        int left = 12;
+        int right = width - (studioResourcePanel != null && studioResourcePanel.isVisible() ? studioResourcePanel.getDesiredWidth() + 12 : 12);
+        int areaWidth = Math.max(20, right - left);
+        int areaHeight = Math.max(20, bottom - top);
+        if (ReSyncResourceDragPayload.GUI.equals(activeStudioDocument.type())) {
+            renderGuiDocumentPreview(context, left, top, areaWidth, areaHeight);
+        } else if (ReSyncResourceDragPayload.SCOREBOARD.equals(activeStudioDocument.type())) {
+            renderScoreboardDocumentPreview(context, left, top, areaWidth, areaHeight);
+        } else if (ReSyncResourceDragPayload.TAB.equals(activeStudioDocument.type())) {
+            renderTabDocumentPreview(context, left, top, areaWidth, areaHeight);
+        } else if (ReSyncResourceDragPayload.WORLD.equals(activeStudioDocument.type())) {
+            int text = ThemeManager.getColor(ThemeColor.text);
+            context.drawText(activeStudioDocument.title(), left + 12, top + 12, text, false);
+        }
+    }
+
+    private void renderGuiDocumentPreview(IDrawContext context, int x, int y, int width, int height) {
+        FlowManager manager = FlowManager.getInstance();
+        GuiDefinition gui = manager != null ? manager.getGuisForServer(serverId).get(activeStudioDocument.id()) : null;
+        if (gui == null) {
+            return;
+        }
+        int rows = Math.clamp(gui.getRows(), 1, 6);
+        int slot = Math.clamp(Math.min((width - 40) / 9, (height - 40) / rows), 12, 26);
+        int gridWidth = slot * 9;
+        int gridHeight = slot * rows;
+        int startX = x + Math.max(0, (width - gridWidth) / 2);
+        int startY = y + Math.max(0, (height - gridHeight) / 2);
+        int border = ThemeManager.getColor(ThemeColor.innerBorder);
+        int background = ThemeManager.getColor(ThemeColor.innerBackground);
+        context.fill(startX - 6, startY - 18, startX + gridWidth + 6, startY + gridHeight + 6, background);
+        context.fillBorder(startX - 6, startY - 18, startX + gridWidth + 6, startY + gridHeight + 6, 1, border);
+        context.drawText(gui.getTitle() == null || gui.getTitle().isBlank() ? gui.getId() : gui.getTitle(), startX, startY - 12, ThemeManager.getColor(ThemeColor.text), false);
+        for (int row = 0; row < rows; row++) {
+            for (int col = 0; col < 9; col++) {
+                int slotX = startX + col * slot;
+                int slotY = startY + row * slot;
+                context.fill(slotX, slotY, slotX + slot - 1, slotY + slot - 1, ThemeManager.getColor(ThemeColor.background));
+                context.fillBorder(slotX, slotY, slotX + slot - 1, slotY + slot - 1, 1, border);
+            }
+        }
+    }
+
+    private void renderScoreboardDocumentPreview(IDrawContext context, int x, int y, int width, int height) {
+        FlowManager manager = FlowManager.getInstance();
+        ScoreboardDefinition scoreboard = manager != null ? manager.getScoreboardsForServer(serverId).get(activeStudioDocument.id()) : null;
+        if (scoreboard == null) {
+            return;
+        }
+        List<String> lines = scoreboard.getLines() == null ? List.of() : scoreboard.getLines();
+        int maxLines = Math.min(15, lines.size());
+        int panelWidth = Math.min(Math.max(120, width / 3), width - 24);
+        int rowHeight = 12;
+        int panelHeight = Math.min(height - 24, (maxLines + 1) * rowHeight + 8);
+        int startX = x + Math.max(0, (width - panelWidth) / 2);
+        int startY = y + Math.max(0, (height - panelHeight) / 2);
+        context.fill(startX, startY, startX + panelWidth, startY + panelHeight, 0x7F101010);
+        context.drawText(scoreboard.getTitle() == null || scoreboard.getTitle().isBlank() ? scoreboard.getId() : scoreboard.getTitle(), startX + 6, startY + 4, 0xFFFFFFFF, true);
+        for (int i = 0; i < maxLines; i++) {
+            context.drawText(lines.get(i), startX + 6, startY + 18 + i * rowHeight, 0xFFFFFFFF, true);
+        }
+    }
+
+    private void renderTabDocumentPreview(IDrawContext context, int x, int y, int width, int height) {
+        FlowManager manager = FlowManager.getInstance();
+        TabDefinition tab = manager != null ? manager.getTabsForServer(serverId).get(activeStudioDocument.id()) : null;
+        if (tab == null) {
+            return;
+        }
+        int panelWidth = Math.min(Math.max(160, width / 3), width - 24);
+        int panelHeight = Math.min(120, height - 24);
+        int startX = x + Math.max(0, (width - panelWidth) / 2);
+        int startY = y + Math.max(0, (height - panelHeight) / 2);
+        context.fill(startX, startY, startX + panelWidth, startY + panelHeight, 0x7F101010);
+        int text = 0xFFFFFFFF;
+        context.drawText(tab.getHeader() == null || tab.getHeader().isBlank() ? tab.getId() : tab.getHeader(), startX + 6, startY + 6, text, true);
+        context.drawText(tab.getEntryFormat() == null || tab.getEntryFormat().isBlank() ? "%player%" : tab.getEntryFormat(), startX + 6, startY + 48, text, true);
+        context.drawText(tab.getFooter() == null ? "" : tab.getFooter(), startX + 6, startY + panelHeight - 18, text, true);
     }
 
     private void renderWires(IDrawContext context) {
@@ -1321,7 +3078,20 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (studioTabsManager != null && studioTabsManager.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
         if (handleNodeItemSelectorMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+        if (studioMode && studioContentBrowser != null && studioContentBrowser.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+        ReSyncStudioView activeView = activeStudioView();
+        if (activeView != null) {
+            return activeView.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        }
+        if (studioResourcePanel != null && studioResourcePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
             return true;
         }
         if (paletteSidePanel != null && paletteSidePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
@@ -1753,14 +3523,32 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (handleContextMenuMouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
         if (handleNodeItemSelectorMouseClicked(mouseX, mouseY, button)) {
             return true;
+        }
+        if (handleStudioHudMouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        double[] headerCoords = unDistortMouse(mouseX, mouseY);
+        if (handleHeaderButtonsClick((int) headerCoords[0], (int) headerCoords[1], button)) {
+            return true;
+        }
+        ReSyncStudioView activeView = activeStudioView();
+        if (activeView != null) {
+            return activeView.mouseClicked(mouseX, mouseY, button);
         }
         if (paletteSidePanel != null && paletteSidePanel.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
+        if (studioResourcePanel != null && studioResourcePanel.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
 
-        double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
+
+        double[] undistortedCoords = headerCoords;
         double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
         int wx = (int)worldMouse[0];
         int wy = (int)worldMouse[1];
@@ -1868,6 +3656,36 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
+    private boolean handleContextMenuMouseClicked(double mouseX, double mouseY, int button) {
+        List<Widget> widgetSnapshot = new ArrayList<>(widgets);
+        boolean hadContextMenu = false;
+        for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
+            Widget widget = widgetSnapshot.get(i);
+            if (!(widget instanceof ContextMenuWidget menu) || !menu.isVisible()) {
+                continue;
+            }
+            hadContextMenu = true;
+            boolean overMenu = menu.isMouseOver(mouseX, mouseY);
+            boolean handled = menu.mouseClicked(mouseX, mouseY, button);
+            hideContextMenu();
+            if (handled || overMenu) {
+                return true;
+            }
+            return button != GLFW.GLFW_MOUSE_BUTTON_RIGHT;
+        }
+        return hadContextMenu;
+    }
+
+    private boolean handleStudioHudMouseClicked(double mouseX, double mouseY, int button) {
+        if (!studioMode) {
+            return false;
+        }
+        if (studioTabsManager != null && studioTabsManager.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        return studioContentBrowser != null && studioContentBrowser.mouseClicked(mouseX, mouseY, button);
+    }
+
     private boolean toggleBreakpointAt(int wx, int wy) {
         FlowDebugController debug = debugController();
         if (debug == null) {
@@ -1887,7 +3705,14 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
     }
 
     private boolean handleHeaderButtonsClick(int mouseX, int mouseY, int button) {
-        for (IconButton headerButton : headerButtons) {
+        List<AnimatedWidget> buttons = new ArrayList<>();
+        if (studioMode) {
+            buttons.addAll(header().leftButtons);
+            buttons.addAll(header().rightButtons);
+        } else {
+            buttons.addAll(headerButtons);
+        }
+        for (AnimatedWidget headerButton : buttons) {
             if (headerButton != null && headerButton.visible && headerButton.isMouseOver(mouseX, mouseY)) {
                 return headerButton.mouseClicked(mouseX, mouseY, button);
             }
@@ -1921,10 +3746,23 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (studioTabsManager != null && studioTabsManager.mouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
         if (handleNodeItemSelectorMouseReleased(mouseX, mouseY, button)) {
             return true;
         }
+        if (studioMode && studioContentBrowser != null && studioContentBrowser.mouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+        ReSyncStudioView activeView = activeStudioView();
+        if (activeView != null) {
+            return activeView.mouseReleased(mouseX, mouseY, button);
+        }
         if (paletteSidePanel != null && paletteSidePanel.mouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (studioResourcePanel != null && studioResourcePanel.mouseReleased(mouseX, mouseY, button)) {
             return true;
         }
 
@@ -1975,11 +3813,24 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (studioTabsManager != null && studioTabsManager.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        if (studioMode && studioContentBrowser != null && studioContentBrowser.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        ReSyncStudioView activeView = activeStudioView();
+        if (activeView != null) {
+            return activeView.keyPressed(keyCode, scanCode, modifiers);
+        }
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             close();
             return true;
         }
-        if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.keyPressed(keyCode, scanCode, modifiers)) {
+        if (studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.container().keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
         if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)
@@ -2045,7 +3896,20 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
+        if (studioTabsManager != null && studioTabsManager.charTyped(chr, modifiers)) {
+            return true;
+        }
         if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.charTyped(chr, modifiers)) {
+            return true;
+        }
+        if (studioMode && studioContentBrowser != null && studioContentBrowser.charTyped(chr, modifiers)) {
+            return true;
+        }
+        ReSyncStudioView activeView = activeStudioView();
+        if (activeView != null) {
+            return activeView.charTyped(chr, modifiers);
+        }
+        if (studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.container().charTyped(chr, modifiers)) {
             return true;
         }
         return super.charTyped(chr, modifiers);
@@ -2312,7 +4176,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         if (sourceType.canConvertTo(targetType)) {
             return true;
         }
-        return NodeRegistry.getInstance().canConvertTypes(serverId, sourceType, targetType);
+        return NodeRegistry.getInstance().canConvertTypes(nodeRegistryServerId(), sourceType, targetType);
     }
 
     protected boolean useStrictTypeCompatibility() {
@@ -2491,8 +4355,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
                 .onClose(() -> removeNodeItemSelector(selectorRef[0]));
 
-        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
-            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(serverId).values());
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(nodeRegistryServerId())) {
+            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(nodeRegistryServerId()).values());
             definitions.removeIf(def -> def.isHidden() || !isAllowedInCurrentEditor(def));
             definitions.sort(Comparator
                     .comparingInt(NodeDefinition::getPriority)
@@ -2574,8 +4438,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(this)
                 .onClose(() -> removeNodeItemSelector(selectorRef[0]));
 
-        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(serverId)) {
-            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(serverId).values());
+        if (NodeRegistry.getInstance() != null && NodeRegistry.getInstance().hasDefinitions(nodeRegistryServerId())) {
+            List<NodeDefinition> definitions = new ArrayList<>(NodeRegistry.getInstance().getAllDefinitions(nodeRegistryServerId()).values());
             definitions.removeIf(def -> def.isHidden() || !isAllowedInCurrentEditor(def));
             definitions.sort(Comparator
                     .comparingInt(NodeDefinition::getPriority)
@@ -2826,10 +4690,84 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     protected void saveGraph() {
         normalizePassthroughConnections();
+        if (studioMode && activeStudioDocument != null && ReSyncResourceDragPayload.WORLDGEN.equals(activeStudioDocument.type())) {
+            WorldGenProject project = WorldGenManager.getInstance().getCachedProject(serverId, activeStudioDocument.id());
+            if (project == null) {
+                project = WorldGenManager.getInstance().createProjectTemplate("Continental", activeStudioDocument.id());
+            }
+            project.setTerrainGraph(WorldGenManager.getInstance().toWorldGenGraph(graph));
+            WorldGenManager.getInstance().saveWorldGen(serverId, project);
+            return;
+        }
         FlowManager flowManager = FlowManager.getInstance();
+        if (studioMode && activeStudioDocument != null && ReSyncResourceDragPayload.COMMAND.equals(activeStudioDocument.type())) {
+            if (!saveCommandDocument(flowManager)) {
+                return;
+            }
+        }
         if (flowManager != null && serverId != null) {
             flowManager.saveFlow(serverId, graph);
         }
+    }
+
+    private boolean saveCommandDocument(FlowManager manager) {
+        if (manager == null || activeStudioDocument == null) {
+            return false;
+        }
+        CommandBindingContext next = new CommandBindingContext();
+        next.command = normalizeCommandLabel(commandLabelInput != null ? commandLabelInput.getText() : activeStudioDocument.id());
+        if (next.command.isBlank()) {
+            new Notification("Command", "Invalid Label", Notification.Type.ERROR);
+            return false;
+        }
+        next.subcommands = parseCommandPaths(commandPathsInput != null ? commandPathsInput.getText() : "");
+        next.structured = commandStructuredToggle != null && commandStructuredToggle.getValue();
+        String oldId = activeStudioDocument.id();
+        String newId = next.command;
+        if (!oldId.equals(newId)) {
+            if (manager.getCommandBinding(serverId, newId) != null || manager.getProjectMetadata(serverId).findResource(ReSyncResourceDragPayload.COMMAND, newId) != null) {
+                new Notification("Command", "ID Exists", Notification.Type.ERROR);
+                return false;
+            }
+            if (!renameCommandDocument(manager, oldId, newId, next)) {
+                return false;
+            }
+        } else {
+            manager.setCommandBinding(serverId, oldId, encodeCommandContext(next));
+        }
+        new Notification("Saved", "/" + next.command, Notification.Type.SUCCESS);
+        return true;
+    }
+
+    private boolean renameCommandDocument(FlowManager manager, String oldId, String newId, CommandBindingContext command) {
+        String oldKey = ReSyncProjectMetadata.resourceKey(ReSyncResourceDragPayload.COMMAND, oldId);
+        if (!manager.renameFlow(serverId, oldId, newId)) {
+            new Notification("Command", "Rename Failed", Notification.Type.ERROR);
+            return false;
+        }
+        manager.clearCommandBinding(serverId, oldId);
+        manager.setCommandBinding(serverId, newId, encodeCommandContext(command));
+        ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+        ReSyncProjectMetadata.ResourceEntry entry = metadata.findResource(ReSyncResourceDragPayload.COMMAND, oldId);
+        if (entry != null) {
+            entry.setId(newId);
+            entry.setDisplayName(newId);
+            manager.saveProjectMetadata(serverId, metadata);
+        }
+        for (int i = 0; i < studioDocuments.size(); i++) {
+            StudioDocument document = studioDocuments.get(i);
+            if (document.key().equals(oldKey)) {
+                studioDocuments.set(i, new StudioDocument(document.type(), newId, newId, graph, document.view()));
+                activeStudioDocument = studioDocuments.get(i);
+                break;
+            }
+        }
+        graph.setId(newId);
+        rebuildStudioDocumentTabs();
+        if (studioContentBrowser != null) {
+            studioContentBrowser.rebuild();
+        }
+        return true;
     }
 
     private void normalizePassthroughConnections() {
@@ -3172,10 +5110,23 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (studioTabsManager != null && studioTabsManager.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+            return true;
+        }
         if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
             return true;
         }
+        if (studioMode && studioContentBrowser != null && studioContentBrowser.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+            return true;
+        }
+        ReSyncStudioView activeView = activeStudioView();
+        if (activeView != null) {
+            return activeView.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        }
         if (paletteSidePanel != null && paletteSidePanel.isVisible() && paletteSidePanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+            return true;
+        }
+        if (studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
             return true;
         }
         double[] undistortedCoords = unDistortMouse(mouseX, mouseY);
@@ -3196,6 +5147,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost {
         super.resize(width, height);
         if (headerBackground != null) {
             layoutHeaderButtons();
+        }
+        layoutStudioHeaderButtons();
+        for (StudioDocument document : studioDocuments) {
+            if (document.view() != null) {
+                document.view().resize(width, studioMode ? studioEditorHeight() : height);
+            }
         }
         updatePositions();
     }
