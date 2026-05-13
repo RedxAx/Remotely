@@ -21,7 +21,6 @@ import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.NodeRegistryRequest;
 import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
-import redxax.oxy.remotely.flow.ui.FlowManagerScreen;
 import redxax.oxy.remotely.flow.ui.GuiEditOverlayState;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
@@ -872,9 +871,9 @@ public class ReSyncFlowClient {
                     if (client != null && client.getHost() != null) {
                         if (type == ReSyncResourceType.FLOW) {
                             FlowGraph graph = (FlowGraph) item;
-                            FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(serverId);
-                            if (managerScreen != null) {
-                                managerScreen.openWorkspaceFlowEditor(itemId);
+                            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+                            if (studioScreen != null) {
+                                studioScreen.openWorkspaceFlowEditor(itemId);
                                 return;
                             }
                             Screen current = ScreenManager.getInstance().getCurrentScreen();
@@ -886,23 +885,23 @@ public class ReSyncFlowClient {
                             }
                             client.getHost().setScreen(new FlowEditorScreen(graph, serverId, current));
                         } else if (type == ReSyncResourceType.GUI) {
-                            FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(serverId);
-                            if (managerScreen != null) {
-                                managerScreen.openWorkspaceGuiDesigner(itemId);
+                            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+                            if (studioScreen != null) {
+                                studioScreen.openWorkspaceGuiDesigner(itemId);
                                 return;
                             }
                             client.getHost().setScreen(new GuiDesignerScreen((GuiDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
                         } else if (type == ReSyncResourceType.SCOREBOARD) {
-                            FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(serverId);
-                            if (managerScreen != null) {
-                                managerScreen.openWorkspaceScoreboardDesigner(itemId);
+                            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+                            if (studioScreen != null) {
+                                studioScreen.openWorkspaceScoreboardDesigner(itemId);
                                 return;
                             }
                             client.getHost().setScreen(new ScoreboardDesignerScreen((ScoreboardDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));
                         } else if (type == ReSyncResourceType.TAB) {
-                            FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(serverId);
-                            if (managerScreen != null) {
-                                managerScreen.openWorkspaceTabDesigner(itemId);
+                            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+                            if (studioScreen != null) {
+                                studioScreen.openWorkspaceTabDesigner(itemId);
                                 return;
                             }
                             client.getHost().setScreen(new TabDesignerScreen((TabDefinition) item, serverId, ScreenManager.getInstance().getCurrentScreen()));

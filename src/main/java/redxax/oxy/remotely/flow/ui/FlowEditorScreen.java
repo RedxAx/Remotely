@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
 import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
@@ -36,10 +37,20 @@ import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
 import org.lwjgl.glfw.GLFW;
+import restudio.rebase.Rebase;
+import restudio.rebase.backend.BackendConfig;
 import restudio.rebase.backend.FileSystemProvider;
+import restudio.rebase.backend.ServerBackend;
+import restudio.rebase.backend.feature.NetworkTransferFeature;
+import restudio.rebase.instance.Instance;
+import restudio.rebase.instance.InstanceState;
+import restudio.rebase.instance.loaders.ModLoader;
+import restudio.rebase.resource.InstanceResource;
+import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rebase.ui.screens.editor.WorkspaceTreeExplorer;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.UiHost;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopIconWidget;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
@@ -58,15 +69,19 @@ import restudio.rescreen.util.ResourceManager;
 
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
+import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
 public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHeaderProvider {
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
+    private static final int RESYNC_PORT = 12441;
+    private static final String RESYNC_RELEASE_URL = "https://restudiomc.net/api/releases/resync/latest/download";
     private static final Set<FlowEditorScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     protected FlowGraph graph;
     protected final String serverId;
@@ -119,6 +134,28 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private TextInputWidget commandPathsInput;
     private ToggleWidget commandStructuredToggle;
     private static final int STUDIO_CONTENT_BROWSER_HEIGHT = 158;
+    private final ClientServerView startupServer;
+    private final String loaderHint;
+    private final SecureRandom secureRandom = new SecureRandom();
+    private StudioStartupState startupState = StudioStartupState.READY;
+    private IconMessage startupIcon;
+    private IconButton startupCloseButton;
+    private IconButton setupReSyncButton;
+    private IconButton welcomeServerButton;
+    private boolean startupProbeRunning;
+    private boolean setupRunning;
+    private boolean studioChromeBuilt;
+    private long lastStartupProbeAt;
+
+    private enum StudioStartupState {
+        LOADING,
+        NOT_SUPPORTED,
+        SETUP,
+        INSTALLING,
+        INSTALLED,
+        SERVER_STOPPED,
+        READY
+    }
 
     private record StudioDocument(String type, String id, String title, FlowGraph graph, ReSyncStudioView view) {
         String key() {
@@ -1266,9 +1303,15 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private boolean isUndoing = false;
 
     public FlowEditorScreen(FlowGraph graph, String serverId, Screen parent) {
+        this(graph, serverId, parent, null, "");
+    }
+
+    public FlowEditorScreen(FlowGraph graph, String serverId, Screen parent, ClientServerView startupServer, String loaderHint) {
         super();
         this.graph = graph;
         this.serverId = serverId;
+        this.startupServer = startupServer;
+        this.loaderHint = safeText(loaderHint);
         if (!(parent instanceof FlowEditorScreen)) {
             FlowEditorScreen.parent = parent;
         }
@@ -1287,6 +1330,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
     public FlowEditorScreen enableStudioMode() {
         this.studioMode = true;
+        this.startupState = StudioStartupState.LOADING;
         return this;
     }
 
@@ -1296,6 +1340,44 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
         openStudioGraphDocument(targetGraph.isFunction() ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW,
             targetGraph.getId(), title == null || title.isBlank() ? targetGraph.getId() : title, targetGraph);
+    }
+
+    public void openWorkspaceFlowEditor(String flowId, String branchPin) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || flowId == null) {
+            return;
+        }
+        FlowGraph targetGraph = manager.getFlowsForServer(serverId).get(flowId);
+        if (targetGraph == null) {
+            return;
+        }
+        openStudioFlow(targetGraph, manager.getFlowName(serverId, flowId));
+        if (branchPin != null) {
+            focusContentBranch(branchPin);
+        }
+    }
+
+    public void openWorkspaceFlowEditor(String flowId) {
+        openWorkspaceFlowEditor(flowId, null);
+    }
+
+    public void openWorkspaceGuiDesigner(String guiId) {
+        openStudioDesigner(ReSyncResourceDragPayload.GUI, guiId);
+    }
+
+    public void openWorkspaceScoreboardDesigner(String scoreboardId) {
+        openStudioDesigner(ReSyncResourceDragPayload.SCOREBOARD, scoreboardId);
+    }
+
+    public void openWorkspaceTabDesigner(String tabId) {
+        openStudioDesigner(ReSyncResourceDragPayload.TAB, tabId);
+    }
+
+    public void refreshStudioWorkspace() {
+        if (studioContentBrowser != null) {
+            studioContentBrowser.rebuild();
+        }
+        refreshStudioResourcePanel();
     }
 
     private void openStudioGraphDocument(String type, String id, String title, FlowGraph targetGraph) {
@@ -1415,6 +1497,20 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 screen.onOptionCatalogRefreshed();
             }
         }
+    }
+
+    public static FlowEditorScreen getStudioScreen(String serverId) {
+        for (FlowEditorScreen screen : OPEN_SCREENS) {
+            if (screen != null
+                && screen.studioMode
+                && screen.startupState == StudioStartupState.READY
+                && screen.studioChromeBuilt
+                && serverId != null
+                && serverId.equals(screen.getServerId())) {
+                return screen;
+            }
+        }
+        return null;
     }
 
     public static void refreshWorldsForServer(String serverId) {
@@ -1599,12 +1695,15 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 header().position(Position.TOP).size(30).visible(true);
             }
 
-            createPaletteSidePanel();
-            createHeaderButtons();
             if (studioMode) {
                 studioEmptyMessage = new IconMessage(0, 0, 180, 96, "Open Or Create An Asset", "remotely.png");
                 studioEmptyMessage.entranceAnimationEnabled = false;
-                createStudioWorkspaceChrome();
+                ensureStartupWidgets();
+                setStartupState(StudioStartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
+                beginStartupProbe(true);
+            } else {
+                createPaletteSidePanel();
+                createHeaderButtons();
             }
             initialized = true;
         }
@@ -1614,8 +1713,529 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             layoutHeaderButtons();
         }
         if (studioMode) {
-            updateStudioLayout();
+            if (startupState == StudioStartupState.READY) {
+                updateStudioLayout();
+            } else {
+                updateStartupWidgets();
+            }
         }
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (!studioMode || startupState == StudioStartupState.READY) {
+            return;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager != null && manager.isFlowClientConnected(serverId)) {
+            enterStudioReadyState();
+            return;
+        }
+        if ((startupState == StudioStartupState.LOADING || startupState == StudioStartupState.SERVER_STOPPED || startupState == StudioStartupState.INSTALLED) && !startupProbeRunning) {
+            beginStartupProbe(false);
+        }
+    }
+
+    private void ensureStartupWidgets() {
+        if (startupIcon == null) {
+            startupIcon = new IconMessage(0, 0, width, 120, "Loading", "remotely.png");
+            startupIcon.entranceAnimationEnabled = false;
+        }
+        if (startupCloseButton == null) {
+            startupCloseButton = new IconButton.Builder()
+                .imagePath("close.png")
+                .size(18, 18)
+                .entranceAnimation(false)
+                .onClick(this::close)
+                .build();
+        }
+        if (setupReSyncButton == null) {
+            setupReSyncButton = new IconButton.Builder()
+                .label("Setup ReSync")
+                .imagePath("ReSync.png")
+                .accentType(ThemeManager.getAccent("nice"))
+                .size(180, 20)
+                .autoWidthOnTextChange(true)
+                .entranceAnimation(false)
+                .onClick(this::runSetupFlow)
+                .build();
+            setupReSyncButton.setVisible(false);
+        }
+        if (welcomeServerButton == null) {
+            welcomeServerButton = new IconButton.Builder()
+                .label("Open Server")
+                .imagePath("server.png")
+                .accentType(ThemeManager.getAccent("nice"))
+                .size(180, 20)
+                .autoWidthOnTextChange(true)
+                .entranceAnimation(false)
+                .onClick(this::openServerScreen)
+                .build();
+            welcomeServerButton.setVisible(false);
+        }
+        updateStartupWidgets();
+    }
+
+    private void updateStartupWidgets() {
+        int headerHeight = 35;
+        int availableHeight = height - headerHeight;
+        if (startupIcon != null) {
+            int iconY = headerHeight + (availableHeight - startupIcon.getHeight()) / 2;
+            startupIcon.setPosition(0, iconY);
+            startupIcon.setSize(width, startupIcon.getHeight());
+        }
+        if (startupCloseButton != null) {
+            startupCloseButton.setPosition(width - 25, 8);
+        }
+        int buttonY = startupIcon != null ? startupIcon.getY() + startupIcon.getHeight() + 10 : Math.max(100, height / 2 + 70);
+        if (setupReSyncButton != null) {
+            setupReSyncButton.setPosition((width - setupReSyncButton.getWidth()) / 2, buttonY);
+        }
+        if (welcomeServerButton != null) {
+            int offset = setupReSyncButton != null && setupReSyncButton.isVisible() ? 28 : 0;
+            welcomeServerButton.setPosition((width - welcomeServerButton.getWidth()) / 2, buttonY + offset);
+        }
+    }
+
+    private void setStartupState(StudioStartupState state, String message, String iconPath, boolean showSetupButton) {
+        startupState = state;
+        ensureStartupWidgets();
+        if (startupIcon != null) {
+            startupIcon.setMessage(message);
+            startupIcon.setIcon(iconPath);
+            startupIcon.setVisible(true);
+        }
+        if (setupReSyncButton != null) {
+            setupReSyncButton.setVisible(showSetupButton && !setupRunning);
+        }
+        if (welcomeServerButton != null) {
+            welcomeServerButton.setVisible(state == StudioStartupState.INSTALLED);
+        }
+        updateStartupWidgets();
+    }
+
+    private void beginStartupProbe(boolean force) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            setStartupState(StudioStartupState.NOT_SUPPORTED, "Not Supported\nReSync Is Missing", "stop.png", false);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (!force && startupProbeRunning) {
+            return;
+        }
+        if (!force && now - lastStartupProbeAt < 800) {
+            return;
+        }
+        startupProbeRunning = true;
+        lastStartupProbeAt = now;
+        manager.ensureFlowClientForStartup(serverId, startupServer, false);
+        if (manager.isFlowClientConnected(serverId)) {
+            startupProbeRunning = false;
+            enterStudioReadyState();
+            return;
+        }
+        if (force && startupState != StudioStartupState.INSTALLING && startupState != StudioStartupState.INSTALLED) {
+            setStartupState(StudioStartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
+        }
+        CompletableFuture.runAsync(this::probeStartupStateAsync);
+    }
+
+    private void probeStartupStateAsync() {
+        StudioStartupState targetState;
+        try {
+            targetState = computeStartupState();
+        } catch (Exception ignored) {
+            targetState = StudioStartupState.SETUP;
+        }
+        StudioStartupState resolvedState = targetState;
+        ScreenManager.getInstance().execute(() -> {
+            startupProbeRunning = false;
+            FlowManager manager = FlowManager.getInstance();
+            if (manager != null && manager.isFlowClientConnected(serverId)) {
+                enterStudioReadyState();
+                return;
+            }
+            if (startupState == StudioStartupState.INSTALLING) {
+                return;
+            }
+            if (startupState == StudioStartupState.INSTALLED && resolvedState != StudioStartupState.READY && resolvedState != StudioStartupState.LOADING) {
+                return;
+            }
+            switch (resolvedState) {
+                case READY -> enterStudioReadyState();
+                case NOT_SUPPORTED -> setStartupState(StudioStartupState.NOT_SUPPORTED, "ReSync Is Not On This Server\nBukkit-Based Server Required", "close.png", false);
+                case SERVER_STOPPED -> setStartupState(StudioStartupState.SERVER_STOPPED, "Server Is Offline\nStart The Server To Use ReSync", "stop.png", false);
+                case SETUP -> setStartupState(StudioStartupState.SETUP, "Setup ReSync\nInstall And Configure", "ReSync.png", true);
+                default -> setStartupState(StudioStartupState.LOADING, "Loading...\nDetecting ReSync", "remotely.png", false);
+            }
+        });
+    }
+
+    private StudioStartupState computeStartupState() {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return StudioStartupState.NOT_SUPPORTED;
+        }
+        if (manager.isFlowClientConnected(serverId)) {
+            return StudioStartupState.READY;
+        }
+        Boolean pluginCompatible = isPluginCompatible();
+        if (Boolean.FALSE.equals(pluginCompatible)) {
+            return StudioStartupState.NOT_SUPPORTED;
+        }
+        if (startupServer != null) {
+            try {
+                Boolean pluginPresent = manager.isReSyncPluginInstalled(serverId).get(5, TimeUnit.SECONDS);
+                if (Boolean.TRUE.equals(pluginPresent)) {
+                    Instance instance = manager.findInstanceByServerId(serverId, startupServer);
+                    if (instance != null && instance.getState() != InstanceState.RUNNING) {
+                        return StudioStartupState.SERVER_STOPPED;
+                    }
+                    return StudioStartupState.LOADING;
+                }
+            } catch (Exception ignored) {
+            }
+            return StudioStartupState.SETUP;
+        }
+        Instance instance = manager.getInstanceByServerId(serverId);
+        boolean isRunning = instance != null && instance.getState() == InstanceState.RUNNING;
+        if (instance != null && isReSyncResourcePresent(instance)) {
+            if (!isRunning) {
+                return StudioStartupState.SERVER_STOPPED;
+            }
+            if (manager.getFlowAvailabilityIssue(serverId, startupServer) != null) {
+                return StudioStartupState.SETUP;
+            }
+            return StudioStartupState.LOADING;
+        }
+        if (manager.isFlowClientConnected(serverId)) {
+            return StudioStartupState.READY;
+        }
+        return StudioStartupState.SETUP;
+    }
+
+    private Boolean isPluginCompatible() {
+        FlowManager manager = FlowManager.getInstance();
+        Instance instance = manager == null ? null : manager.getInstanceByServerId(serverId);
+        if (instance != null) {
+            String backendType = resolveBackendType(instance);
+            if (!instance.isServer()) {
+                if ("SSH".equalsIgnoreCase(backendType) || "RESTUDIO".equalsIgnoreCase(backendType)) {
+                    return null;
+                }
+                return false;
+            }
+            if (instance.supportsPlugins()) {
+                return true;
+            }
+            if (instance.getModLoader() != null) {
+                String loaderName = instance.getModLoader().name();
+                if (!"VANILLA".equalsIgnoreCase(loaderName)) {
+                    return isPluginCompatibleFromLoader(loaderName);
+                }
+            }
+            if (!loaderHint.isBlank()) {
+                return isPluginCompatibleFromLoader(loaderHint);
+            }
+            if ("SSH".equalsIgnoreCase(backendType)) {
+                return null;
+            }
+            return null;
+        }
+        if (startupServer != null) {
+            if (startupServer.loader == null || startupServer.loader.isBlank()) {
+                if (!loaderHint.isBlank()) {
+                    return isPluginCompatibleFromLoader(loaderHint);
+                }
+                return null;
+            }
+            return isPluginCompatibleFromLoader(startupServer.loader);
+        }
+        if (!loaderHint.isBlank()) {
+            return isPluginCompatibleFromLoader(loaderHint);
+        }
+        return null;
+    }
+
+    private String resolveBackendType(Instance instance) {
+        if (instance == null || instance.getBackendConfig() == null || instance.getBackendConfig().type == null) {
+            return "";
+        }
+        return instance.getBackendConfig().type.trim();
+    }
+
+    private boolean isPluginCompatibleFromLoader(String loader) {
+        String normalized = safeText(loader).trim().toUpperCase(Locale.ROOT);
+        return normalized.equals("PAPER")
+            || normalized.equals("FOLIA")
+            || normalized.equals("SPIGOT")
+            || normalized.equals("BUKKIT")
+            || normalized.equals("PURPUR")
+            || normalized.equals("LEAF")
+            || normalized.equals("VELOCITY")
+            || normalized.equals("WATERFALL")
+            || normalized.equals("BUNGEECORD");
+    }
+
+    private boolean isReSyncResourcePresent(Instance instance) {
+        try {
+            List<InstanceResource> resources = Rebase.get().getResourceManager().getResources(instance).get(15, TimeUnit.SECONDS);
+            for (InstanceResource resource : resources) {
+                if (resource == null) {
+                    continue;
+                }
+                String fileName = safeText(resource.getFileName()).toLowerCase(Locale.ROOT);
+                String name = safeText(resource.getName()).toLowerCase(Locale.ROOT);
+                if (fileName.contains("resync") || name.contains("resync")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    private void enterStudioReadyState() {
+        startupState = StudioStartupState.READY;
+        startupIcon = null;
+        startupCloseButton = null;
+        setupReSyncButton = null;
+        welcomeServerButton = null;
+        if (!studioChromeBuilt) {
+            createPaletteSidePanel();
+            createHeaderButtons();
+            createStudioWorkspaceChrome();
+            studioChromeBuilt = true;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager != null) {
+            manager.ensureFlowClientForStartup(serverId, startupServer, true);
+            manager.requestInitialFlowData(serverId);
+            WorldGenManager.getInstance().requestProjectList(serverId);
+        }
+        updateStudioLayout();
+    }
+
+    private void runSetupFlow() {
+        if (setupRunning) {
+            return;
+        }
+        setupRunning = true;
+        setStartupState(StudioStartupState.INSTALLING, "Installing ReSync...", "remotely.png", false);
+        CompletableFuture.runAsync(this::setupReSyncAsync);
+    }
+
+    private void setupReSyncAsync() {
+        boolean success;
+        boolean needsRestart = false;
+        try {
+            FlowManager manager = FlowManager.getInstance();
+            if (manager != null && manager.isFlowClientConnected(serverId)) {
+                success = true;
+            } else if (isReStudioTarget()) {
+                success = setupForReStudio();
+                needsRestart = true;
+            } else {
+                success = setupForNonReStudio();
+                needsRestart = true;
+            }
+        } catch (Exception error) {
+            success = false;
+            String reason = error.getMessage() == null || error.getMessage().isBlank() ? "Setup Failed" : error.getMessage();
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", reason, Notification.Type.ERROR));
+        }
+        boolean completed = success;
+        boolean shouldRestart = needsRestart;
+        ScreenManager.getInstance().execute(() -> {
+            setupRunning = false;
+            if (completed) {
+                if (shouldRestart) {
+                    showInstalledState();
+                } else {
+                    beginStartupProbe(true);
+                }
+                return;
+            }
+            setStartupState(StudioStartupState.SETUP, "Setup ReSync\nInstall And Configure", "ReSync.png", true);
+        });
+    }
+
+    private void showInstalledState() {
+        FlowManager manager = FlowManager.getInstance();
+        Instance instance = manager != null ? manager.findInstanceByServerId(serverId, startupServer) : null;
+        boolean isRunning = instance != null && instance.getState() == InstanceState.RUNNING;
+        boolean isSSH = instance != null && instance.getBackendConfig() != null && "SSH".equalsIgnoreCase(instance.getBackendConfig().type);
+        StringBuilder message = new StringBuilder();
+        message.append("ReSync Installed!");
+        if (isRunning) {
+            message.append("\nRestart Your Server To Activate");
+        } else {
+            message.append("\nStart Your Server To Activate");
+        }
+        if (isSSH) {
+            message.append("\nOpen Port ").append(RESYNC_PORT).append(" On Your Host");
+        }
+        setStartupState(StudioStartupState.INSTALLED, message.toString(), "ReSync.png", false);
+        new Notification("ReSync", isRunning ? "Installed! Restart Server To Activate" : "Installed! Start Server To Activate", Notification.Type.SUCCESS);
+    }
+
+    private void openServerScreen() {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return;
+        }
+        Instance instance = manager.findInstanceByServerId(serverId, startupServer);
+        if (instance == null && startupServer != null) {
+            instance = buildTemporaryInstance(startupServer);
+        }
+        if (instance == null) {
+            return;
+        }
+        RemotelyClient.INSTANCE.openInstanceInTerminal(this, instance);
+    }
+
+    private Instance buildTemporaryInstance(ClientServerView server) {
+        Map<String, String> creds = new HashMap<>();
+        creds.put("identifier", server.identifier);
+        creds.put("host", server.sftpIp);
+        creds.put("port", String.valueOf(server.sftpPort));
+        creds.put("user", server.sftpUser);
+        creds.put("password", "");
+        creds.put("installing", String.valueOf(server.isInstalling));
+        creds.put("suspended", String.valueOf(server.isSuspended));
+        Instance instance = new Instance(server.name, "unknown", "");
+        instance.setBackendConfig(new BackendConfig("RESTUDIO", creds));
+        instance.setServer(true);
+        if (server.loader != null) {
+            try {
+                instance.setModLoader(ModLoader.valueOf(server.loader));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        return instance;
+    }
+
+    private boolean setupForReStudio() throws Exception {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || serverId == null || serverId.isBlank()) {
+            return false;
+        }
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        manager.provisionReSyncForReStudioServer(serverId, future::complete);
+        Boolean result = future.get(90, TimeUnit.SECONDS);
+        return Boolean.TRUE.equals(result);
+    }
+
+    private boolean setupForNonReStudio() throws Exception {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return false;
+        }
+        Instance instance = manager.getInstanceByServerId(serverId);
+        if (instance == null) {
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", "Server Not Found", Notification.Type.ERROR));
+            return false;
+        }
+        ServerBackend backend = instance.getBackend();
+        if (backend == null) {
+            return false;
+        }
+        NetworkTransferFeature transfer = backend.getFeature(NetworkTransferFeature.class).orElse(null);
+        if (transfer == null) {
+            ScreenManager.getInstance().execute(() -> new Notification("ReSync", "Network Transfer Missing", Notification.Type.ERROR));
+            return false;
+        }
+        FileSystemProvider fileSystem = backend.getFileSystem();
+        if (fileSystem == null) {
+            return false;
+        }
+
+        Path serverPath = Path.of(instance.getPath());
+        Path pluginsPath = serverPath.resolve(resolvePluginsDirectory(instance));
+        Path reSyncJarPath = pluginsPath.resolve("ReSync.jar");
+        ensureDirectory(fileSystem, pluginsPath);
+        transfer.downloadFile(RESYNC_RELEASE_URL, reSyncJarPath, null).get(90, TimeUnit.SECONDS);
+        registerReSyncResource(instance, reSyncJarPath);
+
+        Path configDir = pluginsPath.resolve("ReSync");
+        ensureDirectory(fileSystem, configDir);
+        String apiKey = generateApiKey();
+        boolean localBackend = instance.getBackendConfig() != null && "LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
+        String bindHost = localBackend ? "127.0.0.1" : "0.0.0.0";
+        String publicBindEnabled = localBackend ? "false" : "true";
+        String configText = "port=" + RESYNC_PORT + "\n"
+            + "api-key=" + apiKey + "\n"
+            + "bind-host=" + bindHost + "\n"
+            + "public-bind-enabled=" + publicBindEnabled + "\n";
+        fileSystem.write(configDir.resolve("config.properties"), configText).get(30, TimeUnit.SECONDS);
+
+        BackendConfig backendConfig = instance.getBackendConfig();
+        if (backendConfig != null) {
+            if (backendConfig.credentials == null) {
+                backendConfig.credentials = new HashMap<>();
+            }
+            backendConfig.credentials.put("resyncEnabled", "true");
+            instance.save();
+        }
+        return true;
+    }
+
+    private void registerReSyncResource(Instance instance, Path reSyncJarPath) {
+        if (instance == null || reSyncJarPath == null) {
+            return;
+        }
+        try {
+            boolean remoteBackend = instance.getBackendConfig() != null && !"LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
+            if (remoteBackend) {
+                Rebase.get().getResourceManager().invalidateCache(instance);
+                Rebase.get().getResourceManager().getResources(instance).get(30, TimeUnit.SECONDS);
+                return;
+            }
+            Rebase.get().getResourceManager().loadResource(instance, reSyncJarPath).get(30, TimeUnit.SECONDS);
+        } catch (Exception ignored) {
+            Rebase.get().getResourceManager().invalidateCache(instance);
+        }
+    }
+
+    private String generateApiKey() {
+        byte[] key = new byte[32];
+        secureRandom.nextBytes(key);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(key);
+    }
+
+    private String resolvePluginsDirectory(Instance instance) {
+        if (instance == null) {
+            return "plugins";
+        }
+        if (instance.supportsPlugins() || instance.shouldInstallModsAsPlugins()) {
+            return "plugins";
+        }
+        return "plugins";
+    }
+
+    private void ensureDirectory(FileSystemProvider fileSystem, Path path) throws Exception {
+        Boolean exists = fileSystem.exists(path).get(20, TimeUnit.SECONDS);
+        if (Boolean.TRUE.equals(exists)) {
+            return;
+        }
+        fileSystem.createDirectory(path).get(30, TimeUnit.SECONDS);
+    }
+
+    private boolean isReStudioTarget() {
+        if (startupServer != null) {
+            return true;
+        }
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null) {
+            return false;
+        }
+        Instance instance = manager.getInstanceByServerId(serverId);
+        if (instance == null || instance.getBackendConfig() == null) {
+            return false;
+        }
+        return "RESTUDIO".equalsIgnoreCase(instance.getBackendConfig().type);
     }
 
     private void refreshPalette() {
@@ -3117,6 +3737,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
         renderBackground(context, mouseX, mouseY, delta);
 
+        if (studioMode && startupState != StudioStartupState.READY) {
+            renderStartupSurface(context, mouseX, mouseY, delta);
+            return;
+        }
+
         ReSyncStudioView activeView = activeStudioView();
         if (activeView != null) {
             activeView.resize(width, studioEditorHeight());
@@ -3173,6 +3798,22 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         renderStudioDocumentPreview(context);
 
         renderStudioOverlays(context, mouseX, mouseY, delta);
+    }
+
+    private void renderStartupSurface(IDrawContext context, int mouseX, int mouseY, float delta) {
+        updateStartupWidgets();
+        if (startupIcon != null) {
+            startupIcon.render(context, mouseX, mouseY, delta);
+        }
+        if (startupCloseButton != null) {
+            startupCloseButton.render(context, mouseX, mouseY, delta);
+        }
+        if (setupReSyncButton != null && setupReSyncButton.isVisible()) {
+            setupReSyncButton.render(context, mouseX, mouseY, delta);
+        }
+        if (welcomeServerButton != null && welcomeServerButton.isVisible()) {
+            welcomeServerButton.render(context, mouseX, mouseY, delta);
+        }
     }
 
     private ReSyncStudioView activeStudioView() {
@@ -3895,6 +4536,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (studioMode && startupState != StudioStartupState.READY) {
+            return handleStartupMouseClicked(mouseX, mouseY, button);
+        }
         if (handleContextMenuMouseClicked(mouseX, mouseY, button)) {
             return true;
         }
@@ -4046,6 +4690,16 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return button != GLFW.GLFW_MOUSE_BUTTON_RIGHT;
         }
         return hadContextMenu;
+    }
+
+    private boolean handleStartupMouseClicked(double mouseX, double mouseY, int button) {
+        if (startupCloseButton != null && startupCloseButton.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (setupReSyncButton != null && setupReSyncButton.isVisible() && setupReSyncButton.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        return welcomeServerButton != null && welcomeServerButton.isVisible() && welcomeServerButton.mouseClicked(mouseX, mouseY, button);
     }
 
     private boolean handleStudioHudMouseClicked(double mouseX, double mouseY, int button) {

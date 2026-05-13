@@ -10,7 +10,6 @@ import redxax.oxy.remotely.data.flow.world.WorldProfileSettings;
 import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
 import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
-import redxax.oxy.remotely.flow.ui.FlowManagerScreen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Notification;
 
@@ -130,10 +129,6 @@ public class ReSyncWorldService {
         }
         if ("auditSnapshot".equalsIgnoreCase(action) && message.getData() != null) {
             ScreenManager.getInstance().execute(() -> {
-                FlowManagerScreen screen = FlowManagerScreen.getOpenScreen(serverId);
-                if (screen != null) {
-                    screen.handleWorldAuditSnapshot(message.getData());
-                }
                 FlowEditorScreen.handleWorldAuditSnapshotForServer(serverId, message.getData());
             });
             return;
@@ -324,10 +319,6 @@ public class ReSyncWorldService {
             return;
         }
         ScreenManager.getInstance().execute(() -> {
-            FlowManagerScreen screen = FlowManagerScreen.getOpenScreen(serverId);
-            if (screen != null) {
-                screen.handleWorldOperationResult(result);
-            }
             FlowEditorScreen.handleWorldOperationResultForServer(serverId, result);
         });
     }
