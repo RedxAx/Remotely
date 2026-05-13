@@ -4,6 +4,7 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.flow.data.TabDefinition;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -12,7 +13,6 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
-import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
@@ -32,6 +32,7 @@ public class TabDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private final TabDefinition tab;
     private final String serverId;
     private final Object parent;
+    private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState().width(320).padding(6);
 
     private SidePanel inspectorPanel;
     private CodeEditorWidget headerInput;
@@ -132,47 +133,55 @@ public class TabDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
     private void buildInspectorPanel() {
         if (inspectorPanel == null) {
-            inspectorPanel = createSidePanel("tab_inspector").width(340).y(0).height(height).show();
+            inspectorPanel = createSidePanel("tab_inspector").width(panelState.width()).y(0).height(height).show();
         }
         Container container = inspectorPanel.container();
-        container.layout(new ManagedLayout()).columns(1).padding(6).scrolling(true).enableSelecting(false);
-        container.clearWidgets();
+        container.layout(new ManagedLayout()).columns(1).padding(panelState.padding()).scrolling(true).enableSelecting(false);
+        int rowWidth = panelState.rowWidth(inspectorPanel);
+        if (headerInput != null && entryFormatInput != null && footerInput != null) {
+            if (!headerInput.isFocused()) {
+                headerInput.setText(tab.getHeader());
+            }
+            if (!entryFormatInput.isFocused()) {
+                entryFormatInput.setText(tab.getEntryFormat() != null ? tab.getEntryFormat() : "%player%");
+            }
+            if (!footerInput.isFocused()) {
+                footerInput.setText(tab.getFooter());
+            }
+            return;
+        }
 
-        container.addWidget(new AnimatedButton.Builder().label("Tab").size(220, 20).active(false).build());
-        container.addWidget(new AnimatedButton.Builder().label("ID: " + tab.getId()).size(220, 18).active(false).build());
-
-        container.addWidget(new AnimatedButton.Builder().label("Header").size(220, 20).active(false).build());
-        headerInput = new CodeEditorWidget(0, 0, 220, 100);
+        headerInput = new CodeEditorWidget(0, 0, rowWidth, 100);
         headerInput.setText(tab.getHeader());
         headerInput.onChange = (t) -> {
             tab.setHeader(headerInput.getText());
             refreshPreviewText();
         };
-        container.addWidget(headerInput);
+        container.addWidget(panelState.codeRow("Header", headerInput, rowWidth, 118));
 
-        container.addWidget(new AnimatedButton.Builder().label("Player Entry").size(220, 20).active(false).build());
         entryFormatInput = new TextInputWidget.Builder()
             .text(tab.getEntryFormat() != null ? tab.getEntryFormat() : "%player%")
-            .placeholder("%player%")
-            .size(220, 22)
+            .placeholder("Entry")
+            .forcePlaceholder(false)
+            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
             .onChange(this::updateEntryFormat)
             .build();
-        container.addWidget(entryFormatInput);
+        ReSyncStudioPanelState.disableEntrance(entryFormatInput);
+        container.addWidget(panelState.row("Entry", entryFormatInput, rowWidth));
 
-        container.addWidget(new AnimatedButton.Builder().label("Footer").size(220, 20).active(false).build());
-        footerInput = new CodeEditorWidget(0, 0, 220, 100);
+        footerInput = new CodeEditorWidget(0, 0, rowWidth, 100);
         footerInput.setText(tab.getFooter());
         footerInput.onChange = (t) -> {
             tab.setFooter(footerInput.getText());
             refreshPreviewText();
         };
-        container.addWidget(footerInput);
+        container.addWidget(panelState.codeRow("Footer", footerInput, rowWidth, 118));
     }
 
     private void updateLayout() {
         if (inspectorPanel != null) {
             int contentTop = header().headerSize + 5;
-            inspectorPanel.y(contentTop).height(Math.max(120, height - contentTop - 8)).width(Math.max(280, (int) (width * 0.32f)));
+            inspectorPanel.y(contentTop).height(Math.max(120, height - contentTop - 8)).width(Math.max(panelState.width(), (int) (width * 0.32f)));
         }
     }
 

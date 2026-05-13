@@ -7,6 +7,7 @@ import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.GuiElement;
 import redxax.oxy.remotely.flow.data.Visual;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
@@ -82,6 +83,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private final GuiDefinition gui;
     private final String serverId;
     private final Object parent;
+    private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState().width(300).padding(6);
     private final boolean forceSuperScreen;
 
     private Container gridContainer;
@@ -103,6 +105,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private int dragEndSlot = -1;
     private GuiElement dragResizeElement;
     private GuiElement selectedElement;
+    private GuiElement lastInspectorElement;
     private Visual placementTemplate = new Visual("PAPER", "Item");
 
     private TextInputWidget guiTitleInput;
@@ -393,8 +396,8 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         gridContainer.layout(new FreeLayout()).columns(1).padding(0).scrolling(false).enableSelecting(false).backgroundDrawing(false);
         addDrawableChild(gridContainer);
 
-        inspectorPanel = createSidePanel("gui_inspector").width(280).y(0).height(height).show();
-        inspectorPanel.container().layout(new ManagedLayout()).columns(1).padding(6).scrolling(true).enableSelecting(false);
+        inspectorPanel = createSidePanel("gui_inspector").width(panelState.width()).y(0).height(height).show();
+        inspectorPanel.container().layout(new ManagedLayout()).columns(1).padding(panelState.padding()).scrolling(true).enableSelecting(false);
     }
 
     private void buildInspectorPanel() {
@@ -413,40 +416,54 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         if (guiTitleInput != null && guiRowsSelect != null && extendInventoryToggle != null) {
             return;
         }
-        container.clearWidgets();
         inspectorDynamicWidgets.clear();
-        container.addWidget(buildSectionLabel("GUI"));
+        int rowWidth = panelState.rowWidth(inspectorPanel);
         guiTitleInput = new TextInputWidget.Builder()
             .text(gui.getTitle() != null ? gui.getTitle() : "")
             .placeholder("Title")
-            .size(180, 22)
+            .forcePlaceholder(false)
+            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
             .onChange(this::updateGuiTitle)
             .build();
         disableEntrance(guiTitleInput);
-        container.addWidget(guiTitleInput);
+        container.addWidget(panelState.row("Title", guiTitleInput, rowWidth));
 
-        container.addWidget(buildLabel("rows"));
         List<Integer> rowOptions = List.of(1, 2, 3, 4, 5, 6);
         guiRowsSelect = new DropDownWidget.Builder<>(rowOptions)
-            .size(180, 22)
+            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
             .selectedItem(Math.clamp(gui.getRows(), 1, 6))
             .displayFunction(rows -> rows + (rows == 1 ? " row" : " rows"))
             .onSelectionChanged(this::updateRows)
+            .entranceAnimation(false)
             .build();
         disableEntrance(guiRowsSelect);
-        container.addWidget(guiRowsSelect);
+        container.addWidget(panelState.row("Rows", guiRowsSelect, rowWidth));
 
         extendInventoryToggle = new ToggleWidget.Builder()
-            .label("Extend to player inventory")
-            .size(180, 18)
+            .label("Player Inventory")
+            .size(rowWidth, 20)
             .toggled(gui.isExtendToPlayerInventory())
             .onChange(this::setExtendInventoryMode)
+            .entranceAnimation(false)
             .build();
         disableEntrance(extendInventoryToggle);
-        container.addWidget(extendInventoryToggle);
+        container.addWidget(panelState.row("Inventory", extendInventoryToggle, rowWidth));
     }
 
     private void rebuildInspectorItemSection(Container container) {
+        if (selectedElement == lastInspectorElement && !inspectorDynamicWidgets.isEmpty()) {
+            if (materialSelector != null) {
+                refreshMaterialSelector();
+            }
+            if (flowSelector != null) {
+                refreshFlowSelector();
+            }
+            if (guiSelector != null) {
+                refreshGuiSelector();
+            }
+            return;
+        }
+        lastInspectorElement = selectedElement;
         for (AnimatedWidget widget : inspectorDynamicWidgets) {
             container.removeWidget(widget);
         }
@@ -455,134 +472,117 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         flowSelector = null;
         guiSelector = null;
 
-        AnimatedButton itemSection = buildSectionLabel("Item");
-        container.addWidget(itemSection);
-        inspectorDynamicWidgets.add(itemSection);
+        int rowWidth = panelState.rowWidth(inspectorPanel);
         if (selectedElement == null) {
-            AnimatedButton hint = buildHintLabel("Select an item to edit");
-            container.addWidget(hint);
-            inspectorDynamicWidgets.add(hint);
+            AnimatedButton hint = panelState.hint("Select Item", rowWidth);
+            insertInspectorDynamic(container, hint);
             return;
         }
 
         Visual visual = ensureVisual(selectedElement);
 
-        AnimatedButton slotsLabel = buildLabel("slots");
-        container.addWidget(slotsLabel);
-        inspectorDynamicWidgets.add(slotsLabel);
         TextInputWidget slotsInput = new TextInputWidget.Builder()
             .text(formatSlots(selectedElement))
             .placeholder("Slots")
-            .size(180, 22)
+            .forcePlaceholder(false)
+            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
             .active(false)
             .build();
         disableEntrance(slotsInput);
-        container.addWidget(slotsInput);
-        inspectorDynamicWidgets.add(slotsInput);
+        AnimatedWidget slotsRow = panelState.row("Slots", slotsInput, rowWidth);
+        insertInspectorDynamic(container, slotsRow);
 
-        AnimatedButton nameLabel = buildLabel("name");
-        container.addWidget(nameLabel);
-        inspectorDynamicWidgets.add(nameLabel);
         TextInputWidget nameInput = new TextInputWidget.Builder()
             .text(visual.getName() != null ? visual.getName() : "")
             .placeholder("Name")
-            .size(180, 22)
+            .forcePlaceholder(false)
+            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
             .onChange(text -> {
                 updateVisualName(visual, text);
                 applySlotState();
             })
             .build();
         disableEntrance(nameInput);
-        container.addWidget(nameInput);
-        inspectorDynamicWidgets.add(nameInput);
+        AnimatedWidget nameRow = panelState.row("Name", nameInput, rowWidth);
+        insertInspectorDynamic(container, nameRow);
 
-        AnimatedButton materialLabel = buildLabel("material");
-        container.addWidget(materialLabel);
-        inspectorDynamicWidgets.add(materialLabel);
         materialSelector = new ItemSelectorWidget.Builder(this)
-            .size(180, 140)
+            .size(rowWidth, 140)
             .embedded(true)
             .dismissOnSelect(false)
             .emptyMessage("No items")
             .build();
         disableEntrance(materialSelector);
-        container.addWidget(materialSelector);
-        inspectorDynamicWidgets.add(materialSelector);
+        AnimatedWidget materialRow = panelState.row("Material", materialSelector, rowWidth);
+        materialRow.setHeight(156);
+        insertInspectorDynamic(container, materialRow);
 
-        AnimatedButton modelLabel = buildLabel("model data");
-        container.addWidget(modelLabel);
-        inspectorDynamicWidgets.add(modelLabel);
         TextInputWidget modelInput = new TextInputWidget.Builder()
             .text(visual.getModelData() != null ? String.valueOf(visual.getModelData()) : "")
-            .placeholder("Custom model data")
-            .size(180, 22)
+            .placeholder("Model Data")
+            .forcePlaceholder(false)
+            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
             .onChange(text -> updateModelData(visual, text))
             .build();
         disableEntrance(modelInput);
-        container.addWidget(modelInput);
-        inspectorDynamicWidgets.add(modelInput);
+        AnimatedWidget modelRow = panelState.row("Model", modelInput, rowWidth);
+        insertInspectorDynamic(container, modelRow);
 
-        AnimatedButton loreLabel = buildLabel("lore");
-        container.addWidget(loreLabel);
-        inspectorDynamicWidgets.add(loreLabel);
         String loreText = visual.getLore() != null ? String.join("\n", visual.getLore()) : "";
         TextAreaWidget loreInput = new TextAreaWidget.Builder()
             .text(loreText)
-            .placeholder("Lore lines")
-            .size(180, 70)
+            .placeholder("Lore")
+            .size(rowWidth, 70)
             .onChange(text -> updateLore(visual, text))
             .build();
         disableEntrance(loreInput);
-        container.addWidget(loreInput);
-        inspectorDynamicWidgets.add(loreInput);
+        AnimatedWidget loreRow = panelState.row("Lore", loreInput, rowWidth);
+        loreRow.setHeight(88);
+        insertInspectorDynamic(container, loreRow);
 
-        AnimatedButton flowSection = buildSectionLabel("Flow");
-        container.addWidget(flowSection);
-        inspectorDynamicWidgets.add(flowSection);
         flowSelector = new ItemSelectorWidget.Builder(this)
-            .size(180, 140)
+            .size(rowWidth, 140)
             .embedded(true)
             .dismissOnSelect(false)
             .emptyMessage("No flows")
             .build();
         disableEntrance(flowSelector);
-        container.addWidget(flowSelector);
-        inspectorDynamicWidgets.add(flowSelector);
+        AnimatedWidget flowSelectorRow = panelState.row("Flow", flowSelector, rowWidth);
+        flowSelectorRow.setHeight(156);
+        insertInspectorDynamic(container, flowSelectorRow);
 
         RowWidget flowRow = new RowWidget.Builder()
-            .size(180, 22)
+            .size(rowWidth, 22)
             .addWidget(new AnimatedButton.Builder()
-                .label("Open flow")
-                .size(180, 22)
+                .label("Open Flow")
+                .size(rowWidth, 22)
+                .entranceAnimation(false)
                 .onClick(this::openSelectedFlow)
                 .build())
             .build();
         disableEntrance(flowRow);
-        container.addWidget(flowRow);
-        inspectorDynamicWidgets.add(flowRow);
+        insertInspectorDynamic(container, flowRow);
 
-        AnimatedButton menuSection = buildSectionLabel("Menu");
-        container.addWidget(menuSection);
-        inspectorDynamicWidgets.add(menuSection);
         guiSelector = new ItemSelectorWidget.Builder(this)
-            .size(180, 120)
+            .size(rowWidth, 120)
             .embedded(true)
             .dismissOnSelect(false)
             .emptyMessage("No menus")
             .build();
         disableEntrance(guiSelector);
-        container.addWidget(guiSelector);
-        inspectorDynamicWidgets.add(guiSelector);
+        AnimatedWidget guiSelectorRow = panelState.row("Menu", guiSelector, rowWidth);
+        guiSelectorRow.setHeight(136);
+        insertInspectorDynamic(container, guiSelectorRow);
 
         AnimatedButton removeButton = new AnimatedButton.Builder()
-            .label("Remove item")
-            .size(180, 22)
+            .label("Remove Item")
+            .size(rowWidth, 22)
             .accentType(ThemeManager.getAccent("danger"))
+            .entranceAnimation(false)
             .onClick(() -> removeElement(selectedElement))
             .build();
         disableEntrance(removeButton);
-        container.addWidget(removeButton);
-        inspectorDynamicWidgets.add(removeButton);
+        insertInspectorDynamic(container, removeButton);
         if (materialSelector != null) {
             materialSelector.openEmbedded();
             refreshMaterialSelector();
@@ -618,6 +618,12 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             String current = selectedElement.getVisual().getMaterial();
             setSelectorSelection(materialSelector, formatMaterialLabel(current));
         }
+    }
+
+    private void insertInspectorDynamic(Container container, AnimatedWidget widget) {
+        ReSyncStudioPanelState.disableEntrance(widget);
+        container.addWidget(widget);
+        inspectorDynamicWidgets.add(widget);
     }
 
     private List<String> materialOptions() {
@@ -1148,7 +1154,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
         int contentTop = header().headerSize + 5;
         int contentHeight = Math.max(120, height - contentTop - PANEL_PADDING);
-        int desiredPanelWidth = Math.max(240, (int) (width * 0.28f));
+        int desiredPanelWidth = Math.max(panelState.width(), (int) (width * 0.28f));
 
         if (inspectorPanel != null) {
             inspectorPanel.y(contentTop).height(contentHeight).width(desiredPanelWidth);
@@ -1345,9 +1351,15 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             selectedElement = null;
         }
         placementTemplate = snapshot.placementTemplate != null ? snapshot.placementTemplate.copy() : new Visual("PAPER", "Item");
-        guiTitleInput = null;
-        guiRowsSelect = null;
-        extendInventoryToggle = null;
+        if (guiTitleInput != null) {
+            guiTitleInput.setText(gui.getTitle() != null ? gui.getTitle() : "");
+        }
+        if (guiRowsSelect != null) {
+            guiRowsSelect.setSelectedItem(Math.clamp(gui.getRows(), 1, 6));
+        }
+        if (extendInventoryToggle != null) {
+            extendInventoryToggle.setValue(gui.isExtendToPlayerInventory());
+        }
         applyingHistory = false;
         rebuildGrid();
         buildInspectorPanel();
@@ -1402,31 +1414,6 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             return guiId;
         }
         return name;
-    }
-
-    private AnimatedButton buildSectionLabel(String text) {
-        AnimatedButton label = buildLabel(text);
-        label.accentType = ThemeManager.getAccent("calm");
-        return label;
-    }
-
-    private AnimatedButton buildLabel(String text) {
-        AnimatedButton label = new AnimatedButton.Builder()
-            .label(text)
-            .size(180, 16)
-            .centered(false)
-            .active(false)
-            .flat(true)
-            .transparent(true)
-            .animateElevation(false)
-            .enableHoverColors(false)
-            .build();
-        disableEntrance(label);
-        return label;
-    }
-
-    private AnimatedButton buildHintLabel(String text) {
-        return buildLabel(text);
     }
 
     private void disableEntrance(AnimatedWidget widget) {

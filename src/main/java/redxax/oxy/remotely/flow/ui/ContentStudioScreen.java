@@ -10,6 +10,7 @@ import redxax.oxy.remotely.flow.data.FlowConnection;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowNode;
 import redxax.oxy.remotely.flow.registry.NodeDefinition;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.packcontent.PackContentRegistry;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
@@ -20,6 +21,7 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.AnimatedButton;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
@@ -39,14 +41,16 @@ import java.util.Map;
 import java.util.Set;
 
 public class ContentStudioScreen extends FlowEditorScreen {
-    private static final int PANEL_WIDTH = 300;
+    private static final int PANEL_WIDTH = 150;
     private static final int PANEL_TOP = 54;
     private final String flowId;
     private final FlowManager flowManager;
+    private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
     private SidePanel contentPanel;
     private String selectedBranch = "";
     private MountableButtonWidget summaryWidget;
     private final Map<String, MountableButtonWidget> eventRows = new java.util.HashMap<>();
+    private final List<AnimatedWidget> contentPanelWidgets = new ArrayList<>();
     private final List<DropDownWidget<String>> panelDropdowns = new ArrayList<>();
     private ItemSelectorWidget activeSearchSelector;
     private static final Set<String> STUDIO_ROOT_INPUTS = Set.of(
@@ -295,7 +299,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
         contentPanel.container()
             .layout(new ManagedLayout())
             .columns(1)
-            .padding(5)
+            .padding(panelState.padding())
             .scrolling(true)
             .enableSelecting(false);
     }
@@ -305,7 +309,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
             return;
         }
         Container container = contentPanel.container();
-        container.clearWidgets();
+        clearContentPanelWidgets(container);
         eventRows.clear();
         panelDropdowns.clear();
         CustomContentDefinition definition = CustomContentGraphAdapter.toDefinition(graph);
@@ -313,20 +317,20 @@ public class ContentStudioScreen extends FlowEditorScreen {
         if (definition == null || type == null) {
             return;
         }
-        int rowWidth = Math.max(260, (contentPanel != null ? contentPanel.getDesiredWidth() : PANEL_WIDTH) - 16);
+        int rowWidth = contentRowWidth();
         summaryWidget = new MountableButtonWidget.Builder(definition.getDisplayName())
             .description(contentSummary(definition))
             .iconPath(iconForType(type))
             .onClick(() -> selectedBranch = firstBranch())
-            .addButton(new SquareButtonWidget.Builder().imagePath("save.png").hint("Save Content").onClick(this::onSave).build())
+            .addButton(new SquareButtonWidget.Builder().imagePath("save.png").hint("Save Content").entranceAnimation(false).onClick(this::onSave).build())
             .build();
         summaryWidget.setSize(rowWidth, 30);
-        container.addWidget(summaryWidget);
-        container.addWidget(textRow("Name", definition.getDisplayName(), rowWidth, value -> {
+        insertContentPanelWidget(container, summaryWidget);
+        insertContentPanelWidget(container, textRow("Name", definition.getDisplayName(), rowWidth, value -> {
             setProperty("name", value);
             updateSummary();
         }));
-        container.addWidget(dropdownRow("Type", List.of("item", "armor", "block"), type, rowWidth, value -> {
+        insertContentPanelWidget(container, dropdownRow("Type", List.of("item", "armor", "block"), type, rowWidth, value -> {
             FlowNode start = CustomContentGraphAdapter.findStartNode(graph);
             if (start != null) {
                 start.setType(CustomContentGraphAdapter.nodeType(value));
@@ -336,18 +340,18 @@ public class ContentStudioScreen extends FlowEditorScreen {
                 refreshContentPanel();
             }
         }));
-        container.addWidget(dropdownRow("Provider", providerOptions(), definition.getProvider(), rowWidth, value -> {
+        insertContentPanelWidget(container, dropdownRow("Provider", providerOptions(), definition.getProvider(), rowWidth, value -> {
             setProperty("provider", value);
             refreshNodeRegistry();
             refreshContentPanel();
         }));
         if ("vanilla".equalsIgnoreCase(definition.getProvider())) {
-            container.addWidget(searchableRow("Material", materialOptions(), definition.getMaterial(), rowWidth, value -> {
+            insertContentPanelWidget(container, searchableRow("Material", materialOptions(), definition.getMaterial(), rowWidth, value -> {
                 setProperty("material", value.toUpperCase(Locale.ROOT));
                 updateSummary();
             }));
         } else {
-            container.addWidget(searchableRow("External ID", providerAssetOptions(definition.getProvider()), definition.getExternalId(), rowWidth, value -> {
+            insertContentPanelWidget(container, searchableRow("External ID", providerAssetOptions(definition.getProvider()), definition.getExternalId(), rowWidth, value -> {
                 setProperty("external_id", value);
                 updateSummary();
             }));
@@ -355,25 +359,44 @@ public class ContentStudioScreen extends FlowEditorScreen {
         RowWidget detailRow = new RowWidget.Builder()
             .size(rowWidth, 20)
             .padding(4)
-            .addWidget(new AnimatedButton.Builder().label("Details").onClick(this::showDetailsPopup).build())
-            .addWidget(new AnimatedButton.Builder().label("Rules").onClick(this::showRulesPopup).build())
+            .addWidget(new AnimatedButton.Builder().label("Details").entranceAnimation(false).onClick(this::showDetailsPopup).build())
+            .addWidget(new AnimatedButton.Builder().label("Rules").entranceAnimation(false).onClick(this::showRulesPopup).build())
             .build();
-        container.addWidget(detailRow);
-        container.addWidget(section("Events", rowWidth));
+        insertContentPanelWidget(container, detailRow);
         for (CustomContentGraphAdapter.TriggerDescriptor trigger : CustomContentGraphAdapter.triggersForType(type)) {
-            container.addWidget(eventRow(trigger, rowWidth));
+            insertContentPanelWidget(container, eventRow(trigger, rowWidth));
         }
         container.updateWidgetPositions();
     }
 
+    private void clearContentPanelWidgets(Container container) {
+        for (AnimatedWidget widget : new ArrayList<>(contentPanelWidgets)) {
+            container.removeWidget(widget);
+        }
+        contentPanelWidgets.clear();
+    }
+
+    private void insertContentPanelWidget(Container container, AnimatedWidget widget) {
+        ReSyncStudioPanelState.disableEntrance(widget);
+        container.addWidget(widget);
+        contentPanelWidgets.add(widget);
+    }
+
+    private int contentRowWidth() {
+        if (contentPanel == null) {
+            return Math.max(120, PANEL_WIDTH - panelState.padding() * 2);
+        }
+        return Math.max(120, contentPanel.getDesiredWidth() - panelState.padding() * 2);
+    }
+
     private void addLogicRows(Container container, String type, int rowWidth) {
-        container.addWidget(section("Logic", rowWidth));
-        container.addWidget(new MountableButtonWidget.Builder(eventTitle(selectedBranch))
+        MountableButtonWidget selectedRow = new MountableButtonWidget.Builder(eventTitle(selectedBranch))
             .description(actionSummary(selectedBranch))
             .iconPath("graph.png")
-            .addButton(new SquareButtonWidget.Builder().imagePath("search.png").hint("Focus").onClick(() -> focusContentBranch(selectedBranch)).build())
-            .addButton(new SquareButtonWidget.Builder().imagePath("panel.png").hint("Nodes").onClick(this::toggleNodePalette).build())
-            .build());
+            .addButton(new SquareButtonWidget.Builder().imagePath("search.png").hint("Focus").entranceAnimation(false).onClick(() -> focusContentBranch(selectedBranch)).build())
+            .addButton(new SquareButtonWidget.Builder().imagePath("panel.png").hint("Nodes").entranceAnimation(false).onClick(this::toggleNodePalette).build())
+            .build();
+        insertContentPanelWidget(container, selectedRow);
         for (CustomContentGraphAdapter.TriggerDescriptor trigger : CustomContentGraphAdapter.triggersForType(type)) {
             MountableButtonWidget row = new MountableButtonWidget.Builder(eventTitle(trigger.pin()))
                 .description((trigger.pin().equals(selectedBranch) ? "Selected" : "Open") + "  " + actionSummary(trigger.pin()))
@@ -386,28 +409,29 @@ public class ContentStudioScreen extends FlowEditorScreen {
                 .build();
             row.setSize(rowWidth, 28);
             row.setSelected(trigger.pin().equals(selectedBranch));
-            container.addWidget(row);
+            insertContentPanelWidget(container, row);
         }
     }
 
     private void addDetailsRows(Container container, CustomContentDefinition definition, int rowWidth) {
-        container.addWidget(section("Details", rowWidth));
-        container.addWidget(textRow("ID", definition.getId(), rowWidth, value -> {
+        insertContentPanelWidget(container, textRow("ID", definition.getId(), rowWidth, value -> {
             setProperty("content_id", value);
             updateSummary();
         }));
-        container.addWidget(textRow("Model", definition.getCustomModelData() == null ? "" : String.valueOf(definition.getCustomModelData()), rowWidth, value -> {
+        insertContentPanelWidget(container, textRow("Model", definition.getCustomModelData() == null ? "" : String.valueOf(definition.getCustomModelData()), rowWidth, value -> {
             setProperty("custom_model_data", value);
             updateSummary();
         }));
         CodeEditorWidget lore = new CodeEditorWidget(0, 0, Math.max(220, rowWidth - 18), 86);
+        ReSyncStudioPanelState.disableEntrance(lore);
         lore.setText(String.join("\n", definition.getLore()));
-        container.addWidget(new TitledRowWidget.Builder().title("Lore").size(rowWidth, 102).padding(4).addWidget(lore).build());
-        container.addWidget(textRow("Tags", String.join(", ", definition.getTags()), rowWidth, value -> {
+        TitledRowWidget loreRow = new TitledRowWidget.Builder().title("Lore").size(rowWidth, 102).padding(4).addWidget(lore).build();
+        insertContentPanelWidget(container, loreRow);
+        insertContentPanelWidget(container, textRow("Tags", String.join(", ", definition.getTags()), rowWidth, value -> {
             setProperty("tags", value);
             updateSummary();
         }));
-        container.addWidget(new AnimatedButton.Builder()
+        insertContentPanelWidget(container, new AnimatedButton.Builder()
             .label("Apply Details")
             .size(rowWidth, 20)
             .accentType(ThemeManager.getAccent("nice"))
@@ -420,10 +444,9 @@ public class ContentStudioScreen extends FlowEditorScreen {
     }
 
     private void addRulesRows(Container container, String type, int rowWidth) {
-        container.addWidget(section("Rules", rowWidth));
-        container.addWidget(textRow("Permission", textProperty("permission"), rowWidth, value -> setProperty("permission", value)));
-        container.addWidget(textRow("Cooldown", textProperty("cooldown_ticks"), rowWidth, value -> setProperty("cooldown_ticks", parseInt(value))));
-        container.addWidget(textRow("Chance", textProperty("chance_percent"), rowWidth, value -> setProperty("chance_percent", parseDouble(value))));
+        insertContentPanelWidget(container, textRow("Permission", textProperty("permission"), rowWidth, value -> setProperty("permission", value)));
+        insertContentPanelWidget(container, textRow("Cooldown", textProperty("cooldown_ticks"), rowWidth, value -> setProperty("cooldown_ticks", parseInt(value))));
+        insertContentPanelWidget(container, textRow("Chance", textProperty("chance_percent"), rowWidth, value -> setProperty("chance_percent", parseDouble(value))));
         TextInputWidget worlds = new TextInputWidget.Builder()
             .text(textProperty("allowed_worlds"))
             .placeholder("Worlds")
@@ -431,71 +454,61 @@ public class ContentStudioScreen extends FlowEditorScreen {
             .size(174, 20)
             .onChange(value -> setProperty("allowed_worlds", value))
             .build();
-        container.addWidget(new TitledRowWidget.Builder().title("Worlds").size(rowWidth, 36).padding(4).addWidget(searchableInputRow(worlds, worldOptions(), true)).build());
+        ReSyncStudioPanelState.disableEntrance(worlds);
+        TitledRowWidget worldsRow = new TitledRowWidget.Builder().title("Worlds").size(rowWidth, 36).padding(4).addWidget(searchableInputRow(worlds, worldOptions(), true)).build();
+        insertContentPanelWidget(container, worldsRow);
         RowWidget toggles = new RowWidget.Builder()
             .size(rowWidth, 20)
             .padding(4)
-            .addWidget(new ToggleWidget.Builder().label("Cancel").toggled(boolProperty("cancel_event")).size(90, 20).onChange(value -> setProperty("cancel_event", value)).build())
-            .addWidget(new ToggleWidget.Builder().label("Consume").toggled(boolProperty("consume_event")).size(90, 20).onChange(value -> setProperty("consume_event", value)).build())
+            .addWidget(new ToggleWidget.Builder().label("Cancel").toggled(boolProperty("cancel_event")).size(90, 20).entranceAnimation(false).onChange(value -> setProperty("cancel_event", value)).build())
+            .addWidget(new ToggleWidget.Builder().label("Consume").toggled(boolProperty("consume_event")).size(90, 20).entranceAnimation(false).onChange(value -> setProperty("consume_event", value)).build())
             .build();
-        container.addWidget(toggles);
+        insertContentPanelWidget(container, toggles);
         if (showsHandFilter(type, selectedBranch)) {
-            container.addWidget(dropdownRow("Hand", List.of("any", "main hand", "offhand"), textProperty("hand_filter"), rowWidth, value -> setProperty("hand_filter", value)));
+            insertContentPanelWidget(container, dropdownRow("Hand", List.of("any", "main hand", "offhand"), textProperty("hand_filter"), rowWidth, value -> setProperty("hand_filter", value)));
         }
         if (showsTargetFilter(selectedBranch)) {
-            container.addWidget(dropdownRow("Target", List.of("any", "player", "living entity", "hostile", "passive"), textProperty("target_filter"), rowWidth, value -> setProperty("target_filter", value)));
+            insertContentPanelWidget(container, dropdownRow("Target", List.of("any", "player", "living entity", "hostile", "passive"), textProperty("target_filter"), rowWidth, value -> setProperty("target_filter", value)));
         }
     }
 
     private void addAssetRows(Container container, CustomContentDefinition definition, int rowWidth) {
-        container.addWidget(section("Assets", rowWidth));
-        container.addWidget(dropdownRow("Provider", providerOptions(), definition.getProvider(), rowWidth, value -> {
+        insertContentPanelWidget(container, dropdownRow("Provider", providerOptions(), definition.getProvider(), rowWidth, value -> {
             setProperty("provider", value);
             refreshNodeRegistry();
             refreshContentPanel();
         }));
         if ("vanilla".equalsIgnoreCase(definition.getProvider())) {
-            container.addWidget(searchableRow("Material", materialOptions(), definition.getMaterial(), rowWidth, value -> {
+            insertContentPanelWidget(container, searchableRow("Material", materialOptions(), definition.getMaterial(), rowWidth, value -> {
                 setProperty("material", value.toUpperCase(Locale.ROOT));
                 updateSummary();
             }));
         } else {
-            container.addWidget(searchableRow("External ID", providerAssetOptions(definition.getProvider()), definition.getExternalId(), rowWidth, value -> {
+            insertContentPanelWidget(container, searchableRow("External ID", providerAssetOptions(definition.getProvider()), definition.getExternalId(), rowWidth, value -> {
                 setProperty("external_id", value);
                 updateSummary();
             }));
         }
-        container.addWidget(textRow("Model", definition.getCustomModelData() == null ? "" : String.valueOf(definition.getCustomModelData()), rowWidth, value -> setProperty("custom_model_data", value)));
+        insertContentPanelWidget(container, textRow("Model", definition.getCustomModelData() == null ? "" : String.valueOf(definition.getCustomModelData()), rowWidth, value -> setProperty("custom_model_data", value)));
     }
 
     private void addPreviewRows(Container container, CustomContentDefinition definition, String type, int rowWidth) {
-        container.addWidget(section("Preview", rowWidth));
-        container.addWidget(new MountableButtonWidget.Builder(definition.getDisplayName())
+        insertContentPanelWidget(container, new MountableButtonWidget.Builder(definition.getDisplayName())
             .description(contentCardPreview(definition, type))
             .iconPath(iconForType(type))
             .build());
-        container.addWidget(new MountableButtonWidget.Builder("Events")
+        insertContentPanelWidget(container, new MountableButtonWidget.Builder("Events")
             .description(CustomContentGraphAdapter.getEnabledTriggerBranches(graph).size() + " Enabled  " + branchActionCount(selectedBranch) + " Actions")
             .iconPath("graph.png")
             .build());
-        container.addWidget(new MountableButtonWidget.Builder("State")
+        insertContentPanelWidget(container, new MountableButtonWidget.Builder("State")
             .description(saveState(definition))
             .iconPath("save.png")
             .build());
-        container.addWidget(new MountableButtonWidget.Builder("Validation")
+        insertContentPanelWidget(container, new MountableButtonWidget.Builder("Validation")
             .description(contentValidationSummary(definition))
             .iconPath("stop.png")
             .build());
-    }
-
-    private AnimatedButton section(String label, int width) {
-        return new AnimatedButton.Builder()
-            .label(label)
-            .size(width, 20)
-            .animateElevation(false)
-            .entranceAnimation(false)
-            .accentType(ThemeManager.getAccent("calm"))
-            .build();
     }
 
     private TitledRowWidget textRow(String label, String value, int width, java.util.function.Consumer<String> onChange) {
@@ -505,7 +518,10 @@ public class ContentStudioScreen extends FlowEditorScreen {
             .forcePlaceholder(false)
             .onChange(onChange)
             .build();
-        return new TitledRowWidget.Builder().title(label).size(width, 36).padding(4).addWidget(input).build();
+        ReSyncStudioPanelState.disableEntrance(input);
+        TitledRowWidget row = new TitledRowWidget.Builder().title(label).size(width, 36).padding(4).addWidget(input).build();
+        ReSyncStudioPanelState.disableEntrance(row);
+        return row;
     }
 
     private TitledRowWidget dropdownRow(String label, List<String> choices, String selected, int width, java.util.function.Consumer<String> onChange) {
@@ -522,7 +538,9 @@ public class ContentStudioScreen extends FlowEditorScreen {
             .entranceAnimation(false)
             .build();
         panelDropdowns.add(dropdown);
-        return new TitledRowWidget.Builder().title(label).size(width, 36).padding(4).addWidget(dropdown).build();
+        TitledRowWidget row = new TitledRowWidget.Builder().title(label).size(width, 36).padding(4).addWidget(dropdown).build();
+        ReSyncStudioPanelState.disableEntrance(row);
+        return row;
     }
 
     private TitledRowWidget searchableRow(String label, List<String> choices, String selected, int width, java.util.function.Consumer<String> onChange) {
@@ -544,7 +562,9 @@ public class ContentStudioScreen extends FlowEditorScreen {
                 }
             }, button.getX(), button.getY() + button.getHeight());
         });
-        return new TitledRowWidget.Builder().title(label).size(width, 36).padding(4).addWidget(button).build();
+        TitledRowWidget row = new TitledRowWidget.Builder().title(label).size(width, 36).padding(4).addWidget(button).build();
+        ReSyncStudioPanelState.disableEntrance(row);
+        return row;
     }
 
     private MountableButtonWidget eventRow(CustomContentGraphAdapter.TriggerDescriptor trigger, int width) {
@@ -694,6 +714,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
         SquareButtonWidget selectorButton = new SquareButtonWidget.Builder()
             .imagePath("search.png")
             .hint("Search")
+            .entranceAnimation(false)
             .onClick(() -> {
                 List<String> choices = normalizedOptions(options, input.getText());
                 if (choices.size() == 1 && "Loading".equals(choices.getFirst())) {
@@ -716,12 +737,15 @@ public class ContentStudioScreen extends FlowEditorScreen {
                 }, input.getX(), input.getY() + input.getHeight());
             })
             .build();
-        return new RowWidget.Builder()
+        ReSyncStudioPanelState.disableEntrance(input);
+        RowWidget row = new RowWidget.Builder()
             .size(260, 20)
             .padding(4)
             .addWidget(input)
             .addWidget(selectorButton)
             .build();
+        ReSyncStudioPanelState.disableEntrance(row);
+        return row;
     }
 
     private String selectedDropdownValue(DropDownWidget<String> dropdown) {

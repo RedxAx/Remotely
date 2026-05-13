@@ -1237,6 +1237,7 @@ public class FlowManager {
             if (screen != null) {
                 screen.refresh();
             }
+            FlowEditorScreen.refreshWorldsForServer(serverId);
         });
     }
 
@@ -1262,6 +1263,7 @@ public class FlowManager {
             if (screen != null) {
                 screen.upsertWorldEntry(worldName);
             }
+            FlowEditorScreen.refreshWorldsForServer(serverId);
         });
     }
 
