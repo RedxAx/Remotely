@@ -972,11 +972,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             rebuild();
         }
 
-        private String sanitizeResourceId(String text) {
-            String value = text == null ? "" : text.trim();
-            return value.matches("^[a-zA-Z0-9_]+$") ? value : "";
-        }
-
         private BufferedImage iconFor(ReSyncProjectMetadata.ResourceEntry resource) {
             return switch (iconPathFor(resource)) {
                 case "terminal.png" -> commandIcon;
@@ -996,8 +991,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.GUI -> "panel.png";
                 case ReSyncResourceDragPayload.SCOREBOARD -> "report.png";
                 case ReSyncResourceDragPayload.TAB -> "newTab.png";
-                case ReSyncResourceDragPayload.WORLDGEN -> "earth.png";
-                case ReSyncResourceDragPayload.WORLD -> "earth.png";
+                case ReSyncResourceDragPayload.WORLDGEN, ReSyncResourceDragPayload.WORLD -> "earth.png";
                 default -> "graph.png";
             };
         }
@@ -1016,7 +1010,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
 
         private int currentFolderWidth() {
-            return Math.min(216, Math.max(160, getWidth() / 5));
+            return Math.clamp(getWidth() / 5, 160, 216);
         }
 
         private class ReSyncProjectTreeProvider implements FileSystemProvider {
@@ -1229,32 +1223,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             this.editorPassthroughs = editorPassthroughs;
         }
 
-        GraphSnapshot(Map<String, FlowNode> nodes, List<FlowConnection> connections, Set<String> selectedIds) {
-            Map<String, FlowNode> copiedNodes = new HashMap<>();
-            for (Map.Entry<String, FlowNode> entry : nodes.entrySet()) {
-                FlowNode node = entry.getValue();
-                copiedNodes.put(entry.getKey(), new FlowNode(
-                        node.getType(),
-                        node.getX(),
-                        node.getY(),
-                        new HashMap<>(node.getInputValues())
-                ));
-            }
-            Map<String, FlowNode> immutableNodes = copiedNodes;
-            List<FlowConnection> copiedConnections = new ArrayList<>(connections);
-            Set<String> copiedSelectedIds = new HashSet<>(selectedIds);
-            List<FlowGraph.FunctionParameter> emptyInputs = new ArrayList<>();
-            List<FlowGraph.FunctionParameter> emptyOutputs = new ArrayList<>();
-            List<FlowGraph.EditorPassthrough> emptyPassthroughs = new ArrayList<>();
-            this.nodes = immutableNodes;
-            this.connections = copiedConnections;
-            this.selectedIds = copiedSelectedIds;
-            this.function = false;
-            this.functionInputs = emptyInputs;
-            this.functionOutputs = emptyOutputs;
-            this.editorPassthroughs = emptyPassthroughs;
-        }
-
         GraphSnapshot(FlowGraph graph, Set<String> selectedIds) {
             this(
                 copyNodes(graph.getNodes()),
@@ -1385,12 +1353,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return;
         }
         addStudioDocument(type, id, title == null || title.isBlank() ? id : title, targetGraph, null);
-        syncStudioDocumentTabs();
-        selectStudioDocument(ReSyncProjectMetadata.resourceKey(type, id));
-    }
-
-    private void openStudioDocument(String type, String id, String title) {
-        addStudioDocument(type, id, title == null || title.isBlank() ? id : title, null, null);
         syncStudioDocumentTabs();
         selectStudioDocument(ReSyncProjectMetadata.resourceKey(type, id));
     }
@@ -1905,7 +1867,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             if (!isRunning) {
                 return StudioStartupState.SERVER_STOPPED;
             }
-            if (manager.getFlowAvailabilityIssue(serverId, startupServer) != null) {
+            if (manager.getFlowAvailabilityIssue(serverId, null) != null) {
                 return StudioStartupState.SETUP;
             }
             return StudioStartupState.LOADING;
@@ -2164,7 +2126,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         String apiKey = generateApiKey();
         boolean localBackend = instance.getBackendConfig() != null && "LOCAL".equalsIgnoreCase(instance.getBackendConfig().type);
         String bindHost = localBackend ? "127.0.0.1" : "0.0.0.0";
-        String publicBindEnabled = localBackend ? "false" : "true";
+        String publicBindEnabled = Boolean.toString(!localBackend);
         String configText = "port=" + RESYNC_PORT + "\n"
             + "api-key=" + apiKey + "\n"
             + "bind-host=" + bindHost + "\n"
@@ -3037,7 +2999,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 debug.resume(serverId, session != null ? session.sessionId() : "");
             }
         });
-        debugStepButton = debugHeaderButton("Step", 42, () -> stepDebug("into"));
+        debugStepButton = debugHeaderButton("Step", 42, this::stepDebug);
         debugStopButton = debugHeaderButton("Stop", 42, () -> {
             FlowDebugController debug = debugController();
             if (debug != null) {
@@ -3094,20 +3056,14 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
     }
 
-    private void stepDebug(String mode) {
+    private void stepDebug() {
         FlowDebugController debug = debugController();
         if (debug == null) {
             return;
         }
         FlowDebugController.DebugSession session = debug.getActiveSession();
         String sessionId = session != null ? session.sessionId() : "";
-        switch (mode) {
-            case "into" -> debug.stepInto(serverId, sessionId);
-            case "over" -> debug.stepOver(serverId, sessionId);
-            case "out" -> debug.stepOut(serverId, sessionId);
-            default -> {
-            }
-        }
+        debug.stepInto(serverId, sessionId);
     }
 
     protected void addHeaderButton(IconButton button) {
@@ -4009,7 +3965,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
         List<String> lines = scoreboard.getLines() == null ? List.of() : scoreboard.getLines();
         int maxLines = Math.min(15, lines.size());
-        int panelWidth = Math.min(Math.max(120, width / 3), width - 24);
+        int panelWidth = Math.clamp(width / 3, 120, width - 24);
         int rowHeight = 12;
         int panelHeight = Math.min(height - 24, (maxLines + 1) * rowHeight + 8);
         int startX = x + Math.max(0, (width - panelWidth) / 2);
@@ -4027,7 +3983,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (tab == null) {
             return;
         }
-        int panelWidth = Math.min(Math.max(160, width / 3), width - 24);
+        int panelWidth = Math.clamp(width / 3, 160, width - 24);
         int panelHeight = Math.min(120, height - 24);
         int startX = x + Math.max(0, (width - panelWidth) / 2);
         int startY = y + Math.max(0, (height - panelHeight) / 2);
@@ -4076,7 +4032,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             if (sourcePinWorld != null) {
                 double[] mouseWorld = screenToWorld(dragMouseX, dragMouseY);
                 int dragWireColor = (sourceType != null) ? sourceType.getColor() : (ThemeManager.getColor(ThemeColor.innerBorder) & 0x00FFFFFF) | 0x88000000;
-                drawWire(context, (float)sourcePinWorld[0], (float)sourcePinWorld[1], (float)mouseWorld[0], (float)mouseWorld[1], dragWireColor, 0);
+                drawWire(context, (float)sourcePinWorld[0], (float)sourcePinWorld[1], (float)mouseWorld[0], (float)mouseWorld[1], dragWireColor);
             }
         }
     }
@@ -4184,7 +4140,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (start == null || end == null) {
             return;
         }
-        drawWire(context, (float) start.x(), (float) start.y(), (float) end.x(), (float) end.y(), color, 0);
+        drawWire(context, (float) start.x(), (float) start.y(), (float) end.x(), (float) end.y(), color);
     }
 
     private boolean drawPassthroughConnection(IDrawContext context, FlowConnection connection, int color) {
@@ -4200,7 +4156,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (end == null) {
             return true;
         }
-        drawWire(context, (float) output.x(), (float) output.y(), (float) end.x(), (float) end.y(), color, 0);
+        drawWire(context, (float) output.x(), (float) output.y(), (float) end.x(), (float) end.y(), color);
         return true;
     }
 
@@ -4351,13 +4307,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
         double targetX = minTargetX == Double.MAX_VALUE ? source.x() + 180 : minTargetX;
         if (targetX > source.x() + WIRE_OUT_OFFSET * 3) {
-            return Math.round(source.x() + Math.min(220, Math.max(WIRE_OUT_OFFSET, (targetX - source.x()) * 0.45)));
+            return Math.round(source.x() + Math.clamp((targetX - source.x()) * 0.45, WIRE_OUT_OFFSET, 220));
         }
         return Math.round(source.x() + WIRE_OUT_OFFSET);
     }
 
-    private void drawWire(IDrawContext context, float startX, float startY, float endX, float endY, int color, int laneOffset) {
-        drawWireSegments(context, wireSegments(startX, startY, endX, endY, laneOffset), color);
+    private void drawWire(IDrawContext context, float startX, float startY, float endX, float endY, int color) {
+        drawWireSegments(context, wireSegments(startX, startY, endX, endY), color);
     }
 
     private void drawWireSegments(IDrawContext context, List<WireSegment> segments, int color) {
@@ -4373,14 +4329,14 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
     }
 
-    private List<WireSegment> wireSegments(double x1, double y1, double x2, double y2, int laneOffset) {
+    private List<WireSegment> wireSegments(double x1, double y1, double x2, double y2) {
         int startX = Math.round((float) x1);
         int startY = Math.round((float) y1);
         int endX = Math.round((float) x2);
         int endY = Math.round((float) y2);
-        int outX = startX + WIRE_OUT_OFFSET + laneOffset;
-        int inX = endX - WIRE_OUT_OFFSET - laneOffset;
-        int midY = Math.round((startY + endY) / 2f) + laneOffset;
+        int outX = startX + WIRE_OUT_OFFSET;
+        int inX = endX - WIRE_OUT_OFFSET;
+        int midY = Math.round((startY + endY) / 2f);
         return List.of(
             new WireSegment(startX, startY, outX, startY),
             new WireSegment(outX, startY, outX, midY),
@@ -4564,12 +4520,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
 
 
-        double[] undistortedCoords = headerCoords;
-        double[] worldMouse = screenToWorld(undistortedCoords[0], undistortedCoords[1]);
+        double[] worldMouse = screenToWorld(headerCoords[0], headerCoords[1]);
         int wx = (int)worldMouse[0];
         int wy = (int)worldMouse[1];
 
-        if (handleHeaderButtonsClick((int) undistortedCoords[0], (int) undistortedCoords[1], button)) {
+        if (handleHeaderButtonsClick((int) headerCoords[0], (int) headerCoords[1], button)) {
             return true;
         }
 
@@ -4609,8 +4564,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                             toggleInputPassthrough(widget, pinName);
                             return true;
                         }
-                        dragMouseX = undistortedCoords[0];
-                        dragMouseY = undistortedCoords[1];
+                        dragMouseX = headerCoords[0];
+                        dragMouseY = headerCoords[1];
                         startWireDrag(widget, pinName, true);
                         setFocusedWidget(null);
                         return true;
@@ -4618,8 +4573,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
                     double[] outputBounds = widget.getPinBounds(pinName, false);
                     if (isInside(wx, wy, outputBounds)) {
-                        dragMouseX = undistortedCoords[0];
-                        dragMouseY = undistortedCoords[1];
+                        dragMouseX = headerCoords[0];
+                        dragMouseY = headerCoords[1];
                         startWireDrag(widget, pinName, false);
                         setFocusedWidget(null);
                         return true;
@@ -4654,7 +4609,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 bringToFront(widget);
                 selectNode(widget, hasShiftDown() || hasControlDown());
                 startSelectedNodeMove(widget, button);
-                widget.setLastScreenMouse((int) undistortedCoords[0], (int) undistortedCoords[1]);
+                widget.setLastScreenMouse((int) headerCoords[0], (int) headerCoords[1]);
                 widget.mouseClicked(wx, wy, button);
                 return true;
             }
@@ -4664,7 +4619,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         setFocusedWidget(null);
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             if (hasShiftDown() || hasControlDown()) {
-                startSelection(undistortedCoords[0], undistortedCoords[1]);
+                startSelection(headerCoords[0], headerCoords[1]);
                 return true;
             }
             clearSelection();
@@ -4674,13 +4629,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
     private boolean handleContextMenuMouseClicked(double mouseX, double mouseY, int button) {
         List<Widget> widgetSnapshot = new ArrayList<>(widgets);
-        boolean hadContextMenu = false;
         for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
             Widget widget = widgetSnapshot.get(i);
             if (!(widget instanceof ContextMenuWidget menu) || !menu.isVisible()) {
                 continue;
             }
-            hadContextMenu = true;
             boolean overMenu = menu.isMouseOver(mouseX, mouseY);
             boolean handled = menu.mouseClicked(mouseX, mouseY, button);
             hideContextMenu();
@@ -4689,7 +4642,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             }
             return button != GLFW.GLFW_MOUSE_BUTTON_RIGHT;
         }
-        return hadContextMenu;
+        return false;
     }
 
     private boolean handleStartupMouseClicked(double mouseX, double mouseY, int button) {
@@ -4855,15 +4808,18 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (activeView != null) {
             return activeView.keyPressed(keyCode, scanCode, modifiers);
         }
+        if (studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.container().keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        if (isKeyboardInputFocused() && super.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             close();
             return true;
         }
-        if (studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.container().keyPressed(keyCode, scanCode, modifiers)) {
-            return true;
-        }
         if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)
-                && !(getFocusedWidget() instanceof TextInputWidget)) {
+                && !isKeyboardInputFocused()) {
             if (!selectedNodeIds.isEmpty()) {
                 captureSnapshot();
                 deleteSelectedNodes();
@@ -4879,7 +4835,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         boolean hasControl = hasControlDown();
         boolean hasShift = hasShiftDown();
 
-        if (hasControl && !(getFocusedWidget() instanceof TextInputWidget)) {
+        if (hasControl && !isKeyboardInputFocused()) {
             if (keyCode == GLFW.GLFW_KEY_C) {
                 if (!selectedNodeIds.isEmpty()) {
                     copyNodes();
@@ -4921,6 +4877,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
 
         return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    protected boolean isKeyboardInputFocused() {
+        Widget focusedWidget = getFocusedWidget();
+        return focusedWidget instanceof TextInputWidget
+                || focusedWidget instanceof ItemSelectorWidget;
     }
 
     @Override
@@ -5065,7 +5027,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (params == null) return;
 
         ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this);
-        builder.addHeaderButton("add.png", () -> widget.showAddFunctionParameterPopup(), "Add Parameter", ThemeManager.getAccent("nice"));
+        builder.addHeaderButton("add.png", widget::showAddFunctionParameterPopup, "Add Parameter", ThemeManager.getAccent("nice"));
         for (FlowGraph.FunctionParameter p : params) {
             if (p != null && p.getName() != null) {
                 String name = p.getName();
@@ -5235,9 +5197,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
                         if (!dragState.sourceIsInput && onInput && canConnect(dragPinWidget, dragState.sourcePin, targetWidget, targetPin)) {
                                 FlowConnection sourceConnection = resolveDragSourceConnection();
-                                if (sourceConnection == null) {
-                                    break;
-                                }
                                 FlowConnection newConnection = new FlowConnection(sourceConnection.getSourceNodeId(), sourceConnection.getSourcePin(), targetNodeId, targetPin);
                                 removeExistingInputConnection(targetNodeId, targetPin);
                                 graph.getConnections().add(newConnection);
@@ -5264,7 +5223,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (!connected && dragPinWidget != null) {
             FlowDataType sourceType = dragPinWidget.getPinType(dragState.sourcePin, dragState.sourceIsInput);
             FlowConnection sourceConnection = !dragState.sourceIsInput ? resolveDragSourceConnection() : null;
-            if (sourceType != null && (dragState.sourceIsInput || sourceConnection != null)) {
+            if (sourceType != null) {
                 pendingSourceNodeId = dragState.sourceIsInput ? dragState.sourceNodeId : sourceConnection.getSourceNodeId();
                 pendingSourcePin = dragState.sourceIsInput ? dragState.sourcePin : sourceConnection.getSourcePin();
                 pendingSourceIsInput = dragState.sourceIsInput;
@@ -5399,13 +5358,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                     }
                 }
                 String pinName = compatiblePin;
-                int finalWorldX = worldX;
-                int finalWorldY = worldY;
                 addSelectorItem(builder, selectorLabel(def), selectorHint(def), selectorSearchTerms(def), () -> {
                     captureSnapshot();
-                    addNode(finalWorldX, finalWorldY, def.getId(), pinName);
+                    addNode(worldX, worldY, def.getId(), pinName);
                 });
-                addSelectorVariantItems(builder, def, finalWorldX, finalWorldY, pinName);
+                addSelectorVariantItems(builder, def, worldX, worldY, pinName);
             }
         }
 
@@ -5669,10 +5626,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
     }
 
-    private void addNode(int x, int y, String type) {
-        addNode(x, y, type, null);
-    }
-
     private void addNode(int x, int y, String type, String autoWirePin) {
         addNode(x, y, type, autoWirePin, Map.of());
     }
@@ -5877,14 +5830,14 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             if (passthrough.getNodeId().equals(connection.getTargetNodeId()) && passthrough.getInputPin().equals(connection.getTargetPin())) {
                 return List.of();
             }
-            return end != null ? wireSegments(output.x(), output.y(), end.x(), end.y(), 0) : List.of();
+            return end != null ? wireSegments(output.x(), output.y(), end.x(), end.y()) : List.of();
         }
         List<FlowConnection> fanout = fanoutConnections(connection);
         if (fanout.size() > 1) {
             return fanoutSegments(connection, fanout, false);
         }
         PinPoint start = sourceOutputPoint(connection);
-        return start != null && end != null ? wireSegments(start.x(), start.y(), end.x(), end.y(), 0) : List.of();
+        return start != null && end != null ? wireSegments(start.x(), start.y(), end.x(), end.y()) : List.of();
     }
 
     private boolean isNearWireSegment(double x, double y, WireSegment segment, double radius) {
@@ -5907,7 +5860,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return pointDx * pointDx + pointDy * pointDy <= radius * radius;
         }
         double t = ((x - segment.x1()) * dx + (y - segment.y1()) * dy) / lengthSq;
-        t = Math.max(0, Math.min(1, t));
+        t = Math.clamp(t, 0, 1);
         double nearestX = segment.x1() + t * dx;
         double nearestY = segment.y1() + t * dy;
         double pointDx = x - nearestX;
@@ -5972,7 +5925,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return;
         }
 
-        double[] screenCenter = screenToWorld(width / 2.0, height / 2.0);
         double[] mouseScreen = new double[] { dragMouseX, dragMouseY };
         double[] mouseWorld = screenToWorld(mouseScreen[0], mouseScreen[1]);
 
@@ -6012,9 +5964,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             }
         }
 
-        for (String id : newSelectedIds) {
-            selectedNodeIds.add(id);
-        }
+        selectedNodeIds.addAll(newSelectedIds);
     }
 
     private void cutNodes() {
@@ -6031,7 +5981,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (isUndoing) return;
         undoStack.add(new GraphSnapshot(graph, selectedNodeIds));
         if (undoStack.size() > MAX_UNDO_SIZE) {
-            undoStack.remove(0);
+            undoStack.removeFirst();
         }
         redoStack.clear();
     }
@@ -6044,10 +5994,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         GraphSnapshot redoSnapshot = new GraphSnapshot(graph, selectedNodeIds);
         redoStack.add(redoSnapshot);
         if (redoStack.size() > MAX_UNDO_SIZE) {
-            redoStack.remove(0);
+            redoStack.removeFirst();
         }
 
-        GraphSnapshot snapshot = undoStack.remove(undoStack.size() - 1);
+        GraphSnapshot snapshot = undoStack.removeLast();
         restoreSnapshot(snapshot);
 
         isUndoing = false;
@@ -6061,10 +6011,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         GraphSnapshot undoSnapshot = new GraphSnapshot(graph, selectedNodeIds);
         undoStack.add(undoSnapshot);
         if (undoStack.size() > MAX_UNDO_SIZE) {
-            undoStack.remove(0);
+            undoStack.removeFirst();
         }
 
-        GraphSnapshot snapshot = redoStack.remove(redoStack.size() - 1);
+        GraphSnapshot snapshot = redoStack.removeLast();
         restoreSnapshot(snapshot);
 
         isUndoing = false;
@@ -6443,7 +6393,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             WorldRegistryEntry world = manager != null ? manager.getWorld(serverId, selectedWorldName) : null;
             if (world == null) {
                 clearDetailWidgets();
-                addDetailWidget(emptyDetailButton("No Worlds"));
+                addDetailWidget(emptyDetailButton());
                 detailPane.updateWidgetPositions();
                 detailForm = null;
                 return;
@@ -6735,13 +6685,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
 
         private ToggleWidget detailToggle(String label, boolean value, int width) {
-            ToggleWidget toggle = new ToggleWidget.Builder()
+            return new ToggleWidget.Builder()
                 .label(label)
                 .toggled(value)
                 .size(width, 20)
                 .entranceAnimation(false)
                 .build();
-            return toggle;
         }
 
         private DropDownWidget<String> dropdown(List<String> values, String selected, int width) {
@@ -6867,9 +6816,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             new Notification("ReSync", "World Saved", Notification.Type.SUCCESS);
         }
 
-        private IconButton emptyDetailButton(String label) {
+        private IconButton emptyDetailButton() {
             IconButton button = new IconButton.Builder()
-                .label(label)
+                .label("No Worlds")
                 .imagePath("earth.png")
                 .size(Math.max(160, detailPane.getWidth() - 18), 22)
                 .entranceAnimation(false)
@@ -6995,7 +6944,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
 
         private void showWorldUnloadPopup(String worldName) {
-            showFallbackPopup("Unload World", worldName, "Unload", "hide.png", fallbackWorld -> worldManager().unloadWorld(serverId, worldName, fallbackWorld));
+            showFallbackPopup(worldName, fallbackWorld -> worldManager().unloadWorld(serverId, worldName, fallbackWorld));
         }
 
         private void showWorldDeletePopup(String worldName) {
@@ -7004,7 +6953,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 return;
             }
             List<String> fallbackOptions = fallbackWorldOptions(worldName);
-            PopupWidget.Builder builder = fallbackBuilder("Delete World", worldName, fallbackOptions, 170);
+            PopupWidget.Builder builder = fallbackBuilder("Delete World", worldName, 170);
             ToggleWidget deleteFiles = detailToggle("Delete Files", false, 115);
             TextInputWidget fallbackInput = new TextInputWidget.Builder()
                 .text(selectDefaultFallbackWorld(worldName, fallbackOptions))
@@ -7040,9 +6989,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             popupRef[0].show();
         }
 
-        private void showFallbackPopup(String title, String worldName, String actionLabel, String icon, Consumer<String> action) {
+        private void showFallbackPopup(String worldName, Consumer<String> action) {
             List<String> fallbackOptions = fallbackWorldOptions(worldName);
-            PopupWidget.Builder builder = fallbackBuilder(title, worldName, fallbackOptions, 130);
+            PopupWidget.Builder builder = fallbackBuilder("Unload World", worldName, 130);
             TextInputWidget fallbackInput = new TextInputWidget.Builder()
                 .text(selectDefaultFallbackWorld(worldName, fallbackOptions))
                 .placeholder("Fallback World")
@@ -7051,8 +7000,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             builder.addRow("Fallback", true, 18, fallbackInput);
             PopupWidget[] popupRef = new PopupWidget[1];
             IconButton actionButton = new IconButton.Builder()
-                .label(actionLabel)
-                .imagePath(icon)
+                .label("Unload")
+                .imagePath("hide.png")
                 .accentType(ThemeManager.getAccent("danger"))
                 .size(110, 20)
                 .onClick(() -> {
@@ -7073,7 +7022,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             popupRef[0].show();
         }
 
-        private PopupWidget.Builder fallbackBuilder(String title, String worldName, List<String> fallbackOptions, int height) {
+        private PopupWidget.Builder fallbackBuilder(String title, String worldName, int height) {
             return new PopupWidget.Builder(title + " | " + worldName)
                 .setResizable(false)
                 .setAntiOutOfBound(true)
@@ -7435,15 +7384,15 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     }
 
     private String resultWorldName(WorldOperationResult result) {
-        return resultDataText(result, "worldName", "world");
+        return resultDataText(result);
     }
 
-    private String resultDataText(WorldOperationResult result, String... keys) {
-        if (result == null || keys == null) {
+    private String resultDataText(WorldOperationResult result) {
+        if (result == null) {
             return "";
         }
         if (result.getData() != null) {
-            for (String key : keys) {
+            for (String key : List.of("worldName", "world")) {
                 Object raw = result.getData().get(key);
                 String value = raw == null ? "" : String.valueOf(raw).trim();
                 if (!value.isBlank()) {

@@ -4,7 +4,6 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
-import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.ui.widgets.ReactorPlanWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
@@ -34,7 +33,6 @@ import restudio.rebase.util.RebaseLogger;
 import restudio.rebase.util.ssh.SSHManager;
 import restudio.rescreen.Main;
 import restudio.rescreen.config.Config;
-import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopBounds;
@@ -46,7 +44,6 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.TabsManager;
 import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
 import restudio.rescreen.ui.rescreen.layout.FreeLayout;
-import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.BrowserUtils;
 import restudio.rescreen.util.Notification;
@@ -59,6 +56,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 import static redxax.oxy.remotely.util.ImageUtil.loadResourceIcon;
@@ -82,7 +80,6 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private AnimatedButton remoteHostDeleteButton;
     private final Object parent;
     private IconButton userButton;
-    private boolean restudioTabRequested;
 
     private static final String ROW_REMOTE_HOST_PASSWORD = "remoteHostPassword";
     private static final String ROW_REMOTE_HOST_AUTH_MODE = "remoteHostAuthMode";
@@ -95,10 +92,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private final Map<String, ServerModels.ClientServerView> restudioServerViews = new HashMap<>();
     private final ServerIconManager iconManager;
     private boolean initializedOnce;
-    private volatile int remoteHostSelectionToken;
+    private final AtomicInteger remoteHostSelectionToken = new AtomicInteger();
     private Container noServersOverlay;
     private boolean noServersOverlayVisible;
-    private boolean forceNoServersOverlay = false;
     private IconMessage localNoServersIcon;
     private IconMessage reactorsNoServersIcon;
     private IconButton reactorInfo;
@@ -287,7 +283,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 if (!reactorPlanSelectionVisible) {
                     return;
                 }
-                if (planIndex < 0 || planIndex >= reactorPlans.size()) {
+                if (planIndex >= reactorPlans.size()) {
                     return;
                 }
                 onReactorPlanSelected(reactorPlans.get(planIndex));
@@ -520,7 +516,6 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void removeReStudioTab() {
-        restudioTabRequested = false;
         restudioInstances.clear();
         restudioServerViews.clear();
         if (tabsManager == null) {
@@ -732,7 +727,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
         targetContainer.updateWidgetPositions();
         if (tab == tabs().getActiveTab()) {
-            updateNoServersOverlayVisibility(forceNoServersOverlay || instances.isEmpty());
+            updateNoServersOverlayVisibility(instances.isEmpty());
             if (!(tabData instanceof RemoteHost) && !"RESTUDIO_MARKER".equals(tabData)) {
                 pollPersistentLocalServerStates(instances, true);
             }
@@ -785,12 +780,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         return widget;
     }
 
-    private void addServerWidget(Instance info, boolean isCreate) {
-        activeContainer.addWidget(createServerWidget(info, isCreate));
-    }
-
     private void onHostTabSelected(TabsManager.Tab tab) {
-        int selectionToken = ++remoteHostSelectionToken;
+        int selectionToken = remoteHostSelectionToken.incrementAndGet();
         remotelyClient.saveTabIndex(tabs().getActiveTabIndex());
         setActiveContainer(tab.getContainer());
 
@@ -808,7 +799,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     }
 
     private void handleRemoteHostTabSelected(TabsManager.Tab tab, RemoteHost host, int selectionToken, boolean connected) {
-        if (selectionToken != remoteHostSelectionToken) {
+        if (selectionToken != remoteHostSelectionToken.get()) {
             return;
         }
         if (tabs().getActiveTab() != tab) {
@@ -817,19 +808,19 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         if (!connected) {
             if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("calm"));
             connectRemoteHostAsync(host, () -> {
-                if (selectionToken != remoteHostSelectionToken || tabs().getActiveTab() != tab) {
+                if (selectionToken != remoteHostSelectionToken.get() || tabs().getActiveTab() != tab) {
                     return;
                 }
                 if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getDefaultAccent());
                 instanceManager.fetchRemoteInstances(host)
                     .whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
-                        if (selectionToken != remoteHostSelectionToken || tabs().getActiveTab() != tab) {
+                        if (selectionToken != remoteHostSelectionToken.get() || tabs().getActiveTab() != tab) {
                             return;
                         }
                         loadServersForTab(tab);
                     }));
             }, () -> {
-                if (selectionToken != remoteHostSelectionToken || tabs().getActiveTab() != tab) {
+                if (selectionToken != remoteHostSelectionToken.get() || tabs().getActiveTab() != tab) {
                     return;
                 }
                 if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("danger"));
@@ -843,7 +834,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             if (tab.getWidget() != null) tab.getWidget().setAccent(ThemeManager.getAccent("calm"));
             instanceManager.fetchRemoteInstances(host)
                 .whenComplete((v, e) -> ScreenManager.getInstance().execute(() -> {
-                    if (selectionToken != remoteHostSelectionToken || tabs().getActiveTab() != tab) {
+                    if (selectionToken != remoteHostSelectionToken.get() || tabs().getActiveTab() != tab) {
                         return;
                     }
                     if (tab.getWidget() != null) {
@@ -1050,7 +1041,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
                 final ServerModels.ClientServerView flowServerView = (inst.getBackendConfig() != null && "RESTUDIO".equalsIgnoreCase(inst.getBackendConfig().type))
                         ? restudioServerViews.get(inst.getName()) : null;
-                builder.addHeaderButton("ReSync.png", () -> remotelyClient.openFlowManager(this, inst, flowServerView), "ReSync");
+                builder.addHeaderButton("ReSync.png", () -> remotelyClient.openReSyncStudio(this, inst, flowServerView), "ReSync");
                 if (!isRestudio) {
                     builder.addHeaderButton("copy.png", () -> duplicateInstance(inst), "Duplicate Server").addHeaderButton("delete.png", () -> {
                         instanceForDeletion = widget.getItem();
@@ -1281,16 +1272,16 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         reactorPlans.clear();
 
         List<ServerModels.Plan> fallbackPlans = List.of(
-                createFallbackPlan("Relay", 4096, 102400, 200, 5, 5, 5, 700),
-                createFallbackPlan("Refine", 6144, 102400, 300, 5, 5, 5, 1100),
-                createFallbackPlan("Revenge", 8192, 102400, 400, 5, 5, 5, 1400)
+                createFallbackPlan("Relay", 4096, 200, 700),
+                createFallbackPlan("Refine", 6144, 300, 1100),
+                createFallbackPlan("Revenge", 8192, 400, 1400)
         );
 
         ReStudio.getInstance().getApi().getPlans().thenAccept(plans -> ScreenManager.getInstance().execute(() -> {
             List<ServerModels.Plan> source = plans == null || plans.isEmpty() ? fallbackPlans : plans;
             source.stream()
                     .filter(Objects::nonNull)
-                    .filter(plan -> plan.name == null || !"custom".equalsIgnoreCase(plan.name))
+                    .filter(plan -> !"custom".equalsIgnoreCase(plan.name))
                     .sorted(Comparator.comparingLong(plan -> plan.priceCents))
                     .limit(3)
                     .forEach(reactorPlans::add);
@@ -1318,9 +1309,9 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         }
 
         List<ServerModels.Plan> items = reactorPlans.isEmpty() ? List.of(
-                createFallbackPlan("Relay", 4096, 102400, 200, 5, 5, 5, 700),
-                createFallbackPlan("Refine", 6144, 102400, 300, 5, 5, 5, 1100),
-                createFallbackPlan("Revenge", 8192, 102400, 400, 5, 5, 5, 1400)
+                createFallbackPlan("Relay", 4096, 200, 700),
+                createFallbackPlan("Refine", 6144, 300, 1100),
+                createFallbackPlan("Revenge", 8192, 400, 1400)
         ) : reactorPlans;
 
         for (int i = 0; i < reactorPlanCards.size(); i++) {
@@ -1339,7 +1330,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                     formatPlanSpecs(plan),
                     formatPlanPrice(plan.priceCents)
             );
-            if (selectedReactorPlanName != null && plan.name != null && plan.name.equalsIgnoreCase(selectedReactorPlanName)) {
+            if (selectedReactorPlanName != null && selectedReactorPlanName.equalsIgnoreCase(plan.name)) {
                 card.accentType = ThemeManager.getAccent("nice");
             } else {
                 card.accentType = ThemeManager.getDefaultAccent();
@@ -1429,7 +1420,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         int byLayout = available / 3;
         int lowerBound = Math.max(184, Math.round(width * 0.16f));
         int upperBound = Math.max(212, Math.round(width * 0.24f));
-        return Math.max(lowerBound, Math.min(upperBound, byLayout));
+        return Math.clamp(byLayout, lowerBound, upperBound);
     }
 
     private int resolveReactorPlanCardHeight(int cardWidth) {
@@ -1439,15 +1430,15 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         return Math.max(1, Math.round(cardWidth * 0.45f));
     }
 
-    private ServerModels.Plan createFallbackPlan(String name, int memoryMb, int diskMb, int cpuPercent, int databases, int backups, int allocations, long priceCents) {
+    private ServerModels.Plan createFallbackPlan(String name, int memoryMb, int cpuPercent, long priceCents) {
         ServerModels.Plan plan = new ServerModels.Plan();
         plan.name = name;
         plan.memoryMb = memoryMb;
-        plan.diskMb = diskMb;
+        plan.diskMb = 102400;
         plan.cpuPercent = cpuPercent;
-        plan.databases = databases;
-        plan.backups = backups;
-        plan.allocations = allocations;
+        plan.databases = 5;
+        plan.backups = 5;
+        plan.allocations = 5;
         plan.priceCents = priceCents;
         return plan;
     }
@@ -1811,26 +1802,6 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                 RemotelyClient.INSTANCE.openInstanceInTerminal(ScreenManager.currentScreen, info);
                 return;
             }
-        }
-    }
-
-    private String flowAvailabilityMessage(String issue) {
-        if (remotelyClient == null || remotelyClient.getFlowManager() == null) {
-            return "ReSync Isn't Installed/Enabled";
-        }
-        return remotelyClient.getFlowManager().normalizeReSyncNotificationMessage(issue);
-    }
-
-    public void openGuiDesignerForServer(String serverId, ServerModels.ClientServerView server) {
-        FlowManager flowManager = remotelyClient.getFlowManager();
-        if (flowManager != null) {
-            if (server == null) {
-                new Notification.Builder().message("GUI Designer only works with ReStudio servers").type(Notification.Type.WARN).build();
-                return;
-            }
-            flowManager.openGuiDesigner(serverId, server);
-        } else {
-            new Notification.Builder().message("Flow Manager not available").type(Notification.Type.WARN).build();
         }
     }
 

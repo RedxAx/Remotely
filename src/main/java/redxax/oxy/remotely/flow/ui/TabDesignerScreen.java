@@ -117,11 +117,14 @@ public class TabDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (super.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             close();
             return true;
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return false;
     }
 
     private void buildHeader() {

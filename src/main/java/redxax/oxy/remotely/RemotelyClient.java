@@ -229,13 +229,13 @@ public class RemotelyClient {
         return flowManager;
     }
 
-    public void openFlowManager(Object parent, Instance instance) {
-        openFlowManager(parent, instance, null);
+    public void openReSyncStudio(Object parent, Instance instance) {
+        openReSyncStudio(parent, instance, null);
     }
 
-    public void openFlowManager(Object parent, Instance instance, ClientServerView serverView) {
+    public void openReSyncStudio(Object parent, Instance instance, ClientServerView serverView) {
         if (flowManager == null) {
-            new Notification.Builder().message("Flow Manager not available").type(Notification.Type.WARN).build();
+            new Notification.Builder().message("ReSync Studio Not Available").type(Notification.Type.WARN).build();
             return;
         }
         if (instance == null) return;
@@ -256,7 +256,7 @@ public class RemotelyClient {
         if (serverView != null && serverView.loader != null && !serverView.loader.isBlank()) {
             loaderHint = serverView.loader;
         }
-        flowManager.openFlowManager(serverId, serverView, loaderHint);
+        flowManager.openReSyncStudio(serverId, serverView, loaderHint);
     }
 
     public void cacheReStudioServerViews(Map<String, ClientServerView> views) {

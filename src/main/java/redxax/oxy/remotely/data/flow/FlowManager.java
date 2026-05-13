@@ -26,6 +26,7 @@ import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.data.TriggerType;
 import redxax.oxy.remotely.flow.data.Visual;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
+import redxax.oxy.remotely.flow.ui.GuiEditOverlayState;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
@@ -33,6 +34,7 @@ import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import restudio.rebase.instance.Instance;
+import restudio.rebase.minecraft.MinecraftPlayerLocation;
 import restudio.rebase.restudio.api.ReStudioApiClient;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rebase.restudio.api.models.ServerModels.PteroFileObjectAttributes;
@@ -87,7 +89,7 @@ public class FlowManager {
         return INSTANCE;
     }
 
-    public void openFlowManager(String serverId, ClientServerView server, String loaderHint) {
+    public void openReSyncStudio(String serverId, ClientServerView server, String loaderHint) {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
         connectionManager.resolveAndStoreProfile(actualServerId, server);
         FlowEditorScreen screen = new FlowEditorScreen(new FlowGraph(), actualServerId, ScreenManager.getInstance().getCurrentScreen(), server, loaderHint).enableStudioMode();
@@ -344,7 +346,7 @@ public class FlowManager {
                 flowStore.markSaving(serverId, graph.getId());
                 flowClient.sendFlowSave(graph);
                 for (CustomContentDefinition content : customContentStore.getForServer(serverId).values()) {
-                    if (graph != null && graph.getId() != null && graph.getId().equals(content.getFlowId())) {
+                    if (graph.getId() != null && graph.getId().equals(content.getFlowId())) {
                         flowClient.sendCustomContentSave(content);
                     }
                 }
@@ -359,10 +361,10 @@ public class FlowManager {
             if (derivedContent != null) {
                 customContentStore.cache(serverId, derivedContent);
                 customContentStore.putNameIfAbsent(serverId, derivedContent.getId(), derivedContent.getDisplayName());
-                upsertFlowManagerEntry(serverId, graph.getId(), ReSyncResourceType.CUSTOM_CONTENT);
+                refreshStudioWorkspace(serverId);
                 return;
             }
-            upsertFlowManagerEntry(serverId, graph.getId(), ReSyncResourceType.FLOW);
+            refreshStudioWorkspace(serverId);
         }
     }
 
@@ -382,18 +384,18 @@ public class FlowManager {
     public void cacheGui(String serverId, GuiDefinition gui) {
         guiStore.cache(serverId, gui);
         if (gui != null && gui.getId() != null) {
-            upsertFlowManagerEntry(serverId, gui.getId(), ReSyncResourceType.GUI);
+            refreshStudioWorkspace(serverId);
         }
     }
 
     public void markFlowSaved(String serverId, String flowId) {
         flowStore.markSaved(serverId, flowId);
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void markGuiSaved(String serverId, String guiId) {
         guiStore.markSaved(serverId, guiId);
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void saveScoreboard(String serverId, ScoreboardDefinition scoreboard) {
@@ -412,13 +414,13 @@ public class FlowManager {
     public void cacheScoreboard(String serverId, ScoreboardDefinition scoreboard) {
         scoreboardStore.cache(serverId, scoreboard);
         if (scoreboard != null && scoreboard.getId() != null) {
-            upsertFlowManagerEntry(serverId, scoreboard.getId(), ReSyncResourceType.SCOREBOARD);
+            refreshStudioWorkspace(serverId);
         }
     }
 
     public void markScoreboardSaved(String serverId, String scoreboardId) {
         scoreboardStore.markSaved(serverId, scoreboardId);
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void saveTab(String serverId, TabDefinition tab) {
@@ -437,13 +439,13 @@ public class FlowManager {
     public void cacheTab(String serverId, TabDefinition tab) {
         tabStore.cache(serverId, tab);
         if (tab != null && tab.getId() != null) {
-            upsertFlowManagerEntry(serverId, tab.getId(), ReSyncResourceType.TAB);
+            refreshStudioWorkspace(serverId);
         }
     }
 
     public void markTabSaved(String serverId, String tabId) {
         tabStore.markSaved(serverId, tabId);
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void saveCustomContent(String serverId, CustomContentDefinition content) {
@@ -467,14 +469,13 @@ public class FlowManager {
                 flowStore.cache(serverId, graph);
                 flowStore.putNameIfAbsent(serverId, graph.getId(), content.getDisplayName() != null ? content.getDisplayName() : content.getId());
             }
-            upsertFlowManagerEntry(serverId, content.getId(), ReSyncResourceType.CUSTOM_CONTENT);
         }
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void markCustomContentSaved(String serverId, String contentId) {
         customContentStore.markSaved(serverId, contentId);
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void saveProjectMetadata(String serverId, ReSyncProjectMetadata metadata) {
@@ -488,7 +489,7 @@ public class FlowManager {
             projectMetadataStore.markSaving(serverId, serverId);
             flowClient.sendProjectMetadataSave(metadata);
         }
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void cacheProjectMetadata(String serverId, ReSyncProjectMetadata metadata) {
@@ -498,12 +499,12 @@ public class FlowManager {
         metadata.setServerId(serverId);
         metadata.ensureDefaultFolders();
         projectMetadataStore.cache(serverId, metadata);
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void markProjectMetadataSaved(String serverId) {
         projectMetadataStore.markSaved(serverId, serverId);
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public Map<String, FlowGraph> getFlowsForServer(String serverId) {
@@ -720,7 +721,6 @@ public class FlowManager {
         return renameResource(tabStore, serverId, tabId, newTabId, ReSyncResourceType.TAB);
     }
 
-    @SuppressWarnings("unchecked")
     private <T> boolean renameResource(SyncedResourceCache<T> store, String serverId, String oldId, String newId, ReSyncResourceType type) {
         String trimmedId = newId.trim();
         if (!store.rename(serverId, oldId, trimmedId, type::applyRename)) {
@@ -735,38 +735,38 @@ public class FlowManager {
         if (store.containsServerId(serverId, trimmedId)) {
             flowClient.sendResourceDelete(type, oldId);
         }
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
         return true;
     }
 
     public void refreshFlowsFromServer(String serverId) {
         flowStore.clearForServer(serverId);
         connectionManager.ensureFlowClient(serverId, true).requestFlowList();
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void refreshGuisFromServer(String serverId) {
         guiStore.clearForServer(serverId);
         connectionManager.ensureFlowClient(serverId, true).requestGuiList();
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void refreshScoreboardsFromServer(String serverId) {
         scoreboardStore.clearForServer(serverId);
         connectionManager.ensureFlowClient(serverId, true).requestScoreboardList();
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void refreshTabsFromServer(String serverId) {
         tabStore.clearForServer(serverId);
         connectionManager.ensureFlowClient(serverId, true).requestTabList();
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void refreshCustomContentFromServer(String serverId) {
         customContentStore.clearForServer(serverId);
         connectionManager.ensureFlowClient(serverId, true).requestCustomContentList();
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void refreshProjectMetadataFromServer(String serverId) {
@@ -774,7 +774,7 @@ public class FlowManager {
             return;
         }
         connectionManager.ensureFlowClient(serverId, true).requestProjectMetadataList();
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void refreshWorldsFromServer(String serverId) {
@@ -784,7 +784,7 @@ public class FlowManager {
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
         flowClient.requestWorldSnapshot();
         flowClient.requestPlayerTrackingSnapshot();
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void applyServerFlowList(String serverId, List<String> flowIds) {
@@ -795,7 +795,7 @@ public class FlowManager {
                 flowClient.requestFlow(flowId, false);
             }
         }
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void applyServerGuiList(String serverId, List<String> guiIds) {
@@ -806,7 +806,7 @@ public class FlowManager {
                 flowClient.requestGui(guiId, false);
             }
         }
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void applyServerScoreboardList(String serverId, List<String> scoreboardIds) {
@@ -817,7 +817,7 @@ public class FlowManager {
                 flowClient.requestScoreboard(scoreboardId, false);
             }
         }
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void applyServerTabList(String serverId, List<String> tabIds) {
@@ -828,7 +828,7 @@ public class FlowManager {
                 flowClient.requestTab(tabId, false);
             }
         }
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void applyServerCustomContentList(String serverId, List<String> contentIds) {
@@ -839,7 +839,7 @@ public class FlowManager {
                 flowClient.requestCustomContent(contentId, false);
             }
         }
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     public void applyServerProjectMetadataList(String serverId, List<String> metadataIds) {
@@ -850,7 +850,7 @@ public class FlowManager {
         if (metadataIds != null && !metadataIds.isEmpty()) {
             flowClient.requestProjectMetadata(metadataIds.getFirst());
         }
-        refreshFlowManagerScreen(serverId);
+        refreshStudioWorkspace(serverId);
     }
 
     private void hydrateProjectMetadata(String serverId, ReSyncProjectMetadata metadata) {
@@ -1155,7 +1155,7 @@ public class FlowManager {
     public void handleGuiStatePacket(String serverId, boolean editable, String guiId, String flowId) {
         if (!editable) {
             clearOverlayState();
-            redxax.oxy.remotely.flow.ui.GuiEditOverlayState.clear();
+            GuiEditOverlayState.clear();
             return;
         }
         overlayEditable = true;
@@ -1163,7 +1163,7 @@ public class FlowManager {
         overlayGuiId = guiId;
         overlayFlowId = flowId;
         overlayRevision.incrementAndGet();
-        redxax.oxy.remotely.flow.ui.GuiEditOverlayState.update(serverId, guiId, flowId, true);
+        GuiEditOverlayState.update(serverId, guiId, flowId, true);
         if (guiId != null && !guiId.isBlank()) {
             ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
             if (flowClient != null) {
@@ -1231,7 +1231,7 @@ public class FlowManager {
         }
     }
 
-    void refreshFlowManagerScreen(String serverId) {
+    void refreshStudioWorkspace(String serverId) {
         ScreenManager.getInstance().execute(() -> {
             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
             if (studioScreen != null) {
@@ -1241,16 +1241,7 @@ public class FlowManager {
         });
     }
 
-    private void upsertFlowManagerEntry(String serverId, String resourceId, ReSyncResourceType type) {
-        ScreenManager.getInstance().execute(() -> {
-            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
-            if (studioScreen != null) {
-                studioScreen.refreshStudioWorkspace();
-            }
-        });
-    }
-
-    void upsertFlowManagerWorldEntry(String serverId, String worldName) {
+    void refreshStudioWorlds(String serverId) {
         ScreenManager.getInstance().execute(() -> {
             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
             if (studioScreen != null) {
@@ -1261,11 +1252,7 @@ public class FlowManager {
     }
 
     private FlowGraph createDefaultFlow() {
-        return createDefaultFlow(false);
-    }
-
-    private FlowGraph createDefaultFlow(boolean function) {
-        return createDefaultFlow(function, FLOW_TEMPLATES.getFirst());
+        return createDefaultFlow(false, FLOW_TEMPLATES.getFirst());
     }
 
     private FlowGraph createDefaultFlow(boolean function, String templateName) {
@@ -1354,10 +1341,9 @@ public class FlowManager {
         connectionManager.ensureFlowClient(serverId).sendWorldAction(request);
     }
 
-    @SuppressWarnings("unchecked")
-    private WorldMapScreen createWorldMapScreen(Screen parentScreen, Instance instance, String worldName, Consumer<restudio.rebase.minecraft.MinecraftPlayerLocation> onPlayerSelected) {
+    private WorldMapScreen createWorldMapScreen(Screen parentScreen, Instance instance, String worldName, Consumer<MinecraftPlayerLocation> onPlayerSelected) {
         try {
-            return (WorldMapScreen) WorldMapScreen.class
+            return WorldMapScreen.class
                 .getConstructor(Screen.class, Instance.class, String.class, Consumer.class)
                 .newInstance(parentScreen, instance, worldName, onPlayerSelected);
         } catch (Exception ignored) {

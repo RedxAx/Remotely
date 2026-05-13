@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.data.flow;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
@@ -17,9 +18,9 @@ import java.util.function.Consumer;
 final class WorldGenProtocolHandler {
     private final String serverId;
     private final Gson gson;
-    private final Consumer<com.google.gson.JsonObject> jobConsumer;
+    private final Consumer<JsonObject> jobConsumer;
 
-    WorldGenProtocolHandler(String serverId, Gson gson, Consumer<com.google.gson.JsonObject> jobConsumer) {
+    WorldGenProtocolHandler(String serverId, Gson gson, Consumer<JsonObject> jobConsumer) {
         this.serverId = serverId;
         this.gson = gson;
         this.jobConsumer = jobConsumer;
@@ -97,7 +98,7 @@ final class WorldGenProtocolHandler {
 
     private void handleJob(String json) {
         if (jobConsumer != null) {
-            jobConsumer.accept(gson.fromJson(json, com.google.gson.JsonObject.class));
+            jobConsumer.accept(gson.fromJson(json, JsonObject.class));
         }
     }
 }
