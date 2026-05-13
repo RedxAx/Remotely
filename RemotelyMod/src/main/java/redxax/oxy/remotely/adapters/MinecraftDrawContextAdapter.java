@@ -4,6 +4,7 @@ import java.awt.image.BufferedImage;
 import org.jetbrains.annotations.NotNull;
 import redxax.oxy.remotely.rematrix.ReContext;
 import redxax.oxy.remotely.rematrix.mc.RematrixContext;
+import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.IMatrixStack;
 import restudio.rescreen.util.ResourceManager;
@@ -85,6 +86,16 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
         if (ctx instanceof RematrixContext mc) {
             mc.drawItem(item, x, y, z);
         }
+    }
+
+    @Override
+    public void drawMinecraftTooltip(MinecraftTooltip tooltip, int mouseX, int mouseY, int screenWidth, int screenHeight) {
+        ctx.drawMinecraftTooltip(tooltip, mouseX, mouseY, screenWidth, screenHeight);
+    }
+
+    @Override
+    public void drawMinecraftItemTooltip(Object item, MinecraftTooltip fallback, int mouseX, int mouseY, int screenWidth, int screenHeight) {
+        ctx.drawMinecraftItemTooltip(item, fallback, mouseX, mouseY, screenWidth, screenHeight);
     }
 
     @Override
