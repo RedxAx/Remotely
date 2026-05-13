@@ -26,7 +26,6 @@ import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.data.TriggerType;
 import redxax.oxy.remotely.flow.data.Visual;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
-import redxax.oxy.remotely.flow.ui.FlowManagerScreen;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
@@ -91,7 +90,8 @@ public class FlowManager {
     public void openFlowManager(String serverId, ClientServerView server, String loaderHint) {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
         connectionManager.resolveAndStoreProfile(actualServerId, server);
-        client.getHost().setScreen(new FlowManagerScreen(actualServerId, server, loaderHint, ScreenManager.getInstance().getCurrentScreen()));
+        FlowEditorScreen screen = new FlowEditorScreen(new FlowGraph(), actualServerId, ScreenManager.getInstance().getCurrentScreen(), server, loaderHint).enableStudioMode();
+        client.getHost().setScreen(screen);
     }
 
     public void ensureFlowClientForStartup(String serverId, ClientServerView server, boolean showNotifications) {
@@ -203,9 +203,9 @@ public class FlowManager {
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(actualServerId);
         FlowGraph graph = flowStore.getFromDraft(actualServerId, flowId);
         if (graph != null) {
-            FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(actualServerId);
-            if (managerScreen != null) {
-                managerScreen.openWorkspaceFlowEditor(flowId, branchPin);
+            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(actualServerId);
+            if (studioScreen != null) {
+                studioScreen.openWorkspaceFlowEditor(flowId, branchPin);
                 return;
             }
             FlowEditorScreen screen = new FlowEditorScreen(graph, actualServerId, ScreenManager.getInstance().getCurrentScreen());
@@ -226,9 +226,9 @@ public class FlowManager {
         String actualFlowId = newGraph.getId();
         flowStore.putInDraft(actualServerId, newGraph);
         flowStore.putNameIfAbsent(actualServerId, actualFlowId, actualFlowId);
-        FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(actualServerId);
-        if (managerScreen != null) {
-            managerScreen.openWorkspaceFlowEditor(actualFlowId, branchPin);
+        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(actualServerId);
+        if (studioScreen != null) {
+            studioScreen.openWorkspaceFlowEditor(actualFlowId, branchPin);
             return;
         }
         FlowEditorScreen screen = new FlowEditorScreen(newGraph, actualServerId, ScreenManager.getInstance().getCurrentScreen());
@@ -255,9 +255,9 @@ public class FlowManager {
             connectionManager.ensureFlowClient(actualServerId).requestGui(guiId, false);
             return;
         }
-        FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(actualServerId);
-        if (managerScreen != null) {
-            managerScreen.openWorkspaceGuiDesigner(guiId);
+        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(actualServerId);
+        if (studioScreen != null) {
+            studioScreen.openWorkspaceGuiDesigner(guiId);
             return;
         }
         client.getHost().setScreen(new GuiDesignerScreen(gui, actualServerId, parent));
@@ -280,9 +280,9 @@ public class FlowManager {
             connectionManager.ensureFlowClient(actualServerId).requestScoreboard(scoreboardId, false);
             return;
         }
-        FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(actualServerId);
-        if (managerScreen != null) {
-            managerScreen.openWorkspaceScoreboardDesigner(scoreboardId);
+        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(actualServerId);
+        if (studioScreen != null) {
+            studioScreen.openWorkspaceScoreboardDesigner(scoreboardId);
             return;
         }
         client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, actualServerId, parent));
@@ -305,9 +305,9 @@ public class FlowManager {
             connectionManager.ensureFlowClient(actualServerId).requestTab(tabId, false);
             return;
         }
-        FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(actualServerId);
-        if (managerScreen != null) {
-            managerScreen.openWorkspaceTabDesigner(tabId);
+        FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(actualServerId);
+        if (studioScreen != null) {
+            studioScreen.openWorkspaceTabDesigner(tabId);
             return;
         }
         client.getHost().setScreen(new TabDesignerScreen(tab, actualServerId, parent));
@@ -1192,9 +1192,9 @@ public class FlowManager {
         }
         Object parent = guiStore.removePendingParent(serverId, gui.getId());
         if (parent != null) {
-            FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(serverId);
-            if (managerScreen != null) {
-                managerScreen.openWorkspaceGuiDesigner(gui.getId());
+            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+            if (studioScreen != null) {
+                studioScreen.openWorkspaceGuiDesigner(gui.getId());
                 return;
             }
             client.getHost().setScreen(new GuiDesignerScreen(gui, serverId, parent));
@@ -1207,9 +1207,9 @@ public class FlowManager {
         }
         Object parent = scoreboardStore.removePendingParent(serverId, scoreboard.getId());
         if (parent != null) {
-            FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(serverId);
-            if (managerScreen != null) {
-                managerScreen.openWorkspaceScoreboardDesigner(scoreboard.getId());
+            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+            if (studioScreen != null) {
+                studioScreen.openWorkspaceScoreboardDesigner(scoreboard.getId());
                 return;
             }
             client.getHost().setScreen(new ScoreboardDesignerScreen(scoreboard, serverId, parent));
@@ -1222,9 +1222,9 @@ public class FlowManager {
         }
         Object parent = tabStore.removePendingParent(serverId, tab.getId());
         if (parent != null) {
-            FlowManagerScreen managerScreen = FlowManagerScreen.getOpenScreen(serverId);
-            if (managerScreen != null) {
-                managerScreen.openWorkspaceTabDesigner(tab.getId());
+            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+            if (studioScreen != null) {
+                studioScreen.openWorkspaceTabDesigner(tab.getId());
                 return;
             }
             client.getHost().setScreen(new TabDesignerScreen(tab, serverId, parent));
@@ -1233,9 +1233,9 @@ public class FlowManager {
 
     void refreshFlowManagerScreen(String serverId) {
         ScreenManager.getInstance().execute(() -> {
-            FlowManagerScreen screen = FlowManagerScreen.getOpenScreen(serverId);
-            if (screen != null) {
-                screen.refresh();
+            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+            if (studioScreen != null) {
+                studioScreen.refreshStudioWorkspace();
             }
             FlowEditorScreen.refreshWorldsForServer(serverId);
         });
@@ -1243,25 +1243,18 @@ public class FlowManager {
 
     private void upsertFlowManagerEntry(String serverId, String resourceId, ReSyncResourceType type) {
         ScreenManager.getInstance().execute(() -> {
-            FlowManagerScreen screen = FlowManagerScreen.getOpenScreen(serverId);
-            if (screen != null) {
-                switch (type) {
-                    case FLOW -> screen.upsertFlowEntry(resourceId);
-                    case GUI -> screen.upsertGuiEntry(resourceId);
-                    case SCOREBOARD -> screen.upsertScoreboardEntry(resourceId);
-                    case TAB -> screen.upsertTabEntry(resourceId);
-                    case CUSTOM_CONTENT -> screen.upsertCustomContentEntry(resourceId);
-                    case PROJECT_METADATA -> screen.refresh();
-                }
+            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+            if (studioScreen != null) {
+                studioScreen.refreshStudioWorkspace();
             }
         });
     }
 
     void upsertFlowManagerWorldEntry(String serverId, String worldName) {
         ScreenManager.getInstance().execute(() -> {
-            FlowManagerScreen screen = FlowManagerScreen.getOpenScreen(serverId);
-            if (screen != null) {
-                screen.upsertWorldEntry(worldName);
+            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+            if (studioScreen != null) {
+                studioScreen.refreshStudioWorkspace();
             }
             FlowEditorScreen.refreshWorldsForServer(serverId);
         });

@@ -20,7 +20,6 @@ import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenStage;
 import redxax.oxy.remotely.worldgen.registry.WorldGenNodeDefinition;
 import redxax.oxy.remotely.worldgen.registry.WorldGenNodeRegistry;
-import redxax.oxy.remotely.flow.ui.FlowManagerScreen;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Notification;
@@ -174,8 +173,9 @@ public class WorldGenManager {
     public void handleProjectList(String serverId, List<String> ids) {
         projectStore.setProjectList(serverId, ids);
         ScreenManager.getInstance().execute(() -> {
-            if (ScreenManager.getInstance().getCurrentScreen() instanceof FlowManagerScreen screen && serverId.equals(screen.getServerId())) {
-                screen.rebuildWorldGenProjects();
+            FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
+            if (studioScreen != null) {
+                studioScreen.refreshStudioWorkspace();
             }
         });
     }
