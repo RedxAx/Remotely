@@ -265,12 +265,18 @@ public class ContentStudioScreen extends FlowEditorScreen {
         if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
+        if (contentPanel != null && contentPanel.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
         if (activeSearchSelector != null && activeSearchSelector.visible && activeSearchSelector.charTyped(chr, modifiers)) {
+            return true;
+        }
+        if (contentPanel != null && contentPanel.charTyped(chr, modifiers)) {
             return true;
         }
         return super.charTyped(chr, modifiers);

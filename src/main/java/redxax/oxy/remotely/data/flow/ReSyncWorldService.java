@@ -110,12 +110,7 @@ public class ReSyncWorldService {
             WorldSnapshot snapshot = gson.fromJson(message.getData(), WorldSnapshot.class);
             if (snapshot != null) {
                 worldSnapshotCache.put(serverId, snapshot);
-                for (WorldRegistryEntry world : snapshot.getWorlds()) {
-                    if (world != null && world.getWorldName() != null) {
-                        flowManager.upsertFlowManagerWorldEntry(serverId, world.getWorldName());
-                    }
-                }
-                flowManager.refreshFlowManagerScreen(serverId);
+                flowManager.refreshStudioWorlds(serverId);
             }
             return;
         }

@@ -5,6 +5,11 @@ import org.java_websocket.handshake.ServerHandshake;
 import redxax.oxy.remotely.RemotelyClient;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.TypeAdapter;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
 import redxax.oxy.remotely.flow.data.FlowDataType;
 import redxax.oxy.remotely.flow.data.FlowDataTypeAdapter;
 import redxax.oxy.remotely.flow.data.FlowGraph;
@@ -27,7 +32,6 @@ import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
 import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
 import redxax.oxy.remotely.data.flow.world.WorldChannelMessage;
-import redxax.oxy.remotely.worldgen.data.WorldGenGraph;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.data.WorldGenSerializer;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -87,14 +91,14 @@ public class ReSyncFlowClient {
     private ErrorListener errorListener;
     private final Gson gson = new GsonBuilder()
             .registerTypeAdapter(FlowDataType.class, new FlowDataTypeAdapter())
-            .registerTypeAdapter(NodeDefinition.NodeCategory.class, new com.google.gson.TypeAdapter<NodeDefinition.NodeCategory>() {
+            .registerTypeAdapter(NodeDefinition.NodeCategory.class, new TypeAdapter<NodeDefinition.NodeCategory>() {
                 @Override
-                public void write(com.google.gson.stream.JsonWriter out, NodeDefinition.NodeCategory value) throws IOException {
+                public void write(JsonWriter out, NodeDefinition.NodeCategory value) throws IOException {
                     out.value(value != null ? value.getId() : null);
                 }
 
                 @Override
-                public NodeDefinition.NodeCategory read(com.google.gson.stream.JsonReader in) throws IOException {
+                public NodeDefinition.NodeCategory read(JsonReader in) throws IOException {
                     String id = in.nextString();
                     return NodeDefinition.NodeCategory.fromString(id);
                 }
@@ -102,8 +106,7 @@ public class ReSyncFlowClient {
             .create();
     private final Queue<Runnable> pendingSends = new ConcurrentLinkedQueue<>();
     private final Map<ReSyncResourceType, Set<String>> pendingOpenResources = new ConcurrentHashMap<>();
-    private final Map<String, WorldChannelMessage> worldJobs = new ConcurrentHashMap<>();
-    private final Map<String, com.google.gson.JsonObject> jobs = new ConcurrentHashMap<>();
+    private final Map<String, JsonObject> jobs = new ConcurrentHashMap<>();
     private final Set<String> terminalJobNotifications = ConcurrentHashMap.newKeySet();
     private final NodeRegistryCache nodeRegistryCache = NodeRegistryCache.getInstance();
     private final ScheduledExecutorService nodeRegistryScheduler = Executors.newSingleThreadScheduledExecutor();
@@ -231,7 +234,6 @@ public class ReSyncFlowClient {
             }
         }).exceptionally(e -> {
             System.err.println("[ReSyncFlow] Error connecting to ReSync: " + e.getMessage());
-            e.printStackTrace();
             connecting.set(false);
             cancelConnectTimeout();
             if (errorListener != null) {
@@ -279,7 +281,6 @@ public class ReSyncFlowClient {
                 @Override
                 public void onError(Exception ex) {
                     System.err.println("[ReSyncFlow] WebSocket error: " + ex.getMessage());
-                    ex.printStackTrace();
                     connecting.set(false);
                     cancelConnectTimeout();
                     scheduleReconnect();
@@ -288,7 +289,7 @@ public class ReSyncFlowClient {
             wsClient.set(client);
             client.connect();
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("[ReSyncFlow] Failed to open WebSocket: " + e.getMessage());
             connecting.set(false);
             cancelConnectTimeout();
         }
@@ -319,22 +320,18 @@ public class ReSyncFlowClient {
     }
 
     private void subscribeStartupChannels() {
-        sendSubscribe("flow", null);
-        sendSubscribe("player_tracking", null);
-        sendSubscribe("world_management", null);
-        sendSubscribe("worldgen", null);
+        sendSubscribe("flow");
+        sendSubscribe("player_tracking");
+        sendSubscribe("world_management");
+        sendSubscribe("worldgen");
     }
 
-    private void sendSubscribe(String channelId, String data) {
+    private void sendSubscribe(String channelId) {
         byte[] channelBytes = channelId.getBytes(StandardCharsets.UTF_8);
-        byte[] dataBytes = data != null ? data.getBytes(StandardCharsets.UTF_8) : new byte[0];
-        ByteBuffer buffer = ByteBuffer.allocate(4 + channelBytes.length + 4 + dataBytes.length);
+        ByteBuffer buffer = ByteBuffer.allocate(4 + channelBytes.length + 4);
         buffer.putInt(channelBytes.length);
         buffer.put(channelBytes);
-        buffer.putInt(dataBytes.length);
-        if (dataBytes.length > 0) {
-            buffer.put(dataBytes);
-        }
+        buffer.putInt(0);
         sendFrame(2, buffer.array(), CONTROL_CHANNEL_ID);
     }
 
@@ -378,7 +375,6 @@ public class ReSyncFlowClient {
             protocolError(exception.getMessage());
         } catch (Exception e) {
             System.err.println("[ReSyncFlow] Error processing message: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 
@@ -694,34 +690,22 @@ public class ReSyncFlowClient {
             return;
         }
         if (message.getData().isJsonArray()) {
-            for (com.google.gson.JsonElement item : message.getData().getAsJsonArray()) {
+            for (JsonElement item : message.getData().getAsJsonArray()) {
                 if (item.isJsonObject()) {
-                    trackWorldJobData(message, item.getAsJsonObject());
                     trackGenericJob(item.getAsJsonObject());
                 }
             }
             return;
         }
         if (message.getData().isJsonObject()) {
-            com.google.gson.JsonObject data = message.getData().getAsJsonObject();
-            trackWorldJobData(message, data);
+            JsonObject data = message.getData().getAsJsonObject();
             trackGenericJob(data);
-        }
-    }
-
-    private void trackWorldJobData(WorldChannelMessage message, com.google.gson.JsonObject data) {
-        String jobId = stringField(data, "jobId");
-        if (jobId == null || jobId.isBlank()) {
-            jobId = stringField(data, "operationId");
-        }
-        if (jobId != null && !jobId.isBlank()) {
-            worldJobs.put(jobId, message);
         }
     }
 
     private void handleFlowJob(ByteBuffer buffer) {
         String json = readRemainingJson(buffer);
-        com.google.gson.JsonObject envelope = gson.fromJson(json, com.google.gson.JsonObject.class);
+        JsonObject envelope = gson.fromJson(json, JsonObject.class);
         if (envelope != null && envelope.has("data")) {
             trackJobElement(envelope.get("data"));
         } else {
@@ -753,12 +737,12 @@ public class ReSyncFlowClient {
         }
     }
 
-    private void trackJobElement(com.google.gson.JsonElement element) {
+    private void trackJobElement(JsonElement element) {
         if (element == null || element.isJsonNull()) {
             return;
         }
         if (element.isJsonArray()) {
-            for (com.google.gson.JsonElement item : element.getAsJsonArray()) {
+            for (JsonElement item : element.getAsJsonArray()) {
                 trackJobElement(item);
             }
             return;
@@ -768,7 +752,7 @@ public class ReSyncFlowClient {
         }
     }
 
-    private void trackGenericJob(com.google.gson.JsonObject data) {
+    private void trackGenericJob(JsonObject data) {
         if (data == null) {
             return;
         }
@@ -783,7 +767,7 @@ public class ReSyncFlowClient {
         if (jobId == null || jobId.isBlank()) {
             return;
         }
-        com.google.gson.JsonObject previous = jobs.put(jobId, data);
+        JsonObject previous = jobs.put(jobId, data);
         String status = stringField(data, "status");
         String action = stringField(data, "action");
         String previousStatus = previous != null ? stringField(previous, "status") : null;
@@ -824,15 +808,11 @@ public class ReSyncFlowClient {
         }
     }
 
-    public Map<String, com.google.gson.JsonObject> getJobs() {
-        return Map.copyOf(jobs);
-    }
-
     private boolean isTerminalJobStatus(String status) {
         return "succeeded".equalsIgnoreCase(status) || "failed".equalsIgnoreCase(status) || "cancelled".equalsIgnoreCase(status);
     }
 
-    private String stringField(com.google.gson.JsonObject data, String name) {
+    private String stringField(JsonObject data, String name) {
         if (data == null || !data.has(name) || data.get(name).isJsonNull()) {
             return null;
         }
@@ -847,9 +827,6 @@ public class ReSyncFlowClient {
         byte[] jsonBytes = new byte[buffer.remaining()];
         buffer.get(jsonBytes);
         String json = new String(jsonBytes, StandardCharsets.UTF_8);
-        if (type == ReSyncResourceType.FLOW) {
-            System.out.println("[ReSyncFlow] Received flow data: " + json.substring(0, Math.min(100, json.length())) + (json.length() > 100 ? "..." : ""));
-        }
         Object item = type.deserialize(json);
         FlowManager fm = client != null ? client.getFlowManager() : null;
         if (fm != null) {
@@ -1317,10 +1294,6 @@ public class ReSyncFlowClient {
         sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
 
-    public void requestFlow(String flowId) {
-        requestFlow(flowId, true);
-    }
-
     public void requestFlow(String flowId, boolean openWhenReceived) {
         requestResource(ReSyncResourceType.FLOW, flowId, openWhenReceived);
     }
@@ -1345,20 +1318,12 @@ public class ReSyncFlowClient {
         sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
 
-    public void requestGui(String guiId) {
-        requestGui(guiId, true);
-    }
-
     public void requestGui(String guiId, boolean openWhenReceived) {
         requestResource(ReSyncResourceType.GUI, guiId, openWhenReceived);
     }
 
     public void requestGuiList() {
         requestResourceList(ReSyncResourceType.GUI);
-    }
-
-    public void requestScoreboard(String scoreboardId) {
-        requestScoreboard(scoreboardId, true);
     }
 
     public void requestScoreboard(String scoreboardId, boolean openWhenReceived) {
@@ -1369,10 +1334,6 @@ public class ReSyncFlowClient {
         requestResourceList(ReSyncResourceType.SCOREBOARD);
     }
 
-    public void requestTab(String tabId) {
-        requestTab(tabId, true);
-    }
-
     public void requestTab(String tabId, boolean openWhenReceived) {
         requestResource(ReSyncResourceType.TAB, tabId, openWhenReceived);
     }
@@ -1381,20 +1342,12 @@ public class ReSyncFlowClient {
         requestResourceList(ReSyncResourceType.TAB);
     }
 
-    public void requestCustomContent(String contentId) {
-        requestCustomContent(contentId, true);
-    }
-
     public void requestCustomContent(String contentId, boolean openWhenReceived) {
         requestResource(ReSyncResourceType.CUSTOM_CONTENT, contentId, openWhenReceived);
     }
 
     public void requestCustomContentList() {
         requestResourceList(ReSyncResourceType.CUSTOM_CONTENT);
-    }
-
-    public void requestProjectMetadata() {
-        requestProjectMetadata("project");
     }
 
     public void requestProjectMetadata(String metadataId) {
@@ -1555,13 +1508,6 @@ public class ReSyncFlowClient {
     public void sendScoreboardDelete(String scoreboardId) { sendResourceDelete(ReSyncResourceType.SCOREBOARD, scoreboardId); }
     public void sendTabDelete(String tabId) { sendResourceDelete(ReSyncResourceType.TAB, tabId); }
 
-    public void sendWorldGenSave(WorldGenGraph graph) {
-        if (graph == null) {
-            return;
-        }
-        sendWorldGenMutationJson((byte) 0x20, "worldGenGraphSave", serverId, WorldGenSerializer.serialize(graph));
-    }
-
     public void sendWorldGenSave(WorldGenProject project) {
         if (project == null) {
             return;
@@ -1585,32 +1531,6 @@ public class ReSyncFlowClient {
 
     public void requestWorldGenProjectList() {
         sendWorldGenJson((byte) 0x34, "{}");
-    }
-
-    public void sendWorldGenPreviewCreate(WorldGenGraph graph, String previewId, String environment, long seed, String playerUuid) {
-        if (graph == null || previewId == null || previewId.isBlank()) {
-            return;
-        }
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("graph", graph);
-        payload.put("previewId", previewId);
-        payload.put("environment", environment != null && !environment.isBlank() ? environment : "NORMAL");
-        payload.put("seed", seed);
-        payload.put("playerUuid", playerUuid);
-        sendWorldGenMutationJson((byte) 0x21, "worldGenPreviewCreate", previewId, gson.toJson(payload));
-    }
-
-    public void sendWorldGenPreviewCreate(WorldGenProject project, String previewId, String environment, long seed, String playerUuid) {
-        if (project == null || previewId == null || previewId.isBlank()) {
-            return;
-        }
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("draftProject", project);
-        payload.put("previewId", previewId);
-        payload.put("environment", environment != null && !environment.isBlank() ? environment : "NORMAL");
-        payload.put("seed", seed);
-        payload.put("playerUuid", playerUuid);
-        sendWorldGenMutationJson((byte) 0x31, "worldGenPreviewApply", previewId, gson.toJson(payload));
     }
 
     public void sendWorldGenPreviewApply(String projectId, WorldGenProject draftProject, String previewId, String environment, long seed, String playerUuid) {
@@ -1695,12 +1615,6 @@ public class ReSyncFlowClient {
 
     private String mutationRequestId(String action, String target) {
         return stableClientId + ":" + action + ":" + (target != null ? target : "") + ":" + UUID.randomUUID();
-    }
-
-    private void sendAck(int sequence) {
-        ByteBuffer buffer = ByteBuffer.allocate(4);
-        buffer.putInt(sequence);
-        sendFrame(6, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
 
     private void startHeartbeat() {
