@@ -4,6 +4,7 @@ import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.core.Screen;
@@ -13,7 +14,6 @@ import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.rescreen.SidePanel;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
-import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.util.Notification;
 
@@ -36,6 +36,7 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
     private final ScoreboardDefinition scoreboard;
     private final String serverId;
     private final Object parent;
+    private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState().width(320).padding(6);
 
     private SidePanel inspectorPanel;
     private TextInputWidget titleInput;
@@ -138,41 +139,54 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
             inspectorPanel = createSidePanel("scoreboard_inspector").width(320).y(0).height(height).show();
         }
         Container container = inspectorPanel.container();
-        container.layout(new ManagedLayout()).columns(1).padding(6).scrolling(true).enableSelecting(false);
-        container.clearWidgets();
-
-        container.addWidget(new AnimatedButton.Builder().label("Scoreboard").size(220, 20).active(false).build());
+        container.layout(new ManagedLayout()).columns(1).padding(panelState.padding()).scrolling(true).enableSelecting(false);
+        int rowWidth = panelState.rowWidth(inspectorPanel);
+        if (titleInput != null && objectiveInput != null && linesInput != null) {
+            if (!titleInput.isFocused()) {
+                titleInput.setText(scoreboard.getTitle() != null ? scoreboard.getTitle() : "");
+            }
+            if (!objectiveInput.isFocused()) {
+                objectiveInput.setText(scoreboard.getObjectiveId() != null ? scoreboard.getObjectiveId() : "");
+            }
+            if (!linesInput.isFocused()) {
+                linesInput.setText(String.join("\n", scoreboard.getLines()));
+            }
+            return;
+        }
 
         titleInput = new TextInputWidget.Builder()
             .text(scoreboard.getTitle() != null ? scoreboard.getTitle() : "")
             .placeholder("Title")
-            .size(220, 22)
+            .forcePlaceholder(false)
+            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
             .onChange(text -> {
                 scoreboard.setTitle(text != null ? text : "");
                 refreshPreviewText();
             })
             .build();
-        container.addWidget(titleInput);
+        ReSyncStudioPanelState.disableEntrance(titleInput);
+        container.addWidget(panelState.row("Title", titleInput, rowWidth));
 
         objectiveInput = new TextInputWidget.Builder()
             .text(scoreboard.getObjectiveId() != null ? scoreboard.getObjectiveId() : "")
             .placeholder("Objective ID")
-            .size(220, 22)
+            .forcePlaceholder(false)
+            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
             .onChange(this::updateObjective)
             .build();
-        container.addWidget(objectiveInput);
+        ReSyncStudioPanelState.disableEntrance(objectiveInput);
+        container.addWidget(panelState.row("Objective", objectiveInput, rowWidth));
 
-        container.addWidget(new AnimatedButton.Builder().label("Lines").size(220, 20).active(false).build());
-        linesInput = new CodeEditorWidget(0, 0, 220, 220);
+        linesInput = new CodeEditorWidget(0, 0, rowWidth, 220);
         linesInput.setText(String.join("\n", scoreboard.getLines()));
         linesInput.onChange = t -> updateLines(linesInput.getText());
-        container.addWidget(linesInput);
+        container.addWidget(panelState.codeRow("Lines", linesInput, rowWidth, 238));
     }
 
     private void updateLayout() {
         if (inspectorPanel != null) {
             int contentTop = header().headerSize + 5;
-            inspectorPanel.y(contentTop).height(Math.max(120, height - contentTop - 8)).width(Math.max(260, (int) (width * 0.3f)));
+            inspectorPanel.y(contentTop).height(Math.max(120, height - contentTop - 8)).width(Math.max(panelState.width(), (int) (width * 0.3f)));
         }
     }
 

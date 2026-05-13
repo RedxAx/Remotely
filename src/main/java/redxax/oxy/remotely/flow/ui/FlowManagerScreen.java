@@ -1218,15 +1218,7 @@ public class FlowManagerScreen extends ReScreen {
             .build();
         widget.setSize(Math.max(200, flowsContainer.getWidth() - 20), 28);
 
-        List<String> sortedIds = new ArrayList<>(flowEntries.keySet());
-        sortedIds.add(flowId);
-        sortedIds.sort(Comparator.naturalOrder());
-        int insertIndex = 1 + sortedIds.indexOf(flowId);
-        if (insertIndex >= flowsContainer.getWidgets().size()) {
-            flowsContainer.addWidget(widget);
-        } else {
-            flowsContainer.insertWidget(widget, insertIndex);
-        }
+        flowsContainer.addWidget(widget);
         flowEntries.put(flowId, widget);
     }
 
@@ -1279,15 +1271,7 @@ public class FlowManagerScreen extends ReScreen {
             .build();
         widget.setSize(Math.max(200, functionsContainer.getWidth() - 20), 28);
 
-        List<String> sortedIds = new ArrayList<>(functionEntries.keySet());
-        sortedIds.add(flowId);
-        sortedIds.sort(Comparator.naturalOrder());
-        int insertIndex = 1 + sortedIds.indexOf(flowId);
-        if (insertIndex >= functionsContainer.getWidgets().size()) {
-            functionsContainer.addWidget(widget);
-        } else {
-            functionsContainer.insertWidget(widget, insertIndex);
-        }
+        functionsContainer.addWidget(widget);
         functionEntries.put(flowId, widget);
     }
 
@@ -1725,15 +1709,7 @@ public class FlowManagerScreen extends ReScreen {
             .build();
         widget.setSize(Math.max(200, guisContainer.getWidth() - 20), 28);
 
-        List<String> sortedIds = new ArrayList<>(guiEntries.keySet());
-        sortedIds.add(guiId);
-        sortedIds.sort(Comparator.naturalOrder());
-        int insertIndex = 1 + sortedIds.indexOf(guiId);
-        if (insertIndex >= guisContainer.getWidgets().size()) {
-            guisContainer.addWidget(widget);
-        } else {
-            guisContainer.insertWidget(widget, insertIndex);
-        }
+        guisContainer.addWidget(widget);
         guiEntries.put(guiId, widget);
     }
 
@@ -1898,15 +1874,7 @@ public class FlowManagerScreen extends ReScreen {
             .build();
         widget.setSize(Math.max(200, scoreboardsContainer.getWidth() - 20), 28);
 
-        List<String> sortedIds = new ArrayList<>(scoreboardEntries.keySet());
-        sortedIds.add(scoreboardId);
-        sortedIds.sort(Comparator.naturalOrder());
-        int insertIndex = 1 + sortedIds.indexOf(scoreboardId);
-        if (insertIndex >= scoreboardsContainer.getWidgets().size()) {
-            scoreboardsContainer.addWidget(widget);
-        } else {
-            scoreboardsContainer.insertWidget(widget, insertIndex);
-        }
+        scoreboardsContainer.addWidget(widget);
         scoreboardEntries.put(scoreboardId, widget);
     }
 
@@ -2063,15 +2031,7 @@ public class FlowManagerScreen extends ReScreen {
             .build();
         widget.setSize(Math.max(200, tabsContainer.getWidth() - 20), 28);
 
-        List<String> sortedIds = new ArrayList<>(tabEntries.keySet());
-        sortedIds.add(tabId);
-        sortedIds.sort(Comparator.naturalOrder());
-        int insertIndex = 1 + sortedIds.indexOf(tabId);
-        if (insertIndex >= tabsContainer.getWidgets().size()) {
-            tabsContainer.addWidget(widget);
-        } else {
-            tabsContainer.insertWidget(widget, insertIndex);
-        }
+        tabsContainer.addWidget(widget);
         tabEntries.put(tabId, widget);
     }
 
@@ -2285,15 +2245,7 @@ public class FlowManagerScreen extends ReScreen {
             .build();
         widget.setSize(Math.max(200, worldGenContainer.getWidth() - 20), 28);
 
-        List<String> sortedIds = new ArrayList<>(worldGenEntries.keySet());
-        sortedIds.add(projectId);
-        sortedIds.sort(Comparator.naturalOrder());
-        int insertIndex = 1 + sortedIds.indexOf(projectId);
-        if (insertIndex >= worldGenContainer.getWidgets().size()) {
-            worldGenContainer.addWidget(widget);
-        } else {
-            worldGenContainer.insertWidget(widget, insertIndex);
-        }
+        worldGenContainer.addWidget(widget);
         worldGenEntries.put(projectId, widget);
     }
 
@@ -2472,15 +2424,7 @@ public class FlowManagerScreen extends ReScreen {
             .build();
         widget.setSize(Math.max(200, worldsContainer.getWidth() - 20), 26);
 
-        List<String> sortedIds = new ArrayList<>(worldEntries.keySet());
-        sortedIds.add(worldName);
-        sortedIds.sort(Comparator.naturalOrder());
-        int insertIndex = 1 + sortedIds.indexOf(worldName);
-        if (insertIndex >= worldsContainer.getWidgets().size()) {
-            worldsContainer.addWidget(widget);
-        } else {
-            worldsContainer.insertWidget(widget, insertIndex);
-        }
+        worldsContainer.addWidget(widget);
         worldEntries.put(worldName, widget);
     }
 
@@ -3324,15 +3268,7 @@ public class FlowManagerScreen extends ReScreen {
             .build();
         widget.setSize(Math.max(200, inventoryGroupsContainer.getWidth() - 20), 28);
 
-        List<String> sortedIds = new ArrayList<>(inventoryGroupEntries.keySet());
-        sortedIds.add(groupId);
-        sortedIds.sort(String.CASE_INSENSITIVE_ORDER);
-        int insertIndex = 1 + sortedIds.indexOf(groupId);
-        if (insertIndex >= inventoryGroupsContainer.getWidgets().size()) {
-            inventoryGroupsContainer.addWidget(widget);
-        } else {
-            inventoryGroupsContainer.insertWidget(widget, insertIndex);
-        }
+        inventoryGroupsContainer.addWidget(widget);
         inventoryGroupEntries.put(groupId, widget);
     }
 

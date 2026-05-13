@@ -1,8 +1,18 @@
 package redxax.oxy.remotely.flow.ui;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
+import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
+import redxax.oxy.remotely.data.flow.world.WorldGeneratorDescriptor;
+import redxax.oxy.remotely.data.flow.world.WorldInventoryGroup;
+import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
+import redxax.oxy.remotely.data.flow.world.WorldProfileSettings;
+import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
+import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
 import redxax.oxy.remotely.flow.data.CustomContentGraphAdapter;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
 import redxax.oxy.remotely.flow.data.FlowConnection;
@@ -19,6 +29,7 @@ import redxax.oxy.remotely.flow.registry.NodeDefinition;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.FlowCategoryMetadata;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioView;
+import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.ScreenBackedStudioView;
 import redxax.oxy.remotely.flow.ui.studio.StudioHeaderProvider;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
@@ -32,6 +43,7 @@ import restudio.rescreen.platform.UiHost;
 import restudio.rescreen.ui.desktop.DesktopIconWidget;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
+import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.InfiniteScreen;
@@ -50,6 +62,8 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
+
+import static restudio.rescreen.config.Config.desktopMode;
 
 public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHeaderProvider {
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
@@ -90,6 +104,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private TabsManager studioTabsManager;
     private ReSyncContentBrowserWidget studioContentBrowser;
     private SidePanel studioResourcePanel;
+    private final ReSyncStudioPanelState studioPanelState = new ReSyncStudioPanelState();
+    private final List<AnimatedWidget> studioResourcePanelWidgets = new ArrayList<>();
+    private String studioResourcePanelKey = "";
+    private final Map<String, TextInputWidget> studioResourcePanelInputs = new HashMap<>();
+    private final Map<String, ToggleWidget> studioResourcePanelToggles = new HashMap<>();
+    private IconMessage studioEmptyMessage;
     private final List<StudioDocument> studioDocuments = new ArrayList<>();
     private StudioDocument activeStudioDocument;
     private final FlowGraph studioEmptyGraph = new FlowGraph();
@@ -115,13 +135,18 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private class ReSyncContentBrowserWidget extends AnimatedWidget {
         private final Path projectRoot = Path.of("ReSync");
         private String currentFolder = "";
+        private final Deque<String> backHistory = new ArrayDeque<>();
+        private final Deque<String> forwardHistory = new ArrayDeque<>();
         private ReSyncProjectMetadata.ResourceEntry selectedResource;
         private ReSyncProjectMetadata.FolderEntry selectedFolder;
         private AnimatedWidget lastGridReleasedWidget;
         private long lastGridReleaseTime;
+        private int lastMouseX;
+        private int lastMouseY;
         private final Container treeContainer;
         private final Container gridContainer;
         private final TextInputWidget nameInput;
+        private final IconMessage emptyFolderMessage;
         private final ReSyncProjectTreeProvider treeProvider;
         private final WorkspaceTreeExplorer treeExplorer;
         private final SquareButtonWidget createButton;
@@ -143,10 +168,14 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .placeholder("Selected")
                 .size(110, 18)
                 .build();
-            treeContainer = new Container("studio-content-tree", x + 4, y + 6, 210, height - 10);
+            treeContainer = new Container("studio-content-tree", x + 4, y + 1, 210, height - 2);
             treeContainer.layout(new ManagedLayout()).columns(1).padding(2).scrolling(true).backgroundDrawing(false);
-            gridContainer = new Container("studio-content-grid", x + 220, y + 6, width - 224, height - 10);
+            treeContainer.setRelativeScissor(1, 1, 1, 1);
+            gridContainer = new Container("studio-content-grid", x + 220, y + 1, width - 224, height - 2);
             gridContainer.layout(new DesktopLayout()).backgroundDrawing(false).enableSelecting(true).enableDoubleClick(false);
+            gridContainer.setRelativeScissor(1, 1, 1, 1);
+            emptyFolderMessage = new IconMessage(0, 0, 64, 64, "No Assets In This Folder", "emptyFolder.png");
+            emptyFolderMessage.entranceAnimationEnabled = false;
             treeProvider = new ReSyncProjectTreeProvider();
             treeExplorer = new WorkspaceTreeExplorer(FlowEditorScreen.this, treeContainer, this::openTreeFile, false);
             treeExplorer.setToggleDirectoriesOnActivation(false);
@@ -190,15 +219,40 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             int border = ThemeManager.getColor(ThemeColor.innerBorder);
             int dividerX = getX() + currentFolderWidth() + 4;
             context.fill(dividerX, getY() + 5, dividerX + 1, getY() + getHeight() - 1, border);
-            treeContainer.render(context, mouseX, mouseY, 0);
-            gridContainer.render(context, mouseX, mouseY, 0);
+            renderClippedContainer(context, treeContainer, mouseX, mouseY);
+            renderClippedContainer(context, gridContainer, mouseX, mouseY);
+            renderEmptyFolderMessage(context, mouseX, mouseY);
             createButton.render(context, mouseX, mouseY, 0);
+        }
+
+        private void renderClippedContainer(IDrawContext context, Container container, int mouseX, int mouseY) {
+            context.pushScissorState();
+            context.enableScissor(container.getX() + 1, container.getY() + 1, container.getX() + container.getWidth() - 1, container.getY() + container.getHeight() - 1);
+            container.render(context, mouseX, mouseY, 0);
+            context.disableScissor();
+            context.popScissorState();
+        }
+
+        private void renderEmptyFolderMessage(IDrawContext context, int mouseX, int mouseY) {
+            if (!gridContainer.getWidgets().isEmpty()) {
+                return;
+            }
+            int centerX = gridContainer.getX() + gridContainer.getWidth() / 2;
+            int centerY = gridContainer.getY() + gridContainer.getHeight() / 2;
+            emptyFolderMessage.setPosition(centerX - emptyFolderMessage.getWidth() / 2, centerY - emptyFolderMessage.getHeight() / 2);
+            emptyFolderMessage.setScissorRegion(gridContainer.getX() + 1, gridContainer.getY() + 1, gridContainer.getX() + gridContainer.getWidth() - 1, gridContainer.getY() + gridContainer.getHeight() - 1);
+            emptyFolderMessage.render(context, mouseX, mouseY, 0);
         }
 
         @Override
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
             if (!isMouseOver(mouseX, mouseY)) {
                 return false;
+            }
+            lastMouseX = (int) mouseX;
+            lastMouseY = (int) mouseY;
+            if (handleHistoryMouseButton(button)) {
+                return true;
             }
             if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
                 if (treeContainer.isMouseOver(mouseX, mouseY) && treeContainer.mouseClicked(mouseX, mouseY, button)) {
@@ -215,6 +269,18 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 return true;
             }
             return gridContainer.mouseClicked(mouseX, mouseY, button);
+        }
+
+        private boolean handleHistoryMouseButton(int button) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_4) {
+                navigateHistoryBack();
+                return true;
+            }
+            if (button == GLFW.GLFW_MOUSE_BUTTON_5) {
+                navigateHistoryForward();
+                return true;
+            }
+            return false;
         }
 
         @Override
@@ -295,10 +361,50 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
 
         private void selectFolder(String path) {
-            currentFolder = path;
+            selectFolder(path, true);
+        }
+
+        private void selectFolder(String path, boolean recordHistory) {
+            String normalizedPath = ReSyncProjectMetadata.normalizePath(path);
+            if (recordHistory && !Objects.equals(normalizedPath, currentFolder)) {
+                backHistory.push(currentFolder);
+                forwardHistory.clear();
+            }
+            currentFolder = normalizedPath;
             nameInput.setText("");
+            selectedResource = null;
+            selectedFolder = null;
             rebuildTree();
             rebuildGrid();
+        }
+
+        private void navigateHistoryBack() {
+            if (!backHistory.isEmpty()) {
+                forwardHistory.push(currentFolder);
+                selectFolder(backHistory.pop(), false);
+                return;
+            }
+            String parentFolder = parentFolder(currentFolder);
+            if (parentFolder != null) {
+                selectFolder(parentFolder, false);
+            }
+        }
+
+        private void navigateHistoryForward() {
+            if (forwardHistory.isEmpty()) {
+                return;
+            }
+            backHistory.push(currentFolder);
+            selectFolder(forwardHistory.pop(), false);
+        }
+
+        private String parentFolder(String path) {
+            String normalizedPath = ReSyncProjectMetadata.normalizePath(path);
+            if (normalizedPath.isBlank()) {
+                return null;
+            }
+            int separator = normalizedPath.lastIndexOf('/');
+            return separator >= 0 ? normalizedPath.substring(0, separator) : "";
         }
 
         private void openTreeFile(Path path) {
@@ -364,7 +470,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                     nameInput.setText(selectedResource.getId());
                 }
             }
-            showExplorerMenu(getMouseX(), getMouseY());
+            showExplorerMenu(lastMouseX, lastMouseY);
         }
 
         private void openFolder(ReSyncProjectMetadata.FolderEntry folder, int button) {
@@ -558,8 +664,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             if (manager == null) {
                 return false;
             }
+            String targetFolder = createTargetFolder();
             if (ReSyncResourceDragPayload.FOLDER.equals(type)) {
-                manager.createProjectFolder(serverId, currentFolder, id);
+                manager.createProjectFolder(serverId, targetFolder, id);
                 rebuild();
                 return true;
             }
@@ -599,13 +706,21 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 }
             }
             ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
-            metadata.ensureResource(type, id, id, currentFolder);
+            ReSyncProjectMetadata.ResourceEntry entry = metadata.ensureResource(type, id, id, targetFolder);
+            entry.setPath(targetFolder);
             manager.saveProjectMetadata(serverId, metadata);
             rebuild();
             if (ReSyncResourceDragPayload.GUI.equals(type) || ReSyncResourceDragPayload.SCOREBOARD.equals(type) || ReSyncResourceDragPayload.TAB.equals(type)) {
                 openStudioDesigner(type, id);
             }
             return true;
+        }
+
+        private String createTargetFolder() {
+            if (selectedFolder != null) {
+                return selectedFolder.getPath();
+            }
+            return ReSyncProjectMetadata.normalizePath(currentFolder);
         }
 
         private boolean resourceExists(FlowManager manager, String type, String id) {
@@ -718,7 +833,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 }
             }
             rebuild();
-            rebuildStudioDocumentTabs();
+            syncStudioDocumentTabs();
             return true;
         }
 
@@ -753,7 +868,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             metadata.getResources().removeIf(entry -> entry.key().equals(selectedResource.key()));
             manager.saveProjectMetadata(serverId, metadata);
             studioDocuments.removeIf(document -> document.key().equals(selectedResource.key()));
-            rebuildStudioDocumentTabs();
+            syncStudioDocumentTabs();
             rebuild();
         }
 
@@ -852,11 +967,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
         private void updateContainers() {
             int folderWidth = currentFolderWidth();
-            treeContainer.setPosition(getX() + 4, getY() + 6);
-            treeContainer.setSize(folderWidth - 8, getHeight() - 10);
-            gridContainer.setPosition(getX() + folderWidth + 8, getY() + 6);
-            gridContainer.setSize(getWidth() - folderWidth - 12, getHeight() - 10);
+            treeContainer.setPosition(getX() + 4, getY() + 1);
+            treeContainer.setSize(folderWidth - 8, getHeight() - 2);
+            gridContainer.setPosition(getX() + folderWidth + 8, getY() + 1);
+            gridContainer.setSize(getWidth() - folderWidth - 12, getHeight() - 2);
             createButton.setPosition(getX() + getWidth() - 24, getY() + 8);
+            treeContainer.setRelativeScissor(1, 1, 1, 1);
+            gridContainer.setRelativeScissor(1, 1, 1, 1);
             treeContainer.updateWidgetPositions();
             gridContainer.updateWidgetPositions();
         }
@@ -1170,11 +1287,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
     public FlowEditorScreen enableStudioMode() {
         this.studioMode = true;
-        String title = FlowManager.getInstance() != null ? FlowManager.getInstance().getFlowName(serverId, graph.getId()) : graph.getId();
-        if (title == null || title.isBlank()) {
-            title = graph.getId();
-        }
-        addStudioDocument(graph.isFunction() ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW, graph.getId(), title, graph, null);
         return this;
     }
 
@@ -1191,13 +1303,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return;
         }
         addStudioDocument(type, id, title == null || title.isBlank() ? id : title, targetGraph, null);
-        rebuildStudioDocumentTabs();
+        syncStudioDocumentTabs();
         selectStudioDocument(ReSyncProjectMetadata.resourceKey(type, id));
     }
 
     private void openStudioDocument(String type, String id, String title) {
         addStudioDocument(type, id, title == null || title.isBlank() ? id : title, null, null);
-        rebuildStudioDocumentTabs();
+        syncStudioDocumentTabs();
         selectStudioDocument(ReSyncProjectMetadata.resourceKey(type, id));
     }
 
@@ -1243,7 +1355,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
     private void openStudioViewDocument(String type, String id, String title, FlowGraph targetGraph, ReSyncStudioView view) {
         addStudioDocument(type, id, title == null || title.isBlank() ? id : title, targetGraph, view);
-        rebuildStudioDocumentTabs();
+        syncStudioDocumentTabs();
         selectStudioDocument(ReSyncProjectMetadata.resourceKey(type, id));
     }
 
@@ -1305,9 +1417,56 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
     }
 
+    public static void refreshWorldsForServer(String serverId) {
+        for (FlowEditorScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.getServerId())) {
+                screen.onWorldSnapshotRefreshed();
+            }
+        }
+    }
+
+    public static void handleWorldOperationResultForServer(String serverId, WorldOperationResult result) {
+        for (FlowEditorScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.getServerId())) {
+                screen.handleWorldOperationResult(result);
+            }
+        }
+    }
+
+    public static void handleWorldAuditSnapshotForServer(String serverId, JsonElement data) {
+        for (FlowEditorScreen screen : OPEN_SCREENS) {
+            if (screen != null && serverId != null && serverId.equals(screen.getServerId())) {
+                screen.showWorldAuditSnapshot(data);
+            }
+        }
+    }
+
     protected void onOptionCatalogRefreshed() {
         closeNodeItemSelector();
         refreshNodeRegistry();
+    }
+
+    private void onWorldSnapshotRefreshed() {
+        for (StudioDocument document : studioDocuments) {
+            if (document.view() instanceof WorldStudioView worldView) {
+                worldView.refreshWorlds();
+            }
+        }
+    }
+
+    private void handleWorldOperationResult(WorldOperationResult result) {
+        if (result == null || !result.isSuccess()) {
+            return;
+        }
+        String action = safeText(result.getAction()).trim().toLowerCase(Locale.ROOT);
+        for (StudioDocument document : studioDocuments) {
+            if (document.view() instanceof WorldStudioView worldView) {
+                worldView.handleOperationResult(result);
+            }
+        }
+        if ("whoworld".equals(action)) {
+            showWorldWhoPopup(result);
+        }
     }
 
     public String getFlowId() {
@@ -1443,6 +1602,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             createPaletteSidePanel();
             createHeaderButtons();
             if (studioMode) {
+                studioEmptyMessage = new IconMessage(0, 0, 180, 96, "Open Or Create An Asset", "remotely.png");
+                studioEmptyMessage.entranceAnimationEnabled = false;
                 createStudioWorkspaceChrome();
             }
             initialized = true;
@@ -1476,6 +1637,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         categoryOrder = resolveCategoryOrder();
         for (NodeDefinition.NodeCategory category : categoryOrder) {
             PopupWidget popup = new PopupWidget.Builder(getCategoryLabel(category)).enableCollapseOnClose(true).build();
+            ReSyncStudioPanelState.disableEntrance(popup);
             popup.collapse(true);
             categoryPopups.put(category, popup);
             paletteSidePanel.addWidget(popup);
@@ -1505,9 +1667,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                         }
                         return match;
                     });
-                    activeStudioDocument = studioDocuments.isEmpty() ? null : studioDocuments.getFirst();
-                    if (activeStudioDocument != null) {
-                        selectStudioDocument(activeStudioDocument.key());
+                    if (studioDocuments.isEmpty()) {
+                        clearActiveStudioDocument();
+                    } else if (activeStudioDocument != null && activeStudioDocument.key().equals(key)) {
+                        selectStudioDocument(studioDocuments.getFirst().key());
                     } else {
                         refreshActiveViewHeaderButtons();
                         refreshStudioResourcePanel();
@@ -1523,15 +1686,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             .build();
         studioContentBrowser = new ReSyncContentBrowserWidget(8, height - STUDIO_CONTENT_BROWSER_HEIGHT - 8, width - 16, STUDIO_CONTENT_BROWSER_HEIGHT);
         addHudWidget(studioContentBrowser);
-        studioResourcePanel = new SidePanel(this, "studioResourcePanel", this::updatePositions).width(180).y(54).height(height - 65 - STUDIO_CONTENT_BROWSER_HEIGHT).show();
-        studioResourcePanel.container().layout(new ManagedLayout()).columns(1).padding(5);
+        studioResourcePanel = new SidePanel(this, "studioResourcePanel", this::updatePositions).width(studioPanelState.width()).y(54).height(height - 65 - STUDIO_CONTENT_BROWSER_HEIGHT).show();
+        studioResourcePanel.container().layout(new ManagedLayout()).columns(1).padding(studioPanelState.padding()).scrolling(true).enableSelecting(false);
         studioResourcePanel.hide();
-        rebuildStudioDocumentTabs();
-        if (activeStudioDocument != null) {
-            selectStudioDocument(activeStudioDocument.key());
-        } else {
-            refreshActiveViewHeaderButtons();
-        }
+        syncStudioDocumentTabs();
+        clearActiveStudioDocument();
     }
 
     private void openStudioResource(ReSyncProjectMetadata.ResourceEntry resource) {
@@ -1573,8 +1732,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return;
         }
         if (ReSyncResourceDragPayload.WORLD.equals(resource.getType())) {
-            openStudioDocument(resource.getType(), resource.getId(), resource.getDisplayName());
+            openStudioWorldDocument(resource.getId(), resource.getDisplayName());
         }
+    }
+
+    private void openStudioWorldDocument(String id, String title) {
+        openStudioViewDocument(ReSyncResourceDragPayload.WORLD, id, title == null || title.isBlank() ? id : title, new WorldStudioView(id));
     }
 
     private List<ReSyncProjectMetadata.FolderEntry> studioFolders(String parentPath) {
@@ -1619,19 +1782,64 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         return metadata.getResources();
     }
 
-    private void rebuildStudioDocumentTabs() {
+    private void syncStudioDocumentTabs() {
         if (studioTabsManager == null) {
             return;
         }
-        studioTabsManager.clearTabs();
+        Set<String> documentKeys = new HashSet<>();
         for (StudioDocument document : studioDocuments) {
-            Container container = new Container("document-" + document.key(), 0, 0, 1, 1);
-            TabsManager.Tab tab = studioTabsManager.addTab(document.title(), container);
-            tab.setData(document.key());
-            if (document == activeStudioDocument) {
-                studioTabsManager.setActiveTab(container);
+            documentKeys.add(document.key());
+        }
+        List<TabsManager.Tab> tabs = studioTabsManager.getTabs();
+        for (int i = tabs.size() - 1; i >= 0; i--) {
+            Object data = tabs.get(i).getData();
+            if (!(data instanceof String key) || !documentKeys.contains(key)) {
+                studioTabsManager.removeTabRaw(i);
             }
         }
+        tabs = studioTabsManager.getTabs();
+        for (StudioDocument document : studioDocuments) {
+            TabsManager.Tab tab = findStudioTab(document.key(), tabs);
+            if (tab == null) {
+                Container container = new Container("document-" + document.key(), 0, 0, 1, 1);
+                tab = studioTabsManager.addTab(document.title(), container, studioTabIconPath(document.type()));
+                tab.setData(document.key());
+                tabs.add(tab);
+            } else {
+                tab.setName(document.title());
+                tab.setIconPath(studioTabIconPath(document.type()));
+            }
+        }
+        if (activeStudioDocument != null) {
+            TabsManager.Tab activeTab = findStudioTab(activeStudioDocument.key(), studioTabsManager.getTabs());
+            if (activeTab != null && studioTabsManager.getActiveTab() != activeTab) {
+                studioTabsManager.setActiveTab(activeTab.getContainer());
+            } else if (activeTab == null) {
+                clearActiveStudioDocument();
+            }
+        }
+        studioTabsManager.updateLayout();
+    }
+
+    private TabsManager.Tab findStudioTab(String key, List<TabsManager.Tab> tabs) {
+        for (TabsManager.Tab tab : tabs) {
+            if (key.equals(tab.getData())) {
+                return tab;
+            }
+        }
+        return null;
+    }
+
+    private String studioTabIconPath(String type) {
+        return switch (type) {
+            case ReSyncResourceDragPayload.COMMAND -> "terminal.png";
+            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "resources.png";
+            case ReSyncResourceDragPayload.GUI -> "panel.png";
+            case ReSyncResourceDragPayload.SCOREBOARD -> "report.png";
+            case ReSyncResourceDragPayload.TAB -> "newTab.png";
+            case ReSyncResourceDragPayload.WORLDGEN, ReSyncResourceDragPayload.WORLD -> "earth.png";
+            default -> "graph.png";
+        };
     }
 
     private void refreshStudioResourcePanel() {
@@ -1641,14 +1849,15 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         commandLabelInput = null;
         commandPathsInput = null;
         commandStructuredToggle = null;
-        studioResourcePanel.container().clearWidgets();
         if (activeStudioDocument == null) {
+            clearStudioResourcePanelWidgets();
             studioResourcePanel.hide();
             return;
         }
         if (ReSyncResourceDragPayload.FLOW.equals(activeStudioDocument.type())
             || ReSyncResourceDragPayload.FUNCTION.equals(activeStudioDocument.type())
             || ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(activeStudioDocument.type())) {
+            clearStudioResourcePanelWidgets();
             studioResourcePanel.hide();
             return;
         }
@@ -1669,7 +1878,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         } else if (ReSyncResourceDragPayload.WORLDGEN.equals(activeStudioDocument.type())) {
             buildWorldGenResourcePanel();
         } else if (ReSyncResourceDragPayload.WORLD.equals(activeStudioDocument.type())) {
-            buildWorldResourcePanel();
+            clearStudioResourcePanelWidgets();
+            studioResourcePanel.hide();
         }
         studioResourcePanel.container().updateWidgetPositions();
     }
@@ -1681,14 +1891,34 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
         TriggerBinding binding = manager.getCommandBinding(serverId, activeStudioDocument.id());
         CommandBindingContext command = parseCommandContext(binding != null ? binding.getContext() : activeStudioDocument.id());
+        String panelKey = activeStudioDocument.key();
+        if (reuseStudioResourcePanel(panelKey)) {
+            commandLabelInput = studioResourcePanelInputs.get("command");
+            commandPathsInput = studioResourcePanelInputs.get("paths");
+            commandStructuredToggle = studioResourcePanelToggles.get("structured");
+            updateStudioPanelInput("command", command.command != null && !command.command.isBlank() ? command.command : activeStudioDocument.id());
+            updateStudioPanelInput("paths", String.join("|", command.subcommands != null ? command.subcommands : List.of()));
+            updateStudioPanelToggle("structured", command.structured != null && command.structured);
+            return;
+        }
+        setStudioResourcePanelKey(panelKey);
         commandLabelInput = panelInput("Command", command.command != null && !command.command.isBlank() ? command.command : activeStudioDocument.id());
-        commandPathsInput = panelInput("Paths | separated", String.join("|", command.subcommands != null ? command.subcommands : List.of()));
+        commandPathsInput = panelInput("Paths", String.join("|", command.subcommands != null ? command.subcommands : List.of()));
         commandStructuredToggle = new ToggleWidget.Builder()
             .label("Structured")
             .toggled(command.structured != null && command.structured)
-            .size(170, 18)
+            .size(studioPanelState.rowWidth(studioResourcePanel), 20)
+            .entranceAnimation(false)
             .build();
-        studioResourcePanel.addWidget(commandLabelInput, commandPathsInput, commandStructuredToggle);
+        rememberStudioPanelInput("command", commandLabelInput);
+        rememberStudioPanelInput("paths", commandPathsInput);
+        rememberStudioPanelToggle("structured", commandStructuredToggle);
+        int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
+        setStudioResourcePanelWidgets(
+            studioPanelState.row("Command", commandLabelInput, rowWidth),
+            studioPanelState.row("Paths", commandPathsInput, rowWidth),
+            studioPanelState.row("Structured", commandStructuredToggle, rowWidth)
+        );
     }
 
     private void buildGuiResourcePanel() {
@@ -1697,14 +1927,27 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (gui == null) {
             return;
         }
+        String panelKey = activeStudioDocument.key();
+        if (reuseStudioResourcePanel(panelKey)) {
+            updateStudioPanelInput("title", gui.getTitle());
+            updateStudioPanelInput("rows", String.valueOf(gui.getRows()));
+            updateStudioPanelToggle("inventory", gui.isExtendToPlayerInventory());
+            return;
+        }
+        setStudioResourcePanelKey(panelKey);
         TextInputWidget title = panelInput("Title", gui.getTitle());
         TextInputWidget rows = panelInput("Rows", String.valueOf(gui.getRows()));
         ToggleWidget playerInventory = new ToggleWidget.Builder()
             .label("Inventory")
             .toggled(gui.isExtendToPlayerInventory())
-            .size(170, 18)
+            .size(studioPanelState.rowWidth(studioResourcePanel), 20)
+            .entranceAnimation(false)
             .build();
-        studioResourcePanel.addWidget(title, rows, playerInventory, panelSaveButton(() -> {
+        rememberStudioPanelInput("title", title);
+        rememberStudioPanelInput("rows", rows);
+        rememberStudioPanelToggle("inventory", playerInventory);
+        int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
+        setStudioResourcePanelWidgets(studioPanelState.row("Title", title, rowWidth), studioPanelState.row("Rows", rows, rowWidth), studioPanelState.row("Inventory", playerInventory, rowWidth), panelSaveButton(() -> {
             gui.setTitle(title.getText());
             gui.setRows(parseInt(rows.getText(), gui.getRows(), 1, 6));
             gui.setExtendToPlayerInventory(playerInventory.getValue());
@@ -1718,10 +1961,22 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (scoreboard == null) {
             return;
         }
+        String panelKey = activeStudioDocument.key();
+        if (reuseStudioResourcePanel(panelKey)) {
+            updateStudioPanelInput("title", scoreboard.getTitle());
+            updateStudioPanelInput("objective", scoreboard.getObjectiveId());
+            updateStudioPanelInput("lines", String.join("|", scoreboard.getLines()));
+            return;
+        }
+        setStudioResourcePanelKey(panelKey);
         TextInputWidget title = panelInput("Title", scoreboard.getTitle());
         TextInputWidget objective = panelInput("Objective", scoreboard.getObjectiveId());
-        TextInputWidget lines = panelInput("Lines | separated", String.join("|", scoreboard.getLines()));
-        studioResourcePanel.addWidget(title, objective, lines, panelSaveButton(() -> {
+        TextInputWidget lines = panelInput("Lines", String.join("|", scoreboard.getLines()));
+        rememberStudioPanelInput("title", title);
+        rememberStudioPanelInput("objective", objective);
+        rememberStudioPanelInput("lines", lines);
+        int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
+        setStudioResourcePanelWidgets(studioPanelState.row("Title", title, rowWidth), studioPanelState.row("Objective", objective, rowWidth), studioPanelState.row("Lines", lines, rowWidth), panelSaveButton(() -> {
             scoreboard.setTitle(title.getText());
             scoreboard.setObjectiveId(objective.getText());
             scoreboard.setLines(parseLines(lines.getText()));
@@ -1735,10 +1990,22 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (tab == null) {
             return;
         }
+        String panelKey = activeStudioDocument.key();
+        if (reuseStudioResourcePanel(panelKey)) {
+            updateStudioPanelInput("header", tab.getHeader());
+            updateStudioPanelInput("entry", tab.getEntryFormat());
+            updateStudioPanelInput("footer", tab.getFooter());
+            return;
+        }
+        setStudioResourcePanelKey(panelKey);
         TextInputWidget header = panelInput("Header", tab.getHeader());
         TextInputWidget entry = panelInput("Entry", tab.getEntryFormat());
         TextInputWidget footer = panelInput("Footer", tab.getFooter());
-        studioResourcePanel.addWidget(header, entry, footer, panelSaveButton(() -> {
+        rememberStudioPanelInput("header", header);
+        rememberStudioPanelInput("entry", entry);
+        rememberStudioPanelInput("footer", footer);
+        int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
+        setStudioResourcePanelWidgets(studioPanelState.row("Header", header, rowWidth), studioPanelState.row("Entry", entry, rowWidth), studioPanelState.row("Footer", footer, rowWidth), panelSaveButton(() -> {
             tab.setHeader(header.getText());
             tab.setEntryFormat(entry.getText());
             tab.setFooter(footer.getText());
@@ -1747,35 +2014,92 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     }
 
     private void buildWorldGenResourcePanel() {
-        TextInputWidget id = panelInput("Project", activeStudioDocument.id());
-        id.active = false;
-        studioResourcePanel.addWidget(id, panelSaveButton(() -> {
+        String panelKey = activeStudioDocument.key();
+        if (reuseStudioResourcePanel(panelKey)) {
+            return;
+        }
+        setStudioResourcePanelKey(panelKey);
+        setStudioResourcePanelWidgets(panelSaveButton(() -> {
             WorldGenProject project = WorldGenManager.getInstance().createProjectTemplate("Continental", activeStudioDocument.id());
             WorldGenManager.getInstance().saveWorldGen(serverId, project);
         }));
     }
 
-    private void buildWorldResourcePanel() {
-        TextInputWidget id = panelInput("World", activeStudioDocument.id());
-        id.active = false;
-        studioResourcePanel.addWidget(id);
+    private void clearStudioResourcePanelWidgets() {
+        if (studioResourcePanel == null || studioResourcePanelWidgets.isEmpty()) {
+            studioResourcePanelKey = "";
+            studioResourcePanelInputs.clear();
+            studioResourcePanelToggles.clear();
+            return;
+        }
+        Container container = studioResourcePanel.container();
+        for (AnimatedWidget widget : new ArrayList<>(studioResourcePanelWidgets)) {
+            container.removeWidget(widget);
+        }
+        studioResourcePanelWidgets.clear();
+        studioResourcePanelKey = "";
+        studioResourcePanelInputs.clear();
+        studioResourcePanelToggles.clear();
+    }
+
+    private void setStudioResourcePanelWidgets(AnimatedWidget... widgets) {
+        if (studioResourcePanel == null) {
+            return;
+        }
+        Container container = studioResourcePanel.container();
+        for (AnimatedWidget widget : widgets) {
+            ReSyncStudioPanelState.disableEntrance(widget);
+            container.addWidget(widget);
+            studioResourcePanelWidgets.add(widget);
+        }
+    }
+
+    private boolean reuseStudioResourcePanel(String key) {
+        return key != null && key.equals(studioResourcePanelKey);
+    }
+
+    private void setStudioResourcePanelKey(String key) {
+        if (!Objects.equals(studioResourcePanelKey, key)) {
+            clearStudioResourcePanelWidgets();
+            studioResourcePanelKey = key;
+        }
+    }
+
+    private void rememberStudioPanelInput(String key, TextInputWidget input) {
+        studioResourcePanelInputs.put(key, input);
+    }
+
+    private void rememberStudioPanelToggle(String key, ToggleWidget toggle) {
+        studioResourcePanelToggles.put(key, toggle);
+    }
+
+    private void updateStudioPanelInput(String key, String value) {
+        TextInputWidget input = studioResourcePanelInputs.get(key);
+        if (input != null && !input.isFocused() && !Objects.equals(input.getText(), safeText(value))) {
+            input.setText(safeText(value));
+        }
+    }
+
+    private void updateStudioPanelToggle(String key, boolean value) {
+        ToggleWidget toggle = studioResourcePanelToggles.get(key);
+        if (toggle != null && toggle.getValue() != value) {
+            toggle.setValue(value);
+        }
     }
 
     private TextInputWidget panelInput(String placeholder, String value) {
-        return new TextInputWidget.Builder()
+        TextInputWidget input = new TextInputWidget.Builder()
             .placeholder(placeholder)
+            .forcePlaceholder(false)
             .text(value != null ? value : "")
-            .size(170, 20)
+            .size(studioPanelState.rowWidth(studioResourcePanel), ReSyncStudioPanelState.FIELD_HEIGHT)
             .build();
+        ReSyncStudioPanelState.disableEntrance(input);
+        return input;
     }
 
     private AnimatedButton panelSaveButton(Runnable action) {
-        return new AnimatedButton.Builder()
-            .label("Save")
-            .size(170, 18)
-            .accentType(ThemeManager.getAccent("nice"))
-            .onClick(action)
-            .build();
+        return studioPanelState.action("Save", studioPanelState.rowWidth(studioResourcePanel), action);
     }
 
     private int parseInt(String value, int fallback, int min, int max) {
@@ -1897,6 +2221,31 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 return;
             }
         }
+        clearActiveStudioDocument();
+    }
+
+    private void clearActiveStudioDocument() {
+        activeStudioDocument = null;
+        graph = studioEmptyGraph;
+        selectedNodeIds.clear();
+        selectionBase.clear();
+        selectedDragStartPositions.clear();
+        focusedNode = null;
+        dragState.isDragging = false;
+        pendingSourceNodeId = null;
+        pendingSourcePin = null;
+        undoStack.clear();
+        redoStack.clear();
+        activeNodeRegistryServerId = serverId;
+        if (paletteSidePanel != null) {
+            paletteSidePanel.hide();
+        }
+        if (studioResourcePanel != null) {
+            clearStudioResourcePanelWidgets();
+            studioResourcePanel.hide();
+        }
+        refreshActiveViewHeaderButtons();
+        updatePositions();
     }
 
     private void populateCategoryPopups() {
@@ -1935,8 +2284,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             for (NodeDefinition def : nodes) {
                 IconButton btn = new IconButton.Builder()
                         .label(def.getDisplayName())
+                        .entranceAnimation(false)
                         .onClick(() -> addNodeAtCenter(def.getId()))
                         .build();
+                ReSyncStudioPanelState.disableEntrance(btn);
                 targetPopup.addRow("", Collections.singletonList(btn), 20, true, false);
             }
         }
@@ -2557,7 +2908,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             updatePalettePanelBounds();
         }
         if (studioResourcePanel != null) {
-            studioResourcePanel.width(180).y(54).height(Math.max(80, height - 65 - STUDIO_CONTENT_BROWSER_HEIGHT - 18)).update();
+            studioResourcePanel.width(studioPanelState.width()).y(54).height(Math.max(80, height - 65 - STUDIO_CONTENT_BROWSER_HEIGHT - 18)).update();
         }
         for (StudioDocument document : studioDocuments) {
             if (document.view() != null) {
@@ -2774,6 +3125,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return;
         }
 
+        if (studioMode && activeStudioDocument == null) {
+            renderStudioEmptyMessage(context, mouseX, mouseY);
+            renderStudioOverlays(context, mouseX, mouseY, delta);
+            return;
+        }
+
         context.getMatrices().push();
         context.getMatrices().translate(getWidth() / 2.0f, getHeight() / 2.0f, 0);
         context.getMatrices().scale(zoomLevel, zoomLevel, 1.0f);
@@ -2840,12 +3197,27 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
     private List<AnimatedWidget> visibleStudioHeaderButtons() {
         List<AnimatedWidget> buttons = new ArrayList<>();
+        if (activeStudioDocument == null) {
+            return buttons;
+        }
         if (activeStudioView() == null) {
             buttons.addAll(headerButtons);
         } else {
             buttons.addAll(activeViewHeaderButtons);
         }
         return buttons;
+    }
+
+    private void renderStudioEmptyMessage(IDrawContext context, int mouseX, int mouseY) {
+        if (studioEmptyMessage == null) {
+            return;
+        }
+        int top = 42;
+        int bottom = studioContentBrowser != null ? studioContentBrowser.getY() - 8 : height - 8;
+        int centerX = width / 2;
+        int centerY = top + Math.max(0, bottom - top) / 2;
+        studioEmptyMessage.setPosition(centerX - studioEmptyMessage.getWidth() / 2, centerY - studioEmptyMessage.getHeight() / 2);
+        studioEmptyMessage.render(context, mouseX, mouseY, 0);
     }
 
     private void layoutStudioHeaderButtons() {
@@ -2908,12 +3280,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             widget.render(context, mouseX, mouseY, delta);
         }
 
-        if (activeStudioView() == null && paletteSidePanel != null) {
+        if (activeStudioDocument != null && activeStudioView() == null && paletteSidePanel != null) {
             paletteSidePanel.update();
             paletteSidePanel.container().render(context, mouseX, mouseY, delta);
             paletteSidePanel.renderHeader(context);
         }
-        if (activeStudioView() == null && studioResourcePanel != null) {
+        if (activeStudioDocument != null && activeStudioView() == null && studioResourcePanel != null) {
             studioResourcePanel.update();
             studioResourcePanel.container().render(context, mouseX, mouseY, delta);
             studioResourcePanel.renderHeader(context);
@@ -3679,6 +4051,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private boolean handleStudioHudMouseClicked(double mouseX, double mouseY, int button) {
         if (!studioMode) {
             return false;
+        }
+        if (studioContentBrowser != null && studioContentBrowser.handleHistoryMouseButton(button)) {
+            return true;
         }
         if (studioTabsManager != null && studioTabsManager.mouseClicked(mouseX, mouseY, button)) {
             return true;
@@ -4763,7 +5138,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             }
         }
         graph.setId(newId);
-        rebuildStudioDocumentTabs();
+        syncStudioDocumentTabs();
         if (studioContentBrowser != null) {
             studioContentBrowser.rebuild();
         }
@@ -5106,6 +5481,1483 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             copied.add(new FlowGraph.EditorPassthrough(passthrough.getNodeId(), passthrough.getInputPin()));
         }
         return copied;
+    }
+
+    private class WorldStudioView implements ReSyncStudioView {
+        private final Container worldsList;
+        private final Container detailPane;
+        private final Map<String, WorldEntryRow> entries = new HashMap<>();
+        private final List<AnimatedWidget> detailWidgets = new ArrayList<>();
+        private final List<AnimatedWidget> headerActions = new ArrayList<>();
+        private WorldDetailForm detailForm;
+        private String selectedWorldName;
+        private boolean initialized;
+        private int x;
+        private int y;
+        private int width;
+        private int height;
+
+        private WorldStudioView(String initialWorldName) {
+            this.selectedWorldName = safeText(initialWorldName);
+            this.worldsList = new Container("worlds-list", 0, 0, 260, 100);
+            this.worldsList.layout(new ManagedLayout()).columns(1).padding(4).scrolling(true).backgroundDrawing(true);
+            this.detailPane = new Container("world-detail", 0, 0, 300, 100);
+            this.detailPane.layout(new ManagedLayout()).columns(1).padding(5).scrolling(true).backgroundDrawing(true);
+            createHeaderActions();
+        }
+
+        @Override
+        public void init() {
+            if (initialized) {
+                return;
+            }
+            initialized = true;
+            refreshWorlds();
+        }
+
+        @Override
+        public void selected() {
+            init();
+            refreshDetails();
+        }
+
+        @Override
+        public List<AnimatedWidget> headerButtons() {
+            return headerActions;
+        }
+
+        @Override
+        public void resize(int width, int height) {
+            this.x = 10;
+            this.y = 36;
+            this.width = Math.max(80, width - 20);
+            this.height = Math.max(80, height - 44);
+            updateLayout();
+        }
+
+        @Override
+        public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
+            init();
+            updateLayout();
+            worldsList.render(context, mouseX, mouseY, delta);
+            detailPane.render(context, mouseX, mouseY, delta);
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            init();
+            return detailPane.mouseClicked(mouseX, mouseY, button) || worldsList.mouseClicked(mouseX, mouseY, button);
+        }
+
+        @Override
+        public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            return detailPane.mouseReleased(mouseX, mouseY, button) || worldsList.mouseReleased(mouseX, mouseY, button);
+        }
+
+        @Override
+        public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+            return detailPane.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || worldsList.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+            return detailPane.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount) || worldsList.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount);
+        }
+
+        @Override
+        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            return detailPane.keyPressed(keyCode, scanCode, modifiers) || worldsList.keyPressed(keyCode, scanCode, modifiers);
+        }
+
+        @Override
+        public boolean charTyped(char chr, int modifiers) {
+            return detailPane.charTyped(chr, modifiers) || worldsList.charTyped(chr, modifiers);
+        }
+
+        private void createHeaderActions() {
+            headerActions.add(studioHeaderButton("New World", "create.png", this::showCreateWorldPopup, ThemeManager.getAccent("nice")));
+            headerActions.add(studioHeaderButton("Import", "download.png", () -> worldManager().importWorlds(serverId), null));
+            headerActions.add(studioHeaderButton("Scan", "search.png", () -> worldManager().scanWorlds(serverId), null));
+            headerActions.add(studioHeaderButton("Refresh", "reload.png", () -> worldManager().refreshWorldsFromServer(serverId), null));
+            headerActions.add(studioHeaderButton("Groups", "resources.png", this::showInventoryGroupsPopup, null));
+            headerActions.add(studioHeaderButton("History", "history.png", () -> worldManager().requestWorldAuditSnapshot(serverId), null));
+        }
+
+        private IconButton studioHeaderButton(String label, String icon, Runnable action, Accent accent) {
+            IconButton.Builder builder = new IconButton.Builder()
+                .label(label)
+                .imagePath(icon)
+                .size(Math.max(86, label.length() * 7 + 32), 18)
+                .entranceAnimation(false)
+                .onClick(action);
+            if (accent != null) {
+                builder.accentType(accent);
+            }
+            return builder.build();
+        }
+
+        private FlowManager worldManager() {
+            return FlowManager.getInstance();
+        }
+
+        private void updateLayout() {
+            int gap = 8;
+            int listWidth = Math.clamp(width / 3, 250, 370);
+            worldsList.setPosition(x, y);
+            worldsList.setSize(listWidth, height);
+            detailPane.setPosition(x + listWidth + gap, y);
+            detailPane.setSize(Math.max(80, width - listWidth - gap), height);
+            updateEntryWidths();
+        }
+
+        private void updateEntryWidths() {
+            int entryWidth = Math.max(180, worldsList.getWidth() - 12);
+            for (WorldEntryRow entry : entries.values()) {
+                entry.widget.setSize(entryWidth, 34);
+            }
+        }
+
+        private void refreshWorlds() {
+            FlowManager manager = worldManager();
+            if (manager == null) {
+                return;
+            }
+            Map<String, WorldRegistryEntry> worlds = manager.getWorldsForServer(serverId);
+            Set<String> nextWorlds = new HashSet<>(worlds.keySet());
+            for (String existing : new ArrayList<>(entries.keySet())) {
+                if (!containsIgnoreCase(nextWorlds, existing)) {
+                    WorldEntryRow row = entries.remove(existing);
+                    if (row != null) {
+                        worldsList.removeWidget(row.widget);
+                    }
+                }
+            }
+            List<String> worldNames = new ArrayList<>(worlds.keySet());
+            worldNames.sort(String.CASE_INSENSITIVE_ORDER);
+            if (selectedWorldName.isBlank() || !containsIgnoreCase(nextWorlds, selectedWorldName)) {
+                selectedWorldName = worldNames.isEmpty() ? "" : worldNames.getFirst();
+            }
+            for (String worldName : worldNames) {
+                upsertWorldEntry(worldName);
+            }
+            refreshDetails();
+            worldsList.updateWidgetPositions();
+        }
+
+        private boolean containsIgnoreCase(Collection<String> values, String target) {
+            if (target == null) {
+                return false;
+            }
+            for (String value : values) {
+                if (value != null && value.equalsIgnoreCase(target)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void upsertWorldEntry(String worldName) {
+            FlowManager manager = worldManager();
+            WorldRegistryEntry world = manager != null ? manager.getWorld(serverId, worldName) : null;
+            if (world == null) {
+                return;
+            }
+            String existingKey = findEntryKeyIgnoreCase(entries, worldName);
+            WorldDashboardEntry dashboard = findWorldDashboard(worldName);
+            String status = dashboard != null ? safeText(dashboard.getStatus()) : world.isLoaded() ? "Loaded" : "Unloaded";
+            int players = dashboard != null ? dashboard.getPlayerCount() : 0;
+            String environment = dashboard != null && dashboard.getEnvironment() != null ? dashboard.getEnvironment() : world.getEnvironment();
+            String difficulty = dashboard != null && dashboard.getDifficulty() != null ? dashboard.getDifficulty() : world.getDifficulty();
+            String alias = dashboard != null ? safeText(dashboard.getAlias()) : safeText(world.getProfileSettings().getAlias());
+            String description = status + " | " + safeText(environment) + " | " + players + " Players | " + safeText(difficulty);
+            String hidden = worldHiddenSummary(world, alias);
+            WorldEntryRow row = existingKey == null ? null : entries.get(existingKey);
+            if (row != null) {
+                if (!Objects.equals(existingKey, worldName)) {
+                    entries.remove(existingKey);
+                    entries.put(worldName, row);
+                }
+                row.update(worldName, description, hidden, world.isLoaded(), worldName.equalsIgnoreCase(selectedWorldName));
+                return;
+            }
+            row = new WorldEntryRow(worldName, description, hidden, world.isLoaded(), worldName.equalsIgnoreCase(selectedWorldName));
+            row.widget.setSize(Math.max(180, worldsList.getWidth() - 12), 34);
+            worldsList.addWidget(row.widget);
+            entries.put(worldName, row);
+        }
+
+        private class WorldEntryRow {
+            private final MountableButtonWidget widget;
+            private final SquareButtonWidget stateButton;
+            private final SquareButtonWidget actionsButton;
+            private String worldName;
+
+            private WorldEntryRow(String worldName, String description, String hiddenText, boolean loaded, boolean selected) {
+                this.worldName = worldName;
+                SquareButtonWidget mapButton = new SquareButtonWidget.Builder()
+                    .imagePath("map.png")
+                    .hint("Open Map")
+                    .onClick(() -> worldManager().openWorldMap(serverId, null, this.worldName))
+                    .build();
+                stateButton = new SquareButtonWidget.Builder()
+                    .imagePath(loaded ? "hide.png" : "add.png")
+                    .hint(loaded ? "Unload World" : "Load World")
+                    .onClick(() -> {
+                        WorldRegistryEntry world = worldManager().getWorld(serverId, this.worldName);
+                        if (world == null) {
+                            return;
+                        }
+                        if (world.isLoaded()) {
+                            showWorldUnloadPopup(this.worldName);
+                        } else {
+                            worldManager().loadWorld(serverId, this.worldName);
+                        }
+                    })
+                    .build();
+                SquareButtonWidget builtActionsButton = new SquareButtonWidget.Builder()
+                    .imagePath("ContextMenu.png")
+                    .hint("More Actions")
+                    .build();
+                builtActionsButton.action = () -> showWorldActionsMenu(this.worldName, builtActionsButton);
+                actionsButton = builtActionsButton;
+                widget = new MountableButtonWidget.Builder(worldName)
+                    .description(description)
+                    .hiddenText(hiddenText)
+                    .onClick(() -> selectWorld(this.worldName))
+                    .addButton(mapButton)
+                    .addButton(stateButton)
+                    .addButton(actionsButton)
+                    .build();
+                update(worldName, description, hiddenText, loaded, selected);
+            }
+
+            private void update(String worldName, String description, String hiddenText, boolean loaded, boolean selected) {
+                this.worldName = worldName;
+                widget.setName(worldName);
+                widget.setDescription(description);
+                widget.setHiddenText(hiddenText);
+                widget.titleColor = selected ? ThemeManager.getAccent("default").getAccentColor() : ThemeManager.getColor(ThemeColor.text);
+                stateButton.setIcon(loaded ? "hide.png" : "add.png");
+                stateButton.hint = loaded ? "Unload World" : "Load World";
+            }
+        }
+
+        private String worldHiddenSummary(WorldRegistryEntry world, String alias) {
+            StringBuilder hidden = new StringBuilder();
+            if (!alias.isBlank()) {
+                hidden.append("Alias: ").append(alias);
+            }
+            if (!safeText(world.getGenerator()).isBlank()) {
+                appendHidden(hidden, "Generator: " + world.getGenerator());
+            }
+            WorldProfileSettings profile = world.getProfileSettings();
+            if (!safeText(profile.getInventoryGroupId()).isBlank()) {
+                appendHidden(hidden, "Group: " + profile.getInventoryGroupId());
+            }
+            if (!profile.isPvpEnabled()) {
+                appendHidden(hidden, "PVP Off");
+            }
+            if (!profile.isAutoSaveEnabled()) {
+                appendHidden(hidden, "Auto Save Off");
+            }
+            if (world.isTimeLockEnabled()) {
+                appendHidden(hidden, "Time Locked");
+            }
+            if (world.isWeatherLockEnabled()) {
+                appendHidden(hidden, "Weather Locked");
+            }
+            return hidden.toString();
+        }
+
+        private void appendHidden(StringBuilder hidden, String value) {
+            if (!hidden.isEmpty()) {
+                hidden.append(" | ");
+            }
+            hidden.append(value);
+        }
+
+        private void selectWorld(String worldName) {
+            selectedWorldName = safeText(worldName);
+            for (String entryName : new ArrayList<>(entries.keySet())) {
+                upsertWorldEntry(entryName);
+            }
+            refreshDetails();
+        }
+
+        private void refreshDetails() {
+            FlowManager manager = worldManager();
+            WorldRegistryEntry world = manager != null ? manager.getWorld(serverId, selectedWorldName) : null;
+            if (world == null) {
+                clearDetailWidgets();
+                addDetailWidget(emptyDetailButton("No Worlds"));
+                detailPane.updateWidgetPositions();
+                detailForm = null;
+                return;
+            }
+            if (detailForm != null && selectedWorldName.equalsIgnoreCase(detailForm.worldName)) {
+                detailForm.update(world);
+                return;
+            }
+            clearDetailWidgets();
+            WorldProfileSettings profile = world.getProfileSettings();
+            int rowWidth = Math.max(220, detailPane.getWidth() - 18);
+            TextInputWidget alias = detailInput("Alias", profile.getAlias(), rowWidth / 2 - 5);
+            DropDownWidget<String> difficulty = dropdown(WorldUiSupport.mergeOptions(List.of("PEACEFUL", "EASY", "NORMAL", "HARD"), safeText(world.getDifficulty()).toUpperCase(Locale.ROOT)),
+                safeText(world.getDifficulty()).isBlank() ? "NORMAL" : safeText(world.getDifficulty()).toUpperCase(Locale.ROOT), rowWidth / 2 - 5);
+            ToggleWidget hidden = detailToggle("Hidden", profile.isHidden(), 92);
+            ToggleWidget forceGameMode = detailToggle("Force Game Mode", profile.isForceGameMode(), 132);
+            DropDownWidget<String> gameMode = dropdown(WorldUiSupport.mergeOptions(List.of("SURVIVAL", "CREATIVE", "ADVENTURE", "SPECTATOR"), safeText(profile.getGameMode()).toUpperCase(Locale.ROOT)),
+                safeText(profile.getGameMode()).isBlank() ? "SURVIVAL" : safeText(profile.getGameMode()).toUpperCase(Locale.ROOT), rowWidth / 2 - 5);
+            ToggleWidget pvp = detailToggle("PVP", profile.isPvpEnabled(), 70);
+            ToggleWidget autoSave = detailToggle("Auto Save", profile.isAutoSaveEnabled(), 105);
+            ToggleWidget keepSpawn = detailToggle("Keep Spawn", profile.isKeepSpawnLoaded(), 112);
+            ToggleWidget animals = detailToggle("Animals", profile.isAnimalSpawnsEnabled(), 92);
+            ToggleWidget monsters = detailToggle("Monsters", profile.isMonsterSpawnsEnabled(), 100);
+            ToggleWidget hunger = detailToggle("Hunger", profile.isHungerEnabled(), 90);
+            ToggleWidget autoHeal = detailToggle("Auto Heal", profile.isAutoHealEnabled(), 100);
+            ToggleWidget bedRespawn = detailToggle("Bed Respawn", profile.isBedRespawnEnabled(), 118);
+            ToggleWidget anchorRespawn = detailToggle("Anchor Respawn", profile.isAnchorRespawnEnabled(), 132);
+            ToggleWidget miscSpawns = detailToggle("Misc Spawns", profile.isNonLivingEntitySpawnsEnabled(), 115);
+            TextInputWidget accessPermission = detailInput("Access Permission", profile.getAccessPermission(), rowWidth / 2 - 5);
+            TextInputWidget bypassPermission = detailInput("Bypass Permission", profile.getBypassPermission(), rowWidth / 2 - 5);
+            TextInputWidget arrivalMessage = detailInput("Arrival Message", profile.getArrivalMessage(), rowWidth / 2 - 5);
+            TextInputWidget denyMessage = detailInput("Deny Message", profile.getDenyMessage(), rowWidth / 2 - 5);
+            TextInputWidget respawnWorld = detailInput("Respawn World", profile.getRespawnWorld(), rowWidth / 2 - 5);
+            TextInputWidget inventoryGroup = detailInput("Inventory Group", profile.getInventoryGroupId(), rowWidth / 2 - 5);
+            ToggleWidget customSpawn = detailToggle("Custom Spawn", profile.isCustomSpawnEnabled(), 120);
+            TextInputWidget spawnX = detailInput("X", formatDecimal(profile.getSpawnX()), 82);
+            TextInputWidget spawnY = detailInput("Y", formatDecimal(profile.getSpawnY()), 82);
+            TextInputWidget spawnZ = detailInput("Z", formatDecimal(profile.getSpawnZ()), 82);
+            TextInputWidget spawnYaw = detailInput("Yaw", formatDecimal(profile.getSpawnYaw()), 82);
+            TextInputWidget spawnPitch = detailInput("Pitch", formatDecimal(profile.getSpawnPitch()), 82);
+            TextInputWidget netherWorld = detailInput("Nether World", profile.getLinkedNetherWorld(), rowWidth / 3 - 5);
+            TextInputWidget endWorld = detailInput("End World", profile.getLinkedEndWorld(), rowWidth / 3 - 5);
+            TextInputWidget overworld = detailInput("Overworld", profile.getLinkedOverworld(), rowWidth / 3 - 5);
+            TextInputWidget netherScale = detailInput("Nether Scale", formatDecimal(profile.getNetherScale()), rowWidth / 3 - 5);
+            TextInputWidget endScale = detailInput("End Scale", formatDecimal(profile.getEndScale()), rowWidth / 3 - 5);
+            ToggleWidget autoNether = detailToggle("Auto Nether", profile.isAutoLinkNetherPortal(), 112);
+            ToggleWidget autoEnd = detailToggle("Auto End", profile.isAutoLinkEndPortal(), 92);
+            ToggleWidget isolated = detailToggle("Isolated State", world.isIsolatedPlayerState(), 125);
+            ToggleWidget timeLock = detailToggle("Time Lock", world.isTimeLockEnabled(), 100);
+            TextInputWidget lockedTime = detailInput("Locked Time", String.valueOf(world.getLockedTime()), 120);
+            ToggleWidget weatherLock = detailToggle("Weather Lock", world.isWeatherLockEnabled(), 118);
+            ToggleWidget storm = detailToggle("Storm", world.isLockedStorm(), 78);
+            ToggleWidget thundering = detailToggle("Thunder", world.isLockedThundering(), 92);
+
+            addDetailWidget(metricRow(rowWidth, world));
+            addDetailWidget(row("Identity", rowWidth, alias, difficulty));
+            addDetailWidget(row("Access", rowWidth, hidden, forceGameMode, gameMode));
+            addDetailWidget(row("Permissions", rowWidth, accessPermission, bypassPermission));
+            addDetailWidget(row("Messages", rowWidth, arrivalMessage, denyMessage));
+            addDetailWidget(row("Rules", rowWidth, pvp, autoSave, keepSpawn, animals, monsters));
+            addDetailWidget(row("Player State", rowWidth, hunger, autoHeal, bedRespawn, anchorRespawn, miscSpawns));
+            addDetailWidget(row("Travel", rowWidth, respawnWorld, inventoryGroup));
+            addDetailWidget(row("Spawn", rowWidth, customSpawn, spawnX, spawnY, spawnZ, spawnYaw, spawnPitch));
+            addDetailWidget(row("Links", rowWidth, netherWorld, endWorld, overworld));
+            addDetailWidget(row("Portal Scale", rowWidth, netherScale, endScale, autoNether, autoEnd));
+            addDetailWidget(row("Runtime", rowWidth, isolated, timeLock, lockedTime, weatherLock, storm, thundering));
+            detailForm = new WorldDetailForm(world.getWorldName(), alias, difficulty, hidden, forceGameMode, gameMode, pvp, autoSave,
+                keepSpawn, animals, monsters, hunger, autoHeal, bedRespawn, anchorRespawn, miscSpawns, accessPermission,
+                bypassPermission, arrivalMessage, denyMessage, respawnWorld, inventoryGroup, customSpawn, spawnX, spawnY, spawnZ,
+                spawnYaw, spawnPitch, netherWorld, endWorld, overworld, netherScale, endScale, autoNether, autoEnd, isolated,
+                timeLock, lockedTime, weatherLock, storm, thundering);
+            addDetailWidget(saveWorldButton(rowWidth, world, alias, difficulty, hidden, forceGameMode, gameMode, pvp, autoSave, keepSpawn,
+                animals, monsters, hunger, autoHeal, bedRespawn, anchorRespawn, miscSpawns, accessPermission, bypassPermission,
+                arrivalMessage, denyMessage, respawnWorld, inventoryGroup, customSpawn, spawnX, spawnY, spawnZ, spawnYaw, spawnPitch,
+                netherWorld, endWorld, overworld, netherScale, endScale, autoNether, autoEnd, isolated, timeLock, lockedTime,
+                weatherLock, storm, thundering));
+            detailPane.updateWidgetPositions();
+        }
+
+        private void clearDetailWidgets() {
+            for (AnimatedWidget widget : new ArrayList<>(detailWidgets)) {
+                detailPane.removeWidget(widget);
+            }
+            detailWidgets.clear();
+        }
+
+        private class WorldDetailForm {
+            private final String worldName;
+            private final TextInputWidget alias;
+            private final DropDownWidget<String> difficulty;
+            private final ToggleWidget hidden;
+            private final ToggleWidget forceGameMode;
+            private final DropDownWidget<String> gameMode;
+            private final ToggleWidget pvp;
+            private final ToggleWidget autoSave;
+            private final ToggleWidget keepSpawn;
+            private final ToggleWidget animals;
+            private final ToggleWidget monsters;
+            private final ToggleWidget hunger;
+            private final ToggleWidget autoHeal;
+            private final ToggleWidget bedRespawn;
+            private final ToggleWidget anchorRespawn;
+            private final ToggleWidget miscSpawns;
+            private final TextInputWidget accessPermission;
+            private final TextInputWidget bypassPermission;
+            private final TextInputWidget arrivalMessage;
+            private final TextInputWidget denyMessage;
+            private final TextInputWidget respawnWorld;
+            private final TextInputWidget inventoryGroup;
+            private final ToggleWidget customSpawn;
+            private final TextInputWidget spawnX;
+            private final TextInputWidget spawnY;
+            private final TextInputWidget spawnZ;
+            private final TextInputWidget spawnYaw;
+            private final TextInputWidget spawnPitch;
+            private final TextInputWidget netherWorld;
+            private final TextInputWidget endWorld;
+            private final TextInputWidget overworld;
+            private final TextInputWidget netherScale;
+            private final TextInputWidget endScale;
+            private final ToggleWidget autoNether;
+            private final ToggleWidget autoEnd;
+            private final ToggleWidget isolated;
+            private final ToggleWidget timeLock;
+            private final TextInputWidget lockedTime;
+            private final ToggleWidget weatherLock;
+            private final ToggleWidget storm;
+            private final ToggleWidget thundering;
+
+            private WorldDetailForm(String worldName, TextInputWidget alias, DropDownWidget<String> difficulty, ToggleWidget hidden,
+                                    ToggleWidget forceGameMode, DropDownWidget<String> gameMode, ToggleWidget pvp, ToggleWidget autoSave,
+                                    ToggleWidget keepSpawn, ToggleWidget animals, ToggleWidget monsters, ToggleWidget hunger,
+                                    ToggleWidget autoHeal, ToggleWidget bedRespawn, ToggleWidget anchorRespawn, ToggleWidget miscSpawns,
+                                    TextInputWidget accessPermission, TextInputWidget bypassPermission, TextInputWidget arrivalMessage,
+                                    TextInputWidget denyMessage, TextInputWidget respawnWorld, TextInputWidget inventoryGroup,
+                                    ToggleWidget customSpawn, TextInputWidget spawnX, TextInputWidget spawnY, TextInputWidget spawnZ,
+                                    TextInputWidget spawnYaw, TextInputWidget spawnPitch, TextInputWidget netherWorld,
+                                    TextInputWidget endWorld, TextInputWidget overworld, TextInputWidget netherScale,
+                                    TextInputWidget endScale, ToggleWidget autoNether, ToggleWidget autoEnd, ToggleWidget isolated,
+                                    ToggleWidget timeLock, TextInputWidget lockedTime, ToggleWidget weatherLock, ToggleWidget storm,
+                                    ToggleWidget thundering) {
+                this.worldName = safeText(worldName);
+                this.alias = alias;
+                this.difficulty = difficulty;
+                this.hidden = hidden;
+                this.forceGameMode = forceGameMode;
+                this.gameMode = gameMode;
+                this.pvp = pvp;
+                this.autoSave = autoSave;
+                this.keepSpawn = keepSpawn;
+                this.animals = animals;
+                this.monsters = monsters;
+                this.hunger = hunger;
+                this.autoHeal = autoHeal;
+                this.bedRespawn = bedRespawn;
+                this.anchorRespawn = anchorRespawn;
+                this.miscSpawns = miscSpawns;
+                this.accessPermission = accessPermission;
+                this.bypassPermission = bypassPermission;
+                this.arrivalMessage = arrivalMessage;
+                this.denyMessage = denyMessage;
+                this.respawnWorld = respawnWorld;
+                this.inventoryGroup = inventoryGroup;
+                this.customSpawn = customSpawn;
+                this.spawnX = spawnX;
+                this.spawnY = spawnY;
+                this.spawnZ = spawnZ;
+                this.spawnYaw = spawnYaw;
+                this.spawnPitch = spawnPitch;
+                this.netherWorld = netherWorld;
+                this.endWorld = endWorld;
+                this.overworld = overworld;
+                this.netherScale = netherScale;
+                this.endScale = endScale;
+                this.autoNether = autoNether;
+                this.autoEnd = autoEnd;
+                this.isolated = isolated;
+                this.timeLock = timeLock;
+                this.lockedTime = lockedTime;
+                this.weatherLock = weatherLock;
+                this.storm = storm;
+                this.thundering = thundering;
+            }
+
+            private void update(WorldRegistryEntry world) {
+                WorldProfileSettings profile = world.getProfileSettings();
+                updateInput(alias, profile.getAlias());
+                setDropdown(difficulty, safeText(world.getDifficulty()).isBlank() ? "NORMAL" : safeText(world.getDifficulty()).toUpperCase(Locale.ROOT));
+                hidden.setValue(profile.isHidden());
+                forceGameMode.setValue(profile.isForceGameMode());
+                setDropdown(gameMode, safeText(profile.getGameMode()).isBlank() ? "SURVIVAL" : safeText(profile.getGameMode()).toUpperCase(Locale.ROOT));
+                pvp.setValue(profile.isPvpEnabled());
+                autoSave.setValue(profile.isAutoSaveEnabled());
+                keepSpawn.setValue(profile.isKeepSpawnLoaded());
+                animals.setValue(profile.isAnimalSpawnsEnabled());
+                monsters.setValue(profile.isMonsterSpawnsEnabled());
+                hunger.setValue(profile.isHungerEnabled());
+                autoHeal.setValue(profile.isAutoHealEnabled());
+                bedRespawn.setValue(profile.isBedRespawnEnabled());
+                anchorRespawn.setValue(profile.isAnchorRespawnEnabled());
+                miscSpawns.setValue(profile.isNonLivingEntitySpawnsEnabled());
+                updateInput(accessPermission, profile.getAccessPermission());
+                updateInput(bypassPermission, profile.getBypassPermission());
+                updateInput(arrivalMessage, profile.getArrivalMessage());
+                updateInput(denyMessage, profile.getDenyMessage());
+                updateInput(respawnWorld, profile.getRespawnWorld());
+                updateInput(inventoryGroup, profile.getInventoryGroupId());
+                customSpawn.setValue(profile.isCustomSpawnEnabled());
+                updateInput(spawnX, formatDecimal(profile.getSpawnX()));
+                updateInput(spawnY, formatDecimal(profile.getSpawnY()));
+                updateInput(spawnZ, formatDecimal(profile.getSpawnZ()));
+                updateInput(spawnYaw, formatDecimal(profile.getSpawnYaw()));
+                updateInput(spawnPitch, formatDecimal(profile.getSpawnPitch()));
+                updateInput(netherWorld, profile.getLinkedNetherWorld());
+                updateInput(endWorld, profile.getLinkedEndWorld());
+                updateInput(overworld, profile.getLinkedOverworld());
+                updateInput(netherScale, formatDecimal(profile.getNetherScale()));
+                updateInput(endScale, formatDecimal(profile.getEndScale()));
+                autoNether.setValue(profile.isAutoLinkNetherPortal());
+                autoEnd.setValue(profile.isAutoLinkEndPortal());
+                isolated.setValue(world.isIsolatedPlayerState());
+                timeLock.setValue(world.isTimeLockEnabled());
+                updateInput(lockedTime, String.valueOf(world.getLockedTime()));
+                weatherLock.setValue(world.isWeatherLockEnabled());
+                storm.setValue(world.isLockedStorm());
+                thundering.setValue(world.isLockedThundering());
+            }
+
+            private void updateInput(TextInputWidget input, String value) {
+                if (input != null && !input.isFocused() && !Objects.equals(input.getText(), safeText(value))) {
+                    input.setText(safeText(value));
+                }
+            }
+
+            private void setDropdown(DropDownWidget<String> dropdown, String value) {
+                if (dropdown != null && !dropdown.isExpanded() && !Objects.equals(dropdown.getSelectedItem(), value)) {
+                    dropdown.setSelectedItem(value);
+                }
+            }
+        }
+
+        private AnimatedWidget metricRow(int rowWidth, WorldRegistryEntry world) {
+            WorldDashboardEntry dashboard = findWorldDashboard(world.getWorldName());
+            String status = dashboard != null ? safeText(dashboard.getStatus()) : world.isLoaded() ? "Loaded" : "Unloaded";
+            int players = dashboard != null ? dashboard.getPlayerCount() : 0;
+            IconButton statusButton = metricButton(status, world.isLoaded() ? "play.png" : "hide.png", 120);
+            IconButton playersButton = metricButton(players + " Players", "steve.png", 120);
+            IconButton environmentButton = metricButton(safeText(world.getEnvironment()).isBlank() ? "Unknown" : world.getEnvironment(), "earth.png", 145);
+            IconButton generatorButton = metricButton(safeText(world.getGenerator()).isBlank() ? "Default" : world.getGenerator(), "resources.png", 160);
+            return new RowWidget.Builder().size(rowWidth, 20).addWidget(statusButton, playersButton, environmentButton, generatorButton).build();
+        }
+
+        private IconButton metricButton(String label, String icon, int width) {
+            IconButton button = new IconButton.Builder()
+                .label(label)
+                .imagePath(icon)
+                .size(width, 18)
+                .entranceAnimation(false)
+                .build();
+            button.active = false;
+            return button;
+        }
+
+        private TitledRowWidget row(String title, int rowWidth, AnimatedWidget... widgets) {
+            TitledRowWidget.Builder builder = new TitledRowWidget.Builder()
+                .title(title)
+                .size(rowWidth, 30)
+                .padding(4);
+            for (AnimatedWidget widget : widgets) {
+                builder.addWidget(widget);
+            }
+            return builder.build();
+        }
+
+        private void addDetailWidget(AnimatedWidget widget) {
+            detailPane.addWidget(widget);
+            detailWidgets.add(widget);
+        }
+
+        private TextInputWidget detailInput(String placeholder, String value, int width) {
+            TextInputWidget input = new TextInputWidget.Builder()
+                .placeholder(placeholder)
+                .forcePlaceholder(false)
+                .text(safeText(value))
+                .size(Math.max(60, width), 20)
+                .build();
+            input.entranceAnimationEnabled = false;
+            return input;
+        }
+
+        private ToggleWidget detailToggle(String label, boolean value, int width) {
+            ToggleWidget toggle = new ToggleWidget.Builder()
+                .label(label)
+                .toggled(value)
+                .size(width, 20)
+                .entranceAnimation(false)
+                .build();
+            return toggle;
+        }
+
+        private DropDownWidget<String> dropdown(List<String> values, String selected, int width) {
+            return new DropDownWidget.Builder<>(values)
+                .selectedItem(selected)
+                .size(Math.max(80, width), 20)
+                .build();
+        }
+
+        private IconButton saveWorldButton(int rowWidth, WorldRegistryEntry world, TextInputWidget alias, DropDownWidget<String> difficulty,
+                                           ToggleWidget hidden, ToggleWidget forceGameMode, DropDownWidget<String> gameMode, ToggleWidget pvp,
+                                           ToggleWidget autoSave, ToggleWidget keepSpawn, ToggleWidget animals, ToggleWidget monsters,
+                                           ToggleWidget hunger, ToggleWidget autoHeal, ToggleWidget bedRespawn, ToggleWidget anchorRespawn,
+                                           ToggleWidget miscSpawns, TextInputWidget accessPermission, TextInputWidget bypassPermission,
+                                           TextInputWidget arrivalMessage, TextInputWidget denyMessage, TextInputWidget respawnWorld,
+                                           TextInputWidget inventoryGroup, ToggleWidget customSpawn, TextInputWidget spawnX, TextInputWidget spawnY,
+                                           TextInputWidget spawnZ, TextInputWidget spawnYaw, TextInputWidget spawnPitch, TextInputWidget netherWorld,
+                                           TextInputWidget endWorld, TextInputWidget overworld, TextInputWidget netherScale, TextInputWidget endScale,
+                                           ToggleWidget autoNether, ToggleWidget autoEnd, ToggleWidget isolated, ToggleWidget timeLock,
+                                           TextInputWidget lockedTime, ToggleWidget weatherLock, ToggleWidget storm, ToggleWidget thundering) {
+            return new IconButton.Builder()
+                .label("Save World")
+                .imagePath("save.png")
+                .accentType(ThemeManager.getAccent("nice"))
+                .size(rowWidth, 22)
+                .entranceAnimation(false)
+                .onClick(() -> saveWorld(world, alias, difficulty, hidden, forceGameMode, gameMode, pvp, autoSave, keepSpawn, animals,
+                    monsters, hunger, autoHeal, bedRespawn, anchorRespawn, miscSpawns, accessPermission, bypassPermission, arrivalMessage,
+                    denyMessage, respawnWorld, inventoryGroup, customSpawn, spawnX, spawnY, spawnZ, spawnYaw, spawnPitch, netherWorld,
+                    endWorld, overworld, netherScale, endScale, autoNether, autoEnd, isolated, timeLock, lockedTime, weatherLock, storm,
+                    thundering))
+                .build();
+        }
+
+        private void saveWorld(WorldRegistryEntry world, TextInputWidget alias, DropDownWidget<String> difficulty, ToggleWidget hidden,
+                               ToggleWidget forceGameMode, DropDownWidget<String> gameMode, ToggleWidget pvp, ToggleWidget autoSave,
+                               ToggleWidget keepSpawn, ToggleWidget animals, ToggleWidget monsters, ToggleWidget hunger, ToggleWidget autoHeal,
+                               ToggleWidget bedRespawn, ToggleWidget anchorRespawn, ToggleWidget miscSpawns, TextInputWidget accessPermission,
+                               TextInputWidget bypassPermission, TextInputWidget arrivalMessage, TextInputWidget denyMessage,
+                               TextInputWidget respawnWorld, TextInputWidget inventoryGroup, ToggleWidget customSpawn, TextInputWidget spawnX,
+                               TextInputWidget spawnY, TextInputWidget spawnZ, TextInputWidget spawnYaw, TextInputWidget spawnPitch,
+                               TextInputWidget netherWorld, TextInputWidget endWorld, TextInputWidget overworld, TextInputWidget netherScale,
+                               TextInputWidget endScale, ToggleWidget autoNether, ToggleWidget autoEnd, ToggleWidget isolated,
+                               ToggleWidget timeLock, TextInputWidget lockedTime, ToggleWidget weatherLock, ToggleWidget storm,
+                               ToggleWidget thundering) {
+            FlowManager manager = worldManager();
+            if (manager == null || world == null) {
+                return;
+            }
+            Double parsedSpawnX = parseNullableDouble(spawnX.getText());
+            Double parsedSpawnY = parseNullableDouble(spawnY.getText());
+            Double parsedSpawnZ = parseNullableDouble(spawnZ.getText());
+            Float parsedSpawnYaw = parseNullableFloat(spawnYaw.getText());
+            Float parsedSpawnPitch = parseNullableFloat(spawnPitch.getText());
+            Double parsedNetherScale = parseNullableDouble(netherScale.getText());
+            Double parsedEndScale = parseNullableDouble(endScale.getText());
+            Long parsedLockedTime = parseNullableLong(lockedTime.getText());
+            if (parsedSpawnX == null || parsedSpawnY == null || parsedSpawnZ == null || parsedSpawnYaw == null || parsedSpawnPitch == null) {
+                new Notification("World", "Invalid Spawn", Notification.Type.ERROR);
+                return;
+            }
+            if (parsedNetherScale == null || parsedNetherScale <= 0.0 || parsedEndScale == null || parsedEndScale <= 0.0) {
+                new Notification("World", "Invalid Portal Scale", Notification.Type.ERROR);
+                return;
+            }
+            if (parsedLockedTime == null || parsedLockedTime < 0L) {
+                new Notification("World", "Invalid Time", Notification.Type.ERROR);
+                return;
+            }
+            WorldProfileSettings profile = new WorldProfileSettings();
+            profile.setAlias(alias.getText());
+            profile.setHidden(hidden.getValue());
+            profile.setAccessPermission(accessPermission.getText());
+            profile.setBypassPermission(bypassPermission.getText());
+            profile.setRespawnWorld(respawnWorld.getText());
+            profile.setForceGameMode(forceGameMode.getValue());
+            profile.setGameMode(safeText(gameMode.getSelectedItem()));
+            profile.setCustomSpawnEnabled(customSpawn.getValue());
+            profile.setSpawnX(parsedSpawnX);
+            profile.setSpawnY(parsedSpawnY);
+            profile.setSpawnZ(parsedSpawnZ);
+            profile.setSpawnYaw(parsedSpawnYaw);
+            profile.setSpawnPitch(parsedSpawnPitch);
+            profile.setPvpEnabled(pvp.getValue());
+            profile.setKeepSpawnLoaded(keepSpawn.getValue());
+            profile.setAutoSaveEnabled(autoSave.getValue());
+            profile.setAnimalSpawnsEnabled(animals.getValue());
+            profile.setMonsterSpawnsEnabled(monsters.getValue());
+            profile.setHungerEnabled(hunger.getValue());
+            profile.setAutoHealEnabled(autoHeal.getValue());
+            profile.setBedRespawnEnabled(bedRespawn.getValue());
+            profile.setAnchorRespawnEnabled(anchorRespawn.getValue());
+            profile.setNonLivingEntitySpawnsEnabled(miscSpawns.getValue());
+            profile.setArrivalMessage(arrivalMessage.getText());
+            profile.setDenyMessage(denyMessage.getText());
+            profile.setInventoryGroupId(inventoryGroup.getText());
+            profile.setLinkedNetherWorld(netherWorld.getText());
+            profile.setLinkedEndWorld(endWorld.getText());
+            profile.setLinkedOverworld(overworld.getText());
+            profile.setNetherScale(parsedNetherScale);
+            profile.setEndScale(parsedEndScale);
+            profile.setAutoLinkNetherPortal(autoNether.getValue());
+            profile.setAutoLinkEndPortal(autoEnd.getValue());
+            String worldName = world.getWorldName();
+            if (!safeText(difficulty.getSelectedItem()).equalsIgnoreCase(safeText(world.getDifficulty()))) {
+                manager.suppressNextWorldSuccessNotification(serverId, "setDifficulty");
+                manager.setWorldDifficulty(serverId, worldName, safeText(difficulty.getSelectedItem()));
+            }
+            manager.suppressNextWorldSuccessNotification(serverId, "setWorldProfile");
+            manager.setWorldProfile(serverId, worldName, profile);
+            if (isolated.getValue() != world.isIsolatedPlayerState()) {
+                manager.suppressNextWorldSuccessNotification(serverId, "setIsolatedPlayerState");
+                manager.setWorldIsolatedState(serverId, worldName, isolated.getValue());
+            }
+            if (timeLock.getValue() != world.isTimeLockEnabled() || parsedLockedTime != world.getLockedTime()) {
+                manager.suppressNextWorldSuccessNotification(serverId, "setTimeLock");
+                manager.setWorldTimeLock(serverId, worldName, timeLock.getValue(), parsedLockedTime);
+            }
+            if (weatherLock.getValue() != world.isWeatherLockEnabled() || storm.getValue() != world.isLockedStorm() || thundering.getValue() != world.isLockedThundering()) {
+                manager.suppressNextWorldSuccessNotification(serverId, "setWeatherLock");
+                manager.setWorldWeatherLock(serverId, worldName, weatherLock.getValue(), storm.getValue(), thundering.getValue());
+            }
+            new Notification("ReSync", "World Saved", Notification.Type.SUCCESS);
+        }
+
+        private IconButton emptyDetailButton(String label) {
+            IconButton button = new IconButton.Builder()
+                .label(label)
+                .imagePath("earth.png")
+                .size(Math.max(160, detailPane.getWidth() - 18), 22)
+                .entranceAnimation(false)
+                .build();
+            button.active = false;
+            return button;
+        }
+
+        private void showWorldActionsMenu(String worldName, SquareButtonWidget anchor) {
+            FlowManager manager = worldManager();
+            if (manager == null || anchor == null || worldName == null || worldName.isBlank()) {
+                return;
+            }
+            ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(FlowEditorScreen.this)
+                .addHeaderButton("map.png", () -> manager.openWorldMap(serverId, null, worldName), "Open Map")
+                .addHeaderButton("steve.png", () -> showWorldTeleportPopup(worldName), "Teleport Player")
+                .addHeaderButton("search.png", () -> manager.whoWorld(serverId, worldName), "View Players")
+                .addIconItem("Clone World", "copy.png", () -> showCloneWorldPopup(worldName), "")
+                .addIconItem("Purge Entities", "delete.png", () -> showWorldPurgePopup(worldName), "", ThemeManager.getAccent("calm"))
+                .addIconItem("Delete World", "delete.png", () -> showWorldDeletePopup(worldName), "", ThemeManager.getAccent("danger"));
+            showContextMenu(anchor.getX() + anchor.getWidth() + 4, anchor.getY() + anchor.getHeight(), builder);
+        }
+
+        private void showCreateWorldPopup() {
+            FlowManager manager = worldManager();
+            if (manager == null) {
+                return;
+            }
+            WorldSnapshot snapshot = manager.getWorldSnapshot(serverId);
+            List<WorldGeneratorDescriptor> generatorDescriptors = snapshot == null ? List.of() : snapshot.getGeneratorDescriptors();
+            TextInputWidget worldInput = new TextInputWidget.Builder().placeholder("World Name").size(220, 18).build();
+            TextInputWidget seedInput = new TextInputWidget.Builder().placeholder("Seed").size(220, 18).build();
+            DropDownWidget<String> environmentSelect = dropdown(List.of("NORMAL", "NETHER", "THE_END", "CUSTOM"), "NORMAL", 220);
+            List<String> generatorOptions = new ArrayList<>();
+            generatorOptions.add("Default");
+            for (WorldGeneratorDescriptor descriptor : generatorDescriptors) {
+                if (descriptor != null && !safeText(descriptor.getId()).isBlank()) {
+                    generatorOptions.add(descriptor.getId());
+                }
+            }
+            DropDownWidget<String> generatorSelect = dropdown(generatorOptions, generatorOptions.getFirst(), 220);
+            TextInputWidget generatorConfig = new TextInputWidget.Builder().placeholder("Generator Config").size(220, 18).build();
+            PopupWidget.Builder builder = new PopupWidget.Builder("Create World")
+                .setResizable(false)
+                .setAntiOutOfBound(true)
+                .setBoundOffset(desktopMode ? 35 : 0)
+                .size(420, 220);
+            builder.addRow("World", true, 18, worldInput);
+            builder.addRow("Seed", true, 18, seedInput);
+            builder.addRow("Environment", true, 18, environmentSelect);
+            builder.addRow("Generator", true, 18, generatorSelect);
+            builder.addRow("Config", true, 18, generatorConfig);
+            PopupWidget[] popupRef = new PopupWidget[1];
+            IconButton createButton = new IconButton.Builder()
+                .label("Create")
+                .imagePath("create.png")
+                .accentType(ThemeManager.getAccent("nice"))
+                .size(110, 20)
+                .onClick(() -> {
+                    String worldName = safeText(worldInput.getText()).trim();
+                    if (!WorldUiSupport.isValidSimpleId(worldName)) {
+                        new Notification("World", "Invalid World Name", Notification.Type.ERROR);
+                        return;
+                    }
+                    if (WorldUiSupport.containsIgnoreCase(worldNameOptions(), worldName)) {
+                        new Notification("World", "World Exists", Notification.Type.ERROR);
+                        return;
+                    }
+                    String generator = safeText(generatorSelect.getSelectedItem());
+                    if ("Default".equalsIgnoreCase(generator)) {
+                        generator = "";
+                    }
+                    manager.createWorld(serverId, worldName, seedInput.getText(), safeText(environmentSelect.getSelectedItem()), generator, generatorConfig.getText());
+                    selectedWorldName = worldName;
+                    if (popupRef[0] != null) {
+                        popupRef[0].hide();
+                    }
+                })
+                .build();
+            builder.addRow("", true, 20, createButton);
+            popupRef[0] = builder.build();
+            addDrawableChild(popupRef[0]);
+            popupRef[0].show();
+        }
+
+        private void showCloneWorldPopup(String sourceWorld) {
+            PopupWidget.Builder builder = new PopupWidget.Builder("Clone World")
+                .setResizable(false)
+                .setAntiOutOfBound(true)
+                .setBoundOffset(desktopMode ? 35 : 0)
+                .size(400, 135);
+            TextInputWidget worldInput = new TextInputWidget.Builder().placeholder("Target World").size(220, 18).build();
+            ToggleWidget loadAfter = detailToggle("Load After", true, 100);
+            builder.addRow("Target", true, 18, worldInput);
+            builder.addRow("", true, 18, loadAfter);
+            PopupWidget[] popupRef = new PopupWidget[1];
+            IconButton cloneButton = new IconButton.Builder()
+                .label("Clone")
+                .imagePath("copy.png")
+                .accentType(ThemeManager.getAccent("nice"))
+                .size(110, 20)
+                .onClick(() -> {
+                    String targetWorld = safeText(worldInput.getText()).trim();
+                    if (!WorldUiSupport.isValidSimpleId(targetWorld)) {
+                        new Notification("World", "Invalid World Name", Notification.Type.ERROR);
+                        return;
+                    }
+                    if (WorldUiSupport.containsIgnoreCase(worldNameOptions(), targetWorld)) {
+                        new Notification("World", "World Exists", Notification.Type.ERROR);
+                        return;
+                    }
+                    worldManager().cloneWorld(serverId, sourceWorld, targetWorld, loadAfter.getValue());
+                    selectedWorldName = targetWorld;
+                    if (popupRef[0] != null) {
+                        popupRef[0].hide();
+                    }
+                })
+                .build();
+            builder.addRow("", true, 20, cloneButton);
+            popupRef[0] = builder.build();
+            addDrawableChild(popupRef[0]);
+            popupRef[0].show();
+        }
+
+        private void showWorldUnloadPopup(String worldName) {
+            showFallbackPopup("Unload World", worldName, "Unload", "hide.png", fallbackWorld -> worldManager().unloadWorld(serverId, worldName, fallbackWorld));
+        }
+
+        private void showWorldDeletePopup(String worldName) {
+            FlowManager manager = worldManager();
+            if (manager == null) {
+                return;
+            }
+            List<String> fallbackOptions = fallbackWorldOptions(worldName);
+            PopupWidget.Builder builder = fallbackBuilder("Delete World", worldName, fallbackOptions, 170);
+            ToggleWidget deleteFiles = detailToggle("Delete Files", false, 115);
+            TextInputWidget fallbackInput = new TextInputWidget.Builder()
+                .text(selectDefaultFallbackWorld(worldName, fallbackOptions))
+                .placeholder("Fallback World")
+                .size(220, 18)
+                .build();
+            builder.addRow("Files", true, 18, deleteFiles);
+            builder.addRow("Fallback", true, 18, fallbackInput);
+            PopupWidget[] popupRef = new PopupWidget[1];
+            IconButton deleteButton = new IconButton.Builder()
+                .label("Delete")
+                .imagePath("delete.png")
+                .accentType(ThemeManager.getAccent("danger"))
+                .size(110, 20)
+                .onClick(() -> {
+                    String fallbackWorld = safeText(fallbackInput.getText()).trim();
+                    if (!WorldUiSupport.containsIgnoreCase(fallbackOptions, fallbackWorld)) {
+                        new Notification("World", "Unknown Fallback World", Notification.Type.ERROR);
+                        return;
+                    }
+                    manager.deleteWorld(serverId, worldName, deleteFiles.getValue(), fallbackWorld);
+                    if (worldName.equalsIgnoreCase(selectedWorldName)) {
+                        selectedWorldName = fallbackWorld;
+                    }
+                    if (popupRef[0] != null) {
+                        popupRef[0].hide();
+                    }
+                })
+                .build();
+            builder.addRow("", true, 20, deleteButton);
+            popupRef[0] = builder.build();
+            addDrawableChild(popupRef[0]);
+            popupRef[0].show();
+        }
+
+        private void showFallbackPopup(String title, String worldName, String actionLabel, String icon, Consumer<String> action) {
+            List<String> fallbackOptions = fallbackWorldOptions(worldName);
+            PopupWidget.Builder builder = fallbackBuilder(title, worldName, fallbackOptions, 130);
+            TextInputWidget fallbackInput = new TextInputWidget.Builder()
+                .text(selectDefaultFallbackWorld(worldName, fallbackOptions))
+                .placeholder("Fallback World")
+                .size(220, 18)
+                .build();
+            builder.addRow("Fallback", true, 18, fallbackInput);
+            PopupWidget[] popupRef = new PopupWidget[1];
+            IconButton actionButton = new IconButton.Builder()
+                .label(actionLabel)
+                .imagePath(icon)
+                .accentType(ThemeManager.getAccent("danger"))
+                .size(110, 20)
+                .onClick(() -> {
+                    String fallbackWorld = safeText(fallbackInput.getText()).trim();
+                    if (!WorldUiSupport.containsIgnoreCase(fallbackOptions, fallbackWorld)) {
+                        new Notification("World", "Unknown Fallback World", Notification.Type.ERROR);
+                        return;
+                    }
+                    action.accept(fallbackWorld);
+                    if (popupRef[0] != null) {
+                        popupRef[0].hide();
+                    }
+                })
+                .build();
+            builder.addRow("", true, 20, actionButton);
+            popupRef[0] = builder.build();
+            addDrawableChild(popupRef[0]);
+            popupRef[0].show();
+        }
+
+        private PopupWidget.Builder fallbackBuilder(String title, String worldName, List<String> fallbackOptions, int height) {
+            return new PopupWidget.Builder(title + " | " + worldName)
+                .setResizable(false)
+                .setAntiOutOfBound(true)
+                .setBoundOffset(desktopMode ? 35 : 0)
+                .size(430, height);
+        }
+
+        private void showWorldPurgePopup(String worldName) {
+            PopupWidget.Builder builder = new PopupWidget.Builder("Purge Entities")
+                .setResizable(false)
+                .setAntiOutOfBound(true)
+                .setBoundOffset(desktopMode ? 35 : 0)
+                .size(420, 190);
+            ToggleWidget monsters = detailToggle("Monsters", true, 96);
+            ToggleWidget animals = detailToggle("Animals", false, 90);
+            ToggleWidget ambient = detailToggle("Ambient", false, 90);
+            ToggleWidget misc = detailToggle("Misc", false, 80);
+            ToggleWidget vehicles = detailToggle("Vehicles", false, 92);
+            ToggleWidget items = detailToggle("Items", false, 80);
+            builder.addRow("Types", true, 18, monsters, animals, ambient);
+            builder.addRow("More", true, 18, misc, vehicles, items);
+            PopupWidget[] popupRef = new PopupWidget[1];
+            IconButton purgeButton = new IconButton.Builder()
+                .label("Purge")
+                .imagePath("delete.png")
+                .accentType(ThemeManager.getAccent("danger"))
+                .size(110, 20)
+                .onClick(() -> {
+                    if (!monsters.getValue() && !animals.getValue() && !ambient.getValue() && !misc.getValue() && !vehicles.getValue() && !items.getValue()) {
+                        new Notification("World", "Select Purge Types", Notification.Type.ERROR);
+                        return;
+                    }
+                    worldManager().purgeWorld(serverId, worldName, monsters.getValue(), animals.getValue(), ambient.getValue(), misc.getValue(), vehicles.getValue(), items.getValue());
+                    if (popupRef[0] != null) {
+                        popupRef[0].hide();
+                    }
+                })
+                .build();
+            builder.addRow("", true, 20, purgeButton);
+            popupRef[0] = builder.build();
+            addDrawableChild(popupRef[0]);
+            popupRef[0].show();
+        }
+
+        private void showWorldTeleportPopup(String worldName) {
+            List<String> players = onlinePlayerNames();
+            PopupWidget.Builder builder = new PopupWidget.Builder("Teleport Player")
+                .setResizable(false)
+                .setAntiOutOfBound(true)
+                .setBoundOffset(desktopMode ? 35 : 0)
+                .size(440, 205);
+            TextInputWidget player = new TextInputWidget.Builder().placeholder("Player").size(220, 18).build();
+            DropDownWidget<String> playerDropdown = dropdown(WorldUiSupport.mergeOptions(players, ""), players.isEmpty() ? "" : players.getFirst(), 24);
+            playerDropdown.setOnSelectionChanged(player::setText);
+            TextInputWidget xInput = new TextInputWidget.Builder().placeholder("X").size(82, 18).build();
+            TextInputWidget yInput = new TextInputWidget.Builder().placeholder("Y").size(82, 18).build();
+            TextInputWidget zInput = new TextInputWidget.Builder().placeholder("Z").size(82, 18).build();
+            TextInputWidget yawInput = new TextInputWidget.Builder().placeholder("Yaw").size(82, 18).build();
+            TextInputWidget pitchInput = new TextInputWidget.Builder().placeholder("Pitch").size(82, 18).build();
+            builder.addRow("Player", true, 18, player, playerDropdown);
+            builder.addRow("Position", true, 18, xInput, yInput, zInput);
+            builder.addRow("Rotation", true, 18, yawInput, pitchInput);
+            PopupWidget[] popupRef = new PopupWidget[1];
+            IconButton spawnButton = new IconButton.Builder()
+                .label("Spawn")
+                .imagePath("earth.png")
+                .size(105, 20)
+                .onClick(() -> {
+                    String playerName = safeText(player.getText()).trim();
+                    if (playerName.isBlank()) {
+                        new Notification("World", "Player Required", Notification.Type.ERROR);
+                        return;
+                    }
+                    worldManager().teleportPlayerToWorldSpawn(serverId, playerName, worldName);
+                    if (popupRef[0] != null) {
+                        popupRef[0].hide();
+                    }
+                })
+                .build();
+            IconButton teleportButton = new IconButton.Builder()
+                .label("Teleport")
+                .imagePath("steve.png")
+                .accentType(ThemeManager.getAccent("nice"))
+                .size(120, 20)
+                .onClick(() -> {
+                    String playerName = safeText(player.getText()).trim();
+                    if (playerName.isBlank()) {
+                        new Notification("World", "Player Required", Notification.Type.ERROR);
+                        return;
+                    }
+                    if (!WorldUiSupport.isCompleteOrBlank(xInput.getText(), yInput.getText(), zInput.getText())
+                        || !WorldUiSupport.isCompleteOrBlank(yawInput.getText(), pitchInput.getText())) {
+                        new Notification("World", "Complete Coordinates", Notification.Type.ERROR);
+                        return;
+                    }
+                    worldManager().teleportPlayerToWorld(serverId, playerName, worldName, parseNullableDouble(xInput.getText()),
+                        parseNullableDouble(yInput.getText()), parseNullableDouble(zInput.getText()), parseNullableFloat(yawInput.getText()),
+                        parseNullableFloat(pitchInput.getText()));
+                    if (popupRef[0] != null) {
+                        popupRef[0].hide();
+                    }
+                })
+                .build();
+            builder.addRow("", true, 20, spawnButton, teleportButton);
+            popupRef[0] = builder.build();
+            addDrawableChild(popupRef[0]);
+            popupRef[0].show();
+        }
+
+        private void showInventoryGroupsPopup() {
+            FlowManager manager = worldManager();
+            if (manager == null) {
+                return;
+            }
+            List<WorldInventoryGroup> groups = new ArrayList<>(manager.getWorldInventoryGroupsForServer(serverId));
+            groups.sort(Comparator.comparing(group -> safeText(group == null ? "" : group.getGroupId()), String.CASE_INSENSITIVE_ORDER));
+            PopupWidget.Builder builder = new PopupWidget.Builder("Inventory Groups")
+                .setResizable(true)
+                .setAntiOutOfBound(true)
+                .setBoundOffset(desktopMode ? 35 : 0)
+                .size(560, Math.min(420, 120 + Math.max(1, groups.size()) * 28));
+            IconButton createButton = new IconButton.Builder()
+                .label("Create Group")
+                .imagePath("create.png")
+                .accentType(ThemeManager.getAccent("nice"))
+                .size(145, 20)
+                .onClick(() -> showInventoryGroupPopup(null))
+                .build();
+            builder.addRow("", true, 20, createButton);
+            if (groups.isEmpty()) {
+                builder.addRow("Groups", true, 18, readOnlyButton("No Groups"));
+            } else {
+                int shown = 0;
+                for (WorldInventoryGroup group : groups) {
+                    if (group == null || safeText(group.getGroupId()).isBlank() || shown >= 10) {
+                        continue;
+                    }
+                    IconButton label = readOnlyButton(inventoryGroupSummary(group));
+                    SquareButtonWidget edit = new SquareButtonWidget.Builder()
+                        .imagePath("edit.png")
+                        .hint("Edit Group")
+                        .onClick(() -> showInventoryGroupPopup(group))
+                        .build();
+                    SquareButtonWidget delete = new SquareButtonWidget.Builder()
+                        .imagePath("delete.png")
+                        .hint("Delete Group")
+                        .accentType(ThemeManager.getAccent("danger"))
+                        .onClick(() -> manager.deleteInventoryGroup(serverId, group.getGroupId()))
+                        .build();
+                    builder.addRow(group.getGroupId(), true, 18, label, edit, delete);
+                    shown++;
+                }
+            }
+            PopupWidget popup = builder.build();
+            addDrawableChild(popup);
+            popup.show();
+        }
+
+        private String inventoryGroupSummary(WorldInventoryGroup group) {
+            String display = safeText(group.getDisplayName()).isBlank() ? group.getGroupId() : group.getDisplayName();
+            List<String> worlds = group.getWorlds() == null ? List.of() : group.getWorlds();
+            return display + " | " + worlds.size() + " Worlds | " + summarizeInventoryGroupShares(group);
+        }
+
+        private String summarizeInventoryGroupShares(WorldInventoryGroup group) {
+            List<String> parts = new ArrayList<>();
+            if (group.isShareInventory()) parts.add("Inventory");
+            if (group.isShareArmor()) parts.add("Armor");
+            if (group.isShareOffhand()) parts.add("Offhand");
+            if (group.isShareEnderChest()) parts.add("Ender Chest");
+            if (group.isShareHealth()) parts.add("Health");
+            if (group.isShareHunger()) parts.add("Hunger");
+            if (group.isShareExperience()) parts.add("Experience");
+            if (group.isShareGameMode()) parts.add("Game Mode");
+            if (group.isSharePotionEffects()) parts.add("Potions");
+            if (group.isShareLastLocation()) parts.add("Last Location");
+            if (group.isShareBedSpawn()) parts.add("Bed Spawn");
+            return parts.isEmpty() ? "No Shared State" : String.join(", ", parts);
+        }
+
+        private void showInventoryGroupPopup(WorldInventoryGroup existingGroup) {
+            FlowManager manager = worldManager();
+            if (manager == null) {
+                return;
+            }
+            boolean editing = existingGroup != null;
+            PopupWidget.Builder builder = new PopupWidget.Builder(editing ? "Edit Group" : "Create Group")
+                .setResizable(true)
+                .setAntiOutOfBound(true)
+                .setBoundOffset(desktopMode ? 35 : 0)
+                .size(560, 390);
+            TextInputWidget groupId = new TextInputWidget.Builder()
+                .text(editing ? safeText(existingGroup.getGroupId()) : "")
+                .placeholder("Group Id")
+                .size(200, 18)
+                .build();
+            groupId.active = !editing;
+            TextInputWidget displayName = new TextInputWidget.Builder()
+                .text(editing ? safeText(existingGroup.getDisplayName()) : "")
+                .placeholder("Display Name")
+                .size(220, 18)
+                .build();
+            TextInputWidget worlds = new TextInputWidget.Builder()
+                .text(editing ? String.join(", ", existingGroup.getWorlds()) : "")
+                .placeholder("world, world_nether")
+                .size(330, 18)
+                .build();
+            ToggleWidget inventory = detailToggle("Inventory", !editing || existingGroup.isShareInventory(), 92);
+            ToggleWidget armor = detailToggle("Armor", !editing || existingGroup.isShareArmor(), 80);
+            ToggleWidget offhand = detailToggle("Offhand", !editing || existingGroup.isShareOffhand(), 88);
+            ToggleWidget enderChest = detailToggle("Ender Chest", !editing || existingGroup.isShareEnderChest(), 110);
+            ToggleWidget health = detailToggle("Health", !editing || existingGroup.isShareHealth(), 82);
+            ToggleWidget hunger = detailToggle("Hunger", !editing || existingGroup.isShareHunger(), 86);
+            ToggleWidget experience = detailToggle("Experience", !editing || existingGroup.isShareExperience(), 105);
+            ToggleWidget gameMode = detailToggle("Game Mode", !editing || existingGroup.isShareGameMode(), 105);
+            ToggleWidget potions = detailToggle("Potions", !editing || existingGroup.isSharePotionEffects(), 90);
+            ToggleWidget lastLocation = detailToggle("Last Location", !editing || existingGroup.isShareLastLocation(), 115);
+            ToggleWidget bedSpawn = detailToggle("Bed Spawn", !editing || existingGroup.isShareBedSpawn(), 100);
+            builder.addRow("Group Id", true, 18, groupId);
+            builder.addRow("Display", true, 18, displayName);
+            builder.addRow("Worlds", true, 18, worlds);
+            builder.addRow("Share A", true, 18, inventory, armor, offhand, enderChest);
+            builder.addRow("Share B", true, 18, health, hunger, experience, gameMode);
+            builder.addRow("Share C", true, 18, potions, lastLocation, bedSpawn);
+            PopupWidget[] popupRef = new PopupWidget[1];
+            IconButton save = new IconButton.Builder()
+                .label(editing ? "Save" : "Create")
+                .imagePath("save.png")
+                .accentType(ThemeManager.getAccent("nice"))
+                .size(110, 20)
+                .onClick(() -> {
+                    String id = editing ? safeText(existingGroup.getGroupId()).trim() : safeText(groupId.getText()).trim();
+                    if (!WorldUiSupport.isValidSimpleId(id)) {
+                        new Notification("World", "Invalid Group Id", Notification.Type.ERROR);
+                        return;
+                    }
+                    List<String> selectedWorlds = parseCommaSeparatedList(worlds.getText());
+                    for (String selectedWorld : selectedWorlds) {
+                        if (!WorldUiSupport.containsIgnoreCase(worldNameOptions(), selectedWorld)) {
+                            new Notification("World", "Unknown Group World", Notification.Type.ERROR);
+                            return;
+                        }
+                    }
+                    WorldInventoryGroup group = new WorldInventoryGroup();
+                    group.setGroupId(id);
+                    group.setDisplayName(displayName.getText());
+                    group.setWorlds(selectedWorlds);
+                    group.setShareInventory(inventory.getValue());
+                    group.setShareArmor(armor.getValue());
+                    group.setShareOffhand(offhand.getValue());
+                    group.setShareEnderChest(enderChest.getValue());
+                    group.setShareHealth(health.getValue());
+                    group.setShareHunger(hunger.getValue());
+                    group.setShareExperience(experience.getValue());
+                    group.setShareGameMode(gameMode.getValue());
+                    group.setSharePotionEffects(potions.getValue());
+                    group.setShareLastLocation(lastLocation.getValue());
+                    group.setShareBedSpawn(bedSpawn.getValue());
+                    if (editing) {
+                        manager.updateInventoryGroup(serverId, group);
+                    } else {
+                        manager.createInventoryGroup(serverId, group);
+                    }
+                    if (popupRef[0] != null) {
+                        popupRef[0].hide();
+                    }
+                })
+                .build();
+            builder.addRow("", true, 20, save);
+            popupRef[0] = builder.build();
+            addDrawableChild(popupRef[0]);
+            popupRef[0].show();
+        }
+
+        private void handleOperationResult(WorldOperationResult result) {
+            String action = safeText(result.getAction()).trim().toLowerCase(Locale.ROOT);
+            if ("deleteworld".equals(action)) {
+                String worldName = resultWorldName(result);
+                String key = findEntryKeyIgnoreCase(entries, worldName);
+                if (key != null) {
+                    WorldEntryRow row = entries.remove(key);
+                    if (row != null) {
+                        worldsList.removeWidget(row.widget);
+                    }
+                }
+            }
+            refreshWorlds();
+        }
+
+        private List<String> onlinePlayerNames() {
+            FlowManager manager = worldManager();
+            return manager == null ? List.of() : WorldUiSupport.normalizeUniqueEntries(manager.getOnlinePlayerNamesForServer(serverId));
+        }
+
+        private List<String> worldNameOptions() {
+            FlowManager manager = worldManager();
+            if (manager == null) {
+                return List.of();
+            }
+            List<String> names = new ArrayList<>(manager.getWorldsForServer(serverId).keySet());
+            names = WorldUiSupport.normalizeUniqueEntries(names);
+            names.sort(String.CASE_INSENSITIVE_ORDER);
+            return names;
+        }
+
+        private List<String> fallbackWorldOptions(String worldName) {
+            List<String> options = new ArrayList<>(worldNameOptions());
+            options.removeIf(option -> option != null && option.equalsIgnoreCase(worldName));
+            return options;
+        }
+
+        private String selectDefaultFallbackWorld(String worldName, List<String> fallbackOptions) {
+            if (fallbackOptions == null || fallbackOptions.isEmpty()) {
+                return "";
+            }
+            WorldRegistryEntry world = worldManager() != null ? worldManager().getWorld(serverId, worldName) : null;
+            WorldProfileSettings profile = world == null ? null : world.getProfileSettings();
+            List<String> preferred = new ArrayList<>();
+            if (profile != null) {
+                preferred.add(profile.getRespawnWorld());
+                preferred.add(profile.getLinkedOverworld());
+            }
+            preferred.add("world");
+            preferred.add("overworld");
+            for (String candidate : preferred) {
+                for (String option : fallbackOptions) {
+                    if (option != null && option.equalsIgnoreCase(safeText(candidate))) {
+                        return option;
+                    }
+                }
+            }
+            return fallbackOptions.getFirst();
+        }
+    }
+
+    private WorldDashboardEntry findWorldDashboard(String worldName) {
+        FlowManager manager = FlowManager.getInstance();
+        if (manager == null || worldName == null) {
+            return null;
+        }
+        for (WorldDashboardEntry entry : manager.getWorldDashboardForServer(serverId)) {
+            if (entry != null && entry.getWorldName() != null && entry.getWorldName().equalsIgnoreCase(worldName)) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    private String findEntryKeyIgnoreCase(Map<String, ?> entries, String target) {
+        if (entries == null || target == null || target.isBlank()) {
+            return null;
+        }
+        for (String key : entries.keySet()) {
+            if (key != null && key.equalsIgnoreCase(target)) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    private String resultWorldName(WorldOperationResult result) {
+        return resultDataText(result, "worldName", "world");
+    }
+
+    private String resultDataText(WorldOperationResult result, String... keys) {
+        if (result == null || keys == null) {
+            return "";
+        }
+        if (result.getData() != null) {
+            for (String key : keys) {
+                Object raw = result.getData().get(key);
+                String value = raw == null ? "" : String.valueOf(raw).trim();
+                if (!value.isBlank()) {
+                    return value;
+                }
+            }
+        }
+        return safeText(result.getWorldName()).trim();
+    }
+
+    private void showWorldAuditSnapshot(JsonElement data) {
+        JsonArray records = data != null && data.isJsonArray() ? data.getAsJsonArray() : new JsonArray();
+        PopupWidget.Builder builder = new PopupWidget.Builder("World History")
+            .setResizable(false)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(560, Math.min(330, 120 + Math.min(records.size(), 9) * 22));
+        if (records.isEmpty()) {
+            builder.addRow("Status", true, 18, readOnlyButton("No Operations"));
+        } else {
+            int shown = 0;
+            for (JsonElement element : records) {
+                if (shown >= 9) {
+                    break;
+                }
+                if (element == null || !element.isJsonObject()) {
+                    continue;
+                }
+                JsonObject object = element.getAsJsonObject();
+                boolean success = object.has("success") && !object.get("success").isJsonNull() && object.get("success").getAsBoolean();
+                String status = success ? "Ok" : "Failed";
+                String action = formatTitleWords(jsonText(object, "action").isBlank() ? "Operation" : jsonText(object, "action"));
+                String world = jsonText(object, "targetWorld");
+                String message = success ? jsonText(object, "message") : jsonText(object, "failureReason");
+                long duration = object.has("durationMillis") && !object.get("durationMillis").isJsonNull() ? object.get("durationMillis").getAsLong() : 0L;
+                String text = action + (world.isBlank() ? "" : " | " + world) + " | " + duration + "ms" + (message.isBlank() ? "" : " | " + message);
+                builder.addRow(status, true, 18, readOnlyButton(text.length() > 72 ? text.substring(0, 69) + "..." : text));
+                shown++;
+            }
+        }
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    private void showWorldWhoPopup(WorldOperationResult result) {
+        String worldName = resultWorldName(result);
+        PopupWidget.Builder builder = new PopupWidget.Builder(worldName.isBlank() ? "World Players" : "Players In " + worldName)
+            .setResizable(false)
+            .setAntiOutOfBound(true)
+            .setBoundOffset(desktopMode ? 35 : 0)
+            .size(520, 220);
+        Object rawPlayers = result != null && result.getData() != null ? result.getData().get("players") : null;
+        List<?> players = rawPlayers instanceof List<?> list ? list : List.of();
+        if (players.isEmpty()) {
+            builder.addRow("Players", true, 18, readOnlyButton("No Players"));
+        } else {
+            int shown = 0;
+            for (Object player : players) {
+                if (shown >= 8) {
+                    break;
+                }
+                builder.addRow("Player", true, 18, readOnlyButton(String.valueOf(player)));
+                shown++;
+            }
+        }
+        PopupWidget popup = builder.build();
+        addDrawableChild(popup);
+        popup.show();
+    }
+
+    private IconButton readOnlyButton(String text) {
+        IconButton button = new IconButton.Builder()
+            .label(text)
+            .autoWidthOnTextChange(true)
+            .entranceAnimation(false)
+            .build();
+        button.active = false;
+        return button;
+    }
+
+    private String jsonText(JsonObject object, String key) {
+        if (object == null || key == null || !object.has(key) || object.get(key).isJsonNull()) {
+            return "";
+        }
+        return safeText(object.get(key).getAsString());
+    }
+
+    private List<String> parseCommaSeparatedList(String value) {
+        if (value == null || value.isBlank()) {
+            return new ArrayList<>();
+        }
+        List<String> values = new ArrayList<>();
+        for (String part : value.split(",")) {
+            String trimmed = part.trim();
+            if (!trimmed.isBlank()) {
+                values.add(trimmed);
+            }
+        }
+        return WorldUiSupport.normalizeUniqueEntries(values);
+    }
+
+    private String formatTitleWords(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = value.replace('_', ' ').replace('-', ' ').replaceAll("([a-z])([A-Z])", "$1 $2");
+        StringBuilder builder = new StringBuilder();
+        for (String part : normalized.trim().split("\\s+")) {
+            if (part.isBlank()) {
+                continue;
+            }
+            if (!builder.isEmpty()) {
+                builder.append(' ');
+            }
+            builder.append(part.substring(0, 1).toUpperCase(Locale.ROOT));
+            if (part.length() > 1) {
+                builder.append(part.substring(1).toLowerCase(Locale.ROOT));
+            }
+        }
+        return builder.toString();
+    }
+
+    private String safeText(String value) {
+        return value == null ? "" : value;
+    }
+
+    private Long parseNullableLong(String value) {
+        String text = safeText(value).trim();
+        if (text.isBlank()) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(text);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private Double parseNullableDouble(String value) {
+        String text = safeText(value).trim();
+        if (text.isBlank()) {
+            return 0.0;
+        }
+        try {
+            return Double.parseDouble(text);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private Float parseNullableFloat(String value) {
+        String text = safeText(value).trim();
+        if (text.isBlank()) {
+            return 0.0F;
+        }
+        try {
+            return Float.parseFloat(text);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private String formatDecimal(double value) {
+        if (Math.abs(value - Math.rint(value)) < 0.00001) {
+            return String.valueOf((long) Math.rint(value));
+        }
+        return String.format(Locale.ROOT, "%.2f", value);
     }
 
     @Override

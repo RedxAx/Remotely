@@ -9,6 +9,7 @@ import redxax.oxy.remotely.data.flow.world.WorldOperationResult;
 import redxax.oxy.remotely.data.flow.world.WorldProfileSettings;
 import redxax.oxy.remotely.data.flow.world.WorldRegistryEntry;
 import redxax.oxy.remotely.data.flow.world.WorldSnapshot;
+import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.flow.ui.FlowManagerScreen;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Notification;
@@ -133,6 +134,7 @@ public class ReSyncWorldService {
                 if (screen != null) {
                     screen.handleWorldAuditSnapshot(message.getData());
                 }
+                FlowEditorScreen.handleWorldAuditSnapshotForServer(serverId, message.getData());
             });
             return;
         }
@@ -326,6 +328,7 @@ public class ReSyncWorldService {
             if (screen != null) {
                 screen.handleWorldOperationResult(result);
             }
+            FlowEditorScreen.handleWorldOperationResultForServer(serverId, result);
         });
     }
 

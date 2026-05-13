@@ -1035,7 +1035,7 @@ public class ReSyncFlowClient {
         buffer.get(idBytes);
         String id = new String(idBytes, StandardCharsets.UTF_8);
 
-        boolean showNotification = !isBackingContentFlowAck(type, id);
+        boolean showNotification = shouldShowSaveNotification(type, id);
         if (showNotification) {
             ScreenManager.getInstance().execute(() ->
                 new Notification(type.displayName() + " Saved", "ID: " + id, Notification.Type.SUCCESS)
@@ -1054,12 +1054,28 @@ public class ReSyncFlowClient {
         }
     }
 
-    private boolean isBackingContentFlowAck(ReSyncResourceType type, String id) {
+    private boolean shouldShowSaveNotification(ReSyncResourceType type, String id) {
+        if (type == ReSyncResourceType.PROJECT_METADATA) {
+            return false;
+        }
+        return !isBackingFlowAck(type, id);
+    }
+
+    private boolean isBackingFlowAck(ReSyncResourceType type, String id) {
         if (type != ReSyncResourceType.FLOW || client == null || client.getFlowManager() == null || id == null) {
             return false;
         }
-        FlowGraph graph = client.getFlowManager().getFlowsForServer(serverId).get(id);
-        return CustomContentGraphAdapter.isContentGraph(graph);
+        FlowManager manager = client.getFlowManager();
+        FlowGraph graph = manager.getFlowsForServer(serverId).get(id);
+        if (CustomContentGraphAdapter.isContentGraph(graph) || manager.getCommandBinding(serverId, id) != null) {
+            return true;
+        }
+        for (CustomContentDefinition content : manager.getCustomContentForServer(serverId).values()) {
+            if (content != null && id.equals(content.getFlowId())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void handleFlowSaveAck(ByteBuffer buffer) { handleResourceSaveAck(ReSyncResourceType.FLOW, buffer); }

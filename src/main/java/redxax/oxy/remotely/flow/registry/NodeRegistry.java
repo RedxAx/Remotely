@@ -14,7 +14,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 public class NodeRegistry {
     private static final String DEFAULT_SERVER_KEY = "local";
-    private final Map<String, NodeDefinition> localDefinitions = new HashMap<>();
+    private final Map<String, NodeDefinition> localDefinitions = new ConcurrentHashMap<>();
     private final Map<String, Map<String, NodeDefinition>> serverDefinitions = new ConcurrentHashMap<>();
     private final Map<String, Map<String, NodePluginPayload>> serverPlugins = new ConcurrentHashMap<>();
     private final Map<String, List<String>> serverNodeIds = new ConcurrentHashMap<>();
@@ -52,7 +52,7 @@ public class NodeRegistry {
             return;
         }
         String key = normalizeServerId(serverId);
-        serverDefinitions.computeIfAbsent(key, k -> new HashMap<>()).put(definition.getId(), definition);
+        serverDefinitions.computeIfAbsent(key, k -> new ConcurrentHashMap<>()).put(definition.getId(), definition);
     }
 
     public void unregisterServerDefinition(String serverId, String definitionId) {
@@ -283,7 +283,7 @@ public class NodeRegistry {
         List<String> nodeIds = serverNodeIds.getOrDefault(key, List.of());
         Set<String> nodeIdSet = new HashSet<>(nodeIds);
         boolean hasNodeList = !nodeIds.isEmpty();
-        Map<String, NodeDefinition> definitions = new HashMap<>();
+        Map<String, NodeDefinition> definitions = new ConcurrentHashMap<>();
         Map<String, NodePluginPayload> plugins = serverPlugins.getOrDefault(key, Map.of());
 
         for (NodePluginPayload payload : plugins.values()) {
