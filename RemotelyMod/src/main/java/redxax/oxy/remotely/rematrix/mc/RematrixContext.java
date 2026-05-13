@@ -8,13 +8,20 @@ import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.WeakHashMap;
 import net.minecraft.client.Minecraft;
+import net.minecraft.ChatFormatting;
 //#if MC >= 26.1
 //$$ import net.minecraft.client.gui.GuiGraphicsExtractor;
 //#endif
 //#if MC >= 1.20.1 && MC < 26.1
 import net.minecraft.client.gui.GuiGraphics;
+//#endif
+//#if MC >= 1.21.6 && MC < 26.1
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.tooltip.ClientTooltipComponent;
+import net.minecraft.client.gui.screens.inventory.tooltip.DefaultTooltipPositioner;
 //#endif
 //#if MC < 1.21.4
 //$$ import net.minecraft.client.renderer.GameRenderer;
@@ -54,6 +61,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.component.CustomModelData;
 import net.minecraft.world.item.component.ItemLore;
+import net.minecraft.world.inventory.tooltip.TooltipComponent;
 //#endif
 //#if MC < 1.21.1
 //$$ import net.minecraft.nbt.CompoundTag;
@@ -67,11 +75,14 @@ import net.minecraft.world.item.component.ItemLore;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
-import org.lwjgl.opengl.GL11;
 import redxax.oxy.remotely.rematrix.*;
 import redxax.oxy.remotely.rematrix.ReContext;
 import restudio.rescreen.game.MinecraftGameItem;
 import restudio.rescreen.game.MinecraftGameItems;
+import restudio.rescreen.game.tooltip.MinecraftTextComponent;
+import restudio.rescreen.game.tooltip.MinecraftTextComponents;
+import restudio.rescreen.game.tooltip.MinecraftTooltip;
+import restudio.rescreen.game.tooltip.MinecraftTooltipLine;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.text.StyledText;
 
@@ -199,6 +210,160 @@ public final class RematrixContext implements ReContext {
         matrices.pop();
     }
 
+    @Override
+    public void drawMinecraftItemTooltip(Object item, MinecraftTooltip fallback, int mouseX, int mouseY, int screenWidth, int screenHeight) {
+        ItemStack stack = null;
+        if (item instanceof ItemStack itemStack) {
+            stack = itemStack;
+        } else {
+            MinecraftRenderItem renderItem = adaptRenderItem(item);
+            if (renderItem != null) {
+                stack = ITEM_STACK_CACHE.get(renderItem);
+                if (stack == null) {
+                    stack = createItemStack(renderItem);
+                    ITEM_STACK_CACHE.put(renderItem, stack);
+                }
+            }
+        }
+        if (stack != null && !stack.isEmpty()) {
+            ItemStack tooltipStack = stack;
+            drawTooltipOnTop(() -> {
+                //#if MC >= 26.1
+                //$$ graphics.setTooltipForNextFrame(Minecraft.getInstance().font, tooltipStack, mouseX, mouseY);
+                //#endif
+                //#if MC >= 1.21.11 && MC < 26.1
+                Identifier tooltipStyle = tooltipStack.get(DataComponents.TOOLTIP_STYLE);
+                graphics.renderTooltip(Minecraft.getInstance().font, createClientTooltipComponents(Screen.getTooltipFromItem(Minecraft.getInstance(), tooltipStack), tooltipStack.getTooltipImage()), mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, tooltipStyle);
+                //#endif
+                //#if MC >= 1.21.6 && MC < 1.21.11
+                //$$ ResourceLocation tooltipStyle = tooltipStack.get(DataComponents.TOOLTIP_STYLE);
+                //$$ graphics.renderTooltip(Minecraft.getInstance().font, createClientTooltipComponents(Screen.getTooltipFromItem(Minecraft.getInstance(), tooltipStack), tooltipStack.getTooltipImage()), mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, tooltipStyle);
+                //#endif
+                //#if MC >= 1.20.1 && MC < 1.21.6
+                //$$ graphics.renderTooltip(Minecraft.getInstance().font, tooltipStack, mouseX, mouseY);
+                //#endif
+                //#if MC < 1.20.1
+                //$$ graphics.renderTooltip(Minecraft.getInstance().font, tooltipStack, mouseX, mouseY);
+                //#endif
+            });
+            return;
+        }
+        drawMinecraftTooltip(fallback, mouseX, mouseY, screenWidth, screenHeight);
+    }
+
+    @Override
+    public void drawMinecraftTooltip(MinecraftTooltip tooltip, int mouseX, int mouseY, int screenWidth, int screenHeight) {
+        if (tooltip == null || tooltip.isEmpty()) {
+            return;
+        }
+        List<Component> lines = new ArrayList<>();
+        for (MinecraftTooltipLine line : tooltip.lines()) {
+            lines.add(toNativeComponent(line.component()));
+        }
+        if (lines.isEmpty()) {
+            return;
+        }
+        drawTooltipOnTop(() -> {
+            //#if MC >= 26.1
+            //$$ graphics.setComponentTooltipForNextFrame(Minecraft.getInstance().font, lines, mouseX, mouseY);
+            //#endif
+            //#if MC >= 1.21.11 && MC < 26.1
+            graphics.renderTooltip(Minecraft.getInstance().font, createClientTooltipComponents(lines, Optional.empty()), mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, (Identifier) null);
+            //#endif
+            //#if MC >= 1.21.6 && MC < 1.21.11
+            //$$ graphics.renderTooltip(Minecraft.getInstance().font, createClientTooltipComponents(lines, Optional.empty()), mouseX, mouseY, DefaultTooltipPositioner.INSTANCE, (ResourceLocation) null);
+            //#endif
+            //#if MC >= 1.20.1 && MC < 1.21.6
+            //$$ graphics.renderComponentTooltip(Minecraft.getInstance().font, lines, mouseX, mouseY);
+            //#endif
+            //#if MC < 1.20.1
+            //$$ graphics.renderComponentTooltip(Minecraft.getInstance().font, lines, mouseX, mouseY);
+            //#endif
+        });
+    }
+
+    //#if MC >= 1.21.6 && MC < 26.1
+    private List<ClientTooltipComponent> createClientTooltipComponents(List<Component> lines, Optional<TooltipComponent> image) {
+        List<ClientTooltipComponent> components = new ArrayList<>(lines.size() + (image.isPresent() ? 1 : 0));
+        for (Component line : lines) {
+            components.add(ClientTooltipComponent.create(line.getVisualOrderText()));
+        }
+        image.ifPresent(tooltipComponent -> components.add(Math.min(1, components.size()), ClientTooltipComponent.create(tooltipComponent)));
+        return components;
+    }
+    //#endif
+
+    private Component toNativeComponent(MinecraftTextComponent component) {
+        if (component == null) {
+            return Component.empty();
+        }
+        MutableComponent nativeComponent;
+        if (component.sprite() != null && component.sprite().id() != null) {
+            nativeComponent = Component.literal(component.sprite().id());
+        } else if (component.translate() != null && !component.translate().isBlank()) {
+            nativeComponent = Component.translatable(component.translate(), component.with().stream().map(this::toNativeComponent).toArray());
+        } else {
+            String text = component.text();
+            if (text == null) {
+                text = component.fallback();
+            }
+            nativeComponent = Component.literal(text != null ? text : "");
+        }
+        nativeComponent.setStyle(toNativeStyle(component));
+        for (MinecraftTextComponent extra : component.extra()) {
+            nativeComponent.append(toNativeComponent(extra));
+        }
+        return nativeComponent;
+    }
+
+    private Style toNativeStyle(MinecraftTextComponent component) {
+        Style style = Style.EMPTY;
+        if (component.color() != null) {
+            style = style.withColor(component.color() & 0xFFFFFF);
+        }
+        if (component.bold() != null) {
+            style = style.withBold(component.bold());
+        }
+        if (component.italic() != null) {
+            style = style.withItalic(component.italic());
+        }
+        if (component.underlined() != null) {
+            style = style.withUnderlined(component.underlined());
+        }
+        if (component.strikethrough() != null) {
+            style = style.withStrikethrough(component.strikethrough());
+        }
+        if (component.obfuscated() != null) {
+            style = style.withObfuscated(component.obfuscated());
+        }
+        if (component.font() != null && !component.font().isBlank()) {
+            String font = component.font();
+            String namespace = "minecraft";
+            String path = font;
+            if (font.contains(":")) {
+                String[] parts = font.split(":", 2);
+                namespace = parts[0];
+                path = parts.length > 1 ? parts[1] : "";
+            }
+            //#if MC >= 1.21.11 || MC >= 26.1
+            Identifier id = Identifier.fromNamespaceAndPath(namespace, path);
+            //#endif
+            //#if MC >= 1.21.1 && MC < 1.21.11
+            //$$ ResourceLocation id = ResourceLocation.fromNamespaceAndPath(namespace, path);
+            //#endif
+            //#if MC < 1.21.1
+            //$$ ResourceLocation id = new ResourceLocation(namespace, path);
+            //#endif
+            //#if MC >= 1.21.9 || MC >= 26.1
+            style = style.withFont(new FontDescription.Resource(id));
+            //#endif
+            //#if MC < 1.21.9 && MC < 26.1
+            //$$ style = style.withFont(id);
+            //#endif
+        }
+        return style;
+    }
+
     private MinecraftRenderItem adaptRenderItem(Object item) {
         if (item instanceof MinecraftRenderItem renderItem) {
             return renderItem;
@@ -284,10 +449,10 @@ public final class RematrixContext implements ReContext {
         String name = item.name();
         if (name != null && !name.isBlank()) {
             //#if MC >= 1.21.1
-            stack.set(DataComponents.CUSTOM_NAME, Component.literal(name));
+            stack.set(DataComponents.CUSTOM_NAME, toNativeItemName(MinecraftTextComponents.fromValue(name)));
             //#endif
             //#if MC < 1.21.1
-            //$$ stack.setHoverName(Component.literal(name));
+            //$$ stack.setHoverName(toNativeItemName(MinecraftTextComponents.fromValue(name)));
             //#endif
         }
         Integer modelData = item.modelData();
@@ -307,20 +472,23 @@ public final class RematrixContext implements ReContext {
         if (lore != null && !lore.isEmpty()) {
             //#if MC >= 1.21.1
             List<Component> components = new ArrayList<>(lore.size());
+            List<Component> styledComponents = new ArrayList<>(lore.size());
             for (String line : lore) {
                 if (line != null && !line.isBlank()) {
-                    components.add(Component.literal(line));
+                    MinecraftTextComponent component = MinecraftTextComponents.fromValue(line);
+                    components.add(toNativeComponent(component));
+                    styledComponents.add(toNativeLore(component));
                 }
             }
             if (!components.isEmpty()) {
-                stack.set(DataComponents.LORE, new ItemLore(components));
+                stack.set(DataComponents.LORE, new ItemLore(components, styledComponents));
             }
             //#endif
             //#if MC < 1.21.1
             //$$ ListTag list = new ListTag();
             //$$ for (String line : lore) {
             //$$     if (line != null && !line.isBlank()) {
-            //$$         list.add(StringTag.valueOf(line));
+            //$$         list.add(StringTag.valueOf(Component.Serializer.toJson(toNativeLore(MinecraftTextComponents.fromValue(line)))));
             //$$     }
             //$$ }
             //$$ if (!list.isEmpty()) {
@@ -332,6 +500,51 @@ public final class RematrixContext implements ReContext {
             //#endif
         }
         return stack;
+    }
+
+    private Component toNativeItemName(MinecraftTextComponent component) {
+        return toNativeComponent(component).copy().withStyle(style -> style.withItalic(false));
+    }
+
+    private Component toNativeLore(MinecraftTextComponent component) {
+        MutableComponent nativeComponent = toNativeComponent(component).copy();
+        if (!hasExplicitColor(component)) {
+            nativeComponent.withStyle(ChatFormatting.DARK_GRAY);
+        }
+        if (!hasExplicitItalic(component)) {
+            nativeComponent.withStyle(style -> style.withItalic(true));
+        }
+        return nativeComponent;
+    }
+
+    private boolean hasExplicitColor(MinecraftTextComponent component) {
+        if (component == null) {
+            return false;
+        }
+        if (component.color() != null) {
+            return true;
+        }
+        for (MinecraftTextComponent extra : component.extra()) {
+            if (hasExplicitColor(extra)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasExplicitItalic(MinecraftTextComponent component) {
+        if (component == null) {
+            return false;
+        }
+        if (component.italic() != null) {
+            return true;
+        }
+        for (MinecraftTextComponent extra : component.extra()) {
+            if (hasExplicitItalic(extra)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     //#if MC >= 26.1
@@ -909,6 +1122,13 @@ public final class RematrixContext implements ReContext {
             return;
         }
         draw.run();
+    }
+
+    private void drawTooltipOnTop(Runnable draw) {
+        //#if MC >= 1.21.6 || MC >= 26.1
+        graphics.nextStratum();
+        //#endif
+        withScissor(draw);
     }
 
     private boolean applyScissor(float[] scissor) {
