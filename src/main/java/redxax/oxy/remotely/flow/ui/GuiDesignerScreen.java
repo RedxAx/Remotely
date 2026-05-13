@@ -12,6 +12,9 @@ import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.game.MinecraftGameItems;
+import restudio.rescreen.game.tooltip.MinecraftTextComponents;
+import restudio.rescreen.game.tooltip.MinecraftTooltip;
+import restudio.rescreen.game.tooltip.MinecraftTooltipLine;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.theme.ThemeManager;
@@ -29,6 +32,7 @@ import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.RowWidget;
+import restudio.rescreen.ui.widgets.ScrollSelectorWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Notification;
@@ -67,8 +71,10 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private static final int PLAYER_INVENTORY_ROWS = 4;
     private static final int TITLE_COLOR = 0xFF404040;
     private static final int OVERLAY_COLOR = 0xA0101010;
+    private static final int INSPECTOR_PANEL_WIDTH = 150;
     private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
     private static final Set<GuiDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
+    private static final List<String> ACTION_MODE_OPTIONS = List.of("Flows", "Menus", "Command");
 
     private static final List<String> FALLBACK_MATERIAL_OPTIONS = List.of(
         "STONE", "COBBLESTONE", "OAK_PLANKS", "OAK_LOG", "GLASS", "GLASS_PANE",
@@ -80,17 +86,31 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         "TOTEM_OF_UNDYING", "PLAYER_HEAD", "NAME_TAG"
     );
 
+    private enum GuiActionMode {
+        FLOWS,
+        MENUS,
+        COMMAND;
+
+        private static GuiActionMode fromIndex(int index) {
+            GuiActionMode[] modes = values();
+            return modes[Math.clamp(index, 0, modes.length - 1)];
+        }
+    }
+
     private final GuiDefinition gui;
     private final String serverId;
     private final Object parent;
-    private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState().width(300).padding(6);
+    private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState().padding(6);
     private final boolean forceSuperScreen;
 
     private Container gridContainer;
     private SidePanel inspectorPanel;
+    private TooltipOverlayWidget tooltipOverlay;
     private ItemSelectorWidget materialSelector;
+    private ScrollSelectorWidget actionTypeSelector;
     private ItemSelectorWidget flowSelector;
     private ItemSelectorWidget guiSelector;
+    private TextInputWidget commandInput;
 
     private final Map<Integer, SlotButton> slotButtons = new HashMap<>();
     private final Map<Integer, GuiElement> slotElements = new HashMap<>();
@@ -106,6 +126,9 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private GuiElement dragResizeElement;
     private GuiElement selectedElement;
     private GuiElement lastInspectorElement;
+    private GuiActionMode inspectorActionMode = GuiActionMode.FLOWS;
+    private boolean preserveInspectorActionMode;
+    private SlotButton hoveredSlotButton;
     private Visual placementTemplate = new Visual("PAPER", "Item");
 
     private TextInputWidget guiTitleInput;
@@ -193,7 +216,6 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         return desktopMode && forceSuperScreen;
     }
 
-
     @Override
     public void init() {
         super.init();
@@ -216,7 +238,9 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         updateLayout(false);
         updateCloseAnimation();
+        hoveredSlotButton = null;
         super.render(context, mouseX, mouseY, delta);
+        updateHoveredSlot(mouseX, mouseY);
     }
 
     @Override
@@ -350,9 +374,12 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             requestClose();
             return true;
         }
+        if (super.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         boolean hasControl = hasControlDown();
         boolean hasShift = hasShiftDown();
-        if (hasControl && !(getFocusedWidget() instanceof TextInputWidget) && !(getFocusedWidget() instanceof TextAreaWidget) && !(getFocusedWidget() instanceof ItemSelectorWidget)) {
+        if (hasControl && !isGuiKeyboardInputFocused()) {
             if (keyCode == GLFW.GLFW_KEY_Z) {
                 if (hasShift) {
                     redo();
@@ -368,13 +395,19 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         }
         if (selectedElement != null && (keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)) {
             if (!isAnyPopupOpen()) {
-                if (!(getFocusedWidget() instanceof TextInputWidget) && !(getFocusedWidget() instanceof TextAreaWidget) && !(getFocusedWidget() instanceof ItemSelectorWidget)) {
+                if (!isGuiKeyboardInputFocused()) {
                     removeElement(selectedElement);
                     return true;
                 }
             }
         }
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return false;
+    }
+
+    private boolean isGuiKeyboardInputFocused() {
+        return getFocusedWidget() instanceof TextInputWidget
+                || getFocusedWidget() instanceof TextAreaWidget
+                || getFocusedWidget() instanceof ItemSelectorWidget;
     }
 
     private void buildHeader() {
@@ -396,7 +429,11 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         gridContainer.layout(new FreeLayout()).columns(1).padding(0).scrolling(false).enableSelecting(false).backgroundDrawing(false);
         addDrawableChild(gridContainer);
 
-        inspectorPanel = createSidePanel("gui_inspector").width(panelState.width()).y(0).height(height).show();
+        tooltipOverlay = new TooltipOverlayWidget();
+        tooltipOverlay.setLayer(1000);
+        addDrawableChild(tooltipOverlay);
+
+        inspectorPanel = createSidePanel("gui_inspector").width(INSPECTOR_PANEL_WIDTH).y(0).height(height).show();
         inspectorPanel.container().layout(new ManagedLayout()).columns(1).padding(panelState.padding()).scrolling(true).enableSelecting(false);
     }
 
@@ -417,7 +454,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             return;
         }
         inspectorDynamicWidgets.clear();
-        int rowWidth = panelState.rowWidth(inspectorPanel);
+        int rowWidth = inspectorRowWidth();
         guiTitleInput = new TextInputWidget.Builder()
             .text(gui.getTitle() != null ? gui.getTitle() : "")
             .placeholder("Title")
@@ -469,10 +506,12 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         }
         inspectorDynamicWidgets.clear();
         materialSelector = null;
+        actionTypeSelector = null;
         flowSelector = null;
         guiSelector = null;
+        commandInput = null;
 
-        int rowWidth = panelState.rowWidth(inspectorPanel);
+        int rowWidth = inspectorRowWidth();
         if (selectedElement == null) {
             AnimatedButton hint = panelState.hint("Select Item", rowWidth);
             insertInspectorDynamic(container, hint);
@@ -480,6 +519,9 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         }
 
         Visual visual = ensureVisual(selectedElement);
+        if (!preserveInspectorActionMode) {
+            inspectorActionMode = resolveActionMode(selectedElement);
+        }
 
         TextInputWidget slotsInput = new TextInputWidget.Builder()
             .text(formatSlots(selectedElement))
@@ -517,6 +559,18 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         materialRow.setHeight(156);
         insertInspectorDynamic(container, materialRow);
 
+        actionTypeSelector = new ScrollSelectorWidget.Builder()
+            .options(ACTION_MODE_OPTIONS)
+            .selectedIndex(inspectorActionMode.ordinal())
+            .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
+            .onChange(index -> setActionMode(GuiActionMode.fromIndex(index)))
+            .build();
+        disableEntrance(actionTypeSelector);
+        AnimatedWidget actionTypeRow = panelState.row("Action", actionTypeSelector, rowWidth);
+        insertInspectorDynamic(container, actionTypeRow);
+
+        buildActionEditor(container, rowWidth);
+
         TextInputWidget modelInput = new TextInputWidget.Builder()
             .text(visual.getModelData() != null ? String.valueOf(visual.getModelData()) : "")
             .placeholder("Model Data")
@@ -525,7 +579,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             .onChange(text -> updateModelData(visual, text))
             .build();
         disableEntrance(modelInput);
-        AnimatedWidget modelRow = panelState.row("Model", modelInput, rowWidth);
+        AnimatedWidget modelRow = panelState.row("Model Data", modelInput, rowWidth);
         insertInspectorDynamic(container, modelRow);
 
         String loreText = visual.getLore() != null ? String.join("\n", visual.getLore()) : "";
@@ -539,40 +593,6 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         AnimatedWidget loreRow = panelState.row("Lore", loreInput, rowWidth);
         loreRow.setHeight(88);
         insertInspectorDynamic(container, loreRow);
-
-        flowSelector = new ItemSelectorWidget.Builder(this)
-            .size(rowWidth, 140)
-            .embedded(true)
-            .dismissOnSelect(false)
-            .emptyMessage("No flows")
-            .build();
-        disableEntrance(flowSelector);
-        AnimatedWidget flowSelectorRow = panelState.row("Flow", flowSelector, rowWidth);
-        flowSelectorRow.setHeight(156);
-        insertInspectorDynamic(container, flowSelectorRow);
-
-        RowWidget flowRow = new RowWidget.Builder()
-            .size(rowWidth, 22)
-            .addWidget(new AnimatedButton.Builder()
-                .label("Open Flow")
-                .size(rowWidth, 22)
-                .entranceAnimation(false)
-                .onClick(this::openSelectedFlow)
-                .build())
-            .build();
-        disableEntrance(flowRow);
-        insertInspectorDynamic(container, flowRow);
-
-        guiSelector = new ItemSelectorWidget.Builder(this)
-            .size(rowWidth, 120)
-            .embedded(true)
-            .dismissOnSelect(false)
-            .emptyMessage("No menus")
-            .build();
-        disableEntrance(guiSelector);
-        AnimatedWidget guiSelectorRow = panelState.row("Menu", guiSelector, rowWidth);
-        guiSelectorRow.setHeight(136);
-        insertInspectorDynamic(container, guiSelectorRow);
 
         AnimatedButton removeButton = new AnimatedButton.Builder()
             .label("Remove Item")
@@ -594,6 +614,71 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         if (guiSelector != null) {
             guiSelector.openEmbedded();
             refreshGuiSelector();
+        }
+    }
+
+    private void buildActionEditor(Container container, int rowWidth) {
+        switch (inspectorActionMode) {
+            case FLOWS -> {
+                flowSelector = new ItemSelectorWidget.Builder(this)
+                    .size(rowWidth, 140)
+                    .embedded(true)
+                    .dismissOnSelect(false)
+                    .emptyMessage("No flows")
+                    .build();
+                disableEntrance(flowSelector);
+                AnimatedWidget flowSelectorRow = panelState.row("Flow", flowSelector, rowWidth);
+                flowSelectorRow.setHeight(156);
+                insertInspectorDynamic(container, flowSelectorRow);
+
+                RowWidget flowRow = new RowWidget.Builder()
+                    .size(rowWidth, 22)
+                    .addWidget(new AnimatedButton.Builder()
+                        .label("Open Flow")
+                        .size(rowWidth, 22)
+                        .entranceAnimation(false)
+                        .onClick(this::openSelectedFlow)
+                        .build())
+                    .build();
+                disableEntrance(flowRow);
+                insertInspectorDynamic(container, flowRow);
+            }
+            case MENUS -> {
+                guiSelector = new ItemSelectorWidget.Builder(this)
+                    .size(rowWidth, 120)
+                    .embedded(true)
+                    .dismissOnSelect(false)
+                    .emptyMessage("No menus")
+                    .build();
+                disableEntrance(guiSelector);
+                AnimatedWidget guiSelectorRow = panelState.row("Menu", guiSelector, rowWidth);
+                guiSelectorRow.setHeight(136);
+                insertInspectorDynamic(container, guiSelectorRow);
+
+                RowWidget menuRow = new RowWidget.Builder()
+                    .size(rowWidth, 22)
+                    .addWidget(new AnimatedButton.Builder()
+                        .label("Open Menu")
+                        .size(rowWidth, 22)
+                        .entranceAnimation(false)
+                        .onClick(this::openSelectedMenu)
+                        .build())
+                    .build();
+                disableEntrance(menuRow);
+                insertInspectorDynamic(container, menuRow);
+            }
+            case COMMAND -> {
+                commandInput = new TextInputWidget.Builder()
+                    .text(selectedElement.getCommand() != null ? selectedElement.getCommand() : "")
+                    .placeholder("Command")
+                    .forcePlaceholder(false)
+                    .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
+                    .onChange(this::applyCommand)
+                    .build();
+                disableEntrance(commandInput);
+                AnimatedWidget commandRow = panelState.row("Command", commandInput, rowWidth);
+                insertInspectorDynamic(container, commandRow);
+            }
         }
     }
 
@@ -624,6 +709,13 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         ReSyncStudioPanelState.disableEntrance(widget);
         container.addWidget(widget);
         inspectorDynamicWidgets.add(widget);
+    }
+
+    private int inspectorRowWidth() {
+        if (inspectorPanel == null) {
+            return Math.max(120, INSPECTOR_PANEL_WIDTH - panelState.padding() * 2);
+        }
+        return Math.max(120, inspectorPanel.getDesiredWidth() - panelState.padding() * 2);
     }
 
     private List<String> materialOptions() {
@@ -682,6 +774,61 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         }
     }
 
+    private GuiActionMode resolveActionMode(GuiElement element) {
+        if (element == null) {
+            return GuiActionMode.FLOWS;
+        }
+        if (element.getOpenGuiId() != null && !element.getOpenGuiId().isBlank()) {
+            return GuiActionMode.MENUS;
+        }
+        if (element.getCommand() != null && !element.getCommand().isBlank()) {
+            return GuiActionMode.COMMAND;
+        }
+        return GuiActionMode.FLOWS;
+    }
+
+    private void setActionMode(GuiActionMode mode) {
+        if (mode == null || inspectorActionMode == mode) {
+            return;
+        }
+        inspectorActionMode = mode;
+        clearInactiveActions(mode);
+        lastInspectorElement = null;
+        preserveInspectorActionMode = true;
+        buildInspectorPanel();
+        preserveInspectorActionMode = false;
+        updateLayout(true);
+    }
+
+    private void clearInactiveActions(GuiActionMode mode) {
+        if (selectedElement == null) {
+            return;
+        }
+        boolean changed = false;
+        if (mode != GuiActionMode.FLOWS && selectedElement.getFlowId() != null && !selectedElement.getFlowId().isBlank()) {
+            changed = true;
+        }
+        if (mode != GuiActionMode.MENUS && selectedElement.getOpenGuiId() != null && !selectedElement.getOpenGuiId().isBlank()) {
+            changed = true;
+        }
+        if (mode != GuiActionMode.COMMAND && selectedElement.getCommand() != null && !selectedElement.getCommand().isBlank()) {
+            changed = true;
+        }
+        if (!changed) {
+            return;
+        }
+        captureSnapshot();
+        if (mode != GuiActionMode.FLOWS) {
+            selectedElement.setFlowId(null);
+        }
+        if (mode != GuiActionMode.MENUS) {
+            selectedElement.setOpenGuiId(null);
+        }
+        if (mode != GuiActionMode.COMMAND) {
+            selectedElement.setCommand(null);
+        }
+    }
+
     private void applyMaterial(String material) {
         if (selectedElement == null) {
             placementTemplate.setMaterial(material);
@@ -711,7 +858,11 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         selectedElement.setFlowId(flowId);
         if (flowId != null && !flowId.isBlank()) {
             selectedElement.setOpenGuiId(null);
+            selectedElement.setCommand(null);
             setSelectorSelection(guiSelector, "none");
+            if (commandInput != null) {
+                commandInput.setText("");
+            }
         }
         String label = flowId == null || flowId.isBlank() ? "none" : formatFlowLabel(flowId);
         setSelectorSelection(flowSelector, label);
@@ -729,10 +880,33 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         selectedElement.setOpenGuiId(guiId);
         if (guiId != null && !guiId.isBlank()) {
             selectedElement.setFlowId(null);
+            selectedElement.setCommand(null);
             setSelectorSelection(flowSelector, "none");
+            if (commandInput != null) {
+                commandInput.setText("");
+            }
         }
         String label = guiId == null || guiId.isBlank() ? "none" : formatGuiLabel(guiId);
         setSelectorSelection(guiSelector, label);
+    }
+
+    private void applyCommand(String command) {
+        if (selectedElement == null) {
+            return;
+        }
+        String next = command != null && !command.isBlank() ? command.trim() : null;
+        String current = selectedElement.getCommand();
+        if ((current == null && next == null) || (current != null && current.equals(next))) {
+            return;
+        }
+        captureSnapshot();
+        selectedElement.setCommand(next);
+        if (next != null) {
+            selectedElement.setFlowId(null);
+            selectedElement.setOpenGuiId(null);
+            setSelectorSelection(flowSelector, "none");
+            setSelectorSelection(guiSelector, "none");
+        }
     }
 
     private void openSelectedFlow() {
@@ -746,6 +920,20 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         FlowManager flowManager = FlowManager.getInstance();
         if (flowManager != null && serverId != null) {
             flowManager.openFlowEditor(serverId, null, flowId);
+        }
+    }
+
+    private void openSelectedMenu() {
+        if (selectedElement == null) {
+            return;
+        }
+        String guiId = selectedElement.getOpenGuiId();
+        if (guiId == null || guiId.isBlank()) {
+            return;
+        }
+        FlowManager flowManager = FlowManager.getInstance();
+        if (flowManager != null && serverId != null) {
+            flowManager.openGuiDesigner(serverId, null, guiId, this);
         }
     }
 
@@ -838,7 +1026,6 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         int totalSlots = getTotalSlots();
         for (int slot = 0; slot < totalSlots; slot++) {
             SlotButton button = new SlotButton(slot, MIN_SLOT_SIZE, this::handleSlotClick);
-            button.hintDelay = 0.2f;
             button.setElement(slotElements.get(slot));
             gridContainer.addWidget(button);
             slotButtons.put(slot, button);
@@ -855,18 +1042,53 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             button.setElement(element);
             button.setPreview(preview);
             button.setHighlight(preview ? previewColor : (isSelected ? selectedColor : 0), isSelected);
-            button.hint = element != null ? buildElementHint(element) : "Slot " + (button.slot + 1) + " (empty)";
         }
     }
 
-    private String buildElementHint(GuiElement element) {
-        if (element == null) {
-            return "";
+    private void updateHoveredSlot(int mouseX, int mouseY) {
+        if (draggingPlacement || isAnyPopupOpen()) {
+            return;
         }
+        for (SlotButton button : slotButtons.values()) {
+            if (button.hasElement() && button.isMouseOver(mouseX, mouseY)) {
+                hoveredSlotButton = button;
+                return;
+            }
+        }
+    }
+
+    private void drawGuiSlotTooltip(IDrawContext context, int mouseX, int mouseY) {
+        if (hoveredSlotButton == null || !hoveredSlotButton.hasElement()) {
+            return;
+        }
+        GuiElement element = hoveredSlotButton.getElement();
         Visual visual = element.getVisual();
-        String name = visual != null && visual.getName() != null && !visual.getName().isBlank() ? visual.getName() : "Item";
-        String material = visual != null && visual.getMaterial() != null && !visual.getMaterial().isBlank() ? visual.getMaterial() : "Material";
-        return name + " [" + material + "]";
+        if (visual == null) {
+            return;
+        }
+        MinecraftTooltip fallback = buildVisualFallbackTooltip(visual);
+        MinecraftRenderItem renderItem = hoveredSlotButton.getRenderItem();
+        if (renderItem != null) {
+            context.drawMinecraftItemTooltip(renderItem, fallback, mouseX, mouseY, getWidth(), getHeight());
+            return;
+        }
+        context.drawMinecraftTooltip(fallback, mouseX, mouseY, getWidth(), getHeight());
+    }
+
+    private MinecraftTooltip buildVisualFallbackTooltip(Visual visual) {
+        List<MinecraftTooltipLine> lines = new ArrayList<>();
+        String title = visual.getName() != null && !visual.getName().isBlank() ? visual.getName() : formatMaterialLabel(visual.getMaterial());
+        if (title == null || title.isBlank()) {
+            title = "Item";
+        }
+        lines.add(new MinecraftTooltipLine(MinecraftTextComponents.fromValue(title)));
+        if (visual.getLore() != null) {
+            lines.addAll(MinecraftTextComponents.fromPlainLore(visual.getLore()));
+        }
+        if (shouldRenderAsTexture(visual) && visual.getMaterial() != null && !visual.getMaterial().isBlank()) {
+            lines.add(new MinecraftTooltipLine(MinecraftTextComponents.fromValue(visual.getMaterial())));
+        }
+        return new MinecraftTooltip(lines);
     }
 
     private void handleSlotClick(int slot, int button) {
@@ -1154,10 +1376,9 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
         int contentTop = header().headerSize + 5;
         int contentHeight = Math.max(120, height - contentTop - PANEL_PADDING);
-        int desiredPanelWidth = Math.max(panelState.width(), (int) (width * 0.28f));
 
         if (inspectorPanel != null) {
-            inspectorPanel.y(contentTop).height(contentHeight).width(desiredPanelWidth);
+            inspectorPanel.y(contentTop).height(contentHeight);
         }
 
         int rightWidth = inspectorPanel != null ? (int) inspectorPanel.getAnimatedWidth() : 0;
@@ -1525,6 +1746,18 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             this.highlightOutline = outline;
         }
 
+        private GuiElement getElement() {
+            return element;
+        }
+
+        private boolean hasElement() {
+            return element != null;
+        }
+
+        private MinecraftRenderItem getRenderItem() {
+            return element != null ? toRenderItem(element.getVisual()) : null;
+        }
+
         @Override
         protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
             if (element != null) {
@@ -1559,6 +1792,26 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             if (handler != null) {
                 handler.onClick(slot, button);
             }
+        }
+    }
+
+    private class TooltipOverlayWidget extends AnimatedWidget {
+        private TooltipOverlayWidget() {
+            super(0, 0, 0, 0, "");
+            this.active = false;
+            this.transparent = true;
+            this.enableHoverColors = false;
+            this.animateElevation = false;
+            this.entranceAnimationEnabled = false;
+        }
+
+        @Override
+        protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
+        }
+
+        @Override
+        public void renderHintOverlay(IDrawContext context) {
+            drawGuiSlotTooltip(context, GuiDesignerScreen.this.mouseX, GuiDesignerScreen.this.mouseY);
         }
     }
 
