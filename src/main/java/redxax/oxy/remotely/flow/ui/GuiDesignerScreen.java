@@ -295,21 +295,28 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             return;
         }
         MinecraftGameAssets gameAssets = getGameAssets();
-        BufferedImage texture = gameAssets.getImage(gameAssets.containerTexture("generic_54.png"));
-        if (texture == null || texture == ResourceManager.getInstance().getMissingTexture()) {
+        MinecraftAssetReference textureReference = gameAssets.containerTexture("generic_54.png");
+        BufferedImage texture = gameAssets.getImage(textureReference);
+        if (texture == null) {
             return;
         }
         int rows = Math.max(1, gui.getRows());
         int topHeight = GUI_TOP_MARGIN + rows * SLOT_BASE_SIZE;
         int topHeightScaled = Math.round(topHeight * guiScale);
-        BufferedImage top = texture.getSubimage(0, 0, GUI_TEXTURE_WIDTH, Math.min(topHeight, texture.getHeight()));
-        context.drawPixelArt(top, guiBackgroundX, guiBackgroundY, guiBackgroundWidth, topHeightScaled);
+        BufferedImage top = texture != ResourceManager.getInstance().getMissingTexture()
+            ? texture.getSubimage(0, 0, GUI_TEXTURE_WIDTH, Math.min(topHeight, texture.getHeight()))
+            : null;
+        drawGuiTexture(context, gameAssets, textureReference, top, guiBackgroundX, guiBackgroundY, guiBackgroundWidth, topHeightScaled, 0, 0, GUI_TEXTURE_WIDTH, topHeight);
 
         if (texture.getHeight() >= GUI_BOTTOM_TEXTURE_Y + GUI_PLAYER_INV_HEIGHT) {
             BufferedImage bottom = texture.getSubimage(0, GUI_BOTTOM_TEXTURE_Y, GUI_TEXTURE_WIDTH, GUI_PLAYER_INV_HEIGHT);
             int bottomY = guiBackgroundY + topHeightScaled;
             int bottomHeightScaled = Math.round(GUI_PLAYER_INV_HEIGHT * guiScale);
-            context.drawPixelArt(bottom, guiBackgroundX, bottomY, guiBackgroundWidth, bottomHeightScaled);
+            drawGuiTexture(context, gameAssets, textureReference, bottom, guiBackgroundX, bottomY, guiBackgroundWidth, bottomHeightScaled, 0, GUI_BOTTOM_TEXTURE_Y, GUI_TEXTURE_WIDTH, GUI_PLAYER_INV_HEIGHT);
+        } else {
+            int bottomY = guiBackgroundY + topHeightScaled;
+            int bottomHeightScaled = Math.round(GUI_PLAYER_INV_HEIGHT * guiScale);
+            drawGuiTexture(context, gameAssets, textureReference, null, guiBackgroundX, bottomY, guiBackgroundWidth, bottomHeightScaled, 0, GUI_BOTTOM_TEXTURE_Y, GUI_TEXTURE_WIDTH, GUI_PLAYER_INV_HEIGHT);
         }
 
         String title = gui.getTitle() != null && !gui.getTitle().isBlank() ? gui.getTitle() : gui.getId();
@@ -1680,6 +1687,16 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
             }
         }
         return MinecraftGameAssets.EMPTY;
+    }
+
+    private void drawGuiTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, BufferedImage fallback, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight) {
+        Object nativeIdentifier = gameAssets.getNativeIdentifier(reference);
+        if (nativeIdentifier != null && context.drawNativeTexture(nativeIdentifier, x, y, width, height, u, v, regionWidth, regionHeight, 256, 256)) {
+            return;
+        }
+        if (fallback != null && fallback != ResourceManager.getInstance().getMissingTexture()) {
+            context.drawPixelArt(fallback, x, y, width, height);
+        }
     }
 
     private MinecraftAssetReference resolveMaterialTexture(Visual visual) {

@@ -807,6 +807,53 @@ public final class RematrixContext implements ReContext {
         //#endif
     }
 
+    public boolean drawNativeTexture(Object texture, float x, float y, float width, float height, float u, float v, float regionWidth, float regionHeight, float textureWidth, float textureHeight) {
+        if (texture == null) return false;
+        int dw = Math.max(1, (int) Math.ceil(width));
+        int dh = Math.max(1, (int) Math.ceil(height));
+        int rw = Math.max(1, (int) Math.ceil(regionWidth));
+        int rh = Math.max(1, (int) Math.ceil(regionHeight));
+        int tw = Math.max(1, (int) Math.ceil(textureWidth));
+        int th = Math.max(1, (int) Math.ceil(textureHeight));
+        //#if FABRIC && MC >= 1.21.9 || MC >= 1.21.11 || MC >= 26.1
+        if (texture instanceof Identifier id) {
+            withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th));
+            return true;
+        }
+        //#endif
+        //#if NEOFORGE && MC >= 1.21.9 && MC < 1.21.11
+        //$$ if (texture instanceof ResourceLocation id) {
+        //$$     withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th));
+        //$$     return true;
+        //$$ }
+        //#endif
+        //#if MC >= 1.21.6 && MC < 1.21.9
+        //$$ if (texture instanceof ResourceLocation id) {
+        //$$     withScissor(() -> graphics.blit(RenderPipelines.GUI_TEXTURED, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th));
+        //$$     return true;
+        //$$ }
+        //#endif
+        //#if MC >= 1.21.5 && MC < 1.21.6
+        //$$ if (texture instanceof ResourceLocation id) {
+        //$$     withScissor(() -> graphics.blit(RenderType::guiTextured, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th));
+        //$$     return true;
+        //$$ }
+        //#endif
+        //#if MC >= 1.21.4 && MC < 1.21.5
+        //$$ if (texture instanceof ResourceLocation id) {
+        //$$     withScissor(() -> graphics.blit(RenderType::guiTextured, id, (int) Math.round(x), (int) Math.round(y), u, v, dw, dh, rw, rh, tw, th));
+        //$$     return true;
+        //$$ }
+        //#endif
+        //#if MC >= 1.20.1 && MC < 1.21.4
+        //$$ if (texture instanceof ResourceLocation id) {
+        //$$     withScissor(() -> graphics.blit(id, (int) Math.round(x), (int) Math.round(y), dw, dh, u, v, rw, rh, tw, th));
+        //$$     return true;
+        //$$ }
+        //#endif
+        return false;
+    }
+
     public void drawInvertedRect(float x1, float y1, float x2, float y2) {
         if (x1 == x2 || y1 == y2) return;
         float minX = Math.min(x1, x2);

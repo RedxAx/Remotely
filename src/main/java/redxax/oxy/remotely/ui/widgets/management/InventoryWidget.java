@@ -4,13 +4,18 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
 import redxax.oxy.remotely.data.playerdata.PlayerData;
 import redxax.oxy.remotely.data.playerdata.PlayerItem;
+import restudio.rescreen.game.MinecraftAssetReference;
 import restudio.rescreen.game.MinecraftGameAssets;
 import restudio.rescreen.game.MinecraftGameItems;
+import restudio.rescreen.game.tooltip.MinecraftTextComponents;
+import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.theme.Accent;
 import restudio.rescreen.theme.ThemeManager;
+import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.util.ResourceManager;
 import restudio.rescreen.util.SearchUtils;
@@ -71,8 +76,6 @@ public class InventoryWidget extends AnimatedWidget {
     private final PlayerItem[] armor = new PlayerItem[4];
     private PlayerItem offhand;
 
-    private final BufferedImage inventoryBackground;
-    private final BufferedImage enderChestBackground;
     private final Map<String, Integer> slotPositions = new LinkedHashMap<>();
 
     private int lastBaseX;
@@ -90,6 +93,8 @@ public class InventoryWidget extends AnimatedWidget {
     private String lastClickKey;
     private long syncBlockUntilMs;
     private String searchQuery = "";
+    private int lastMouseX;
+    private int lastMouseY;
 
     public InventoryWidget(int x, int y, int width, int height, UnifiedPlayer player, PlayerManagerController controller, PlayerData data, Mode mode, BooleanSupplier editableSupplier, Runnable interactionCallback, LongConsumer refreshScheduler) {
         super(x, y, width, height, "");
@@ -100,10 +105,6 @@ public class InventoryWidget extends AnimatedWidget {
         this.editableSupplier = editableSupplier;
         this.interactionCallback = interactionCallback;
         this.refreshScheduler = refreshScheduler;
-        MinecraftGameAssets gameAssets = getGameAssets();
-        this.inventoryBackground = gameAssets.getImage(gameAssets.containerTexture("inventory.png"));
-        this.enderChestBackground = gameAssets.getImage(gameAssets.containerTexture("generic_54.png"));
-
         if (data != null) {
             if (data.inventory() != null) {
                 for (PlayerItem item : data.inventory()) {
@@ -144,11 +145,19 @@ public class InventoryWidget extends AnimatedWidget {
 
     @Override
     protected void drawContent(IDrawContext ctx, int mouseX, int mouseY) {
+        lastMouseX = mouseX;
+        lastMouseY = mouseY;
         if (mode == Mode.ENDER_CHEST) {
             drawEnderChest(ctx, mouseX, mouseY);
             return;
         }
         drawInventory(ctx, mouseX, mouseY);
+    }
+
+    @Override
+    public void renderHintOverlay(IDrawContext context) {
+        super.renderHintOverlay(context);
+        drawHoveredItemTooltip(context);
     }
 
     @Override
@@ -234,10 +243,13 @@ public class InventoryWidget extends AnimatedWidget {
     }
 
     private void drawInventory(IDrawContext ctx, int mouseX, int mouseY) {
+        MinecraftGameAssets gameAssets = getGameAssets();
+        MinecraftAssetReference backgroundReference = gameAssets.containerTexture("inventory.png");
+        BufferedImage inventoryBackground = gameAssets.getImage(backgroundReference);
         int availableW = Math.max(1, getWidth());
         int availableH = Math.max(1, getHeight());
-        int bgW = inventoryBackground != null ? inventoryBackground.getWidth() : INV_TEXTURE_WIDTH;
-        int bgH = inventoryBackground != null ? inventoryBackground.getHeight() : INV_TEXTURE_HEIGHT;
+        int bgW = INV_TEXTURE_WIDTH;
+        int bgH = INV_TEXTURE_HEIGHT;
         int visibleW = Math.max(1, Math.min(bgW, INV_TEXTURE_WIDTH - INV_TRIM_RIGHT));
         int visibleH = Math.max(1, Math.min(bgH, INV_TEXTURE_HEIGHT - INV_TRIM_BOTTOM));
         int centerX = getX() + availableW / 2;
@@ -250,9 +262,9 @@ public class InventoryWidget extends AnimatedWidget {
         lastVisibleW = visibleW;
         lastVisibleH = visibleH;
 
-        if (inventoryBackground != null && inventoryBackground != ResourceManager.getInstance().getMissingTexture()) {
+        if (inventoryBackground != null) {
             ctx.enableScissor(baseX, baseY, baseX + visibleW, baseY + visibleH);
-            ctx.drawPixelArt(inventoryBackground, baseX, baseY, bgW, bgH);
+            drawMinecraftTexture(ctx, gameAssets, backgroundReference, inventoryBackground, baseX, baseY, bgW, bgH, 0, 0, bgW, bgH);
             ctx.disableScissor();
         }
 
@@ -294,6 +306,9 @@ public class InventoryWidget extends AnimatedWidget {
     }
 
     private void drawEnderChest(IDrawContext ctx, int mouseX, int mouseY) {
+        MinecraftGameAssets gameAssets = getGameAssets();
+        MinecraftAssetReference backgroundReference = gameAssets.containerTexture("generic_54.png");
+        BufferedImage enderChestBackground = gameAssets.getImage(backgroundReference);
         int availableW = Math.max(1, getWidth());
         int availableH = Math.max(1, getHeight());
         int rows = 3;
@@ -307,12 +322,16 @@ public class InventoryWidget extends AnimatedWidget {
         lastGuiWidth = CHEST_GUI_TEXTURE_WIDTH;
         lastGuiHeight = topHeight + CHEST_GUI_PLAYER_INV_HEIGHT;
 
-        if (enderChestBackground != null && enderChestBackground != ResourceManager.getInstance().getMissingTexture()) {
-            BufferedImage top = enderChestBackground.getSubimage(0, 0, CHEST_GUI_TEXTURE_WIDTH, Math.min(topHeight, enderChestBackground.getHeight()));
-            ctx.drawPixelArt(top, baseX, baseY, CHEST_GUI_TEXTURE_WIDTH, topHeight);
+        if (enderChestBackground != null) {
+            BufferedImage top = enderChestBackground != ResourceManager.getInstance().getMissingTexture()
+                ? enderChestBackground.getSubimage(0, 0, CHEST_GUI_TEXTURE_WIDTH, Math.min(topHeight, enderChestBackground.getHeight()))
+                : null;
+            drawMinecraftTexture(ctx, gameAssets, backgroundReference, top, baseX, baseY, CHEST_GUI_TEXTURE_WIDTH, topHeight, 0, 0, CHEST_GUI_TEXTURE_WIDTH, topHeight);
             if (enderChestBackground.getHeight() >= CHEST_GUI_BOTTOM_TEXTURE_Y + CHEST_GUI_PLAYER_INV_HEIGHT) {
                 BufferedImage bottom = enderChestBackground.getSubimage(0, CHEST_GUI_BOTTOM_TEXTURE_Y, CHEST_GUI_TEXTURE_WIDTH, CHEST_GUI_PLAYER_INV_HEIGHT);
-                ctx.drawPixelArt(bottom, baseX, baseY + topHeight, CHEST_GUI_TEXTURE_WIDTH, CHEST_GUI_PLAYER_INV_HEIGHT);
+                drawMinecraftTexture(ctx, gameAssets, backgroundReference, bottom, baseX, baseY + topHeight, CHEST_GUI_TEXTURE_WIDTH, CHEST_GUI_PLAYER_INV_HEIGHT, 0, CHEST_GUI_BOTTOM_TEXTURE_Y, CHEST_GUI_TEXTURE_WIDTH, CHEST_GUI_PLAYER_INV_HEIGHT);
+            } else {
+                drawMinecraftTexture(ctx, gameAssets, backgroundReference, null, baseX, baseY + topHeight, CHEST_GUI_TEXTURE_WIDTH, CHEST_GUI_PLAYER_INV_HEIGHT, 0, CHEST_GUI_BOTTOM_TEXTURE_Y, CHEST_GUI_TEXTURE_WIDTH, CHEST_GUI_PLAYER_INV_HEIGHT);
             }
         }
 
@@ -394,6 +413,44 @@ public class InventoryWidget extends AnimatedWidget {
             return;
         }
         ctx.fill(left + 1, top + 1, left + slotSize - 1, top + slotSize - 1, SEARCH_DIM_COLOR);
+    }
+
+    private void drawHoveredItemTooltip(IDrawContext context) {
+        if (heldItem != null) {
+            return;
+        }
+        SlotSelection selection = findSelection(lastMouseX, lastMouseY);
+        if (selection == null || selection.item == null) {
+            return;
+        }
+        MinecraftRenderItem renderItem = toRenderItem(selection.item);
+        MinecraftTooltip fallback = buildItemFallbackTooltip(selection.item);
+        int screenWidth = getWidth();
+        int screenHeight = getHeight();
+        Screen screen = ScreenManager.getInstance().getCurrentScreen();
+        if (screen != null) {
+            screenWidth = screen.getWidth();
+            screenHeight = screen.getHeight();
+        }
+        if (renderItem != null) {
+            context.pushScissorState();
+            context.clearScissor();
+            context.drawMinecraftItemTooltip(renderItem, fallback, lastMouseX, lastMouseY, screenWidth, screenHeight);
+            context.popScissorState();
+            return;
+        }
+        context.pushScissorState();
+        context.clearScissor();
+        context.drawMinecraftTooltip(fallback, lastMouseX, lastMouseY, screenWidth, screenHeight);
+        context.popScissorState();
+    }
+
+    private MinecraftTooltip buildItemFallbackTooltip(PlayerItem item) {
+        String title = formatLabel(item != null ? item.id() : null);
+        if (title.isBlank()) {
+            title = "Item";
+        }
+        return MinecraftTooltip.of(MinecraftTextComponents.fromValue(title));
     }
 
     private boolean matchesSearch(PlayerItem item) {
@@ -804,6 +861,16 @@ public class InventoryWidget extends AnimatedWidget {
             }
         }
         return MinecraftGameAssets.EMPTY;
+    }
+
+    private void drawMinecraftTexture(IDrawContext ctx, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, BufferedImage fallback, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight) {
+        Object nativeIdentifier = gameAssets.getNativeIdentifier(reference);
+        if (nativeIdentifier != null && ctx.drawNativeTexture(nativeIdentifier, x, y, width, height, u, v, regionWidth, regionHeight, INV_TEXTURE_WIDTH, INV_TEXTURE_HEIGHT)) {
+            return;
+        }
+        if (fallback != null && fallback != ResourceManager.getInstance().getMissingTexture()) {
+            ctx.drawPixelArt(fallback, x, y, width, height);
+        }
     }
 
     private MinecraftRenderItem toRenderItem(PlayerItem item) {
