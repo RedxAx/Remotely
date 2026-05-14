@@ -135,6 +135,14 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
     }
 
     @Override
+    public boolean drawNativeTexture(Object texture, float x, float y, float width, float height, float u, float v, float regionWidth, float regionHeight, float textureWidth, float textureHeight) {
+        if (ctx instanceof RematrixContext mc) {
+            return mc.drawNativeTexture(texture, x, y, width, height, u, v, regionWidth, regionHeight, textureWidth, textureHeight);
+        }
+        return false;
+    }
+
+    @Override
     public void drawInvertedRect(float x1, float y1, float x2, float y2) {
         if (ctx instanceof RematrixContext mc) {
             mc.drawInvertedRect(x1, y1, x2, y2);
