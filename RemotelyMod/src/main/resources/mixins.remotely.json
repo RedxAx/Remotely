@@ -11,6 +11,9 @@
     //#if FABRIC
     "ClientPackSourceMixin",
     //#endif
+    "ClientPacketListenerMixin",
+    "ClientboundCustomPayloadPacketMixin",
+    "ServerboundCustomPayloadPacketMixin",
     "ContainerEventHandlerMixin",
     "GameMenuScreenMixin",
     "GuiMixin",

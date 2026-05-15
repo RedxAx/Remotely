@@ -13,6 +13,7 @@ public class RemotelyConfigManager extends RebaseConfigManager {
         super(applicationDir);
         if (!properties.containsKey("update.projectId")) properties.setProperty("update.projectId", "remotely");
         if (!properties.containsKey("update.channel")) properties.setProperty("update.channel", "stable");
+        migrateReSyncKeybind();
     }
 
     @Override
@@ -29,6 +30,8 @@ public class RemotelyConfigManager extends RebaseConfigManager {
         Config.redesignMainMenu = getRedesignMainMenu();
         Config.scanServers = getScanServers();
         Config.obfuscate = getObfuscate();
+        Config.resyncKeyCode = getReSyncKeyCode();
+        Config.resyncKeyModifiers = getReSyncKeyModifiers();
         restudio.rescreen.config.Config.consoleScrollSpeed = getConsoleScrollSpeed();
     }
 
@@ -64,6 +67,26 @@ public class RemotelyConfigManager extends RebaseConfigManager {
 
     public boolean getObfuscate() { return Boolean.parseBoolean(properties.getProperty("remotely.showIp", "true")); }
     public void setObfuscate(boolean value) { properties.setProperty("remotely.showIp", String.valueOf(value)); save(); apply(); }
+
+    public int getReSyncKeyCode() { return Integer.parseInt(properties.getProperty("remotely.resyncKeyCode", "71")); }
+    public void setReSyncKeyCode(int value) { properties.setProperty("remotely.resyncKeyCode", String.valueOf(value)); save(); apply(); }
+
+    public int getReSyncKeyModifiers() { return Integer.parseInt(properties.getProperty("remotely.resyncKeyModifiers", "4")); }
+    public void setReSyncKeyModifiers(int value) { properties.setProperty("remotely.resyncKeyModifiers", String.valueOf(value)); save(); apply(); }
+
+    private void migrateReSyncKeybind() {
+        String keyCode = properties.getProperty("remotely.resyncKeyCode", "71");
+        String modifiers = properties.getProperty("remotely.resyncKeyModifiers", "4");
+        if (!"82".equals(keyCode)) {
+            return;
+        }
+        if (!"4".equals(modifiers) && !"6".equals(modifiers)) {
+            return;
+        }
+        properties.setProperty("remotely.resyncKeyCode", "71");
+        properties.setProperty("remotely.resyncKeyModifiers", "4");
+        save();
+    }
 
     public float getConsoleScrollSpeed() { return Float.parseFloat(properties.getProperty("ui.consoleScrollSpeed", "7.0")); }
     public void setConsoleScrollSpeed(float speed) { properties.setProperty("ui.consoleScrollSpeed", String.valueOf(speed)); save(); apply(); }

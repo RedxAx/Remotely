@@ -19,6 +19,7 @@ import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rebase.restudio.api.ReStudioApiClient;
 import restudio.rebase.restudio.ReStudio;
 import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.ReSyncLiveServerSession;
 import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rescreen.util.Notification;
@@ -84,6 +85,9 @@ public class RemotelyClient {
             } catch (Exception e) {
                 System.err.println("Failed to initialize FlowManager: " + e.getMessage());
             }
+        }
+        if (flowManager == null) {
+            flowManager = new FlowManager(this, null);
         }
     }
 
@@ -262,6 +266,14 @@ public class RemotelyClient {
     public void cacheReStudioServerViews(Map<String, ClientServerView> views) {
         restudioServerViews.clear();
         restudioServerViews.putAll(views);
+    }
+
+    public void openLiveReSyncStudio(ReSyncLiveServerSession session) {
+        if (flowManager == null) {
+            new Notification.Builder().message("ReSync Studio Not Available").type(Notification.Type.WARN).build();
+            return;
+        }
+        flowManager.openLiveReSyncStudio(session);
     }
 
 }
