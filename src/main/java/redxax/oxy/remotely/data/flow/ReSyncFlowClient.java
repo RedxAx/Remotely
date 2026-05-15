@@ -74,6 +74,7 @@ public class ReSyncFlowClient {
     private final String directWsUrl;
     private final String directApiKey;
     private final RemotelyClient client;
+    private final ReSyncFrameTransport frameTransport;
     private final AtomicReference<WebSocketClient> wsClient = new AtomicReference<>();
     private final AtomicBoolean authenticated = new AtomicBoolean(false);
     private final AtomicBoolean connecting = new AtomicBoolean(false);
@@ -141,6 +142,22 @@ public class ReSyncFlowClient {
         this.directWsUrl = directWsUrl;
         this.directApiKey = directApiKey;
         this.client = client;
+        this.frameTransport = null;
+        this.worldGenProtocolHandler = new WorldGenProtocolHandler(serverId, gson, this::trackGenericJob);
+        this.stableClientId = "remotely-" + UUID.nameUUIDFromBytes((serverId == null ? "default" : serverId).getBytes(StandardCharsets.UTF_8));
+        for (ReSyncResourceType type : ReSyncResourceType.values()) {
+            pendingOpenResources.put(type, ConcurrentHashMap.newKeySet());
+        }
+        loadCachedRegistry();
+    }
+
+    public ReSyncFlowClient(String serverId, ReSyncFrameTransport frameTransport, RemotelyClient client) {
+        this.serverId = serverId;
+        this.apiClient = null;
+        this.directWsUrl = null;
+        this.directApiKey = null;
+        this.client = client;
+        this.frameTransport = frameTransport;
         this.worldGenProtocolHandler = new WorldGenProtocolHandler(serverId, gson, this::trackGenericJob);
         this.stableClientId = "remotely-" + UUID.nameUUIDFromBytes((serverId == null ? "default" : serverId).getBytes(StandardCharsets.UTF_8));
         for (ReSyncResourceType type : ReSyncResourceType.values()) {
@@ -154,6 +171,9 @@ public class ReSyncFlowClient {
     }
 
     public CompletableFuture<Void> connect() {
+        if (frameTransport != null) {
+            return connectFrameTransport();
+        }
         if (isConnected() || connecting.get()) {
             return CompletableFuture.completedFuture(null);
         }
@@ -326,6 +346,33 @@ public class ReSyncFlowClient {
         sendSubscribe("worldgen");
     }
 
+    private CompletableFuture<Void> connectFrameTransport() {
+        if (isConnected() || connecting.get()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        if (frameTransport == null || !frameTransport.isOpen()) {
+            if (errorListener != null) {
+                errorListener.onError(null, "ReSyncUnavailable");
+            }
+            return CompletableFuture.completedFuture(null);
+        }
+        connecting.set(true);
+        nodeRegistrySynced = false;
+        scheduleConnectTimeout();
+        frameTransport.setFrameHandler(this::handleBinaryMessage);
+        frameTransport.setCloseHandler(() -> {
+            authenticated.set(false);
+            connecting.set(false);
+            cancelConnectTimeout();
+            nodeRegistrySynced = false;
+            cancelNodeRegistryTimeout();
+            stopHeartbeat();
+        });
+        this.apiKey = "bridge";
+        sendHandshake();
+        return CompletableFuture.completedFuture(null);
+    }
+
     private void sendSubscribe(String channelId) {
         byte[] channelBytes = channelId.getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(4 + channelBytes.length + 4);
@@ -336,6 +383,12 @@ public class ReSyncFlowClient {
     }
 
     private void sendFrame(int messageType, byte[] payload, short channel) {
+        if (frameTransport != null) {
+            if (frameTransport.isOpen()) {
+                frameTransport.send(frameCodec.encode(messageType, payload, channel, sequenceCounter++));
+            }
+            return;
+        }
         WebSocketClient client = wsClient.get();
         if (client != null && client.isOpen()) {
             client.send(frameCodec.encode(messageType, payload, channel, sequenceCounter++));
@@ -1688,6 +1741,9 @@ public class ReSyncFlowClient {
         System.out.println("[ReSyncFlow] Shutting down WebSocket connection");
         shutdownRequested = true;
         stopHeartbeat();
+        if (frameTransport != null) {
+            frameTransport.close();
+        }
         WebSocketClient client = wsClient.getAndSet(null);
         if (client != null) {
             client.close();
@@ -1710,11 +1766,18 @@ public class ReSyncFlowClient {
     }
 
     private boolean isConnected() {
+        if (frameTransport != null) {
+            return frameTransport.isOpen() && authenticated.get();
+        }
         WebSocketClient client = wsClient.get();
         return client != null && client.isOpen() && authenticated.get();
     }
 
     private void ensureConnected() {
+        if (frameTransport != null) {
+            connect();
+            return;
+        }
         WebSocketClient client = wsClient.get();
         if (client != null && client.isOpen() && !authenticated.get()) {
             client.close();

@@ -15,6 +15,8 @@ public class Config {
     public static boolean redesignMainMenu = false;
     public static boolean scanServers = true;
     public static boolean obfuscate = true;
+    public static int resyncKeyCode = 71;
+    public static int resyncKeyModifiers = 4;
 
     public static int globalCursorColor = 0xFFFFC800;
     public static int globalCursorAnimatedColor = 0xFFd6f264;

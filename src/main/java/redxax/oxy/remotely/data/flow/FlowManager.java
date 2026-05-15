@@ -96,6 +96,23 @@ public class FlowManager {
         client.getHost().setScreen(screen);
     }
 
+    public void openLiveReSyncStudio(ReSyncLiveServerSession session) {
+        if (session == null || session.serverId() == null || session.serverId().isBlank()) {
+            new Notification("ReSync", "ReSync Unavailable", Notification.Type.WARN);
+            return;
+        }
+        connectionManager.activateLiveSession(session);
+        FlowEditorScreen screen = new FlowEditorScreen(new FlowGraph(), session.serverId(), ScreenManager.getInstance().getCurrentScreen(), null, "").enableStudioMode();
+        client.getHost().setScreen(screen);
+    }
+
+    public void clearLiveReSyncSession(String serverId) {
+        if (serverId == null || !serverId.startsWith("live:")) {
+            return;
+        }
+        closeServerConnection(serverId);
+    }
+
     public void ensureFlowClientForStartup(String serverId, ClientServerView server, boolean showNotifications) {
         if (serverId == null || serverId.isBlank()) {
             return;

@@ -14,7 +14,9 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.adapters.ReScreenWrapper;
+import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
+import redxax.oxy.remotely.resync.bridge.ReSyncVanillaBridgeManager;
 import redxax.oxy.remotely.util.InitializationManager;
 
 @Mixin(value = KeyboardHandler.class)
@@ -30,6 +32,9 @@ public class KeyboardMixin {
     private boolean remotely$skipToggleChar;
 
     @Unique
+    private boolean remotely$resyncKeyDown;
+
+    @Unique
     private long remotely$skipToggleCharUntil;
 
     @Unique
@@ -38,6 +43,14 @@ public class KeyboardMixin {
         boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
         boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
         return alt && !shift && !ctrl && key == GLFW.GLFW_KEY_X;
+    }
+
+    @Unique
+    private boolean remotely$shouldOpenReSync(int key, int modifiers) {
+        boolean alt = (modifiers & GLFW.GLFW_MOD_ALT) != 0;
+        boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
+        boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
+        return alt && !shift && !ctrl && key == Config.resyncKeyCode;
     }
 
     @Unique
@@ -107,6 +120,19 @@ public class KeyboardMixin {
             ci.cancel();
             return;
         }
+        if (remotely$shouldOpenReSync(keyEvent.key(), keyEvent.modifiers())) {
+            if (i == GLFW.GLFW_RELEASE) {
+                remotely$resyncKeyDown = false;
+                ci.cancel();
+                return;
+            }
+            if (!remotely$resyncKeyDown) {
+                remotely$resyncKeyDown = true;
+                ReSyncVanillaBridgeManager.getInstance().openStudioFromKey();
+            }
+            ci.cancel();
+            return;
+        }
         if (remotely$toggleDown && remotely$isToggleKey(keyEvent.key())) {
             if (i == GLFW.GLFW_RELEASE) {
                 remotely$toggleDown = false;
@@ -134,6 +160,19 @@ public class KeyboardMixin {
     //$$             remotely$skipNextToggleChar();
     //$$         } else if (k == GLFW.GLFW_RELEASE) {
     //$$             remotely$toggleDown = false;
+    //$$         }
+    //$$         ci.cancel();
+    //$$         return;
+    //$$     }
+    //$$     if (remotely$shouldOpenReSync(i, m)) {
+    //$$         if (k == GLFW.GLFW_RELEASE) {
+    //$$             remotely$resyncKeyDown = false;
+    //$$             ci.cancel();
+    //$$             return;
+    //$$         }
+    //$$         if (!remotely$resyncKeyDown) {
+    //$$             remotely$resyncKeyDown = true;
+    //$$             ReSyncVanillaBridgeManager.getInstance().openStudioFromKey();
     //$$         }
     //$$         ci.cancel();
     //$$         return;

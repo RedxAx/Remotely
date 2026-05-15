@@ -66,6 +66,26 @@ public class ReSyncConnectionManager {
         return ensureFlowClient(serverId, true);
     }
 
+    public ReSyncFlowClient activateLiveSession(ReSyncLiveServerSession session) {
+        if (session == null || session.serverId() == null || session.serverId().isBlank() || session.transport() == null) {
+            return null;
+        }
+        ReSyncFlowClient existing = flowClients.get(session.serverId());
+        if (existing != null && existing.isConnectedState()) {
+            return existing;
+        }
+        existing = flowClients.remove(session.serverId());
+        if (existing != null) {
+            existing.shutdown();
+        }
+        flowProfiles.remove(session.serverId());
+        ReSyncFlowClient flowClient = new ReSyncFlowClient(session.serverId(), session.transport(), client);
+        flowClient.setErrorListener((nodeId, message) -> ScreenManager.getInstance().execute(() -> new Notification("ReSync", normalizeReSyncNotificationMessage(message), Notification.Type.ERROR)));
+        flowClients.put(session.serverId(), flowClient);
+        flowClient.connect();
+        return flowClient;
+    }
+
     private ReSyncFlowClient ensureFlowClient(String serverId, ReSyncConnectionProfile profile, boolean showNotifications, boolean connectIfNeeded) {
         ReSyncFlowClient flowClient = flowClients.get(serverId);
         if (flowClient != null && profile != null && !flowClient.isConnectedState() && !flowClient.matchesDirectProfile(profile.wsUrl(), profile.apiKey())) {
