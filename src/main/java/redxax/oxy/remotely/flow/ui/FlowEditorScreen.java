@@ -51,6 +51,7 @@ import restudio.rebase.ui.screens.editor.WorkspaceTreeExplorer;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.UiHost;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
 import restudio.rescreen.ui.desktop.DesktopIconWidget;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.rescreen.layout.DesktopLayout;
@@ -78,7 +79,7 @@ import java.util.function.Consumer;
 
 import static restudio.rescreen.config.Config.desktopMode;
 
-public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHeaderProvider {
+public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHeaderProvider, DesktopWindowBehaviorProvider {
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
     private static final int RESYNC_PORT = 12441;
     private static final String RESYNC_RELEASE_URL = "https://restudiomc.net/api/releases/resync/latest/download";
@@ -136,6 +137,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private static final int STUDIO_CONTENT_BROWSER_HEIGHT = 158;
     private final ClientServerView startupServer;
     private final String loaderHint;
+    private final String serverTitle;
     private final SecureRandom secureRandom = new SecureRandom();
     private StudioStartupState startupState = StudioStartupState.READY;
     private IconMessage startupIcon;
@@ -1271,15 +1273,20 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private boolean isUndoing = false;
 
     public FlowEditorScreen(FlowGraph graph, String serverId, Screen parent) {
-        this(graph, serverId, parent, null, "");
+        this(graph, serverId, parent, null, "", "");
     }
 
     public FlowEditorScreen(FlowGraph graph, String serverId, Screen parent, ClientServerView startupServer, String loaderHint) {
+        this(graph, serverId, parent, startupServer, loaderHint, startupServer != null ? startupServer.name : "");
+    }
+
+    public FlowEditorScreen(FlowGraph graph, String serverId, Screen parent, ClientServerView startupServer, String loaderHint, String serverTitle) {
         super();
         this.graph = graph;
         this.serverId = serverId;
         this.startupServer = startupServer;
         this.loaderHint = safeText(loaderHint);
+        this.serverTitle = safeText(serverTitle);
         if (!(parent instanceof FlowEditorScreen)) {
             FlowEditorScreen.parent = parent;
         }
@@ -1317,6 +1324,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
         FlowGraph targetGraph = manager.getFlowsForServer(serverId).get(flowId);
         if (targetGraph == null) {
+            manager.openFlowEditor(serverId, null, flowId, branchPin);
             return;
         }
         openStudioFlow(targetGraph, manager.getFlowName(serverId, flowId));
@@ -1366,6 +1374,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             GuiDefinition gui = manager.getGuisForServer(serverId).get(id);
             if (gui != null) {
                 openStudioViewDocument(type, id, manager.getGuiName(serverId, id), new ScreenBackedStudioView(this, new GuiDesignerScreen(gui, serverId, this)));
+            } else {
+                manager.openGuiDesigner(serverId, null, id, this);
             }
             return;
         }
@@ -1373,6 +1383,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             ScoreboardDefinition scoreboard = manager.getScoreboardsForServer(serverId).get(id);
             if (scoreboard != null) {
                 openStudioViewDocument(type, id, manager.getScoreboardName(serverId, id), new ScreenBackedStudioView(this, new ScoreboardDesignerScreen(scoreboard, serverId, this)));
+            } else {
+                manager.openScoreboardDesigner(serverId, null, id, this);
             }
             return;
         }
@@ -1380,6 +1392,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             TabDefinition tab = manager.getTabsForServer(serverId).get(id);
             if (tab != null) {
                 openStudioViewDocument(type, id, manager.getTabName(serverId, id), new ScreenBackedStudioView(this, new TabDesignerScreen(tab, serverId, this)));
+            } else {
+                manager.openTabDesigner(serverId, null, id, this);
             }
         }
     }
@@ -1613,15 +1627,27 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     }
 
     public String getDesktopAppId() {
+        if (studioMode) {
+            return "resync-studio:" + serverId;
+        }
         return "flow-editor";
     }
 
     public String getDesktopAppTitle() {
+        if (studioMode) {
+            String title = !serverTitle.isBlank() ? serverTitle : safeText(serverId);
+            return title.isBlank() ? "ReSync Studio" : "ReSync Studio - " + title;
+        }
         return "Flow Editor";
     }
 
     public String getDesktopAppIconPath() {
         return "flow.png";
+    }
+
+    @Override
+    public DesktopWindowBehavior getDesktopWindowBehavior() {
+        return studioMode ? DesktopWindowBehavior.SINGLETON : DesktopWindowBehavior.DEFAULT_REPLACE;
     }
 
     public void refreshNodeRegistry() {
@@ -2288,6 +2314,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             }
             if (targetGraph != null) {
                 openStudioGraphDocument(resource.getType(), resource.getId(), resource.getDisplayName(), targetGraph);
+            } else {
+                manager.openFlowEditor(serverId, null, resource.getId());
             }
             return;
         }

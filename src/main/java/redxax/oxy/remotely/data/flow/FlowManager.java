@@ -90,9 +90,13 @@ public class FlowManager {
     }
 
     public void openReSyncStudio(String serverId, ClientServerView server, String loaderHint) {
+        openReSyncStudio(serverId, server, loaderHint, server != null ? server.name : "");
+    }
+
+    public void openReSyncStudio(String serverId, ClientServerView server, String loaderHint, String serverTitle) {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
         connectionManager.resolveAndStoreProfile(actualServerId, server);
-        FlowEditorScreen screen = new FlowEditorScreen(new FlowGraph(), actualServerId, ScreenManager.getInstance().getCurrentScreen(), server, loaderHint).enableStudioMode();
+        FlowEditorScreen screen = new FlowEditorScreen(new FlowGraph(), actualServerId, ScreenManager.getInstance().getCurrentScreen(), server, loaderHint, serverTitle).enableStudioMode();
         client.getHost().setScreen(screen);
     }
 
@@ -102,7 +106,7 @@ public class FlowManager {
             return;
         }
         connectionManager.activateLiveSession(session);
-        FlowEditorScreen screen = new FlowEditorScreen(new FlowGraph(), session.serverId(), ScreenManager.getInstance().getCurrentScreen(), null, "").enableStudioMode();
+        FlowEditorScreen screen = new FlowEditorScreen(new FlowGraph(), session.serverId(), ScreenManager.getInstance().getCurrentScreen(), null, "", session.displayName()).enableStudioMode();
         client.getHost().setScreen(screen);
     }
 
