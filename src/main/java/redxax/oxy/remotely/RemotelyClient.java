@@ -260,7 +260,8 @@ public class RemotelyClient {
         if (serverView != null && serverView.loader != null && !serverView.loader.isBlank()) {
             loaderHint = serverView.loader;
         }
-        flowManager.openReSyncStudio(serverId, serverView, loaderHint);
+        String serverTitle = serverView != null && serverView.name != null && !serverView.name.isBlank() ? serverView.name : instance.getName();
+        flowManager.openReSyncStudio(serverId, serverView, loaderHint, serverTitle);
     }
 
     public void cacheReStudioServerViews(Map<String, ClientServerView> views) {
