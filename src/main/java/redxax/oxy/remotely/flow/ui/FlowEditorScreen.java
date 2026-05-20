@@ -134,7 +134,18 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private TextInputWidget commandLabelInput;
     private TextInputWidget commandPathsInput;
     private ToggleWidget commandStructuredToggle;
-    private static final int STUDIO_CONTENT_BROWSER_HEIGHT = 158;
+    private static final float STUDIO_CONTENT_BROWSER_DEFAULT_RATIO = 0.22F;
+    private static final int STUDIO_CONTENT_BROWSER_MIN_HEIGHT = 96;
+    private static final int STUDIO_CONTENT_BROWSER_MAX_HEIGHT = 260;
+    private static final int STUDIO_CONTENT_BROWSER_TITLE_HEIGHT = 16;
+    private static final int STUDIO_CONTENT_BROWSER_COLLAPSED_HEIGHT = STUDIO_CONTENT_BROWSER_TITLE_HEIGHT;
+    private static final int STUDIO_CONTENT_BROWSER_RESIZE_GRIP = 5;
+    private int studioContentBrowserHeight = -1;
+    private boolean studioContentBrowserCollapsed;
+    private boolean studioContentBrowserResizing;
+    private int studioContentBrowserResizeStartY;
+    private int studioContentBrowserResizeStartHeight;
+    private float studioContentBrowserAnimatedHeight = -1;
     private final ClientServerView startupServer;
     private final String loaderHint;
     private final String serverTitle;
@@ -189,6 +200,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         private final ReSyncProjectTreeProvider treeProvider;
         private final WorkspaceTreeExplorer treeExplorer;
         private final SquareButtonWidget createButton;
+        private final AnimatedButton closeButton;
         private final BufferedImage folderIcon;
         private final BufferedImage flowIcon;
         private final BufferedImage commandIcon;
@@ -227,6 +239,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .hint("Create")
                 .onClick(this::showCreateMenu)
                 .build();
+            closeButton = new AnimatedButton.Builder()
+                .onClick(FlowEditorScreen.this::toggleStudioContentBrowser)
+                .accentType(ThemeManager.getAccent("danger"))
+                .animateElevation(false)
+                .size(12, 8)
+                .hint("Collapse Assets")
+                .build();
             gridContainer.setOnSelectionChanged(widgets -> {
                 selectedResource = null;
                 selectedFolder = null;
@@ -250,18 +269,30 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             scoreboardIcon = resources.getImage(Identifier.icon("report.png"));
             tabIcon = resources.getImage(Identifier.icon("newTab.png"));
             worldGenIcon = resources.getImage(Identifier.icon("earth.png"));
+            updateContainers();
             rebuild();
         }
 
         @Override
         protected void drawContent(IDrawContext context, int mouseX, int mouseY) {
             int border = ThemeManager.getColor(ThemeColor.innerBorder);
+            renderBrowserTitle(context, mouseX, mouseY, border);
+            if (studioContentBrowserContentHidden()) {
+                return;
+            }
             int dividerX = getX() + currentFolderWidth() + 4;
-            context.fill(dividerX, getY() + 5, dividerX + 1, getY() + getHeight() - 1, border);
+            context.fill(dividerX, contentTop(), dividerX + 1, getY() + getHeight() - 1, border);
             renderClippedContainer(context, treeContainer, mouseX, mouseY);
             renderClippedContainer(context, gridContainer, mouseX, mouseY);
             renderEmptyFolderMessage(context, mouseX, mouseY);
             createButton.render(context, mouseX, mouseY, 0);
+        }
+
+        private void renderBrowserTitle(IDrawContext context, int mouseX, int mouseY, int border) {
+            context.fill(getX(), getY(), getX() + getWidth(), getY() + STUDIO_CONTENT_BROWSER_TITLE_HEIGHT, ThemeManager.getColor(ThemeColor.inClickableBackground));
+            context.fillBorder(getX(), getY(), getX() + getWidth(), getY() + STUDIO_CONTENT_BROWSER_TITLE_HEIGHT, 1, border);
+            context.drawText("Assets", getX() + 4, getY() + 4, ThemeManager.getColor(ThemeColor.text), true);
+            closeButton.render(context, mouseX, mouseY, 0);
         }
 
         private void renderClippedContainer(IDrawContext context, Container container, int mouseX, int mouseY) {
@@ -291,6 +322,19 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             lastMouseX = (int) mouseX;
             lastMouseY = (int) mouseY;
             if (handleHistoryMouseButton(button)) {
+                return true;
+            }
+            if (closeButton.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && isResizeGrip(mouseX, mouseY)) {
+                studioContentBrowserResizing = true;
+                studioContentBrowserResizeStartY = (int) mouseY;
+                studioContentBrowserResizeStartHeight = studioContentBrowserHeight();
+                return true;
+            }
+            if (studioContentBrowserCollapsed) {
+                toggleStudioContentBrowser();
                 return true;
             }
             if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
@@ -324,8 +368,16 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
         @Override
         public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            if (studioContentBrowserResizing) {
+                studioContentBrowserResizing = false;
+                updatePositions();
+                return true;
+            }
             if (!isMouseOver(mouseX, mouseY)) {
                 return false;
+            }
+            if (studioContentBrowserCollapsed) {
+                return true;
             }
             if (treeContainer.mouseReleased(mouseX, mouseY, button)) {
                 return true;
@@ -338,8 +390,15 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
         @Override
         public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+            if (studioContentBrowserResizing) {
+                resizeStudioContentBrowser(studioContentBrowserResizeStartHeight + studioContentBrowserResizeStartY - (int) mouseY);
+                return true;
+            }
             if (!isMouseOver(mouseX, mouseY)) {
                 return false;
+            }
+            if (studioContentBrowserCollapsed) {
+                return true;
             }
             return treeContainer.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || gridContainer.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
         }
@@ -349,17 +408,34 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             if (!isMouseOver(mouseX, mouseY)) {
                 return false;
             }
+            if (studioContentBrowserCollapsed) {
+                return true;
+            }
             return treeContainer.mouseScrolled(mouseX, mouseY, amount) || gridContainer.mouseScrolled(mouseX, mouseY, amount);
         }
 
         @Override
         public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            if (studioContentBrowserCollapsed) {
+                return false;
+            }
             return treeContainer.keyPressed(keyCode, scanCode, modifiers) || gridContainer.keyPressed(keyCode, scanCode, modifiers);
         }
 
         @Override
         public boolean charTyped(char chr, int modifiers) {
+            if (studioContentBrowserCollapsed) {
+                return false;
+            }
             return treeContainer.charTyped(chr, modifiers) || gridContainer.charTyped(chr, modifiers);
+        }
+
+        @Override
+        public void tick() {
+            super.tick();
+            if (advanceStudioContentBrowserHeightAnimation()) {
+                updateStudioLayout();
+            }
         }
 
         @Override
@@ -1000,15 +1076,39 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
         private void updateContainers() {
             int folderWidth = currentFolderWidth();
-            treeContainer.setPosition(getX() + 4, getY() + 1);
-            treeContainer.setSize(folderWidth - 8, getHeight() - 2);
-            gridContainer.setPosition(getX() + folderWidth + 8, getY() + 1);
-            gridContainer.setSize(getWidth() - folderWidth - 12, getHeight() - 2);
-            createButton.setPosition(getX() + getWidth() - 24, getY() + 8);
+            int contentTop = contentTop();
+            treeContainer.setPosition(getX() + 4, contentTop);
+            treeContainer.setSize(folderWidth - 8, Math.max(0, getHeight() - contentOffset() - 1));
+            gridContainer.setPosition(getX() + folderWidth + 8, contentTop);
+            gridContainer.setSize(getWidth() - folderWidth - 12, Math.max(0, getHeight() - contentOffset() - 1));
+            createButton.setPosition(getX() + getWidth() - 24, getY() + STUDIO_CONTENT_BROWSER_TITLE_HEIGHT + 4);
+            closeButton.setPosition(getX() + getWidth() - 16, getY() + 3);
+            closeButton.accentType = ThemeManager.getAccent(studioContentBrowserCollapsed ? "nice" : "danger");
+            closeButton.setHint(studioContentBrowserCollapsed ? "Show Assets" : "Collapse Assets");
             treeContainer.setRelativeScissor(1, 1, 1, 1);
             gridContainer.setRelativeScissor(1, 1, 1, 1);
             treeContainer.updateWidgetPositions();
             gridContainer.updateWidgetPositions();
+        }
+
+        private int contentOffset() {
+            return studioContentBrowserContentHidden() ? getHeight() : STUDIO_CONTENT_BROWSER_TITLE_HEIGHT;
+        }
+
+        private int contentTop() {
+            return getY() + contentOffset();
+        }
+
+        private boolean isResizeGrip(double mouseX, double mouseY) {
+            return !studioContentBrowserCollapsed
+                && mouseX >= getX()
+                && mouseX <= getX() + getWidth()
+                && mouseY >= getY()
+                && mouseY <= getY() + STUDIO_CONTENT_BROWSER_RESIZE_GRIP;
+        }
+
+        private boolean studioContentBrowserContentHidden() {
+            return studioContentBrowserCollapsed && getHeight() <= STUDIO_CONTENT_BROWSER_COLLAPSED_HEIGHT + 1;
         }
 
         private int currentFolderWidth() {
@@ -2292,9 +2392,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 }
             })
             .build();
-        studioContentBrowser = new ReSyncContentBrowserWidget(8, height - STUDIO_CONTENT_BROWSER_HEIGHT - 8, width - 16, STUDIO_CONTENT_BROWSER_HEIGHT);
+        studioContentBrowserHeight = studioContentBrowserDefaultHeight();
+        studioContentBrowser = new ReSyncContentBrowserWidget(8, height - studioContentBrowserHeight() - studioContentBrowserBottomMargin(), width - 16, studioContentBrowserHeight());
         addHudWidget(studioContentBrowser);
-        studioResourcePanel = new SidePanel(this, "studioResourcePanel", this::updatePositions).width(studioPanelState.width()).y(54).height(height - 65 - STUDIO_CONTENT_BROWSER_HEIGHT).show();
+        studioResourcePanel = new SidePanel(this, "studioResourcePanel", this::updatePositions).width(studioPanelState.width()).y(54).height(height - 65 - studioContentBrowserHeight()).show();
         studioResourcePanel.container().layout(new ManagedLayout()).columns(1).padding(studioPanelState.padding()).scrolling(true).enableSelecting(false);
         studioResourcePanel.hide();
         syncStudioDocumentTabs();
@@ -3487,7 +3588,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             updatePalettePanelBounds();
         }
         if (studioResourcePanel != null && studioResourcePanel.isVisible()) {
-            int bottomReserve = studioMode ? STUDIO_CONTENT_BROWSER_HEIGHT + 18 : 0;
+            int bottomReserve = studioMode ? studioContentBrowserHeight() + 18 : 0;
             studioResourcePanel.height(Math.max(80, height - 65 - bottomReserve)).y(54).update();
         }
         if (headerBackground != null) {
@@ -3504,21 +3605,93 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             studioTabsManager.setPosition(10, 5);
             studioTabsManager.setSize(Math.max(80, width - studioHeaderRightReserve() - 20), 18);
         }
-        if (studioContentBrowser != null) {
-            studioContentBrowser.setPosition(8, height - STUDIO_CONTENT_BROWSER_HEIGHT - 8);
-            studioContentBrowser.setSize(width - 16, STUDIO_CONTENT_BROWSER_HEIGHT);
-        }
+        clampStudioContentBrowserHeight();
+        layoutStudioContentBrowser();
         if (paletteSidePanel != null && paletteSidePanel.isVisible()) {
             updatePalettePanelBounds();
         }
         if (studioResourcePanel != null) {
-            studioResourcePanel.width(studioPanelState.width()).y(54).height(Math.max(80, height - 65 - STUDIO_CONTENT_BROWSER_HEIGHT - 18)).update();
+            studioResourcePanel.width(studioPanelState.width()).y(54).height(Math.max(80, height - 65 - studioContentBrowserHeight() - 18)).update();
         }
         for (StudioDocument document : studioDocuments) {
             if (document.view() != null) {
                 document.view().resize(width, studioEditorHeight());
             }
         }
+    }
+
+    private int studioContentBrowserHeight() {
+        return Math.round(studioContentBrowserAnimatedHeight());
+    }
+
+    private int studioContentBrowserTargetHeight() {
+        return studioContentBrowserCollapsed ? STUDIO_CONTENT_BROWSER_COLLAPSED_HEIGHT : clampStudioContentBrowserHeightValue(studioContentBrowserHeight < 0 ? studioContentBrowserDefaultHeight() : studioContentBrowserHeight);
+    }
+
+    private float studioContentBrowserAnimatedHeight() {
+        if (studioContentBrowserAnimatedHeight < 0 || studioContentBrowserResizing) {
+            studioContentBrowserAnimatedHeight = studioContentBrowserTargetHeight();
+        }
+        return studioContentBrowserAnimatedHeight;
+    }
+
+    private int studioContentBrowserDefaultHeight() {
+        return clampStudioContentBrowserHeightValue((int) (height * STUDIO_CONTENT_BROWSER_DEFAULT_RATIO));
+    }
+
+    private int studioContentBrowserBottomMargin() {
+        return 4;
+    }
+
+    private void clampStudioContentBrowserHeight() {
+        if (studioContentBrowserHeight < 0) {
+            studioContentBrowserHeight = studioContentBrowserDefaultHeight();
+            return;
+        }
+        studioContentBrowserHeight = clampStudioContentBrowserHeightValue(studioContentBrowserHeight);
+    }
+
+    private boolean advanceStudioContentBrowserHeightAnimation() {
+        int targetHeight = studioContentBrowserTargetHeight();
+        if (studioContentBrowserAnimatedHeight < 0 || studioContentBrowserResizing) {
+            boolean changed = Math.round(studioContentBrowserAnimatedHeight) != targetHeight;
+            studioContentBrowserAnimatedHeight = targetHeight;
+            return changed;
+        }
+        float previousHeight = studioContentBrowserAnimatedHeight;
+        studioContentBrowserAnimatedHeight += (targetHeight - studioContentBrowserAnimatedHeight) * 0.35F;
+        if (Math.abs(targetHeight - studioContentBrowserAnimatedHeight) < 0.75F) {
+            studioContentBrowserAnimatedHeight = targetHeight;
+        }
+        return Math.round(previousHeight) != Math.round(studioContentBrowserAnimatedHeight);
+    }
+
+    private void layoutStudioContentBrowser() {
+        if (studioContentBrowser == null) {
+            return;
+        }
+        int browserHeight = studioContentBrowserHeight();
+        studioContentBrowser.setPosition(8, height - browserHeight - studioContentBrowserBottomMargin());
+        studioContentBrowser.setSize(width - 16, browserHeight);
+    }
+
+    private int clampStudioContentBrowserHeightValue(int value) {
+        int available = Math.max(STUDIO_CONTENT_BROWSER_MIN_HEIGHT, height - 150);
+        int maxHeight = Math.min(STUDIO_CONTENT_BROWSER_MAX_HEIGHT, Math.max(STUDIO_CONTENT_BROWSER_MIN_HEIGHT, available));
+        return Math.clamp(value, STUDIO_CONTENT_BROWSER_MIN_HEIGHT, maxHeight);
+    }
+
+    private void resizeStudioContentBrowser(int requestedHeight) {
+        studioContentBrowserCollapsed = false;
+        studioContentBrowserHeight = clampStudioContentBrowserHeightValue(requestedHeight);
+        studioContentBrowserAnimatedHeight = studioContentBrowserHeight;
+        updatePositions();
+    }
+
+    private void toggleStudioContentBrowser() {
+        studioContentBrowserCollapsed = !studioContentBrowserCollapsed;
+        studioContentBrowserResizing = false;
+        updatePositions();
     }
 
     private int studioEditorHeight() {
