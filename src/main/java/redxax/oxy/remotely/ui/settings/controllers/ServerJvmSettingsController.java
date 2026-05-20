@@ -3,9 +3,14 @@ package redxax.oxy.remotely.ui.settings.controllers;
 import com.sun.management.OperatingSystemMXBean;
 import restudio.rebase.Rebase;
 import restudio.rebase.backend.ServerBackend;
+import restudio.rebase.backend.impl.SshBackend;
+import restudio.rebase.hosting.RemoteHost;
 import restudio.rebase.java.JavaManager;
 import restudio.rebase.java.JavaRuntime;
+import restudio.rescreen.ui.core.Screen;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.settings.Setting;
+import restudio.rescreen.ui.settings.SettingsScreen;
 import restudio.rescreen.ui.widgets.DoubleSliderWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
@@ -67,13 +72,39 @@ public class ServerJvmSettingsController {
             String remoteJavaPath = parseRemoteJavaPath(currentJvmArgs);
 
             if (isRemote) {
+                RemoteHost remoteHost = resolveRemoteHost();
+                List<JavaRuntime> runtimes = new ArrayList<>();
+                JavaRuntime defaultRuntime = new JavaRuntime("Auto-install compatible Java", null, false);
+                runtimes.add(defaultRuntime);
+                if (remoteHost != null) {
+                    List<JavaRuntime> remoteRuntimes = javaManager.getRemoteRuntimes(remoteHost);
+                    runtimes.addAll(remoteRuntimes);
+                    if (remoteRuntimes.isEmpty()) {
+                        javaManager.refreshRemoteRuntimes(remoteHost).thenRun(() -> ScreenManager.getInstance().execute(this::refreshSettings)).exceptionally(e -> null);
+                    }
+                }
+                JavaRuntime selectedRuntime = runtimes.stream()
+                        .filter(r -> Objects.equals(r.getPath(), remoteJavaPath))
+                        .findFirst()
+                        .orElse(defaultRuntime);
+                DropDownWidget<JavaRuntime> javaDropdown = new DropDownWidget.Builder<>(runtimes)
+                        .displayFunction(JavaRuntime::getName)
+                        .selectedItem(selectedRuntime)
+                        .onSelectionChanged(runtime -> {
+                            updateJvmArgs(null, parseRam(getJvmArgs()), parseAdditionalArgs(getJvmArgs()), runtime.getPath());
+                            checkCompatibility(runtime);
+                        })
+                        .size(300, 20)
+                        .build();
+                builder.addRow("Remote Java Runtime", true, 20, javaDropdown);
+
                 TextInputWidget remoteJavaInput = new TextInputWidget.Builder()
-                        .text(remoteJavaPath != null ? remoteJavaPath : "java")
+                        .text(remoteJavaPath != null ? remoteJavaPath : "")
                         .placeholder("Remote Java Path (e.g., /usr/lib/jvm/java-21-openjdk/bin/java)")
                         .onChange(text -> updateJvmArgs(null, parseRam(getJvmArgs()), parseAdditionalArgs(getJvmArgs()), text))
                         .size(500, 20)
                         .build();
-                builder.addRow("Remote Java Path", true, 20, remoteJavaInput);
+                builder.addRow("Manual Remote Java Path", true, 20, remoteJavaInput);
             } else {
                 List<JavaRuntime> runtimes = new ArrayList<>();
                 JavaRuntime defaultRuntime = new JavaRuntime("Auto-detect (Default)", null, false);
@@ -152,6 +183,14 @@ public class ServerJvmSettingsController {
         instance.setJvmArgs(args);
     }
 
+    private RemoteHost resolveRemoteHost() {
+        ServerBackend backend = instance.getBackend();
+        if (backend instanceof SshBackend sshBackend) {
+            return sshBackend.getSshManager().getRemoteHost();
+        }
+        return null;
+    }
+
     private void updateJvmArgs(String localJavaPath, int ramMb, String additionalArgs, String remoteJavaPath) {
         StringBuilder sb = new StringBuilder();
 
@@ -224,22 +263,28 @@ public class ServerJvmSettingsController {
         String mcVersionStr = instance.getVersionId();
         if (mcVersionStr == null || mcVersionStr.isEmpty()) return;
 
-        Pattern pattern = Pattern.compile("1\\.(\\d+)(\\.\\d+)?");
-        Matcher matcher = pattern.matcher(mcVersionStr);
-        if (!matcher.find()) return;
-
-        int majorMc = Integer.parseInt(matcher.group(1));
+        int minVersion = javaManager.getMinimumJavaVersion(mcVersionStr);
+        int maxVersion = javaManager.getMaximumJavaVersion(mcVersionStr);
         int javaVersion = runtime.getMajorVersion();
 
         String warning = null;
-        if (majorMc >= 21 && javaVersion < 21) warning = "requires Java 21+";
-        else if (majorMc >= 18 && javaVersion < 17) warning = "requires Java 17+";
-        else if (majorMc == 17 && javaVersion < 16) warning = "requires Java 16+";
+        if (javaVersion < minVersion) {
+            warning = "requires Java " + minVersion + "+";
+        } else if (maxVersion > 0 && javaVersion > maxVersion) {
+            warning = "supports up to Java " + maxVersion;
+        }
 
         if (warning != null) {
             new Notification("Compatibility Warning",
                     String.format("Version %s %s. Selected Java %d.", mcVersionStr, warning, javaVersion),
                     Notification.Type.WARN);
+        }
+    }
+
+    private void refreshSettings() {
+        Screen currentScreen = ScreenManager.getInstance().getCurrentScreen();
+        if (currentScreen instanceof SettingsScreen) {
+            ((SettingsScreen) currentScreen).refreshTab("Java");
         }
     }
 }
