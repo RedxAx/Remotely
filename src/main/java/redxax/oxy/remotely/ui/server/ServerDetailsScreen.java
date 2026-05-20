@@ -851,7 +851,28 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             if ("LOCAL".equalsIgnoreCase(type)) {
                 info.getTerminalWidget().startServerProcess();
             }
-        }));
+        })).exceptionally(e -> {
+            ScreenManager.getInstance().execute(() -> {
+                Throwable cause = unwrapThrowable(e);
+                context.instance.setState(InstanceState.STOPPED);
+                if (info.getTerminalWidget() instanceof ServerTerminal st) {
+                    st.notifyStopRequested();
+                } else if (info.getTerminalWidget() != null) {
+                    info.getTerminalWidget().stopProcess();
+                }
+                String message = cause.getMessage() != null ? cause.getMessage() : "Remote startup failed.";
+                new Notification("Server Start Failed", message, Notification.Type.ERROR);
+            });
+            return null;
+        });
+    }
+
+    private Throwable unwrapThrowable(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current != null ? current : throwable;
     }
 
     private void startLocalServerWhenReady(TabContext context, TerminalWidget terminal) {
@@ -896,7 +917,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 final RebaseAPI api = RebaseApiFactory.get(context.instance);
                 final Path eulaPath = Path.of(context.instance.getPath(), "eula.txt");
                 context.instance.getServerProperties().setProperty("eula", "true");
-                CompletableFuture.runAsync(context.instance::saveServerProperties).thenCompose(v -> api.writeFile(eulaPath, "eula=true")).thenRun(() -> ScreenManager.getInstance().execute(() -> {
+                context.instance.saveServerProperties().thenCompose(v -> api.writeFile(eulaPath, "eula=true")).thenRun(() -> ScreenManager.getInstance().execute(() -> {
                     popup.hide();
                     proceedWithServerStart(context, info);
                 }));

@@ -229,7 +229,9 @@ public class ServerConfigurationScreen extends ReScreen {
                 remoteConfigFuture = CompletableFuture.completedFuture(null);
             }
 
-            return CompletableFuture.allOf(propertiesFuture, settingsFuture, filesFuture, remoteConfigFuture).thenApply(ignored -> new InitialConfigLoad(new ArrayList<>(filesFuture.join())));
+            return CompletableFuture.allOf(propertiesFuture, settingsFuture, remoteConfigFuture)
+                    .thenCompose(ignored -> filesFuture)
+                    .thenApply(files -> new InitialConfigLoad(new ArrayList<>(files)));
         });
     }
 
@@ -407,11 +409,13 @@ public class ServerConfigurationScreen extends ReScreen {
         client.setScreen(details);
         tempInstance.setState(InstanceState.INSTALLING);
         details.addInstanceTab(tempInstance);
-        Rebase.get().getInstanceManager().createInstanceWithLogger(tempInstance).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
+        Rebase.get().getInstanceManager().createInstanceWithLogger(tempInstance).thenCompose(newInstance -> {
             newInstance.getServerProperties().putAll(tempInstance.getServerProperties());
             newInstance.getSettings().putAll(tempInstance.getSettings());
-            newInstance.saveServerProperties();
-            newInstance.save();
+            return newInstance.saveServerProperties()
+                    .thenCompose(v -> newInstance.save())
+                    .thenApply(v -> newInstance);
+        }).thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
             handleOpMe(newInstance);
             newInstance.setState(InstanceState.STOPPED);
         })).exceptionally(ex -> {
@@ -462,12 +466,12 @@ public class ServerConfigurationScreen extends ReScreen {
         originalInstance.getServerProperties().clear();
         originalInstance.getServerProperties().putAll(tempInstance.getServerProperties());
 
-        originalInstance.save();
-        originalInstance.saveServerProperties();
+        CompletableFuture<Void> persistFuture = originalInstance.save()
+                .thenCompose(v -> originalInstance.saveServerProperties());
 
-        CompletableFuture<Void> scriptFuture = !isReStudioBackend
+        CompletableFuture<Void> scriptFuture = persistFuture.thenCompose(v -> !isReStudioBackend
                 ? InstanceRepairer.createStartScript(originalInstance).exceptionally(ex -> { RebaseLogger.log("Failed to create start script: " + ex.getMessage()); return null; })
-                : CompletableFuture.completedFuture(null);
+                : CompletableFuture.completedFuture(null));
 
         scriptFuture.thenRun(() -> ScreenManager.getInstance().execute(() -> {
             if (isReStudioBackend) {
