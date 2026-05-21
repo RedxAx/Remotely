@@ -710,19 +710,33 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             if (info.getTerminalWidget() instanceof ServerTerminal st) {
                 st.notifyStopRequested();
             }
-            api.console().stopServer();
             String t = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
             if ("LOCAL".equalsIgnoreCase(t)) {
+                api.console().stopServer();
                 LifecycleManager.requestStop(context.instance);
-                info.getTerminalWidget().stopProcess();
-                context.instance.setState(InstanceState.STOPPED);
-                TerminalWidget.shutdown(context.instance.getInstanceId());
             }
             if (!"LOCAL".equalsIgnoreCase(t)) {
-                if (info.getTerminalWidget() != null) {
-                    info.getTerminalWidget().stopProcess();
-                }
-                context.instance.setState(InstanceState.STOPPED);
+                api.console().stopServer().thenRun(() -> ScreenManager.getInstance().execute(() -> {
+                    if (info.getTerminalWidget() != null) {
+                        info.getTerminalWidget().stopProcess();
+                    }
+                    context.instance.setState(InstanceState.STOPPED);
+                })).exceptionally(e -> {
+                    ScreenManager.getInstance().execute(() -> {
+                        Throwable cause = unwrapThrowable(e);
+                        String message = cause.getMessage() != null ? cause.getMessage() : "Remote stop failed.";
+                        if (message.toLowerCase(Locale.ROOT).contains("not running")) {
+                            if (info.getTerminalWidget() != null) {
+                                info.getTerminalWidget().stopProcess();
+                            }
+                            context.instance.setState(InstanceState.STOPPED);
+                            return;
+                        }
+                        context.instance.setState(InstanceState.RUNNING);
+                        new Notification("Server Stop Failed", message, Notification.Type.ERROR);
+                    });
+                    return null;
+                });
             }
         } else {
             api.health().check().thenAccept(status -> ScreenManager.getInstance().execute(() -> {

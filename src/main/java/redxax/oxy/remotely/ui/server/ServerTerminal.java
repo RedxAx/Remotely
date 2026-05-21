@@ -193,8 +193,14 @@ public class ServerTerminal extends TerminalWidget {
         }
         if (newState == InstanceState.RUNNING) {
             desiredPower = DesiredPower.RUNNING;
+            explicitDisconnect = false;
+            forceStoppedView = false;
+            isReconnecting = false;
         } else if (newState == InstanceState.STOPPED || newState == InstanceState.CRASHED) {
             desiredPower = DesiredPower.STOPPED;
+            explicitDisconnect = true;
+            forceStoppedView = true;
+            isReconnecting = false;
         }
     }
 
@@ -384,11 +390,9 @@ public class ServerTerminal extends TerminalWidget {
                 boolean withinStopGrace = desiredPower == DesiredPower.STOPPED && lastStopRequestedMs > 0 && now2 - lastStopRequestedMs < STOP_GRACE_MS;
 
                 if (withinStopGrace && (remoteState == InstanceState.RUNNING || remoteState == InstanceState.STARTING)) {
-                    i.setState(InstanceState.STOPPED);
                     isReconnecting = false;
-                    forceStoppedView = true;
-                    explicitDisconnect = true;
-                    stopProcess();
+                    forceStoppedView = false;
+                    explicitDisconnect = false;
                     return;
                 }
 
@@ -462,7 +466,13 @@ public class ServerTerminal extends TerminalWidget {
                 }
                 attachLocalControllerIfNeeded();
             }
-            case "STOPPING", "STOPPED" -> {
+            case "STOPPING" -> {
+                desiredPower = DesiredPower.STOPPED;
+                explicitDisconnect = false;
+                forceStoppedView = false;
+                isReconnecting = false;
+            }
+            case "STOPPED" -> {
                 lastStopRequestedMs = 0;
                 inst.setState(InstanceState.STOPPED);
                 if (inst.getState() == InstanceState.STOPPED) {
@@ -524,17 +534,25 @@ public class ServerTerminal extends TerminalWidget {
             lastStopRequestedMs = System.currentTimeMillis();
             lastStartRequestedMs = 0;
             isReconnecting = false;
-            explicitDisconnect = true;
-            forceStoppedView = true;
-            stopProcess();
+            explicitDisconnect = false;
+            forceStoppedView = false;
+            broadcastStopFeedback("Stop Requested...");
+            broadcastStopFeedback("Waiting For Shutdown...");
             Instance inst = getInstance();
             if (inst != null) {
                 LifecycleManager.requestStop(inst);
                 if (inst.getBackend() instanceof LocalBackend) {
                     Thread.ofVirtual().name("Remotely Local Server Stop").start(() -> LocalServerControllerClient.stop(inst));
                 }
-                inst.setState(InstanceState.STOPPED);
             }
         });
+    }
+
+    private void broadcastStopFeedback(String line) {
+        getTerminal().writeString(line);
+        Instance inst = getInstance();
+        if (inst != null) {
+            inst.getLogger().addLog(line);
+        }
     }
 }
