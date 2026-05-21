@@ -12,7 +12,6 @@ import restudio.rebase.resource.ResourceType;
 import restudio.rebase.resource.UpdateInfo;
 import restudio.rebase.resource.provider.OnlineResourceVersion;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
-import restudio.rebase.ui.widgets.DownloadProgressWidget;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.Container;
@@ -552,25 +551,44 @@ public class ResourceContainer extends Container {
             builder.addRow("", true, false, 18, widget);
         }
         ToggleWidget backupToggle = new ToggleWidget.Builder().toggled(true).build();
-        DownloadProgressWidget progress = new DownloadProgressWidget.DownloadProgressBuilder().size(builder.getWidget().getWidth() - 20, 18).build();
-        progress.setVisible(false);
         builder.addTitleButton(() -> {
             List<UpdateInfo> selectedUpdates = resourceWidgets.stream().filter(w -> w.includedInUpdate).map(w -> new UpdateInfo(w.getResource(), w.getResource().availableUpdate)).collect(Collectors.toList());
             if (selectedUpdates.isEmpty()) {
                 new Notification("No Resources Selected", "You must select at least one resource to update.", Notification.Type.INFO);
                 return;
             }
-            progress.setVisible(true);
-Rebase.get().getUpdateManager().performBulkUpdate(instance, selectedUpdates, progress::updateProgress, () -> loadResources().thenRun(() -> {}), backupToggle.getValue(), 7).whenComplete((v, ex) -> ScreenManager.getInstance().execute(() -> {
-                builder.getWidget().setVisible(false);
+            Notification progressNotification = new Notification.Builder()
+                    .message("Updating Resources")
+                    .description("Starting Download")
+                    .type(Notification.Type.INFO)
+                    .loading(true)
+                    .autoSlideOut(false)
+                    .progress(0, 100)
+                    .build();
+            builder.getWidget().setVisible(false);
+            Rebase.get().getUpdateManager().performBulkUpdate(instance, selectedUpdates, (status, percentage) -> ScreenManager.getInstance().execute(() -> progressNotification.updateProgress(status, percentage, 100)), () -> loadResources().thenRun(() -> {}), backupToggle.getValue(), 7).whenComplete((v, ex) -> ScreenManager.getInstance().execute(() -> {
                 if (ex != null) {
-                    new Notification("Update Failed", ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage(), Notification.Type.ERROR);
+                    progressNotification.update()
+                            .message("Update Failed")
+                            .description(ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage())
+                            .type(Notification.Type.ERROR)
+                            .loading(false)
+                            .autoSlideOut(true)
+                            .commit();
+                } else {
+                    progressNotification.update()
+                            .message("Update Complete")
+                            .description(selectedUpdates.size() + " Resources Updated")
+                            .type(Notification.Type.SUCCESS)
+                            .loading(false)
+                            .autoSlideOut(true)
+                            .progress(100, 100)
+                            .commit();
                 }
                 loadResources().thenRun(() -> {});
             }));
         }, "Download Selected", ThemeManager.getAccent("nice"));
         builder.addRow("Backup?", false, 18, backupToggle);
-        builder.addRow("Progress", false, false, 20, progress);
         PopupWidget popup = builder.build();
         host.addDrawableChild(popup);
         popup.show();

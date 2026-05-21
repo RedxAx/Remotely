@@ -8,14 +8,12 @@ import restudio.rebase.resource.ResourceType;
 import restudio.rebase.resource.provider.IResourceProvider;
 import restudio.rebase.resource.provider.OnlineResource;
 import restudio.rebase.ui.screens.resources.ResourceOverviewScreen;
-import restudio.rebase.ui.widgets.DownloadProgressWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.rescreen.ReScreen;
-import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
@@ -26,16 +24,11 @@ import restudio.rescreen.util.Sound;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static restudio.rescreen.config.Config.*;
 import static restudio.rescreen.render.TextRenderer.tr;
-import static restudio.rescreen.theme.ThemeManager.getAnimatedColor;
-import static restudio.rescreen.theme.ThemeManager.getAnimatedValue;
 import static restudio.rescreen.util.SoundUtils.playSound;
 
 public class InstanceResourceWidget extends MountableButtonWidget {
@@ -185,28 +178,48 @@ public class InstanceResourceWidget extends MountableButtonWidget {
         builder.addMarkdown("Version Info", info, 35);
         builder.addMarkdown("Changelog", newVersion.changelog != null ? newVersion.changelog : "No changelog provided.", 150);
 
-        DownloadProgressWidget progress = new DownloadProgressWidget(0, 0, 200, 18);
-        progress.setVisible(false);
         ToggleWidget backupToggle = new ToggleWidget.Builder().toggled(updateBackup).onChange(() -> updateBackup = !updateBackup).build();
         SquareButtonWidget updateBtn = new SquareButtonWidget.Builder().imagePath("download.png").onClick(() -> {
-            progress.setVisible(true);
+            Notification progressNotification = new Notification.Builder()
+                    .message("Updating " + resource.getName())
+                    .description("Starting Download")
+                    .type(Notification.Type.INFO)
+                    .loading(true)
+                    .autoSlideOut(false)
+                    .progress(0, 100)
+                    .build();
+            builder.getWidget().setVisible(false);
             Rebase.get().getUpdateManager().performUpdate(instance, resource, newVersion, (current, total) -> {
                 if (total > 0) {
-                    progress.updateProgress(String.format("Downloading... %d/%d KB", current / 1024, total / 1024), (int) (current * 100 / total));
+                    int percentage = (int) (current * 100 / total);
+                    ScreenManager.getInstance().execute(() -> progressNotification.updateProgress(String.format("%d/%d KB", current / 1024, total / 1024), percentage, 100));
                 }
             }, this.refreshCallback, updateBackup, 7).thenRun(() -> {
-                builder.getWidget().setVisible(false);
-                ScreenManager.getInstance().execute(refreshCallback);
+                ScreenManager.getInstance().execute(() -> {
+                    refreshCallback.run();
+                    progressNotification.update()
+                            .message("Update Complete")
+                            .description(resource.getName() + " Updated")
+                            .type(Notification.Type.SUCCESS)
+                            .loading(false)
+                            .autoSlideOut(true)
+                            .progress(100, 100)
+                            .commit();
+                });
             }).exceptionally(e -> {
-                new Notification("Update Failed", e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), Notification.Type.ERROR);
-                progress.setVisible(false);
+                ScreenManager.getInstance().execute(() -> progressNotification.update()
+                        .message("Update Failed")
+                        .description(e.getCause() != null ? e.getCause().getMessage() : e.getMessage())
+                        .type(Notification.Type.ERROR)
+                        .loading(false)
+                        .autoSlideOut(true)
+                        .commit());
                 return null;
             });
         }).build();
 
         builder.addRow("Backup?", false, 18, backupToggle);
         builder.addRow("Update", false, 18, updateBtn);
-        builder.addRow("Progress", false, false, 20, progress);
 
         PopupWidget popup = builder.build();
         ScreenManager.getInstance().getCurrentScreen().addDrawableChild(popup);
