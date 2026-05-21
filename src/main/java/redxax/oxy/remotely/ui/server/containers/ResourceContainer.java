@@ -1,6 +1,5 @@
 package redxax.oxy.remotely.ui.server.containers;
 
-import org.lwjgl.glfw.GLFW;
 import redxax.oxy.remotely.ui.widgets.InstanceResourceWidget;
 import restudio.rebase.Rebase;
 import restudio.rebase.instance.Instance;
@@ -14,8 +13,8 @@ import restudio.rebase.resource.provider.OnlineResourceVersion;
 import restudio.rebase.ui.screens.resources.ResourceBrowserScreen;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.ScreenManager;
-import restudio.rescreen.ui.rescreen.Container;
 import restudio.rescreen.ui.rescreen.ReScreen;
+import restudio.rescreen.ui.rescreen.SelectableContainer;
 import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.*;
 import restudio.rescreen.util.Notification;
@@ -31,7 +30,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
-public class ResourceContainer extends Container {
+public class ResourceContainer extends SelectableContainer {
     private boolean hasLoaded = false;
     private boolean isLoading = false;
 
@@ -78,7 +77,7 @@ public class ResourceContainer extends Container {
         this.host = host;
         this.instance = instance;
         this.viewModel = new ResourceViewModel(instance);
-        layout(new ManagedLayout()).columns(1).padding(2).enableSelecting(true).setRelativeScissor(- 1, - 1, - 1, - 3);
+        layout(new ManagedLayout()).columns(1).padding(2).setRelativeScissor(- 1, - 1, - 1, - 3);
         initializeSelectors();
         if (instance != null) {
             if (instance.getResourceGroups() != null) {
@@ -654,26 +653,8 @@ public class ResourceContainer extends Container {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            if (isMouseOver(mouseX, mouseY)) {
-                List<AnimatedWidget> selectedWidgets = getSelectedWidgets();
-                if (!selectedWidgets.isEmpty()) {
-                    boolean mouseOverSelected = false;
-                    for (AnimatedWidget widget : selectedWidgets) {
-                        if (widget.isMouseOver(mouseX, mouseY)) {
-                            mouseOverSelected = true;
-                            break;
-                        }
-                    }
-                    if (mouseOverSelected) {
-                        showContentContextMenu(mouseX, mouseY);
-                        return true;
-                    }
-                }
-            }
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
+    protected void onSelectionContextMenu(double mouseX, double mouseY, List<AnimatedWidget> selectedWidgets) {
+        showContentContextMenu(mouseX, mouseY);
     }
 
     public void setSortAndFilter(ContentSort sort, ContentFilter filter) {
