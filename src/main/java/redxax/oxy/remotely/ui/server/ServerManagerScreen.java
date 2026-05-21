@@ -107,6 +107,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     private long lastPersistentLocalProcessPollMs;
     private volatile boolean persistentLocalProcessPollInFlight;
     private static final long PERSISTENT_LOCAL_PROCESS_POLL_MS = 2000;
+    private final Runnable instanceChangeListener = () -> ScreenManager.getInstance().execute(this::loadServersForAllTabs);
+    private boolean instanceChangeListenerRegistered;
 
     public ServerManagerScreen(Object parent, RemotelyClient remotelyClient) {
         super();
@@ -138,6 +140,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         super.init();
         if (initializedOnce) {
             ReStudio.getInstance().addListener(this);
+            registerInstanceChangeListener();
             initNoServersOverlay();
             if (restudio.rescreen.config.Config.desktopMode && taskbarHelper != null) {
                 taskbarHelper.attach();
@@ -152,6 +155,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             return;
         }
         this.instanceManager = Rebase.get().getInstanceManager();
+        registerInstanceChangeListener();
         reloadInstancesSmartly();
         loadIcons();
         createPopups();
@@ -548,6 +552,23 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
         loadServersForTab(tabs().getActiveTab());
     }
 
+    private void loadServersForAllTabs() {
+        if (tabsManager == null) {
+            return;
+        }
+        for (TabsManager.Tab tab : tabs().getTabs()) {
+            loadServersForTab(tab);
+        }
+    }
+
+    private void registerInstanceChangeListener() {
+        if (instanceManager == null || instanceChangeListenerRegistered) {
+            return;
+        }
+        instanceManager.addChangeListener(instanceChangeListener);
+        instanceChangeListenerRegistered = true;
+    }
+
     private boolean refreshVisibleServerWidget(Instance instance) {
         TabsManager.Tab activeTab = tabs().getActiveTab();
         if (activeTab == null || activeTab.getContainer() == null || instance == null) {
@@ -706,6 +727,8 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
             DesktopIconWidget<Instance> existing = existingWidgets.get(getWidgetKey(server));
             if (existing != null) {
                 existing.setItem(server);
+                existing.setMessage(server.getName());
+                existing.setHint(server.getName());
                 existing.accentType = getDesktopIconAccent(server, false);
                 toKeep.add(existing);
                 existingWidgets.remove(getWidgetKey(server));
@@ -1877,6 +1900,10 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
     @Override
     public void removed() {
         ReStudio.getInstance().removeListener(this);
+        if (instanceManager != null && instanceChangeListenerRegistered) {
+            instanceManager.removeChangeListener(instanceChangeListener);
+            instanceChangeListenerRegistered = false;
+        }
         remotelyClient.saveTabIndex(tabs().getActiveTabIndex());
         if (taskbarHelper != null) {
             taskbarHelper.detach();

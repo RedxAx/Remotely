@@ -405,7 +405,8 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     private void createNewLocalServer() {
-        ServerDetailsScreen details = new ServerDetailsScreen(this, remotelyClient);
+        ServerDetailsScreen details = new ServerDetailsScreen(parent, remotelyClient);
+        closeCreationWindowForDesktop();
         client.setScreen(details);
         tempInstance.setState(InstanceState.INSTALLING);
         details.addInstanceTab(tempInstance);
@@ -429,27 +430,55 @@ public class ServerConfigurationScreen extends ReScreen {
     }
 
     private void createNewRemoteServer() {
-        ServerDetailsScreen details = new ServerDetailsScreen(this, remotelyClient);
+        ServerDetailsScreen details = new ServerDetailsScreen(parent, remotelyClient);
+        closeCreationWindowForDesktop();
         client.setScreen(details);
         tempInstance.setState(InstanceState.INSTALLING);
         details.addInstanceTab(tempInstance);
+        Notification notification = new Notification.Builder()
+                .message("Creating Remote Server")
+                .description(tempInstance.getName())
+                .type(Notification.Type.INFO)
+                .loading(true)
+                .autoSlideOut(false)
+                .image(Identifier.animatedIcon("loadingGreen.png"))
+                .animateImage(true)
+                .accent(ThemeManager.getAccent("calm"))
+                .build();
         Rebase.get().getInstanceManager().createRemoteInstanceWithLogger(tempInstance, remoteHostContext).thenCompose(newInstance -> Rebase.get().getInstanceManager().fetchRemoteInstances(remoteHostContext).handle((v, e) -> null).thenApply(v -> newInstance))
             .thenAccept(newInstance -> ScreenManager.getInstance().execute(() -> {
                 handleOpMe(newInstance);
                 newInstance.setState(InstanceState.STOPPED);
+                notification.update().message("Remote Server Created").description(newInstance.getName()).type(Notification.Type.SUCCESS).loading(false).image(null).autoSlideOut(true);
             })).exceptionally(ex -> {
                 ScreenManager.getInstance().execute(() -> {
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                     tempInstance.getLogger().addLog("[Progress:0] Remote creation failed: " + cause.getMessage());
                     tempInstance.setState(InstanceState.CRASHED);
+                    notification.update().message("Creation Failed").description(cause.getMessage()).type(Notification.Type.ERROR).loading(false).image(null).autoSlideOut(true);
                 });
                 return null;
             });
     }
 
+    private void closeCreationWindowForDesktop() {
+        if (!Config.desktopMode) {
+            return;
+        }
+        DesktopWindowsOverlay overlay = ScreenManager.getInstance().getDesktopWindowsOverlay();
+        if (overlay == null) {
+            return;
+        }
+        ScreenWindowWidget window = overlay.getActiveWindow();
+        if (window != null && window.getScreen() instanceof SettingsScreen) {
+            overlay.requestCloseWindowForScreen(window.getScreen());
+        }
+    }
+
     private void editServer() {
         String newName = tempInstance.getName();
         originalInstance.setName(newName);
+        Rebase.get().getInstanceManager().notifyChangeListeners();
 
         if (isReStudioBackend && serverIdentifier != null) {
             ReStudio.getInstance().getApi().renameServer(serverIdentifier, newName).exceptionally(e -> null);
