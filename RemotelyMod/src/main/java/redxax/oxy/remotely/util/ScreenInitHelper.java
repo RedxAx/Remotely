@@ -9,6 +9,7 @@ import net.minecraft.network.chat.Component;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.adapters.ICustomWidgetHolder;
 import redxax.oxy.remotely.mixin.accessor.ScreenAccessor;
+import redxax.oxy.remotely.quickserver.QuickServerManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.SquareButtonWidget;
 
@@ -109,15 +110,15 @@ public class ScreenInitHelper {
                 int startX = anchorX + 1;
                 int buttonY = getAnchoredY(screen, anchorY, anchorHeight, 4, 18, isTitleScreen);
 
-                SquareButtonWidget serverBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("manager.png").onClick(() -> openServerManagerScreen(screen)).build();
+                SquareButtonWidget serverBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("manager.png").hint("Servers").onClick(() -> openServerManagerScreen(screen)).build();
                 serverBtn.setPosition(startX, buttonY);
                 widgetHolder.remotely$addWidget(serverBtn);
 
-                SquareButtonWidget terminalBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("terminal.png").onClick(() -> openMultiTerminalScreen(screen)).build();
+                SquareButtonWidget terminalBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("terminal.png").hint("Terminal").onClick(() -> openMultiTerminalScreen(screen)).build();
                 terminalBtn.setPosition(startX + (buttonSize + spacing), buttonY);
                 widgetHolder.remotely$addWidget(terminalBtn);
 
-                SquareButtonWidget explorerBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("explorer.png").onClick(() -> openFileExplorerScreen(screen)).build();
+                SquareButtonWidget explorerBtn = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("explorer.png").hint("File Explorer").onClick(() -> openFileExplorerScreen(screen)).build();
                 explorerBtn.setPosition(startX + 2 * (buttonSize + spacing), buttonY);
                 widgetHolder.remotely$addWidget(explorerBtn);
             }
@@ -142,6 +143,48 @@ public class ScreenInitHelper {
                 AnimatedButton terminalBtn = new AnimatedButton.Builder().entranceAnimation(false).label("Terminal").onClick(() -> openMultiTerminalScreen(screen)).size(smallButtonWidth, 18).build();
                 terminalBtn.setPosition(buttonX + smallButtonWidth + largeButtonWidth + gap * 2, buttonY);
                 widgetHolder.remotely$addWidget(terminalBtn);
+            }
+        }
+    }
+
+    public static void addQuickServerButton(Screen screen, AbstractButton anchorButton) {
+        if (anchorButton == null || !(screen instanceof ICustomWidgetHolder widgetHolder)) return;
+
+        //#if MC >= 1.19.4
+        int anchorX = anchorButton.getX();
+        int anchorY = anchorButton.getY();
+        int anchorHeight = anchorButton.getHeight();
+        //#else
+        //$$ int anchorX = anchorButton.x;
+        //$$ int anchorY = anchorButton.y;
+        //$$ int anchorHeight = anchorButton.getHeight();
+        //#endif
+
+        switch (mainMenuStyle) {
+            case "Minimal" -> {
+                int spacing = 4;
+                int buttonSize = 18;
+                int startX = anchorX + 1;
+                int buttonY = getAnchoredY(screen, anchorY, anchorHeight, 4, 18, false);
+                SquareButtonWidget quickButton = new SquareButtonWidget.Builder().entranceAnimation(false).imagePath("duplicate.png").hint(QuickServerManager.isInQuickServer() ? "Terminal" : "Quick Server").onClick(() -> QuickServerManager.activateGameButton(screen)).build();
+                quickButton.setPosition(startX + 3 * (buttonSize + spacing), buttonY);
+                widgetHolder.remotely$addWidget(quickButton);
+            }
+            case "Normal" -> {
+                int buttonY = getAnchoredY(screen, anchorY, anchorHeight, 4, 18, false);
+                AnimatedButton quickButton = new AnimatedButton.Builder().entranceAnimation(false).label(QuickServerManager.isInQuickServer() ? "Terminal" : "Quick Server").onClick(() -> QuickServerManager.activateGameButton(screen)).size(100, 18).build();
+                quickButton.setPosition(anchorX + 50, buttonY);
+                widgetHolder.remotely$addWidget(quickButton);
+            }
+            case "Vanilla" -> {
+                int buttonY = getAnchoredY(screen, anchorY, anchorHeight, 5, 20, false);
+                //#if MC >= 1.19.4
+                AbstractButton quickButton = Button.builder(Component.literal(QuickServerManager.isInQuickServer() ? "Terminal" : "Quick Server"), btn -> QuickServerManager.activateGameButton(screen)).bounds(anchorX + 50, buttonY, 100, 20).build();
+                ((ScreenAccessor) screen).remotely$addRenderableWidget(quickButton);
+                //#else
+                //$$ AbstractButton quickButton = new Button(anchorX + 50, buttonY, 100, 20, Component.literal(QuickServerManager.isInQuickServer() ? "Terminal" : "Quick Server"), btn -> QuickServerManager.activateGameButton(screen));
+                //$$ ((ScreenAccessor) screen).remotely$addRenderableWidget(quickButton);
+                //#endif
             }
         }
     }
