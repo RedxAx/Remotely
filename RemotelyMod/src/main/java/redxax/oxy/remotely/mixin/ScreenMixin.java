@@ -40,7 +40,6 @@ import restudio.rescreen.Main;
 import restudio.rescreen.ui.MouseCursor;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
-import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.util.Notification;
 
@@ -78,6 +77,11 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
 
     @Unique
     private int remotely$overlayStateRevision = -1;
+
+    @Override
+    public List<Widget> remotely$getWidgets() {
+        return this.remotely$customWidgets;
+    }
 
     @Override
     public void remotely$addWidget(Widget widget) {
@@ -157,14 +161,7 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
             //#endif
             MinecraftDrawContextAdapter adapter = new MinecraftDrawContextAdapter(ctx);
             if (hasWidgets) {
-                for (Widget widget : remotely$customWidgets) {
-                    widget.render(adapter, mouseX, mouseY, f);
-                }
-                for (Widget widget : remotely$customWidgets) {
-                    if (widget instanceof AnimatedWidget animatedWidget) {
-                        animatedWidget.renderHintOverlay(adapter);
-                    }
-                }
+                remotely$renderWidgets(adapter, mouseX, mouseY, f);
             }
             if (renderPinned) {
                 ScreenManager sm = ScreenManager.getInstance();
