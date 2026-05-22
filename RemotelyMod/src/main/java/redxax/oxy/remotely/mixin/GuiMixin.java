@@ -18,6 +18,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
 import redxax.oxy.remotely.rematrix.mc.RematrixContext;
+import redxax.oxy.remotely.rematrix.mc.RematrixScale;
 import restudio.rescreen.Main;
 import restudio.rescreen.ui.core.ScreenManager;
 
@@ -53,6 +54,7 @@ public class GuiMixin {
         //#endif
 
         ScreenManager sm = ScreenManager.getInstance();
+        RematrixScale.ensureConfigured(minecraft);
         int windowWidth = minecraft.getWindow().getWidth();
         int windowHeight = minecraft.getWindow().getHeight();
         sm.updateDimensions(windowWidth, windowHeight);

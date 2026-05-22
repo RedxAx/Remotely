@@ -41,7 +41,6 @@ public class InstanceResourceWidget extends MountableButtonWidget {
     private boolean updateBackup = false;
     private volatile boolean iconLoading = false;
     private int imageColor;
-    private long lastClickTime = 0;
 
     public enum RenderingMode {
         NORMAL,
@@ -301,7 +300,7 @@ public class InstanceResourceWidget extends MountableButtonWidget {
         }
     }
 
-    private void onDoubleClick(int button) {
+    private void open(int button) {
         if (button == 0 && resource.getProjectId() != null && resource.getProviderName() != null) {
             IResourceProvider provider = Rebase.get().getResourceProvider(resource.getProviderName());
             if (provider != null) {
@@ -343,13 +342,7 @@ public class InstanceResourceWidget extends MountableButtonWidget {
 
     @Override
     public void onClick(double mouseX, double mouseY, int button) {
-        long currentTime = System.currentTimeMillis();
-        if (currentTime - lastClickTime < 300) {
-            onDoubleClick(button);
-            lastClickTime = 0;
-            return;
-        }
-        lastClickTime = currentTime;
+        open(button);
     }
 
     public InstanceResource getResource() {

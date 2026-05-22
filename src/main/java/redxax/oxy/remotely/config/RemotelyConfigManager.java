@@ -29,6 +29,10 @@ public class RemotelyConfigManager extends RebaseConfigManager {
         Config.mainMenuStyle = getMainMenuStyle();
         Config.redesignMainMenu = getRedesignMainMenu();
         Config.scanServers = getScanServers();
+        Config.quickServerPrecreate = getQuickServerPrecreate();
+        Config.quickServerKeepRunning = getQuickServerKeepRunning();
+        Config.quickServerAutoRestart = getQuickServerAutoRestart();
+        Config.quickServerMirrorMods = getQuickServerMirrorMods();
         Config.obfuscate = getObfuscate();
         Config.resyncKeyCode = getReSyncKeyCode();
         Config.resyncKeyModifiers = getReSyncKeyModifiers();
@@ -64,6 +68,18 @@ public class RemotelyConfigManager extends RebaseConfigManager {
 
     public boolean getScanServers() { return Boolean.parseBoolean(properties.getProperty("remotely.scanServers", "true")); }
     public void setScanServers(boolean value) { properties.setProperty("remotely.scanServers", String.valueOf(value)); save(); apply(); }
+
+    public boolean getQuickServerPrecreate() { return Boolean.parseBoolean(properties.getProperty("remotely.quickServer.precreate", "false")); }
+    public void setQuickServerPrecreate(boolean value) { properties.setProperty("remotely.quickServer.precreate", String.valueOf(value)); save(); apply(); }
+
+    public boolean getQuickServerKeepRunning() { return Boolean.parseBoolean(properties.getProperty("remotely.quickServer.keepRunning", "false")); }
+    public void setQuickServerKeepRunning(boolean value) { properties.setProperty("remotely.quickServer.keepRunning", String.valueOf(value)); save(); apply(); }
+
+    public boolean getQuickServerAutoRestart() { return Boolean.parseBoolean(properties.getProperty("remotely.quickServer.autoRestart", "false")); }
+    public void setQuickServerAutoRestart(boolean value) { properties.setProperty("remotely.quickServer.autoRestart", String.valueOf(value)); save(); apply(); }
+
+    public boolean getQuickServerMirrorMods() { return Boolean.parseBoolean(properties.getProperty("remotely.quickServer.mirrorMods", "true")); }
+    public void setQuickServerMirrorMods(boolean value) { properties.setProperty("remotely.quickServer.mirrorMods", String.valueOf(value)); save(); apply(); }
 
     public boolean getObfuscate() { return Boolean.parseBoolean(properties.getProperty("remotely.showIp", "true")); }
     public void setObfuscate(boolean value) { properties.setProperty("remotely.showIp", String.valueOf(value)); save(); apply(); }

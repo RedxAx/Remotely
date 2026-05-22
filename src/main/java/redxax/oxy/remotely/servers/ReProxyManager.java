@@ -4,6 +4,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.restudio.api.models.ServerModels;
+import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.util.Notification;
 
 import java.io.InputStream;
@@ -39,50 +40,68 @@ public class ReProxyManager {
     private static final byte FRAME_STREAM_ERROR = 9;
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
     private static final String PREFERRED_DOMAIN_KEY = "reproxy.preferredDomainId";
+    private static final String QUICK_SERVER_DOMAIN_KEY = "reproxy.quickServerDomainId";
     private static final Map<Integer, ReProxySession> activeSessions = new ConcurrentHashMap<>();
 
-    private record ReProxySession(Instance instance, String tunnelId, String domain, int localPort, WebSocket webSocket, Map<Long, Socket> streams, AtomicBoolean closing, AtomicInteger reconnects) {
+    private record ReProxySession(Instance instance, String tunnelId, String domain, int localPort, WebSocket webSocket, Map<Long, Socket> streams, AtomicBoolean closing, AtomicInteger reconnects, boolean notifications) {
     }
 
     public static void start(Instance instance, Runnable onComplete) {
-        start(instance, onComplete, new AtomicInteger());
+        start(instance, onComplete, new AtomicInteger(), true);
     }
 
-    private static void start(Instance instance, Runnable onComplete, AtomicInteger reconnects) {
+    public static void startQuietly(Instance instance, Runnable onComplete) {
+        start(instance, onComplete, new AtomicInteger(), false);
+    }
+
+    private static void start(Instance instance, Runnable onComplete, AtomicInteger reconnects, boolean notifications) {
         if (instance == null || instance.getPort() <= 0 || instance.getPort() > 65535) {
-            new Notification("Invalid Server Port", Notification.Type.ERROR);
+            notify(notifications, "Invalid Server Port", Notification.Type.ERROR);
             if (onComplete != null) onComplete.run();
             return;
         }
         if (activeSessions.containsKey(instance.getPort())) {
-            stop(instance.getPort(), onComplete);
+            stop(instance.getPort(), onComplete, notifications);
             return;
         }
         if (!ReStudio.getInstance().isAuthenticated()) {
-            new Notification("ReStudio Login Required", Notification.Type.WARN);
+            notify(notifications, "ReStudio Login Required", Notification.Type.WARN);
             if (onComplete != null) onComplete.run();
             return;
         }
-        Notification notification = new Notification.Builder().message("Starting ReProxy").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build();
-        ReStudio.getInstance().getApi().listReProxyDomains()
-                .thenCompose(domains -> resolveDomain(instance, domains))
+        CompletableFuture<Notification> notificationFuture = new CompletableFuture<>();
+        if (notifications) {
+            ScreenManager.getInstance().execute(() -> notificationFuture.complete(new Notification.Builder().message("Starting ReProxy").type(Notification.Type.INFO).loading(true).autoSlideOut(false).build()));
+        } else {
+            notificationFuture.complete(null);
+        }
+        notificationFuture.thenAccept(notification -> ReStudio.getInstance().getApi().listReProxyDomains()
+                .thenCompose(domains -> resolveDomain(instance, domains, notifications))
                 .thenCompose(domain -> ReStudio.getInstance().getApi().startReProxyTunnel(domain.id, instance.getPort(), "MINECRAFT_JAVA_TCP"))
-                .thenAccept(response -> connect(instance, response, notification, onComplete, reconnects))
+                .thenAccept(response -> connect(instance, response, notification, onComplete, reconnects, notifications))
                 .exceptionally(ex -> {
-                    notification.change("ReProxy Unavailable", cleanMessage(ex), Notification.Type.ERROR, null);
-                    notification.loading = false;
+                    change(notification, "ReProxy Unavailable", cleanMessage(ex), Notification.Type.ERROR, null, false);
                     if (onComplete != null) onComplete.run();
                     return null;
-                });
+                }));
     }
 
     public static void stop(int localPort, Runnable onComplete) {
+        stop(localPort, onComplete, true);
+    }
+
+    public static void stopQuietly(int localPort, Runnable onComplete) {
+        stop(localPort, onComplete, false);
+    }
+
+    private static void stop(int localPort, Runnable onComplete, boolean notifications) {
         ReProxySession session = activeSessions.remove(localPort);
         if (session == null) {
-            new Notification("ReProxy Offline", Notification.Type.INFO);
+            notify(notifications, "ReProxy Offline", Notification.Type.INFO);
             if (onComplete != null) onComplete.run();
             return;
         }
+        notifications = notifications && session.notifications();
         for (Socket socket : session.streams().values()) {
             try {
                 socket.close();
@@ -91,8 +110,9 @@ public class ReProxyManager {
         }
         session.closing().set(true);
         session.webSocket().abort();
+        boolean showNotifications = notifications;
         ReStudio.getInstance().getApi().stopReProxyTunnel(session.tunnelId()).whenComplete((ignored, ex) -> {
-            new Notification("ReProxy Offline", Notification.Type.INFO);
+            notify(showNotifications, "ReProxy Offline", Notification.Type.INFO);
             if (onComplete != null) onComplete.run();
         });
     }
@@ -108,12 +128,24 @@ public class ReProxyManager {
         return instance != null && activeSessions.containsKey(instance.getPort());
     }
 
+    public static boolean isForwarded(int localPort) {
+        return activeSessions.containsKey(localPort);
+    }
+
     public static List<String> listActiveTunnels() {
         return activeSessions.values().stream().map(ReProxySession::domain).toList();
     }
 
-    private static java.util.concurrent.CompletableFuture<ServerModels.ReProxyDomain> resolveDomain(Instance instance, List<ServerModels.ReProxyDomain> domains) {
-        String preferredDomainId = instance.getSettings().getProperty(PREFERRED_DOMAIN_KEY, "");
+    public static String getForwardedAddress(Instance instance) {
+        if (instance == null) {
+            return "";
+        }
+        ReProxySession session = activeSessions.get(instance.getPort());
+        return session == null ? "" : session.domain();
+    }
+
+    private static java.util.concurrent.CompletableFuture<ServerModels.ReProxyDomain> resolveDomain(Instance instance, List<ServerModels.ReProxyDomain> domains, boolean notifications) {
+        String preferredDomainId = instance.getSettings().getProperty(domainPreferenceKey(instance), "");
         if (!preferredDomainId.isBlank()) {
             ServerModels.ReProxyDomain preferred = domains.stream()
                     .filter(domain -> Objects.equals(domain.id, preferredDomainId))
@@ -124,6 +156,9 @@ public class ReProxyManager {
                 return CompletableFuture.completedFuture(preferred);
             }
         }
+        if (isQuickServer(instance)) {
+            return createDomainWithFallbacks(instance, sanitizeSubdomain(instance.getName()), 0, notifications);
+        }
         List<ServerModels.ReProxyDomain> activeDomains = domains.stream()
                 .filter(domain -> "ACTIVE".equalsIgnoreCase(domain.status))
                 .sorted(Comparator.comparing(domain -> domain.subdomain))
@@ -131,18 +166,18 @@ public class ReProxyManager {
         if (!activeDomains.isEmpty()) {
             ServerModels.ReProxyDomain domain = activeDomains.getFirst();
             if (activeDomains.size() > 1 && preferredDomainId.isBlank()) {
-                new Notification("Manage Domains", Notification.Type.INFO);
+                notify(notifications, "Manage Domains", Notification.Type.INFO);
             }
             persistPreferredDomain(instance, domain.id);
             return CompletableFuture.completedFuture(domain);
         }
-        return createDomainWithFallbacks(instance, sanitizeSubdomain(instance.getName()), 0);
+        return createDomainWithFallbacks(instance, sanitizeSubdomain(instance.getName()), 0, notifications);
     }
 
-    private static CompletableFuture<ServerModels.ReProxyDomain> createDomainWithFallbacks(Instance instance, String base, int attempt) {
+    private static CompletableFuture<ServerModels.ReProxyDomain> createDomainWithFallbacks(Instance instance, String base, int attempt, boolean notifications) {
         List<String> candidates = domainCandidates(base);
         if (attempt >= candidates.size()) {
-            new Notification("Domain Taken", Notification.Type.WARN);
+            notify(notifications, "Domain Taken", Notification.Type.WARN);
             return CompletableFuture.failedFuture(new IllegalStateException("Domain Taken"));
         }
         return ReStudio.getInstance().getApi().createReProxyDomain(candidates.get(attempt))
@@ -153,7 +188,7 @@ public class ReProxyManager {
                 .exceptionallyCompose(error -> {
                     String message = cleanMessage(error).toLowerCase(Locale.ROOT);
                     if (message.contains("taken") || message.contains("conflict") || message.contains("domain failed")) {
-                        return createDomainWithFallbacks(instance, base, attempt + 1);
+                        return createDomainWithFallbacks(instance, base, attempt + 1, notifications);
                     }
                     return CompletableFuture.failedFuture(error);
                 });
@@ -174,16 +209,25 @@ public class ReProxyManager {
     }
 
     public static String getPreferredDomainId(Instance instance) {
-        return instance == null ? "" : instance.getSettings().getProperty(PREFERRED_DOMAIN_KEY, "");
+        return instance == null ? "" : instance.getSettings().getProperty(domainPreferenceKey(instance), "");
     }
 
     private static void persistPreferredDomain(Instance instance, String domainId) {
         if (instance != null && domainId != null && !domainId.isBlank()) {
-            instance.getSettings().setProperty(PREFERRED_DOMAIN_KEY, domainId);
+            instance.getSettings().setProperty(domainPreferenceKey(instance), domainId);
+            instance.save().join();
         }
     }
 
-    private static void connect(Instance instance, ServerModels.ReProxyStartTunnelResponse response, Notification notification, Runnable onComplete, AtomicInteger reconnects) {
+    private static String domainPreferenceKey(Instance instance) {
+        return isQuickServer(instance) ? QUICK_SERVER_DOMAIN_KEY : PREFERRED_DOMAIN_KEY;
+    }
+
+    private static boolean isQuickServer(Instance instance) {
+        return instance != null && "true".equalsIgnoreCase(instance.getSettings().getProperty("quickServer.enabled"));
+    }
+
+    private static void connect(Instance instance, ServerModels.ReProxyStartTunnelResponse response, Notification notification, Runnable onComplete, AtomicInteger reconnects, boolean notifications) {
         int localPort = instance.getPort();
         String host = response.assignedNode.tunnelHost != null ? response.assignedNode.tunnelHost : response.assignedNode.fqdn;
         String scheme = response.assignedNode.tunnelScheme != null && !response.assignedNode.tunnelScheme.isBlank()
@@ -193,31 +237,29 @@ public class ReProxyManager {
         String displayUri = scheme + "://" + host + ":" + response.assignedNode.tunnelPort + "/reproxy/tunnel";
         String reachabilityError = tunnelReachabilityError(host, response.assignedNode.tunnelPort);
         if (reachabilityError != null) {
-            notification.change("ReProxy Unavailable", displayUri + " - " + reachabilityError, Notification.Type.ERROR, null);
-            notification.loading = false;
+            change(notification, "ReProxy Unavailable", displayUri + " - " + reachabilityError, Notification.Type.ERROR, null, false);
             if (onComplete != null) onComplete.run();
             return;
         }
         Map<Long, Socket> streams = new ConcurrentHashMap<>();
         AtomicBoolean closing = new AtomicBoolean(false);
-        Listener listener = new Listener(instance, response, streams, notification, onComplete, closing, reconnects);
+        Listener listener = new Listener(instance, response, streams, notification, onComplete, closing, reconnects, notifications);
         HttpClient.newHttpClient().newWebSocketBuilder().buildAsync(uri, listener)
-                .thenAccept(webSocket -> activeSessions.put(localPort, new ReProxySession(instance, response.tunnelId, response.domain, localPort, webSocket, streams, closing, reconnects)))
+                .thenAccept(webSocket -> activeSessions.put(localPort, new ReProxySession(instance, response.tunnelId, response.domain, localPort, webSocket, streams, closing, reconnects, notifications)))
                 .exceptionally(ex -> {
-                    notification.change("ReProxy Unavailable", displayUri + " - " + cleanMessage(ex), Notification.Type.ERROR, null);
-                    notification.loading = false;
+                    change(notification, "ReProxy Unavailable", displayUri + " - " + cleanMessage(ex), Notification.Type.ERROR, null, false);
                     if (onComplete != null) onComplete.run();
                     return null;
                 });
     }
 
-    private static void reconnect(Instance instance, AtomicInteger reconnects) {
+    private static void reconnect(Instance instance, AtomicInteger reconnects, boolean notifications) {
         int attempt = reconnects.incrementAndGet();
         if (attempt > MAX_RECONNECT_ATTEMPTS) {
-            new Notification("ReProxy Offline", "Reconnect Failed", Notification.Type.ERROR);
+            notify(notifications, "ReProxy Offline", "Reconnect Failed", Notification.Type.ERROR);
             return;
         }
-        CompletableFuture.delayedExecutor(Math.min(30, attempt * 3L), TimeUnit.SECONDS).execute(() -> start(instance, null, reconnects));
+        CompletableFuture.delayedExecutor(Math.min(30, attempt * 3L), TimeUnit.SECONDS).execute(() -> start(instance, null, reconnects, notifications));
     }
 
     private static String sanitizeSubdomain(String name) {
@@ -253,6 +295,36 @@ public class ReProxyManager {
         return message == null || message.isBlank() ? "Request Failed" : message;
     }
 
+    private static void change(Notification notification, String message, String description, Notification.Type type, Runnable onClick, boolean loading) {
+        if (notification == null) {
+            return;
+        }
+        ScreenManager.getInstance().execute(() -> {
+            notification.change(message, description, type, onClick);
+            notification.loading = loading;
+        });
+    }
+
+    private static void notify(String message, Notification.Type type) {
+        notify(true, message, type);
+    }
+
+    private static void notify(String message, String description, Notification.Type type) {
+        notify(true, message, description, type);
+    }
+
+    private static void notify(boolean notifications, String message, Notification.Type type) {
+        if (notifications) {
+            ScreenManager.getInstance().execute(() -> new Notification(message, type));
+        }
+    }
+
+    private static void notify(boolean notifications, String message, String description, Notification.Type type) {
+        if (notifications) {
+            ScreenManager.getInstance().execute(() -> new Notification(message, description, type));
+        }
+    }
+
     private static String tunnelReachabilityError(String host, int port) {
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(host, port), 4000);
@@ -271,9 +343,10 @@ public class ReProxyManager {
         private final Runnable onComplete;
         private final AtomicBoolean closing;
         private final AtomicInteger reconnects;
+        private final boolean notifications;
         private final Object sendLock = new Object();
 
-        private Listener(Instance instance, ServerModels.ReProxyStartTunnelResponse response, Map<Long, Socket> streams, Notification notification, Runnable onComplete, AtomicBoolean closing, AtomicInteger reconnects) {
+        private Listener(Instance instance, ServerModels.ReProxyStartTunnelResponse response, Map<Long, Socket> streams, Notification notification, Runnable onComplete, AtomicBoolean closing, AtomicInteger reconnects, boolean notifications) {
             this.instance = instance;
             this.localPort = instance.getPort();
             this.response = response;
@@ -282,6 +355,7 @@ public class ReProxyManager {
             this.onComplete = onComplete;
             this.closing = closing;
             this.reconnects = reconnects;
+            this.notifications = notifications;
         }
 
         @Override
@@ -303,14 +377,12 @@ public class ReProxyManager {
             byte[] payload = new byte[length];
             data.get(payload);
             if (type == FRAME_AUTH_OK) {
-                notification.change("ReProxy Online", "Copy Address", Notification.Type.SUCCESS, () -> RemotelyClient.INSTANCE.getHost().setClipboard(response.domain));
-                notification.loading = false;
+                change(notification, "ReProxy Online", "Copy Address", Notification.Type.SUCCESS, () -> RemotelyClient.INSTANCE.getHost().setClipboard(response.domain), false);
                 if (onComplete != null) onComplete.run();
             } else if (type == FRAME_AUTH_ERROR) {
                 closing.set(true);
                 activeSessions.remove(localPort);
-                notification.change("ReProxy Unavailable", new String(payload, StandardCharsets.UTF_8), Notification.Type.ERROR, null);
-                notification.loading = false;
+                change(notification, "ReProxy Unavailable", new String(payload, StandardCharsets.UTF_8), Notification.Type.ERROR, null, false);
                 webSocket.abort();
                 if (onComplete != null) onComplete.run();
             } else if (type == FRAME_OPEN_STREAM) {
@@ -385,12 +457,11 @@ public class ReProxyManager {
         public void onError(WebSocket webSocket, Throwable error) {
             activeSessions.remove(localPort);
             if (closing.compareAndSet(false, true)) {
-                notification.change("ReProxy Reconnecting", cleanMessage(error), Notification.Type.WARN, null);
-                reconnect(instance, reconnects);
+                change(notification, "ReProxy Reconnecting", cleanMessage(error), Notification.Type.WARN, null, false);
+                reconnect(instance, reconnects, notifications);
             } else if (reconnects.get() == 0) {
-                notification.change("ReProxy Offline", cleanMessage(error), Notification.Type.WARN, null);
+                change(notification, "ReProxy Offline", cleanMessage(error), Notification.Type.WARN, null, false);
             }
-            notification.loading = false;
             if (onComplete != null) onComplete.run();
         }
 
@@ -404,8 +475,8 @@ public class ReProxyManager {
                 }
             }
             if (closing.compareAndSet(false, true)) {
-                new Notification("ReProxy Reconnecting", Notification.Type.WARN);
-                reconnect(instance, reconnects);
+                ReProxyManager.notify(notifications, "ReProxy Reconnecting", Notification.Type.WARN);
+                reconnect(instance, reconnects, notifications);
             }
             return WebSocket.Listener.super.onClose(webSocket, statusCode, reason);
         }
