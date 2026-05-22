@@ -105,12 +105,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private List<NodeDefinition.NodeCategory> categoryOrder = List.of();
 
     private IconButton headerBackground;
-    protected final List<IconButton> headerButtons = new ArrayList<>();
+    protected final List<AnimatedWidget> headerButtons = new ArrayList<>();
     private final List<AnimatedWidget> activeViewHeaderButtons = new ArrayList<>();
-    private IconButton debugToggleButton;
-    private IconButton debugResumeButton;
-    private IconButton debugStepButton;
-    private IconButton debugStopButton;
+    private AnimatedWidget debugToggleButton;
+    private AnimatedWidget debugResumeButton;
+    private AnimatedWidget debugStepButton;
+    private AnimatedWidget debugStopButton;
     private boolean initialized;
     private boolean debugMode;
 
@@ -797,6 +797,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.FUNCTION -> openStudioGraphDocument(type, id, id, manager.createFlow(serverId, id, true));
                 case ReSyncResourceDragPayload.COMMAND -> {
                     FlowGraph commandGraph = manager.createFlow(serverId, id, false, "Command");
+                    ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+                    ReSyncProjectMetadata.ResourceEntry entry = metadata.ensureResource(type, id, id, targetFolder);
+                    entry.setPath(targetFolder);
+                    manager.saveProjectMetadata(serverId, metadata);
                     manager.setCommandBinding(serverId, id, id);
                     openStudioGraphDocument(type, id, id, commandGraph);
                 }
@@ -1775,7 +1779,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         this.initialHeight = height;
 
         if (!initialized) {
-            if (!studioMode) {
+            if (!studioMode && showFloatingHeaderBackground()) {
                 headerBackground = new IconButton.Builder().pos(10, 10).size(1, 28).entranceAnimation(false).build();
                 headerBackground.active = false;
                 addHudWidget(headerBackground);
@@ -1796,7 +1800,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             initialized = true;
         }
 
-        if (headerBackground != null) {
+        if (!studioMode) {
             syncDebugHeaderVisibility();
             layoutHeaderButtons();
         }
@@ -3050,7 +3054,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         FlowDebugController controller = debugController();
         debugMode = controller != null && controller.isEnabled();
         syncDebugHeaderVisibility();
-        if (headerBackground != null) {
+        if (!studioMode) {
             layoutHeaderButtons();
         }
     }
@@ -3088,48 +3092,31 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     }
 
     protected void createHeaderButtons() {
-        IconButton backButton = new IconButton.Builder().size(18, 18).imagePath("close.png")
-                .onClick(() -> {
-                    if (parent != null) {
-                        client.setScreen(parent);
-                    } else {
-                        close();
-                    }
-                })
-                .build();
+        SquareButtonWidget backButton = headerButton("close.png", "Back", () -> {
+            if (parent != null) {
+                client.setScreen(parent);
+            } else {
+                close();
+            }
+        });
         addHeaderButton(backButton);
 
-        IconButton saveButton = new IconButton.Builder()
-                .size(18, 18)
-                .imagePath("save.png")
-                .onClick(this::onSave)
-                .build();
-        addHeaderButton(saveButton);
+        addHeaderButton(headerButton("save.png", "Save", this::onSave));
 
-        IconButton organizeButton = new IconButton.Builder()
-                .size(18, 18)
-                .imagePath("layout.png")
-                .onClick(this::organizeGraph)
-                .build();
-        addHeaderButton(organizeButton);
+        addHeaderButton(headerButton("layout.png", "Layout", this::organizeGraph));
 
-        debugToggleButton = new IconButton.Builder()
-                .size(18, 18)
-                .imagePath("report.png")
-                .hint("Debug")
-                .onClick(this::toggleDebugMode)
-                .build();
+        debugToggleButton = headerButton("report.png", "Debug", this::toggleDebugMode);
         addHeaderButton(debugToggleButton);
 
-        debugResumeButton = debugHeaderButton("Continue", 62, () -> {
+        debugResumeButton = debugHeaderButton("Continue", "start.png", () -> {
             FlowDebugController debug = debugController();
             if (debug != null) {
                 FlowDebugController.DebugSession session = debug.getActiveSession();
                 debug.resume(serverId, session != null ? session.sessionId() : "");
             }
         });
-        debugStepButton = debugHeaderButton("Step", 42, this::stepDebug);
-        debugStopButton = debugHeaderButton("Stop", 42, () -> {
+        debugStepButton = debugHeaderButton("Step", "goforward.png", this::stepDebug);
+        debugStopButton = debugHeaderButton("Stop", "stop.png", () -> {
             FlowDebugController debug = debugController();
             if (debug != null) {
                 FlowDebugController.DebugSession session = debug.getActiveSession();
@@ -3141,24 +3128,23 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         addHeaderButton(debugStopButton);
 
         if (showExtractButton()) {
-            IconButton extractButton = new IconButton.Builder()
-                    .size(18, 18)
-                    .imagePath("copy.png")
-                    .onClick(this::showExtractFunctionPopup)
-                    .build();
-            addHeaderButton(extractButton);
+            addHeaderButton(headerButton("copy.png", "Extract Function", this::showExtractFunctionPopup));
         }
         addCustomHeaderButtons();
         syncDebugHeaderVisibility();
     }
 
-    private IconButton debugHeaderButton(String label, int width, Runnable action) {
-        return new IconButton.Builder()
-                .size(width, 18)
-                .label(label)
-                .hint(label)
+    private SquareButtonWidget debugHeaderButton(String label, String icon, Runnable action) {
+        return headerButton(icon, label, action);
+    }
+
+    protected SquareButtonWidget headerButton(String icon, String hint, Runnable action) {
+        return new SquareButtonWidget.Builder()
+                .size(18, 18)
+                .identifier(Identifier.icon(icon))
+                .hint(hint)
                 .onClick(action)
-                .autoWidthOnTextChange(true)
+                .entranceAnimation(false)
                 .build();
     }
 
@@ -3170,6 +3156,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
         syncDebugHeaderVisibility();
         layoutHeaderButtons();
+        notifyStudioHeaderButtonsChanged();
     }
 
     private void syncDebugHeaderVisibility() {
@@ -3195,7 +3182,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         debug.stepInto(serverId, sessionId);
     }
 
-    protected void addHeaderButton(IconButton button) {
+    protected void addHeaderButton(AnimatedWidget button) {
         if (button == null) {
             return;
         }
@@ -3210,7 +3197,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
     @Override
     public List<AnimatedWidget> getStudioHeaderButtons() {
-        List<IconButton> source = headerButtons;
+        List<AnimatedWidget> source = headerButtons;
         if (parent instanceof FlowEditorScreen && !headerButtons.isEmpty()) {
             source = headerButtons.subList(1, headerButtons.size());
         }
@@ -3218,6 +3205,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             .filter(button -> button != null && button.visible)
             .map(button -> (AnimatedWidget) button)
             .toList();
+    }
+
+    protected boolean showFloatingHeaderBackground() {
+        return true;
     }
 
     protected boolean showExtractButton() {
@@ -3557,7 +3548,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         int padding = 5;
         int totalWidth = 0;
 
-        for (IconButton button : headerButtons) {
+        for (AnimatedWidget button : headerButtons) {
             if (button.visible) {
                 totalWidth += button.getWidth();
             }
@@ -3565,19 +3556,33 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         long visibleButtons = headerButtons.stream().filter(button -> button.visible).count();
         totalWidth += Math.max(0, (int) visibleButtons - 1) * padding;
 
-        headerBackground.setWidth(totalWidth + (padding * 2));
-        headerBackground.setHeight(30);
-        headerBackground.setPosition(width - headerBackground.getWidth() - 10, 10);
-
-        int startY = headerBackground.getY();
-        int currentX = headerBackground.getX() + headerBackground.getWidth() - padding;
-        for (IconButton button : headerButtons) {
+        int startY = 16;
+        int currentX = width - 10;
+        int headerHeight = 18;
+        if (headerBackground != null) {
+            headerBackground.setWidth(totalWidth + (padding * 2));
+            headerBackground.setHeight(30);
+            headerBackground.setPosition(width - headerBackground.getWidth() - 10, 10);
+            startY = headerBackground.getY();
+            currentX = headerBackground.getX() + headerBackground.getWidth() - padding;
+            headerHeight = headerBackground.getHeight();
+        }
+        for (AnimatedWidget button : headerButtons) {
             if (!button.visible) {
                 continue;
             }
             currentX -= button.getWidth();
-            button.setPosition(currentX, startY + (headerBackground.getHeight() - button.getHeight()) / 2);
+            button.setPosition(currentX, startY + (headerHeight - button.getHeight()) / 2);
             currentX -= padding;
+        }
+    }
+
+    private void notifyStudioHeaderButtonsChanged() {
+        if (parent instanceof FlowEditorScreen studioParent) {
+            studioParent.refreshActiveViewHeaderButtons();
+        }
+        if (studioMode) {
+            refreshActiveViewHeaderButtons();
         }
     }
 
@@ -3591,7 +3596,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             int bottomReserve = studioMode ? studioContentBrowserHeight() + 18 : 0;
             studioResourcePanel.height(Math.max(80, height - 65 - bottomReserve)).y(54).update();
         }
-        if (headerBackground != null) {
+        if (!studioMode) {
             syncDebugHeaderVisibility();
             layoutHeaderButtons();
         }
@@ -7801,7 +7806,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     @Override
     public void resize(int width, int height) {
         super.resize(width, height);
-        if (headerBackground != null) {
+        if (!studioMode) {
             layoutHeaderButtons();
         }
         layoutStudioHeaderButtons();

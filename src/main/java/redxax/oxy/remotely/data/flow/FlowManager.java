@@ -519,7 +519,7 @@ public class FlowManager {
         }
         metadata.setServerId(serverId);
         metadata.ensureDefaultFolders();
-        projectMetadataStore.cache(serverId, metadata);
+        projectMetadataStore.replaceFromServer(serverId, metadata);
         refreshStudioWorkspace(serverId);
     }
 
@@ -870,8 +870,9 @@ public class FlowManager {
         ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
         if (metadataIds != null && !metadataIds.isEmpty()) {
             flowClient.requestProjectMetadata(metadataIds.getFirst());
+        } else {
+            refreshStudioWorkspace(serverId);
         }
-        refreshStudioWorkspace(serverId);
     }
 
     private void hydrateProjectMetadata(String serverId, ReSyncProjectMetadata metadata) {
@@ -881,10 +882,25 @@ public class FlowManager {
             .filter(binding -> binding != null && binding.getType() == TriggerType.COMMAND && binding.getFlowId() != null && !binding.getFlowId().isBlank())
             .map(TriggerBinding::getFlowId)
             .toList();
-        metadata.getResources().removeIf(resource -> resource != null && ReSyncResourceDragPayload.FLOW.equals(resource.getType()) && commandFlowIds.contains(resource.getId()));
+        List<String> metadataCommandIds = metadata.getResources().stream()
+            .filter(resource -> resource != null && ReSyncResourceDragPayload.COMMAND.equals(resource.getType()) && resource.getId() != null && !resource.getId().isBlank())
+            .map(ReSyncProjectMetadata.ResourceEntry::getId)
+            .toList();
+        Map<String, String> commandPaths = new HashMap<>();
+        for (ReSyncProjectMetadata.ResourceEntry resource : metadata.getResources()) {
+            if (resource == null || resource.getId() == null || resource.getId().isBlank()) {
+                continue;
+            }
+            if (ReSyncResourceDragPayload.COMMAND.equals(resource.getType()) && !resource.getPath().isBlank()) {
+                commandPaths.put(resource.getId(), resource.getPath());
+            } else if (ReSyncResourceDragPayload.FLOW.equals(resource.getType()) && commandFlowIds.contains(resource.getId()) && !resource.getPath().isBlank()) {
+                commandPaths.put(resource.getId(), resource.getPath());
+            }
+        }
+        metadata.getResources().removeIf(resource -> resource != null && ReSyncResourceDragPayload.FLOW.equals(resource.getType()) && (commandFlowIds.contains(resource.getId()) || metadataCommandIds.contains(resource.getId())));
         for (Map.Entry<String, FlowGraph> entry : flowStore.getForServer(serverId).entrySet()) {
             FlowGraph graph = entry.getValue();
-            if (graph == null || CustomContentGraphAdapter.isContentGraph(graph) || commandFlowIds.contains(entry.getKey())) {
+            if (graph == null || CustomContentGraphAdapter.isContentGraph(graph) || commandFlowIds.contains(entry.getKey()) || metadataCommandIds.contains(entry.getKey())) {
                 continue;
             }
             String type = graph.isFunction() ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW;
@@ -909,7 +925,7 @@ public class FlowManager {
             metadata.ensureResource(ReSyncResourceDragPayload.TAB, entry.getKey(), getTabName(serverId, entry.getKey()), "Customization/Tabs");
         }
         for (String commandFlowId : commandFlowIds) {
-            metadata.ensureResource(ReSyncResourceDragPayload.COMMAND, commandFlowId, getFlowName(serverId, commandFlowId), "Blueprints/Commands");
+            metadata.ensureResource(ReSyncResourceDragPayload.COMMAND, commandFlowId, getFlowName(serverId, commandFlowId), commandPaths.getOrDefault(commandFlowId, "Blueprints/Commands"));
         }
         for (String projectId : WorldGenManager.getInstance().getProjectIds(serverId)) {
             metadata.ensureResource(ReSyncResourceDragPayload.WORLDGEN, projectId, projectId, "WorldGen");

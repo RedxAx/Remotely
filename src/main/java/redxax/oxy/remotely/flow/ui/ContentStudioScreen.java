@@ -23,7 +23,6 @@ import restudio.rescreen.ui.rescreen.layout.ManagedLayout;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.DropDownWidget;
-import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.MountableButtonWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
@@ -148,26 +147,14 @@ public class ContentStudioScreen extends FlowEditorScreen {
     }
 
     @Override
-    protected boolean showExtractButton() {
+    protected boolean showFloatingHeaderBackground() {
         return false;
     }
 
     @Override
     protected void addCustomHeaderButtons() {
-        addHeaderButton(new IconButton.Builder()
-            .label("Content")
-            .imagePath("panel.png")
-            .size(78, 18)
-            .onClick(this::toggleContentPanel)
-            .entranceAnimation(false)
-            .build());
-        addHeaderButton(new IconButton.Builder()
-            .label("Open Nodes")
-            .imagePath("graph.png")
-            .size(104, 18)
-            .onClick(this::toggleNodePalette)
-            .entranceAnimation(false)
-            .build());
+        addHeaderButton(headerButton("panel.png", "Content", this::toggleContentPanel));
+        addHeaderButton(headerButton("graph.png", "Nodes", this::toggleNodePalette));
     }
 
     @Override
@@ -182,6 +169,11 @@ public class ContentStudioScreen extends FlowEditorScreen {
             contentPanel.update();
         }
         super.renderHandler(context, mouseX, mouseY, delta);
+        if (paletteSidePanel != null && paletteSidePanel.isVisible()) {
+            paletteSidePanel.update();
+            paletteSidePanel.container().render(context, mouseX, mouseY, delta);
+            paletteSidePanel.renderHeader(context);
+        }
         if (contentPanel != null) {
             contentPanel.container().render(context, mouseX, mouseY, delta);
             contentPanel.renderHeader(context);

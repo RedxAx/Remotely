@@ -82,6 +82,22 @@ public class SyncedResourceCache<T> {
         states.put(k, SyncedResourceState.DIRTY);
     }
 
+    public void replaceFromServer(String serverId, T item) {
+        if (item == null) {
+            return;
+        }
+        String id = idExtractor.apply(item);
+        if (id == null) {
+            return;
+        }
+        String k = key(serverId, id);
+        drafts.remove(k);
+        cache.put(k, item);
+        names.putIfAbsent(k, defaultNameExtractor.apply(item));
+        serverIds.add(k);
+        states.put(k, SyncedResourceState.CLEAN);
+    }
+
     public void markSaving(String serverId, String resourceId) {
         states.put(key(serverId, resourceId), SyncedResourceState.SAVING);
     }
