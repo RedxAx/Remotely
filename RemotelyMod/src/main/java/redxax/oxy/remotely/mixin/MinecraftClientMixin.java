@@ -7,6 +7,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.quickserver.QuickServerManager;
 import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
 import redxax.oxy.remotely.resync.bridge.ReSyncVanillaBridgeManager;
 import redxax.oxy.remotely.servers.ReProxyManager;
@@ -15,6 +16,7 @@ import redxax.oxy.remotely.servers.ReProxyManager;
 public class MinecraftClientMixin {
     @Inject(method = "close", at = @At("HEAD"))
     private void onClose(CallbackInfo ci) {
+        QuickServerManager.shutdownAll();
         RemotelyClient.INSTANCE.shutdownAllTerminals();
         ReProxyManager.stopAll();
     }
@@ -22,6 +24,7 @@ public class MinecraftClientMixin {
     @Inject(method = "tick", at = @At("TAIL"))
     private void onTick(CallbackInfo ci) {
         ReSyncVanillaBridgeManager.getInstance().tick();
+        QuickServerManager.clientTick();
     }
 
     @Inject(method = "setScreen", at = @At("HEAD"), cancellable = true)

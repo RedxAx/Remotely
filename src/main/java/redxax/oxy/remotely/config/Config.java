@@ -14,6 +14,10 @@ public class Config {
     public static String mainMenuStyle = "Minimal";
     public static boolean redesignMainMenu = false;
     public static boolean scanServers = true;
+    public static boolean quickServerPrecreate = false;
+    public static boolean quickServerKeepRunning = false;
+    public static boolean quickServerAutoRestart = false;
+    public static boolean quickServerMirrorMods = true;
     public static boolean obfuscate = true;
     public static int resyncKeyCode = 71;
     public static int resyncKeyModifiers = 4;

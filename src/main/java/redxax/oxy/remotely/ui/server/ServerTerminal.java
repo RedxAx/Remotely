@@ -13,11 +13,15 @@ import restudio.rebase.restudio.ReStudio;
 import restudio.rebase.ui.widgets.TerminalWidget;
 import redxax.oxy.remotely.packcontent.GlyphPreviewRenderer;
 import redxax.oxy.remotely.packcontent.RemotelyPackContentIntegration;
+import redxax.oxy.remotely.servers.QuickServerSyncManager;
+import redxax.oxy.remotely.servers.ReProxyManager;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.IconMessage;
 
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.nio.file.Path;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -320,6 +324,24 @@ public class ServerTerminal extends TerminalWidget {
         return inst != null && (inst.getBackendConfig() == null || inst.getBackendConfig().type == null || "LOCAL".equalsIgnoreCase(inst.getBackendConfig().type));
     }
 
+    private boolean isQuickServerRuntimeOpen(Instance inst) {
+        return isQuickServer(inst) && ReProxyManager.isForwarded(inst) && isLocalPortOpen(inst.getPort());
+    }
+
+    private boolean isQuickServer(Instance inst) {
+        return inst != null && "true".equalsIgnoreCase(inst.getSettings().getProperty("quickServer.enabled"));
+    }
+
+    private boolean isLocalPortOpen(int port) {
+        if (port <= 0 || port > 65535) return false;
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress("127.0.0.1", port), 350);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private String getReStudioServerId() {
         Instance inst = getInstance();
         BackendConfig cfg = inst != null ? inst.getBackendConfig() : null;
@@ -437,9 +459,27 @@ public class ServerTerminal extends TerminalWidget {
 
         Thread.ofVirtual().name("Remotely Local Status Poll").start(() -> {
             var status = LocalServerControllerClient.status(inst);
+            if (isQuickServerRuntimeOpen(inst)) {
+                ScreenManager.getInstance().execute(this::applyQuickServerRuntimeOpen);
+                return;
+            }
             if (status == null || !status.knownSession) return;
             ScreenManager.getInstance().execute(() -> applyLocalControllerStatus(status));
         });
+    }
+
+    private void applyQuickServerRuntimeOpen() {
+        Instance inst = getInstance();
+        if (inst == null) return;
+        desiredPower = DesiredPower.RUNNING;
+        inst.setState(InstanceState.RUNNING);
+        if (inst.getState() == InstanceState.RUNNING) {
+            lastStartRequestedMs = 0;
+            explicitDisconnect = false;
+            forceStoppedView = false;
+            isReconnecting = false;
+        }
+        attachLocalControllerIfNeeded();
     }
 
     private void applyLocalControllerStatus(restudio.rebase.localcontrol.LocalServerControllerModels.StatusResponse status) {
@@ -475,6 +515,7 @@ public class ServerTerminal extends TerminalWidget {
             case "STOPPED" -> {
                 lastStopRequestedMs = 0;
                 inst.setState(InstanceState.STOPPED);
+                QuickServerSyncManager.syncBackAfterStop(inst);
                 if (inst.getState() == InstanceState.STOPPED) {
                     desiredPower = DesiredPower.STOPPED;
                     explicitDisconnect = true;
@@ -541,8 +582,14 @@ public class ServerTerminal extends TerminalWidget {
             Instance inst = getInstance();
             if (inst != null) {
                 LifecycleManager.requestStop(inst);
+                if (ReProxyManager.isForwarded(inst)) {
+                    ReProxyManager.stop(inst.getPort(), null);
+                }
                 if (inst.getBackend() instanceof LocalBackend) {
-                    Thread.ofVirtual().name("Remotely Local Server Stop").start(() -> LocalServerControllerClient.stop(inst));
+                    Thread.ofVirtual().name("Remotely Local Server Stop").start(() -> {
+                        LocalServerControllerClient.stop(inst);
+                        QuickServerSyncManager.syncBackAfterStop(inst);
+                    });
                 }
             }
         });

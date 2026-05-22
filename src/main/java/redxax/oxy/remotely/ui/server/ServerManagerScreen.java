@@ -5,6 +5,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.config.RemotelyConfigManager;
 import redxax.oxy.remotely.config.SettingsScreenFactory;
 import redxax.oxy.remotely.data.player.model.UnifiedPlayer;
+import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.ui.widgets.ReactorPlanWidget;
 import redxax.oxy.remotely.ui.widgets.management.PlayerDataPopup;
 import redxax.oxy.remotely.ui.widgets.management.PlayerManagerController;
@@ -1232,7 +1233,14 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
                     .loading(true)
                     .autoSlideOut(false)
                     .build();
-                CompletableFuture.runAsync(() -> instanceManager.removeInstance(deletingInstance))
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        QuickServerSyncManager.stopAndSyncBack(deletingInstance);
+                        instanceManager.removeInstance(deletingInstance);
+                    } catch (Exception e) {
+                        throw new CompletionException(e);
+                    }
+                })
                     .whenComplete((v, throwable) -> ScreenManager.getInstance().execute(() -> {
                         Throwable error = throwable;
                         if (error instanceof CompletionException completionException && completionException.getCause() != null) {

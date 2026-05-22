@@ -18,7 +18,9 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import redxax.oxy.remotely.rematrix.mc.RematrixScale;
 import restudio.rescreen.ui.core.ScreenManager;
+import restudio.rescreen.util.Notification;
 
 @Mixin(value = ContainerEventHandler.class)
 public interface ContainerEventHandlerMixin {
@@ -35,6 +37,10 @@ public interface ContainerEventHandlerMixin {
             return;
         }
         double sf = Minecraft.getInstance().getWindow().getGuiScale();
+        if (remotely$mouseClickedNotification(event.x(), event.y(), event.button())) {
+            cir.setReturnValue(true);
+            return;
+        }
         if (ScreenManager.getInstance().mouseClickedPinnedInGame(event.x() * sf, event.y() * sf, event.button())) {
             cir.setReturnValue(true);
         }
@@ -45,6 +51,10 @@ public interface ContainerEventHandlerMixin {
     //$$         return;
     //$$     }
     //$$     double sf = Minecraft.getInstance().getWindow().getGuiScale();
+    //$$     if (remotely$mouseClickedNotification(mouseX, mouseY, button)) {
+    //$$         cir.setReturnValue(true);
+    //$$         return;
+    //$$     }
     //$$     if (ScreenManager.getInstance().mouseClickedPinnedInGame(mouseX * sf, mouseY * sf, button)) {
     //$$         cir.setReturnValue(true);
     //$$     }
@@ -58,6 +68,10 @@ public interface ContainerEventHandlerMixin {
             return;
         }
         double sf = Minecraft.getInstance().getWindow().getGuiScale();
+        if (remotely$mouseReleasedNotification(event.x(), event.y(), event.button())) {
+            cir.setReturnValue(true);
+            return;
+        }
         if (ScreenManager.getInstance().mouseReleasedPinnedInGame(event.x() * sf, event.y() * sf, event.button())) {
             cir.setReturnValue(true);
         }
@@ -68,6 +82,10 @@ public interface ContainerEventHandlerMixin {
     //$$         return;
     //$$     }
     //$$     double sf = Minecraft.getInstance().getWindow().getGuiScale();
+    //$$     if (remotely$mouseReleasedNotification(mouseX, mouseY, button)) {
+    //$$         cir.setReturnValue(true);
+    //$$         return;
+    //$$     }
     //$$     if (ScreenManager.getInstance().mouseReleasedPinnedInGame(mouseX * sf, mouseY * sf, button)) {
     //$$         cir.setReturnValue(true);
     //$$     }
@@ -81,6 +99,10 @@ public interface ContainerEventHandlerMixin {
             return;
         }
         double sf = Minecraft.getInstance().getWindow().getGuiScale();
+        if (remotely$mouseDraggedNotification(event.x(), event.y(), event.button(), deltaX, deltaY)) {
+            cir.setReturnValue(true);
+            return;
+        }
         if (ScreenManager.getInstance().mouseDraggedPinnedInGame(event.x() * sf, event.y() * sf, event.button(), deltaX * sf, deltaY * sf)) {
             cir.setReturnValue(true);
         }
@@ -91,6 +113,10 @@ public interface ContainerEventHandlerMixin {
     //$$         return;
     //$$     }
     //$$     double sf = Minecraft.getInstance().getWindow().getGuiScale();
+    //$$     if (remotely$mouseDraggedNotification(mouseX, mouseY, button, deltaX, deltaY)) {
+    //$$         cir.setReturnValue(true);
+    //$$         return;
+    //$$     }
     //$$     if (ScreenManager.getInstance().mouseDraggedPinnedInGame(mouseX * sf, mouseY * sf, button, deltaX * sf, deltaY * sf)) {
     //$$         cir.setReturnValue(true);
     //$$     }
@@ -104,6 +130,10 @@ public interface ContainerEventHandlerMixin {
             return;
         }
         double sf = Minecraft.getInstance().getWindow().getGuiScale();
+        if (remotely$mouseScrolledNotification(mouseX, mouseY, verticalAmount)) {
+            cir.setReturnValue(true);
+            return;
+        }
         if (ScreenManager.getInstance().mouseScrolledPinnedInGame(mouseX * sf, mouseY * sf, horizontalAmount, verticalAmount)) {
             cir.setReturnValue(true);
         }
@@ -114,6 +144,10 @@ public interface ContainerEventHandlerMixin {
     //$$         return;
     //$$     }
     //$$     double sf = Minecraft.getInstance().getWindow().getGuiScale();
+    //$$     if (remotely$mouseScrolledNotification(mouseX, mouseY, amount)) {
+    //$$         cir.setReturnValue(true);
+    //$$         return;
+    //$$     }
     //$$     if (ScreenManager.getInstance().mouseScrolledPinnedInGame(mouseX * sf, mouseY * sf, 0.0, amount)) {
     //$$         cir.setReturnValue(true);
     //$$     }
@@ -182,4 +216,70 @@ public interface ContainerEventHandlerMixin {
     //$$     }
     //$$ }
     //#endif
+
+    @Unique
+    private double remotely$inputScale() {
+        Minecraft minecraft = Minecraft.getInstance();
+        RematrixScale.ensureConfigured(minecraft);
+        double mcScale = minecraft.getWindow().getGuiScale();
+        float reScale = ScreenManager.getInstance().getGuiScale();
+        if (reScale == 0) {
+            return 1.0;
+        }
+        return mcScale / reScale;
+    }
+
+    @Unique
+    private boolean remotely$mouseClickedNotification(double mouseX, double mouseY, int button) {
+        double scale = remotely$inputScale();
+        double scaledX = mouseX * scale;
+        double scaledY = mouseY * scale;
+        for (Notification notification : Notification.getActiveNotifications()) {
+            if (notification.mouseClicked(scaledX, scaledY, button)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Unique
+    private boolean remotely$mouseReleasedNotification(double mouseX, double mouseY, int button) {
+        double scale = remotely$inputScale();
+        double scaledX = mouseX * scale;
+        double scaledY = mouseY * scale;
+        for (Notification notification : Notification.getActiveNotifications()) {
+            if (notification.mouseReleased(scaledX, scaledY, button)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Unique
+    private boolean remotely$mouseDraggedNotification(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        double scale = remotely$inputScale();
+        double scaledX = mouseX * scale;
+        double scaledY = mouseY * scale;
+        double scaledDeltaX = deltaX * scale;
+        double scaledDeltaY = deltaY * scale;
+        for (Notification notification : Notification.getActiveNotifications()) {
+            if (notification.mouseDragged(scaledX, scaledY, button, scaledDeltaX, scaledDeltaY)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Unique
+    private boolean remotely$mouseScrolledNotification(double mouseX, double mouseY, double verticalAmount) {
+        double scale = remotely$inputScale();
+        int scaledX = (int) (mouseX * scale);
+        int scaledY = (int) (mouseY * scale);
+        for (Notification notification : Notification.getActiveNotifications()) {
+            if (notification.mouseScrolled(scaledX, scaledY, verticalAmount)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

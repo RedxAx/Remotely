@@ -2,6 +2,7 @@ package redxax.oxy.remotely.ui.server;
 
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.integrations.luckperms.LuckPermsService;
+import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.servers.ReProxyManager;
 import redxax.oxy.remotely.session.TerminalSession;
 import redxax.oxy.remotely.ui.server.containers.PlayersContainer;
@@ -51,6 +52,8 @@ import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Notification;
 
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
@@ -702,8 +705,9 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     private void launchOrStopInstance() {
         TabContext context = getActiveContext();
+        if (context == null) return;
         TerminalSession info = contextInfos.get(context);
-        if (context == null || info.isLocalTerminalMode()) return;
+        if (info == null || info.isLocalTerminalMode()) return;
 
         InstanceApi api = InstanceApi.of(context.instance);
         if (context.instance.getState() == InstanceState.RUNNING || context.instance.getState() == InstanceState.STARTING) {
@@ -711,6 +715,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 st.notifyStopRequested();
             }
             String t = context.instance.getBackend() != null ? context.instance.getBackend().getFileSystem().getMetadata("type") : "";
+            stopReProxyIfForwarded(context.instance);
             if ("LOCAL".equalsIgnoreCase(t)) {
                 api.console().stopServer();
                 LifecycleManager.requestStop(context.instance);
@@ -770,6 +775,36 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 ScreenManager.getInstance().execute(() -> new Notification("Health Check Failed", e.getMessage(), Notification.Type.ERROR));
                 return null;
             });
+        }
+    }
+
+    private void stopReProxyIfForwarded(Instance instance) {
+        if (instance != null && ReProxyManager.isForwarded(instance)) {
+            ReProxyManager.stop(instance.getPort(), null);
+        }
+    }
+
+    private void stopQuickServerReProxyIfForwarded(Instance instance) {
+        if (isQuickServer(instance) && ReProxyManager.isForwarded(instance)) {
+            ReProxyManager.stop(instance.getPort(), null);
+        }
+    }
+
+    private boolean isQuickServer(Instance instance) {
+        return instance != null && "true".equalsIgnoreCase(instance.getSettings().getProperty("quickServer.enabled"));
+    }
+
+    private boolean isQuickServerRuntimeOpen(Instance instance) {
+        return isQuickServer(instance) && ReProxyManager.isForwarded(instance) && isLocalPortOpen(instance.getPort());
+    }
+
+    private boolean isLocalPortOpen(int port) {
+        if (port <= 0 || port > 65535) return false;
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress("127.0.0.1", port), 350);
+            return true;
+        } catch (Exception ignored) {
+            return false;
         }
     }
 
@@ -1153,18 +1188,21 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         ctx.instance.getBackend().getFeature(ResourceUsageFeature.class).ifPresentOrElse(feature -> {
             feature.getResources().thenAccept(usage -> {
                 LocalServerControllerModels.StatusResponse localStatus = localControllerStatus(ctx);
+                boolean quickServerRuntimeOpen = isQuickServerRuntimeOpen(ctx.instance);
                 ScreenManager.getInstance().execute(() -> {
                     TabContext active = getActiveContext();
                     if (active == ctx) {
                         boolean resourceRunning = usage != null && usage.uptimeMs() > 0;
-                        if (!resourceRunning || localStatus == null || "RUNNING".equalsIgnoreCase(localStatus.state)) {
+                        if (quickServerRuntimeOpen) {
+                            ctx.instance.setState(InstanceState.RUNNING);
+                        } else if (!resourceRunning || localStatus == null || "RUNNING".equalsIgnoreCase(localStatus.state)) {
                             applyLocalControllerState(ctx, info, localStatus);
                         }
                         statusCtx.update(usage);
                         boolean controllerAllowsRunning = resourceRunning || localStatus == null || !localStatus.knownSession || "RUNNING".equalsIgnoreCase(localStatus.state);
                         if (controllerAllowsRunning && resourceRunning && ctx.instance.getState() == InstanceState.STOPPED) {
                             ctx.instance.setState(InstanceState.RUNNING);
-                        } else if (ctx.instance.getBackend() instanceof LocalBackend && (localStatus == null || !localStatus.knownSession) && (usage == null || usage.uptimeMs() <= 0) && ctx.instance.getState() == InstanceState.RUNNING) {
+                        } else if (!quickServerRuntimeOpen && ctx.instance.getBackend() instanceof LocalBackend && (localStatus == null || !localStatus.knownSession) && (usage == null || usage.uptimeMs() <= 0) && ctx.instance.getState() == InstanceState.RUNNING) {
                             ctx.instance.setState(InstanceState.STOPPED);
                         }
                     }
@@ -1215,12 +1253,15 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
             }
             case "STOPPING", "STOPPED" -> {
                 ctx.instance.setState(InstanceState.STOPPED);
+                stopQuickServerReProxyIfForwarded(ctx.instance);
+                QuickServerSyncManager.syncBackAfterStop(ctx.instance);
                 if (ctx.instance.getState() == InstanceState.STOPPED && info != null && info.getTerminalWidget() instanceof ServerTerminal st && st.isTerminalReady()) {
                     st.stopProcess();
                 }
             }
             case "CRASHED" -> {
                 ctx.instance.setState(InstanceState.CRASHED);
+                stopQuickServerReProxyIfForwarded(ctx.instance);
                 if (ctx.instance.getState() == InstanceState.CRASHED && info != null && info.getTerminalWidget() instanceof ServerTerminal st && st.isTerminalReady()) {
                     st.stopProcess();
                 }
@@ -1338,11 +1379,18 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
                 updateConnectionInfo("Unknown");
                 return;
             }
+            String forwardedAddress = quickServerReProxyAddress(instance);
+            if (!forwardedAddress.isBlank()) {
+                connectionRequestInFlight = false;
+                updateConnectionInfo(forwardedAddress);
+                return;
+            }
 
             instance.getBackend().getFeature(ServerInfoFeature.class).ifPresentOrElse(feature -> feature.getConnectionInfo()
                     .thenAccept(info -> ScreenManager.getInstance().execute(() -> {
                         connectionRequestInFlight = false;
-                        updateConnectionInfo(info == null ? "Unknown" : info.getDisplayString());
+                        String address = quickServerReProxyAddress(instance);
+                        updateConnectionInfo(address.isBlank() ? (info == null ? "Unknown" : info.getDisplayString()) : address);
                     }))
                     .exceptionally(e -> {
                         ScreenManager.getInstance().execute(() -> {
@@ -1361,6 +1409,14 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         private void updateConnectionInfo(String value) {
             connectionInfo = value == null || value.isBlank() ? "Unknown" : value.endsWith(":25565") ? value.substring(0, value.length() - 6) : value;
             updateConnectionWidget();
+        }
+
+        private String quickServerReProxyAddress(Instance instance) {
+            if (instance == null || !"true".equalsIgnoreCase(instance.getSettings().getProperty("quickServer.enabled"))) {
+                return "";
+            }
+            String address = ReProxyManager.getForwardedAddress(instance);
+            return address == null ? "" : address;
         }
 
         private void updateConnectionWidget() {

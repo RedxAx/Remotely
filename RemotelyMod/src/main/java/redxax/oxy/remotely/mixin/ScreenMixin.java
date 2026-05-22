@@ -29,6 +29,7 @@ import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.rematrix.mc.RematrixContext;
+import redxax.oxy.remotely.rematrix.mc.RematrixScale;
 import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
 import redxax.oxy.remotely.servers.ReProxyManager;
 import redxax.oxy.remotely.ui.tests.ContainerTestingScreen;
@@ -39,6 +40,7 @@ import restudio.rescreen.Main;
 import restudio.rescreen.ui.MouseCursor;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.core.Widget;
+import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.IconButton;
 import restudio.rescreen.util.Notification;
 
@@ -158,13 +160,20 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
                 for (Widget widget : remotely$customWidgets) {
                     widget.render(adapter, mouseX, mouseY, f);
                 }
+                for (Widget widget : remotely$customWidgets) {
+                    if (widget instanceof AnimatedWidget animatedWidget) {
+                        animatedWidget.renderHintOverlay(adapter);
+                    }
+                }
             }
             if (renderPinned) {
                 ScreenManager sm = ScreenManager.getInstance();
-                int windowWidth = Minecraft.getInstance().getWindow().getWidth();
-                int windowHeight = Minecraft.getInstance().getWindow().getHeight();
+                Minecraft minecraft = Minecraft.getInstance();
+                RematrixScale.ensureConfigured(minecraft);
+                int windowWidth = minecraft.getWindow().getWidth();
+                int windowHeight = minecraft.getWindow().getHeight();
                 sm.updateDimensions(windowWidth, windowHeight);
-                float mcScale = (float) Minecraft.getInstance().getWindow().getGuiScale();
+                float mcScale = (float) minecraft.getWindow().getGuiScale();
                 float reScale = sm.getGuiScale();
                 if (mcScale != 0 && reScale != 0) {
                     float renderScale = reScale / mcScale;
@@ -181,7 +190,17 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
                     //$$ guiGraphics.pose().pushPose();
                     //$$ guiGraphics.pose().scale(renderScale, renderScale, 1f);
                     //#endif
-                    sm.renderPinnedInGameWindows(adapter, (int) (mouseX * mouseScale), (int) (mouseY * mouseScale), f);
+                    //#if MC >= 26.1
+                    //$$ RematrixContext pinnedCtx = new RematrixContext(guiGraphics, renderScale);
+                    //#endif
+                    //#if MC >= 1.20.1 && MC < 26.1
+                    RematrixContext pinnedCtx = new RematrixContext(guiGraphics, renderScale);
+                    //#endif
+                    //#if MC < 1.20.1
+                    //$$ RematrixMcContext pinnedCtx = new RematrixMcContext(guiGraphics, renderScale);
+                    //#endif
+                    MinecraftDrawContextAdapter pinnedAdapter = new MinecraftDrawContextAdapter(pinnedCtx);
+                    sm.renderPinnedInGameWindows(pinnedAdapter, (int) (mouseX * mouseScale), (int) (mouseY * mouseScale), f);
                     sm.processTasks();
                     //#if MC >= 26.1
                     //$$ pose.popMatrix();
