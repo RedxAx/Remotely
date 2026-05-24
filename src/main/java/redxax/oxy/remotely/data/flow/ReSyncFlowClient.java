@@ -469,20 +469,16 @@ public class ReSyncFlowClient {
     private void handleBinaryMessage(byte[] data) {
         try {
             ReSyncDecodedFrame frame = frameCodec.decode(data, validDataChannels());
-            System.out.println("[ReSyncFlow] Received message: Type=" + frame.messageType() + ", Channel=" + frame.channel() + ", Sequence=" + frame.sequence() + ", Compressed=" + frame.compressed() + ", PayloadSize=" + frame.payload().length);
             switch (frame.messageType()) {
                 case ReSyncProtocolContract.MESSAGE_HANDSHAKE_RESPONSE:
-                    System.out.println("[ReSyncFlow] Processing handshake response");
                     handleHandshakeResponse(frame.payload());
                     break;
                 case ReSyncProtocolContract.MESSAGE_DATA:
-                    System.out.println("[ReSyncFlow] Processing data message on channel " + frame.channel());
                     handleDataMessage(frame.channel(), frame.payload());
                     break;
                 case ReSyncProtocolContract.MESSAGE_HEARTBEAT:
                     break;
                 case ReSyncProtocolContract.MESSAGE_ERROR:
-                    System.err.println("[ReSyncFlow] Processing error message");
                     handleError(frame.payload());
                     break;
                 case MESSAGE_CHANNEL_REGISTRY:
