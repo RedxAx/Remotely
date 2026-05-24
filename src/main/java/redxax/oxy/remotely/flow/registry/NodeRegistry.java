@@ -1,8 +1,8 @@
 package redxax.oxy.remotely.flow.registry;
 
 import redxax.oxy.remotely.flow.data.FlowDataType;
-import redxax.oxy.remotely.flow.sync.NodePluginPayload;
-import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
+import redxax.oxy.remotely.flow.sync.*;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -135,7 +135,7 @@ public class NodeRegistry {
 
         if (snapshot.getTypeMetadata() != null) {
             serverTypeMetadata.put(key, new ArrayList<>(snapshot.getTypeMetadata()));
-            for (redxax.oxy.remotely.flow.sync.FlowTypeMetadata meta : snapshot.getTypeMetadata()) {
+            for (FlowTypeMetadata meta : snapshot.getTypeMetadata()) {
                 FlowDataType.registerServerType(meta.getId(), meta.getDisplayName(), meta.getColor(), meta.getParentId(), meta.isCanStringify());
             }
         }
@@ -170,27 +170,27 @@ public class NodeRegistry {
         notifyListeners(serverId);
     }
 
-    public List<redxax.oxy.remotely.flow.sync.FlowCategoryMetadata> getServerCategories(String serverId) {
+    public List<FlowCategoryMetadata> getServerCategories(String serverId) {
         String key = normalizeServerId(serverId);
-        List<redxax.oxy.remotely.flow.sync.FlowCategoryMetadata> meta = serverCategoryMetadata.get(key);
+        List<FlowCategoryMetadata> meta = serverCategoryMetadata.get(key);
         if (meta != null && !meta.isEmpty()) {
             return meta;
         }
         return NodeDefinition.NodeCategory.values().stream()
-                .map(cat -> new redxax.oxy.remotely.flow.sync.FlowCategoryMetadata(cat.getId(), cat.getDisplayName(), cat.getColor(), cat.getPriority()))
+                .map(cat -> new FlowCategoryMetadata(cat.getId(), cat.getDisplayName(), cat.getColor(), cat.getPriority()))
                 .toList();
     }
 
-    public redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata getServerOptionSource(String serverId, String sourceId) {
+    public FlowOptionSourceMetadata getServerOptionSource(String serverId, String sourceId) {
         if (sourceId == null) {
             return null;
         }
         String key = normalizeServerId(serverId);
-        List<redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata> list = serverOptionSourceMetadata.get(key);
+        List<FlowOptionSourceMetadata> list = serverOptionSourceMetadata.get(key);
         if (list == null) {
             return null;
         }
-        for (redxax.oxy.remotely.flow.sync.FlowOptionSourceMetadata meta : list) {
+        for (FlowOptionSourceMetadata meta : list) {
             if (meta != null && meta.getId() != null && meta.getId().equalsIgnoreCase(sourceId)) {
                 return meta;
             }
@@ -198,21 +198,40 @@ public class NodeRegistry {
         return null;
     }
 
-    public redxax.oxy.remotely.flow.sync.FlowTypeMetadata getTypeMetadata(String serverId, String typeId) {
+    public FlowTypeMetadata getTypeMetadata(String serverId, String typeId) {
         if (typeId == null) {
             return null;
         }
         String key = normalizeServerId(serverId);
-        List<redxax.oxy.remotely.flow.sync.FlowTypeMetadata> list = serverTypeMetadata.get(key);
+        List<FlowTypeMetadata> list = serverTypeMetadata.get(key);
         if (list == null) {
             return null;
         }
-        for (redxax.oxy.remotely.flow.sync.FlowTypeMetadata meta : list) {
+        for (FlowTypeMetadata meta : list) {
             if (meta != null && meta.getId() != null && meta.getId().equalsIgnoreCase(typeId)) {
                 return meta;
             }
         }
         return null;
+    }
+
+    public List<FlowDataType> getServerDataTypes(String serverId) {
+        String key = normalizeServerId(serverId);
+        List<FlowTypeMetadata> list = serverTypeMetadata.get(key);
+        if (list == null || list.isEmpty()) {
+            return List.of();
+        }
+        List<FlowDataType> types = new ArrayList<>();
+        for (FlowTypeMetadata meta : list) {
+            if (meta == null || meta.getId() == null || meta.getId().isBlank()) {
+                continue;
+            }
+            FlowDataType type = FlowDataType.fromString(meta.getId());
+            if (type != FlowDataType.EXECUTION) {
+                types.add(type);
+            }
+        }
+        return types;
     }
 
     public boolean canConvertTypes(String serverId, FlowDataType source, FlowDataType target) {
@@ -223,13 +242,13 @@ public class NodeRegistry {
             return true;
         }
         String key = normalizeServerId(serverId);
-        List<redxax.oxy.remotely.flow.sync.FlowConversionRule> rules = serverConversionRules.get(key);
+        List<FlowConversionRule> rules = serverConversionRules.get(key);
         if (rules == null) {
             return false;
         }
         String sourceId = source.getId();
         String targetId = target.getId();
-        for (redxax.oxy.remotely.flow.sync.FlowConversionRule rule : rules) {
+        for (FlowConversionRule rule : rules) {
             if (rule != null
                     && rule.getSourceTypeId() != null
                     && rule.getTargetTypeId() != null

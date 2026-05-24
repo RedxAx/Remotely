@@ -3,6 +3,7 @@ package redxax.oxy.remotely.ui.server;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.flow.player.PlayerEventRecord;
+import redxax.oxy.remotely.data.flow.player.PlayerFacetMetadata;
 import redxax.oxy.remotely.data.flow.player.PlayerFacetState;
 import redxax.oxy.remotely.data.flow.player.PlayerSessionRecord;
 import redxax.oxy.remotely.data.managed.PlayerAction;
@@ -72,7 +73,9 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
     private final PlayerManagerController controller;
     private final Object parent;
 
+    private final Map<String, Container> facetContainers = new LinkedHashMap<>();
     private final Map<String, Container> moduleContainers = new LinkedHashMap<>();
+    private final Map<String, String> facetIdsByTabName = new LinkedHashMap<>();
     private final Map<String, String> moduleIdsByTabName = new LinkedHashMap<>();
 
     private Container overviewContainer;
@@ -194,6 +197,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             rebuildEnderChest();
             rebuildEffects();
             rebuildStats();
+            rebuildFacetTabs();
             rebuildModuleTabs();
             rebuildSidePanel();
         }
@@ -221,6 +225,9 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         resizeContainer(enderChestContainer);
         resizeContainer(effectsContainer);
         resizeContainer(statsContainer);
+        for (Container container : facetContainers.values()) {
+            resizeContainer(container);
+        }
         for (Container container : moduleContainers.values()) {
             resizeContainer(container);
         }
@@ -423,6 +430,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         rebuildEnderChest();
         rebuildEffects();
         rebuildStats();
+        rebuildFacetTabs();
         rebuildModuleTabs();
         rebuildSidePanel();
         updateHeaderButton();
@@ -432,10 +440,16 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         String activeTabName = tabs().getActiveTab() != null ? tabs().getActiveTab().getName() : TAB_OVERVIEW;
 
         tabs().clearTabs();
+        facetIdsByTabName.clear();
         moduleIdsByTabName.clear();
 
         tabs().addTab(TAB_OVERVIEW, overviewContainer);
         tabs().addTab(TAB_ACTIVITY, activityContainer);
+        for (PlayerFacetState facet : collectTabFacets(dossier)) {
+            String tabName = uniqueTabName(resolveFacetTabName(facet));
+            facetIdsByTabName.put(tabName, facet.getFacetId());
+            tabs().addTab(tabName, getOrCreateFacetContainer(facet.getFacetId()));
+        }
         tabs().addTab(TAB_HISTORY, historyContainer);
         if (isInventorySectionAllowed()) {
             tabs().addTab(TAB_INVENTORY, inventoryContainer);
@@ -445,7 +459,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         tabs().addTab(TAB_STATS, statsContainer);
 
         for (String moduleId : collectModuleIds(dossier)) {
-            String tabName = uniqueModuleTabName(formatModule(moduleId));
+            String tabName = uniqueTabName(formatModule(moduleId));
             moduleIdsByTabName.put(tabName, moduleId);
             tabs().addTab(tabName, getOrCreateModuleContainer(moduleId));
         }
@@ -463,13 +477,27 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         }
     }
 
-    private String uniqueModuleTabName(String baseName) {
+    private String uniqueTabName(String baseName) {
         String name = baseName;
         int index = 2;
-        while (moduleIdsByTabName.containsKey(name)) {
+        while (facetIdsByTabName.containsKey(name) || moduleIdsByTabName.containsKey(name) || isBuiltInTab(name)) {
             name = baseName + ' ' + index++;
         }
         return name;
+    }
+
+    private boolean isBuiltInTab(String name) {
+        return Objects.equals(name, TAB_OVERVIEW)
+            || Objects.equals(name, TAB_ACTIVITY)
+            || Objects.equals(name, TAB_HISTORY)
+            || Objects.equals(name, TAB_INVENTORY)
+            || Objects.equals(name, TAB_ENDER_CHEST)
+            || Objects.equals(name, TAB_EFFECTS)
+            || Objects.equals(name, TAB_STATS);
+    }
+
+    private Container getOrCreateFacetContainer(String facetId) {
+        return facetContainers.computeIfAbsent(facetId, id -> createManagedContainer("player_facet_" + sanitizeId(id), activitySearchMode));
     }
 
     private Container getOrCreateModuleContainer(String moduleId) {
@@ -501,7 +529,7 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         if (activeTab == null) {
             return;
         }
-        if (activeTab.getContainer() == activityContainer || moduleIdsByTabName.containsKey(activeTab.getName())) {
+        if (activeTab.getContainer() == activityContainer || facetIdsByTabName.containsKey(activeTab.getName()) || moduleIdsByTabName.containsKey(activeTab.getName())) {
             rebuildActiveTabContent();
         }
     }
@@ -576,6 +604,12 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         } else if (container == statsContainer) {
             rebuildStats();
         } else {
+            String facetId = facetIdsByTabName.get(activeTab.getName());
+            if (facetId != null) {
+                rebuildSingleFacetTab(facetId);
+                rebuildSidePanel();
+                return;
+            }
             String moduleId = moduleIdsByTabName.get(activeTab.getName());
             if (moduleId != null) {
                 rebuildSingleModuleTab(moduleId);
@@ -842,6 +876,46 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         }
     }
 
+    private void rebuildFacetTabs() {
+        for (PlayerFacetState facet : collectTabFacets(dossier)) {
+            rebuildSingleFacetTab(facet.getFacetId());
+        }
+    }
+
+    private void rebuildSingleFacetTab(String facetId) {
+        PlayerFacetState facet = findFacet(facetId);
+        Container container = getOrCreateFacetContainer(facetId);
+        float scroll = container.getScrollOffset();
+        container.clearWidgets();
+        container.columns(1);
+        container.addWidget(createLabel(facet != null ? resolveFacetTitle(facet) : formatToken(facetId)));
+        if (facet == null) {
+            container.addWidget(createEmptyRow("No Data", "This facet is not available."));
+            container.updateWidgetPositions();
+            container.setScrollOffset(scroll);
+            return;
+        }
+        addFacetSummary(container, facet);
+        List<Map<String, Object>> sections = mapList(facet.getData().get("sections"));
+        if (sections.isEmpty()) {
+            container.addWidget(createRow(formatToken(facet.getFacetId()), compactMap(facet.getData()), TimeUtils.timeSense(facet.getUpdatedAt())));
+        } else {
+            for (Map<String, Object> section : sections) {
+                String title = textValue(section.get("title"));
+                List<Map<String, Object>> rows = filteredFacetRows(section);
+                if (rows.isEmpty()) {
+                    continue;
+                }
+                container.addWidget(createLabel(title.isBlank() ? "Data" : title));
+                for (Map<String, Object> rowData : rows) {
+                    container.addWidget(createFacetRow(rowData));
+                }
+            }
+        }
+        container.updateWidgetPositions();
+        container.setScrollOffset(scroll);
+    }
+
     private void rebuildSingleModuleTab(String moduleId) {
         Container container = getOrCreateModuleContainer(moduleId);
         float scroll = container.getScrollOffset();
@@ -927,7 +1001,14 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             case TAB_ENDER_CHEST -> populateEnderChestPanel(panel);
             case TAB_EFFECTS -> populateEffectsPanel(panel);
             case TAB_STATS -> populateStatsPanel(panel);
-            default -> populateModulePanel(panel, moduleIdsByTabName.get(activeTab));
+            default -> {
+                String facetId = facetIdsByTabName.get(activeTab);
+                if (facetId != null) {
+                    populateFacetPanel(panel, facetId);
+                } else {
+                    populateModulePanel(panel, moduleIdsByTabName.get(activeTab));
+                }
+            }
         }
 
         panel.updateWidgetPositions();
@@ -1092,6 +1173,25 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             panel.addWidget(createRow("Latest Data", formatToken(latestFacet.getFacetId()), TimeUtils.timeSense(latestFacet.getUpdatedAt())));
         } else {
             panel.addWidget(createEmptyRow("Latest Data", "No facet data for this module."));
+        }
+    }
+
+    private void populateFacetPanel(Container panel, String facetId) {
+        PlayerFacetState facet = findFacet(facetId);
+        if (facet == null) {
+            panel.addWidget(createEmptyRow("Data", "No facet data is available."));
+            return;
+        }
+        List<Map<String, Object>> sections = mapList(facet.getData().get("sections"));
+        int rowCount = 0;
+        for (Map<String, Object> section : sections) {
+            rowCount += filteredFacetRows(section).size();
+        }
+        panel.addWidget(createRow("Search", activitySearchQuery.isBlank() ? "Any" : compact(activitySearchQuery), "Dynamic Scope"));
+        panel.addWidget(createRow("Updated", TimeUtils.timeSense(facet.getUpdatedAt()), formatModule(facet.getModuleId())));
+        panel.addWidget(createRow("Sections", String.valueOf(sections.size()), rowCount + " Rows"));
+        if (sections.isEmpty()) {
+            panel.addWidget(createRow("Data", compactMap(facet.getData()), formatToken(facet.getFacetId())));
         }
     }
 
@@ -1313,19 +1413,39 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
 
     private List<String> collectModuleIds(PlayerDossier currentDossier) {
         Set<String> ids = new LinkedHashSet<>();
+        Set<String> tabModules = new LinkedHashSet<>();
         if (currentDossier != null) {
             for (PlayerFacetState facet : currentDossier.getFacets().values()) {
-                if (facet.getModuleId() != null && !facet.getModuleId().isBlank()) {
+                if (isTabFacet(facet) && facet.getModuleId() != null && !facet.getModuleId().isBlank()) {
+                    tabModules.add(facet.getModuleId());
+                }
+            }
+            for (PlayerFacetState facet : currentDossier.getFacets().values()) {
+                if (!isTabFacet(facet) && facet.getModuleId() != null && !facet.getModuleId().isBlank()) {
                     ids.add(facet.getModuleId());
                 }
             }
             for (PlayerEventRecord event : currentDossier.getRecentEvents()) {
-                if (event.getModuleId() != null && !event.getModuleId().isBlank()) {
+                if (event.getModuleId() != null && !event.getModuleId().isBlank() && !tabModules.contains(event.getModuleId())) {
                     ids.add(event.getModuleId());
                 }
             }
         }
         return ids.stream().sorted(String.CASE_INSENSITIVE_ORDER).toList();
+    }
+
+    private List<PlayerFacetState> collectTabFacets(PlayerDossier currentDossier) {
+        List<PlayerFacetState> facets = new ArrayList<>();
+        if (currentDossier == null) {
+            return facets;
+        }
+        for (PlayerFacetState facet : currentDossier.getFacets().values()) {
+            if (isTabFacet(facet)) {
+                facets.add(facet);
+            }
+        }
+        facets.sort(Comparator.comparingInt(this::resolveFacetPriority).thenComparing(this::resolveFacetTabName, String.CASE_INSENSITIVE_ORDER));
+        return facets;
     }
 
     private List<PlayerFacetState> collectModuleData(String moduleId) {
@@ -1334,12 +1454,107 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
             return list;
         }
         for (PlayerFacetState facet : dossier.getFacets().values()) {
-            if (Objects.equals(facet.getModuleId(), moduleId)) {
+            if (!isTabFacet(facet) && Objects.equals(facet.getModuleId(), moduleId)) {
                 list.add(facet);
             }
         }
         list.sort(Comparator.comparing(PlayerFacetState::getFacetId, String.CASE_INSENSITIVE_ORDER));
         return list;
+    }
+
+    private PlayerFacetState findFacet(String facetId) {
+        if (dossier == null) {
+            return null;
+        }
+        return dossier.getFacets().get(facetId);
+    }
+
+    private boolean isTabFacet(PlayerFacetState facet) {
+        return facet != null && facet.getMetadata() != null && facet.getMetadata().isTab();
+    }
+
+    private int resolveFacetPriority(PlayerFacetState facet) {
+        PlayerFacetMetadata metadata = facet != null ? facet.getMetadata() : null;
+        return metadata != null ? metadata.getPriority() : 0;
+    }
+
+    private String resolveFacetTabName(PlayerFacetState facet) {
+        PlayerFacetMetadata metadata = facet != null ? facet.getMetadata() : null;
+        if (metadata != null && metadata.getTabName() != null && !metadata.getTabName().isBlank()) {
+            return metadata.getTabName();
+        }
+        return resolveFacetTitle(facet);
+    }
+
+    private String resolveFacetTitle(PlayerFacetState facet) {
+        PlayerFacetMetadata metadata = facet != null ? facet.getMetadata() : null;
+        if (metadata != null && metadata.getTitle() != null && !metadata.getTitle().isBlank()) {
+            return metadata.getTitle();
+        }
+        return facet != null ? formatToken(facet.getFacetId()) : "Data";
+    }
+
+    private List<Map<String, Object>> mapList(Object source) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        if (!(source instanceof List<?> list)) {
+            return rows;
+        }
+        for (Object entry : list) {
+            if (entry instanceof Map<?, ?> map) {
+                Map<String, Object> data = new LinkedHashMap<>();
+                for (Map.Entry<?, ?> value : map.entrySet()) {
+                    if (value.getKey() != null) {
+                        data.put(String.valueOf(value.getKey()), value.getValue());
+                    }
+                }
+                rows.add(data);
+            }
+        }
+        return rows;
+    }
+
+    private List<Map<String, Object>> filteredFacetRows(Map<String, Object> section) {
+        List<Map<String, Object>> rows = mapList(section.get("rows"));
+        if (activitySearchQuery.isBlank()) {
+            return rows;
+        }
+        List<Map<String, Object>> filtered = new ArrayList<>();
+        String query = activitySearchQuery.toLowerCase(Locale.ROOT);
+        for (Map<String, Object> row : rows) {
+            if (matchesSearch(compactMap(row).toLowerCase(Locale.ROOT), query)) {
+                filtered.add(row);
+            }
+        }
+        return filtered;
+    }
+
+    private void addFacetSummary(Container container, PlayerFacetState facet) {
+        for (Map<String, Object> row : mapList(facet.getData().get("summary"))) {
+            container.addWidget(createFacetRow(row));
+        }
+    }
+
+    private MountableButtonWidget createFacetRow(Map<String, Object> rowData) {
+        String title = firstText(rowData, "title", "label", "name", "id");
+        String value = firstText(rowData, "value", "description", "text", "status");
+        String meta = firstText(rowData, "meta", "hiddenText", "subtitle");
+        MountableButtonWidget row = new MountableButtonWidget.Builder(title.isBlank() ? "Data" : title)
+            .description(value.isBlank() ? compactMap(rowData) : compact(value))
+            .hiddenText(compact(meta))
+            .build();
+        row.setHeight(34);
+        row.entranceAnimationEnabled = false;
+        return row;
+    }
+
+    private String firstText(Map<String, Object> data, String... keys) {
+        for (String key : keys) {
+            String value = textValue(data.get(key));
+            if (!value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
     }
 
     private List<PlayerFacetState> getFilteredModuleData(String moduleId) {
@@ -1511,11 +1726,13 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
                 .append(activeSession.getStartedAt()).append('|')
                 .append(compact(activeSession.getSource())).append('|');
         }
-        long latestFacetUpdate = 0L;
-        for (PlayerFacetState facet : currentDossier.getFacets().values()) {
-            latestFacetUpdate = Math.max(latestFacetUpdate, facet.getUpdatedAt());
+        List<PlayerFacetState> facets = new ArrayList<>(currentDossier.getFacets().values());
+        facets.sort(Comparator.comparing(PlayerFacetState::getFacetId, String.CASE_INSENSITIVE_ORDER));
+        for (PlayerFacetState facet : facets) {
+            builder.append(compact(facet.getFacetId())).append('|')
+                .append(facet.getUpdatedAt()).append('|')
+                .append(facet.getData().hashCode()).append('|');
         }
-        builder.append(latestFacetUpdate);
         return builder.toString();
     }
 
@@ -1892,6 +2109,23 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         return String.format(Locale.ROOT, "%.2f", value);
     }
 
+    private int intValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            try {
+                return Integer.parseInt(text);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return 0;
+    }
+
+    private String textValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
     private String formatLabel(String raw) {
         if (raw == null) {
             return "";
@@ -1930,4 +2164,5 @@ public class PlayerManagementScreen extends ReScreen implements DesktopWindowBeh
         playerHeaderButton.setMessage(resolveDisplayName());
         playerHeaderButton.setIcon(playerFace);
     }
+
 }

@@ -13,7 +13,15 @@ public class OptionCatalogCache {
     }
 
     public void put(String serverId, String sourceId, String revision, List<String> values) {
-        catalogs.put(key(serverId, sourceId), new Catalog(revision, values != null ? List.copyOf(values) : List.of()));
+        put(serverId, sourceId, revision, values, List.of());
+    }
+
+    public void put(String serverId, String sourceId, String revision, List<String> values, List<OptionCatalogItem> items) {
+        List<OptionCatalogItem> safeItems = items != null ? List.copyOf(items) : List.of();
+        List<String> safeValues = values != null && !values.isEmpty()
+            ? List.copyOf(values)
+            : safeItems.stream().map(OptionCatalogItem::getValue).filter(value -> value != null && !value.isBlank()).toList();
+        catalogs.put(key(serverId, sourceId), new Catalog(revision, safeValues, safeItems));
     }
 
     public List<String> getValues(String serverId, String sourceId) {
@@ -30,10 +38,15 @@ public class OptionCatalogCache {
         return catalogs.containsKey(key(serverId, sourceId));
     }
 
+    public List<OptionCatalogItem> getItems(String serverId, String sourceId) {
+        Catalog catalog = catalogs.get(key(serverId, sourceId));
+        return catalog != null ? catalog.items() : List.of();
+    }
+
     private String key(String serverId, String sourceId) {
         return (serverId != null ? serverId : "") + ":" + (sourceId != null ? sourceId : "");
     }
 
-    private record Catalog(String revision, List<String> values) {
+    private record Catalog(String revision, List<String> values, List<OptionCatalogItem> items) {
     }
 }

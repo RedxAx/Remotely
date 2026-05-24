@@ -1,5 +1,7 @@
 package redxax.oxy.remotely.worldgen.ui;
 
+import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
@@ -12,12 +14,15 @@ import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.IconButton;
+import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 public class WorldGenEditorScreen extends FlowEditorScreen {
     private final String actualServerId;
@@ -29,6 +34,8 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
     private String previewEnvironment = "NORMAL";
     private long previewSeed;
     private String previewPlayerUuid = "";
+    private String previewPlayerName = "";
+    private ItemSelectorWidget activePlayerSelector;
 
     public WorldGenEditorScreen(String serverId, ClientServerView server, Screen parent) {
         this(serverId, server, parent, null);
@@ -91,9 +98,10 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
 
         for (WorldGenStage stage : WorldGenStage.values()) {
             IconButton tabButton = new IconButton.Builder()
-                .size(72, 18)
+                .size(0, 18)
                 .label(stage.displayName())
                 .centered(true)
+                .autoWidthOnTextChange(true)
                 .onClick(() -> switchStage(stage))
                 .build();
             addHeaderButton(tabButton);
@@ -101,17 +109,10 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
 
         IconButton previewButton = new IconButton.Builder()
             .size(18, 18)
-            .imagePath("play.png")
+            .imagePath("start.png")
             .onClick(this::showPreviewPopup)
             .build();
         addHeaderButton(previewButton);
-
-        IconButton stopButton = new IconButton.Builder()
-            .size(18, 18)
-            .imagePath("close.png")
-            .onClick(() -> manager.stopPreview(actualServerId, previewId))
-            .build();
-        addHeaderButton(stopButton);
     }
 
     @Override
@@ -134,7 +135,9 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
     }
 
     private void showPreviewPopup() {
-        PopupWidget.Builder builder = new PopupWidget.Builder("Preview").setResizable(false);
+        PopupWidget.Builder builder = new PopupWidget.Builder("Preview")
+            .onClose(this::closePlayerSelector)
+            .setResizable(false);
         TextInputWidget seedInput = new TextInputWidget.Builder()
             .placeholder("Seed")
             .size(220, 18)
@@ -146,15 +149,20 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
             .selectedItem(previewEnvironment)
             .build();
 
-        TextInputWidget playerUuidInput = new TextInputWidget.Builder()
-            .placeholder("Player UUID")
+        AnimatedButton playerButton = new AnimatedButton.Builder()
+            .label(previewPlayerName.isBlank() ? "No Player" : previewPlayerName)
             .size(220, 18)
+            .entranceAnimation(false)
             .build();
-        playerUuidInput.setText(previewPlayerUuid);
+        playerButton.setAction(() -> showPlayerSelector(playerButton, player -> {
+            previewPlayerName = player.name();
+            previewPlayerUuid = player.uuid();
+            playerButton.setMessage(previewPlayerName.isBlank() ? "No Player" : previewPlayerName);
+        }));
 
         builder.addRow("Seed", true, 20, seedInput);
         builder.addRow("Environment", true, 20, environmentSelect);
-        builder.addRow("Player UUID", true, 20, playerUuidInput);
+        builder.addRow("Player", true, 20, playerButton);
 
         PopupWidget[] popupRef = new PopupWidget[1];
         AnimatedButton startButton = new AnimatedButton.Builder()
@@ -163,8 +171,8 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
             .onClick(() -> {
                 previewEnvironment = safeText(environmentSelect.getSelectedItem()).toUpperCase(Locale.ROOT);
                 previewSeed = parseLong(seedInput.getText(), 0);
-                previewPlayerUuid = safeText(playerUuidInput.getText()).trim();
                 previewCurrentGraph();
+                closePlayerSelector();
                 if (popupRef[0] != null) {
                     popupRef[0].hide();
                 }
@@ -174,6 +182,71 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
         popupRef[0] = builder.build();
         addDrawableChild(popupRef[0]);
         popupRef[0].show();
+    }
+
+    private void showPlayerSelector(AnimatedButton anchor, Consumer<PlayerOption> onSelected) {
+        if (anchor == null || onSelected == null) {
+            return;
+        }
+        FlowManager flowManager = FlowManager.getInstance();
+        if (flowManager == null) {
+            return;
+        }
+        closePlayerSelector();
+        flowManager.requestPlayerTrackingSnapshot(actualServerId);
+        List<PlayerOption> players = previewPlayerOptions(flowManager);
+        var overlay = ScreenManager.getInstance().getPopupOverlay();
+        ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+        ItemSelectorWidget selector = new ItemSelectorWidget.Builder(overlay)
+            .size(220, 240)
+            .dismissOnSelect(true)
+            .emptyMessage("No Players")
+            .onClose(() -> closePlayerSelector(selectorRef[0]))
+            .build();
+        selector.setLayer(900);
+        selector.setPriority(30);
+        selectorRef[0] = selector;
+        activePlayerSelector = selector;
+        for (PlayerOption player : players) {
+            selector.addItem(player.label(), player.uuid(), player.searchTerms(), () -> onSelected.accept(player));
+        }
+        selector.setSelectedItem(previewPlayerName.isBlank() ? "No Player" : previewPlayerName);
+        overlay.addDrawableChild(selector);
+        selector.show(anchor.getX(), anchor.getY() + anchor.getHeight());
+    }
+
+    private void closePlayerSelector() {
+        closePlayerSelector(activePlayerSelector);
+    }
+
+    private void closePlayerSelector(ItemSelectorWidget selector) {
+        if (selector == null) {
+            return;
+        }
+        selector.onClose = null;
+        selector.hide();
+        ScreenManager.getInstance().getPopupOverlay().remove(selector);
+        if (selector == activePlayerSelector) {
+            activePlayerSelector = null;
+        }
+    }
+
+    private List<PlayerOption> previewPlayerOptions(FlowManager flowManager) {
+        List<PlayerOption> players = new ArrayList<>();
+        players.add(new PlayerOption("No Player", "", ""));
+        for (PlayerDossier dossier : flowManager.getOnlinePlayersForServer(actualServerId)) {
+            if (dossier == null || safeText(dossier.getPlayerName()).isBlank() || safeText(dossier.getPlayerId()).isBlank()) {
+                continue;
+            }
+            players.add(new PlayerOption(dossier.getPlayerName(), dossier.getPlayerId(), dossier.getPlayerName() + " " + dossier.getPlayerId()));
+        }
+        return players;
+    }
+
+    private record PlayerOption(String name, String uuid, String searchTerms) {
+        private String label() {
+            return name;
+        }
     }
 
     private void showProjectPopup() {

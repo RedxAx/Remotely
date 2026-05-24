@@ -97,6 +97,7 @@ public final class FlowDataType {
 
     public boolean canConvertTo(FlowDataType target) {
         if (target == null) return false;
+        if (this == ANY || target == ANY) return true;
         if (target.isAssignableFrom(this)) return true;
         if (target == STRING) return canStringify();
         return false;
@@ -112,8 +113,17 @@ public final class FlowDataType {
 
     public static FlowDataType fromString(String id) {
         if (id == null || id.isEmpty()) return ANY;
-        FlowDataType type = REGISTRY.get(id.toLowerCase());
-        return type != null ? type : ANY;
+        String normalized = id.toLowerCase();
+        FlowDataType type = REGISTRY.get(normalized);
+        if (type != null) return type;
+        if (normalized.contains(":")) {
+            String displayName = normalized.substring(normalized.lastIndexOf(':') + 1).replace('_', ' ');
+            if (!displayName.isBlank()) {
+                displayName = Character.toUpperCase(displayName.charAt(0)) + displayName.substring(1);
+            }
+            return registerServerType(normalized, displayName, 0x808080, "string", true);
+        }
+        return ANY;
     }
 
     public static FlowDataType registerServerType(String id, String displayName, int color, String parentId, boolean canStringify) {

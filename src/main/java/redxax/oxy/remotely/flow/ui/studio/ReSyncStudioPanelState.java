@@ -10,16 +10,18 @@ import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
 
 public class ReSyncStudioPanelState {
-    public static final int DEFAULT_WIDTH = 300;
+    public static final int DEFAULT_WIDTH = 150;
+    public static final int MIN_WIDTH = 150;
+    public static final int MIN_ROW_WIDTH = 120;
     public static final int DEFAULT_PADDING = 6;
-    public static final int FIELD_HEIGHT = 22;
-    public static final int ROW_HEIGHT = 38;
+    public static final int FIELD_HEIGHT = 18;
+    public static final int ROW_HEIGHT = 34;
 
     private int width = DEFAULT_WIDTH;
     private int padding = DEFAULT_PADDING;
 
     public ReSyncStudioPanelState width(int width) {
-        this.width = Math.max(240, width);
+        this.width = Math.max(MIN_WIDTH, width);
         return this;
     }
 
@@ -37,14 +39,14 @@ public class ReSyncStudioPanelState {
     }
 
     public int rowWidth() {
-        return Math.max(160, width - padding * 2);
+        return Math.max(MIN_ROW_WIDTH, width - padding * 2);
     }
 
     public int rowWidth(SidePanel panel) {
         if (panel == null) {
             return rowWidth();
         }
-        return Math.max(160, panel.getDesiredWidth() - padding * 2);
+        return Math.max(MIN_ROW_WIDTH, panel.getDesiredWidth() - padding * 2);
     }
 
     public AnimatedButton hint(String label, int width) {
@@ -108,7 +110,7 @@ public class ReSyncStudioPanelState {
     public AnimatedButton action(String label, int width, Runnable action) {
         AnimatedButton button = new AnimatedButton.Builder()
             .label(label)
-            .size(width, 22)
+            .size(width, 18)
             .accentType(ThemeManager.getAccent("nice"))
             .entranceAnimation(false)
             .onClick(action)

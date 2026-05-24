@@ -7,6 +7,8 @@ import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
 
 public class ReSyncFrameCodec {
+    private static final byte MESSAGE_CHANNEL_REGISTRY = (byte) 0x08;
+
     public ReSyncDecodedFrame decode(byte[] data, Set<Short> validDataChannels) {
         if (data == null || data.length < 12) {
             throw new IllegalArgumentException("Frame too short");
@@ -107,7 +109,8 @@ public class ReSyncFrameCodec {
                  ReSyncProtocolContract.MESSAGE_DATA,
                  ReSyncProtocolContract.MESSAGE_HEARTBEAT,
                  ReSyncProtocolContract.MESSAGE_ACK,
-                 ReSyncProtocolContract.MESSAGE_ERROR -> true;
+                 ReSyncProtocolContract.MESSAGE_ERROR,
+                 MESSAGE_CHANNEL_REGISTRY -> true;
             default -> false;
         };
     }

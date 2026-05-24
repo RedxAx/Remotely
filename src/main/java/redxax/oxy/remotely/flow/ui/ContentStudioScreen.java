@@ -40,7 +40,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class ContentStudioScreen extends FlowEditorScreen {
-    private static final int PANEL_WIDTH = 150;
+    private static final int PANEL_WIDTH = ReSyncStudioPanelState.DEFAULT_WIDTH;
     private static final int PANEL_TOP = 54;
     private final String flowId;
     private final FlowManager flowManager;
@@ -147,11 +147,6 @@ public class ContentStudioScreen extends FlowEditorScreen {
     }
 
     @Override
-    protected boolean showFloatingHeaderBackground() {
-        return false;
-    }
-
-    @Override
     protected void addCustomHeaderButtons() {
         addHeaderButton(headerButton("panel.png", "Content", this::toggleContentPanel));
         addHeaderButton(headerButton("graph.png", "Nodes", this::toggleNodePalette));
@@ -161,6 +156,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
     protected void onOptionCatalogRefreshed() {
         super.onOptionCatalogRefreshed();
         closeActiveSearchSelector();
+        refreshContentPanel();
     }
 
     @Override
@@ -290,6 +286,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
     private void buildContentPanel() {
         contentPanel = new SidePanel(this, "contentPanel", this::updatePositions)
             .left()
+            .minWidth(ReSyncStudioPanelState.MIN_WIDTH)
             .width(PANEL_WIDTH)
             .y(PANEL_TOP)
             .height(height - PANEL_TOP - 10)
@@ -320,7 +317,6 @@ public class ContentStudioScreen extends FlowEditorScreen {
             .description(contentSummary(definition))
             .iconPath(iconForType(type))
             .onClick(() -> selectedBranch = firstBranch())
-            .addButton(new SquareButtonWidget.Builder().imagePath("save.png").hint("Save Content").entranceAnimation(false).onClick(this::onSave).build())
             .build();
         summaryWidget.setSize(rowWidth, 30);
         insertContentPanelWidget(container, summaryWidget);
@@ -355,10 +351,10 @@ public class ContentStudioScreen extends FlowEditorScreen {
             }));
         }
         RowWidget detailRow = new RowWidget.Builder()
-            .size(rowWidth, 20)
+            .size(rowWidth, 18)
             .padding(4)
-            .addWidget(new AnimatedButton.Builder().label("Details").entranceAnimation(false).onClick(this::showDetailsPopup).build())
-            .addWidget(new AnimatedButton.Builder().label("Rules").entranceAnimation(false).onClick(this::showRulesPopup).build())
+            .addWidget(new AnimatedButton.Builder().label("Details").size(68, 18).entranceAnimation(false).onClick(this::showDetailsPopup).build())
+            .addWidget(new AnimatedButton.Builder().label("Rules").size(56, 18).entranceAnimation(false).onClick(this::showRulesPopup).build())
             .build();
         insertContentPanelWidget(container, detailRow);
         for (CustomContentGraphAdapter.TriggerDescriptor trigger : CustomContentGraphAdapter.triggersForType(type)) {
@@ -382,9 +378,18 @@ public class ContentStudioScreen extends FlowEditorScreen {
 
     private int contentRowWidth() {
         if (contentPanel == null) {
-            return Math.max(120, PANEL_WIDTH - panelState.padding() * 2);
+            return Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, PANEL_WIDTH - panelState.padding() * 2);
         }
-        return Math.max(120, contentPanel.getDesiredWidth() - panelState.padding() * 2);
+        return Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, contentPanel.getDesiredWidth() - panelState.padding() * 2);
+    }
+
+    @Override
+    protected int viewportFitLeft() {
+        int left = super.viewportFitLeft();
+        if (contentPanel != null && contentPanel.isVisible()) {
+            left += contentPanel.getDesiredWidth() + 8;
+        }
+        return left;
     }
 
     private void addLogicRows(Container container, String type, int rowWidth) {
@@ -431,7 +436,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
         }));
         insertContentPanelWidget(container, new AnimatedButton.Builder()
             .label("Apply Details")
-            .size(rowWidth, 20)
+            .size(rowWidth, 18)
             .accentType(ThemeManager.getAccent("nice"))
             .entranceAnimation(false)
             .onClick(() -> {
@@ -449,17 +454,17 @@ public class ContentStudioScreen extends FlowEditorScreen {
             .text(textProperty("allowed_worlds"))
             .placeholder("Worlds")
             .forcePlaceholder(false)
-            .size(174, 20)
+            .size(174, 18)
             .onChange(value -> setProperty("allowed_worlds", value))
             .build();
         ReSyncStudioPanelState.disableEntrance(worlds);
         TitledRowWidget worldsRow = new TitledRowWidget.Builder().title("Worlds").size(rowWidth, 36).padding(4).addWidget(searchableInputRow(worlds, worldOptions(), true)).build();
         insertContentPanelWidget(container, worldsRow);
         RowWidget toggles = new RowWidget.Builder()
-            .size(rowWidth, 20)
+            .size(rowWidth, 18)
             .padding(4)
-            .addWidget(new ToggleWidget.Builder().label("Cancel").toggled(boolProperty("cancel_event")).size(90, 20).entranceAnimation(false).onChange(value -> setProperty("cancel_event", value)).build())
-            .addWidget(new ToggleWidget.Builder().label("Consume").toggled(boolProperty("consume_event")).size(90, 20).entranceAnimation(false).onChange(value -> setProperty("consume_event", value)).build())
+            .addWidget(new ToggleWidget.Builder().label("Cancel").toggled(boolProperty("cancel_event")).size(90, 18).entranceAnimation(false).onChange(value -> setProperty("cancel_event", value)).build())
+            .addWidget(new ToggleWidget.Builder().label("Consume").toggled(boolProperty("consume_event")).size(90, 18).entranceAnimation(false).onChange(value -> setProperty("consume_event", value)).build())
             .build();
         insertContentPanelWidget(container, toggles);
         if (showsHandFilter(type, selectedBranch)) {
@@ -514,6 +519,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
             .text(value == null ? "" : value)
             .placeholder(label)
             .forcePlaceholder(false)
+            .size(174, 18)
             .onChange(onChange)
             .build();
         ReSyncStudioPanelState.disableEntrance(input);
@@ -711,6 +717,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
     private RowWidget searchableInputRow(TextInputWidget input, List<String> options, boolean append) {
         SquareButtonWidget selectorButton = new SquareButtonWidget.Builder()
             .imagePath("search.png")
+            .size(18, 18)
             .hint("Search")
             .entranceAnimation(false)
             .onClick(() -> {
@@ -737,7 +744,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
             .build();
         ReSyncStudioPanelState.disableEntrance(input);
         RowWidget row = new RowWidget.Builder()
-            .size(260, 20)
+            .size(260, 18)
             .padding(4)
             .addWidget(input)
             .addWidget(selectorButton)

@@ -69,6 +69,13 @@ public class ReSyncFlowClient {
         void onError(String nodeId, String message);
     }
 
+    public interface PluginChannelListener {
+        void onData(String channelId, byte[] payload);
+
+        default void onRemoved(String channelId) {
+        }
+    }
+
     private final String serverId;
     private final ReStudioApiClient apiClient;
     private final String directWsUrl;
@@ -81,13 +88,17 @@ public class ReSyncFlowClient {
     private String apiKey;
     private final ReSyncFrameCodec frameCodec = new ReSyncFrameCodec();
     private static final int PROTOCOL_VERSION = ReSyncProtocolContract.PROTOCOL_VERSION;
-    private static final String CLIENT_VERSION = "2.0.0";
+    private static final String CLIENT_VERSION = "2.1.0";
     private static final short FLOW_CHANNEL_ID = ReSyncProtocolContract.CHANNEL_FLOW_ID;
     private static final short PLAYER_TRACKING_CHANNEL_ID = ReSyncProtocolContract.CHANNEL_PLAYER_TRACKING_ID;
     private static final short WORLD_MANAGEMENT_CHANNEL_ID = ReSyncProtocolContract.CHANNEL_WORLD_MANAGEMENT_ID;
     private static final short WORLDGEN_CHANNEL_ID = ReSyncProtocolContract.CHANNEL_WORLDGEN_ID;
     private static final short CONTROL_CHANNEL_ID = ReSyncProtocolContract.CHANNEL_CONTROL_ID;
+    private static final byte MESSAGE_CHANNEL_REGISTRY = (byte) 0x08;
     private final Map<String, Short> channelIds = new ConcurrentHashMap<>();
+    private final Map<Short, String> numericChannels = new ConcurrentHashMap<>();
+    private final Map<String, Set<PluginChannelListener>> pluginChannelListeners = new ConcurrentHashMap<>();
+    private final Set<String> pluginChannelSubscriptions = ConcurrentHashMap.newKeySet();
     private int sequenceCounter = 0;
     private ErrorListener errorListener;
     private final Gson gson = new GsonBuilder()
@@ -168,6 +179,59 @@ public class ReSyncFlowClient {
 
     public void setErrorListener(ErrorListener listener) {
         this.errorListener = listener;
+    }
+
+    public boolean subscribePluginChannel(String channelId) {
+        if (!isPluginChannel(channelId)) {
+            return false;
+        }
+        pluginChannelSubscriptions.add(channelId);
+        if (!channelIds.containsKey(channelId)) {
+            return false;
+        }
+        sendSubscribe(channelId);
+        return true;
+    }
+
+    public void unsubscribePluginChannel(String channelId) {
+        if (!isPluginChannel(channelId)) {
+            return;
+        }
+        pluginChannelSubscriptions.remove(channelId);
+        if (!channelIds.containsKey(channelId)) {
+            return;
+        }
+        byte[] channelBytes = channelId.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(4 + channelBytes.length);
+        buffer.putInt(channelBytes.length);
+        buffer.put(channelBytes);
+        sendFrame(ReSyncProtocolContract.MESSAGE_UNSUBSCRIBE, buffer.array(), CONTROL_CHANNEL_ID);
+    }
+
+    public boolean sendPluginData(String channelId, byte[] payload) {
+        if (!isPluginChannel(channelId)) {
+            return false;
+        }
+        Short channel = channelIds.get(channelId);
+        if (channel == null) {
+            return false;
+        }
+        sendFrame(ReSyncProtocolContract.MESSAGE_DATA, payload, channel);
+        return true;
+    }
+
+    public void addPluginChannelListener(String channelId, PluginChannelListener listener) {
+        if (!isPluginChannel(channelId) || listener == null) {
+            return;
+        }
+        pluginChannelListeners.computeIfAbsent(channelId, ignored -> ConcurrentHashMap.newKeySet()).add(listener);
+    }
+
+    public void removePluginChannelListener(String channelId, PluginChannelListener listener) {
+        Set<PluginChannelListener> listeners = pluginChannelListeners.get(channelId);
+        if (listeners != null) {
+            listeners.remove(listener);
+        }
     }
 
     public CompletableFuture<Void> connect() {
@@ -421,6 +485,9 @@ public class ReSyncFlowClient {
                     System.err.println("[ReSyncFlow] Processing error message");
                     handleError(frame.payload());
                     break;
+                case MESSAGE_CHANNEL_REGISTRY:
+                    handleChannelRegistry(frame.payload());
+                    break;
                 default:
                     protocolError("Unknown message type: " + (frame.messageType() & 0xFF));
             }
@@ -432,12 +499,13 @@ public class ReSyncFlowClient {
     }
 
     private Set<Short> validDataChannels() {
-        return Set.of(
-            numericChannel("flow", FLOW_CHANNEL_ID),
-            numericChannel("player_tracking", PLAYER_TRACKING_CHANNEL_ID),
-            numericChannel("world_management", WORLD_MANAGEMENT_CHANNEL_ID),
-            numericChannel("worldgen", WORLDGEN_CHANNEL_ID)
-        );
+        Set<Short> channels = ConcurrentHashMap.newKeySet();
+        channels.add(numericChannel("flow", FLOW_CHANNEL_ID));
+        channels.add(numericChannel("player_tracking", PLAYER_TRACKING_CHANNEL_ID));
+        channels.add(numericChannel("world_management", WORLD_MANAGEMENT_CHANNEL_ID));
+        channels.add(numericChannel("worldgen", WORLDGEN_CHANNEL_ID));
+        channels.addAll(channelIds.values());
+        return channels;
     }
 
     private void protocolError(String message) {
@@ -523,7 +591,7 @@ public class ReSyncFlowClient {
                 }
                 int numericId = buffer.getInt();
                 if (numericId >= 0 && numericId <= 0xFFFF) {
-                    channelIds.put(channelName, (short) numericId);
+                    registerChannel(channelName, (short) numericId);
                 }
             }
         }
@@ -556,6 +624,96 @@ public class ReSyncFlowClient {
         byte[] bytes = new byte[buffer.remaining()];
         buffer.get(bytes);
         return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    private void handleChannelRegistry(byte[] payload) {
+        JsonObject root = gson.fromJson(new String(payload, StandardCharsets.UTF_8), JsonObject.class);
+        if (root == null) {
+            return;
+        }
+        boolean snapshot = root.has("snapshot") && root.get("snapshot").getAsBoolean();
+        Set<String> previousPluginChannels = ConcurrentHashMap.newKeySet();
+        if (snapshot) {
+            for (String channelId : channelIds.keySet()) {
+                if (isPluginChannel(channelId)) {
+                    previousPluginChannels.add(channelId);
+                }
+            }
+        }
+        if (snapshot) {
+            channelIds.clear();
+            numericChannels.clear();
+        }
+        JsonObject channels = root.has("channels") && root.get("channels").isJsonObject() ? root.getAsJsonObject("channels") : null;
+        if (channels != null) {
+            for (Map.Entry<String, JsonElement> entry : channels.entrySet()) {
+                int numericId = entry.getValue().getAsInt();
+                if (numericId >= 0 && numericId <= 0xFFFF) {
+                    registerChannel(entry.getKey(), (short) numericId);
+                }
+            }
+        }
+        if (snapshot) {
+            for (String channelId : previousPluginChannels) {
+                if (!channelIds.containsKey(channelId)) {
+                    removeChannel(channelId);
+                }
+            }
+        }
+        JsonElement removed = root.get("removedChannels");
+        if (removed != null && removed.isJsonArray()) {
+            for (JsonElement element : removed.getAsJsonArray()) {
+                if (element != null && !element.isJsonNull()) {
+                    removeChannel(element.getAsString());
+                }
+            }
+        }
+        for (String channelId : new ArrayList<>(pluginChannelSubscriptions)) {
+            if (isPluginChannel(channelId) && channelIds.containsKey(channelId)) {
+                sendSubscribe(channelId);
+            }
+        }
+    }
+
+    private void registerChannel(String channelId, short numericId) {
+        if (channelId == null || channelId.isBlank()) {
+            return;
+        }
+        channelIds.put(channelId, numericId);
+        numericChannels.put(numericId, channelId);
+    }
+
+    private void removeChannel(String channelId) {
+        Short numericId = channelIds.remove(channelId);
+        if (numericId != null) {
+            numericChannels.remove(numericId);
+        }
+        pluginChannelSubscriptions.remove(channelId);
+        Set<PluginChannelListener> listeners = pluginChannelListeners.remove(channelId);
+        if (listeners != null) {
+            for (PluginChannelListener listener : listeners) {
+                listener.onRemoved(channelId);
+            }
+        }
+    }
+
+    private boolean isPluginChannel(String channelId) {
+        return channelId != null
+            && !"flow".equals(channelId)
+            && !"player_tracking".equals(channelId)
+            && !"world_management".equals(channelId)
+            && !"worldgen".equals(channelId);
+    }
+
+    private void dispatchPluginChannelData(String channelId, byte[] data) {
+        Set<PluginChannelListener> listeners = pluginChannelListeners.get(channelId);
+        if (listeners == null || listeners.isEmpty()) {
+            return;
+        }
+        byte[] payload = data == null ? new byte[0] : data.clone();
+        for (PluginChannelListener listener : listeners) {
+            listener.onData(channelId, payload.clone());
+        }
     }
 
     private short numericChannel(String channelId, short fallback) {
@@ -605,6 +763,11 @@ public class ReSyncFlowClient {
         }
 
         if (channel != numericChannel("flow", FLOW_CHANNEL_ID)) {
+            String channelId = numericChannels.get(channel);
+            if (channelId != null && isPluginChannel(channelId)) {
+                dispatchPluginChannelData(channelId, data);
+                return;
+            }
             protocolError("Unknown channel: " + (channel & 0xFFFF));
             return;
         }
@@ -1200,7 +1363,7 @@ public class ReSyncFlowClient {
         try {
             OptionCatalogPayload payload = gson.fromJson(new String(jsonBytes, StandardCharsets.UTF_8), OptionCatalogPayload.class);
             if (payload != null && payload.sourceId != null) {
-                OptionCatalogCache.getInstance().put(serverId, payload.sourceId, payload.revision, payload.values);
+                OptionCatalogCache.getInstance().put(serverId, payload.sourceId, payload.revision, payload.values, payload.items);
                 ScreenManager.getInstance().execute(() -> {
                     FlowEditorScreen.refreshCatalogForServer(serverId);
                     GuiDesignerScreen.refreshCatalogForServer(serverId);
@@ -1802,5 +1965,6 @@ public class ReSyncFlowClient {
         private String sourceId;
         private String revision;
         private List<String> values;
+        private List<OptionCatalogItem> items;
     }
 }

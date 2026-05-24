@@ -7,6 +7,7 @@ public class PlayerFacetState {
     private String facetId;
     private String moduleId;
     private long updatedAt;
+    private PlayerFacetMetadata metadata;
     private Map<String, Object> data = new LinkedHashMap<>();
 
     public String getFacetId() {
@@ -19,6 +20,10 @@ public class PlayerFacetState {
 
     public long getUpdatedAt() {
         return updatedAt;
+    }
+
+    public PlayerFacetMetadata getMetadata() {
+        return metadata;
     }
 
     public Map<String, Object> getData() {

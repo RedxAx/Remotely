@@ -36,7 +36,7 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
     private final ScoreboardDefinition scoreboard;
     private final String serverId;
     private final Object parent;
-    private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState().width(320).padding(6);
+    private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
 
     private SidePanel inspectorPanel;
     private TextInputWidget titleInput;
@@ -139,7 +139,12 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
 
     private void buildInspectorPanel() {
         if (inspectorPanel == null) {
-            inspectorPanel = createSidePanel("scoreboard_inspector").width(320).y(0).height(height).show();
+            inspectorPanel = createSidePanel("scoreboard_inspector")
+                .minWidth(ReSyncStudioPanelState.MIN_WIDTH)
+                .width(panelState.width())
+                .y(0)
+                .height(height)
+                .show();
         }
         Container container = inspectorPanel.container();
         container.layout(new ManagedLayout()).columns(1).padding(panelState.padding()).scrolling(true).enableSelecting(false);
@@ -189,7 +194,8 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
     private void updateLayout() {
         if (inspectorPanel != null) {
             int contentTop = header().headerSize + 5;
-            inspectorPanel.y(contentTop).height(Math.max(120, height - contentTop - 8)).width(Math.max(panelState.width(), (int) (width * 0.3f)));
+            panelState.width(inspectorPanel.getDesiredWidth());
+            inspectorPanel.y(contentTop).height(Math.max(120, height - contentTop - 8)).width(panelState.width());
         }
     }
 

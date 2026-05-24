@@ -39,6 +39,27 @@ public class ReSyncPlayerService {
         return values;
     }
 
+    public List<PlayerDossier> getOnlinePlayersForServer(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return List.of();
+        }
+        String prefix = serverId + ":";
+        Map<String, PlayerDossier> players = new LinkedHashMap<>();
+        for (Map.Entry<String, PlayerDossier> entry : playerDossierCache.entrySet()) {
+            if (!entry.getKey().startsWith(prefix)) {
+                continue;
+            }
+            PlayerDossier dossier = entry.getValue();
+            if (dossier == null || !dossier.isOnline() || dossier.getPlayerName() == null || dossier.getPlayerName().isBlank()) {
+                continue;
+            }
+            players.putIfAbsent(dossier.getPlayerName().toLowerCase(Locale.ROOT), dossier);
+        }
+        List<PlayerDossier> values = new ArrayList<>(players.values());
+        values.sort((a, b) -> a.getPlayerName().compareToIgnoreCase(b.getPlayerName()));
+        return values;
+    }
+
     public PlayerDossier getPlayerDossier(String serverId, UUID playerId) {
         if (serverId == null || playerId == null) {
             return null;
