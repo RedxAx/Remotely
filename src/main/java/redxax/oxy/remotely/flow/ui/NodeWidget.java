@@ -88,6 +88,16 @@ public class NodeWidget extends AnimatedWidget {
     private static final String PASSTHROUGH_OUTPUT_PREFIX = "__passthrough:";
     private static final String FUNCTION_START_ID = "function_start";
     private static final String FUNCTION_END_ID = "function_end";
+    private static final String FUNCTION_START_MIGRATED_ID = "function.start";
+    private static final String FUNCTION_END_MIGRATED_ID = "function.end";
+    private static final String FUNCTION_START_CANONICAL_ID = "function.function_start";
+    private static final String FUNCTION_END_CANONICAL_ID = "function.function_end";
+    private static final String FUNCTION_INPUT_ID = "function_input";
+    private static final String FUNCTION_OUTPUT_ID = "function_output";
+    private static final String CALL_FUNCTION_ID = "call_function";
+    private static final String FUNCTION_INPUT_CANONICAL_ID = "function.function_input";
+    private static final String FUNCTION_OUTPUT_CANONICAL_ID = "function.function_output";
+    private static final String CALL_FUNCTION_CANONICAL_ID = "call.function";
 
     private boolean updatingBranchSelection = false;
     private int lastScreenX;
@@ -131,7 +141,7 @@ public class NodeWidget extends AnimatedWidget {
             .build();
         this.closeButton.visible = this.onClose != null;
 
-        if (FUNCTION_START_ID.equals(node.getType()) || FUNCTION_END_ID.equals(node.getType())) {
+        if (isFunctionStartType(node.getType()) || isFunctionEndType(node.getType())) {
             this.paramButton = new AnimatedButton.Builder()
                 .onClick(this::showParamContextMenu)
                 .accentType(ThemeManager.getAccent("nice"))
@@ -163,7 +173,40 @@ public class NodeWidget extends AnimatedWidget {
         if (definition != null) {
             return definition;
         }
+        if (NodeRegistry.getInstance() == null) {
+            return null;
+        }
+        if (isFunctionStartType(nodeType)) {
+            definition = NodeRegistry.getInstance().getDefinition(serverId, FUNCTION_START_MIGRATED_ID);
+            if (definition != null) {
+                return definition;
+            }
+            return NodeRegistry.getInstance().getDefinition(serverId, FUNCTION_START_CANONICAL_ID);
+        }
+        if (isFunctionEndType(nodeType)) {
+            definition = NodeRegistry.getInstance().getDefinition(serverId, FUNCTION_END_MIGRATED_ID);
+            if (definition != null) {
+                return definition;
+            }
+            return NodeRegistry.getInstance().getDefinition(serverId, FUNCTION_END_CANONICAL_ID);
+        }
+        String migratedNodeType = migratedFunctionNodeType(nodeType);
+        if (migratedNodeType != null) {
+            return NodeRegistry.getInstance().getDefinition(serverId, migratedNodeType);
+        }
         return null;
+    }
+
+    private static String migratedFunctionNodeType(String nodeType) {
+        if (nodeType == null) {
+            return null;
+        }
+        return switch (nodeType) {
+            case FUNCTION_INPUT_ID -> FUNCTION_INPUT_CANONICAL_ID;
+            case FUNCTION_OUTPUT_ID -> FUNCTION_OUTPUT_CANONICAL_ID;
+            case CALL_FUNCTION_ID -> CALL_FUNCTION_CANONICAL_ID;
+            default -> null;
+        };
     }
 
     private void requestNodeRegistry() {
@@ -171,6 +214,10 @@ public class NodeWidget extends AnimatedWidget {
         if (manager != null) {
             manager.ensureFlowClient(serverId).requestNodeRegistry();
         }
+    }
+
+    public boolean hasLoadedDefinition() {
+        return definition != null;
     }
 
     private void createInputWidgets() {
@@ -220,7 +267,7 @@ public class NodeWidget extends AnimatedWidget {
             case SEARCHABLE_LIST -> {
                 List<String> options = resolveOptions(input);
                 if (options.isEmpty()) {
-                    return buildTextInput(currentValue, input.getOptionsSource());
+                    options = fallbackSearchableOptions(currentValue, input.getDefaultValue());
                 }
                 String selected = resolveSelected(options, currentValue, input.getDefaultValue());
                 return buildSearchableSelector(input, options, selected);
@@ -378,7 +425,11 @@ public class NodeWidget extends AnimatedWidget {
             return resolveNexoExternalIdOptions();
         }
         String source = input.getOptionsSource();
-        if (source != null && source.startsWith("server:")) {
+        String catalog = resolveMinecraftCatalog(input.getOptionsSource());
+        if (catalog != null && (source == null || !source.startsWith("server:"))) {
+            return catalogOptions(catalog);
+        }
+        if (source != null && !source.isBlank()) {
             List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
             if (!values.isEmpty()) {
                 return values;
@@ -389,11 +440,15 @@ public class NodeWidget extends AnimatedWidget {
             }
             return List.of();
         }
-        String catalog = resolveMinecraftCatalog(input.getOptionsSource());
-        if (catalog != null) {
-            return catalogOptions(catalog);
-        }
         return List.of();
+    }
+
+    private List<String> fallbackSearchableOptions(Object currentValue, String defaultValue) {
+        String value = currentValue != null ? currentValue.toString() : defaultValue;
+        if (value == null || value.isBlank()) {
+            return List.of("Loading");
+        }
+        return List.of(value);
     }
 
     private List<String> resolveNexoExternalIdOptions() {
@@ -774,11 +829,19 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private boolean isFunctionStartNode() {
-        return FUNCTION_START_ID.equals(node.getType());
+        return isFunctionStartType(node.getType());
     }
 
     private boolean isFunctionEndNode() {
-        return FUNCTION_END_ID.equals(node.getType());
+        return isFunctionEndType(node.getType());
+    }
+
+    private static boolean isFunctionStartType(String type) {
+        return FUNCTION_START_ID.equals(type) || FUNCTION_START_MIGRATED_ID.equals(type) || FUNCTION_START_CANONICAL_ID.equals(type);
+    }
+
+    private static boolean isFunctionEndType(String type) {
+        return FUNCTION_END_ID.equals(type) || FUNCTION_END_MIGRATED_ID.equals(type) || FUNCTION_END_CANONICAL_ID.equals(type);
     }
 
     private boolean isValidFunctionParameter(FlowGraph.FunctionParameter parameter) {
@@ -786,6 +849,13 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private List<FlowDataType> getSupportedFunctionTypes() {
+        NodeRegistry registry = NodeRegistry.getInstance();
+        if (registry != null) {
+            List<FlowDataType> serverTypes = registry.getServerDataTypes(serverId);
+            if (!serverTypes.isEmpty()) {
+                return serverTypes;
+            }
+        }
         return FlowDataType.values();
     }
 

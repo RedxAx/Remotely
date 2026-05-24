@@ -71,7 +71,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private static final int PLAYER_INVENTORY_ROWS = 4;
     private static final int TITLE_COLOR = 0xFF404040;
     private static final int OVERLAY_COLOR = 0xA0101010;
-    private static final int INSPECTOR_PANEL_WIDTH = 150;
+    private static final int INSPECTOR_PANEL_WIDTH = ReSyncStudioPanelState.DEFAULT_WIDTH;
     private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
     private static final Set<GuiDesignerScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     private static final List<String> ACTION_MODE_OPTIONS = List.of("Flows", "Menus", "Command");
@@ -440,7 +440,12 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
         tooltipOverlay.setLayer(1000);
         addDrawableChild(tooltipOverlay);
 
-        inspectorPanel = createSidePanel("gui_inspector").width(INSPECTOR_PANEL_WIDTH).y(0).height(height).show();
+        inspectorPanel = createSidePanel("gui_inspector")
+            .minWidth(ReSyncStudioPanelState.MIN_WIDTH)
+            .width(INSPECTOR_PANEL_WIDTH)
+            .y(0)
+            .height(height)
+            .show();
         inspectorPanel.container().layout(new ManagedLayout()).columns(1).padding(panelState.padding()).scrolling(true).enableSelecting(false);
     }
 
@@ -720,9 +725,9 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
     private int inspectorRowWidth() {
         if (inspectorPanel == null) {
-            return Math.max(120, INSPECTOR_PANEL_WIDTH - panelState.padding() * 2);
+            return Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, INSPECTOR_PANEL_WIDTH - panelState.padding() * 2);
         }
-        return Math.max(120, inspectorPanel.getDesiredWidth() - panelState.padding() * 2);
+        return Math.max(ReSyncStudioPanelState.MIN_ROW_WIDTH, inspectorPanel.getDesiredWidth() - panelState.padding() * 2);
     }
 
     private List<String> materialOptions() {

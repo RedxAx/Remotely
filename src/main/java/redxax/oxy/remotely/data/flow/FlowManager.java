@@ -500,6 +500,10 @@ public class FlowManager {
     }
 
     public void saveProjectMetadata(String serverId, ReSyncProjectMetadata metadata) {
+        saveProjectMetadata(serverId, metadata, true);
+    }
+
+    public void saveProjectMetadata(String serverId, ReSyncProjectMetadata metadata, boolean refreshWorkspace) {
         if (serverId == null || metadata == null) {
             return;
         }
@@ -510,7 +514,7 @@ public class FlowManager {
             projectMetadataStore.markSaving(serverId, serverId);
             flowClient.sendProjectMetadataSave(metadata);
         }
-        refreshStudioWorkspace(serverId);
+        refreshStudioWorkspace(serverId, refreshWorkspace);
     }
 
     public void cacheProjectMetadata(String serverId, ReSyncProjectMetadata metadata) {
@@ -525,7 +529,7 @@ public class FlowManager {
 
     public void markProjectMetadataSaved(String serverId) {
         projectMetadataStore.markSaved(serverId, serverId);
-        refreshStudioWorkspace(serverId);
+        refreshStudioWorkspace(serverId, false);
     }
 
     public Map<String, FlowGraph> getFlowsForServer(String serverId) {
@@ -947,6 +951,10 @@ public class FlowManager {
         return playerService.getOnlinePlayerNamesForServer(serverId);
     }
 
+    public List<PlayerDossier> getOnlinePlayersForServer(String serverId) {
+        return playerService.getOnlinePlayersForServer(serverId);
+    }
+
     public void requestPlayerTrackingSnapshot(String serverId) {
         if (serverId == null || serverId.isBlank()) {
             return;
@@ -1269,10 +1277,14 @@ public class FlowManager {
     }
 
     void refreshStudioWorkspace(String serverId) {
+        refreshStudioWorkspace(serverId, true);
+    }
+
+    void refreshStudioWorkspace(String serverId, boolean rebuildContentBrowser) {
         ScreenManager.getInstance().execute(() -> {
             FlowEditorScreen studioScreen = FlowEditorScreen.getStudioScreen(serverId);
             if (studioScreen != null) {
-                studioScreen.refreshStudioWorkspace();
+                studioScreen.refreshStudioWorkspace(rebuildContentBrowser);
             }
             FlowEditorScreen.refreshWorldsForServer(serverId);
         });

@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
+import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
 import redxax.oxy.remotely.data.flow.world.WorldGeneratorDescriptor;
 import redxax.oxy.remotely.data.flow.world.WorldInventoryGroup;
@@ -77,7 +78,10 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
+import static restudio.rescreen.config.Config.animationsEnabled;
+import static restudio.rescreen.config.Config.deltaTime;
 import static restudio.rescreen.config.Config.desktopMode;
+import static restudio.rescreen.config.Config.globalExpandSpeed;
 
 public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHeaderProvider, DesktopWindowBehaviorProvider {
     private static final String CUSTOM_FUNCTION_NODE_PREFIX = "custom_function:";
@@ -87,6 +91,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     protected FlowGraph graph;
     protected final String serverId;
     private static Screen parent;
+    private final Screen ownerScreen;
     protected final Map<String, FlowNodeWidget> widgetCache = new HashMap<>();
     private static final float WIRE_HIT_RADIUS = 6.0f;
     private static final int WIRE_OUT_OFFSET = 26;
@@ -113,6 +118,14 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private AnimatedWidget debugStopButton;
     private boolean initialized;
     private boolean debugMode;
+    private static final float INITIAL_VIEWPORT_MAX_ZOOM = 1.0F;
+    private static final float INITIAL_VIEWPORT_START_ZOOM = 3.0F;
+    private static final int INITIAL_VIEWPORT_PADDING = 80;
+    private static final int INITIAL_VIEWPORT_STABLE_FRAMES = 2;
+    private boolean initialViewportFitPending = true;
+    private int initialViewportStableFrames;
+    private int initialViewportSignature;
+    private final Set<String> initialViewportFittedKeys = new HashSet<>();
 
     private int initialWidth;
     private int initialHeight;
@@ -132,7 +145,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private String activeNodeRegistryServerId;
     private final Gson gson = new Gson();
     private TextInputWidget commandLabelInput;
-    private TextInputWidget commandPathsInput;
+    private final List<TextInputWidget> commandPathInputs = new ArrayList<>();
     private ToggleWidget commandStructuredToggle;
     private static final float STUDIO_CONTENT_BROWSER_DEFAULT_RATIO = 0.22F;
     private static final int STUDIO_CONTENT_BROWSER_MIN_HEIGHT = 96;
@@ -170,10 +183,19 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         READY
     }
 
-    private record StudioDocument(String type, String id, String title, FlowGraph graph, ReSyncStudioView view) {
+    private record StudioDocument(String type, String id, String title, FlowGraph graph, ReSyncStudioView view, StudioViewportState viewport) {
         String key() {
             return ReSyncProjectMetadata.resourceKey(type, id);
         }
+    }
+
+    private static class StudioViewportState {
+        private float zoomLevel = 1.0F;
+        private float targetZoomLevel = INITIAL_VIEWPORT_START_ZOOM;
+        private float panX;
+        private float panY;
+        private float targetPanX;
+        private float targetPanY;
     }
 
     private static class CommandBindingContext {
@@ -205,6 +227,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         private final BufferedImage flowIcon;
         private final BufferedImage commandIcon;
         private final BufferedImage contentIcon;
+        private final BufferedImage itemIcon;
+        private final BufferedImage armorIcon;
+        private final BufferedImage blockIcon;
         private final BufferedImage guiIcon;
         private final BufferedImage scoreboardIcon;
         private final BufferedImage tabIcon;
@@ -265,10 +290,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             flowIcon = resources.getImage(Identifier.icon("graph.png"));
             commandIcon = resources.getImage(Identifier.icon("terminal.png"));
             contentIcon = resources.getImage(Identifier.icon("resources.png"));
-            guiIcon = resources.getImage(Identifier.icon("panel.png"));
-            scoreboardIcon = resources.getImage(Identifier.icon("report.png"));
-            tabIcon = resources.getImage(Identifier.icon("newTab.png"));
-            worldGenIcon = resources.getImage(Identifier.icon("earth.png"));
+            itemIcon = resources.getImage(Identifier.icon("item.png"));
+            armorIcon = resources.getImage(Identifier.icon("armor.png"));
+            blockIcon = resources.getImage(Identifier.icon("block.png"));
+            guiIcon = resources.getImage(Identifier.icon("fullPanel.png"));
+            scoreboardIcon = resources.getImage(Identifier.icon("panel.png"));
+            tabIcon = resources.getImage(Identifier.icon("topPanel.png"));
+            worldGenIcon = resources.getImage(Identifier.icon("map.png"));
             updateContainers();
             rebuild();
         }
@@ -633,10 +661,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .addIconItem("New Function", "snippets.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FUNCTION), "Create Function")
                 .addIconItem("New Command", "terminal.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.COMMAND), "Create Command")
                 .addIconItem("New Item", "resources.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CUSTOM_CONTENT), "Create Item")
-                .addIconItem("New GUI", "panel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.GUI), "Create GUI")
-                .addIconItem("New Scoreboard", "report.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.SCOREBOARD), "Create Scoreboard")
-                .addIconItem("New Tab", "newTab.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TAB), "Create Tab")
-                .addIconItem("New WorldGen", "earth.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.WORLDGEN), "Create WorldGen");
+                .addIconItem("New GUI", "fullPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.GUI), "Create GUI")
+                .addIconItem("New Scoreboard", "panel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.SCOREBOARD), "Create Scoreboard")
+                .addIconItem("New Tab", "topPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TAB), "Create Tab")
+                .addIconItem("New WorldGen", "map.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.WORLDGEN), "Create WorldGen");
             showContextMenu(createButton.getX(), createButton.getY() + createButton.getHeight() + 2, builder);
         }
 
@@ -706,18 +734,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .size(220, 22)
                 .build();
             builder.addRow(ReSyncResourceDragPayload.FOLDER.equals(type) ? "Name" : "ID", true, 22, idInput);
-            DropDownWidget<String> templateSelect = null;
-            FlowManager manager = FlowManager.getInstance();
-            if (ReSyncResourceDragPayload.FLOW.equals(type) && manager != null && !manager.getFlowTemplates().isEmpty()) {
-                templateSelect = new DropDownWidget.Builder<>(manager.getFlowTemplates())
-                    .size(220, 22)
-                    .selectedItem(manager.getFlowTemplates().getFirst())
-                    .build();
-                builder.addRow("Template", true, 22, templateSelect);
-            }
 
             PopupWidget[] popupRef = new PopupWidget[1];
-            DropDownWidget<String> finalTemplateSelect = templateSelect;
             AnimatedButton createButton = new AnimatedButton.Builder()
                 .label("Create")
                 .accentType(ThemeManager.getAccent("nice"))
@@ -732,8 +750,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                         new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
                         return;
                     }
-                    String template = finalTemplateSelect != null ? finalTemplateSelect.getSelectedItem() : null;
-                    if (createResource(type, value, template)) {
+                    if (createResource(type, value, null)) {
                         if (popupRef[0] != null) {
                             popupRef[0].hide();
                         }
@@ -791,7 +808,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             }
             switch (type) {
                 case ReSyncResourceDragPayload.FLOW -> {
-                    String selectedTemplate = template != null ? template : manager.getFlowTemplates().isEmpty() ? "Empty" : manager.getFlowTemplates().getFirst();
+                    String selectedTemplate = template != null ? template : "Blank";
                     openStudioGraphDocument(type, id, id, manager.createFlow(serverId, id, false, selectedTemplate));
                 }
                 case ReSyncResourceDragPayload.FUNCTION -> openStudioGraphDocument(type, id, id, manager.createFlow(serverId, id, true));
@@ -947,7 +964,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             for (int i = 0; i < studioDocuments.size(); i++) {
                 StudioDocument document = studioDocuments.get(i);
                 if (document.key().equals(oldKey)) {
-                    studioDocuments.set(i, new StudioDocument(document.type(), newId, newId, document.graph(), document.view()));
+                    studioDocuments.set(i, new StudioDocument(document.type(), newId, newId, document.graph(), document.view(), document.viewport()));
                     break;
                 }
             }
@@ -1058,24 +1075,19 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return switch (iconPathFor(resource)) {
                 case "terminal.png" -> commandIcon;
                 case "resources.png" -> contentIcon;
-                case "panel.png" -> guiIcon;
-                case "report.png" -> scoreboardIcon;
-                case "newTab.png" -> tabIcon;
-                case "earth.png" -> worldGenIcon;
+                case "item.png" -> itemIcon;
+                case "armor.png" -> armorIcon;
+                case "block.png" -> blockIcon;
+                case "fullPanel.png" -> guiIcon;
+                case "panel.png" -> scoreboardIcon;
+                case "topPanel.png" -> tabIcon;
+                case "map.png" -> worldGenIcon;
                 default -> flowIcon;
             };
         }
 
         private String iconPathFor(ReSyncProjectMetadata.ResourceEntry resource) {
-            return switch (resource.getType()) {
-                case ReSyncResourceDragPayload.COMMAND -> "terminal.png";
-                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "resources.png";
-                case ReSyncResourceDragPayload.GUI -> "panel.png";
-                case ReSyncResourceDragPayload.SCOREBOARD -> "report.png";
-                case ReSyncResourceDragPayload.TAB -> "newTab.png";
-                case ReSyncResourceDragPayload.WORLDGEN, ReSyncResourceDragPayload.WORLD -> "earth.png";
-                default -> "graph.png";
-            };
+            return studioResourceIconPath(resource.getType(), resource.getId());
         }
 
         private void updateContainers() {
@@ -1228,7 +1240,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
             @Override
             public String getMetadata(String key) {
-                return "type".equals(key) ? "RESYNC" : null;
+                return switch (key) {
+                    case "type" -> "RESYNC";
+                    case "rootIcon" -> "ReSync.png";
+                    default -> null;
+                };
             }
         }
 
@@ -1386,8 +1402,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
     public FlowEditorScreen(FlowGraph graph, String serverId, Screen parent, ClientServerView startupServer, String loaderHint, String serverTitle) {
         super();
+        this.zoomLevel = INITIAL_VIEWPORT_MAX_ZOOM;
+        this.targetZoomLevel = INITIAL_VIEWPORT_START_ZOOM;
         this.graph = graph;
         this.serverId = serverId;
+        this.ownerScreen = parent;
         this.startupServer = startupServer;
         this.loaderHint = safeText(loaderHint);
         this.serverTitle = safeText(serverTitle);
@@ -1454,8 +1473,14 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     }
 
     public void refreshStudioWorkspace() {
+        refreshStudioWorkspace(true);
+    }
+
+    public void refreshStudioWorkspace(boolean rebuildContentBrowser) {
         if (studioContentBrowser != null) {
-            studioContentBrowser.rebuild();
+            if (rebuildContentBrowser) {
+                studioContentBrowser.rebuild();
+            }
         }
         refreshStudioResourcePanel();
     }
@@ -1525,24 +1550,22 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         String key = ReSyncProjectMetadata.resourceKey(type, id);
         for (StudioDocument document : studioDocuments) {
             if (document.key().equals(key)) {
-                activeStudioDocument = document;
                 FlowManager manager = FlowManager.getInstance();
                 if (manager != null) {
                     ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
                     metadata.addOpenDocument(type, id, title);
-                    manager.saveProjectMetadata(serverId, metadata);
+                    manager.saveProjectMetadata(serverId, metadata, false);
                 }
                 return;
             }
         }
-        StudioDocument document = new StudioDocument(type, id, title, targetGraph, view);
+        StudioDocument document = new StudioDocument(type, id, title, targetGraph, view, new StudioViewportState());
         studioDocuments.add(document);
-        activeStudioDocument = document;
         FlowManager manager = FlowManager.getInstance();
         if (manager != null) {
             ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
             metadata.addOpenDocument(type, id, title);
-            manager.saveProjectMetadata(serverId, metadata);
+            manager.saveProjectMetadata(serverId, metadata, false);
         }
     }
 
@@ -1675,6 +1698,127 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         setPan((float) (width / 2.0 - focusNode.getX()), (float) (height / 2.0 - focusNode.getY()));
     }
 
+    private void applyInitialViewportFitIfReady() {
+        String viewportFitKey = initialViewportFitKey();
+        if (!initialViewportFitPending || initialViewportFittedKeys.contains(viewportFitKey) || width <= 0 || height <= 0) {
+            return;
+        }
+        if (studioMode && (startupState != StudioStartupState.READY || activeStudioDocument == null)) {
+            return;
+        }
+        if (worldWidgets.isEmpty()) {
+            initialViewportFitPending = false;
+            initialViewportFittedKeys.add(viewportFitKey);
+            zoomLevel = INITIAL_VIEWPORT_MAX_ZOOM;
+            targetZoomLevel = INITIAL_VIEWPORT_MAX_ZOOM;
+            panX = 0.0F;
+            panY = 0.0F;
+            targetPanX = 0.0F;
+            targetPanY = 0.0F;
+            return;
+        }
+        for (Widget widget : worldWidgets) {
+            if (widget instanceof FlowNodeWidget flowNodeWidget && !flowNodeWidget.hasLoadedDefinition()) {
+                initialViewportStableFrames = 0;
+                initialViewportSignature = 0;
+                return;
+            }
+        }
+        int signature = initialViewportSignature();
+        if (signature == initialViewportSignature) {
+            initialViewportStableFrames++;
+        } else {
+            initialViewportSignature = signature;
+            initialViewportStableFrames = 1;
+        }
+        if (initialViewportStableFrames < INITIAL_VIEWPORT_STABLE_FRAMES) {
+            return;
+        }
+        fitViewportToWorldWidgets();
+        initialViewportFitPending = false;
+        initialViewportFittedKeys.add(viewportFitKey);
+    }
+
+    private String initialViewportFitKey() {
+        if (studioMode && activeStudioDocument != null) {
+            return activeStudioDocument.key();
+        }
+        return graph != null && graph.getId() != null ? graph.getId() : "screen";
+    }
+
+    private int initialViewportSignature() {
+        int signature = worldWidgets.size();
+        for (Widget widget : worldWidgets) {
+            signature = 31 * signature + widget.getX();
+            signature = 31 * signature + widget.getY();
+            signature = 31 * signature + widget.getWidth();
+            signature = 31 * signature + widget.getHeight();
+        }
+        return signature;
+    }
+
+    private void fitViewportToWorldWidgets() {
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int maxY = Integer.MIN_VALUE;
+        for (Widget widget : worldWidgets) {
+            minX = Math.min(minX, widget.getX());
+            minY = Math.min(minY, widget.getY());
+            maxX = Math.max(maxX, widget.getX() + widget.getWidth());
+            maxY = Math.max(maxY, widget.getY() + widget.getHeight());
+        }
+        if (minX == Integer.MAX_VALUE || minY == Integer.MAX_VALUE || maxX == Integer.MIN_VALUE || maxY == Integer.MIN_VALUE) {
+            return;
+        }
+        int viewportWidth = Math.max(1, viewportFitWidth() - INITIAL_VIEWPORT_PADDING * 2);
+        int viewportHeight = Math.max(1, viewportFitHeight() - INITIAL_VIEWPORT_PADDING * 2);
+        int contentWidth = Math.max(1, maxX - minX);
+        int contentHeight = Math.max(1, maxY - minY);
+        float fitZoom = Math.min(viewportWidth / (float) contentWidth, viewportHeight / (float) contentHeight);
+        fitZoom = Math.clamp(fitZoom, minZoom, Math.min(maxZoom, INITIAL_VIEWPORT_MAX_ZOOM));
+        float centerX = (minX + maxX) / 2.0F;
+        float centerY = (minY + maxY) / 2.0F;
+        float viewportCenterY = viewportFitTop() + viewportFitHeight() / 2.0F;
+        targetZoomLevel = fitZoom;
+        targetPanX = viewportFitLeft() + viewportFitWidth() / 2.0F - centerX;
+        targetPanY = viewportCenterY - centerY;
+        isZoomingToMouse = false;
+    }
+
+    private int viewportFitTop() {
+        return studioMode ? 30 : 0;
+    }
+
+    protected int viewportFitLeft() {
+        int left = 0;
+        if (paletteSidePanel != null && paletteSidePanel.isVisible() && paletteSidePanel.isLeftAnchored()) {
+            left += paletteSidePanel.getDesiredWidth() + 8;
+        }
+        if (studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.isLeftAnchored()) {
+            left += studioResourcePanel.getDesiredWidth() + 8;
+        }
+        return left;
+    }
+
+    protected int viewportFitWidth() {
+        int right = 0;
+        if (paletteSidePanel != null && paletteSidePanel.isVisible() && !paletteSidePanel.isLeftAnchored()) {
+            right += paletteSidePanel.getDesiredWidth() + 8;
+        }
+        if (studioResourcePanel != null && studioResourcePanel.isVisible() && !studioResourcePanel.isLeftAnchored()) {
+            right += studioResourcePanel.getDesiredWidth() + 8;
+        }
+        return Math.max(1, width - viewportFitLeft() - right);
+    }
+
+    private int viewportFitHeight() {
+        if (!studioMode) {
+            return height;
+        }
+        return Math.max(1, studioEditorHeight() - viewportFitTop());
+    }
+
     public void applyGraph(FlowGraph sourceGraph) {
         if (sourceGraph == null) {
             return;
@@ -1727,6 +1871,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         dragState.sourceIsInput = false;
         undoStack.clear();
         redoStack.clear();
+        initialViewportFittedKeys.remove(initialViewportFitKey());
         refreshNodeRegistry();
     }
 
@@ -1765,7 +1910,17 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             addWorldWidget(widget);
             widgetCache.put(entry.getKey(), widget);
         }
+        scheduleInitialViewportFit();
         refreshPalette();
+    }
+
+    private void scheduleInitialViewportFit() {
+        if (initialViewportFittedKeys.contains(initialViewportFitKey())) {
+            return;
+        }
+        initialViewportFitPending = true;
+        initialViewportStableFrames = 0;
+        initialViewportSignature = 0;
     }
 
     protected FlowNodeWidget createNodeWidget(String nodeId, FlowNode node) {
@@ -1779,13 +1934,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         this.initialHeight = height;
 
         if (!initialized) {
-            if (!studioMode && showFloatingHeaderBackground()) {
-                headerBackground = new IconButton.Builder().pos(10, 10).size(1, 28).entranceAnimation(false).build();
-                headerBackground.active = false;
-                addHudWidget(headerBackground);
-            } else {
-                header().position(Position.TOP).size(30).visible(true);
-            }
+            header().position(Position.TOP).size(30).visible(true);
 
             if (studioMode) {
                 studioEmptyMessage = new IconMessage(0, 0, 180, 96, "Open Or Create An Asset", "remotely.png");
@@ -2342,8 +2491,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     }
 
     private void createPaletteSidePanel() {
-        paletteSidePanel = new SidePanel(this, "palettePanel", this::updatePositions).width(120).y(palettePanelTop()).height(palettePanelHeight()).show();
-        paletteSidePanel.container().layout(new ManagedLayout()).columns(1).padding(5);
+        paletteSidePanel = new SidePanel(this, "palettePanel", this::updatePositions)
+            .minWidth(ReSyncStudioPanelState.MIN_WIDTH)
+            .width(ReSyncStudioPanelState.DEFAULT_WIDTH)
+            .y(palettePanelTop())
+            .height(palettePanelHeight())
+            .show();
+        paletteSidePanel.container().layout(new ManagedLayout()).columns(1).padding(studioPanelState.padding());
 
         categoryPopups.clear();
         categoryOrder = resolveCategoryOrder();
@@ -2399,7 +2553,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         studioContentBrowserHeight = studioContentBrowserDefaultHeight();
         studioContentBrowser = new ReSyncContentBrowserWidget(8, height - studioContentBrowserHeight() - studioContentBrowserBottomMargin(), width - 16, studioContentBrowserHeight());
         addHudWidget(studioContentBrowser);
-        studioResourcePanel = new SidePanel(this, "studioResourcePanel", this::updatePositions).width(studioPanelState.width()).y(54).height(height - 65 - studioContentBrowserHeight()).show();
+        studioResourcePanel = new SidePanel(this, "studioResourcePanel", this::updatePositions)
+            .minWidth(ReSyncStudioPanelState.MIN_WIDTH)
+            .width(studioPanelState.width())
+            .y(54)
+            .height(height - 65 - studioContentBrowserHeight())
+            .show();
         studioResourcePanel.container().layout(new ManagedLayout()).columns(1).padding(studioPanelState.padding()).scrolling(true).enableSelecting(false);
         studioResourcePanel.hide();
         syncStudioDocumentTabs();
@@ -2517,12 +2676,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             TabsManager.Tab tab = findStudioTab(document.key(), tabs);
             if (tab == null) {
                 Container container = new Container("document-" + document.key(), 0, 0, 1, 1);
-                tab = studioTabsManager.addTab(document.title(), container, studioTabIconPath(document.type()));
+                tab = studioTabsManager.addTab(document.title(), container, studioResourceIconPath(document.type(), document.id()));
                 tab.setData(document.key());
                 tabs.add(tab);
             } else {
                 tab.setName(document.title());
-                tab.setIconPath(studioTabIconPath(document.type()));
+                tab.setIconPath(studioResourceIconPath(document.type(), document.id()));
             }
         }
         if (activeStudioDocument != null) {
@@ -2545,15 +2704,27 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         return null;
     }
 
-    private String studioTabIconPath(String type) {
+    private String studioResourceIconPath(String type, String id) {
         return switch (type) {
             case ReSyncResourceDragPayload.COMMAND -> "terminal.png";
-            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "resources.png";
-            case ReSyncResourceDragPayload.GUI -> "panel.png";
-            case ReSyncResourceDragPayload.SCOREBOARD -> "report.png";
-            case ReSyncResourceDragPayload.TAB -> "newTab.png";
-            case ReSyncResourceDragPayload.WORLDGEN, ReSyncResourceDragPayload.WORLD -> "earth.png";
+            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> customContentIconPath(id);
+            case ReSyncResourceDragPayload.GUI -> "fullPanel.png";
+            case ReSyncResourceDragPayload.SCOREBOARD -> "panel.png";
+            case ReSyncResourceDragPayload.TAB -> "topPanel.png";
+            case ReSyncResourceDragPayload.WORLDGEN -> "map.png";
+            case ReSyncResourceDragPayload.WORLD -> "earth.png";
             default -> "graph.png";
+        };
+    }
+
+    private String customContentIconPath(String id) {
+        FlowManager manager = FlowManager.getInstance();
+        CustomContentDefinition content = manager != null ? manager.getCustomContentForServer(serverId).get(id) : null;
+        return switch (content != null ? safeText(content.getType()).toLowerCase(Locale.ROOT) : "") {
+            case "armor" -> "armor.png";
+            case "block" -> "block.png";
+            case "item" -> "item.png";
+            default -> "resources.png";
         };
     }
 
@@ -2562,7 +2733,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return;
         }
         commandLabelInput = null;
-        commandPathsInput = null;
+        commandPathInputs.clear();
         commandStructuredToggle = null;
         if (activeStudioDocument == null) {
             clearStudioResourcePanelWidgets();
@@ -2606,34 +2777,147 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
         TriggerBinding binding = manager.getCommandBinding(serverId, activeStudioDocument.id());
         CommandBindingContext command = parseCommandContext(binding != null ? binding.getContext() : activeStudioDocument.id());
+        buildCommandResourcePanel(command);
+    }
+
+    private void buildCommandResourcePanel(CommandBindingContext command) {
         String panelKey = activeStudioDocument.key();
+        commandPathInputs.clear();
         if (reuseStudioResourcePanel(panelKey)) {
-            commandLabelInput = studioResourcePanelInputs.get("command");
-            commandPathsInput = studioResourcePanelInputs.get("paths");
-            commandStructuredToggle = studioResourcePanelToggles.get("structured");
-            updateStudioPanelInput("command", command.command != null && !command.command.isBlank() ? command.command : activeStudioDocument.id());
-            updateStudioPanelInput("paths", String.join("|", command.subcommands != null ? command.subcommands : List.of()));
-            updateStudioPanelToggle("structured", command.structured != null && command.structured);
-            return;
+            clearStudioResourcePanelWidgets();
         }
         setStudioResourcePanelKey(panelKey);
         commandLabelInput = panelInput("Command", command.command != null && !command.command.isBlank() ? command.command : activeStudioDocument.id());
-        commandPathsInput = panelInput("Paths", String.join("|", command.subcommands != null ? command.subcommands : List.of()));
         commandStructuredToggle = new ToggleWidget.Builder()
             .label("Structured")
             .toggled(command.structured != null && command.structured)
-            .size(studioPanelState.rowWidth(studioResourcePanel), 20)
+            .size(studioPanelState.rowWidth(studioResourcePanel), 18)
             .entranceAnimation(false)
             .build();
         rememberStudioPanelInput("command", commandLabelInput);
-        rememberStudioPanelInput("paths", commandPathsInput);
         rememberStudioPanelToggle("structured", commandStructuredToggle);
         int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
-        setStudioResourcePanelWidgets(
-            studioPanelState.row("Command", commandLabelInput, rowWidth),
-            studioPanelState.row("Paths", commandPathsInput, rowWidth),
-            studioPanelState.row("Structured", commandStructuredToggle, rowWidth)
-        );
+        List<AnimatedWidget> widgets = new ArrayList<>();
+        widgets.add(commandSummaryRow(rowWidth));
+        widgets.add(studioPanelState.row("Command", commandLabelInput, rowWidth));
+        widgets.add(studioPanelState.row("Structured", commandStructuredToggle, rowWidth));
+        List<String> paths = command.subcommands != null ? new ArrayList<>(command.subcommands) : new ArrayList<>();
+        if (paths.isEmpty()) {
+            paths.add("");
+        }
+        for (int i = 0; i < paths.size(); i++) {
+            widgets.add(commandPathRow(paths, i, rowWidth));
+        }
+        widgets.add(new AnimatedButton.Builder()
+            .label("Add Path")
+            .size(rowWidth, 18)
+            .entranceAnimation(false)
+            .onClick(() -> {
+                CommandBindingContext draft = currentCommandDraft();
+                draft.subcommands.add("");
+                rebuildCommandResourcePanel(draft);
+            })
+            .build());
+        setStudioResourcePanelWidgets(widgets.toArray(new AnimatedWidget[0]));
+    }
+
+    private MountableButtonWidget commandSummaryRow(int rowWidth) {
+        String command = commandLabelInput != null && commandLabelInput.getText() != null && !commandLabelInput.getText().isBlank()
+            ? "/" + normalizeCommandLabel(commandLabelInput.getText())
+            : "/" + activeStudioDocument.id();
+        MountableButtonWidget row = new MountableButtonWidget.Builder("Command")
+            .description(command)
+            .iconPath("terminal.png")
+            .build();
+        row.setSize(rowWidth, 30);
+        ReSyncStudioPanelState.disableEntrance(row);
+        return row;
+    }
+
+    private TitledRowWidget commandPathRow(List<String> paths, int index, int rowWidth) {
+        String value = paths.get(index);
+        String[] pathExamples = {
+            "pvp duel <online_player>",
+            "report hacker <offline_player>",
+            "database getPlayers <player_with_perm:my.permission.node>",
+            "trade <online_player>"
+        };
+        int buttonCount = 1;
+        if (index > 0) {
+            buttonCount++;
+        }
+        if (index < paths.size() - 1) {
+            buttonCount++;
+        }
+        int inputWidth = Math.max(120, rowWidth - buttonCount * 18 - 8);
+        TextInputWidget pathInput = new TextInputWidget.Builder()
+            .text(value)
+            .placeholder(pathExamples[index % pathExamples.length])
+            .forcePlaceholder(false)
+            .size(inputWidth, 18)
+            .build();
+        ReSyncStudioPanelState.disableEntrance(pathInput);
+        commandPathInputs.add(pathInput);
+        RowWidget.Builder rowBuilder = new RowWidget.Builder()
+            .size(rowWidth, 18)
+            .padding(2)
+            .addWidget(pathInput);
+        if (index > 0) {
+            rowBuilder.addWidget(commandPathButton("goforward.png", -90, () -> moveCommandPath(index, -1)));
+        }
+        if (index < paths.size() - 1) {
+            rowBuilder.addWidget(commandPathButton("goforward.png", 90, () -> moveCommandPath(index, 1)));
+        }
+        rowBuilder.addWidget(new SquareButtonWidget.Builder()
+            .imagePath("delete.png")
+            .size(18, 18)
+            .hint("Remove Path")
+            .accentType(ThemeManager.getAccent("danger"))
+            .entranceAnimation(false)
+            .onClick(() -> removeCommandPath(index))
+            .build());
+        RowWidget row = rowBuilder.build();
+        ReSyncStudioPanelState.disableEntrance(row);
+        return studioPanelState.row("Path " + (index + 1), row, rowWidth);
+    }
+
+    private SquareButtonWidget commandPathButton(String imagePath, int rotation, Runnable action) {
+        return new SquareButtonWidget.Builder()
+            .imagePath(imagePath)
+            .size(18, 18)
+            .rotate(rotation)
+            .hint(rotation < 0 ? "Move Up" : "Move Down")
+            .entranceAnimation(false)
+            .onClick(action)
+            .build();
+    }
+
+    private void moveCommandPath(int index, int direction) {
+        CommandBindingContext draft = currentCommandDraft();
+        int target = index + direction;
+        if (index >= 0 && target >= 0 && index < draft.subcommands.size() && target < draft.subcommands.size()) {
+            String value = draft.subcommands.get(index);
+            draft.subcommands.set(index, draft.subcommands.get(target));
+            draft.subcommands.set(target, value);
+        }
+        rebuildCommandResourcePanel(draft);
+    }
+
+    private void removeCommandPath(int index) {
+        CommandBindingContext draft = currentCommandDraft();
+        if (index >= 0 && index < draft.subcommands.size()) {
+            draft.subcommands.remove(index);
+        }
+        if (draft.subcommands.isEmpty()) {
+            draft.subcommands.add("");
+        }
+        rebuildCommandResourcePanel(draft);
+    }
+
+    private void rebuildCommandResourcePanel(CommandBindingContext draft) {
+        studioResourcePanelKey = "";
+        buildCommandResourcePanel(draft);
+        studioResourcePanel.container().updateWidgetPositions();
     }
 
     private void buildGuiResourcePanel() {
@@ -2655,7 +2939,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         ToggleWidget playerInventory = new ToggleWidget.Builder()
             .label("Inventory")
             .toggled(gui.isExtendToPlayerInventory())
-            .size(studioPanelState.rowWidth(studioResourcePanel), 20)
+            .size(studioPanelState.rowWidth(studioResourcePanel), 18)
             .entranceAnimation(false)
             .build();
         rememberStudioPanelInput("title", title);
@@ -2838,18 +3122,30 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         return lines;
     }
 
-    private List<String> parseCommandPaths(String text) {
-        if (text == null || text.isBlank()) {
-            return new ArrayList<>();
-        }
+    private List<String> collectCommandPathDraft() {
         List<String> paths = new ArrayList<>();
-        for (String path : text.split("\\|")) {
-            String value = path.trim();
-            if (!value.isBlank()) {
-                paths.add(value);
+        for (TextInputWidget input : commandPathInputs) {
+            paths.add(input != null && input.getText() != null ? input.getText().trim() : "");
+        }
+        return paths;
+    }
+
+    private List<String> collectCommandPaths() {
+        List<String> paths = new ArrayList<>();
+        for (String path : collectCommandPathDraft()) {
+            if (!path.isBlank()) {
+                paths.add(path);
             }
         }
         return paths;
+    }
+
+    private CommandBindingContext currentCommandDraft() {
+        CommandBindingContext draft = new CommandBindingContext();
+        draft.command = commandLabelInput != null ? commandLabelInput.getText() : activeStudioDocument.id();
+        draft.subcommands = collectCommandPathDraft();
+        draft.structured = commandStructuredToggle != null && commandStructuredToggle.getValue();
+        return draft;
     }
 
     private CommandBindingContext parseCommandContext(String context) {
@@ -2898,7 +3194,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         for (StudioDocument document : studioDocuments) {
             if (document.key().equals(key)) {
                 syncNodePositions();
+                saveActiveStudioViewport();
                 activeStudioDocument = document;
+                restoreStudioViewport(document.viewport());
                 if (document.view() != null) {
                     document.view().selected();
                 }
@@ -2939,7 +3237,34 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         clearActiveStudioDocument();
     }
 
+    private void saveActiveStudioViewport() {
+        if (!studioMode || activeStudioDocument == null || activeStudioDocument.viewport() == null) {
+            return;
+        }
+        StudioViewportState viewport = activeStudioDocument.viewport();
+        viewport.zoomLevel = zoomLevel;
+        viewport.targetZoomLevel = targetZoomLevel;
+        viewport.panX = panX;
+        viewport.panY = panY;
+        viewport.targetPanX = targetPanX;
+        viewport.targetPanY = targetPanY;
+    }
+
+    private void restoreStudioViewport(StudioViewportState viewport) {
+        if (viewport == null) {
+            return;
+        }
+        zoomLevel = viewport.zoomLevel;
+        targetZoomLevel = viewport.targetZoomLevel;
+        panX = viewport.panX;
+        panY = viewport.panY;
+        targetPanX = viewport.targetPanX;
+        targetPanY = viewport.targetPanY;
+        isZoomingToMouse = false;
+    }
+
     private void clearActiveStudioDocument() {
+        saveActiveStudioViewport();
         activeStudioDocument = null;
         graph = studioEmptyGraph;
         selectedNodeIds.clear();
@@ -3198,17 +3523,17 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     @Override
     public List<AnimatedWidget> getStudioHeaderButtons() {
         List<AnimatedWidget> source = headerButtons;
-        if (parent instanceof FlowEditorScreen && !headerButtons.isEmpty()) {
+        if (ownerScreen instanceof FlowEditorScreen && !headerButtons.isEmpty()) {
             source = headerButtons.subList(1, headerButtons.size());
         }
         return source.stream()
-            .filter(button -> button != null && button.visible)
+            .filter(button -> button != null && (button.visible || isVisibleStudioDebugControl(button)))
             .map(button -> (AnimatedWidget) button)
             .toList();
     }
 
-    protected boolean showFloatingHeaderBackground() {
-        return true;
+    private boolean isVisibleStudioDebugControl(AnimatedWidget button) {
+        return debugMode && (button == debugResumeButton || button == debugStepButton || button == debugStopButton);
     }
 
     protected boolean showExtractButton() {
@@ -3578,7 +3903,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     }
 
     private void notifyStudioHeaderButtonsChanged() {
-        if (parent instanceof FlowEditorScreen studioParent) {
+        if (ownerScreen instanceof FlowEditorScreen studioParent) {
             studioParent.refreshActiveViewHeaderButtons();
         }
         if (studioMode) {
@@ -3616,7 +3941,19 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             updatePalettePanelBounds();
         }
         if (studioResourcePanel != null) {
+            int previousWidth = studioPanelState.width();
+            CommandBindingContext commandDraft = activeStudioDocument != null
+                && ReSyncResourceDragPayload.COMMAND.equals(activeStudioDocument.type())
+                && !commandPathInputs.isEmpty()
+                ? currentCommandDraft()
+                : null;
+            studioPanelState.width(studioResourcePanel.getDesiredWidth());
             studioResourcePanel.width(studioPanelState.width()).y(54).height(Math.max(80, height - 65 - studioContentBrowserHeight() - 18)).update();
+            if (commandDraft != null && previousWidth != studioPanelState.width()) {
+                studioResourcePanelKey = "";
+                buildCommandResourcePanel(commandDraft);
+                studioResourcePanel.container().updateWidgetPositions();
+            }
         }
         for (StudioDocument document : studioDocuments) {
             if (document.view() != null) {
@@ -3664,10 +4001,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return changed;
         }
         float previousHeight = studioContentBrowserAnimatedHeight;
-        studioContentBrowserAnimatedHeight += (targetHeight - studioContentBrowserAnimatedHeight) * 0.35F;
-        if (Math.abs(targetHeight - studioContentBrowserAnimatedHeight) < 0.75F) {
-            studioContentBrowserAnimatedHeight = targetHeight;
-        }
+        studioContentBrowserAnimatedHeight = animationsEnabled
+            ? studioContentBrowserAnimatedHeight + (targetHeight - studioContentBrowserAnimatedHeight) * globalExpandSpeed * deltaTime
+            : targetHeight;
         return Math.round(previousHeight) != Math.round(studioContentBrowserAnimatedHeight);
     }
 
@@ -3845,13 +4181,21 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return 50;
         }
         String type = node.getType();
-        if (type.startsWith("event:") || "function_start".equals(type)) {
+        if (type.startsWith("event:") || isFunctionStartType(type)) {
             return 0;
         }
-        if ("function_end".equals(type)) {
+        if (isFunctionEndType(type)) {
             return 90;
         }
         return 50;
+    }
+
+    private boolean isFunctionStartType(String type) {
+        return "function_start".equals(type) || "function.start".equals(type) || "function.function_start".equals(type);
+    }
+
+    private boolean isFunctionEndType(String type) {
+        return "function_end".equals(type) || "function.end".equals(type) || "function.function_end".equals(type);
     }
 
     public void showNodeInputSelector(List<String> options, String selected, Consumer<String> onSelected, int worldX, int worldY) {
@@ -3878,6 +4222,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
     @Override
     public void close() {
+        saveActiveStudioViewport();
         OPEN_SCREENS.remove(this);
         if (parent != null) {
             client.setScreen(parent);
@@ -3917,6 +4262,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             renderStudioOverlays(context, mouseX, mouseY, delta);
             return;
         }
+
+        applyInitialViewportFitIfReady();
 
         context.getMatrices().push();
         context.getMatrices().translate(getWidth() / 2.0f, getHeight() / 2.0f, 0);
@@ -3987,6 +4334,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         ReSyncStudioView view = activeStudioView();
         if (view != null) {
             nextButtons.addAll(view.headerButtons());
+        }
+        for (AnimatedWidget button : activeViewHeaderButtons) {
+            if (button != null) {
+                button.visible = false;
+            }
         }
         activeViewHeaderButtons.clear();
         activeViewHeaderButtons.addAll(nextButtons);
@@ -5908,7 +6260,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             new Notification("Command", "Invalid Label", Notification.Type.ERROR);
             return false;
         }
-        next.subcommands = parseCommandPaths(commandPathsInput != null ? commandPathsInput.getText() : "");
+        next.subcommands = collectCommandPaths();
         next.structured = commandStructuredToggle != null && commandStructuredToggle.getValue();
         String oldId = activeStudioDocument.id();
         String newId = next.command;
@@ -5945,7 +6297,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         for (int i = 0; i < studioDocuments.size(); i++) {
             StudioDocument document = studioDocuments.get(i);
             if (document.key().equals(oldKey)) {
-                studioDocuments.set(i, new StudioDocument(document.type(), newId, newId, graph, document.view()));
+                studioDocuments.set(i, new StudioDocument(document.type(), newId, newId, graph, document.view(), document.viewport()));
                 activeStudioDocument = studioDocuments.get(i);
                 break;
             }
@@ -6299,6 +6651,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         private final Map<String, WorldEntryRow> entries = new HashMap<>();
         private final List<AnimatedWidget> detailWidgets = new ArrayList<>();
         private final List<AnimatedWidget> headerActions = new ArrayList<>();
+        private ItemSelectorWidget activePlayerSelector;
         private WorldDetailForm detailForm;
         private String selectedWorldName;
         private boolean initialized;
@@ -6397,7 +6750,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             IconButton.Builder builder = new IconButton.Builder()
                 .label(label)
                 .imagePath(icon)
-                .size(Math.max(86, label.length() * 7 + 32), 18)
+                .size(0, 18)
+                .autoWidthOnTextChange(true)
                 .entranceAnimation(false)
                 .onClick(action);
             if (accent != null) {
@@ -7053,20 +7407,21 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             if (manager == null) {
                 return;
             }
+            WorldGenManager.getInstance().requestProjectList(serverId);
             WorldSnapshot snapshot = manager.getWorldSnapshot(serverId);
             List<WorldGeneratorDescriptor> generatorDescriptors = snapshot == null ? List.of() : snapshot.getGeneratorDescriptors();
             TextInputWidget worldInput = new TextInputWidget.Builder().placeholder("World Name").size(220, 18).build();
             TextInputWidget seedInput = new TextInputWidget.Builder().placeholder("Seed").size(220, 18).build();
             DropDownWidget<String> environmentSelect = dropdown(List.of("NORMAL", "NETHER", "THE_END", "CUSTOM"), "NORMAL", 220);
-            List<String> generatorOptions = new ArrayList<>();
-            generatorOptions.add("Default");
-            for (WorldGeneratorDescriptor descriptor : generatorDescriptors) {
-                if (descriptor != null && !safeText(descriptor.getId()).isBlank()) {
-                    generatorOptions.add(descriptor.getId());
-                }
-            }
-            DropDownWidget<String> generatorSelect = dropdown(generatorOptions, generatorOptions.getFirst(), 220);
+            List<GeneratorOption> generatorOptions = createGeneratorOptions(generatorDescriptors);
+            DropDownWidget<GeneratorOption> generatorSelect = new DropDownWidget.Builder<>(generatorOptions)
+                .displayFunction(GeneratorOption::label)
+                .selectedItem(generatorOptions.getFirst())
+                .size(220, 18)
+                .build();
             TextInputWidget generatorConfig = new TextInputWidget.Builder().placeholder("Generator Config").size(220, 18).build();
+            applyGeneratorOption(generatorSelect.getSelectedItem(), generatorConfig);
+            generatorSelect.setOnSelectionChanged(option -> applyGeneratorOption(option, generatorConfig));
             PopupWidget.Builder builder = new PopupWidget.Builder("Create World")
                 .setResizable(false)
                 .setAntiOutOfBound(true)
@@ -7093,11 +7448,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                         new Notification("World", "World Exists", Notification.Type.ERROR);
                         return;
                     }
-                    String generator = safeText(generatorSelect.getSelectedItem());
-                    if ("Default".equalsIgnoreCase(generator)) {
-                        generator = "";
-                    }
-                    manager.createWorld(serverId, worldName, seedInput.getText(), safeText(environmentSelect.getSelectedItem()), generator, generatorConfig.getText());
+                    GeneratorOption generatorOption = generatorSelect.getSelectedItem();
+                    manager.createWorld(serverId, worldName, seedInput.getText(), safeText(environmentSelect.getSelectedItem()),
+                        generatorOption == null ? "" : generatorOption.generator(), generatorConfig.getText());
                     selectedWorldName = worldName;
                     if (popupRef[0] != null) {
                         popupRef[0].hide();
@@ -7108,6 +7461,83 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             popupRef[0] = builder.build();
             addDrawableChild(popupRef[0]);
             popupRef[0].show();
+        }
+
+        private List<GeneratorOption> createGeneratorOptions(List<WorldGeneratorDescriptor> descriptors) {
+            List<GeneratorOption> options = new ArrayList<>();
+            options.add(new GeneratorOption("Default", "", "", false));
+            for (WorldGeneratorDescriptor descriptor : descriptors) {
+                if (descriptor == null || safeText(descriptor.getId()).isBlank()) {
+                    continue;
+                }
+                String label = safeText(descriptor.getDisplayName()).isBlank() ? descriptor.getId() : descriptor.getDisplayName();
+                addGeneratorOption(options, new GeneratorOption(label, descriptor.getId(), descriptor.getDefaultConfig(), descriptor.isConfigurable()));
+            }
+            Set<String> projectIds = new LinkedHashSet<>(WorldGenManager.getInstance().getProjectIds(serverId));
+            ReSyncProjectMetadata metadata = worldManager().getProjectMetadata(serverId);
+            for (ReSyncProjectMetadata.ResourceEntry resource : metadata.getResources()) {
+                if (resource != null && ReSyncResourceDragPayload.WORLDGEN.equals(resource.getType()) && !safeText(resource.getId()).isBlank()) {
+                    projectIds.add(resource.getId());
+                }
+            }
+            List<String> sortedProjectIds = new ArrayList<>(projectIds);
+            sortedProjectIds.sort(String.CASE_INSENSITIVE_ORDER);
+            for (String projectId : sortedProjectIds) {
+                if (!safeText(projectId).isBlank()) {
+                    addGeneratorOption(options, new GeneratorOption("WorldGen: " + projectId, "worldgen_project", projectId, true));
+                }
+            }
+            return options;
+        }
+
+        private void addGeneratorOption(List<GeneratorOption> options, GeneratorOption option) {
+            for (GeneratorOption existing : options) {
+                if (safeText(existing.label()).equalsIgnoreCase(safeText(option.label()))) {
+                    return;
+                }
+            }
+            options.add(option);
+        }
+
+        private void applyGeneratorOption(GeneratorOption option, TextInputWidget generatorConfig) {
+            if (generatorConfig == null) {
+                return;
+            }
+            boolean configurable = option != null && option.configurable();
+            generatorConfig.active = configurable;
+            if (!generatorConfig.isFocused() || !configurable) {
+                generatorConfig.setText(configurable ? safeText(option.config()) : "");
+            }
+        }
+
+        private final class GeneratorOption {
+            private final String label;
+            private final String generator;
+            private final String config;
+            private final boolean configurable;
+
+            private GeneratorOption(String label, String generator, String config, boolean configurable) {
+                this.label = label;
+                this.generator = generator;
+                this.config = config;
+                this.configurable = configurable;
+            }
+
+            private String label() {
+                return label;
+            }
+
+            private String generator() {
+                return generator;
+            }
+
+            private String config() {
+                return config;
+            }
+
+            private boolean configurable() {
+                return configurable;
+            }
         }
 
         private void showCloneWorldPopup(String sourceWorld) {
@@ -7274,21 +7704,28 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
 
         private void showWorldTeleportPopup(String worldName) {
-            List<String> players = onlinePlayerNames();
             PopupWidget.Builder builder = new PopupWidget.Builder("Teleport Player")
+                .onClose(this::closePlayerSelector)
                 .setResizable(false)
                 .setAntiOutOfBound(true)
                 .setBoundOffset(desktopMode ? 35 : 0)
                 .size(440, 205);
-            TextInputWidget player = new TextInputWidget.Builder().placeholder("Player").size(220, 18).build();
-            DropDownWidget<String> playerDropdown = dropdown(WorldUiSupport.mergeOptions(players, ""), players.isEmpty() ? "" : players.getFirst(), 24);
-            playerDropdown.setOnSelectionChanged(player::setText);
+            String[] selectedPlayer = {""};
+            AnimatedButton playerButton = new AnimatedButton.Builder()
+                .label("Select Player")
+                .size(220, 18)
+                .entranceAnimation(false)
+                .build();
+            playerButton.setAction(() -> showPlayerSelector(playerButton, selectedPlayer[0], player -> {
+                selectedPlayer[0] = player;
+                playerButton.setMessage(player.isBlank() ? "Select Player" : player);
+            }));
             TextInputWidget xInput = new TextInputWidget.Builder().placeholder("X").size(82, 18).build();
             TextInputWidget yInput = new TextInputWidget.Builder().placeholder("Y").size(82, 18).build();
             TextInputWidget zInput = new TextInputWidget.Builder().placeholder("Z").size(82, 18).build();
             TextInputWidget yawInput = new TextInputWidget.Builder().placeholder("Yaw").size(82, 18).build();
             TextInputWidget pitchInput = new TextInputWidget.Builder().placeholder("Pitch").size(82, 18).build();
-            builder.addRow("Player", true, 18, player, playerDropdown);
+            builder.addRow("Player", true, 18, playerButton);
             builder.addRow("Position", true, 18, xInput, yInput, zInput);
             builder.addRow("Rotation", true, 18, yawInput, pitchInput);
             PopupWidget[] popupRef = new PopupWidget[1];
@@ -7297,12 +7734,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .imagePath("earth.png")
                 .size(105, 20)
                 .onClick(() -> {
-                    String playerName = safeText(player.getText()).trim();
+                    String playerName = safeText(selectedPlayer[0]).trim();
                     if (playerName.isBlank()) {
                         new Notification("World", "Player Required", Notification.Type.ERROR);
                         return;
                     }
                     worldManager().teleportPlayerToWorldSpawn(serverId, playerName, worldName);
+                    closePlayerSelector();
                     if (popupRef[0] != null) {
                         popupRef[0].hide();
                     }
@@ -7314,7 +7752,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .accentType(ThemeManager.getAccent("nice"))
                 .size(120, 20)
                 .onClick(() -> {
-                    String playerName = safeText(player.getText()).trim();
+                    String playerName = safeText(selectedPlayer[0]).trim();
                     if (playerName.isBlank()) {
                         new Notification("World", "Player Required", Notification.Type.ERROR);
                         return;
@@ -7327,6 +7765,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                     worldManager().teleportPlayerToWorld(serverId, playerName, worldName, parseNullableDouble(xInput.getText()),
                         parseNullableDouble(yInput.getText()), parseNullableDouble(zInput.getText()), parseNullableFloat(yawInput.getText()),
                         parseNullableFloat(pitchInput.getText()));
+                    closePlayerSelector();
                     if (popupRef[0] != null) {
                         popupRef[0].hide();
                     }
@@ -7336,6 +7775,55 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             popupRef[0] = builder.build();
             addDrawableChild(popupRef[0]);
             popupRef[0].show();
+        }
+
+        private void showPlayerSelector(AnimatedWidget anchor, String selected, Consumer<String> onSelected) {
+            FlowManager manager = worldManager();
+            if (manager == null || anchor == null || onSelected == null) {
+                return;
+            }
+            closePlayerSelector();
+            manager.requestPlayerTrackingSnapshot(serverId);
+            List<PlayerDossier> players = manager.getOnlinePlayersForServer(serverId);
+            var overlay = ScreenManager.getInstance().getPopupOverlay();
+            ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+            ItemSelectorWidget selector = new ItemSelectorWidget.Builder(overlay)
+                .size(220, 240)
+                .dismissOnSelect(true)
+                .emptyMessage("No Players")
+                .onClose(() -> closePlayerSelector(selectorRef[0]))
+                .build();
+            selector.setLayer(900);
+            selector.setPriority(30);
+            selectorRef[0] = selector;
+            activePlayerSelector = selector;
+            for (PlayerDossier player : players) {
+                if (player == null || safeText(player.getPlayerName()).isBlank()) {
+                    continue;
+                }
+                String name = player.getPlayerName();
+                String uuid = safeText(player.getPlayerId());
+                selector.addItem(name, uuid, name + " " + uuid, () -> onSelected.accept(name));
+            }
+            selector.setSelectedItem(selected);
+            overlay.addDrawableChild(selector);
+            selector.show(anchor.getX(), anchor.getY() + anchor.getHeight());
+        }
+
+        private void closePlayerSelector() {
+            closePlayerSelector(activePlayerSelector);
+        }
+
+        private void closePlayerSelector(ItemSelectorWidget selector) {
+            if (selector == null) {
+                return;
+            }
+            selector.onClose = null;
+            selector.hide();
+            ScreenManager.getInstance().getPopupOverlay().remove(selector);
+            if (selector == activePlayerSelector) {
+                activePlayerSelector = null;
+            }
         }
 
         private void showInventoryGroupsPopup() {

@@ -32,7 +32,7 @@ public class TabDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private final TabDefinition tab;
     private final String serverId;
     private final Object parent;
-    private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState().width(320).padding(6);
+    private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
 
     private SidePanel inspectorPanel;
     private CodeEditorWidget headerInput;
@@ -136,7 +136,12 @@ public class TabDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
     private void buildInspectorPanel() {
         if (inspectorPanel == null) {
-            inspectorPanel = createSidePanel("tab_inspector").width(panelState.width()).y(0).height(height).show();
+            inspectorPanel = createSidePanel("tab_inspector")
+                .minWidth(ReSyncStudioPanelState.MIN_WIDTH)
+                .width(panelState.width())
+                .y(0)
+                .height(height)
+                .show();
         }
         Container container = inspectorPanel.container();
         container.layout(new ManagedLayout()).columns(1).padding(panelState.padding()).scrolling(true).enableSelecting(false);
@@ -184,7 +189,8 @@ public class TabDesignerScreen extends ReScreen implements DesktopWindowBehavior
     private void updateLayout() {
         if (inspectorPanel != null) {
             int contentTop = header().headerSize + 5;
-            inspectorPanel.y(contentTop).height(Math.max(120, height - contentTop - 8)).width(Math.max(panelState.width(), (int) (width * 0.32f)));
+            panelState.width(inspectorPanel.getDesiredWidth());
+            inspectorPanel.y(contentTop).height(Math.max(120, height - contentTop - 8)).width(panelState.width());
         }
     }
 

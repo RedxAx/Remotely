@@ -23,7 +23,7 @@ import java.util.Map;
 import static redxax.oxy.remotely.config.Config.remotelyDir;
 
 public class NodeRegistryCache {
-    private static final int CACHE_SCHEMA_VERSION = 2;
+    private static final int CACHE_SCHEMA_VERSION = 3;
     private static NodeRegistryCache INSTANCE;
     private final Gson gson = new GsonBuilder()
             .registerTypeAdapter(FlowDataType.class, new FlowDataTypeAdapter())
