@@ -145,6 +145,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private final List<StudioDocument> studioDocuments = new ArrayList<>();
     private StudioDocument activeStudioDocument;
     private final FlowGraph studioEmptyGraph = new FlowGraph();
+    private boolean syncingStudioTabSelection;
     private String activeNodeRegistryServerId;
     private final Gson gson = new Gson();
     private TextInputWidget commandLabelInput;
@@ -190,6 +191,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         String key() {
             return ReSyncProjectMetadata.resourceKey(type, id);
         }
+    }
+
+    private record AssetBrowserSnapshot(List<String> folders, List<String> resources) {
     }
 
     private static class StudioViewportState {
@@ -239,6 +243,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         private final BufferedImage tabIcon;
         private final BufferedImage worldGenIcon;
         private ItemSelectorWidget createContentSelector;
+        private AssetBrowserSnapshot lastAssetBrowserSnapshot;
 
         private ReSyncContentBrowserWidget(int x, int y, int width, int height) {
             super(x, y, width, height, "");
@@ -494,8 +499,38 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
 
         private void rebuild() {
+            AssetBrowserSnapshot snapshot = assetBrowserSnapshot();
+            if (snapshot.equals(lastAssetBrowserSnapshot)) {
+                return;
+            }
+            lastAssetBrowserSnapshot = snapshot;
             rebuildTree();
             rebuildGrid();
+        }
+
+        private AssetBrowserSnapshot assetBrowserSnapshot() {
+            List<String> folders = new ArrayList<>();
+            for (ReSyncProjectMetadata.FolderEntry folder : studioAllFolders()) {
+                folders.add(String.join("\u0001",
+                    folder.getPath(),
+                    folder.getParentPath(),
+                    folder.getName(),
+                    String.valueOf(folder.getSortOrder()),
+                    String.valueOf(folder.isCollapsed())));
+            }
+            Collections.sort(folders);
+            List<String> resources = new ArrayList<>();
+            for (ReSyncProjectMetadata.ResourceEntry resource : studioAllResources()) {
+                resources.add(String.join("\u0001",
+                    resource.getType(),
+                    resource.getId(),
+                    resource.getDisplayName(),
+                    resource.getPath(),
+                    String.valueOf(resource.getSortOrder()),
+                    iconPathFor(resource)));
+            }
+            Collections.sort(resources);
+            return new AssetBrowserSnapshot(folders, resources);
         }
 
         private void rebuildTree() {
@@ -2874,6 +2909,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 }
             })
             .onTabSelected(tab -> {
+                if (syncingStudioTabSelection) {
+                    return;
+                }
                 Object data = tab.getData();
                 if (data instanceof String key) {
                     selectStudioDocument(key);
@@ -3017,7 +3055,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (activeStudioDocument != null) {
             TabsManager.Tab activeTab = findStudioTab(activeStudioDocument.key(), studioTabsManager.getTabs());
             if (activeTab != null && studioTabsManager.getActiveTab() != activeTab) {
-                studioTabsManager.setActiveTab(activeTab.getContainer());
+                setStudioTabsManagerActiveTab(activeTab);
             } else if (activeTab == null) {
                 clearActiveStudioDocument();
             }
@@ -3032,6 +3070,18 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             }
         }
         return null;
+    }
+
+    private void setStudioTabsManagerActiveTab(TabsManager.Tab tab) {
+        if (studioTabsManager == null || tab == null || studioTabsManager.getActiveTab() == tab) {
+            return;
+        }
+        syncingStudioTabSelection = true;
+        try {
+            studioTabsManager.setActiveTab(tab.getContainer());
+        } finally {
+            syncingStudioTabSelection = false;
+        }
     }
 
     private String studioResourceIconPath(String type, String id) {
@@ -3526,6 +3576,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 syncNodePositions();
                 saveActiveStudioViewport();
                 activeStudioDocument = document;
+                setStudioTabsManagerActiveTab(findStudioTab(document.key(), studioTabsManager != null ? studioTabsManager.getTabs() : List.of()));
                 restoreStudioViewport(document.viewport());
                 if (document.view() != null) {
                     document.view().selected();
