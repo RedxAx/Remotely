@@ -100,20 +100,34 @@ public class RemotelyClient {
     }
 
     public void openInstanceInTerminal(Object parent, Instance instance) {
-        boolean found = multiTerminalTabs.stream().anyMatch(o -> o instanceof Instance i && i.equals(instance));
+        boolean found = multiTerminalTabs.stream().anyMatch(tab -> sameInstanceTab(tab, instance));
         if (!found) {
             multiTerminalTabs.add(instance);
         }
 
         for (int i = 0; i < multiTerminalTabs.size(); i++) {
-            Object o = multiTerminalTabs.get(i);
-            if (o instanceof Instance inst && inst.equals(instance)) {
+            if (sameInstanceTab(multiTerminalTabs.get(i), instance)) {
                 activeMultiTerminalTabIndex = i;
                 break;
             }
         }
 
         host.setScreen(new ServerDetailsScreen(parent, this, instance));
+    }
+
+    private boolean sameInstanceTab(Object tab, Instance instance) {
+        return tab instanceof Instance existing && sameInstance(existing, instance);
+    }
+
+    private boolean sameInstance(Instance a, Instance b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        String aId = a.getInstanceId();
+        String bId = b.getInstanceId();
+        if (aId != null && bId != null && !aId.isBlank() && !bId.isBlank()) {
+            return aId.equals(bId);
+        }
+        return a.equals(b);
     }
 
     public void openServerManager(Object parent) {

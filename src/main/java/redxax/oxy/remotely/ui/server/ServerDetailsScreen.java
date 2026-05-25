@@ -39,6 +39,7 @@ import restudio.rescreen.Main;
 import restudio.rescreen.debug.DebugManager;
 import restudio.rescreen.debug.IDebugInfoProvider;
 import restudio.rescreen.platform.IDrawContext;
+import restudio.rescreen.render.Render;
 import restudio.rescreen.theme.ThemeManager;
 import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.core.ScreenManager;
@@ -80,12 +81,11 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     private final Map<TabContext, TerminalSession> contextInfos = new HashMap<>();
     private ScheduledExecutorService statusScheduler;
-    private final List<Object> windowTabs = new ArrayList<>();
-    private int windowActiveTabIndex = -1;
     private SearchMode headerSearchMode;
     private SearchMode resourcesSearchMode;
     private SearchMode playersSearchMode;
     private static final long LOCAL_STOP_GRACE_MS = 15_000;
+    private static final int TERMINAL_SCROLLBAR_WIDTH = 2;
 
     public ServerDetailsScreen(Object parent, RemotelyClient client) {
         this(parent, client, null);
@@ -300,24 +300,16 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
         }
     }
 
-    private boolean useWindowTabs() {
-        return desktopMode && isDesktopWindow();
-    }
-
     private List<Object> getTabStore() {
-        return useWindowTabs() ? windowTabs : remotelyClient.getMultiTerminalTabs();
+        return remotelyClient.getMultiTerminalTabs();
     }
 
     private int getSavedTabIndex() {
-        return useWindowTabs() ? windowActiveTabIndex : remotelyClient.getActiveMultiTerminalTabIndex();
+        return remotelyClient.getActiveMultiTerminalTabIndex();
     }
 
     private void setSavedTabIndex(int index) {
-        if (useWindowTabs()) {
-            windowActiveTabIndex = index;
-        } else {
-            remotelyClient.setActiveMultiTerminalTabIndex(index);
-        }
+        remotelyClient.setActiveMultiTerminalTabIndex(index);
     }
 
     private void createAndAddTab(Object tabInfo, boolean setActive) {
@@ -638,13 +630,11 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
             if (ctx.instance != null) {
                 ctx.instance.removeStateListener(stateListener);
-                getTabStore().removeIf(o -> (o instanceof Instance i && i.equals(ctx.instance)));
                 ctx.instance.getMSMPManager().disconnect();
-            } else if (info != null && info.getLocalTerminalId() != null) {
-                getTabStore().remove(info.getLocalTerminalId());
             }
 
         }
+        syncTabStoreFromTabs();
         if (tabs().getTabs().isEmpty()) {
             setSavedTabIndex(-1);
             closeScreen();
@@ -669,18 +659,25 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     private void onTabsReordered(List<TabsManager.Tab> newOrder) {
-        List<Object> newInstanceOrder = new ArrayList<>();
-        for (TabsManager.Tab tab : newOrder) {
+        syncTabStoreFromTabs(newOrder);
+        setSavedTabIndex(tabs().getActiveTabIndex());
+    }
+
+    private void syncTabStoreFromTabs() {
+        syncTabStoreFromTabs(tabs().getTabs());
+    }
+
+    private void syncTabStoreFromTabs(List<TabsManager.Tab> tabOrder) {
+        List<Object> newTabOrder = new ArrayList<>();
+        for (TabsManager.Tab tab : tabOrder) {
             TabContext context = tabContexts.get(tab);
-            TerminalSession info = contextInfos.get(context);
-            if (context != null && info != null) {
-                newInstanceOrder.add(info.isLocalTerminalMode() ? info.getLocalTerminalId() : context.instance);
+            if (context != null) {
+                newTabOrder.add(context.instance != null ? context.instance : context.id);
             }
         }
         List<Object> tabStore = getTabStore();
         tabStore.clear();
-        tabStore.addAll(newInstanceOrder);
-        setSavedTabIndex(tabs().getActiveTabIndex());
+        tabStore.addAll(newTabOrder);
     }
 
     private void addNewTerminalTab() {
@@ -690,17 +687,31 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     }
 
     public void addInstanceTab(Instance instanceToAdd) {
-        for (Map.Entry<TabsManager.Tab, TabContext> entry : tabContexts.entrySet()) {
-            if (entry.getValue().instance != null && entry.getValue().instance.equals(instanceToAdd)) {
-                tabs().setActiveTab(entry.getValue().mainContainer);
+        List<TabsManager.Tab> openTabs = tabs().getTabs();
+        for (int i = 0; i < openTabs.size(); i++) {
+            TabContext context = tabContexts.get(openTabs.get(i));
+            if (context != null && sameInstance(context.instance, instanceToAdd)) {
+                tabs().setActiveTab(i);
+                setSavedTabIndex(i);
                 return;
             }
         }
         List<Object> tabStore = getTabStore();
-        if (!tabStore.contains(instanceToAdd)) {
+        if (tabStore.stream().noneMatch(tab -> tab instanceof Instance instance && sameInstance(instance, instanceToAdd))) {
             tabStore.add(instanceToAdd);
         }
         createAndAddTab(instanceToAdd, true);
+    }
+
+    private boolean sameInstance(Instance a, Instance b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        String aId = a.getInstanceId();
+        String bId = b.getInstanceId();
+        if (aId != null && bId != null && !aId.isBlank() && !bId.isBlank()) {
+            return aId.equals(bId);
+        }
+        return a.equals(b);
     }
 
     private void launchOrStopInstance() {
@@ -1069,6 +1080,114 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
     @Override
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
+        renderTerminalScrollbar(context, mouseX, mouseY);
+    }
+
+    private void renderTerminalScrollbar(IDrawContext context, int mouseX, int mouseY) {
+        TerminalWidget terminal = getActiveTerminalWidget();
+        if (!shouldRenderTerminalScrollbar(terminal)) return;
+        Render.ScrollBar.render(
+            getTerminalScrollbarId(terminal),
+            context,
+            ScreenManager.currentScreen,
+            mouseX,
+            mouseY,
+            getTerminalScrollbarTotalHeight(terminal),
+            getTerminalScrollbarOffset(terminal),
+            getTerminalScrollbarX(terminal),
+            getTerminalScrollbarY(terminal),
+            TERMINAL_SCROLLBAR_WIDTH,
+            getTerminalScrollbarHeight(terminal)
+        );
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (handleTerminalScrollbarPressed(mouseX, mouseY)) {
+            return true;
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        TerminalWidget terminal = getActiveTerminalWidget();
+        if (shouldRenderTerminalScrollbar(terminal) && Render.ScrollBar.handleMouseDragged(getTerminalScrollbarId(terminal), ScreenManager.currentScreen, (int) mouseY, getTerminalScrollbarTotalHeight(terminal), getTerminalScrollbarHeight(terminal))) {
+            terminal.setScrollOffset(getTerminalScrollOffsetFromScrollbar(terminal, Render.ScrollBar.getPendingOffset(getTerminalScrollbarId(terminal))));
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        TerminalWidget terminal = getActiveTerminalWidget();
+        boolean handled = terminal != null && Render.ScrollBar.isDragging(getTerminalScrollbarId(terminal));
+        if (handled) {
+            Render.ScrollBar.handleMouseReleased();
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    private boolean handleTerminalScrollbarPressed(double mouseX, double mouseY) {
+        TerminalWidget terminal = getActiveTerminalWidget();
+        if (!shouldRenderTerminalScrollbar(terminal)) return false;
+        String id = getTerminalScrollbarId(terminal);
+        boolean handled = Render.ScrollBar.handleMousePressed(
+            id,
+            ScreenManager.currentScreen,
+            (int) mouseX,
+            (int) mouseY,
+            getTerminalScrollbarTotalHeight(terminal),
+            getTerminalScrollbarOffset(terminal),
+            getTerminalScrollbarX(terminal),
+            getTerminalScrollbarY(terminal),
+            TERMINAL_SCROLLBAR_WIDTH,
+            getTerminalScrollbarHeight(terminal)
+        );
+        if (handled) {
+            terminal.setScrollOffset(getTerminalScrollOffsetFromScrollbar(terminal, Render.ScrollBar.getPendingOffset(id)));
+        }
+        return handled;
+    }
+
+    private TerminalWidget getActiveTerminalWidget() {
+        TabContext ctx = getActiveContext();
+        if (ctx == null || ctx.selectedViewIndex < 0 || ctx.selectedViewIndex >= ctx.views.size()) return null;
+        return ctx.views.get(ctx.selectedViewIndex).widget() instanceof TerminalWidget terminal ? terminal : null;
+    }
+
+    private boolean shouldRenderTerminalScrollbar(TerminalWidget terminal) {
+        return terminal != null && getTerminalScrollbarHeight(terminal) > 0 && terminal.getContentHeight() > 0;
+    }
+
+    private String getTerminalScrollbarId(TerminalWidget terminal) {
+        return "terminal-" + terminal.hashCode();
+    }
+
+    private int getTerminalScrollbarTotalHeight(TerminalWidget terminal) {
+        return terminal.getContentHeight() + getTerminalScrollbarHeight(terminal);
+    }
+
+    private float getTerminalScrollbarOffset(TerminalWidget terminal) {
+        return Math.max(0f, terminal.getContentHeight() - terminal.getScrollOffset());
+    }
+
+    private float getTerminalScrollOffsetFromScrollbar(TerminalWidget terminal, float scrollbarOffset) {
+        return Math.max(0f, terminal.getContentHeight() - scrollbarOffset);
+    }
+
+    private int getTerminalScrollbarX(TerminalWidget terminal) {
+        return terminal.getX() + terminal.getWidth() + 2;
+    }
+
+    private int getTerminalScrollbarY(TerminalWidget terminal) {
+        return terminal.getY();
+    }
+
+    private int getTerminalScrollbarHeight(TerminalWidget terminal) {
+        return terminal.getHeight();
     }
 
     @Override
@@ -1526,6 +1645,7 @@ public class ServerDetailsScreen extends InstanceDetailsScreen implements IDebug
 
     @Override
     public void removed() {
+        syncTabStoreFromTabs();
         super.removed();
         if (statusScheduler != null) {
             statusScheduler.shutdownNow();
