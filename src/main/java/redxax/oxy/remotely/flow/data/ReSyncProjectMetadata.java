@@ -9,6 +9,7 @@ public class ReSyncProjectMetadata {
     private String serverId;
     private List<FolderEntry> folders = new ArrayList<>();
     private List<ResourceEntry> resources = new ArrayList<>();
+    private List<InstalledBundleEntry> installedBundles = new ArrayList<>();
     private List<OpenDocumentEntry> openDocuments = new ArrayList<>();
     private String selectedResourceKey = "";
 
@@ -47,6 +48,17 @@ public class ReSyncProjectMetadata {
 
     public void setResources(List<ResourceEntry> resources) {
         this.resources = resources != null ? resources : new ArrayList<>();
+    }
+
+    public List<InstalledBundleEntry> getInstalledBundles() {
+        if (installedBundles == null) {
+            installedBundles = new ArrayList<>();
+        }
+        return installedBundles;
+    }
+
+    public void setInstalledBundles(List<InstalledBundleEntry> installedBundles) {
+        this.installedBundles = installedBundles != null ? installedBundles : new ArrayList<>();
     }
 
     public List<OpenDocumentEntry> getOpenDocuments() {
@@ -136,6 +148,16 @@ public class ReSyncProjectMetadata {
         return null;
     }
 
+    public InstalledBundleEntry findInstalledBundle(String marketplaceSlug, String listingSlug) {
+        String key = bundleKey(marketplaceSlug, listingSlug);
+        for (InstalledBundleEntry entry : getInstalledBundles()) {
+            if (key.equals(entry.key())) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
     public FolderEntry findFolder(String path) {
         String normalizedPath = normalizePath(path);
         for (FolderEntry folder : getFolders()) {
@@ -197,6 +219,10 @@ public class ReSyncProjectMetadata {
 
     public static String resourceKey(String type, String id) {
         return safe(type).toUpperCase() + ":" + safe(id);
+    }
+
+    public static String bundleKey(String marketplaceSlug, String listingSlug) {
+        return safe(marketplaceSlug) + ":" + safe(listingSlug);
     }
 
     public static String normalizePath(String path) {
@@ -333,6 +359,97 @@ public class ReSyncProjectMetadata {
         @Override
         public int hashCode() {
             return Objects.hash(key());
+        }
+    }
+
+    public static class InstalledBundleEntry {
+        private String marketplaceSlug = "";
+        private String listingSlug = "";
+        private String title = "";
+        private String versionId = "";
+        private String version = "";
+        private String rootPath = "";
+        private String iconMediaId = "";
+        private boolean enabled = true;
+        private List<String> resourceKeys = new ArrayList<>();
+
+        public String getMarketplaceSlug() {
+            return marketplaceSlug;
+        }
+
+        public void setMarketplaceSlug(String marketplaceSlug) {
+            this.marketplaceSlug = marketplaceSlug != null ? marketplaceSlug : "";
+        }
+
+        public String getListingSlug() {
+            return listingSlug;
+        }
+
+        public void setListingSlug(String listingSlug) {
+            this.listingSlug = listingSlug != null ? listingSlug : "";
+        }
+
+        public String getTitle() {
+            return title;
+        }
+
+        public void setTitle(String title) {
+            this.title = title != null ? title : "";
+        }
+
+        public String getVersionId() {
+            return versionId;
+        }
+
+        public void setVersionId(String versionId) {
+            this.versionId = versionId != null ? versionId : "";
+        }
+
+        public String getVersion() {
+            return version;
+        }
+
+        public void setVersion(String version) {
+            this.version = version != null ? version : "";
+        }
+
+        public String getRootPath() {
+            return rootPath;
+        }
+
+        public void setRootPath(String rootPath) {
+            this.rootPath = normalizePath(rootPath);
+        }
+
+        public String getIconMediaId() {
+            return iconMediaId;
+        }
+
+        public void setIconMediaId(String iconMediaId) {
+            this.iconMediaId = iconMediaId != null ? iconMediaId : "";
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public List<String> getResourceKeys() {
+            if (resourceKeys == null) {
+                resourceKeys = new ArrayList<>();
+            }
+            return resourceKeys;
+        }
+
+        public void setResourceKeys(List<String> resourceKeys) {
+            this.resourceKeys = resourceKeys != null ? resourceKeys : new ArrayList<>();
+        }
+
+        public String key() {
+            return bundleKey(marketplaceSlug, listingSlug);
         }
     }
 
