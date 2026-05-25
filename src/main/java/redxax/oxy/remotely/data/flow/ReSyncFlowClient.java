@@ -26,7 +26,6 @@ import redxax.oxy.remotely.flow.registry.NodeRegistry;
 import redxax.oxy.remotely.flow.sync.NodeRegistryRequest;
 import redxax.oxy.remotely.flow.sync.NodeRegistrySnapshot;
 import redxax.oxy.remotely.flow.ui.FlowEditorScreen;
-import redxax.oxy.remotely.flow.ui.GuiEditOverlayState;
 import redxax.oxy.remotely.flow.ui.GuiDesignerScreen;
 import redxax.oxy.remotely.flow.ui.ScoreboardDesignerScreen;
 import redxax.oxy.remotely.flow.ui.TabDesignerScreen;
@@ -134,6 +133,7 @@ public class ReSyncFlowClient {
     private ScheduledFuture<?> heartbeatTask;
     private ScheduledFuture<?> reconnectTask;
     private ScheduledFuture<?> connectTimeoutTask;
+    private final AtomicInteger connectionGeneration = new AtomicInteger();
     private static final int HEARTBEAT_INTERVAL_SECONDS = 20;
     private static final int RECONNECT_DELAY_SECONDS = 3;
     private static final int CONNECT_TIMEOUT_SECONDS = 10;
@@ -248,7 +248,8 @@ public class ReSyncFlowClient {
         }
         connecting.set(true);
         nodeRegistrySynced = false;
-        scheduleConnectTimeout();
+        int generation = connectionGeneration.incrementAndGet();
+        scheduleConnectTimeout(generation);
         System.out.println("[ReSyncFlow] Attempting to connect to serverId=" + serverId);
 
         if (directWsUrl != null && !directWsUrl.isBlank()) {
@@ -263,32 +264,50 @@ public class ReSyncFlowClient {
                 return CompletableFuture.completedFuture(null);
             }
             System.out.println("[ReSyncFlow] Connecting with direct endpoint: " + directWsUrl);
-            initWebSocketConnection(normalizeWsUrl(directWsUrl));
+            initWebSocketConnection(normalizeWsUrl(directWsUrl), generation);
             return CompletableFuture.completedFuture(null);
         }
 
         return apiClient.getReSyncConfig(serverId).thenCompose(config -> {
+            if (!isActiveGeneration(generation)) {
+                return CompletableFuture.completedFuture(null);
+            }
             if (config != null && config.port > 0) {
                 System.out.println("[ReSyncFlow] Got ReSync config: port=" + config.port);
 
-                String serverUrl = apiClient.getServers().join().stream()
-                    .filter(s -> serverId.equals(s.identifier))
-                    .findFirst()
-                    .map(s -> {
-                        String ip = (s.ipAlias != null && !s.ipAlias.isEmpty()) ? s.ipAlias : s.ip;
-                        System.out.println("[ReSyncFlow] Found server: " + s.name + ", ip: " + ip + ", ipAlias: " + s.ipAlias);
-                        return ip + ":" + config.port;
-                    })
-                    .orElse(null);
+                return apiClient.getServers().thenCompose(servers -> {
+                    if (!isActiveGeneration(generation)) {
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    String serverUrl = servers.stream()
+                        .filter(s -> serverId.equals(s.identifier))
+                        .findFirst()
+                        .map(s -> {
+                            String ip = (s.ipAlias != null && !s.ipAlias.isEmpty()) ? s.ipAlias : s.ip;
+                            System.out.println("[ReSyncFlow] Found server: " + s.name + ", ip: " + ip + ", ipAlias: " + s.ipAlias);
+                            return ip + ":" + config.port;
+                        })
+                        .orElse(null);
 
-                if (serverUrl != null) {
+                    if (serverUrl == null) {
+                        System.err.println("[ReSyncFlow] Server not found in server list");
+                        connecting.set(false);
+                        cancelConnectTimeout();
+                        if (errorListener != null) {
+                            errorListener.onError(null, "ReSyncServerNotFound");
+                        }
+                        return CompletableFuture.completedFuture(null);
+                    }
                     return apiClient.getReSyncApiKey(serverId).thenAccept(key -> {
+                        if (!isActiveGeneration(generation)) {
+                            return;
+                        }
                         this.apiKey = key;
                         if (this.apiKey != null && !this.apiKey.isEmpty()) {
                             String wsUrl = normalizeWsUrl(serverUrl);
                             System.out.println("[ReSyncFlow] Connecting to: " + wsUrl);
                             System.out.println("[ReSyncFlow] Using API key");
-                            initWebSocketConnection(wsUrl);
+                            initWebSocketConnection(wsUrl, generation);
                         } else {
                             System.err.println("[ReSyncFlow] API key is empty or null");
                             connecting.set(false);
@@ -298,15 +317,7 @@ public class ReSyncFlowClient {
                             }
                         }
                     });
-                } else {
-                    System.err.println("[ReSyncFlow] Server not found in server list");
-                    connecting.set(false);
-                    cancelConnectTimeout();
-                    if (errorListener != null) {
-                        errorListener.onError(null, "ReSyncServerNotFound");
-                    }
-                    return CompletableFuture.completedFuture(null);
-                }
+                });
             } else {
                 System.err.println("[ReSyncFlow] No ReSync config found - ReSync is not enabled on this server");
                 connecting.set(false);
@@ -327,7 +338,7 @@ public class ReSyncFlowClient {
         });
     }
 
-    private void initWebSocketConnection(String wsUrl) {
+    private void initWebSocketConnection(String wsUrl, int generation) {
         try {
             URI uri = URI.create(wsUrl);
             System.out.println("[ReSyncFlow] Connecting to WebSocket: " + wsUrl);
@@ -335,6 +346,10 @@ public class ReSyncFlowClient {
             WebSocketClient client = new WebSocketClient(uri) {
                 @Override
                 public void onOpen(ServerHandshake handshakedata) {
+                    if (!isCurrentWebSocket(this, generation)) {
+                        close();
+                        return;
+                    }
                     System.out.println("[ReSyncFlow] WebSocket connection opened successfully");
                     System.out.println("[ReSyncFlow] Sending handshake...");
                     sendHandshake();
@@ -347,11 +362,17 @@ public class ReSyncFlowClient {
 
                 @Override
                 public void onMessage(ByteBuffer bytes) {
+                    if (!isCurrentWebSocket(this, generation)) {
+                        return;
+                    }
                     handleBinaryMessage(copyRemaining(bytes));
                 }
 
                 @Override
                 public void onClose(int code, String reason, boolean remote) {
+                    if (!isCurrentWebSocket(this, generation)) {
+                        return;
+                    }
                     authenticated.set(false);
                     connecting.set(false);
                     cancelConnectTimeout();
@@ -364,6 +385,9 @@ public class ReSyncFlowClient {
 
                 @Override
                 public void onError(Exception ex) {
+                    if (!isCurrentWebSocket(this, generation)) {
+                        return;
+                    }
                     System.err.println("[ReSyncFlow] WebSocket error: " + ex.getMessage());
                     connecting.set(false);
                     cancelConnectTimeout();
@@ -422,7 +446,7 @@ public class ReSyncFlowClient {
         }
         connecting.set(true);
         nodeRegistrySynced = false;
-        scheduleConnectTimeout();
+        scheduleConnectTimeout(connectionGeneration.incrementAndGet());
         frameTransport.setFrameHandler(this::handleBinaryMessage);
         frameTransport.setCloseHandler(() -> {
             authenticated.set(false);
@@ -717,10 +741,18 @@ public class ReSyncFlowClient {
         return numericId == null ? fallback : numericId;
     }
 
-    private void scheduleConnectTimeout() {
+    private boolean isActiveGeneration(int generation) {
+        return connectionGeneration.get() == generation && !shutdownRequested;
+    }
+
+    private boolean isCurrentWebSocket(WebSocketClient client, int generation) {
+        return isActiveGeneration(generation) && wsClient.get() == client;
+    }
+
+    private void scheduleConnectTimeout(int generation) {
         cancelConnectTimeout();
         connectTimeoutTask = heartbeatScheduler.schedule(() -> {
-            if (authenticated.get() || shutdownRequested) {
+            if (!isActiveGeneration(generation) || authenticated.get()) {
                 return;
             }
             connecting.set(false);
@@ -729,6 +761,7 @@ public class ReSyncFlowClient {
                 client.close();
                 wsClient.compareAndSet(client, null);
             }
+            connectionGeneration.compareAndSet(generation, generation + 1);
             if (errorListener != null) {
                 errorListener.onError(null, "ReSync Connection Timed Out");
             }
@@ -835,6 +868,9 @@ public class ReSyncFlowClient {
                 break;
             case 0x56:
                 handleProjectMetadataSaveAck(buffer);
+                break;
+            case 0x5A:
+                handleEditTargetState(buffer);
                 break;
             case 0x44:
                 handleFlowJob(buffer);
@@ -1182,13 +1218,18 @@ public class ReSyncFlowClient {
                 }
             }
         }
-        if (editable) {
-            GuiEditOverlayState.update(serverId, guiId, flowId, true);
-        } else {
-            GuiEditOverlayState.clear();
-        }
         if (client != null && client.getFlowManager() != null) {
             client.getFlowManager().handleGuiStatePacket(serverId, editable, guiId, flowId);
+        }
+    }
+
+    private void handleEditTargetState(ByteBuffer buffer) {
+        boolean editable = buffer.get() == 1;
+        String resourceType = readSizedString(buffer);
+        String resourceId = readSizedString(buffer);
+        String flowId = readSizedString(buffer);
+        if (client != null && client.getFlowManager() != null) {
+            client.getFlowManager().handleEditTargetStatePacket(serverId, editable, resourceType, resourceId, flowId);
         }
     }
 

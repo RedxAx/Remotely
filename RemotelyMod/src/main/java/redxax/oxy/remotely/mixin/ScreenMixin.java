@@ -5,12 +5,26 @@ import net.minecraft.client.Minecraft;
 //$$ import net.minecraft.client.gui.GuiGraphicsExtractor;
 //#endif
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.ChatScreen;
 //#if MC >= 1.20.1 && MC < 26.1
 import net.minecraft.client.gui.GuiGraphics;
 //#else
 //$$ import com.mojang.blaze3d.vertex.PoseStack;
 //#endif
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
+//#if MC >= 1.21.1
+import net.minecraft.network.chat.numbers.NumberFormat;
+import net.minecraft.network.chat.numbers.StyledFormat;
+import net.minecraft.world.scores.DisplaySlot;
+import net.minecraft.world.scores.Objective;
+import net.minecraft.world.scores.PlayerScoreEntry;
+//#else
+//$$ import net.minecraft.world.scores.Score;
+//$$ import net.minecraft.world.scores.Objective;
+//#endif
+import net.minecraft.world.scores.PlayerTeam;
+import net.minecraft.world.scores.Scoreboard;
 //#if MC >= 26.1
 //$$ import net.minecraft.client.input.KeyEvent;
 //#endif
@@ -28,9 +42,13 @@ import redxax.oxy.remotely.adapters.ICustomWidgetHolder;
 import redxax.oxy.remotely.adapters.MinecraftDrawContextAdapter;
 import redxax.oxy.remotely.config.Config;
 import redxax.oxy.remotely.RemotelyClient;
+import redxax.oxy.remotely.data.flow.FlowManager;
+import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
+import redxax.oxy.remotely.mixin.accessor.AbstractContainerScreenAccessor;
 import redxax.oxy.remotely.rematrix.mc.RematrixContext;
 import redxax.oxy.remotely.rematrix.mc.RematrixScale;
 import redxax.oxy.remotely.rematrix.mc.RematrixScreen;
+import redxax.oxy.remotely.resync.bridge.ReSyncVanillaBridgeManager;
 import redxax.oxy.remotely.servers.ReProxyManager;
 import redxax.oxy.remotely.ui.tests.ContainerTestingScreen;
 import redxax.oxy.remotely.ui.tests.WidgetsTestingScreen;
@@ -68,6 +86,18 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
 
     @Unique
     private String remotely$overlayServerId;
+
+    @Unique
+    private String remotely$overlayResourceType;
+
+    @Unique
+    private String remotely$overlayResourceId;
+
+    @Unique
+    private int[] remotely$scoreboardOverlayBounds;
+
+    @Unique
+    private String remotely$localScoreboardId;
 
     @Unique
     private String remotely$overlayGuiId;
@@ -253,11 +283,14 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
     @Unique
     private void remotely$updateEditOverlay() {
         boolean hasState = remotely$refreshOverlayState();
-        boolean show = hasState
-            && remotely$overlayEditable
-            && remotely$overlayGuiId != null
-            && !remotely$overlayGuiId.isBlank()
-            && ((Object) this) instanceof AbstractContainerScreen;
+        boolean guiTarget = "gui".equals(remotely$overlayResourceType) || (remotely$overlayResourceType == null && remotely$overlayGuiId != null);
+        boolean scoreboardTarget = "scoreboard".equals(remotely$overlayResourceType);
+        remotely$localScoreboardId = remotely$isChatScreen() ? remotely$getKnownLiveScoreboardId() : null;
+        boolean localScoreboardTarget = remotely$localScoreboardId != null && !remotely$localScoreboardId.isBlank();
+        remotely$scoreboardOverlayBounds = (scoreboardTarget || localScoreboardTarget) ? remotely$getScoreboardBounds() : null;
+        boolean showGui = guiTarget && remotely$overlayGuiId != null && !remotely$overlayGuiId.isBlank() && ((Object) this) instanceof AbstractContainerScreen;
+        boolean showScoreboard = remotely$isChatScreen() && ((scoreboardTarget && remotely$overlayResourceId != null && !remotely$overlayResourceId.isBlank()) || localScoreboardTarget);
+        boolean show = (hasState && remotely$overlayEditable && (showGui || showScoreboard)) || localScoreboardTarget;
 
         if (!show) {
             if (remotely$editOverlayButton != null) {
@@ -278,10 +311,26 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
                     if (RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getFlowManager() == null) {
                         return;
                     }
-                    if (!remotely$refreshOverlayState() || remotely$overlayGuiId == null || remotely$overlayGuiId.isBlank()) {
+                    if (!remotely$refreshOverlayState() && (remotely$localScoreboardId == null || remotely$localScoreboardId.isBlank())) {
                         return;
                     }
-                    RemotelyClient.INSTANCE.getFlowManager().openGuiDesigner(remotely$overlayServerId, null, remotely$overlayGuiId, this);
+                    ReSyncVanillaBridgeManager.getInstance().ensureLiveSessionActive();
+                    if ("scoreboard".equals(remotely$overlayResourceType)) {
+                        String scoreboardId = remotely$overlayResourceId != null && !remotely$overlayResourceId.isBlank() ? remotely$overlayResourceId : remotely$localScoreboardId;
+                        String serverId = remotely$overlayServerId != null && !remotely$overlayServerId.isBlank() ? remotely$overlayServerId : ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
+                        if (scoreboardId != null && !scoreboardId.isBlank() && serverId != null && !serverId.isBlank()) {
+                            scoreboardId = RemotelyClient.INSTANCE.getFlowManager().resolveScoreboardId(serverId, scoreboardId);
+                            RemotelyClient.INSTANCE.getFlowManager().openScoreboardDesigner(serverId, null, scoreboardId, this);
+                        }
+                    } else if (remotely$localScoreboardId != null && !remotely$localScoreboardId.isBlank()) {
+                        String serverId = remotely$overlayServerId != null && !remotely$overlayServerId.isBlank() ? remotely$overlayServerId : ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
+                        if (serverId != null && !serverId.isBlank()) {
+                            String scoreboardId = RemotelyClient.INSTANCE.getFlowManager().resolveScoreboardId(serverId, remotely$localScoreboardId);
+                            RemotelyClient.INSTANCE.getFlowManager().openScoreboardDesigner(serverId, null, scoreboardId, this);
+                        }
+                    } else if (remotely$overlayGuiId != null && !remotely$overlayGuiId.isBlank()) {
+                        RemotelyClient.INSTANCE.getFlowManager().openGuiDesigner(remotely$overlayServerId, null, remotely$overlayGuiId, this);
+                    }
                 })
                 .build();
             remotely$editOverlayButton.entranceAnimationEnabled = false;
@@ -293,7 +342,11 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
         int x;
         int y;
         int screenWidth = Minecraft.getInstance().getWindow().getGuiScaledWidth();
-        if (containerBounds != null) {
+        if (scoreboardTarget || localScoreboardTarget) {
+            int[] bounds = remotely$scoreboardOverlayBounds != null ? remotely$scoreboardOverlayBounds : remotely$getFallbackScoreboardButtonBounds();
+            x = Math.max(6, bounds[0] - 24);
+            y = Math.max(6, bounds[1]);
+        } else if (containerBounds != null) {
             x = containerBounds[0] + containerBounds[2] + 6;
             y = containerBounds[1];
             if (x + 18 > screenWidth - 2) {
@@ -312,40 +365,186 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
     @Unique
     private boolean remotely$refreshOverlayState() {
         if (RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getFlowManager() == null) {
-            return remotely$refreshOverlayStateFallback();
+            return false;
         }
-        Object manager = RemotelyClient.INSTANCE.getFlowManager();
-        try {
-            Class<?> cls = manager.getClass();
-            remotely$overlayEditable = (boolean) cls.getMethod("isOverlayEditable").invoke(manager);
-            remotely$overlayServerId = (String) cls.getMethod("getOverlayServerId").invoke(manager);
-            remotely$overlayGuiId = (String) cls.getMethod("getOverlayGuiId").invoke(manager);
-            remotely$overlayFlowId = (String) cls.getMethod("getOverlayFlowId").invoke(manager);
-            remotely$overlayStateRevision = (int) cls.getMethod("getOverlayRevision").invoke(manager);
-            return true;
-        } catch (Exception ignored) {
-            return remotely$refreshOverlayStateFallback();
+        FlowManager manager = RemotelyClient.INSTANCE.getFlowManager();
+        if (((Object) this) instanceof AbstractContainerScreen && manager.isGuiOverlayEditable()) {
+            remotely$overlayEditable = true;
+            remotely$overlayServerId = manager.getGuiOverlayServerId();
+            remotely$overlayResourceType = "gui";
+            remotely$overlayResourceId = manager.getGuiOverlayGuiId();
+            remotely$overlayGuiId = manager.getGuiOverlayGuiId();
+            remotely$overlayFlowId = manager.getGuiOverlayFlowId();
+        } else if (remotely$isChatScreen() && manager.isEditTargetOverlayEditable()) {
+            remotely$overlayEditable = true;
+            remotely$overlayServerId = manager.getEditTargetOverlayServerId();
+            remotely$overlayResourceType = manager.getEditTargetOverlayResourceType();
+            remotely$overlayResourceId = manager.getEditTargetOverlayResourceId();
+            remotely$overlayGuiId = null;
+            remotely$overlayFlowId = manager.getEditTargetOverlayFlowId();
+        } else {
+            remotely$overlayEditable = false;
+            remotely$overlayServerId = null;
+            remotely$overlayResourceType = null;
+            remotely$overlayResourceId = null;
+            remotely$overlayGuiId = null;
+            remotely$overlayFlowId = null;
         }
+        remotely$overlayStateRevision = manager.getOverlayRevision();
+        return true;
     }
 
     @Unique
-    private boolean remotely$refreshOverlayStateFallback() {
-        try {
-            Class<?> stateClass = Class.forName("redxax.oxy.remotely.flow.ui.GuiEditOverlayState");
-            Object snapshot = stateClass.getMethod("snapshot").invoke(null);
-            if (snapshot == null) {
-                return false;
-            }
-            Class<?> snapClass = snapshot.getClass();
-            remotely$overlayEditable = (boolean) snapClass.getMethod("editable").invoke(snapshot);
-            remotely$overlayServerId = (String) snapClass.getMethod("serverId").invoke(snapshot);
-            remotely$overlayGuiId = (String) snapClass.getMethod("guiId").invoke(snapshot);
-            remotely$overlayFlowId = (String) snapClass.getMethod("flowId").invoke(snapshot);
-            remotely$overlayStateRevision = (int) snapClass.getMethod("revision").invoke(snapshot);
-            return true;
-        } catch (Exception ignored) {
-            return false;
+    private boolean remotely$isChatScreen() {
+        return ((Object) this) instanceof ChatScreen;
+    }
+
+    @Unique
+    private int[] remotely$getScoreboardBounds() {
+        int[] liveBounds = remotely$getLiveScoreboardBounds();
+        if (liveBounds != null) {
+            return liveBounds;
         }
+        ScoreboardDefinition scoreboard = remotely$getOverlayScoreboard();
+        if (scoreboard == null) {
+            return null;
+        }
+        Minecraft minecraft = Minecraft.getInstance();
+        int screenWidth = minecraft.getWindow().getGuiScaledWidth();
+        int screenHeight = minecraft.getWindow().getGuiScaledHeight();
+        int lineCount = scoreboard.getLines() != null ? Math.min(15, scoreboard.getLines().size()) : 0;
+        if (lineCount <= 0) {
+            return null;
+        }
+        int maxWidth = remotely$textWidth(scoreboard.getTitle());
+        for (String line : scoreboard.getLines()) {
+            maxWidth = Math.max(maxWidth, remotely$textWidth(line));
+        }
+        int width = Math.max(32, maxWidth + 7);
+        int contentHeight = lineCount * 9;
+        int bottom = screenHeight / 2 + contentHeight / 3;
+        int top = bottom - lineCount * 9 - 10;
+        int left = screenWidth - maxWidth - 5;
+        return new int[] { left, Math.max(6, top), width, ((lineCount + 1) * 9) + 1 };
+    }
+
+    @Unique
+    private int[] remotely$getLiveScoreboardBounds() {
+        Objective objective = remotely$getSidebarObjective();
+        if (objective == null) {
+            return null;
+        }
+        Scoreboard scoreboard = objective.getScoreboard();
+        //#if MC >= 1.21.1
+        NumberFormat numberFormat = objective.numberFormatOrDefault(StyledFormat.SIDEBAR_DEFAULT);
+        //#endif
+        int maxWidth = Minecraft.getInstance().font.width(objective.getDisplayName());
+        int lineCount = 0;
+        //#if MC >= 1.21.1
+        for (PlayerScoreEntry score : scoreboard.listPlayerScores(objective)) {
+            if (score == null || score.isHidden()) {
+                continue;
+            }
+            PlayerTeam team = scoreboard.getPlayersTeam(score.owner());
+            Component name = PlayerTeam.formatNameForTeam(team, score.ownerName());
+            Component value = score.formatValue(numberFormat);
+            int valueWidth = Minecraft.getInstance().font.width(value);
+            int lineWidth = Minecraft.getInstance().font.width(name);
+            if (valueWidth > 0) {
+                lineWidth += Minecraft.getInstance().font.width(": ") + valueWidth;
+            }
+            maxWidth = Math.max(maxWidth, lineWidth);
+            lineCount++;
+            if (lineCount >= 15) {
+                break;
+            }
+        }
+        //#else
+        //$$ for (Score score : scoreboard.getPlayerScores(objective)) {
+        //$$     if (score == null || score.getOwner() == null || score.getOwner().startsWith("#")) {
+        //$$         continue;
+        //$$     }
+        //$$     PlayerTeam team = scoreboard.getPlayersTeam(score.getOwner());
+        //$$     Component name = PlayerTeam.formatNameForTeam(team, Component.literal(score.getOwner()));
+        //$$     String value = Integer.toString(score.getScore());
+        //$$     int valueWidth = Minecraft.getInstance().font.width(value);
+        //$$     int lineWidth = Minecraft.getInstance().font.width(name);
+        //$$     if (valueWidth > 0) {
+        //$$         lineWidth += Minecraft.getInstance().font.width(": ") + valueWidth;
+        //$$     }
+        //$$     maxWidth = Math.max(maxWidth, lineWidth);
+        //$$     lineCount++;
+        //$$     if (lineCount >= 15) {
+        //$$         break;
+        //$$     }
+        //$$ }
+        //#endif
+        if (lineCount <= 0) {
+            return null;
+        }
+        return remotely$scoreboardBoundsFromMetrics(maxWidth, lineCount);
+    }
+
+    @Unique
+    private String remotely$getKnownLiveScoreboardId() {
+        Objective objective = remotely$getSidebarObjective();
+        if (objective == null || RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getFlowManager() == null) {
+            return null;
+        }
+        String serverId = ReSyncVanillaBridgeManager.getInstance().getLiveServerId();
+        if (serverId == null || serverId.isBlank()) {
+            return null;
+        }
+        String scoreboardId = RemotelyClient.INSTANCE.getFlowManager().resolveScoreboardId(serverId, objective.getName());
+        return RemotelyClient.INSTANCE.getFlowManager().getScoreboard(serverId, scoreboardId) != null ? scoreboardId : null;
+    }
+
+    @Unique
+    private Objective remotely$getSidebarObjective() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.level == null) {
+            return null;
+        }
+        //#if MC >= 1.21.1
+        return minecraft.level.getScoreboard().getDisplayObjective(DisplaySlot.SIDEBAR);
+        //#else
+        //$$ return minecraft.level.getScoreboard().getDisplayObjective(Scoreboard.DISPLAY_SLOT_SIDEBAR);
+        //#endif
+    }
+
+    @Unique
+    private int[] remotely$scoreboardBoundsFromMetrics(int maxWidth, int lineCount) {
+        Minecraft minecraft = Minecraft.getInstance();
+        int screenWidth = minecraft.getWindow().getGuiScaledWidth();
+        int screenHeight = minecraft.getWindow().getGuiScaledHeight();
+        int width = Math.max(32, maxWidth + 7);
+        int contentHeight = lineCount * 9;
+        int bottom = screenHeight / 2 + contentHeight / 3;
+        int top = bottom - lineCount * 9 - 10;
+        int left = screenWidth - maxWidth - 5;
+        return new int[] { left, Math.max(6, top), width, ((lineCount + 1) * 9) + 1 };
+    }
+
+    @Unique
+    private int[] remotely$getFallbackScoreboardButtonBounds() {
+        Minecraft minecraft = Minecraft.getInstance();
+        int screenWidth = minecraft.getWindow().getGuiScaledWidth();
+        int screenHeight = minecraft.getWindow().getGuiScaledHeight();
+        return new int[] { screenWidth - 64, Math.max(6, screenHeight / 2 - 72), 58, 18 };
+    }
+
+    @Unique
+    private ScoreboardDefinition remotely$getOverlayScoreboard() {
+        if (RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getFlowManager() == null || remotely$overlayServerId == null || remotely$overlayResourceId == null) {
+            return null;
+        }
+        return RemotelyClient.INSTANCE.getFlowManager().getScoreboard(remotely$overlayServerId, remotely$overlayResourceId);
+    }
+
+    @Unique
+    private int remotely$textWidth(String text) {
+        String normalized = text != null ? text.replaceAll("<[^>]*>", "").replaceAll("§.", "") : "";
+        return Minecraft.getInstance().font.width(normalized);
     }
 
     @Unique
@@ -353,21 +552,8 @@ public abstract class ScreenMixin implements ICustomWidgetHolder {
         if (!((Object) this instanceof AbstractContainerScreen)) {
             return null;
         }
-        try {
-            Class<?> cls = AbstractContainerScreen.class;
-            java.lang.reflect.Field leftField = cls.getDeclaredField("leftPos");
-            java.lang.reflect.Field topField = cls.getDeclaredField("topPos");
-            java.lang.reflect.Field widthField = cls.getDeclaredField("imageWidth");
-            leftField.setAccessible(true);
-            topField.setAccessible(true);
-            widthField.setAccessible(true);
-            int leftPos = (int) leftField.get(this);
-            int topPos = (int) topField.get(this);
-            int imageWidth = (int) widthField.get(this);
-            return new int[] { leftPos, topPos, imageWidth };
-        } catch (Exception ignored) {
-            return null;
-        }
+        AbstractContainerScreenAccessor accessor = (AbstractContainerScreenAccessor) this;
+        return new int[] { accessor.remotely$getLeftPos(), accessor.remotely$getTopPos(), accessor.remotely$getImageWidth() };
     }
 
     @Unique

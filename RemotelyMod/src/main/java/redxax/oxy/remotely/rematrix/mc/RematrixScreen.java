@@ -458,6 +458,12 @@ public class RematrixScreen extends Screen {
         suspendedMinecraftScreen = screen;
     }
 
+    public static Screen consumeRememberedMinecraftScreen(Screen fallback) {
+        Screen screen = suspendedMinecraftScreen;
+        suspendedMinecraftScreen = null;
+        return screen != null ? screen : fallback;
+    }
+
     private void closeDesktopSuperScreen() {
         restudio.rescreen.ui.core.Screen superScreen = sm.getDesktopSuperScreen();
         if (superScreen != null) {

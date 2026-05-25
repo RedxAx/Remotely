@@ -9,6 +9,8 @@ import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.TextInputWidget;
 import restudio.rescreen.ui.widgets.TitledRowWidget;
 
+import java.util.function.Consumer;
+
 public class ReSyncStudioPanelState {
     public static final int DEFAULT_WIDTH = 150;
     public static final int MIN_WIDTH = 150;
@@ -65,7 +67,7 @@ public class ReSyncStudioPanelState {
         return button;
     }
 
-    public TextInputWidget input(String label, String value, java.util.function.Consumer<String> onChange) {
+    public TextInputWidget input(String label, String value, Consumer<String> onChange) {
         TextInputWidget.Builder builder = new TextInputWidget.Builder()
             .text(value != null ? value : "")
             .placeholder(label)

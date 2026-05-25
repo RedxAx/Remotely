@@ -22,6 +22,7 @@
     "MinecraftClientMixin",
     "ScreenMixin",
     "TitleScreenMixin",
+    "accessor.AbstractContainerScreenAccessor",
     "accessor.ConnectScreenAccessor",
     "accessor.MinecraftAccessor",
     "accessor.ScreenAccessor"

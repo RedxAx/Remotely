@@ -5,6 +5,7 @@ import restudio.rescreen.ui.core.Screen;
 import restudio.rescreen.ui.rescreen.ReScreen;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class ScreenBackedStudioView implements ReSyncStudioView {
@@ -30,7 +31,7 @@ public class ScreenBackedStudioView implements ReSyncStudioView {
             return provider.getStudioHeaderButtons();
         }
         if (screen instanceof ReScreen reScreen) {
-            List<AnimatedWidget> buttons = new java.util.ArrayList<>();
+            List<AnimatedWidget> buttons = new ArrayList<>();
             buttons.addAll(reScreen.header().leftButtons);
             buttons.addAll(reScreen.header().rightButtons);
             return buttons;
@@ -68,7 +69,7 @@ public class ScreenBackedStudioView implements ReSyncStudioView {
     public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
         init();
         List<AnimatedWidget> exposedHeaders = exposingHeaderButtons ? headerButtons() : List.of();
-        List<Boolean> visibility = new java.util.ArrayList<>();
+        List<Boolean> visibility = new ArrayList<>();
         for (AnimatedWidget widget : exposedHeaders) {
             visibility.add(widget.visible);
             widget.visible = false;
