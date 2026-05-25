@@ -329,7 +329,7 @@ public class ServerManagerScreen extends DesktopShellScreen implements AuthState
 
     private void showUserMenu() {
         ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(this)
-            .addHeaderButton("chat.png", () -> ScreenManager.getInstance().setScreen(new InboxScreen(this)), "Inbox")
+            .addHeaderButton("info.png", () -> ScreenManager.getInstance().setScreen(new InboxScreen(this)), "Inbox")
             .addHeaderButton("report.png", () -> ScreenManager.getInstance().setScreen(new FeedbackBrowserScreen(this, "Remotely")), "Reports And Feedback")
             .addHeaderButton("close.png", () -> ReStudio.getInstance().logoutFromWorkOs(), "Log Out", ThemeManager.getAccent("danger"));
 

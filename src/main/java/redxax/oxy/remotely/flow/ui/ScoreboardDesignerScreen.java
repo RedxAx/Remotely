@@ -36,6 +36,7 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
     private final ScoreboardDefinition scoreboard;
     private final String serverId;
     private final Object parent;
+    private final boolean forceSuperScreen;
     private final ReSyncStudioPanelState panelState = new ReSyncStudioPanelState();
 
     private SidePanel inspectorPanel;
@@ -44,15 +45,21 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
     private CodeEditorWidget linesInput;
     private String previewTitle = "";
     private List<String> previewLines = new ArrayList<>();
+    private int previewRequestRevision;
 
     public ScoreboardDesignerScreen(ScoreboardDefinition scoreboard) {
         this(scoreboard, null, null);
     }
 
     public ScoreboardDesignerScreen(ScoreboardDefinition scoreboard, String serverId, Object parent) {
+        this(scoreboard, serverId, parent, !(parent instanceof Screen));
+    }
+
+    public ScoreboardDesignerScreen(ScoreboardDefinition scoreboard, String serverId, Object parent, boolean forceSuperScreen) {
         this.scoreboard = scoreboard;
         this.serverId = serverId;
         this.parent = parent;
+        this.forceSuperScreen = forceSuperScreen;
         this.autoResizeContainers = false;
         ensureDefaults();
     }
@@ -76,7 +83,7 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
 
     @Override
     public boolean shouldForceSuperScreen() {
-        return false;
+        return desktopMode && forceSuperScreen;
     }
 
     @Override
@@ -405,24 +412,40 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
 
     private void refreshPreviewText() {
         String rawTitle = scoreboard.getTitle() != null && !scoreboard.getTitle().isEmpty() ? scoreboard.getTitle() : scoreboard.getId();
-        previewTitle = formatPreviewText(rawTitle);
         List<String> sourceLines = scoreboard.getLines() != null ? scoreboard.getLines() : List.of();
+        String localTitle = formatPreviewText(rawTitle);
         List<String> localLines = new ArrayList<>();
         for (String line : sourceLines) {
             localLines.add(formatPreviewText(line));
         }
-        previewLines = localLines;
         FlowManager flowManager = FlowManager.getInstance();
         if (flowManager == null || serverId == null) {
+            previewTitle = localTitle;
+            previewLines = localLines;
             return;
         }
-        flowManager.resolvePlaceholderPreview(serverId, rawTitle, rendered -> previewTitle = formatPreviewText(rendered));
+        if (previewTitle.isEmpty()) {
+            previewTitle = localTitle;
+        }
+        if (previewLines.isEmpty()) {
+            previewLines = localLines;
+        }
+        int requestRevision = ++previewRequestRevision;
+        flowManager.resolvePlaceholderPreview(serverId, rawTitle, rendered -> {
+            if (requestRevision == previewRequestRevision && rendered != null) {
+                previewTitle = formatPreviewText(rendered);
+            }
+        });
         String joined = String.join("\u0001", sourceLines);
-        flowManager.resolvePlaceholderPreview(serverId, joined, this::applyResolvedPreviewLines);
+        int expectedLines = sourceLines.size();
+        flowManager.resolvePlaceholderPreview(serverId, joined, rendered -> applyResolvedPreviewLines(rendered, requestRevision, expectedLines));
     }
 
-    private void applyResolvedPreviewLines(String joined) {
-        if (joined == null) {
+    private void applyResolvedPreviewLines(String joined, int requestRevision, int expectedLines) {
+        if (requestRevision != previewRequestRevision || joined == null) {
+            return;
+        }
+        if (expectedLines <= 0) {
             previewLines = new ArrayList<>();
             return;
         }

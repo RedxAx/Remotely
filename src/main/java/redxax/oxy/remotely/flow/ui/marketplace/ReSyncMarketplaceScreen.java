@@ -13,8 +13,6 @@ import redxax.oxy.remotely.flow.data.GuiDefinition;
 import redxax.oxy.remotely.flow.data.GuiElement;
 import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ReSyncResourceDragPayload;
-import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
-import redxax.oxy.remotely.flow.data.TabDefinition;
 import redxax.oxy.remotely.flow.data.TriggerBinding;
 import redxax.oxy.remotely.flow.data.TriggerType;
 import restudio.rebase.Rebase;
@@ -27,7 +25,7 @@ import restudio.rebase.restudio.marketplace.MarketplaceService;
 import restudio.rebase.ui.screens.marketplace.MarketplaceDetailsScreen;
 import restudio.rebase.ui.widgets.editor.TextAreaWidget;
 import restudio.rebase.ui.widgets.marketplace.MarketplaceListingWidget;
-import restudio.rebase.ui.widgets.resources.GenericInstanceResourceWidget;
+import restudio.rebase.ui.widgets.resources.ResourceWidget;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.theme.ThemeColor;
 import restudio.rescreen.theme.ThemeManager;
@@ -371,9 +369,9 @@ public class ReSyncMarketplaceScreen extends ReScreen {
                 || containsIgnoreCase(bundle.getVersion(), normalizedQuery);
     }
 
-    private GenericInstanceResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> createInstalledBundleWidget(ReSyncProjectMetadata.InstalledBundleEntry bundle) {
-        AtomicReference<GenericInstanceResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry>> widgetRef = new AtomicReference<>();
-        GenericInstanceResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget = new GenericInstanceResourceWidget<>(bundle, new GenericInstanceResourceWidget.ResourceAdapter<>() {
+    private ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> createInstalledBundleWidget(ReSyncProjectMetadata.InstalledBundleEntry bundle) {
+        AtomicReference<ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry>> widgetRef = new AtomicReference<>();
+        ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget = new ResourceWidget<>(bundle, new ResourceWidget.ResourceAdapter<>() {
             @Override
             public String name(ReSyncProjectMetadata.InstalledBundleEntry resource) {
                 return resource.getTitle().isBlank() ? resource.getListingSlug() : resource.getTitle();
@@ -411,7 +409,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
             }
 
             @Override
-            public void toggle(ReSyncProjectMetadata.InstalledBundleEntry resource, ToggleWidget toggle, GenericInstanceResourceWidget.RenderingMode renderingMode) {
+            public void toggle(ReSyncProjectMetadata.InstalledBundleEntry resource, ToggleWidget toggle, ResourceWidget.RenderingMode renderingMode) {
                 if (toggle.getValue() != resource.isEnabled()) {
                     toggleInstalledBundle(resource);
                 }
@@ -442,7 +440,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         return widget;
     }
 
-    private void checkInstalledBundleUpdate(ReSyncProjectMetadata.InstalledBundleEntry bundle, GenericInstanceResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
+    private void checkInstalledBundleUpdate(ReSyncProjectMetadata.InstalledBundleEntry bundle, ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
         String key = bundle.key();
         if (key.isBlank() || bundle.getMarketplaceSlug().isBlank() || bundle.getListingSlug().isBlank() || installedBundleUpdates.containsKey(key)
                 || installedBundleUpdateChecked.contains(key) || !installedBundleUpdateChecks.add(key)) {
@@ -481,7 +479,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         return !bundle.getVersion().isBlank() && latest.version != null && !bundle.getVersion().equals(latest.version);
     }
 
-    private BufferedImage iconForInstalledBundle(ReSyncProjectMetadata.InstalledBundleEntry bundle, GenericInstanceResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
+    private BufferedImage iconForInstalledBundle(ReSyncProjectMetadata.InstalledBundleEntry bundle, ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
         String listingSlug = bundle.getListingSlug();
         if (listingSlug.isBlank()) {
             return loadIcon("download.png");
@@ -522,7 +520,7 @@ public class ReSyncMarketplaceScreen extends ReScreen {
         return loadIcon("download.png");
     }
 
-    private void cacheInstalledBundleIcon(String listingSlug, String iconMediaId, Path iconPath, GenericInstanceResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
+    private void cacheInstalledBundleIcon(String listingSlug, String iconMediaId, Path iconPath, ResourceWidget<ReSyncProjectMetadata.InstalledBundleEntry> widget) {
         String url = ReStudio.getInstance().getApi().getMediaDownloadUrl(iconMediaId);
         Rebase.get().getCacheManager().getOrFetchImage(url, iconPath).thenAccept(image -> {
             if (image != null) {

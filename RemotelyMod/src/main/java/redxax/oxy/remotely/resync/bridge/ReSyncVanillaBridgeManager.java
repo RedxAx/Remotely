@@ -21,6 +21,7 @@ import java.util.function.Consumer;
 public class ReSyncVanillaBridgeManager {
     private static final ReSyncVanillaBridgeManager INSTANCE = new ReSyncVanillaBridgeManager();
     private static final long HELLO_RETRY_NANOS = 1_000_000_000L;
+    private static final long REJECTED_HELLO_RETRY_NANOS = 10_000_000_000L;
     private final ReSyncVanillaPacketAdapter adapter = new ReSyncVanillaPacketAdapter();
     private final ReSyncBridgeChunker chunker = new ReSyncBridgeChunker();
     private final AtomicInteger sequence = new AtomicInteger(1);
@@ -34,6 +35,8 @@ public class ReSyncVanillaBridgeManager {
     private Object lastConnection;
     private long nextHelloNanos;
     private boolean channelRegistered;
+    private volatile boolean liveSessionActivated;
+    private String rejectedReason;
 
     public static ReSyncVanillaBridgeManager getInstance() {
         return INSTANCE;
@@ -52,6 +55,9 @@ public class ReSyncVanillaBridgeManager {
         }
         if (!authenticated && System.nanoTime() >= nextHelloNanos) {
             sendHello();
+        }
+        if (authenticated && !liveSessionActivated) {
+            ensureLiveSessionActive();
         }
     }
 
@@ -86,6 +92,9 @@ public class ReSyncVanillaBridgeManager {
             return;
         }
         if (!authenticated) {
+            if (rejectedReason != null) {
+                return;
+            }
             new Notification("ReSync", helloSent ? "Bridge Waiting" : "Bridge Not Ready", Notification.Type.WARN);
             return;
         }
@@ -93,11 +102,29 @@ public class ReSyncVanillaBridgeManager {
             new Notification("ReSync", "Bridge Transport Missing", Notification.Type.WARN);
             return;
         }
+        ensureLiveSessionActive();
         RemotelyClient.INSTANCE.openLiveReSyncStudio(new ReSyncLiveServerSession(liveServerId, displayName, transport));
     }
 
+    public boolean ensureLiveSessionActive() {
+        InitializationManager.ensureInitialized();
+        if (!authenticated || transport == null || liveServerId == null || liveServerId.isBlank() || RemotelyClient.INSTANCE == null || RemotelyClient.INSTANCE.getFlowManager() == null) {
+            return false;
+        }
+        if (liveSessionActivated) {
+            return true;
+        }
+        RemotelyClient.INSTANCE.getFlowManager().activateLiveReSyncSession(new ReSyncLiveServerSession(liveServerId, displayName, transport));
+        liveSessionActivated = true;
+        return true;
+    }
+
+    public String getLiveServerId() {
+        return liveServerId;
+    }
+
     private void sendHello() {
-        nextHelloNanos = System.nanoTime() + HELLO_RETRY_NANOS;
+        nextHelloNanos = System.nanoTime() + (rejectedReason != null ? REJECTED_HELLO_RETRY_NANOS : HELLO_RETRY_NANOS);
         if (!channelRegistered) {
             channelRegistered = adapter.registerBridgeChannel();
         }
@@ -132,7 +159,8 @@ public class ReSyncVanillaBridgeManager {
             String reason = readString(buffer, "ReSync Unavailable");
             authenticated = false;
             liveServerId = null;
-            new Notification("ReSync", "No Permission".equals(reason) ? "No Permission" : "ReSync Unavailable", Notification.Type.WARN);
+            rejectedReason = "No Permission".equals(reason) ? "No Permission" : "ReSync Unavailable";
+            nextHelloNanos = System.nanoTime() + REJECTED_HELLO_RETRY_NANOS;
             return;
         }
         if (buffer.remaining() >= 4) {
@@ -144,10 +172,12 @@ public class ReSyncVanillaBridgeManager {
             }
         }
         sessionId = serverSessionId;
+        rejectedReason = null;
         displayName = readString(buffer, "Live Server");
         supportedChannels = readChannels(buffer);
         transport = new BridgeTransport();
         authenticated = true;
+        ensureLiveSessionActive();
     }
 
     private Set<String> readChannels(ByteBuffer buffer) {
@@ -186,6 +216,7 @@ public class ReSyncVanillaBridgeManager {
         closeLiveSession();
         helloSent = false;
         lastConnection = null;
+        rejectedReason = null;
     }
 
     private void closeLiveSession() {
@@ -198,6 +229,7 @@ public class ReSyncVanillaBridgeManager {
         chunker.clear();
         authenticated = false;
         channelRegistered = false;
+        liveSessionActivated = false;
         liveServerId = null;
         supportedChannels = Set.of();
         transport = null;
