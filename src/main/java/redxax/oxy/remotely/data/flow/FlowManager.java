@@ -1,5 +1,10 @@
 package redxax.oxy.remotely.data.flow;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.flow.player.PlayerTrackingUpdate;
@@ -36,8 +41,10 @@ import redxax.oxy.remotely.worldgen.WorldGenManager;
 import restudio.rebase.instance.Instance;
 import restudio.rebase.minecraft.MinecraftPlayerLocation;
 import restudio.rebase.restudio.api.ReStudioApiClient;
+import restudio.rebase.restudio.api.models.MarketplaceModels;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rebase.restudio.api.models.ServerModels.PteroFileObjectAttributes;
+import restudio.rebase.restudio.marketplace.MarketplaceContentImportService;
 import restudio.rebase.ui.worldmap.WorldMapScreen;
 import restudio.rescreen.config.Config;
 import restudio.rescreen.ui.core.Screen;
@@ -46,9 +53,11 @@ import restudio.rescreen.util.Notification;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -70,11 +79,18 @@ public class FlowManager {
     private final SyncedResourceCache<CustomContentDefinition> customContentStore = new SyncedResourceCache<>(CustomContentDefinition::getId, c -> c.getDisplayName() != null ? c.getDisplayName() : c.getId());
     private final SyncedResourceCache<ReSyncProjectMetadata> projectMetadataStore = new SyncedResourceCache<>(m -> m.getServerId() == null || m.getServerId().isBlank() ? "project" : m.getServerId(), m -> "Project");
     private final Map<String, List<TriggerBinding>> triggerBindings = new ConcurrentHashMap<>();
-    private volatile boolean overlayEditable;
-    private volatile String overlayServerId;
-    private volatile String overlayGuiId;
-    private volatile String overlayFlowId;
+    private volatile boolean guiOverlayEditable;
+    private volatile String guiOverlayServerId;
+    private volatile String guiOverlayGuiId;
+    private volatile String guiOverlayFlowId;
+    private volatile boolean editTargetOverlayEditable;
+    private volatile String editTargetOverlayServerId;
+    private volatile String editTargetOverlayResourceType;
+    private volatile String editTargetOverlayResourceId;
+    private volatile String editTargetOverlayFlowId;
+    private volatile String marketplaceImportServerId;
     private final AtomicInteger overlayRevision = new AtomicInteger();
+    private final Gson gson = new Gson();
 
     public FlowManager(RemotelyClient client, ReStudioApiClient apiClient) {
         this.client = client;
@@ -83,6 +99,7 @@ public class FlowManager {
         this.worldService = new ReSyncWorldService();
         this.playerService = new ReSyncPlayerService();
         INSTANCE = this;
+        MarketplaceContentImportService.register(this::importMarketplaceContent);
     }
 
     public static FlowManager getInstance() {
@@ -95,6 +112,7 @@ public class FlowManager {
 
     public void openReSyncStudio(String serverId, ClientServerView server, String loaderHint, String serverTitle) {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
+        marketplaceImportServerId = actualServerId;
         connectionManager.resolveAndStoreProfile(actualServerId, server);
         FlowEditorScreen screen = new FlowEditorScreen(new FlowGraph(), actualServerId, ScreenManager.getInstance().getCurrentScreen(), server, loaderHint, serverTitle).enableStudioMode();
         client.getHost().setScreen(screen);
@@ -105,14 +123,27 @@ public class FlowManager {
             new Notification("ReSync", "ReSync Unavailable", Notification.Type.WARN);
             return;
         }
-        connectionManager.activateLiveSession(session);
+        marketplaceImportServerId = session.serverId();
+        activateLiveReSyncSession(session);
         FlowEditorScreen screen = new FlowEditorScreen(new FlowGraph(), session.serverId(), ScreenManager.getInstance().getCurrentScreen(), null, "", session.displayName()).enableStudioMode();
         client.getHost().setScreen(screen);
+    }
+
+    public ReSyncFlowClient activateLiveReSyncSession(ReSyncLiveServerSession session) {
+        if (session == null || session.serverId() == null || session.serverId().isBlank()) {
+            return null;
+        }
+        marketplaceImportServerId = session.serverId();
+        return connectionManager.activateLiveSession(session);
     }
 
     public void clearLiveReSyncSession(String serverId) {
         if (serverId == null || !serverId.startsWith("live:")) {
             return;
+        }
+        if (serverId.equals(guiOverlayServerId) || serverId.equals(editTargetOverlayServerId)) {
+            clearOverlayState();
+            GuiEditOverlayState.clear();
         }
         closeServerConnection(serverId);
     }
@@ -213,6 +244,7 @@ public class FlowManager {
 
     public void openFlowEditor(String serverId, ClientServerView server) {
         String actualServerId = (server != null && server.identifier != null) ? server.identifier : serverId;
+        marketplaceImportServerId = actualServerId;
         String flowId = getOrCreateDefaultFlowId(actualServerId);
         openFlowEditor(actualServerId, server, flowId);
     }
@@ -494,6 +526,251 @@ public class FlowManager {
         refreshStudioWorkspace(serverId);
     }
 
+    private CompletableFuture<Boolean> importMarketplaceContent(MarketplaceModels.Listing listing, MarketplaceModels.Version version, String payloadJson) {
+        return CompletableFuture.supplyAsync(() -> {
+            String serverId = marketplaceImportServerId;
+            if (serverId == null || serverId.isBlank() || listing == null || payloadJson == null || payloadJson.isBlank()) {
+                return false;
+            }
+            try {
+                if (installMarketplaceBundle(serverId, listing, version, payloadJson)) {
+                    return true;
+                }
+                switch (listing.type) {
+                    case "FLOW" -> saveFlow(serverId, gson.fromJson(payloadJson, FlowGraph.class));
+                    case "UI" -> saveGui(serverId, gson.fromJson(payloadJson, GuiDefinition.class));
+                    case "TAB_LIST" -> saveTab(serverId, gson.fromJson(payloadJson, TabDefinition.class));
+                    case "SCOREBOARD" -> saveScoreboard(serverId, gson.fromJson(payloadJson, ScoreboardDefinition.class));
+                    case "CUSTOM_CONTENT", "RESYNC_CONTENT" -> saveFlow(serverId, gson.fromJson(payloadJson, FlowGraph.class));
+                    default -> {
+                        return false;
+                    }
+                }
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        });
+    }
+
+    public boolean installMarketplaceBundle(String serverId, MarketplaceModels.Listing listing, MarketplaceModels.Version version, String payloadJson) {
+        JsonElement parsed = JsonParser.parseString(payloadJson);
+        if (!parsed.isJsonObject()) {
+            return false;
+        }
+        JsonObject bundle = parsed.getAsJsonObject();
+        if (!bundle.has("assets") || !bundle.get("assets").isJsonArray()) {
+            return false;
+        }
+        String folderName = text(bundle, "folderName");
+        if (folderName.isBlank()) {
+            folderName = listing != null && listing.title != null && !listing.title.isBlank() ? listing.title : "Marketplace Bundle";
+        }
+        String rootFolder = "Marketplace/" + safeFolderName(folderName);
+        ReSyncProjectMetadata metadata = getProjectMetadata(serverId);
+        ensureMarketplaceFolder(metadata, "Marketplace");
+        ensureMarketplaceFolder(metadata, rootFolder);
+        ReSyncProjectMetadata.InstalledBundleEntry installed = metadata.findInstalledBundle(listing.marketplaceSlug, listing.slug);
+        Set<String> previousKeys = installed == null ? new HashSet<>() : new HashSet<>(installed.getResourceKeys());
+        JsonArray assets = bundle.getAsJsonArray("assets");
+        List<String> resourceKeys = new ArrayList<>();
+        for (JsonElement element : assets) {
+            if (element == null || !element.isJsonObject()) {
+                continue;
+            }
+            JsonObject asset = element.getAsJsonObject();
+            String type = text(asset, "type");
+            String id = text(asset, "id");
+            String displayName = text(asset, "displayName");
+            if (type.isBlank() || id.isBlank() || !asset.has("payload")) {
+                continue;
+            }
+            importMarketplaceBundleAsset(serverId, type, id, displayName, asset.get("payload"));
+            String folder = rootFolder + "/" + marketplaceBundleFolder(type);
+            ensureMarketplaceFolder(metadata, folder);
+            ReSyncProjectMetadata.ResourceEntry resource = metadata.ensureResource(type, id, displayName.isBlank() ? id : displayName, folder);
+            resource.setPath(folder);
+            resourceKeys.add(resource.key());
+        }
+        previousKeys.removeAll(resourceKeys);
+        for (String key : previousKeys) {
+            ReSyncProjectMetadata.ResourceEntry resource = metadata.getResources().stream().filter(entry -> entry.key().equals(key)).findFirst().orElse(null);
+            if (resource != null) {
+                deleteMarketplaceBundleResource(serverId, resource);
+            }
+        }
+        metadata.getResources().removeIf(resource -> previousKeys.contains(resource.key()));
+        if (installed == null) {
+            installed = new ReSyncProjectMetadata.InstalledBundleEntry();
+            installed.setMarketplaceSlug(listing.marketplaceSlug);
+            installed.setListingSlug(listing.slug);
+            metadata.getInstalledBundles().add(installed);
+        }
+        installed.setTitle(listing.title != null && !listing.title.isBlank() ? listing.title : folderName);
+        installed.setVersionId(version != null ? version.id : "");
+        installed.setVersion(version != null ? version.version : "");
+        installed.setRootPath(rootFolder);
+        installed.setIconMediaId(listing.iconMediaId);
+        installed.setEnabled(true);
+        installed.setResourceKeys(resourceKeys);
+        saveProjectMetadata(serverId, metadata);
+        return true;
+    }
+
+    public void deleteMarketplaceBundle(String serverId, ReSyncProjectMetadata.InstalledBundleEntry bundle) {
+        if (bundle == null) {
+            return;
+        }
+        ReSyncProjectMetadata metadata = getProjectMetadata(serverId);
+        Set<String> ownedKeys = new HashSet<>(bundle.getResourceKeys());
+        if (ownedKeys.isEmpty() && !bundle.getRootPath().isBlank()) {
+            for (ReSyncProjectMetadata.ResourceEntry resource : metadata.getResources()) {
+                if (resource.getPath().equals(bundle.getRootPath()) || resource.getPath().startsWith(bundle.getRootPath() + "/")) {
+                    ownedKeys.add(resource.key());
+                }
+            }
+        }
+        for (String key : ownedKeys) {
+            ReSyncProjectMetadata.ResourceEntry resource = metadata.getResources().stream().filter(entry -> entry.key().equals(key)).findFirst().orElse(null);
+            if (resource != null) {
+                deleteMarketplaceBundleResource(serverId, resource);
+            }
+        }
+        metadata.getResources().removeIf(resource -> ownedKeys.contains(resource.key()));
+        String rootPath = bundle.getRootPath();
+        if (!rootPath.isBlank()) {
+            metadata.getFolders().removeIf(folder -> folder.getPath().equals(rootPath) || folder.getPath().startsWith(rootPath + "/"));
+        }
+        metadata.getInstalledBundles().removeIf(entry -> entry.key().equals(bundle.key()));
+        saveProjectMetadata(serverId, metadata);
+        refreshStudioWorkspace(serverId);
+    }
+
+    public void setMarketplaceBundleEnabled(String serverId, ReSyncProjectMetadata.InstalledBundleEntry bundle, boolean enabled) {
+        if (bundle == null || bundle.isEnabled() == enabled) {
+            return;
+        }
+        ReSyncProjectMetadata metadata = getProjectMetadata(serverId);
+        ReSyncProjectMetadata.InstalledBundleEntry stored = metadata.findInstalledBundle(bundle.getMarketplaceSlug(), bundle.getListingSlug());
+        if (stored == null) {
+            return;
+        }
+        stored.setEnabled(enabled);
+        for (String key : stored.getResourceKeys()) {
+            ReSyncProjectMetadata.ResourceEntry resource = metadata.getResources().stream().filter(entry -> entry.key().equals(key)).findFirst().orElse(null);
+            if (resource != null && ReSyncResourceDragPayload.COMMAND.equals(resource.getType())) {
+                if (enabled) {
+                    setCommandBinding(serverId, resource.getId(), resource.getDisplayName().isBlank() ? resource.getId() : resource.getDisplayName());
+                } else {
+                    clearCommandBinding(serverId, resource.getId());
+                }
+            }
+        }
+        saveProjectMetadata(serverId, metadata);
+    }
+
+    private void deleteMarketplaceBundleResource(String serverId, ReSyncProjectMetadata.ResourceEntry resource) {
+        switch (resource.getType()) {
+            case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> deleteFlow(serverId, resource.getId());
+            case ReSyncResourceDragPayload.COMMAND -> {
+                clearCommandBinding(serverId, resource.getId());
+                deleteFlow(serverId, resource.getId());
+            }
+            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> deleteCustomContent(serverId, resource.getId());
+            case ReSyncResourceDragPayload.GUI -> deleteGui(serverId, resource.getId());
+            case ReSyncResourceDragPayload.SCOREBOARD -> deleteScoreboard(serverId, resource.getId());
+            case ReSyncResourceDragPayload.TAB -> deleteTab(serverId, resource.getId());
+            default -> {
+            }
+        }
+    }
+
+    private void importMarketplaceBundleAsset(String serverId, String type, String id, String displayName, JsonElement payload) {
+        switch (type) {
+            case ReSyncResourceDragPayload.COMMAND -> {
+                FlowGraph graph = gson.fromJson(payload, FlowGraph.class);
+                if (graph != null) {
+                    graph.setId(id);
+                    saveFlow(serverId, graph);
+                    setCommandBinding(serverId, id, displayName.isBlank() ? id : displayName);
+                }
+            }
+            case ReSyncResourceDragPayload.FLOW, ReSyncResourceDragPayload.FUNCTION -> {
+                FlowGraph graph = gson.fromJson(payload, FlowGraph.class);
+                if (graph != null) {
+                    graph.setId(id);
+                    saveFlow(serverId, graph);
+                }
+            }
+            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> {
+                CustomContentDefinition content = gson.fromJson(payload, CustomContentDefinition.class);
+                if (content != null) {
+                    content.setId(id);
+                    saveCustomContent(serverId, content);
+                }
+            }
+            case ReSyncResourceDragPayload.GUI -> {
+                GuiDefinition gui = gson.fromJson(payload, GuiDefinition.class);
+                if (gui != null) {
+                    gui.setId(id);
+                    saveGui(serverId, gui);
+                }
+            }
+            case ReSyncResourceDragPayload.SCOREBOARD -> {
+                ScoreboardDefinition scoreboard = gson.fromJson(payload, ScoreboardDefinition.class);
+                if (scoreboard != null) {
+                    scoreboard.setId(id);
+                    saveScoreboard(serverId, scoreboard);
+                }
+            }
+            case ReSyncResourceDragPayload.TAB -> {
+                TabDefinition tab = gson.fromJson(payload, TabDefinition.class);
+                if (tab != null) {
+                    tab.setId(id);
+                    saveTab(serverId, tab);
+                }
+            }
+            default -> {
+            }
+        }
+    }
+
+    private void ensureMarketplaceFolder(ReSyncProjectMetadata metadata, String path) {
+        String normalized = ReSyncProjectMetadata.normalizePath(path);
+        int split = normalized.lastIndexOf('/');
+        String parent = split > 0 ? normalized.substring(0, split) : "";
+        metadata.ensureFolder(normalized, parent, metadata.getFolders().size());
+    }
+
+    private String marketplaceBundleFolder(String type) {
+        return switch (type) {
+            case ReSyncResourceDragPayload.FUNCTION -> "Functions";
+            case ReSyncResourceDragPayload.COMMAND -> "Commands";
+            case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Content";
+            case ReSyncResourceDragPayload.GUI -> "GUIs";
+            case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboards";
+            case ReSyncResourceDragPayload.TAB -> "Tabs";
+            default -> "Flows";
+        };
+    }
+
+    private String safeFolderName(String value) {
+        String name = value == null ? "" : value.trim().replace('\\', '/').replaceAll("[/:*?\"<>|]+", "-");
+        name = name.replaceAll("\\s+", " ").trim();
+        return name.isBlank() ? "Bundle" : name;
+    }
+
+    private String text(JsonObject object, String key) {
+        if (object == null || !object.has(key) || object.get(key).isJsonNull()) {
+            return "";
+        }
+        try {
+            return object.get(key).getAsString();
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
     public void markCustomContentSaved(String serverId, String contentId) {
         customContentStore.markSaved(serverId, contentId);
         refreshStudioWorkspace(serverId);
@@ -542,6 +819,26 @@ public class FlowManager {
 
     public Map<String, ScoreboardDefinition> getScoreboardsForServer(String serverId) {
         return scoreboardStore.getForServer(serverId);
+    }
+
+    public ScoreboardDefinition getScoreboard(String serverId, String scoreboardId) {
+        return scoreboardStore.get(serverId, scoreboardId);
+    }
+
+    public String resolveScoreboardId(String serverId, String objectiveId) {
+        if (serverId == null || serverId.isBlank() || objectiveId == null || objectiveId.isBlank()) {
+            return objectiveId;
+        }
+        for (ScoreboardDefinition scoreboard : scoreboardStore.getForServer(serverId).values()) {
+            if (scoreboard == null || scoreboard.getId() == null) {
+                continue;
+            }
+            String expectedObjectiveId = scoreboard.getObjectiveId() != null && !scoreboard.getObjectiveId().isBlank() ? scoreboard.getObjectiveId() : scoreboard.getId();
+            if (objectiveId.equals(expectedObjectiveId)) {
+                return scoreboard.getId();
+            }
+        }
+        return objectiveId;
     }
 
     public Map<String, TabDefinition> getTabsForServer(String serverId) {
@@ -1199,14 +1496,18 @@ public class FlowManager {
 
     public void handleGuiStatePacket(String serverId, boolean editable, String guiId, String flowId) {
         if (!editable) {
-            clearOverlayState();
-            GuiEditOverlayState.clear();
+            boolean sameServer = serverId == null || serverId.isBlank() || serverId.equals(guiOverlayServerId);
+            boolean sameGui = guiId != null && !guiId.isBlank() && guiId.equals(guiOverlayGuiId);
+            if (sameServer && sameGui) {
+                clearGuiOverlayState();
+                GuiEditOverlayState.clear();
+            }
             return;
         }
-        overlayEditable = true;
-        overlayServerId = serverId;
-        overlayGuiId = guiId;
-        overlayFlowId = flowId;
+        guiOverlayEditable = true;
+        guiOverlayServerId = serverId;
+        guiOverlayGuiId = guiId;
+        guiOverlayFlowId = flowId;
         overlayRevision.incrementAndGet();
         GuiEditOverlayState.update(serverId, guiId, flowId, true);
         if (guiId != null && !guiId.isBlank()) {
@@ -1217,17 +1518,62 @@ public class FlowManager {
         }
     }
 
-    public boolean isOverlayEditable() { return overlayEditable; }
-    public String getOverlayServerId() { return overlayServerId; }
-    public String getOverlayGuiId() { return overlayGuiId; }
-    public String getOverlayFlowId() { return overlayFlowId; }
+    public void handleEditTargetStatePacket(String serverId, boolean editable, String resourceType, String resourceId, String flowId) {
+        if (!editable) {
+            if (resourceType == null || resourceType.isBlank() || resourceType.equals(editTargetOverlayResourceType)) {
+                clearEditTargetOverlayState();
+            }
+            return;
+        }
+        if (resourceType == null || resourceType.isBlank() || resourceId == null || resourceId.isBlank()) {
+            return;
+        }
+        editTargetOverlayEditable = true;
+        editTargetOverlayServerId = serverId;
+        editTargetOverlayResourceType = resourceType;
+        editTargetOverlayResourceId = resourceId;
+        editTargetOverlayFlowId = flowId;
+        overlayRevision.incrementAndGet();
+        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        if (flowClient != null) {
+            if ("gui".equals(resourceType)) {
+                flowClient.requestGui(resourceId, false);
+            } else if ("scoreboard".equals(resourceType)) {
+                flowClient.requestScoreboard(resourceId, false);
+            }
+        }
+    }
+
+    public boolean isGuiOverlayEditable() { return guiOverlayEditable; }
+    public String getGuiOverlayServerId() { return guiOverlayServerId; }
+    public String getGuiOverlayGuiId() { return guiOverlayGuiId; }
+    public String getGuiOverlayFlowId() { return guiOverlayFlowId; }
+    public boolean isEditTargetOverlayEditable() { return editTargetOverlayEditable; }
+    public String getEditTargetOverlayServerId() { return editTargetOverlayServerId; }
+    public String getEditTargetOverlayResourceType() { return editTargetOverlayResourceType; }
+    public String getEditTargetOverlayResourceId() { return editTargetOverlayResourceId; }
+    public String getEditTargetOverlayFlowId() { return editTargetOverlayFlowId; }
     public int getOverlayRevision() { return overlayRevision.get(); }
 
     public void clearOverlayState() {
-        overlayEditable = false;
-        overlayServerId = null;
-        overlayGuiId = null;
-        overlayFlowId = null;
+        clearGuiOverlayState();
+        clearEditTargetOverlayState();
+    }
+
+    private void clearGuiOverlayState() {
+        guiOverlayEditable = false;
+        guiOverlayServerId = null;
+        guiOverlayGuiId = null;
+        guiOverlayFlowId = null;
+        overlayRevision.incrementAndGet();
+    }
+
+    private void clearEditTargetOverlayState() {
+        editTargetOverlayEditable = false;
+        editTargetOverlayServerId = null;
+        editTargetOverlayResourceType = null;
+        editTargetOverlayResourceId = null;
+        editTargetOverlayFlowId = null;
         overlayRevision.incrementAndGet();
     }
 

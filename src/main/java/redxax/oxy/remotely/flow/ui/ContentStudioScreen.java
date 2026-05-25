@@ -34,10 +34,12 @@ import restudio.rescreen.ui.widgets.ToggleWidget;
 import restudio.rescreen.util.Notification;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 public class ContentStudioScreen extends FlowEditorScreen {
     private static final int PANEL_WIDTH = ReSyncStudioPanelState.DEFAULT_WIDTH;
@@ -48,7 +50,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
     private SidePanel contentPanel;
     private String selectedBranch = "";
     private MountableButtonWidget summaryWidget;
-    private final Map<String, MountableButtonWidget> eventRows = new java.util.HashMap<>();
+    private final Map<String, MountableButtonWidget> eventRows = new HashMap<>();
     private final List<AnimatedWidget> contentPanelWidgets = new ArrayList<>();
     private final List<DropDownWidget<String>> panelDropdowns = new ArrayList<>();
     private ItemSelectorWidget activeSearchSelector;
@@ -514,7 +516,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
             .build());
     }
 
-    private TitledRowWidget textRow(String label, String value, int width, java.util.function.Consumer<String> onChange) {
+    private TitledRowWidget textRow(String label, String value, int width, Consumer<String> onChange) {
         TextInputWidget input = new TextInputWidget.Builder()
             .text(value == null ? "" : value)
             .placeholder(label)
@@ -528,7 +530,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
         return row;
     }
 
-    private TitledRowWidget dropdownRow(String label, List<String> choices, String selected, int width, java.util.function.Consumer<String> onChange) {
+    private TitledRowWidget dropdownRow(String label, List<String> choices, String selected, int width, Consumer<String> onChange) {
         List<String> options = normalizedOptions(choices, selected);
         DropDownWidget<String> dropdown = new DropDownWidget.Builder<>(options)
             .selectedItem(resolveSelectedOption(options, selected))
@@ -547,7 +549,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
         return row;
     }
 
-    private TitledRowWidget searchableRow(String label, List<String> choices, String selected, int width, java.util.function.Consumer<String> onChange) {
+    private TitledRowWidget searchableRow(String label, List<String> choices, String selected, int width, Consumer<String> onChange) {
         List<String> options = normalizedOptions(choices, selected);
         AnimatedButton button = new AnimatedButton.Builder()
             .label(resolveSelectedOption(options, selected))
@@ -699,7 +701,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
             .build();
     }
 
-    private DropDownWidget<String> popupDropdown(List<String> choices, String selected, java.util.function.Consumer<String> onChange) {
+    private DropDownWidget<String> popupDropdown(List<String> choices, String selected, Consumer<String> onChange) {
         List<String> options = normalizedOptions(choices, selected);
         return new DropDownWidget.Builder<>(options)
             .selectedItem(resolveSelectedOption(options, selected))
@@ -807,7 +809,7 @@ public class ContentStudioScreen extends FlowEditorScreen {
         return result;
     }
 
-    private void showSearchSelector(List<String> options, String selected, java.util.function.Consumer<String> onSelected, int x, int y) {
+    private void showSearchSelector(List<String> options, String selected, Consumer<String> onSelected, int x, int y) {
         if (options == null || options.isEmpty()) {
             return;
         }

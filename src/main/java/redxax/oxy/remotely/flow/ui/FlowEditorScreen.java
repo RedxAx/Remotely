@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
+import redxax.oxy.remotely.data.flow.OptionCatalogCache;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
 import redxax.oxy.remotely.data.flow.world.WorldGeneratorDescriptor;
@@ -34,6 +35,8 @@ import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioView;
 import redxax.oxy.remotely.flow.ui.studio.ReSyncStudioPanelState;
 import redxax.oxy.remotely.flow.ui.studio.ScreenBackedStudioView;
 import redxax.oxy.remotely.flow.ui.studio.StudioHeaderProvider;
+import redxax.oxy.remotely.flow.ui.marketplace.ReSyncMarketplaceScreen;
+import redxax.oxy.remotely.packcontent.PackContentRegistry;
 import redxax.oxy.remotely.worldgen.WorldGenManager;
 import redxax.oxy.remotely.worldgen.data.WorldGenProject;
 import redxax.oxy.remotely.worldgen.ui.WorldGenEditorScreen;
@@ -222,6 +225,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         private final ReSyncProjectTreeProvider treeProvider;
         private final WorkspaceTreeExplorer treeExplorer;
         private final SquareButtonWidget createButton;
+        private final SquareButtonWidget marketplaceButton;
         private final AnimatedButton closeButton;
         private final BufferedImage folderIcon;
         private final BufferedImage flowIcon;
@@ -234,6 +238,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         private final BufferedImage scoreboardIcon;
         private final BufferedImage tabIcon;
         private final BufferedImage worldGenIcon;
+        private ItemSelectorWidget createContentSelector;
 
         private ReSyncContentBrowserWidget(int x, int y, int width, int height) {
             super(x, y, width, height, "");
@@ -263,6 +268,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .size(18, 18)
                 .hint("Create")
                 .onClick(this::showCreateMenu)
+                .build();
+            marketplaceButton = new SquareButtonWidget.Builder()
+                .imagePath("market.png")
+                .size(18, 18)
+                .hint("Marketplace")
+                .onClick(FlowEditorScreen.this::openReSyncMarketplace)
                 .build();
             closeButton = new AnimatedButton.Builder()
                 .onClick(FlowEditorScreen.this::toggleStudioContentBrowser)
@@ -313,6 +324,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             renderClippedContainer(context, treeContainer, mouseX, mouseY);
             renderClippedContainer(context, gridContainer, mouseX, mouseY);
             renderEmptyFolderMessage(context, mouseX, mouseY);
+            marketplaceButton.render(context, mouseX, mouseY, 0);
             createButton.render(context, mouseX, mouseY, 0);
         }
 
@@ -353,6 +365,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 return true;
             }
             if (closeButton.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+            if (marketplaceButton.mouseClicked(mouseX, mouseY, button)) {
                 return true;
             }
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && isResizeGrip(mouseX, mouseY)) {
@@ -660,7 +675,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .addIconItem("New Flow", "graph.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FLOW), "Create Flow")
                 .addIconItem("New Function", "snippets.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.FUNCTION), "Create Function")
                 .addIconItem("New Command", "terminal.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.COMMAND), "Create Command")
-                .addIconItem("New Item", "resources.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CUSTOM_CONTENT), "Create Item")
+                .addIconItem("New Content", "resources.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CUSTOM_CONTENT), "Create Content")
                 .addIconItem("New GUI", "fullPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.GUI), "Create GUI")
                 .addIconItem("New Scoreboard", "panel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.SCOREBOARD), "Create Scoreboard")
                 .addIconItem("New Tab", "topPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TAB), "Create Tab")
@@ -728,6 +743,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
 
         private void showCreateResourcePopup(String type) {
+            if (ReSyncResourceDragPayload.CUSTOM_CONTENT.equals(type)) {
+                showCreateContentPopup();
+                return;
+            }
             PopupWidget.Builder builder = new PopupWidget.Builder(createPopupTitle(type)).setResizable(false);
             TextInputWidget idInput = new TextInputWidget.Builder()
                 .placeholder(createIdPlaceholder(type))
@@ -763,12 +782,286 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             popupRef[0].show();
         }
 
+        private void showCreateContentPopup() {
+            PopupWidget.Builder builder = new PopupWidget.Builder("Create Content")
+                .setResizable(false)
+                .onClose(this::closeCreateContentSearchSelector);
+            TextInputWidget nameInput = new TextInputWidget.Builder()
+                .placeholder("Content Name")
+                .size(240, 22)
+                .build();
+            TextInputWidget idInput = new TextInputWidget.Builder()
+                .placeholder("Content ID (e.g. fire_sword)")
+                .size(240, 22)
+                .build();
+            String[] selectedType = {"item"};
+            String[] selectedProvider = {"vanilla"};
+            String[] selectedAsset = {defaultContentMaterial(selectedType[0])};
+            AnimatedButton assetButton = new AnimatedButton.Builder()
+                .label(selectedAsset[0])
+                .size(220, 20)
+                .entranceAnimation(false)
+                .build();
+            DropDownWidget<String> typeDropdown = createContentDropdown(List.of("item", "armor", "block"), selectedType[0], value -> {
+                selectedType[0] = value;
+                selectedAsset[0] = "vanilla".equalsIgnoreCase(selectedProvider[0]) ? defaultContentMaterial(value) : "";
+                assetButton.setMessage(assetButtonLabel(selectedAsset[0], selectedProvider[0]));
+            });
+            DropDownWidget<String> providerDropdown = createContentDropdown(providerOptions(), selectedProvider[0], value -> {
+                selectedProvider[0] = value;
+                selectedAsset[0] = "vanilla".equalsIgnoreCase(value) ? defaultContentMaterial(selectedType[0]) : "";
+                assetButton.setMessage(assetButtonLabel(selectedAsset[0], value));
+            });
+            assetButton.setAction(() -> {
+                List<String> options = contentAssetOptions(selectedType[0], selectedProvider[0]);
+                if (options.size() == 1 && "Loading".equals(options.getFirst())) {
+                    requestContentAssetCatalogs(selectedType[0], selectedProvider[0]);
+                    return;
+                }
+                showCreateContentSearchSelector(options, selectedAsset[0], value -> {
+                    if (!isRealContentOption(value)) {
+                        return;
+                    }
+                    selectedAsset[0] = "vanilla".equalsIgnoreCase(selectedProvider[0]) ? value.toUpperCase(Locale.ROOT) : value;
+                    assetButton.setMessage(assetButtonLabel(selectedAsset[0], selectedProvider[0]));
+                }, assetButton.getX(), assetButton.getY() + assetButton.getHeight());
+            });
+            builder.addRow("Name", true, 22, nameInput);
+            builder.addRow("ID", true, 22, idInput);
+            builder.addRow("Type", true, 22, typeDropdown);
+            builder.addRow("Asset", true, 22, providerDropdown, assetButton);
+
+            PopupWidget[] popupRef = new PopupWidget[1];
+            AnimatedButton createButton = new AnimatedButton.Builder()
+                .label("Create")
+                .accentType(ThemeManager.getAccent("nice"))
+                .onClick(() -> {
+                    String id = idInput.getText() != null ? idInput.getText().trim() : "";
+                    String name = nameInput.getText() != null ? nameInput.getText().trim() : "";
+                    if (!id.matches("^[a-zA-Z0-9_]+$")) {
+                        new Notification("Error", "Invalid ID. Alphanumeric only.", Notification.Type.ERROR);
+                        return;
+                    }
+                    if (name.isBlank()) {
+                        name = id;
+                    }
+                    if (createContentResource(id, name, selectedType[0], selectedProvider[0], selectedAsset[0])) {
+                        closeCreateContentSearchSelector();
+                        if (popupRef[0] != null) {
+                            popupRef[0].hide();
+                        }
+                    }
+                })
+                .build();
+            builder.addRow("", true, 20, createButton);
+            popupRef[0] = builder.build();
+            addDrawableChild(popupRef[0]);
+            popupRef[0].show();
+        }
+
+        private DropDownWidget<String> createContentDropdown(List<String> choices, String selected, Consumer<String> onChange) {
+            List<String> options = normalizedContentOptions(choices, selected);
+            return new DropDownWidget.Builder<>(options)
+                .selectedItem(resolveContentOption(options, selected))
+                .onSelectionChanged(value -> {
+                    if (isRealContentOption(value)) {
+                        onChange.accept(value);
+                    }
+                })
+                .size(110, 20)
+                .maxVisibleItems(10)
+                .entranceAnimation(false)
+                .build();
+        }
+
+        private List<String> normalizedContentOptions(List<String> choices, String selected) {
+            List<String> options = new ArrayList<>();
+            if (choices != null) {
+                for (String choice : choices) {
+                    if (choice != null && !choice.isBlank() && !options.contains(choice)) {
+                        options.add(choice);
+                    }
+                }
+            }
+            if (options.isEmpty()) {
+                options.add("No Options");
+            }
+            if (selected != null && !selected.isBlank() && !"Loading".equals(selected) && !options.contains(selected)) {
+                options.addFirst(selected);
+            }
+            return options;
+        }
+
+        private String resolveContentOption(List<String> options, String selected) {
+            if (selected != null && options.contains(selected)) {
+                return selected;
+            }
+            if (selected != null) {
+                String normalized = selected.toUpperCase(Locale.ROOT);
+                if (options.contains(normalized)) {
+                    return normalized;
+                }
+            }
+            return options.isEmpty() ? null : options.getFirst();
+        }
+
+        private boolean isRealContentOption(String value) {
+            return value != null && !"Loading".equals(value) && !"No Options".equals(value);
+        }
+
+        private void showCreateContentSearchSelector(List<String> options, String selected, Consumer<String> onSelected, int x, int y) {
+            if (options == null || options.isEmpty()) {
+                return;
+            }
+            closeCreateContentSearchSelector();
+            ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+            var overlay = ScreenManager.getInstance().getPopupOverlay();
+            ItemSelectorWidget selector = new ItemSelectorWidget.Builder(overlay)
+                .size(220, 240)
+                .dismissOnSelect(true)
+                .onClose(() -> closeCreateContentSearchSelector(selectorRef[0]))
+                .build();
+            selector.setLayer(900);
+            selector.setPriority(30);
+            selectorRef[0] = selector;
+            for (String option : options.stream().distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList()) {
+                selector.addItem(option, () -> onSelected.accept(option));
+            }
+            selector.setSelectedItem(selected);
+            createContentSelector = selector;
+            overlay.addDrawableChild(createContentSelector);
+            int selectorX = Math.clamp(x, 8, Math.max(8, FlowEditorScreen.this.width - selector.getWidth() - 8));
+            int selectorY = Math.clamp(y, 32, Math.max(32, FlowEditorScreen.this.height - selector.getHeight() - 20));
+            createContentSelector.show(selectorX, selectorY);
+        }
+
+        private void closeCreateContentSearchSelector() {
+            closeCreateContentSearchSelector(createContentSelector);
+        }
+
+        private void closeCreateContentSearchSelector(ItemSelectorWidget selector) {
+            if (selector != null) {
+                selector.onClose = null;
+                selector.hide();
+                ScreenManager.getInstance().getPopupOverlay().remove(selector);
+            }
+            if (selector == createContentSelector) {
+                createContentSelector = null;
+            }
+            setFocusedWidget(null);
+        }
+
+        private List<String> providerOptions() {
+            List<String> catalogProviders = catalogOptions("server:custom_content:provider");
+            List<String> providers = new ArrayList<>(catalogProviders);
+            providers.remove("Loading");
+            if (!providers.contains("vanilla")) {
+                providers.add("vanilla");
+            }
+            for (PackContentRegistry.ProviderStatus status : PackContentRegistry.get().statuses()) {
+                String name = status.providerName().toLowerCase(Locale.ROOT);
+                if (name.contains("nexo") && !providers.contains("nexo")) {
+                    providers.add("nexo");
+                }
+                if (name.contains("itemsadder") && !providers.contains("itemsadder")) {
+                    providers.add("itemsadder");
+                }
+            }
+            return providers;
+        }
+
+        private List<String> contentAssetOptions(String type, String provider) {
+            if ("vanilla".equalsIgnoreCase(provider)) {
+                return catalogOptions("server:minecraft:material");
+            }
+            List<String> catalogAssets = providerCatalogAssets(type, provider);
+            if (!catalogAssets.isEmpty() && !catalogAssets.equals(List.of("Loading"))) {
+                return catalogAssets;
+            }
+            List<String> result = new ArrayList<>();
+            for (PackContentRegistry.PackAssetOption option : PackContentRegistry.get().assetOptions(provider)) {
+                result.add(option.id());
+            }
+            if (result.isEmpty() && catalogAssets.equals(List.of("Loading"))) {
+                return catalogAssets;
+            }
+            return result;
+        }
+
+        private List<String> providerCatalogAssets(String type, String provider) {
+            List<String> values = new ArrayList<>();
+            for (String source : providerCatalogSources(type, provider)) {
+                values.addAll(catalogOptions(source));
+            }
+            List<String> assets = values.stream()
+                .filter(value -> !"Loading".equals(value))
+                .distinct()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+            return assets.isEmpty() && values.contains("Loading") ? List.of("Loading") : assets;
+        }
+
+        private List<String> providerCatalogSources(String type, String provider) {
+            if (provider == null || !provider.equalsIgnoreCase("nexo")) {
+                return List.of();
+            }
+            return switch (type) {
+                case "block" -> List.of("server:custom_content:nexo_block", "server:custom_content:nexo_furniture");
+                case "armor" -> List.of("server:custom_content:nexo_armor");
+                default -> List.of("server:custom_content:nexo_item");
+            };
+        }
+
+        private List<String> catalogOptions(String source) {
+            List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
+            if (!values.isEmpty()) {
+                return values;
+            }
+            if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
+                requestCatalog(source);
+                return List.of("Loading");
+            }
+            return List.of();
+        }
+
+        private void requestContentAssetCatalogs(String type, String provider) {
+            if ("vanilla".equalsIgnoreCase(provider)) {
+                requestCatalog("server:minecraft:material");
+                return;
+            }
+            for (String source : providerCatalogSources(type, provider)) {
+                requestCatalog(source);
+            }
+        }
+
+        private void requestCatalog(String source) {
+            FlowManager manager = FlowManager.getInstance();
+            if (manager != null && source != null && !OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
+                manager.ensureFlowClient(serverId).requestOptionCatalog(source);
+            }
+        }
+
+        private String defaultContentMaterial(String type) {
+            return switch (type) {
+                case "block" -> "STONE";
+                case "armor" -> "IRON_CHESTPLATE";
+                default -> "STICK";
+            };
+        }
+
+        private String assetButtonLabel(String asset, String provider) {
+            if (asset != null && !asset.isBlank()) {
+                return asset;
+            }
+            return "vanilla".equalsIgnoreCase(provider) ? "Material" : "External ID";
+        }
+
         private String createPopupTitle(String type) {
             return switch (type) {
                 case ReSyncResourceDragPayload.FOLDER -> "Create Folder";
                 case ReSyncResourceDragPayload.FUNCTION -> "Create New Function";
                 case ReSyncResourceDragPayload.COMMAND -> "Create New Command";
-                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Create Item";
+                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Create Content";
                 case ReSyncResourceDragPayload.GUI -> "Create New GUI";
                 case ReSyncResourceDragPayload.SCOREBOARD -> "Create New Scoreboard";
                 case ReSyncResourceDragPayload.TAB -> "Create New Tab";
@@ -782,7 +1075,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.FOLDER -> "Folder Name";
                 case ReSyncResourceDragPayload.FUNCTION -> "Function ID (e.g. calculateDamage)";
                 case ReSyncResourceDragPayload.COMMAND -> "Command ID (e.g. shop)";
-                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Item ID (e.g. fire_sword)";
+                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Content ID (e.g. fire_sword)";
                 case ReSyncResourceDragPayload.GUI -> "GUI ID (e.g. main_menu)";
                 case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboard ID (e.g. main_sidebar)";
                 case ReSyncResourceDragPayload.TAB -> "Tab ID (e.g. default_tab)";
@@ -852,6 +1145,42 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return true;
         }
 
+        private boolean createContentResource(String id, String name, String contentType, String provider, String asset) {
+            FlowManager manager = FlowManager.getInstance();
+            if (manager == null) {
+                return false;
+            }
+            String targetFolder = createTargetFolder();
+            if (manager.getProjectMetadata(serverId).findResource(ReSyncResourceDragPayload.CUSTOM_CONTENT, id) != null || resourceExists(manager, ReSyncResourceDragPayload.CUSTOM_CONTENT, id)) {
+                new Notification("Error", "Content ID already exists", Notification.Type.ERROR);
+                return false;
+            }
+            String requestedType = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
+            String normalizedType = switch (requestedType) {
+                case "block", "armor" -> requestedType;
+                default -> "item";
+            };
+            String selectedProvider = provider == null || provider.isBlank() ? "vanilla" : provider;
+            FlowGraph contentGraph = manager.createContentFlow(serverId, id, normalizedType, name);
+            CustomContentGraphAdapter.setContentProperty(contentGraph, "content_id", id);
+            CustomContentGraphAdapter.setContentProperty(contentGraph, "name", name);
+            CustomContentGraphAdapter.setContentProperty(contentGraph, "provider", selectedProvider);
+            if ("vanilla".equalsIgnoreCase(selectedProvider)) {
+                CustomContentGraphAdapter.setContentProperty(contentGraph, "material", asset == null || asset.isBlank() ? defaultContentMaterial(normalizedType) : asset.toUpperCase(Locale.ROOT));
+                CustomContentGraphAdapter.setContentProperty(contentGraph, "external_id", "");
+            } else {
+                CustomContentGraphAdapter.setContentProperty(contentGraph, "material", defaultContentMaterial(normalizedType));
+                CustomContentGraphAdapter.setContentProperty(contentGraph, "external_id", asset == null ? "" : asset);
+            }
+            ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
+            ReSyncProjectMetadata.ResourceEntry entry = metadata.ensureResource(ReSyncResourceDragPayload.CUSTOM_CONTENT, id, name, targetFolder);
+            entry.setPath(targetFolder);
+            manager.saveProjectMetadata(serverId, metadata);
+            rebuild();
+            openStudioViewDocument(ReSyncResourceDragPayload.CUSTOM_CONTENT, id, name, contentGraph, new ScreenBackedStudioView(FlowEditorScreen.this, new ContentStudioScreen(serverId, null, contentGraph.getId(), FlowEditorScreen.this)));
+            return true;
+        }
+
         private String createTargetFolder() {
             if (selectedFolder != null) {
                 return selectedFolder.getPath();
@@ -876,7 +1205,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return switch (type) {
                 case ReSyncResourceDragPayload.FUNCTION -> "Function";
                 case ReSyncResourceDragPayload.COMMAND -> "Command";
-                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Item";
+                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Content";
                 case ReSyncResourceDragPayload.GUI -> "GUI";
                 case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboard";
                 case ReSyncResourceDragPayload.TAB -> "Tab";
@@ -1098,6 +1427,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             gridContainer.setPosition(getX() + folderWidth + 8, contentTop);
             gridContainer.setSize(getWidth() - folderWidth - 12, Math.max(0, getHeight() - contentOffset() - 1));
             createButton.setPosition(getX() + getWidth() - 24, getY() + STUDIO_CONTENT_BROWSER_TITLE_HEIGHT + 4);
+            marketplaceButton.setPosition(getX() + getWidth() - 46, getY() + STUDIO_CONTENT_BROWSER_TITLE_HEIGHT + 4);
             closeButton.setPosition(getX() + getWidth() - 16, getY() + 3);
             closeButton.accentType = ThemeManager.getAccent(studioContentBrowserCollapsed ? "nice" : "danger");
             closeButton.setHint(studioContentBrowserCollapsed ? "Show Assets" : "Collapse Assets");
@@ -1511,7 +1841,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (ReSyncResourceDragPayload.SCOREBOARD.equals(type)) {
             ScoreboardDefinition scoreboard = manager.getScoreboardsForServer(serverId).get(id);
             if (scoreboard != null) {
-                openStudioViewDocument(type, id, manager.getScoreboardName(serverId, id), new ScreenBackedStudioView(this, new ScoreboardDesignerScreen(scoreboard, serverId, this)));
+                ScreenManager.getInstance().setScreen(new ScoreboardDesignerScreen(scoreboard, serverId, this));
             } else {
                 manager.openScoreboardDesigner(serverId, null, id, this);
             }
@@ -3541,6 +3871,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     }
 
     protected void addCustomHeaderButtons() {
+    }
+
+    private void openReSyncMarketplace() {
+        ScreenManager.getInstance().setScreen(new ReSyncMarketplaceScreen(this, serverId));
     }
 
     private void showExtractFunctionPopup() {
@@ -6652,6 +6986,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         private final List<AnimatedWidget> detailWidgets = new ArrayList<>();
         private final List<AnimatedWidget> headerActions = new ArrayList<>();
         private ItemSelectorWidget activePlayerSelector;
+        private ItemSelectorWidget activeOptionSelector;
         private WorldDetailForm detailForm;
         private String selectedWorldName;
         private boolean initialized;
@@ -6808,12 +7143,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             worldsList.updateWidgetPositions();
         }
 
-        private boolean containsIgnoreCase(Collection<String> values, String target) {
-            if (target == null) {
+        private boolean containsIgnoreCase(Collection<String> values, String value) {
+            if (values == null || value == null) {
                 return false;
             }
-            for (String value : values) {
-                if (value != null && value.equalsIgnoreCase(target)) {
+            for (String entry : values) {
+                if (value.equalsIgnoreCase(safeText(entry))) {
                     return true;
                 }
             }
@@ -6988,6 +7323,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             TextInputWidget denyMessage = detailInput("Deny Message", profile.getDenyMessage(), rowWidth / 2 - 5);
             TextInputWidget respawnWorld = detailInput("Respawn World", profile.getRespawnWorld(), rowWidth / 2 - 5);
             TextInputWidget inventoryGroup = detailInput("Inventory Group", profile.getInventoryGroupId(), rowWidth / 2 - 5);
+            RowWidget respawnWorldPicker = detailPicker(respawnWorld, rowWidth / 2 - 5, fallbackWorldOptions(world.getWorldName()), value -> respawnWorld.setText(value));
+            RowWidget inventoryGroupPicker = detailPicker(inventoryGroup, rowWidth / 2 - 5, inventoryGroupOptions(), value -> inventoryGroup.setText("No Group".equals(value) ? "" : value));
             ToggleWidget customSpawn = detailToggle("Custom Spawn", profile.isCustomSpawnEnabled(), 120);
             TextInputWidget spawnX = detailInput("X", formatDecimal(profile.getSpawnX()), 82);
             TextInputWidget spawnY = detailInput("Y", formatDecimal(profile.getSpawnY()), 82);
@@ -7015,7 +7352,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             addDetailWidget(row("Messages", rowWidth, arrivalMessage, denyMessage));
             addDetailWidget(row("Rules", rowWidth, pvp, autoSave, keepSpawn, animals, monsters));
             addDetailWidget(row("Player State", rowWidth, hunger, autoHeal, bedRespawn, anchorRespawn, miscSpawns));
-            addDetailWidget(row("Travel", rowWidth, respawnWorld, inventoryGroup));
+            addDetailWidget(row("Travel", rowWidth, respawnWorldPicker, inventoryGroupPicker));
             addDetailWidget(row("Spawn", rowWidth, customSpawn, spawnX, spawnY, spawnZ, spawnYaw, spawnPitch));
             addDetailWidget(row("Links", rowWidth, netherWorld, endWorld, overworld));
             addDetailWidget(row("Portal Scale", rowWidth, netherScale, endScale, autoNether, autoEnd));
@@ -7034,6 +7371,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
 
         private void clearDetailWidgets() {
+            closeOptionSelector();
             for (AnimatedWidget widget : new ArrayList<>(detailWidgets)) {
                 detailPane.removeWidget(widget);
             }
@@ -7242,6 +7580,72 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .build();
             input.entranceAnimationEnabled = false;
             return input;
+        }
+
+        private RowWidget detailPicker(TextInputWidget input, int width, List<String> options, Consumer<String> onSelected) {
+            input.setWidth(Math.max(60, width - 24));
+            SquareButtonWidget picker = new SquareButtonWidget.Builder()
+                .imagePath("search.png")
+                .size(18, 18)
+                .hint("Select")
+                .entranceAnimation(false)
+                .onClick(() -> showOptionSelector(input, options, onSelected))
+                .build();
+            RowWidget row = new RowWidget.Builder()
+                .size(Math.max(80, width), 20)
+                .padding(2)
+                .addWidget(input)
+                .addWidget(picker)
+                .build();
+            row.entranceAnimationEnabled = false;
+            return row;
+        }
+
+        private void showOptionSelector(AnimatedWidget anchor, List<String> options, Consumer<String> onSelected) {
+            if (anchor == null || onSelected == null) {
+                return;
+            }
+            List<String> choices = options == null ? List.of() : options.stream()
+                .filter(option -> option != null && !option.isBlank())
+                .distinct()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+            if (choices.isEmpty()) {
+                return;
+            }
+            closeOptionSelector();
+            var overlay = ScreenManager.getInstance().getPopupOverlay();
+            ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+            ItemSelectorWidget selector = new ItemSelectorWidget.Builder(overlay)
+                .size(220, 240)
+                .dismissOnSelect(true)
+                .onClose(() -> closeOptionSelector(selectorRef[0]))
+                .build();
+            selector.setLayer(900);
+            selector.setPriority(30);
+            selectorRef[0] = selector;
+            for (String option : choices) {
+                selector.addItem(option, () -> onSelected.accept(option));
+            }
+            activeOptionSelector = selector;
+            overlay.addDrawableChild(selector);
+            selector.show(anchor.getX(), anchor.getY() + anchor.getHeight());
+        }
+
+        private void closeOptionSelector() {
+            closeOptionSelector(activeOptionSelector);
+        }
+
+        private void closeOptionSelector(ItemSelectorWidget selector) {
+            if (selector == null) {
+                return;
+            }
+            selector.onClose = null;
+            selector.hide();
+            ScreenManager.getInstance().getPopupOverlay().remove(selector);
+            if (selector == activeOptionSelector) {
+                activeOptionSelector = null;
+            }
         }
 
         private ToggleWidget detailToggle(String label, boolean value, int width) {
@@ -7831,27 +8235,32 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             if (manager == null) {
                 return;
             }
+            clearDetailWidgets();
+            detailForm = null;
             List<WorldInventoryGroup> groups = new ArrayList<>(manager.getWorldInventoryGroupsForServer(serverId));
             groups.sort(Comparator.comparing(group -> safeText(group == null ? "" : group.getGroupId()), String.CASE_INSENSITIVE_ORDER));
-            PopupWidget.Builder builder = new PopupWidget.Builder("Inventory Groups")
-                .setResizable(true)
-                .setAntiOutOfBound(true)
-                .setBoundOffset(desktopMode ? 35 : 0)
-                .size(560, Math.min(420, 120 + Math.max(1, groups.size()) * 28));
+            int rowWidth = Math.max(220, detailPane.getWidth() - 18);
             IconButton createButton = new IconButton.Builder()
-                .label("Create Group")
+                .label("Create")
                 .imagePath("create.png")
                 .accentType(ThemeManager.getAccent("nice"))
-                .size(145, 20)
+                .size(96, 18)
+                .entranceAnimation(false)
                 .onClick(() -> showInventoryGroupPopup(null))
                 .build();
-            builder.addRow("", true, 20, createButton);
+            IconButton closeButton = new IconButton.Builder()
+                .label("Close")
+                .imagePath("close.png")
+                .size(86, 18)
+                .entranceAnimation(false)
+                .onClick(this::refreshDetails)
+                .build();
+            addDetailWidget(row("Groups", rowWidth, createButton, closeButton));
             if (groups.isEmpty()) {
-                builder.addRow("Groups", true, 18, readOnlyButton("No Groups"));
+                addDetailWidget(row("Saved Groups", rowWidth, readOnlyButton("No Groups")));
             } else {
-                int shown = 0;
                 for (WorldInventoryGroup group : groups) {
-                    if (group == null || safeText(group.getGroupId()).isBlank() || shown >= 10) {
+                    if (group == null || safeText(group.getGroupId()).isBlank()) {
                         continue;
                     }
                     IconButton label = readOnlyButton(inventoryGroupSummary(group));
@@ -7864,15 +8273,15 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                         .imagePath("delete.png")
                         .hint("Delete Group")
                         .accentType(ThemeManager.getAccent("danger"))
-                        .onClick(() -> manager.deleteInventoryGroup(serverId, group.getGroupId()))
+                        .onClick(() -> {
+                            manager.deleteInventoryGroup(serverId, group.getGroupId());
+                            showInventoryGroupsPopup();
+                        })
                         .build();
-                    builder.addRow(group.getGroupId(), true, 18, label, edit, delete);
-                    shown++;
+                    addDetailWidget(row(group.getGroupId(), rowWidth, label, edit, delete));
                 }
             }
-            PopupWidget popup = builder.build();
-            addDrawableChild(popup);
-            popup.show();
+            detailPane.updateWidgetPositions();
         }
 
         private String inventoryGroupSummary(WorldInventoryGroup group) {
@@ -7903,27 +8312,17 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 return;
             }
             boolean editing = existingGroup != null;
-            PopupWidget.Builder builder = new PopupWidget.Builder(editing ? "Edit Group" : "Create Group")
-                .setResizable(true)
-                .setAntiOutOfBound(true)
-                .setBoundOffset(desktopMode ? 35 : 0)
-                .size(560, 390);
-            TextInputWidget groupId = new TextInputWidget.Builder()
-                .text(editing ? safeText(existingGroup.getGroupId()) : "")
-                .placeholder("Group Id")
-                .size(200, 18)
-                .build();
-            groupId.active = !editing;
+            clearDetailWidgets();
+            detailForm = null;
+            int rowWidth = Math.max(220, detailPane.getWidth() - 18);
             TextInputWidget displayName = new TextInputWidget.Builder()
                 .text(editing ? safeText(existingGroup.getDisplayName()) : "")
-                .placeholder("Display Name")
-                .size(220, 18)
+                .placeholder("Group Name")
+                .forcePlaceholder(false)
+                .size(Math.max(220, rowWidth - 12), 20)
                 .build();
-            TextInputWidget worlds = new TextInputWidget.Builder()
-                .text(editing ? String.join(", ", existingGroup.getWorlds()) : "")
-                .placeholder("world, world_nether")
-                .size(330, 18)
-                .build();
+            displayName.entranceAnimationEnabled = false;
+            Set<String> selectedWorlds = new LinkedHashSet<>(editing ? existingGroup.getWorlds() : defaultGroupWorldSelection());
             ToggleWidget inventory = detailToggle("Inventory", !editing || existingGroup.isShareInventory(), 92);
             ToggleWidget armor = detailToggle("Armor", !editing || existingGroup.isShareArmor(), 80);
             ToggleWidget offhand = detailToggle("Offhand", !editing || existingGroup.isShareOffhand(), 88);
@@ -7935,35 +8334,36 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             ToggleWidget potions = detailToggle("Potions", !editing || existingGroup.isSharePotionEffects(), 90);
             ToggleWidget lastLocation = detailToggle("Last Location", !editing || existingGroup.isShareLastLocation(), 115);
             ToggleWidget bedSpawn = detailToggle("Bed Spawn", !editing || existingGroup.isShareBedSpawn(), 100);
-            builder.addRow("Group Id", true, 18, groupId);
-            builder.addRow("Display", true, 18, displayName);
-            builder.addRow("Worlds", true, 18, worlds);
-            builder.addRow("Share A", true, 18, inventory, armor, offhand, enderChest);
-            builder.addRow("Share B", true, 18, health, hunger, experience, gameMode);
-            builder.addRow("Share C", true, 18, potions, lastLocation, bedSpawn);
-            PopupWidget[] popupRef = new PopupWidget[1];
+            addDetailWidget(row(editing ? "Edit Group" : "Create Group", rowWidth, displayName));
+            addInventoryGroupWorldRow(rowWidth, selectedWorlds);
+            addDetailWidget(row("Inventory", rowWidth, inventory, armor, offhand, enderChest));
+            addDetailWidget(row("Player State", rowWidth, health, hunger, experience, gameMode));
+            addDetailWidget(row("Location", rowWidth, potions, lastLocation, bedSpawn));
             IconButton save = new IconButton.Builder()
                 .label(editing ? "Save" : "Create")
                 .imagePath("save.png")
                 .accentType(ThemeManager.getAccent("nice"))
-                .size(110, 20)
+                .size(90, 18)
+                .entranceAnimation(false)
                 .onClick(() -> {
-                    String id = editing ? safeText(existingGroup.getGroupId()).trim() : safeText(groupId.getText()).trim();
-                    if (!WorldUiSupport.isValidSimpleId(id)) {
-                        new Notification("World", "Invalid Group Id", Notification.Type.ERROR);
+                    String name = safeText(displayName.getText()).trim();
+                    String id = editing ? safeText(existingGroup.getGroupId()).trim() : inventoryGroupIdFromName(name);
+                    if (!editing && name.isBlank()) {
+                        new Notification("World", "Group Name Required", Notification.Type.ERROR);
                         return;
                     }
-                    List<String> selectedWorlds = parseCommaSeparatedList(worlds.getText());
-                    for (String selectedWorld : selectedWorlds) {
-                        if (!WorldUiSupport.containsIgnoreCase(worldNameOptions(), selectedWorld)) {
-                            new Notification("World", "Unknown Group World", Notification.Type.ERROR);
-                            return;
-                        }
+                    if (!WorldUiSupport.isValidSimpleId(id)) {
+                        new Notification("World", "Invalid Group Name", Notification.Type.ERROR);
+                        return;
+                    }
+                    if (!editing && manager.getWorldInventoryGroup(serverId, id) != null) {
+                        new Notification("World", "Group Exists", Notification.Type.ERROR);
+                        return;
                     }
                     WorldInventoryGroup group = new WorldInventoryGroup();
                     group.setGroupId(id);
-                    group.setDisplayName(displayName.getText());
-                    group.setWorlds(selectedWorlds);
+                    group.setDisplayName(name);
+                    group.setWorlds(new ArrayList<>(selectedWorlds));
                     group.setShareInventory(inventory.getValue());
                     group.setShareArmor(armor.getValue());
                     group.setShareOffhand(offhand.getValue());
@@ -7980,15 +8380,47 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                     } else {
                         manager.createInventoryGroup(serverId, group);
                     }
-                    if (popupRef[0] != null) {
-                        popupRef[0].hide();
-                    }
+                    showInventoryGroupsPopup();
                 })
                 .build();
-            builder.addRow("", true, 20, save);
-            popupRef[0] = builder.build();
-            addDrawableChild(popupRef[0]);
-            popupRef[0].show();
+            IconButton cancel = new IconButton.Builder()
+                .label("Back")
+                .imagePath("close.png")
+                .size(84, 18)
+                .entranceAnimation(false)
+                .onClick(this::showInventoryGroupsPopup)
+                .build();
+            addDetailWidget(row("Actions", rowWidth, save, cancel));
+            detailPane.updateWidgetPositions();
+        }
+
+        private void addInventoryGroupWorldRow(int rowWidth, Set<String> selectedWorlds) {
+            List<String> worlds = worldNameOptions();
+            if (worlds.isEmpty()) {
+                addDetailWidget(row("Worlds", rowWidth, readOnlyButton("No Worlds")));
+                return;
+            }
+            DropDownWidget<String> worldsDropdown = new DropDownWidget.Builder<>(worlds)
+                .multiSelect(true)
+                .size(Math.max(220, rowWidth - 12), 20)
+                .maxVisibleItems(10)
+                .entranceAnimation(false)
+                .onMultiSelectionChanged(dropdown -> {
+                    selectedWorlds.clear();
+                    selectedWorlds.addAll(dropdown.getSelectedItems());
+                })
+                .build();
+            worldsDropdown.setSelectedItems(worlds.stream().filter(world -> containsIgnoreCase(selectedWorlds, world)).toList(), List.of());
+            addDetailWidget(row("Worlds", rowWidth, worldsDropdown));
+        }
+
+        private String inventoryGroupIdFromName(String name) {
+            String id = safeText(name).trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_]+", "_").replaceAll("_+", "_").replaceAll("^_|_$", "");
+            return id.isBlank() ? "group" : id;
+        }
+
+        private List<String> defaultGroupWorldSelection() {
+            return safeText(selectedWorldName).isBlank() ? List.of() : List.of(selectedWorldName);
         }
 
         private void handleOperationResult(WorldOperationResult result) {
@@ -8020,6 +8452,21 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             names = WorldUiSupport.normalizeUniqueEntries(names);
             names.sort(String.CASE_INSENSITIVE_ORDER);
             return names;
+        }
+
+        private List<String> inventoryGroupOptions() {
+            FlowManager manager = worldManager();
+            if (manager == null) {
+                return List.of("No Group");
+            }
+            List<String> groups = new ArrayList<>();
+            groups.add("No Group");
+            for (WorldInventoryGroup group : manager.getWorldInventoryGroupsForServer(serverId)) {
+                if (group != null && !safeText(group.getGroupId()).isBlank()) {
+                    groups.add(group.getGroupId());
+                }
+            }
+            return WorldUiSupport.normalizeUniqueEntries(groups);
         }
 
         private List<String> fallbackWorldOptions(String worldName) {
