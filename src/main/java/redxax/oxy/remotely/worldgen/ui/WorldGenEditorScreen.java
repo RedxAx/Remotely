@@ -92,6 +92,7 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
         IconButton projectButton = new IconButton.Builder()
             .size(18, 18)
             .imagePath("folder.png")
+            .hint("Projects")
             .onClick(this::showProjectPopup)
             .build();
         addHeaderButton(projectButton);
@@ -102,6 +103,7 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
                 .label(stage.displayName())
                 .centered(true)
                 .autoWidthOnTextChange(true)
+                .hint(stage.displayName())
                 .onClick(() -> switchStage(stage))
                 .build();
             addHeaderButton(tabButton);
@@ -110,6 +112,7 @@ public class WorldGenEditorScreen extends FlowEditorScreen {
         IconButton previewButton = new IconButton.Builder()
             .size(18, 18)
             .imagePath("start.png")
+            .hint("Preview")
             .onClick(this::showPreviewPopup)
             .build();
         addHeaderButton(previewButton);

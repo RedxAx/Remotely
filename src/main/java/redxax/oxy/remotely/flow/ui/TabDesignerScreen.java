@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static restudio.rescreen.config.Config.desktopMode;
+
 public class TabDesignerScreen extends ReScreen implements DesktopWindowBehaviorProvider {
     private static final int PANEL_PADDING = 8;
     private static final int PREVIEW_BG = 0x7F101010;
@@ -129,9 +131,15 @@ public class TabDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
     private void buildHeader() {
         header().reset();
-        header().addRight("close.png", this::close, "Back");
+        if (shouldShowBackButton()) {
+            header().addRight("close.png", this::close, "Back");
+        }
         header().addRight("save.png", this::saveTab, "Save Tab");
         header().build();
+    }
+
+    private boolean shouldShowBackButton() {
+        return !desktopMode || shouldForceSuperScreen();
     }
 
     private void buildInspectorPanel() {
