@@ -139,9 +139,15 @@ public class ScoreboardDesignerScreen extends ReScreen implements DesktopWindowB
 
     private void buildHeader() {
         header().reset();
-        header().addRight("close.png", this::close, "Back");
+        if (shouldShowBackButton()) {
+            header().addRight("close.png", this::close, "Back");
+        }
         header().addRight("save.png", this::saveScoreboard, "Save Scoreboard");
         header().build();
+    }
+
+    private boolean shouldShowBackButton() {
+        return !desktopMode || shouldForceSuperScreen();
     }
 
     private void buildInspectorPanel() {

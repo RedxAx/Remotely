@@ -419,16 +419,23 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
 
     private void buildHeader() {
         header().reset();
-        header().addRight("close.png", this::requestClose, "Back");
+        if (shouldShowBackButton()) {
+            header().addRight("close.png", this::requestClose, "Back");
+        }
         header().addRight("save.png", this::saveGui, "Save GUI");
         placeToggle = new ToggleWidget.Builder()
             .label("Place")
             .size(70, 18)
             .toggled(placeMode)
+            .hint("Place")
             .onChange(this::setPlaceMode)
             .build();
         header().addLeft(placeToggle);
         header().build();
+    }
+
+    private boolean shouldShowBackButton() {
+        return !desktopMode || shouldForceSuperScreen();
     }
 
     private void buildContainers() {

@@ -1876,7 +1876,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (ReSyncResourceDragPayload.SCOREBOARD.equals(type)) {
             ScoreboardDefinition scoreboard = manager.getScoreboardsForServer(serverId).get(id);
             if (scoreboard != null) {
-                ScreenManager.getInstance().setScreen(new ScoreboardDesignerScreen(scoreboard, serverId, this));
+                openStudioViewDocument(type, id, manager.getScoreboardName(serverId, id), new ScreenBackedStudioView(this, new ScoreboardDesignerScreen(scoreboard, serverId, this)));
             } else {
                 manager.openScoreboardDesigner(serverId, null, id, this);
             }
@@ -2352,6 +2352,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             startupCloseButton = new IconButton.Builder()
                 .imagePath("close.png")
                 .size(18, 18)
+                .hint("Back")
                 .entranceAnimation(false)
                 .onClick(this::close)
                 .build();
@@ -2363,6 +2364,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .accentType(ThemeManager.getAccent("nice"))
                 .size(180, 20)
                 .autoWidthOnTextChange(true)
+                .hint("Setup ReSync")
                 .entranceAnimation(false)
                 .onClick(this::runSetupFlow)
                 .build();
@@ -2375,6 +2377,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .accentType(ThemeManager.getAccent("nice"))
                 .size(180, 20)
                 .autoWidthOnTextChange(true)
+                .hint("Open Server")
                 .entranceAnimation(false)
                 .onClick(this::openServerScreen)
                 .build();
@@ -3798,14 +3801,16 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     }
 
     protected void createHeaderButtons() {
-        SquareButtonWidget backButton = headerButton("close.png", "Back", () -> {
-            if (parent != null) {
-                client.setScreen(parent);
-            } else {
-                close();
-            }
-        });
-        addHeaderButton(backButton);
+        if (shouldShowBackButton()) {
+            SquareButtonWidget backButton = headerButton("close.png", "Back", () -> {
+                if (parent != null) {
+                    client.setScreen(parent);
+                } else {
+                    close();
+                }
+            });
+            addHeaderButton(backButton);
+        }
 
         addHeaderButton(headerButton("save.png", "Save", this::onSave));
 
@@ -3838,6 +3843,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
         addCustomHeaderButtons();
         syncDebugHeaderVisibility();
+    }
+
+    protected boolean shouldShowBackButton() {
+        return !desktopMode || shouldForceSuperScreen();
     }
 
     private SquareButtonWidget debugHeaderButton(String label, String icon, Runnable action) {
@@ -3904,17 +3913,20 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     @Override
     public List<AnimatedWidget> getStudioHeaderButtons() {
         List<AnimatedWidget> source = headerButtons;
-        if (ownerScreen instanceof FlowEditorScreen && !headerButtons.isEmpty()) {
+        if (ownerScreen instanceof FlowEditorScreen && !headerButtons.isEmpty() && "Back".equals(safeText(headerButtons.getFirst().hint))) {
             source = headerButtons.subList(1, headerButtons.size());
         }
         return source.stream()
-            .filter(button -> button != null && (button.visible || isVisibleStudioDebugControl(button)))
+            .filter(button -> button != null && shouldExposeStudioHeaderButton(button))
             .map(button -> (AnimatedWidget) button)
             .toList();
     }
 
-    private boolean isVisibleStudioDebugControl(AnimatedWidget button) {
-        return debugMode && (button == debugResumeButton || button == debugStepButton || button == debugStopButton);
+    private boolean shouldExposeStudioHeaderButton(AnimatedWidget button) {
+        if (button == debugResumeButton || button == debugStepButton || button == debugStopButton) {
+            return debugMode;
+        }
+        return true;
     }
 
     protected boolean showExtractButton() {
@@ -4699,7 +4711,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (startupIcon != null) {
             startupIcon.render(context, mouseX, mouseY, delta);
         }
-        if (startupCloseButton != null) {
+        if (startupCloseButton != null && shouldShowBackButton()) {
             startupCloseButton.render(context, mouseX, mouseY, delta);
         }
         if (setupReSyncButton != null && setupReSyncButton.isVisible()) {
@@ -4707,6 +4719,19 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
         if (welcomeServerButton != null && welcomeServerButton.isVisible()) {
             welcomeServerButton.render(context, mouseX, mouseY, delta);
+        }
+        renderStartupHintOverlays(context);
+    }
+
+    private void renderStartupHintOverlays(IDrawContext context) {
+        if (startupCloseButton != null && shouldShowBackButton()) {
+            startupCloseButton.renderHintOverlay(context);
+        }
+        if (setupReSyncButton != null && setupReSyncButton.isVisible()) {
+            setupReSyncButton.renderHintOverlay(context);
+        }
+        if (welcomeServerButton != null && welcomeServerButton.isVisible()) {
+            welcomeServerButton.renderHintOverlay(context);
         }
     }
 
@@ -4798,6 +4823,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
     private void renderStudioOverlays(IDrawContext context, int mouseX, int mouseY, float delta) {
         if (studioMode) {
+            context.pushScissorState();
+            context.clearScissor();
             renderDesktopChromeBackground(context, mouseX, mouseY, delta);
             layoutStudioHeaderButtons();
             for (AnimatedWidget button : header().leftButtons) {
@@ -4810,10 +4837,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                     button.render(context, mouseX, mouseY, delta);
                 }
             }
-        }
 
-        if (studioTabsManager != null) {
-            studioTabsManager.render(context, mouseX, mouseY, delta);
+            if (studioTabsManager != null) {
+                studioTabsManager.render(context, mouseX, mouseY, delta);
+            }
+            context.popScissorState();
         }
 
         for (Widget widget : hudWidgets) {
@@ -4842,11 +4870,28 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 animated.renderHintOverlay(context);
             }
         }
+        renderHeaderHintOverlays(context);
         for (Widget widget : widgets) {
             if (widget instanceof ItemSelectorWidget selector && selector.visible) {
                 selector.renderHintOverlay(context);
             } else if (widget instanceof ContextMenuWidget menu && menu.isVisible()) {
                 menu.renderHintOverlay(context);
+            }
+        }
+    }
+
+    private void renderHeaderHintOverlays(IDrawContext context) {
+        if (!studioMode) {
+            return;
+        }
+        for (AnimatedWidget button : header().leftButtons) {
+            if (button != null && button.visible) {
+                button.renderHintOverlay(context);
+            }
+        }
+        for (AnimatedWidget button : header().rightButtons) {
+            if (button != null && button.visible) {
+                button.renderHintOverlay(context);
             }
         }
     }
@@ -5589,7 +5634,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     }
 
     private boolean handleStartupMouseClicked(double mouseX, double mouseY, int button) {
-        if (startupCloseButton != null && startupCloseButton.mouseClicked(mouseX, mouseY, button)) {
+        if (startupCloseButton != null && shouldShowBackButton() && startupCloseButton.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
         if (setupReSyncButton != null && setupReSyncButton.isVisible() && setupReSyncButton.mouseClicked(mouseX, mouseY, button)) {
@@ -7138,6 +7183,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .imagePath(icon)
                 .size(0, 18)
                 .autoWidthOnTextChange(true)
+                .hint(label)
                 .entranceAnimation(false)
                 .onClick(action);
             if (accent != null) {
