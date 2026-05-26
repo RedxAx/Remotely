@@ -912,7 +912,12 @@ public class ReSyncMarketplaceScreen extends ReScreen {
     private void showPublishPopup() {
         TextInputWidget titleInput = new TextInputWidget.Builder().placeholder("Bundle Title").size(220, 20).build();
         TextInputWidget summaryInput = new TextInputWidget.Builder().placeholder("Short Summary").size(300, 20).build();
-        TextAreaWidget descriptionInput = new TextAreaWidget.Builder().placeholder("Markdown Description").wordWrap(true).build();
+        TextAreaWidget descriptionInput = new TextAreaWidget.Builder()
+                .placeholder("Markdown Description")
+                .wordWrap(true)
+                .markdownImagePreview(true)
+                .markdownImageUploadTarget(MARKETPLACE, "marketplace-description-image")
+                .build();
         TextInputWidget versionInput = new TextInputWidget.Builder().text("1.0.0").placeholder("Version").size(120, 20).build();
         DropDownWidget<String> channelDropdown = new DropDownWidget.Builder<>(List.of("stable", "beta", "alpha"))
                 .selectedItem("stable")
