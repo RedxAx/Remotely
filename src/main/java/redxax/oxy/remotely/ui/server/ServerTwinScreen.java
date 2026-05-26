@@ -326,7 +326,7 @@ public class ServerTwinScreen extends ReScreen {
         }
         overviewContainer.addWidget(createStatusActionRow("Refresh From Server", "Replace baseline and workspace from source", "reload.png", () -> pullTwin(selectedTwin), ThemeManager.getAccent("calm")));
         overviewContainer.addWidget(createStatusActionRow("Save Checkpoint", selectedDeployPaths.size() + " Selected", "save.png", () -> openDeployPopup(selectedTwin), ThemeManager.getDefaultAccent()));
-        overviewContainer.addWidget(createStatusActionRow("Deploy Selected", selectedDeployPaths.size() + " Selected", "upload.png", () -> pushTwin(selectedTwin), ThemeManager.getAccent("nice")));
+        overviewContainer.addWidget(createStatusActionRow("Deploy Selected", selectedDeployPaths.size() + " Selected", "rocket", () -> pushTwin(selectedTwin), ThemeManager.getAccent("nice")));
         overviewContainer.addWidget(createStatusActionRow("Workspace", selectedTwin.workspacePath == null ? "Open Workspace" : selectedTwin.workspacePath, "explorer.png", this::openSelectedTwinWorkspace, ThemeManager.getAccent("calm")));
         overviewContainer.updateWidgetPositions();
     }
@@ -1292,7 +1292,7 @@ public class ServerTwinScreen extends ReScreen {
                     refreshOverviewRows();
                     renderChangeRows(twin, changes);
                 }, ThemeManager.getDefaultAccent()))
-                .addButton(actionButton("upload.png", "Deploy", () -> pushTwin(twin), remoteDrift.isEmpty() ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")))
+                .addButton(actionButton("rocket", "Deploy", () -> pushTwin(twin), remoteDrift.isEmpty() ? ThemeManager.getAccent("nice") : ThemeManager.getAccent("danger")))
                 .build();
         styleRow(row, changesContainer, remoteDrift.isEmpty() ? ThemeManager.getAccent("calm") : ThemeManager.getAccent("danger"), 30);
         reviewToolbarRow = row;
