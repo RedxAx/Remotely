@@ -12,17 +12,8 @@ import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.multiplayer.resolver.ServerAddress;
 import net.minecraft.client.server.IntegratedServer;
-import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.world.level.storage.LevelResource;
-//#if FABRIC
-import net.fabricmc.loader.api.FabricLoader;
-//#elseif NEOFORGE
-//$$ import net.neoforged.fml.loading.FMLLoader;
-//#elseif FORGE
-//$$ import net.minecraftforge.fml.loading.FMLLoader;
-//#endif
 import redxax.oxy.remotely.RemotelyClient;
-import redxax.oxy.remotely.mixin.accessor.ConnectScreenAccessor;
 import redxax.oxy.remotely.mixin.accessor.MinecraftAccessor;
 import redxax.oxy.remotely.servers.QuickServerSyncManager;
 import redxax.oxy.remotely.servers.ReProxyManager;
@@ -341,7 +332,7 @@ public final class QuickServerManager {
         if (instance == null || instance.isLocalLifecyclePersistent() || !isLocalServerRunning(instance) || !activeDisconnectStops.add(instanceId)) {
             return;
         }
-        Thread.ofVirtual().name("Remotely Quick Server Disconnect Stop").start(() -> {
+        new Thread(() -> {
             try {
                 ReProxyManager.stopQuietly(instance.getPort(), null);
                 LocalServerControllerClient.stop(instance);
@@ -351,7 +342,7 @@ public final class QuickServerManager {
             } finally {
                 activeDisconnectStops.remove(instanceId);
             }
-        });
+        }, "Remotely Quick Server Disconnect Stop").start();
     }
 
     public static WorldContext currentWorld() {
@@ -570,9 +561,8 @@ public final class QuickServerManager {
 
     private static void applyRuntimeDefaults(Instance instance, WorldContext world) {
         instance.setVersionId(resolveGameVersion());
-        LoaderInfo loader = detectLoader();
-        instance.setModLoader(loader.loader());
-        instance.setModLoaderVersion(loader.version());
+        instance.setModLoader(ModLoader.VANILLA);
+        instance.setModLoaderVersion("");
         instance.setLocalLifecyclePersistent(quickServerKeepRunning());
         instance.setLocalRestartOnCrash(quickServerAutoRestart());
         instance.getSettings().setProperty(QUICK_SERVER_ENABLED_KEY, "true");
@@ -961,23 +951,12 @@ public final class QuickServerManager {
         }
     }
 
-    private static LoaderInfo detectLoader() {
-        //#if FABRIC
-        String version = FabricLoader.getInstance().getModContainer("fabricloader")
-            .map(container -> container.getMetadata().getVersion().getFriendlyString())
-            .orElse("");
-        return new LoaderInfo(ModLoader.FABRIC, version);
-        //#elseif NEOFORGE
-        //$$ return new LoaderInfo(ModLoader.NEOFORGE, FMLLoader.versionInfo().neoForgeVersion());
-        //#elseif FORGE
-        //$$ return new LoaderInfo(ModLoader.FORGE, FMLLoader.versionInfo().forgeVersion());
-        //#else
-        //$$ return new LoaderInfo(ModLoader.VANILLA, "");
-        //#endif
-    }
-
     private static String resolveGameVersion() {
+        //#if MC >= 1.21.6 || MC >= 26.1
         String currentVersion = extractGameVersion(SharedConstants.getCurrentVersion().name());
+        //#else
+        //$$ String currentVersion = extractGameVersion(SharedConstants.getCurrentVersion().getName());
+        //#endif
         if (currentVersion != null) {
             return currentVersion;
         }
@@ -1229,7 +1208,11 @@ public final class QuickServerManager {
         pendingOwnerConnectAddress = address;
         pendingOwnerConnectAfterMillis = System.currentTimeMillis() + 250L;
         ownerConnectStarted.set(false);
+        //#if MC >= 1.21.1
         minecraft.clearClientLevel(new QuickServerJoinScreen());
+        //#else
+        //$$ minecraft.clearLevel(new QuickServerJoinScreen());
+        //#endif
     }
 
     private static void advanceOwnerConnect() {
@@ -1253,13 +1236,19 @@ public final class QuickServerManager {
         try {
             Minecraft minecraft = Minecraft.getInstance();
             ServerAddress serverAddress = ServerAddress.parseString(address);
+            //#if MC >= 1.21.1
             ServerData serverData = new ServerData("Quick Server", address, ServerData.Type.OTHER);
-            ConnectScreen connectScreen = ConnectScreenAccessor.remotely$create(new TitleScreen(), CommonComponents.CONNECT_FAILED);
+            //#else
+            //$$ ServerData serverData = new ServerData("Quick Server", address, false);
+            //#endif
             quickServerJoinCleanupUntilMillis = System.currentTimeMillis() + 120_000L;
             minecraft.prepareForMultiplayer();
             minecraft.setOverlay(null);
-            minecraft.setScreen(connectScreen);
-            ((ConnectScreenAccessor) connectScreen).remotely$connect(minecraft, serverAddress, serverData, null);
+            //#if MC >= 1.21.1
+            ConnectScreen.startConnecting(new TitleScreen(), minecraft, serverAddress, serverData, false, null);
+            //#else
+            //$$ ConnectScreen.startConnecting(new TitleScreen(), minecraft, serverAddress, serverData, false);
+            //#endif
         } catch (Exception e) {
             ownerTransferInProgress.set(false);
             pendingOwnerConnectAddress = "";
@@ -1357,9 +1346,6 @@ public final class QuickServerManager {
     }
 
     public record WorldContext(String worldId, String worldName, Path worldPath) {
-    }
-
-    private record LoaderInfo(ModLoader loader, String version) {
     }
 
     private record ModEntry(long size, long modified) {

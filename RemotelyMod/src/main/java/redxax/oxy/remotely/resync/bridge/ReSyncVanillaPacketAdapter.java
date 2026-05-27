@@ -50,14 +50,18 @@ public class ReSyncVanillaPacketAdapter {
         if (connection == null) {
             return false;
         }
-        //#if MC >= 1.21.1
-        connection.send(new ServerboundCustomPayloadPacket(new RegisterPayload()));
-        //#else
-        //$$ FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
-        //$$ buffer.writeBytes(REGISTER_PAYLOAD);
-        //$$ connection.send(new ServerboundCustomPayloadPacket(REGISTER_CHANNEL, buffer));
-        //#endif
-        return true;
+        try {
+            //#if MC >= 1.21.1
+            connection.send(new ServerboundCustomPayloadPacket(new RegisterPayload()));
+            //#else
+            //$$ FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
+            //$$ buffer.writeBytes(REGISTER_PAYLOAD);
+            //$$ connection.send(new ServerboundCustomPayloadPacket(REGISTER_CHANNEL, buffer));
+            //#endif
+            return true;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     public boolean send(byte[] payload) {
@@ -66,14 +70,18 @@ public class ReSyncVanillaPacketAdapter {
         if (connection == null || payload == null || payload.length > MAX_PAYLOAD_BYTES) {
             return false;
         }
-        //#if MC >= 1.21.1
-        connection.send(new ServerboundCustomPayloadPacket(new BridgePayload(payload)));
-        //#else
-        //$$ FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
-        //$$ buffer.writeBytes(payload);
-        //$$ connection.send(new ServerboundCustomPayloadPacket(CHANNEL, buffer));
-        //#endif
-        return true;
+        try {
+            //#if MC >= 1.21.1
+            connection.send(new ServerboundCustomPayloadPacket(new BridgePayload(payload)));
+            //#else
+            //$$ FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
+            //$$ buffer.writeBytes(payload);
+            //$$ connection.send(new ServerboundCustomPayloadPacket(CHANNEL, buffer));
+            //#endif
+            return true;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     public byte[] read(ClientboundCustomPayloadPacket packet) {
@@ -165,5 +173,6 @@ public class ReSyncVanillaPacketAdapter {
             return new RegisterPayload();
         }
     }
+
     //#endif
 }
