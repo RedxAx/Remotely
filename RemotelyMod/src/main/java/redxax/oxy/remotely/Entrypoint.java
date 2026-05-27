@@ -22,6 +22,11 @@ import net.fabricmc.api.DedicatedServerModInitializer;
 //$$ import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 //$$ import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 //$$ import net.neoforged.fml.event.lifecycle.FMLDedicatedServerSetupEvent;
+//#if MC >= 1.21.1
+//$$ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+//$$ import redxax.oxy.remotely.resync.bridge.ReSyncVanillaBridgeManager;
+//$$ import redxax.oxy.remotely.resync.bridge.ReSyncVanillaPacketAdapter;
+//#endif
 //#endif
 
 import redxax.oxy.remotely.host.MinecraftApplicationHost;
@@ -114,6 +119,30 @@ public class Entrypoint
     //$$     modEventBus.addListener(this::onInitialize);
     //$$     modEventBus.addListener(this::onInitializeClient);
     //$$     modEventBus.addListener(this::onInitializeServer);
+    //#if NEOFORGE && MC >= 1.21.1
+    //$$     modEventBus.addListener(this::registerPayloadHandlers);
+    //#endif
+    //$$ }
+    //#endif
+
+    //#if NEOFORGE && MC >= 1.21.1
+    //$$ public void registerPayloadHandlers(RegisterPayloadHandlersEvent event) {
+    //$$     event.registrar(Constants.ID)
+    //$$         .optional()
+    //#if MC >= 1.21.8 || MC >= 26.1
+    //$$         .playBidirectional(
+    //$$             ReSyncVanillaPacketAdapter.BridgePayload.TYPE,
+    //$$             ReSyncVanillaPacketAdapter.BridgePayload.REGISTRY_STREAM_CODEC,
+    //$$             (payload, context) -> ReSyncVanillaBridgeManager.getInstance().handlePayload(payload.data()),
+    //$$             (payload, context) -> ReSyncVanillaBridgeManager.getInstance().handlePayload(payload.data())
+    //$$         );
+    //#else
+    //$$         .playBidirectional(
+    //$$             ReSyncVanillaPacketAdapter.BridgePayload.TYPE,
+    //$$             ReSyncVanillaPacketAdapter.BridgePayload.REGISTRY_STREAM_CODEC,
+    //$$             (payload, context) -> ReSyncVanillaBridgeManager.getInstance().handlePayload(payload.data())
+    //$$         );
+    //#endif
     //$$ }
     //#endif
 }
