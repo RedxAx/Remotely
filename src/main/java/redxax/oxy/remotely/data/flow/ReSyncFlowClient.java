@@ -808,6 +808,22 @@ public class ReSyncFlowClient {
         }
         byte packetId = buffer.get();
 
+        ReSyncResourceType dataType = ReSyncResourceType.byDataResponse(packetId);
+        if (dataType != null) {
+            handleResourceData(dataType, buffer);
+            return;
+        }
+        ReSyncResourceType listType = ReSyncResourceType.byListResponse(packetId);
+        if (listType != null) {
+            handleResourceList(listType, buffer);
+            return;
+        }
+        ReSyncResourceType saveAckType = ReSyncResourceType.bySaveAck(packetId);
+        if (saveAckType != null) {
+            handleResourceSaveAck(saveAckType, buffer);
+            return;
+        }
+
         switch (packetId) {
             case 0x02:
                 handleFlowData(buffer);

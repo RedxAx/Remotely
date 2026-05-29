@@ -9,6 +9,7 @@ import redxax.oxy.remotely.flow.data.ReSyncProjectMetadata;
 import redxax.oxy.remotely.flow.data.ScoreboardDefinition;
 import redxax.oxy.remotely.flow.data.TabDefinition;
 
+import java.util.Locale;
 import java.util.function.BiConsumer;
 
 public enum ReSyncResourceType {
@@ -109,7 +110,10 @@ public enum ReSyncResourceType {
     private final byte saveByte;
     private final byte deleteByte;
     private final byte saveAckByte;
+    private final String typeId;
     private final String displayName;
+    private final String defaultFolder;
+    private final boolean enabled;
     private final Serializer serializer;
     private final Deserializer deserializer;
     private final BiConsumer<Object, String> renameApplier;
@@ -129,7 +133,10 @@ public enum ReSyncResourceType {
         this.saveByte = (byte) saveByte;
         this.deleteByte = (byte) deleteByte;
         this.saveAckByte = (byte) saveAckByte;
+        this.typeId = name().toLowerCase(Locale.ROOT);
         this.displayName = displayName;
+        this.defaultFolder = defaultFolderFor(typeId);
+        this.enabled = true;
         this.serializer = serializer;
         this.deserializer = deserializer;
         this.renameApplier = renameApplier;
@@ -144,7 +151,10 @@ public enum ReSyncResourceType {
     public byte saveByte() { return saveByte; }
     public byte deleteByte() { return deleteByte; }
     public byte saveAckByte() { return saveAckByte; }
+    public String typeId() { return typeId; }
     public String displayName() { return displayName; }
+    public String defaultFolder() { return defaultFolder; }
+    public boolean enabled() { return enabled; }
 
     public String serialize(Object item) { return serializer.serialize(item); }
     public Object deserialize(String json) { return deserializer.deserialize(json); }
@@ -154,22 +164,46 @@ public enum ReSyncResourceType {
 
     public static ReSyncResourceType byDataResponse(byte packetId) {
         for (ReSyncResourceType rt : values()) {
-            if (rt.dataResponseByte == packetId) return rt;
+            if (rt.enabled && rt.dataResponseByte == packetId) return rt;
         }
         return null;
     }
 
     public static ReSyncResourceType byListResponse(byte packetId) {
         for (ReSyncResourceType rt : values()) {
-            if (rt.listResponseByte == packetId) return rt;
+            if (rt.enabled && rt.listResponseByte == packetId) return rt;
         }
         return null;
     }
 
     public static ReSyncResourceType bySaveAck(byte packetId) {
         for (ReSyncResourceType rt : values()) {
-            if (rt.saveAckByte == packetId) return rt;
+            if (rt.enabled && rt.saveAckByte == packetId) return rt;
         }
         return null;
+    }
+
+    public static ReSyncResourceType byTypeId(String typeId) {
+        for (ReSyncResourceType rt : values()) {
+            if (rt.typeId.equals(typeId)) {
+                return rt;
+            }
+        }
+        return null;
+    }
+
+    public static String defaultFolderFor(String typeId) {
+        return switch (typeId) {
+            case "function" -> "Blueprints/Functions";
+            case "command" -> "Blueprints/Commands";
+            case "gui" -> "GUIs";
+            case "scoreboard" -> "Customization/Scoreboards";
+            case "tab" -> "Customization/Tabs";
+            case "custom_content" -> "Content/Items";
+            case "project_metadata" -> "";
+            case "worldgen" -> "WorldGen";
+            case "world" -> "Worlds";
+            default -> "Blueprints/Flows";
+        };
     }
 }
