@@ -21,9 +21,11 @@ versionRange="[1,)"
 ordering="NONE"
 side="BOTH"
 
+//#if MC > 1.21.1
 [[dependencies.${mod_id}]]
 modId="minecraft"
 mandatory=true
 versionRange="[${minor_mc_version},)"
 ordering="NONE"
 side="BOTH"
+//#endif

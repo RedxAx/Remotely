@@ -403,7 +403,7 @@ private fun Project.configurePublishingGuard() {
             publisher.loaders.set(listOf(loader()))
             publisher.versionType.set(findProperty("remotely.publish.versionType")?.toString() ?: "release")
             publisher.artifact.set(publishingArtifact())
-            publisher.changelog.set(findProperty("remotely.publish.changelog")?.toString() ?: "Remotely ${modVersion()} for ${minecraftVersion()}.")
+            publisher.changelog.set(publishingChangelog())
             publisher.modrinthDepends(action { dependencies ->
                 if (loader() == "fabric") {
                     dependencies.required("fabric-api")
@@ -411,6 +411,16 @@ private fun Project.configurePublishingGuard() {
                 dependencies.incompatible("essential")
             })
         })
+    }
+}
+
+private fun Project.publishingChangelog() = providers.provider {
+    val changelogFile = rootProject.file("../CHANGELOG.md")
+    if (!changelogFile.isFile) {
+        return@provider "Remotely ${modVersion()} for ${minecraftVersion()}."
+    }
+    changelogFile.readText().trim().ifBlank {
+        "Remotely ${modVersion()} for ${minecraftVersion()}."
     }
 }
 
