@@ -1205,7 +1205,7 @@ public class FlowManager {
                 continue;
             }
             String type = graph.isFunction() ? ReSyncResourceDragPayload.FUNCTION : ReSyncResourceDragPayload.FLOW;
-            metadata.ensureResource(type, entry.getKey(), getFlowName(serverId, entry.getKey()), graph.isFunction() ? "Blueprints/Functions" : "Blueprints/Flows");
+            metadata.ensureResource(type, entry.getKey(), getFlowName(serverId, entry.getKey()), graph.isFunction() ? ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.FUNCTION) : ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.FLOW));
         }
         for (Map.Entry<String, CustomContentDefinition> entry : customContentStore.getForServer(serverId).entrySet()) {
             CustomContentDefinition content = entry.getValue();
@@ -1213,26 +1213,26 @@ public class FlowManager {
             metadata.ensureResource(ReSyncResourceDragPayload.CUSTOM_CONTENT, entry.getKey(), getCustomContentName(serverId, entry.getKey()), switch (contentType) {
                 case "armor" -> "Content/Armor";
                 case "block" -> "Content/Blocks";
-                default -> "Content/Items";
+                default -> ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.CUSTOM_CONTENT);
             });
         }
         for (Map.Entry<String, GuiDefinition> entry : guiStore.getForServer(serverId).entrySet()) {
-            metadata.ensureResource(ReSyncResourceDragPayload.GUI, entry.getKey(), getGuiName(serverId, entry.getKey()), "GUIs");
+            metadata.ensureResource(ReSyncResourceDragPayload.GUI, entry.getKey(), getGuiName(serverId, entry.getKey()), ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.GUI));
         }
         for (Map.Entry<String, ScoreboardDefinition> entry : scoreboardStore.getForServer(serverId).entrySet()) {
-            metadata.ensureResource(ReSyncResourceDragPayload.SCOREBOARD, entry.getKey(), getScoreboardName(serverId, entry.getKey()), "Customization/Scoreboards");
+            metadata.ensureResource(ReSyncResourceDragPayload.SCOREBOARD, entry.getKey(), getScoreboardName(serverId, entry.getKey()), ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.SCOREBOARD));
         }
         for (Map.Entry<String, TabDefinition> entry : tabStore.getForServer(serverId).entrySet()) {
-            metadata.ensureResource(ReSyncResourceDragPayload.TAB, entry.getKey(), getTabName(serverId, entry.getKey()), "Customization/Tabs");
+            metadata.ensureResource(ReSyncResourceDragPayload.TAB, entry.getKey(), getTabName(serverId, entry.getKey()), ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.TAB));
         }
         for (String commandFlowId : commandFlowIds) {
-            metadata.ensureResource(ReSyncResourceDragPayload.COMMAND, commandFlowId, getFlowName(serverId, commandFlowId), commandPaths.getOrDefault(commandFlowId, "Blueprints/Commands"));
+            metadata.ensureResource(ReSyncResourceDragPayload.COMMAND, commandFlowId, getFlowName(serverId, commandFlowId), commandPaths.getOrDefault(commandFlowId, ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.COMMAND)));
         }
         for (String projectId : WorldGenManager.getInstance().getProjectIds(serverId)) {
-            metadata.ensureResource(ReSyncResourceDragPayload.WORLDGEN, projectId, projectId, "WorldGen");
+            metadata.ensureResource(ReSyncResourceDragPayload.WORLDGEN, projectId, projectId, ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.WORLDGEN));
         }
         for (String worldName : getWorldsForServer(serverId).keySet()) {
-            metadata.ensureResource(ReSyncResourceDragPayload.WORLD, worldName, worldName, "Worlds");
+            metadata.ensureResource(ReSyncResourceDragPayload.WORLD, worldName, worldName, ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.WORLD));
         }
     }
 
