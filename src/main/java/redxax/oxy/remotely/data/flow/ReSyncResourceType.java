@@ -1,6 +1,7 @@
 package redxax.oxy.remotely.data.flow;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import redxax.oxy.remotely.flow.data.FlowGraph;
 import redxax.oxy.remotely.flow.data.FlowSerializer;
 import redxax.oxy.remotely.flow.data.CustomContentDefinition;
@@ -86,6 +87,66 @@ public enum ReSyncResourceType {
             (item, newId) -> ((ReSyncProjectMetadata) item).setServerId(newId),
             item -> ((ReSyncProjectMetadata) item).getServerId() == null || ((ReSyncProjectMetadata) item).getServerId().isBlank() ? "project" : ((ReSyncProjectMetadata) item).getServerId(),
             item -> "Project"
+    ),
+
+    CHAT_CHANNEL(
+            0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D,
+            "Chat Channel", ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
+    ),
+
+    CHAT_FORMAT(
+            0x6E, 0x6F, 0x70, 0x71, 0x72, 0x73, 0x74,
+            "Chat Format", ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
+    ),
+
+    CHAT_RULE(
+            0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B,
+            "Chat Rule", ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
+    ),
+
+    PRIVATE_MESSAGE_FORMAT(
+            0x7C, 0x7D, 0x7E, 0x7F, 0x80, 0x81, 0x82,
+            "Private Message Format", ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
+    ),
+
+    MENTION_STYLE(
+            0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+            "Mention Style", ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
+    ),
+
+    IGNORE_LIST(
+            0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90,
+            "Ignore List", ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
+    ),
+
+    MOTD_PROFILE(
+            0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97,
+            "MOTD Profile", ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
+    ),
+
+    MESSAGE_RULE(
+            0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E,
+            "Message Rule", ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
+    ),
+
+    RECIPE_DEFINITION(
+            0x9F, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5,
+            "Recipe Definition", ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
+    ),
+
+    TEXT_TEMPLATE(
+            0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC,
+            "Text Template", ReSyncResourceType::serializeJsonObject, ReSyncResourceType::deserializeJsonObject,
+            ReSyncResourceType::renameJsonObject, ReSyncResourceType::jsonObjectId, ReSyncResourceType::jsonObjectName
     );
 
     @FunctionalInterface
@@ -201,9 +262,50 @@ public enum ReSyncResourceType {
             case "tab" -> "Customization/Tabs";
             case "custom_content" -> "Content/Items";
             case "project_metadata" -> "";
+            case "chat_channel", "chat_format", "chat_rule", "private_message_format", "mention_style", "ignore_list" -> "Customization/Chat";
+            case "motd_profile" -> "Customization/MOTDs";
+            case "message_rule" -> "Customization/Messages";
+            case "recipe_definition" -> "Content/Recipes";
+            case "text_template" -> "Text/Templates";
             case "worldgen" -> "WorldGen";
             case "world" -> "Worlds";
             default -> "Blueprints/Flows";
         };
+    }
+
+    private static String serializeJsonObject(Object item) {
+        return new Gson().toJson(item);
+    }
+
+    private static Object deserializeJsonObject(String json) {
+        return new Gson().fromJson(json, JsonObject.class);
+    }
+
+    private static void renameJsonObject(Object item, String newId) {
+        if (item instanceof JsonObject json) {
+            json.addProperty("id", newId);
+        }
+    }
+
+    private static String jsonObjectId(Object item) {
+        if (item instanceof JsonObject json && json.has("id") && !json.get("id").isJsonNull()) {
+            return json.get("id").getAsString();
+        }
+        return "";
+    }
+
+    private static String jsonObjectName(Object item) {
+        if (item instanceof JsonObject json) {
+            if (json.has("displayName") && !json.get("displayName").isJsonNull()) {
+                return json.get("displayName").getAsString();
+            }
+            if (json.has("name") && !json.get("name").isJsonNull()) {
+                return json.get("name").getAsString();
+            }
+            if (json.has("id") && !json.get("id").isJsonNull()) {
+                return json.get("id").getAsString();
+            }
+        }
+        return "";
     }
 }

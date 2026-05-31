@@ -1319,30 +1319,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
     }
 
     private List<Integer> computeSlotRange(int startSlot, int endSlot) {
-        if (startSlot < 0 || endSlot < 0) {
-            return List.of();
-        }
-        int startRow = startSlot / GRID_COLUMNS;
-        int startCol = startSlot % GRID_COLUMNS;
-        int endRow = endSlot / GRID_COLUMNS;
-        int endCol = endSlot % GRID_COLUMNS;
-        int minRow = Math.min(startRow, endRow);
-        int maxRow = Math.max(startRow, endRow);
-        int minCol = Math.min(startCol, endCol);
-        int maxCol = Math.max(startCol, endCol);
-
-        int rows = getTotalRows();
-        if (maxRow >= rows) {
-            return List.of();
-        }
-
-        List<Integer> slots = new ArrayList<>();
-        for (int row = minRow; row <= maxRow; row++) {
-            for (int col = minCol; col <= maxCol; col++) {
-                slots.add(row * GRID_COLUMNS + col);
-            }
-        }
-        return slots;
+        return SlotInteractionGrid.slotRange(startSlot, endSlot, GRID_COLUMNS, getTotalRows());
     }
 
     private int getSlotAt(int mouseX, int mouseY) {
@@ -1803,12 +1780,7 @@ public class GuiDesignerScreen extends ReScreen implements DesktopWindowBehavior
                 }
             }
             if (highlightColor != 0) {
-                int fill = (highlightColor & 0x00FFFFFF) | 0x55000000;
-                ctx.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), fill);
-                if (highlightOutline) {
-                    int border = (highlightColor & 0x00FFFFFF) | 0xCC000000;
-                    ctx.fillBorder(getX(), getY(), getX() + getWidth(), getY() + getHeight(), 1, border);
-                }
+                SlotInteractionGrid.drawHighlight(ctx, getX(), getY(), getWidth(), getHeight(), highlightColor, highlightOutline);
             }
             if (preview && highlightColor == 0) {
                 int fill = 0x33000000;

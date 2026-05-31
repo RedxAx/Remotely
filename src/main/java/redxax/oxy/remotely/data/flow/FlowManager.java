@@ -78,6 +78,8 @@ public class FlowManager {
     private final SyncedResourceCache<TabDefinition> tabStore = new SyncedResourceCache<>(TabDefinition::getId, TabDefinition::getId);
     private final SyncedResourceCache<CustomContentDefinition> customContentStore = new SyncedResourceCache<>(CustomContentDefinition::getId, c -> c.getDisplayName() != null ? c.getDisplayName() : c.getId());
     private final SyncedResourceCache<ReSyncProjectMetadata> projectMetadataStore = new SyncedResourceCache<>(m -> m.getServerId() == null || m.getServerId().isBlank() ? "project" : m.getServerId(), m -> "Project");
+    private final Map<ReSyncResourceType, SyncedResourceCache<JsonObject>> jsonResourceStores = new ConcurrentHashMap<>();
+    private final Map<String, JsonObject> serverCapabilities = new ConcurrentHashMap<>();
     private final Map<String, List<TriggerBinding>> triggerBindings = new ConcurrentHashMap<>();
     private volatile boolean guiOverlayEditable;
     private volatile String guiOverlayServerId;
@@ -98,6 +100,11 @@ public class FlowManager {
         this.debugController = new FlowDebugController(this);
         this.worldService = new ReSyncWorldService();
         this.playerService = new ReSyncPlayerService();
+        for (ReSyncResourceType type : ReSyncResourceType.values()) {
+            if (usesJsonResourceStore(type)) {
+                jsonResourceStores.put(type, new SyncedResourceCache<>(this::jsonResourceId, this::jsonResourceName));
+            }
+        }
         INSTANCE = this;
         MarketplaceContentImportService.register(this::importMarketplaceContent);
     }
@@ -176,6 +183,8 @@ public class FlowManager {
             tabStore.clearForServer(serverId);
             customContentStore.clearForServer(serverId);
             projectMetadataStore.clearForServer(serverId);
+            jsonResourceStores.values().forEach(store -> store.clearForServer(serverId));
+            serverCapabilities.remove(serverId);
             playerService.clearCache(serverId);
             worldService.clearCache(serverId);
         });
@@ -771,6 +780,97 @@ public class FlowManager {
         }
     }
 
+    private boolean usesJsonResourceStore(ReSyncResourceType type) {
+        return type == ReSyncResourceType.CHAT_CHANNEL
+            || type == ReSyncResourceType.CHAT_FORMAT
+            || type == ReSyncResourceType.CHAT_RULE
+            || type == ReSyncResourceType.PRIVATE_MESSAGE_FORMAT
+            || type == ReSyncResourceType.MENTION_STYLE
+            || type == ReSyncResourceType.IGNORE_LIST
+            || type == ReSyncResourceType.MOTD_PROFILE
+            || type == ReSyncResourceType.MESSAGE_RULE
+            || type == ReSyncResourceType.RECIPE_DEFINITION
+            || type == ReSyncResourceType.TEXT_TEMPLATE;
+    }
+
+    private String jsonResourceId(JsonObject resource) {
+        return text(resource, "id");
+    }
+
+    private String jsonResourceName(JsonObject resource) {
+        String displayName = text(resource, "displayName");
+        if (!displayName.isBlank()) {
+            return displayName;
+        }
+        String name = text(resource, "name");
+        return name.isBlank() ? text(resource, "id") : name;
+    }
+
+    private JsonObject defaultJsonResource(ReSyncResourceType type, String id, String folder) {
+        JsonObject resource = new JsonObject();
+        resource.addProperty("id", id);
+        resource.addProperty("displayName", id);
+        resource.addProperty("folder", folder == null || folder.isBlank() ? type.defaultFolder() : folder);
+        resource.addProperty("enabled", true);
+        switch (type) {
+            case CHAT_CHANNEL -> {
+                resource.addProperty("priority", 0);
+                resource.addProperty("defaultChannel", true);
+                resource.addProperty("autojoin", true);
+                resource.addProperty("prefix", "<gray>[Chat]</gray> ");
+                resource.addProperty("format", "");
+            }
+            case CHAT_FORMAT -> resource.addProperty("template", "{prefix}{sender}: {message}");
+            case CHAT_RULE -> {
+                resource.addProperty("priority", 0);
+                resource.addProperty("contains", "");
+                resource.addProperty("replacement", "{message}");
+            }
+            case PRIVATE_MESSAGE_FORMAT -> {
+                resource.addProperty("sender", "<gray>To <white>{receiver}</white>: <message>");
+                resource.addProperty("receiver", "<gray>From <white>{sender}</white>: <message>");
+                resource.addProperty("spy", "<gray>Spy <white>{sender}</white> -> <white>{receiver}</white>: <message>");
+            }
+            case MENTION_STYLE -> resource.addProperty("template", "<yellow>@{player}</yellow>");
+            case IGNORE_LIST -> resource.add("players", new JsonArray());
+            case MOTD_PROFILE -> {
+                resource.addProperty("priority", 0);
+                resource.addProperty("line1", "<green>ReSync Server");
+                resource.addProperty("line2", "<gray>Powered By ReStudio");
+                resource.addProperty("playerCountMode", "real");
+            }
+            case MESSAGE_RULE -> {
+                resource.addProperty("source", "join");
+                resource.addProperty("priority", 0);
+                resource.addProperty("action", "replace_section");
+                resource.addProperty("contains", "");
+                resource.addProperty("replacement", "{message}");
+            }
+            case RECIPE_DEFINITION -> {
+                resource.addProperty("type", "shaped");
+                JsonObject output = new JsonObject();
+                output.addProperty("material", "STONE");
+                output.addProperty("amount", 1);
+                resource.add("output", output);
+                JsonArray shape = new JsonArray();
+                shape.add("A");
+                resource.add("shape", shape);
+                JsonObject keys = new JsonObject();
+                keys.addProperty("A", "STONE");
+                resource.add("keys", keys);
+                resource.addProperty("experience", 0);
+                resource.addProperty("cookingTime", 200);
+                resource.add("conditions", new JsonObject());
+            }
+            case TEXT_TEMPLATE -> {
+                resource.addProperty("text", id);
+            }
+            default -> {
+            }
+        }
+        return resource;
+    }
+
     public void markCustomContentSaved(String serverId, String contentId) {
         customContentStore.markSaved(serverId, contentId);
         refreshStudioWorkspace(serverId);
@@ -807,6 +907,99 @@ public class FlowManager {
     public void markProjectMetadataSaved(String serverId) {
         projectMetadataStore.markSaved(serverId, serverId);
         refreshStudioWorkspace(serverId, false);
+    }
+
+    public void cacheJsonResource(String serverId, ReSyncResourceType type, JsonObject resource) {
+        if (serverId == null) {
+            return;
+        }
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+        if (store != null) {
+            store.cache(serverId, resource);
+            refreshStudioWorkspace(serverId);
+        }
+    }
+
+    public void cacheServerCapabilities(String serverId, JsonObject capabilities) {
+        if (serverId != null && capabilities != null) {
+            serverCapabilities.put(serverId, capabilities);
+            refreshStudioWorkspace(serverId, false);
+        }
+    }
+
+    public JsonObject getServerCapabilities(String serverId) {
+        return serverCapabilities.get(serverId);
+    }
+
+    public void markJsonResourceSaved(String serverId, ReSyncResourceType type, String id) {
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+        if (store != null) {
+            store.markSaved(serverId, id);
+            refreshStudioWorkspace(serverId);
+        }
+    }
+
+    public JsonObject createJsonResource(String serverId, ReSyncResourceType type, String id, String folder) {
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+        if (store == null || id == null || id.isBlank()) {
+            return null;
+        }
+        JsonObject resource = defaultJsonResource(type, id, folder);
+        store.putInDraft(serverId, resource);
+        store.putNameIfAbsent(serverId, id, type.extractName(resource));
+        return resource;
+    }
+
+    public void saveJsonResource(String serverId, ReSyncResourceType type, JsonObject resource) {
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+        if (store == null || resource == null) {
+            return;
+        }
+        String id = type.extractId(resource);
+        if (id == null || id.isBlank()) {
+            return;
+        }
+        store.putInDraft(serverId, resource);
+        store.putNameIfAbsent(serverId, id, type.extractName(resource));
+        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        if (flowClient != null) {
+            store.markSaving(serverId, id);
+            flowClient.sendResourceSave(type, resource);
+        }
+        refreshStudioWorkspace(serverId);
+    }
+
+    public void deleteJsonResource(String serverId, ReSyncResourceType type, String id) {
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+        if (store == null || id == null || id.isBlank()) {
+            return;
+        }
+        store.remove(serverId, id);
+        ReSyncFlowClient flowClient = connectionManager.getFlowClient(serverId);
+        if (flowClient != null) {
+            flowClient.sendResourceDelete(type, id);
+        }
+        refreshStudioWorkspace(serverId);
+    }
+
+    public void applyServerJsonResourceList(String serverId, ReSyncResourceType type, List<String> ids) {
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+        if (store == null) {
+            return;
+        }
+        store.applyServerList(serverId, ids);
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId);
+        if (ids != null) {
+            for (String id : ids) {
+                flowClient.requestResource(type, id, false);
+            }
+        }
+        refreshStudioWorkspace(serverId);
+    }
+
+    public Map<String, JsonObject> getJsonResourcesForServer(String serverId, ReSyncResourceType type) {
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+        return store != null ? store.getForServer(serverId) : Map.of();
     }
 
     public Map<String, FlowGraph> getFlowsForServer(String serverId) {
@@ -1043,6 +1236,11 @@ public class FlowManager {
         return renameResource(tabStore, serverId, tabId, newTabId, ReSyncResourceType.TAB);
     }
 
+    public boolean renameJsonResource(String serverId, ReSyncResourceType type, String oldId, String newId) {
+        SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+        return store != null && renameResource(store, serverId, oldId, newId, type);
+    }
+
     private <T> boolean renameResource(SyncedResourceCache<T> store, String serverId, String oldId, String newId, ReSyncResourceType type) {
         String trimmedId = newId.trim();
         if (!store.rename(serverId, oldId, trimmedId, type::applyRename)) {
@@ -1095,8 +1293,23 @@ public class FlowManager {
         if (serverId == null || serverId.isBlank()) {
             return;
         }
+        refreshCustomizationResourcesFromServer(serverId);
         connectionManager.ensureFlowClient(serverId, true).requestProjectMetadataList();
         refreshStudioWorkspace(serverId);
+    }
+
+    public void refreshCustomizationResourcesFromServer(String serverId) {
+        if (serverId == null || serverId.isBlank()) {
+            return;
+        }
+        ReSyncFlowClient flowClient = connectionManager.ensureFlowClient(serverId, true);
+        for (ReSyncResourceType type : ReSyncResourceType.values()) {
+            SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+            if (store != null) {
+                store.clearForServer(serverId);
+                flowClient.requestResourceList(type);
+            }
+        }
     }
 
     public void refreshWorldsFromServer(String serverId) {
@@ -1224,6 +1437,15 @@ public class FlowManager {
         }
         for (Map.Entry<String, TabDefinition> entry : tabStore.getForServer(serverId).entrySet()) {
             metadata.ensureResource(ReSyncResourceDragPayload.TAB, entry.getKey(), getTabName(serverId, entry.getKey()), ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.TAB));
+        }
+        for (ReSyncResourceType type : ReSyncResourceType.values()) {
+            SyncedResourceCache<JsonObject> store = jsonResourceStores.get(type);
+            if (store == null) {
+                continue;
+            }
+            for (Map.Entry<String, JsonObject> entry : store.getForServer(serverId).entrySet()) {
+                metadata.ensureResource(type.typeId(), entry.getKey(), type.extractName(entry.getValue()), type.defaultFolder());
+            }
         }
         for (String commandFlowId : commandFlowIds) {
             metadata.ensureResource(ReSyncResourceDragPayload.COMMAND, commandFlowId, getFlowName(serverId, commandFlowId), commandPaths.getOrDefault(commandFlowId, ReSyncResourceType.defaultFolderFor(ReSyncResourceDragPayload.COMMAND)));

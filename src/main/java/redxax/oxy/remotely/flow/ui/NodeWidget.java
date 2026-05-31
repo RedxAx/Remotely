@@ -27,7 +27,6 @@ import restudio.rescreen.ui.widgets.AnimatedButton;
 import restudio.rescreen.ui.widgets.AnimatedWidget;
 import restudio.rescreen.ui.widgets.ColorFieldWidget;
 import restudio.rescreen.ui.widgets.ContextMenuWidget;
-import restudio.rescreen.ui.widgets.DropDownWidget;
 import restudio.rescreen.ui.widgets.ItemSelectorWidget;
 import restudio.rescreen.ui.widgets.PopupWidget;
 import restudio.rescreen.ui.widgets.SliderWidget;
@@ -252,17 +251,7 @@ public class NodeWidget extends AnimatedWidget {
                     return buildTextInput(currentValue, input.getOptionsSource());
                 }
                 String selected = resolveSelected(options, currentValue, input.getDefaultValue());
-                if (options.size() > 20) {
-                    return buildSearchableSelector(input, options, selected);
-                }
-                return new DropDownWidget.Builder<>(options)
-                    .selectedItem(selected)
-                    .onSelectionChanged(value -> {
-                        handleInputValueChanged(input);
-                    })
-                    .size(INPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
-                    .entranceAnimation(false)
-                    .build();
+                return buildSearchableSelector(input, options, selected);
             }
             case SEARCHABLE_LIST -> {
                 List<String> options = resolveOptions(input);
@@ -397,7 +386,7 @@ public class NodeWidget extends AnimatedWidget {
                 handleInputValueChanged(input);
             };
             if (screen instanceof FlowEditorScreen flowEditorScreen) {
-                flowEditorScreen.showNodeInputSelector(options, selected, onSelected, button.getX(), button.getY() + button.getHeight());
+                flowEditorScreen.showNodeInputSelector(options, button.getMessage(), onSelected, button.getX(), button.getY() + button.getHeight());
                 return;
             }
             AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
@@ -409,11 +398,85 @@ public class NodeWidget extends AnimatedWidget {
             for (String option : options) {
                 selector.get().addItem(option, () -> onSelected.accept(option));
             }
-            selector.get().setSelectedItem(selected);
+            selector.get().setSelectedItem(button.getMessage());
             screen.addDrawableChild(selector.get());
             selector.get().show(button.getX(), button.getY() + button.getHeight());
         });
         return button;
+    }
+
+    private AnimatedButton buildSelectorButton(List<String> options, String selected, int width, Consumer<String> onSelected) {
+        AnimatedButton button = new AnimatedButton.Builder()
+            .label(selected)
+            .size(width, INPUT_WIDGET_HEIGHT)
+            .entranceAnimation(false)
+            .build();
+        button.setAction(() -> showStringSelector(button, options, button.getMessage(), value -> {
+            if (value == null || value.isBlank() || "Loading".equals(value)) {
+                return;
+            }
+            button.setMessage(value);
+            onSelected.accept(value);
+        }));
+        return button;
+    }
+
+    private AnimatedButton buildScreenSelectorButton(List<String> options, String selected, int width, Consumer<String> onSelected) {
+        AnimatedButton button = new AnimatedButton.Builder()
+            .label(selected)
+            .size(width, INPUT_WIDGET_HEIGHT)
+            .entranceAnimation(false)
+            .build();
+        button.setAction(() -> showScreenSelector(button, options, button.getMessage(), value -> {
+            if (value == null || value.isBlank() || "Loading".equals(value)) {
+                return;
+            }
+            button.setMessage(value);
+            onSelected.accept(value);
+        }));
+        return button;
+    }
+
+    private void showStringSelector(AnimatedButton anchor, List<String> options, String selected, Consumer<String> onSelected) {
+        var screen = ScreenManager.getInstance().getCurrentScreen();
+        if (screen == null || anchor == null || options == null || options.isEmpty() || onSelected == null) {
+            return;
+        }
+        if (screen instanceof FlowEditorScreen flowEditorScreen) {
+            flowEditorScreen.showNodeInputSelector(options, selected, onSelected, anchor.getX(), anchor.getY() + anchor.getHeight());
+            return;
+        }
+        AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
+        selector.set(new ItemSelectorWidget.Builder(screen)
+            .size(180, 220)
+            .dismissOnSelect(true)
+            .onClose(() -> screen.remove(selector.get()))
+            .build());
+        for (String option : options) {
+            selector.get().addItem(option, () -> onSelected.accept(option));
+        }
+        selector.get().setSelectedItem(selected);
+        screen.addDrawableChild(selector.get());
+        selector.get().show(anchor.getX(), anchor.getY() + anchor.getHeight());
+    }
+
+    private void showScreenSelector(AnimatedButton anchor, List<String> options, String selected, Consumer<String> onSelected) {
+        var screen = ScreenManager.getInstance().getCurrentScreen();
+        if (screen == null || anchor == null || options == null || options.isEmpty() || onSelected == null) {
+            return;
+        }
+        AtomicReference<ItemSelectorWidget> selector = new AtomicReference<>();
+        selector.set(new ItemSelectorWidget.Builder(screen)
+            .size(180, 220)
+            .dismissOnSelect(true)
+            .onClose(() -> screen.remove(selector.get()))
+            .build());
+        for (String option : options) {
+            selector.get().addItem(option, () -> onSelected.accept(option));
+        }
+        selector.get().setSelectedItem(selected);
+        screen.addDrawableChild(selector.get());
+        selector.get().show(anchor.getX(), anchor.getY() + anchor.getHeight());
     }
 
     private List<String> resolveOptions(NodeDefinition.PinDefinition input) {
@@ -904,13 +967,14 @@ public class NodeWidget extends AnimatedWidget {
             .size(200, 20)
             .build();
         List<FlowDataType> types = getSupportedFunctionTypes();
-        DropDownWidget<FlowDataType> typeDropdown = new DropDownWidget.Builder<>(types)
-            .selectedItem(FlowDataType.ANY)
-            .size(200, INPUT_WIDGET_HEIGHT)
-            .build();
+        FlowDataType[] selectedType = new FlowDataType[]{FlowDataType.ANY};
+        List<String> typeOptions = types.stream().map(FlowDataType::getId).toList();
+        AnimatedButton typeButton = buildScreenSelectorButton(typeOptions, selectedType[0].getId(), 200, value -> {
+            selectedType[0] = FlowDataType.fromString(value);
+        });
 
         builder.addRow("Name", true, 20, nameInput);
-        builder.addRow("Type", true, 18, typeDropdown);
+        builder.addRow("Type", true, 18, typeButton);
 
         PopupWidget[] popupRef = new PopupWidget[1];
         AnimatedButton addButton = new AnimatedButton.Builder()
@@ -920,7 +984,7 @@ public class NodeWidget extends AnimatedWidget {
                 if (rawName.isBlank() || !rawName.matches("^[a-zA-Z0-9_]+$")) {
                     return;
                 }
-                FlowDataType type = typeDropdown.getSelectedItem();
+                FlowDataType type = selectedType[0];
                 if (type == null) {
                     type = FlowDataType.ANY;
                 }
@@ -1183,7 +1247,7 @@ public class NodeWidget extends AnimatedWidget {
             int pinY = rowY + (ROW_HEIGHT - PIN_BUTTON_SIZE) / 2;
             int pinX = rightColumnStart + rightColumnWidth - PIN_BUTTON_SIZE;
             int textY = rowY + (ROW_HEIGHT - ITextRenderer.fontHeight) / 2 + 1;
-            DropDownWidget<String> branchWidget = getBranchWidget(output.getName());
+            AnimatedButton branchWidget = getBranchWidget(output.getName());
             if (branchWidget == null) {
                 String outputLabel = passthroughInputPin(output.getName());
                 int labelWidth = tr.getWidth(outputLabel);
@@ -1203,7 +1267,7 @@ public class NodeWidget extends AnimatedWidget {
 
         for (int i = visibleOutputs.size() - 1; i >= 0; i--) {
             NodeDefinition.PinDefinition output = visibleOutputs.get(i);
-            DropDownWidget<String> branchWidget = getBranchWidget(output.getName());
+            AnimatedButton branchWidget = getBranchWidget(output.getName());
             if (branchWidget != null) {
                 branchWidget.render(ctx, mouseX, mouseY, 0);
             }
@@ -1219,16 +1283,6 @@ public class NodeWidget extends AnimatedWidget {
     }
 
     private void renderExpandedDropdownOverlays(IDrawContext ctx, int mouseX, int mouseY) {
-        for (Widget widget : inputWidgets.values()) {
-            if (widget instanceof DropDownWidget<?> dropdown && dropdown.isVisible() && dropdown.isExpanded()) {
-                dropdown.render(ctx, mouseX, mouseY, 0);
-            }
-        }
-        for (FlowBranch branch : flowBranches) {
-            if (branch.widget != null && branch.widget.isVisible() && branch.widget.isExpanded()) {
-                branch.widget.render(ctx, mouseX, mouseY, 0);
-            }
-        }
     }
 
     @Override
@@ -1395,9 +1449,6 @@ public class NodeWidget extends AnimatedWidget {
         Widget outputWidget = getOutputWidgetAt(wx, wy);
         if (outputWidget != null) {
             outputWidget.mouseClicked(mouseX, mouseY, button);
-            if (outputWidget instanceof DropDownWidget<?> && ScreenManager.getInstance().getCurrentScreen() != null) {
-                ScreenManager.getInstance().getCurrentScreen().setFocusedWidget(outputWidget);
-            }
             return true;
         }
 
@@ -1408,7 +1459,7 @@ public class NodeWidget extends AnimatedWidget {
         Widget inputWidget = getInputWidgetAt(wx, wy);
         if (inputWidget != null) {
             inputWidget.mouseClicked(mouseX, mouseY, button);
-            if (inputWidget instanceof TextInputWidget || inputWidget instanceof DropDownWidget<?>) {
+            if (inputWidget instanceof TextInputWidget) {
                 if (ScreenManager.getInstance().getCurrentScreen() != null) {
                     ScreenManager.getInstance().getCurrentScreen().setFocusedWidget(inputWidget);
                 }
@@ -1559,7 +1610,7 @@ public class NodeWidget extends AnimatedWidget {
     private int getRightColumnWidth() {
         int width = 0;
         for (NodeDefinition.PinDefinition output : visibleOutputs) {
-            DropDownWidget<String> branchWidget = getBranchWidget(output.getName());
+            AnimatedButton branchWidget = getBranchWidget(output.getName());
             if (branchWidget != null) {
                 int rowWidth = getOutputWidgetWidth(branchWidget) + PIN_TEXT_GAP + PIN_BUTTON_SIZE;
                 width = Math.max(width, rowWidth);
@@ -1611,13 +1662,6 @@ public class NodeWidget extends AnimatedWidget {
                 typedValue = convertValue(value, def.getDataType());
             } else if (widget instanceof ToggleWidget toggle) {
                 typedValue = toggle.getValue();
-            } else if (widget instanceof DropDownWidget<?> dropdown) {
-                Object selected = dropdown.getSelectedItem();
-                if (selected == null) {
-                    node.getInputValues().remove(entry.getKey());
-                    continue;
-                }
-                typedValue = convertValue(selected.toString(), def.getDataType());
             } else if (widget instanceof AnimatedButton button) {
                 String value = button.getMessage();
                 if (value == null || value.isBlank() || "Loading".equals(value)) {
@@ -1888,17 +1932,25 @@ public class NodeWidget extends AnimatedWidget {
         return selected;
     }
 
-    private DropDownWidget<String> buildBranchSelector(List<NodeDefinition.PinDefinition> flowOutputs, String selected) {
+    private AnimatedButton buildBranchSelector(List<NodeDefinition.PinDefinition> flowOutputs, String selected) {
         List<String> options = new ArrayList<>();
         for (NodeDefinition.PinDefinition output : flowOutputs) {
             options.add(output.getName());
         }
-        return new DropDownWidget.Builder<>(options)
-            .selectedItem(selected)
-            .onSelectionChanged(value -> updateFlowBranchSelection(selected, value))
+        AnimatedButton button = new AnimatedButton.Builder()
+            .label(selected)
             .size(OUTPUT_WIDGET_WIDTH, INPUT_WIDGET_HEIGHT)
             .entranceAnimation(false)
             .build();
+        button.setAction(() -> showStringSelector(button, options, button.getMessage(), value -> {
+            String oldName = button.getMessage();
+            if (value == null || value.isBlank() || "Loading".equals(value)) {
+                return;
+            }
+            button.setMessage(value);
+            updateFlowBranchSelection(oldName, value);
+        }));
+        return button;
     }
 
     private void updateFlowBranchSelection(String oldName, String newName) {
@@ -1918,7 +1970,7 @@ public class NodeWidget extends AnimatedWidget {
         if (conflict) {
             updatingBranchSelection = true;
             if (targetBranch != null && targetBranch.widget != null) {
-                targetBranch.widget.setSelectedItem(oldName);
+                targetBranch.widget.setMessage(oldName);
             }
             updatingBranchSelection = false;
             return;
@@ -1998,7 +2050,7 @@ public class NodeWidget extends AnimatedWidget {
 
         for (int i = 0; i < visibleOutputs.size(); i++) {
             NodeDefinition.PinDefinition output = visibleOutputs.get(i);
-            DropDownWidget<String> branchWidget = getBranchWidget(output.getName());
+            AnimatedButton branchWidget = getBranchWidget(output.getName());
             if (branchWidget != null) {
                 int rowY = getRowStartY() + i * (ROW_HEIGHT + ROW_SPACING);
                 int widgetWidth = getOutputWidgetWidth(branchWidget);
@@ -2035,7 +2087,7 @@ public class NodeWidget extends AnimatedWidget {
         return INPUT_WIDGET_HEIGHT;
     }
 
-    private DropDownWidget<String> getBranchWidget(String outputName) {
+    private AnimatedButton getBranchWidget(String outputName) {
         for (FlowBranch branch : flowBranches) {
             if (branch.outputName.equals(outputName)) {
                 return branch.widget;
@@ -2046,9 +2098,9 @@ public class NodeWidget extends AnimatedWidget {
 
     private static class FlowBranch {
         private String outputName;
-        private final DropDownWidget<String> widget;
+        private final AnimatedButton widget;
 
-        private FlowBranch(String outputName, DropDownWidget<String> widget) {
+        private FlowBranch(String outputName, AnimatedButton widget) {
             this.outputName = outputName;
             this.widget = widget;
         }

@@ -615,6 +615,16 @@ public class ReSyncFlowClient {
                 }
             }
         }
+        if (buffer.remaining() >= 4) {
+            String capabilitiesJson = readSizedString(buffer);
+            if (capabilitiesJson != null && !capabilitiesJson.isBlank()) {
+                JsonObject capabilities = gson.fromJson(capabilitiesJson, JsonObject.class);
+                FlowManager manager = FlowManager.getInstance();
+                if (manager != null && capabilities != null) {
+                    manager.cacheServerCapabilities(serverId, capabilities);
+                }
+            }
+        }
 
         authenticated.set(true);
         connecting.set(false);
@@ -1067,9 +1077,33 @@ public class ReSyncFlowClient {
             case "saveCustomContent", "deleteCustomContent" -> requestCustomContentList();
             case "saveProjectMetadata", "deleteProjectMetadata" -> {}
             case "saveWorldGenProject", "deleteWorldGenProject" -> requestWorldGenProjectList();
-            default -> {
+            default -> refreshJsonResourceAfterJob(action);
+        }
+    }
+
+    private void refreshJsonResourceAfterJob(String action) {
+        for (ReSyncResourceType type : ReSyncResourceType.values()) {
+            String suffix = compactDisplayName(type.displayName());
+            if (action.equals("save" + suffix) || action.equals("delete" + suffix)) {
+                requestResourceList(type);
+                return;
             }
         }
+    }
+
+    private String compactDisplayName(String displayName) {
+        StringBuilder builder = new StringBuilder();
+        boolean uppercaseNext = true;
+        for (int i = 0; i < displayName.length(); i++) {
+            char current = displayName.charAt(i);
+            if (!Character.isLetterOrDigit(current)) {
+                uppercaseNext = true;
+                continue;
+            }
+            builder.append(uppercaseNext ? Character.toUpperCase(current) : current);
+            uppercaseNext = false;
+        }
+        return builder.toString();
     }
 
     private boolean isTerminalJobStatus(String status) {
@@ -1160,6 +1194,7 @@ public class ReSyncFlowClient {
         else if (type == ReSyncResourceType.TAB) fm.cacheTab(serverId, (TabDefinition) item);
         else if (type == ReSyncResourceType.CUSTOM_CONTENT) fm.cacheCustomContent(serverId, (CustomContentDefinition) item);
         else if (type == ReSyncResourceType.PROJECT_METADATA) fm.cacheProjectMetadata(serverId, (ReSyncProjectMetadata) item);
+        else if (item instanceof JsonObject json) fm.cacheJsonResource(serverId, type, json);
     }
 
     private void handleResourceDataReceived(FlowManager fm, ReSyncResourceType type, Object item) {
@@ -1175,6 +1210,7 @@ public class ReSyncFlowClient {
         else if (type == ReSyncResourceType.TAB) fm.markTabSaved(serverId, id);
         else if (type == ReSyncResourceType.CUSTOM_CONTENT) fm.markCustomContentSaved(serverId, id);
         else if (type == ReSyncResourceType.PROJECT_METADATA) fm.markProjectMetadataSaved(serverId);
+        else fm.markJsonResourceSaved(serverId, type, id);
     }
 
     private void applyServerResourceList(FlowManager fm, ReSyncResourceType type, List<String> ids) {
@@ -1184,6 +1220,7 @@ public class ReSyncFlowClient {
         else if (type == ReSyncResourceType.TAB) fm.applyServerTabList(serverId, ids);
         else if (type == ReSyncResourceType.CUSTOM_CONTENT) fm.applyServerCustomContentList(serverId, ids);
         else if (type == ReSyncResourceType.PROJECT_METADATA) fm.applyServerProjectMetadataList(serverId, ids);
+        else fm.applyServerJsonResourceList(serverId, type, ids);
     }
 
     private void handleFlowData(ByteBuffer buffer) {
@@ -1537,7 +1574,7 @@ public class ReSyncFlowClient {
         sendFrame(4, buffer.array(), numericChannel("flow", FLOW_CHANNEL_ID));
     }
 
-    private void requestResource(ReSyncResourceType type, String id, boolean openWhenReceived) {
+    public void requestResource(ReSyncResourceType type, String id, boolean openWhenReceived) {
         if (id == null || id.isEmpty()) {
             return;
         }
@@ -1552,7 +1589,7 @@ public class ReSyncFlowClient {
         sendResourceRequest(type, id);
     }
 
-    private void requestResourceList(ReSyncResourceType type) {
+    void requestResourceList(ReSyncResourceType type) {
         if (!isConnected()) {
             pendingSends.add(() -> requestResourceList(type));
             ensureConnected();
