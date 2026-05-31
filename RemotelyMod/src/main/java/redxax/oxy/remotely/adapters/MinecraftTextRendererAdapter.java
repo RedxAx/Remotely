@@ -6,6 +6,10 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.FontDescription;
 //#endif
 import net.minecraft.network.chat.Style;
+import net.kyori.adventure.text.TextComponent;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 //#if MC >= 1.21.11 || MC >= 26.1
 import net.minecraft.resources.Identifier;
 //#endif
@@ -16,6 +20,8 @@ import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.ITextRenderer;
 
 public class MinecraftTextRendererAdapter implements ITextRenderer {
+    private static final MiniMessage MINI_MESSAGE = MiniMessage.miniMessage();
+    private static final LegacyComponentSerializer LEGACY_TEXT = LegacyComponentSerializer.builder().character('&').hexColors().useUnusualXRepeatedCharacterHexFormat().build();
 
     public MinecraftTextRendererAdapter() {}
 
@@ -29,6 +35,73 @@ public class MinecraftTextRendererAdapter implements ITextRenderer {
     public void drawStyled(IDrawContext ctx, Object text, int x, int y, int color, boolean shadow) {
         if (!(ctx instanceof MinecraftDrawContextAdapter mcCtx)) return;
         mcCtx.drawStyledText(text, x, y, color, shadow);
+    }
+
+    @Override
+    public void drawRichText(String text, int x, int y, int color, boolean shadow) {
+        drawRichText(null, text, x, y, color, shadow);
+    }
+
+    public void drawRichText(IDrawContext ctx, String text, int x, int y, int color, boolean shadow) {
+        if (!(ctx instanceof MinecraftDrawContextAdapter mcCtx)) return;
+        try {
+            mcCtx.drawStyledText(toNative(richText(text), Style.EMPTY), x, y, color, shadow);
+        } catch (Exception ignored) {
+            mcCtx.drawText(text, x, y, color, shadow);
+        }
+    }
+
+    private net.kyori.adventure.text.Component richText(String text) {
+        String normalized = text == null ? "" : text.replace('§', '&');
+        if (normalized.indexOf('<') >= 0 && normalized.indexOf('>') >= 0) {
+            try {
+                return MINI_MESSAGE.deserialize(normalized);
+            } catch (Exception ignored) {
+            }
+        }
+        return LEGACY_TEXT.deserialize(normalized);
+    }
+
+    private Component toNative(net.kyori.adventure.text.Component component, Style inheritedStyle) {
+        Style style = nativeStyle(component, inheritedStyle);
+        net.minecraft.network.chat.MutableComponent nativeComponent = Component.literal(component instanceof TextComponent textComponent ? textComponent.content() : "").setStyle(style);
+        for (net.kyori.adventure.text.Component child : component.children()) {
+            nativeComponent.append(toNative(child, style));
+        }
+        return nativeComponent;
+    }
+
+    private Style nativeStyle(net.kyori.adventure.text.Component component, Style inheritedStyle) {
+        net.kyori.adventure.text.format.Style source = component.style();
+        Style style = source.color() != null ? inheritedStyle.withColor(source.color().value()) : inheritedStyle;
+        style = decoration(source, TextDecoration.BOLD, style, Decoration.BOLD);
+        style = decoration(source, TextDecoration.ITALIC, style, Decoration.ITALIC);
+        style = decoration(source, TextDecoration.UNDERLINED, style, Decoration.UNDERLINED);
+        style = decoration(source, TextDecoration.STRIKETHROUGH, style, Decoration.STRIKETHROUGH);
+        return decoration(source, TextDecoration.OBFUSCATED, style, Decoration.OBFUSCATED);
+    }
+
+    private Style decoration(net.kyori.adventure.text.format.Style source, TextDecoration decoration, Style style, Decoration nativeDecoration) {
+        TextDecoration.State state = source.decoration(decoration);
+        if (state == TextDecoration.State.NOT_SET) {
+            return style;
+        }
+        boolean enabled = state == TextDecoration.State.TRUE;
+        return switch (nativeDecoration) {
+            case BOLD -> style.withBold(enabled);
+            case ITALIC -> style.withItalic(enabled);
+            case UNDERLINED -> style.withUnderlined(enabled);
+            case STRIKETHROUGH -> style.withStrikethrough(enabled);
+            case OBFUSCATED -> style.withObfuscated(enabled);
+        };
+    }
+
+    private enum Decoration {
+        BOLD,
+        ITALIC,
+        UNDERLINED,
+        STRIKETHROUGH,
+        OBFUSCATED
     }
 
     @Override
