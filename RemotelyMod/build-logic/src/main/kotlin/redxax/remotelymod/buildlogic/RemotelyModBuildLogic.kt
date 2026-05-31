@@ -306,6 +306,8 @@ private fun Project.configureSharedDependencies() {
     bundled("dev.restudio:rescreen:1.0")
     bundled("dev.restudio:remodel:1.0.0")
     bundled("dev.restudio:rebase:1.0-SNAPSHOT")
+    bundled("net.kyori:adventure-text-minimessage:4.25.0")
+    bundled("net.kyori:adventure-text-serializer-legacy:4.25.0")
     bundled("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
     bundled("com.hierynomus:sshj:0.40.0")
     if (isNeoForge) {

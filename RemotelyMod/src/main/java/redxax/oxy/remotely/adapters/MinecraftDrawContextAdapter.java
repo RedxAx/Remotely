@@ -7,6 +7,7 @@ import redxax.oxy.remotely.rematrix.mc.RematrixContext;
 import restudio.rescreen.game.tooltip.MinecraftTooltip;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.IMatrixStack;
+import restudio.rescreen.render.TextRenderer;
 import restudio.rescreen.util.ResourceManager;
 
 public class MinecraftDrawContextAdapter implements IDrawContext {
@@ -79,6 +80,15 @@ public class MinecraftDrawContextAdapter implements IDrawContext {
         if (ctx instanceof RematrixContext mc) {
             mc.drawText(text, x, y, color, shadow);
         }
+    }
+
+    @Override
+    public void drawRichText(String text, int x, int y, int color, boolean shadow) {
+        if (TextRenderer.getTr() instanceof MinecraftTextRendererAdapter adapter) {
+            adapter.drawRichText(this, text, x, y, color, shadow);
+            return;
+        }
+        drawText(text, x, y, color, shadow);
     }
 
     @Override
