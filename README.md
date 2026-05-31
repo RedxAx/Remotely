@@ -191,3 +191,9 @@ You can pan and zoom of course
 Join The [ReStudios](https://dsc.gg/RedxAxStudios) Discord For DevLogs And More
 
 There's Still Way More Stuff! I'm just not gonna make this a wiki :D
+
+## RemotelyMod cloud build
+
+Multi-version mod builds and Modrinth/CurseForge publish run via GitHub Actions ([`remotelymod-cloud.yml`](.github/workflows/remotelymod-cloud.yml)). See [RemotelyMod/README.md](RemotelyMod/README.md) for secrets, layout, and workflow inputs.
+
+Legacy workflows [`build-gradle.yml`](.github/workflows/build-gradle.yml) and [`build.yml`](.github/workflows/build.yml) compile the Remotely app only; they do not build RemotelyMod.

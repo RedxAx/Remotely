@@ -1,0 +1,101 @@
+name: RemotelyMod Cloud
+
+on:
+  workflow_dispatch:
+    inputs:
+      goal:
+        description: Gradle aggregate task
+        required: true
+        type: choice
+        options:
+          - buildAllVersions
+          - publishAllVersions
+          - publishAllVersionsToModrinth
+          - publishAllVersionsToCurseForge
+          - publishAllFabric
+          - publishAllNeoForge
+      publish_confirm:
+        description: Type PUBLISH to run publish goals
+        required: false
+        type: string
+        default: ''
+      remotely_ref:
+        description: Remotely git ref (blank = workflow branch)
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  remotelymod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 480
+    env:
+      ORG_GRADLE_PROJECT_org.gradle.jvmargs: -Xmx8g -Dfile.encoding=UTF-8
+      ORG_GRADLE_PROJECT_org.gradle.workers.max: '2'
+    steps:
+      - name: Reject publish without confirmation
+        if: startsWith(inputs.goal, 'publish') && inputs.publish_confirm != 'PUBLISH'
+        run: |
+          echo "Publish goals require publish_confirm = PUBLISH"
+          exit 1
+
+      - name: Checkout Remotely
+        uses: actions/checkout@v4
+        with:
+          path: Remotely
+          ref: ${{ inputs.remotely_ref != '' && inputs.remotely_ref || github.ref }}
+
+      - name: Checkout ReScreen
+        uses: actions/checkout@v4
+        with:
+          repository: RedxAx/ReScreen
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: ReScreen
+
+      - name: Checkout Remodel
+        uses: actions/checkout@v4
+        with:
+          repository: RedxAx/Remodel
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: Remodel
+
+      - name: Checkout Rebase
+        uses: actions/checkout@v4
+        with:
+          repository: RedxAx/Rebase
+          token: ${{ secrets.REPROJECTS_PAT }}
+          path: Rebase
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Preflight Remotely App jar
+        working-directory: Remotely
+        run: |
+          chmod +x gradlew
+          ./gradlew jar --no-daemon --stacktrace
+
+      - name: Build or publish RemotelyMod
+        working-directory: Remotely/RemotelyMod
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
+        run: |
+          chmod +x gradlew
+          if [[ "${{ inputs.goal }}" == buildAllVersions ]]; then
+            ./gradlew buildAllVersions --no-daemon --stacktrace
+          else
+            ./gradlew buildAllVersions --no-daemon --stacktrace
+            ./gradlew ${{ inputs.goal }} --no-daemon --stacktrace
+          fi
+
+      - name: Upload mod jars
+        uses: actions/upload-artifact@v4
+        with:
+          name: remotelymod-versions
+          path: Remotely/RemotelyMod/build/versions/*.jar
+          if-no-files-found: error
