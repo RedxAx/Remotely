@@ -2,6 +2,8 @@
 
 .gradle/
 build/
+
+RemotelyMod/env.properties
 out/
 classes/
 

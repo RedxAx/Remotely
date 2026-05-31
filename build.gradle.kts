@@ -86,7 +86,7 @@ java {
 }
 
 val generatedContractsDir = layout.buildDirectory.dir("generated/sources/resyncContracts/java")
-val protocolContractFile = layout.projectDirectory.file("../shared/generated-contracts/resync-protocol.json")
+val protocolContractFile = layout.projectDirectory.file("contracts/resync-protocol.json")
 
 sourceSets {
     main {
