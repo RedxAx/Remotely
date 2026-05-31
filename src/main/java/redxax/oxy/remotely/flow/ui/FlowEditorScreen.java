@@ -9,6 +9,7 @@ import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
+import redxax.oxy.remotely.data.flow.OptionCatalogItem;
 import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
@@ -109,6 +110,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private static final String RESYNC_RELEASE_URL = "https://restudiomc.net/api/releases/resync/latest/download";
     private static final Set<FlowEditorScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
     private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
+    private static final String RECIPE_ITEM_OPTIONS_SOURCE = "server:custom_content:recipe_item";
     private static final Map<String, BufferedImage> MOTD_ICON_CACHE = new LinkedHashMap<>() {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> eldest) {
@@ -2133,6 +2135,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     protected void onOptionCatalogRefreshed() {
         closeNodeItemSelector();
         refreshNodeRegistry();
+        for (StudioDocument document : studioDocuments) {
+            if (document.view() instanceof JsonResourceStudioView resourceView) {
+                resourceView.flushPendingRecipeItemSelector();
+            }
+        }
     }
 
     private void onWorldSnapshotRefreshed() {
@@ -9432,6 +9439,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         private final Map<String, TextInputWidget> fieldInputs = new LinkedHashMap<>();
         private final Map<String, CodeEditorWidget> codeFieldInputs = new LinkedHashMap<>();
         private ItemSelectorWidget activeResourceSelector;
+        private String pendingRecipeSelectorField;
+        private int pendingRecipeSelectorX;
+        private int pendingRecipeSelectorY;
         private int recipePreviewX;
         private int recipePreviewY;
         private int recipePreviewScale = 1;
@@ -9450,6 +9460,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             this.id = id;
             this.resource = resource != null ? resource : new JsonObject();
             headerActions.add(headerButton("save.png", "Save", this::save));
+            if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)) {
+                ensureRecipeItemCatalogLoaded();
+            }
         }
 
         @Override
@@ -10073,7 +10086,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return switch (field) {
                 case "enabled", "allowMiniMessage" -> List.of("true", "false");
                 case "type" -> recipeTypeOptions();
-                case "output.material", "template.material", "base.material", "addition.material" -> materialOptions();
+                case "output.material", "template.material", "base.material", "addition.material" -> recipeItemOptions();
                 case "playerCountMode" -> List.of("real", "hidden", "fixed");
                 case "mode" -> ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type)
                     ? List.of("frames", "typing", "scroll", "gradient", "blink", "random", "conditional")
@@ -10085,7 +10098,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 };
                 case "source" -> List.of("join", "quit", "kick", "death", "title", "actionbar", "bossbar", "openScreen", "packetText", "system");
                 case "flowId", "flowPredicate", "craftedFlow", "deniedFlow", "cookedFlow", "privateMessageFlow", "mentionFlow" -> flowOptions();
-                default -> recipeSlotIndex(field) >= 0 || recipeIngredientIndex(field) >= 0 ? materialOptions() : List.of();
+                default -> recipeSlotIndex(field) >= 0 || recipeIngredientIndex(field) >= 0 ? recipeItemOptions() : List.of();
             };
         }
 
@@ -10097,8 +10110,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             if (value == null || value.isBlank()) {
                 return "none";
             }
-            if ("output.material".equals(field)) {
-                return formatOptionLabel(value);
+            if (isRecipeItemSelectorField(field)) {
+                return recipeItemSelectorLabel(value);
             }
             if (field.endsWith("Flow") || "flowId".equals(field) || "flowPredicate".equals(field) || field.contains("Flow")) {
                 FlowManager manager = FlowManager.getInstance();
@@ -10144,6 +10157,262 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return FALLBACK_MATERIAL_OPTIONS;
         }
 
+        private void ensureRecipeItemCatalogLoaded() {
+            FlowManager manager = FlowManager.getInstance();
+            if (manager == null || serverId == null) {
+                return;
+            }
+            if (!OptionCatalogCache.getInstance().hasCatalog(serverId, RECIPE_ITEM_OPTIONS_SOURCE)) {
+                manager.ensureFlowClient(serverId).requestOptionCatalog(RECIPE_ITEM_OPTIONS_SOURCE);
+            }
+            if (!OptionCatalogCache.getInstance().hasCatalog(serverId, "server:custom_content:provider")) {
+                manager.ensureFlowClient(serverId).requestOptionCatalog("server:custom_content:provider");
+            }
+            for (String source : List.of(
+                "server:custom_content:nexo_item",
+                "server:custom_content:nexo_armor",
+                "server:custom_content:nexo_block",
+                "server:custom_content:nexo_furniture"
+            )) {
+                if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
+                    manager.ensureFlowClient(serverId).requestOptionCatalog(source);
+                }
+            }
+        }
+
+        private boolean isRecipeItemCatalogReady() {
+            return OptionCatalogCache.getInstance().hasCatalog(serverId, RECIPE_ITEM_OPTIONS_SOURCE);
+        }
+
+        private List<String> recipeItemOptions() {
+            ensureRecipeItemCatalogLoaded();
+            if (!isRecipeItemCatalogReady()) {
+                return List.of("Loading");
+            }
+            return mergedRecipeItemValues();
+        }
+
+        private List<String> mergedRecipeItemValues() {
+            LinkedHashSet<String> values = new LinkedHashSet<>();
+            List<String> serverValues = OptionCatalogCache.getInstance().getValues(serverId, RECIPE_ITEM_OPTIONS_SOURCE);
+            boolean hasReSync = false;
+            for (String value : serverValues) {
+                if (value != null && value.startsWith("content:")) {
+                    values.add(value);
+                    hasReSync = true;
+                }
+            }
+            if (!hasReSync) {
+                appendLocalReSyncRecipeValues(values);
+            }
+            appendProviderRecipeValues(values);
+            for (String value : serverValues) {
+                if (value != null && value.startsWith("provider:")) {
+                    values.add(value);
+                }
+            }
+            for (String material : materialOptions()) {
+                if (material != null && !material.isBlank()) {
+                    values.add(material);
+                }
+            }
+            for (String value : serverValues) {
+                if (value != null && !value.isBlank() && !value.contains(":")) {
+                    values.add(value);
+                }
+            }
+            return new ArrayList<>(values);
+        }
+
+        private void appendLocalReSyncRecipeValues(Set<String> values) {
+            FlowManager manager = FlowManager.getInstance();
+            if (manager == null || serverId == null) {
+                return;
+            }
+            manager.getCustomContentForServer(serverId).values().stream()
+                .filter(content -> content != null && content.getId() != null && !content.getId().isBlank())
+                .filter(content -> {
+                    String contentType = content.getType() != null ? content.getType().toLowerCase(Locale.ROOT) : "";
+                    return Set.of("item", "armor", "block").contains(contentType);
+                })
+                .map(content -> "content:" + content.getId())
+                .forEach(values::add);
+        }
+
+        private void appendProviderRecipeValues(Set<String> values) {
+            for (String provider : providerOptions()) {
+                if (provider == null || provider.isBlank() || "Loading".equals(provider) || "vanilla".equalsIgnoreCase(provider)) {
+                    continue;
+                }
+                String providerKey = provider.toLowerCase(Locale.ROOT);
+                LinkedHashSet<String> externalIds = new LinkedHashSet<>();
+                for (String type : List.of("item", "armor", "block")) {
+                    List<String> catalogAssets = providerCatalogAssets(type, provider);
+                    if (!catalogAssets.isEmpty() && !catalogAssets.equals(List.of("Loading"))) {
+                        externalIds.addAll(catalogAssets);
+                    }
+                }
+                if (externalIds.isEmpty()) {
+                    for (PackContentRegistry.PackAssetOption option : PackContentRegistry.get().assetOptions(provider)) {
+                        if (option.id() != null && !option.id().isBlank()) {
+                            externalIds.add(option.id());
+                        }
+                    }
+                }
+                for (String externalId : externalIds) {
+                    values.add("provider:" + providerKey + ":" + externalId);
+                }
+            }
+        }
+
+        private String recipeItemGroupForValue(String value, OptionCatalogItem item) {
+            if (item != null && !item.getGroup().isBlank()) {
+                return item.getGroup();
+            }
+            if (value.startsWith("content:")) {
+                return "ReSync";
+            }
+            if (value.startsWith("provider:")) {
+                return "Providers";
+            }
+            return "Vanilla";
+        }
+
+        private Map<String, OptionCatalogItem> recipeItemCatalogByValue() {
+            Map<String, OptionCatalogItem> byValue = new LinkedHashMap<>();
+            for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, RECIPE_ITEM_OPTIONS_SOURCE)) {
+                if (item == null) {
+                    continue;
+                }
+                String value = item.getValue();
+                if (value == null || value.isBlank()) {
+                    continue;
+                }
+                byValue.putIfAbsent(value, item);
+            }
+            return byValue;
+        }
+
+        private void flushPendingRecipeItemSelector() {
+            if (pendingRecipeSelectorField == null || !isRecipeItemCatalogReady()) {
+                return;
+            }
+            openRecipeItemSelector(pendingRecipeSelectorField, pendingRecipeSelectorX, pendingRecipeSelectorY);
+        }
+
+        private boolean isRecipeItemSelectorField(String field) {
+            if (field == null || field.isBlank()) {
+                return false;
+            }
+            return field.endsWith(".material")
+                || recipeSlotIndex(field) >= 0
+                || recipeIngredientIndex(field) >= 0;
+        }
+
+        private String recipeItemSelectorLabel(String value) {
+            if (value == null || value.isBlank()) {
+                return "none";
+            }
+            for (OptionCatalogItem item : OptionCatalogCache.getInstance().getItems(serverId, RECIPE_ITEM_OPTIONS_SOURCE)) {
+                if (value.equals(item.getValue())) {
+                    return item.getLabel();
+                }
+            }
+            if (value.startsWith("provider:")) {
+                int split = value.lastIndexOf(':');
+                if (split > 0 && split < value.length() - 1) {
+                    return value.substring(split + 1);
+                }
+            }
+            return formatOptionLabel(value);
+        }
+
+        private String encodeRecipeItemValue(JsonObject object) {
+            if (object == null) {
+                return "";
+            }
+            String contentId = jsonText(object, "contentId");
+            if (contentId.isBlank()) {
+                contentId = jsonText(object, "customContentId");
+            }
+            if (contentId.isBlank()) {
+                contentId = jsonText(object, "customContent");
+            }
+            if (!contentId.isBlank()) {
+                return "content:" + contentId;
+            }
+            String provider = jsonText(object, "provider");
+            String externalId = jsonText(object, "externalId");
+            if (externalId.isBlank()) {
+                externalId = jsonText(object, "nexo");
+            }
+            if (provider.isBlank() && !externalId.isBlank()) {
+                provider = "nexo";
+            }
+            if (!provider.isBlank() && !externalId.isBlank()) {
+                return "provider:" + provider.toLowerCase(Locale.ROOT) + ":" + externalId;
+            }
+            return jsonText(object, "material");
+        }
+
+        private void applyRecipeItemValue(JsonObject object, String value) {
+            if (object == null) {
+                return;
+            }
+            object.remove("contentId");
+            object.remove("customContentId");
+            object.remove("customContent");
+            object.remove("provider");
+            object.remove("externalId");
+            object.remove("nexo");
+            object.remove("material");
+            object.remove("item");
+            String selection = value == null ? "" : value.trim();
+            if (selection.isBlank() || "none".equalsIgnoreCase(selection)) {
+                return;
+            }
+            if (selection.startsWith("content:")) {
+                object.addProperty("contentId", selection.substring("content:".length()));
+                return;
+            }
+            if (selection.startsWith("provider:")) {
+                String rest = selection.substring("provider:".length());
+                int split = rest.indexOf(':');
+                if (split > 0 && split < rest.length() - 1) {
+                    object.addProperty("provider", rest.substring(0, split));
+                    object.addProperty("externalId", rest.substring(split + 1));
+                }
+                return;
+            }
+            object.addProperty("material", selection);
+        }
+
+        private JsonObject recipeItemObject(String value) {
+            JsonObject object = new JsonObject();
+            applyRecipeItemValue(object, value);
+            return object;
+        }
+
+        private boolean isRecipeItemPathField(String field) {
+            return field != null && field.endsWith(".material");
+        }
+
+        private String recipeItemPathText(String field) {
+            String[] parts = field.split("\\.", 2);
+            JsonObject parent = jsonObject(parts[0]);
+            return encodeRecipeItemValue(parent);
+        }
+
+        private void putRecipeItemPathText(String field, String value) {
+            String[] parts = field.split("\\.", 2);
+            JsonObject parent = jsonObject(parts[0]);
+            if (!resource.has(parts[0]) || !resource.get(parts[0]).isJsonObject()) {
+                resource.add(parts[0], parent);
+            }
+            applyRecipeItemValue(parent, value);
+            resource.add(parts[0], parent);
+        }
+
         private List<String> flowOptions() {
             List<String> options = new ArrayList<>();
             options.add("none");
@@ -10167,6 +10436,49 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 return List.of("Loading");
             }
             return List.of();
+        }
+
+        private List<String> providerOptions() {
+            List<String> catalogProviders = catalogOptions("server:custom_content:provider");
+            List<String> providers = new ArrayList<>(catalogProviders);
+            providers.remove("Loading");
+            if (!providers.contains("vanilla")) {
+                providers.add("vanilla");
+            }
+            for (PackContentRegistry.ProviderStatus status : PackContentRegistry.get().statuses()) {
+                String name = status.providerName().toLowerCase(Locale.ROOT);
+                if (name.contains("nexo") && !providers.contains("nexo")) {
+                    providers.add("nexo");
+                }
+                if (name.contains("itemsadder") && !providers.contains("itemsadder")) {
+                    providers.add("itemsadder");
+                }
+            }
+            return providers;
+        }
+
+        private List<String> providerCatalogAssets(String type, String provider) {
+            List<String> values = new ArrayList<>();
+            for (String source : providerCatalogSources(type, provider)) {
+                values.addAll(catalogOptions(source));
+            }
+            List<String> assets = values.stream()
+                .filter(value -> !"Loading".equals(value))
+                .distinct()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+            return assets.isEmpty() && values.contains("Loading") ? List.of("Loading") : assets;
+        }
+
+        private List<String> providerCatalogSources(String type, String provider) {
+            if (provider == null || !provider.equalsIgnoreCase("nexo")) {
+                return List.of();
+            }
+            return switch (type) {
+                case "block" -> List.of("server:custom_content:nexo_block", "server:custom_content:nexo_furniture");
+                case "armor" -> List.of("server:custom_content:nexo_armor");
+                default -> List.of("server:custom_content:nexo_item");
+            };
         }
 
         private boolean isRealOption(String value) {
@@ -10383,17 +10695,70 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
 
         private void showRecipeMaterialSelector(String field, int mouseX, int mouseY) {
-            List<String> options = normalizedSelectorOptions(materialOptions(), jsonPathText(field));
-            if (options.size() == 1 && "Loading".equals(options.getFirst())) {
+            ensureRecipeItemCatalogLoaded();
+            if (!isRecipeItemCatalogReady()) {
+                pendingRecipeSelectorField = field;
+                pendingRecipeSelectorX = mouseX;
+                pendingRecipeSelectorY = mouseY;
                 return;
             }
-            showResourceSelector(field, options, jsonPathText(field), value -> {
-                if (!isRealOption(value)) {
-                    return;
+            openRecipeItemSelector(field, mouseX, mouseY);
+        }
+
+        private void openRecipeItemSelector(String field, int mouseX, int mouseY) {
+            pendingRecipeSelectorField = null;
+            String selected = jsonPathText(field);
+            List<String> values = mergedRecipeItemValues();
+            Map<String, OptionCatalogItem> catalogByValue = recipeItemCatalogByValue();
+            closeResourceSelector();
+            ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+            ItemSelectorWidget.Builder builder = new ItemSelectorWidget.Builder(FlowEditorScreen.this)
+                .size(220, 240)
+                .dismissOnSelect(true)
+                .emptyMessage("No Items")
+                .onClose(() -> closeResourceSelector(selectorRef[0]));
+            builder.beginBatch();
+            String lastGroup = null;
+            boolean hasSelected = false;
+            for (String value : values) {
+                if (value == null || value.isBlank()) {
+                    continue;
                 }
-                putJsonText(field, value);
-                reloadFields();
-            }, mouseX, mouseY);
+                OptionCatalogItem item = catalogByValue.get(value);
+                String group = recipeItemGroupForValue(value, item);
+                if (!group.isBlank() && !group.equals(lastGroup)) {
+                    builder.addSectionHeader(group);
+                    lastGroup = group;
+                }
+                String label = item != null ? item.getLabel() : recipeItemSelectorLabel(value);
+                if (value.equals(selected)) {
+                    hasSelected = true;
+                }
+                String description = item != null ? item.getDescription() : "";
+                String searchTerms = value + " " + group + " " + description;
+                builder.addItem(label, description, searchTerms, () -> applyRecipeItemSelection(field, value));
+            }
+            if (!selected.isBlank() && !hasSelected) {
+                builder.addItem(recipeItemSelectorLabel(selected), "", selected, () -> applyRecipeItemSelection(field, selected));
+            }
+            ItemSelectorWidget selector = builder.endBatch().build();
+            selectorRef[0] = selector;
+            selector.setLayer(900);
+            selector.setPriority(30);
+            selector.setSelectedItem(recipeItemSelectorLabel(selected));
+            activeResourceSelector = selector;
+            FlowEditorScreen.this.addDrawableChild(selector);
+            int left = Math.clamp(mouseX, 8, Math.max(8, width - selector.getWidth() - 8));
+            int top = Math.clamp(mouseY, 32, Math.max(32, height - selector.getHeight() - 20));
+            selector.show(left, top);
+        }
+
+        private void applyRecipeItemSelection(String field, String value) {
+            if (!isRealOption(value)) {
+                return;
+            }
+            putJsonText(field, value);
+            reloadFields();
         }
 
         @Override
@@ -10600,6 +10965,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 putRecipeIngredientText(recipeIngredientIndex(field), value);
                 return;
             }
+            if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && isRecipeItemPathField(field)) {
+                putRecipeItemPathText(field, value);
+                return;
+            }
             if (field.contains(".")) {
                 putJsonPathText(field, value);
                 return;
@@ -10637,6 +11006,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             }
             if (recipeIngredientIndex(field) >= 0) {
                 return recipeIngredientText(recipeIngredientIndex(field));
+            }
+            if (ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && isRecipeItemPathField(field)) {
+                return recipeItemPathText(field);
             }
             if (!field.contains(".")) {
                 JsonElement element = resource.get(field);
@@ -10868,9 +11240,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 keys.remove(symbol);
                 return;
             }
-            JsonObject ingredient = new JsonObject();
-            ingredient.addProperty("material", material);
-            keys.add(symbol, ingredient);
+            keys.add(symbol, recipeItemObject(material));
         }
 
         private String paddedShapeRow(String existing, int row, int index, char shapeSymbol) {
@@ -10905,8 +11275,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                     resource.remove("ingredient");
                 }
             } else {
-                JsonObject ingredient = new JsonObject();
-                ingredient.addProperty("material", material);
+                JsonObject ingredient = recipeItemObject(material);
                 ingredients.set(index, ingredient);
                 if (index == 0 && (isCookingRecipe(normalizedRecipeType()) || "stonecutting".equals(normalizedRecipeType()))) {
                     resource.add("ingredient", ingredient);
@@ -11047,8 +11416,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             if (!ingredient.isJsonObject()) {
                 return ingredient.getAsString();
             }
-            JsonObject object = ingredient.getAsJsonObject();
-            return jsonText(object, "material").isBlank() ? jsonText(object, "contentId") : jsonText(object, "material");
+            return encodeRecipeItemValue(ingredient.getAsJsonObject());
         }
 
         private int ingredientAmount(JsonElement ingredient) {
@@ -11189,12 +11557,37 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return object;
         }
 
+        private String recipePreviewMaterial(String encoded) {
+            if (encoded == null || encoded.isBlank()) {
+                return "";
+            }
+            if (!encoded.contains(":")) {
+                return encoded;
+            }
+            if (encoded.startsWith("content:")) {
+                String contentId = encoded.substring("content:".length());
+                FlowManager manager = FlowManager.getInstance();
+                if (manager != null && serverId != null) {
+                    CustomContentDefinition content = manager.getCustomContentForServer(serverId).get(contentId);
+                    if (content != null && content.getMaterial() != null && !content.getMaterial().isBlank()) {
+                        return content.getMaterial();
+                    }
+                }
+                return "BARRIER";
+            }
+            if (encoded.startsWith("provider:")) {
+                return "PAPER";
+            }
+            return encoded;
+        }
+
         private void drawRecipeItem(IDrawContext context, String material, int amount, int x, int y, int scale) {
-            if (material == null || material.isBlank()) {
+            String previewMaterial = recipePreviewMaterial(material);
+            if (previewMaterial.isBlank()) {
                 return;
             }
             int iconSize = Math.max(16, 16 * scale);
-            MinecraftRenderItem item = MinecraftGameItems.of(material, Math.clamp(amount, 1, 64));
+            MinecraftRenderItem item = MinecraftGameItems.of(previewMaterial, Math.clamp(amount, 1, 64));
             if (scale <= 1) {
                 context.drawItem(item, x, y, 0);
             } else {
@@ -11217,9 +11610,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
         private void drawRecipeStationItems(IDrawContext context, String recipeType, RecipeStationLayout layout, int viewX, int viewY, int scale) {
             if (isSmithingRecipe(recipeType)) {
-                drawRecipeLayoutItem(context, jsonText(jsonObject("template"), "material"), ingredientAmount(jsonObject("template")), layout.templates()[0], viewX, viewY, scale);
-                drawRecipeLayoutItem(context, jsonText(jsonObject("base"), "material"), ingredientAmount(jsonObject("base")), layout.templates()[1], viewX, viewY, scale);
-                drawRecipeLayoutItem(context, jsonText(jsonObject("addition"), "material"), ingredientAmount(jsonObject("addition")), layout.templates()[2], viewX, viewY, scale);
+                drawRecipeLayoutItem(context, ingredientLabel(jsonObject("template")), ingredientAmount(jsonObject("template")), layout.templates()[0], viewX, viewY, scale);
+                drawRecipeLayoutItem(context, ingredientLabel(jsonObject("base")), ingredientAmount(jsonObject("base")), layout.templates()[1], viewX, viewY, scale);
+                drawRecipeLayoutItem(context, ingredientLabel(jsonObject("addition")), ingredientAmount(jsonObject("addition")), layout.templates()[2], viewX, viewY, scale);
             } else if (isCookingRecipe(recipeType)) {
                 drawRecipeLayoutItem(context, cookingIngredientLabel(), cookingIngredientAmount(), layout.ingredients()[0], viewX, viewY, scale);
             } else if ("stonecutting".equals(recipeType)) {
@@ -11230,7 +11623,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                     drawRecipeLayoutItem(context, recipeSlotLabel(i / 3, i % 3), recipeSlotAmount(i / 3, i % 3), points[i], viewX, viewY, scale);
                 }
             }
-            drawRecipeLayoutItem(context, jsonText(jsonObject("output"), "material"), parseInt(jsonText(jsonObject("output"), "amount"), 1, 1, 64), layout.output(), viewX, viewY, scale);
+            drawRecipeLayoutItem(context, ingredientLabel(jsonObject("output")), parseInt(jsonText(jsonObject("output"), "amount"), 1, 1, 64), layout.output(), viewX, viewY, scale);
         }
 
         private void drawRecipeLayoutItem(IDrawContext context, String material, int amount, int[] point, int viewX, int viewY, int scale) {

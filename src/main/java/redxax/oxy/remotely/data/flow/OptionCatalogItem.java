@@ -10,6 +10,30 @@ public class OptionCatalogItem {
     private String group;
     private Map<String, Object> metadata;
 
+    public void setValue(String value) {
+        this.value = value;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public void setIcon(String icon) {
+        this.icon = icon;
+    }
+
+    public void setGroup(String group) {
+        this.group = group;
+    }
+
+    public void setMetadata(Map<String, Object> metadata) {
+        this.metadata = metadata;
+    }
+
     public String getValue() {
         return value;
     }
