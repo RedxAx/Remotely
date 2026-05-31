@@ -89,13 +89,19 @@ public class ReSyncProjectMetadata {
         ensureFolder("Content/Items", "Content", 0);
         ensureFolder("Content/Armor", "Content", 1);
         ensureFolder("Content/Blocks", "Content", 2);
+        ensureFolder("Content/Recipes", "Content", 3);
         ensureFolder("GUIs", "", 2);
         ensureFolder("Customization", "", 3);
-        ensureFolder("Customization/Scoreboards", "Customization", 0);
-        ensureFolder("Customization/Tabs", "Customization", 1);
-        ensureFolder("Worlds", "", 4);
-        ensureFolder("WorldGen", "", 5);
-        ensureFolder("Groups", "", 6);
+        ensureFolder("Customization/Chat", "Customization", 0);
+        ensureFolder("Customization/MOTDs", "Customization", 1);
+        ensureFolder("Customization/Messages", "Customization", 2);
+        ensureFolder("Customization/Scoreboards", "Customization", 3);
+        ensureFolder("Customization/Tabs", "Customization", 4);
+        ensureFolder("Text", "", 4);
+        ensureFolder("Text/Templates", "Text", 0);
+        ensureFolder("Worlds", "", 5);
+        ensureFolder("WorldGen", "", 6);
+        ensureFolder("Groups", "", 7);
     }
 
     public FolderEntry ensureFolder(String path, String parentPath, int sortOrder) {

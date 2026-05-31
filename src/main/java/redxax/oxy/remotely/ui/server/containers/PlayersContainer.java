@@ -150,8 +150,8 @@ public class PlayersContainer extends SelectableContainer {
     private void showGeneralContextMenu(double mouseX, double mouseY) {
         ContextMenuWidget.Builder builder = new ContextMenuWidget.Builder(host)
             .addHeaderButton("reload.png", this::fullRefresh, "Refresh List")
-            .addItem("LuckPerms Dashboard", controller::openLuckPermsDashboard, "Open full editor")
-            .addItem("LuckPerms Settings", controller::openLuckPermsSettings, "Configure integration");
+            .addItem("LuckPerms", controller::openLuckPermsDashboard, "Open")
+            .addItem("LuckPerms Settings", controller::openLuckPermsSettings, "Configure Integration");
         host.showContextMenu((int) mouseX, (int) mouseY, builder);
     }
 
@@ -171,7 +171,7 @@ public class PlayersContainer extends SelectableContainer {
             .addHeaderButton("heart.png", () -> unbanSelected(players), "Unban Selected")
             .addHeaderButton("op.png", () -> toggleOpSelected(players), "Toggle Op Selected");
 
-        builder.addItem("LuckPerms Dashboard", controller::openLuckPermsDashboard, "Open full editor");
+        builder.addItem("LuckPerms", controller::openLuckPermsDashboard, "Open");
 
         List<PlayerAction> actions = controller.getPlayerActions();
         if (actions != null) {

@@ -4,10 +4,12 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import redxax.oxy.remotely.RemotelyClient;
 import redxax.oxy.remotely.data.flow.FlowManager;
 import redxax.oxy.remotely.data.flow.FlowDebugController;
 import redxax.oxy.remotely.data.flow.OptionCatalogCache;
+import redxax.oxy.remotely.data.flow.ReSyncResourceType;
 import redxax.oxy.remotely.data.flow.player.PlayerDossier;
 import redxax.oxy.remotely.data.flow.world.WorldDashboardEntry;
 import redxax.oxy.remotely.data.flow.world.WorldGeneratorDescriptor;
@@ -52,8 +54,13 @@ import restudio.rebase.instance.loaders.ModLoader;
 import restudio.rebase.resource.InstanceResource;
 import restudio.rebase.restudio.api.models.ServerModels.ClientServerView;
 import restudio.rebase.ui.screens.editor.WorkspaceTreeExplorer;
+import restudio.rebase.ui.widgets.editor.CodeEditorWidget;
+import restudio.rescreen.game.MinecraftAssetReference;
+import restudio.rescreen.game.MinecraftGameAssets;
+import restudio.rescreen.game.MinecraftGameItems;
 import restudio.rescreen.platform.IDrawContext;
 import restudio.rescreen.platform.UiHost;
+import restudio.rescreen.platform.lwjgl.MinecraftRenderItem;
 import restudio.rescreen.ui.core.ScreenManager;
 import restudio.rescreen.ui.desktop.DesktopWindowBehaviorProvider;
 import restudio.rescreen.ui.desktop.DesktopIconWidget;
@@ -68,18 +75,28 @@ import restudio.rescreen.ui.core.Widget;
 import restudio.rescreen.ui.rescreen.*;
 import restudio.rescreen.ui.rescreen.ReScreen.HeaderBuilder.Position;
 import restudio.rescreen.ui.widgets.*;
+import restudio.rescreen.util.FileUtils;
 import restudio.rescreen.util.Identifier;
 import restudio.rescreen.util.Notification;
 import restudio.rescreen.util.ResourceManager;
 
+import javax.imageio.ImageIO;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import static restudio.rescreen.config.Config.animationsEnabled;
 import static restudio.rescreen.config.Config.deltaTime;
@@ -91,6 +108,22 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private static final int RESYNC_PORT = 12441;
     private static final String RESYNC_RELEASE_URL = "https://restudiomc.net/api/releases/resync/latest/download";
     private static final Set<FlowEditorScreen> OPEN_SCREENS = new CopyOnWriteArraySet<>();
+    private static final String MATERIAL_OPTIONS_SOURCE = "server:minecraft:material";
+    private static final Map<String, BufferedImage> MOTD_ICON_CACHE = new LinkedHashMap<>() {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> eldest) {
+            return size() > 48;
+        }
+    };
+    private static final List<String> FALLBACK_MATERIAL_OPTIONS = List.of(
+        "STONE", "COBBLESTONE", "OAK_PLANKS", "OAK_LOG", "GLASS", "GLASS_PANE",
+        "GRAY_STAINED_GLASS_PANE", "WHITE_STAINED_GLASS_PANE", "BLACK_STAINED_GLASS_PANE",
+        "RED_STAINED_GLASS_PANE", "GREEN_STAINED_GLASS_PANE", "BLUE_STAINED_GLASS_PANE",
+        "BARRIER", "CHEST", "ENDER_CHEST", "ANVIL", "BOOK", "PAPER", "MAP",
+        "COMPASS", "CLOCK", "DIAMOND", "EMERALD", "GOLD_INGOT", "IRON_INGOT",
+        "NETHERITE_INGOT", "REDSTONE", "AMETHYST_SHARD", "ENDER_PEARL",
+        "TOTEM_OF_UNDYING", "PLAYER_HEAD", "NAME_TAG"
+    );
     protected FlowGraph graph;
     protected final String serverId;
     private static Screen parent;
@@ -196,6 +229,15 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
     private record AssetBrowserSnapshot(List<String> folders, List<String> resources) {
     }
 
+    private record RecipeStationLayout(String texture, int fallbackWidth, int fallbackHeight, int[][] ingredients, int[][] templates, int[] output) {
+        boolean hasTexture() {
+            return texture != null && !texture.isBlank();
+        }
+    }
+
+    private record RecipeSlotTarget(String field, int[] point) {
+    }
+
     private static class StudioViewportState {
         private float zoomLevel = 1.0F;
         private float targetZoomLevel = INITIAL_VIEWPORT_START_ZOOM;
@@ -233,15 +275,21 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         private final AnimatedButton closeButton;
         private final BufferedImage folderIcon;
         private final BufferedImage flowIcon;
+        private final BufferedImage functionIcon;
         private final BufferedImage commandIcon;
-        private final BufferedImage contentIcon;
         private final BufferedImage itemIcon;
         private final BufferedImage armorIcon;
         private final BufferedImage blockIcon;
         private final BufferedImage guiIcon;
         private final BufferedImage scoreboardIcon;
         private final BufferedImage tabIcon;
+        private final BufferedImage chatIcon;
+        private final BufferedImage motdIcon;
+        private final BufferedImage messageRuleIcon;
+        private final BufferedImage recipeIcon;
+        private final BufferedImage textIcon;
         private final BufferedImage worldGenIcon;
+        private final BufferedImage worldIcon;
         private ItemSelectorWidget createContentSelector;
         private AssetBrowserSnapshot lastAssetBrowserSnapshot;
 
@@ -304,15 +352,21 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             ResourceManager resources = ResourceManager.getInstance();
             folderIcon = resources.getImage(Identifier.icon("folder.png"));
             flowIcon = resources.getImage(Identifier.icon("graph.png"));
+            functionIcon = resources.getImage(Identifier.icon("snippets.png"));
             commandIcon = resources.getImage(Identifier.icon("terminal.png"));
-            contentIcon = resources.getImage(Identifier.icon("resources.png"));
             itemIcon = resources.getImage(Identifier.icon("item.png"));
             armorIcon = resources.getImage(Identifier.icon("armor.png"));
             blockIcon = resources.getImage(Identifier.icon("block.png"));
             guiIcon = resources.getImage(Identifier.icon("fullPanel.png"));
             scoreboardIcon = resources.getImage(Identifier.icon("panel.png"));
             tabIcon = resources.getImage(Identifier.icon("topPanel.png"));
+            chatIcon = resources.getImage(Identifier.icon("chat.png"));
+            motdIcon = resources.getImage(Identifier.icon("hi.png"));
+            messageRuleIcon = resources.getImage(Identifier.icon("edit.png"));
+            recipeIcon = resources.getImage(Identifier.icon("crafting.png"));
+            textIcon = resources.getImage(Identifier.icon("text.png"));
             worldGenIcon = resources.getImage(Identifier.icon("map.png"));
+            worldIcon = resources.getImage(Identifier.icon("earth.png"));
             updateContainers();
             rebuild();
         }
@@ -714,6 +768,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .addIconItem("New GUI", "fullPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.GUI), "Create GUI")
                 .addIconItem("New Scoreboard", "panel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.SCOREBOARD), "Create Scoreboard")
                 .addIconItem("New Tab", "topPanel.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TAB), "Create Tab")
+                .addIconItem("New Chat", "chat.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.CHAT_CHANNEL), "Create Chat")
+                .addIconItem("New MOTD", "hi.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MOTD_PROFILE), "Create MOTD")
+                .addIconItem("New Message Rule", "edit.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.MESSAGE_RULE), "Create Message Rule")
+                .addIconItem("New Recipe", "crafting.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.RECIPE_DEFINITION), "Create Recipe")
+                .addIconItem("New Text", "text.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.TEXT_TEMPLATE), "Create Text")
                 .addIconItem("New WorldGen", "map.png", () -> showCreateResourcePopup(ReSyncResourceDragPayload.WORLDGEN), "Create WorldGen");
             showContextMenu(createButton.getX(), createButton.getY() + createButton.getHeight() + 2, builder);
         }
@@ -832,21 +891,31 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             String[] selectedType = {"item"};
             String[] selectedProvider = {"vanilla"};
             String[] selectedAsset = {defaultContentMaterial(selectedType[0])};
+            AnimatedButton typeButton = createContentSelectorButton(selectedType[0]);
+            AnimatedButton providerButton = createContentSelectorButton(selectedProvider[0]);
             AnimatedButton assetButton = new AnimatedButton.Builder()
                 .label(selectedAsset[0])
                 .size(220, 20)
                 .entranceAnimation(false)
                 .build();
-            DropDownWidget<String> typeDropdown = createContentDropdown(List.of("item", "armor", "block"), selectedType[0], value -> {
+            typeButton.setAction(() -> showCreateContentSearchSelector(List.of("item", "armor", "block"), selectedType[0], value -> {
+                if (!isRealContentOption(value)) {
+                    return;
+                }
                 selectedType[0] = value;
                 selectedAsset[0] = "vanilla".equalsIgnoreCase(selectedProvider[0]) ? defaultContentMaterial(value) : "";
+                typeButton.setMessage(contentOptionLabel(value));
                 assetButton.setMessage(assetButtonLabel(selectedAsset[0], selectedProvider[0]));
-            });
-            DropDownWidget<String> providerDropdown = createContentDropdown(providerOptions(), selectedProvider[0], value -> {
+            }, typeButton.getX(), typeButton.getY() + typeButton.getHeight()));
+            providerButton.setAction(() -> showCreateContentSearchSelector(providerOptions(), selectedProvider[0], value -> {
+                if (!isRealContentOption(value)) {
+                    return;
+                }
                 selectedProvider[0] = value;
                 selectedAsset[0] = "vanilla".equalsIgnoreCase(value) ? defaultContentMaterial(selectedType[0]) : "";
+                providerButton.setMessage(contentOptionLabel(value));
                 assetButton.setMessage(assetButtonLabel(selectedAsset[0], value));
-            });
+            }, providerButton.getX(), providerButton.getY() + providerButton.getHeight()));
             assetButton.setAction(() -> {
                 List<String> options = contentAssetOptions(selectedType[0], selectedProvider[0]);
                 if (options.size() == 1 && "Loading".equals(options.getFirst())) {
@@ -863,8 +932,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             });
             builder.addRow("Name", true, 22, nameInput);
             builder.addRow("ID", true, 22, idInput);
-            builder.addRow("Type", true, 22, typeDropdown);
-            builder.addRow("Asset", true, 22, providerDropdown, assetButton);
+            builder.addRow("Type", true, 22, typeButton);
+            builder.addRow("Asset", true, 22, providerButton, assetButton);
 
             PopupWidget[] popupRef = new PopupWidget[1];
             AnimatedButton createButton = new AnimatedButton.Builder()
@@ -894,50 +963,33 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             popupRef[0].show();
         }
 
-        private DropDownWidget<String> createContentDropdown(List<String> choices, String selected, Consumer<String> onChange) {
-            List<String> options = normalizedContentOptions(choices, selected);
-            return new DropDownWidget.Builder<>(options)
-                .selectedItem(resolveContentOption(options, selected))
-                .onSelectionChanged(value -> {
-                    if (isRealContentOption(value)) {
-                        onChange.accept(value);
-                    }
-                })
+        private AnimatedButton createContentSelectorButton(String selected) {
+            return new AnimatedButton.Builder()
+                .label(contentOptionLabel(selected))
                 .size(110, 20)
-                .maxVisibleItems(10)
                 .entranceAnimation(false)
                 .build();
         }
 
-        private List<String> normalizedContentOptions(List<String> choices, String selected) {
-            List<String> options = new ArrayList<>();
-            if (choices != null) {
-                for (String choice : choices) {
-                    if (choice != null && !choice.isBlank() && !options.contains(choice)) {
-                        options.add(choice);
-                    }
+        private String contentOptionLabel(String value) {
+            if (value == null || value.isBlank()) {
+                return "None";
+            }
+            String cleaned = value.trim().replace("minecraft:", "").replace('_', ' ').replace('-', ' ');
+            StringBuilder builder = new StringBuilder();
+            for (String part : cleaned.split("\\s+")) {
+                if (part.isBlank()) {
+                    continue;
+                }
+                if (!builder.isEmpty()) {
+                    builder.append(' ');
+                }
+                builder.append(part.substring(0, 1).toUpperCase(Locale.ROOT));
+                if (part.length() > 1) {
+                    builder.append(part.substring(1).toLowerCase(Locale.ROOT));
                 }
             }
-            if (options.isEmpty()) {
-                options.add("No Options");
-            }
-            if (selected != null && !selected.isBlank() && !"Loading".equals(selected) && !options.contains(selected)) {
-                options.addFirst(selected);
-            }
-            return options;
-        }
-
-        private String resolveContentOption(List<String> options, String selected) {
-            if (selected != null && options.contains(selected)) {
-                return selected;
-            }
-            if (selected != null) {
-                String normalized = selected.toUpperCase(Locale.ROOT);
-                if (options.contains(normalized)) {
-                    return normalized;
-                }
-            }
-            return options.isEmpty() ? null : options.getFirst();
+            return builder.isEmpty() ? value : builder.toString();
         }
 
         private boolean isRealContentOption(String value) {
@@ -1094,28 +1146,48 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         private String createPopupTitle(String type) {
             return switch (type) {
                 case ReSyncResourceDragPayload.FOLDER -> "Create Folder";
-                case ReSyncResourceDragPayload.FUNCTION -> "Create New Function";
-                case ReSyncResourceDragPayload.COMMAND -> "Create New Command";
+                case ReSyncResourceDragPayload.FUNCTION -> "Create Function";
+                case ReSyncResourceDragPayload.COMMAND -> "Create Command";
                 case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Create Content";
-                case ReSyncResourceDragPayload.GUI -> "Create New GUI";
-                case ReSyncResourceDragPayload.SCOREBOARD -> "Create New Scoreboard";
-                case ReSyncResourceDragPayload.TAB -> "Create New Tab";
-                case ReSyncResourceDragPayload.WORLDGEN -> "Create WorldGen Project";
-                default -> "Create New Flow";
+                case ReSyncResourceDragPayload.GUI -> "Create GUI";
+                case ReSyncResourceDragPayload.SCOREBOARD -> "Create Scoreboard";
+                case ReSyncResourceDragPayload.TAB -> "Create Tab";
+                case ReSyncResourceDragPayload.CHAT_CHANNEL -> "Create Chat";
+                case ReSyncResourceDragPayload.CHAT_FORMAT -> "Create Chat Format";
+                case ReSyncResourceDragPayload.CHAT_RULE -> "Create Chat Rule";
+                case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> "Create PM Format";
+                case ReSyncResourceDragPayload.MENTION_STYLE -> "Create Mention";
+                case ReSyncResourceDragPayload.IGNORE_LIST -> "Create Ignore List";
+                case ReSyncResourceDragPayload.MOTD_PROFILE -> "Create MOTD";
+                case ReSyncResourceDragPayload.MESSAGE_RULE -> "Create Message Rule";
+                case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Create Recipe";
+                case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Create Text";
+                case ReSyncResourceDragPayload.WORLDGEN -> "Create WorldGen";
+                default -> "Create Flow";
             };
         }
 
         private String createIdPlaceholder(String type) {
             return switch (type) {
                 case ReSyncResourceDragPayload.FOLDER -> "Folder Name";
-                case ReSyncResourceDragPayload.FUNCTION -> "Function ID (e.g. calculateDamage)";
-                case ReSyncResourceDragPayload.COMMAND -> "Command ID (e.g. shop)";
-                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Content ID (e.g. fire_sword)";
-                case ReSyncResourceDragPayload.GUI -> "GUI ID (e.g. main_menu)";
-                case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboard ID (e.g. main_sidebar)";
-                case ReSyncResourceDragPayload.TAB -> "Tab ID (e.g. default_tab)";
-                case ReSyncResourceDragPayload.WORLDGEN -> "Project ID (e.g. overworld)";
-                default -> "Flow ID (e.g. openLootBox)";
+                case ReSyncResourceDragPayload.FUNCTION -> "Function ID";
+                case ReSyncResourceDragPayload.COMMAND -> "Command ID";
+                case ReSyncResourceDragPayload.CUSTOM_CONTENT -> "Content ID";
+                case ReSyncResourceDragPayload.GUI -> "GUI ID";
+                case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboard ID";
+                case ReSyncResourceDragPayload.TAB -> "Tab ID";
+                case ReSyncResourceDragPayload.CHAT_CHANNEL -> "Channel ID";
+                case ReSyncResourceDragPayload.CHAT_FORMAT -> "Format ID";
+                case ReSyncResourceDragPayload.CHAT_RULE -> "Rule ID";
+                case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> "PM Format ID";
+                case ReSyncResourceDragPayload.MENTION_STYLE -> "Mention ID";
+                case ReSyncResourceDragPayload.IGNORE_LIST -> "Ignore List ID";
+                case ReSyncResourceDragPayload.MOTD_PROFILE -> "MOTD ID";
+                case ReSyncResourceDragPayload.MESSAGE_RULE -> "Message Rule ID";
+                case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Recipe ID";
+                case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text ID";
+                case ReSyncResourceDragPayload.WORLDGEN -> "Project ID";
+                default -> "Flow ID";
             };
         }
 
@@ -1159,6 +1231,18 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                     scoreboard.setDisplaySlot("sidebar");
                 }
                 case ReSyncResourceDragPayload.TAB -> manager.createTab(serverId, id);
+                case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
+                     ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
+                     ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE -> {
+                    ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
+                    JsonObject resource = resourceType != null ? manager.createJsonResource(serverId, resourceType, id, targetFolder) : null;
+                    if (resource == null || resourceType == null) {
+                        return false;
+                    }
+                    manager.saveJsonResource(serverId, resourceType, resource);
+                    openJsonResourceDocument(type, id, id, resource);
+                }
                 case ReSyncResourceDragPayload.WORLDGEN -> {
                     WorldGenProject project = WorldGenManager.getInstance().createProjectTemplate("Continental", id);
                     WorldGenManager.getInstance().saveWorldGen(serverId, project);
@@ -1232,6 +1316,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.GUI -> manager.getGuisForServer(serverId).containsKey(id);
                 case ReSyncResourceDragPayload.SCOREBOARD -> manager.getScoreboardsForServer(serverId).containsKey(id);
                 case ReSyncResourceDragPayload.TAB -> manager.getTabsForServer(serverId).containsKey(id);
+                case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
+                     ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
+                     ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE -> {
+                    ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
+                    yield resourceType != null && manager.getJsonResourcesForServer(serverId, resourceType).containsKey(id);
+                }
                 default -> false;
             };
         }
@@ -1244,6 +1335,16 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.GUI -> "GUI";
                 case ReSyncResourceDragPayload.SCOREBOARD -> "Scoreboard";
                 case ReSyncResourceDragPayload.TAB -> "Tab";
+                case ReSyncResourceDragPayload.CHAT_CHANNEL -> "Chat";
+                case ReSyncResourceDragPayload.CHAT_FORMAT -> "Chat Format";
+                case ReSyncResourceDragPayload.CHAT_RULE -> "Chat Rule";
+                case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> "PM Format";
+                case ReSyncResourceDragPayload.MENTION_STYLE -> "Mention";
+                case ReSyncResourceDragPayload.IGNORE_LIST -> "Ignore List";
+                case ReSyncResourceDragPayload.MOTD_PROFILE -> "MOTD";
+                case ReSyncResourceDragPayload.MESSAGE_RULE -> "Message Rule";
+                case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Recipe";
+                case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text";
                 case ReSyncResourceDragPayload.WORLDGEN -> "WorldGen";
                 default -> "Flow";
             };
@@ -1311,6 +1412,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.GUI -> manager.renameGui(serverId, selectedResource.getId(), newId);
                 case ReSyncResourceDragPayload.SCOREBOARD -> manager.renameScoreboard(serverId, selectedResource.getId(), newId);
                 case ReSyncResourceDragPayload.TAB -> manager.renameTab(serverId, selectedResource.getId(), newId);
+                case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
+                     ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
+                     ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE -> {
+                    ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(selectedResource.getType());
+                    yield resourceType != null && manager.renameJsonResource(serverId, resourceType, selectedResource.getId(), newId);
+                }
                 default -> false;
             };
             if (!renamed) {
@@ -1359,6 +1467,16 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 case ReSyncResourceDragPayload.GUI -> manager.deleteGui(serverId, selectedResource.getId());
                 case ReSyncResourceDragPayload.SCOREBOARD -> manager.deleteScoreboard(serverId, selectedResource.getId());
                 case ReSyncResourceDragPayload.TAB -> manager.deleteTab(serverId, selectedResource.getId());
+                case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT,
+                     ReSyncResourceDragPayload.CHAT_RULE, ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE,
+                     ReSyncResourceDragPayload.IGNORE_LIST, ReSyncResourceDragPayload.MOTD_PROFILE, ReSyncResourceDragPayload.MESSAGE_RULE,
+                     ReSyncResourceDragPayload.RECIPE_DEFINITION, ReSyncResourceDragPayload.TEXT_TEMPLATE -> {
+                    ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(selectedResource.getType());
+                    if (resourceType == null) {
+                        return;
+                    }
+                    manager.deleteJsonResource(serverId, resourceType, selectedResource.getId());
+                }
                 case ReSyncResourceDragPayload.WORLDGEN -> WorldGenManager.getInstance().deleteProject(serverId, selectedResource.getId());
                 default -> {
                     return;
@@ -1437,15 +1555,22 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
         private BufferedImage iconFor(ReSyncProjectMetadata.ResourceEntry resource) {
             return switch (iconPathFor(resource)) {
+                case "folder.png" -> folderIcon;
+                case "snippets.png" -> functionIcon;
                 case "terminal.png" -> commandIcon;
-                case "resources.png" -> contentIcon;
                 case "item.png" -> itemIcon;
                 case "armor.png" -> armorIcon;
                 case "block.png" -> blockIcon;
                 case "fullPanel.png" -> guiIcon;
                 case "panel.png" -> scoreboardIcon;
                 case "topPanel.png" -> tabIcon;
+                case "chat.png" -> chatIcon;
+                case "hi.png" -> motdIcon;
+                case "edit.png" -> messageRuleIcon;
+                case "crafting.png" -> recipeIcon;
+                case "text.png" -> textIcon;
                 case "map.png" -> worldGenIcon;
+                case "earth.png" -> worldIcon;
                 default -> flowIcon;
             };
         }
@@ -2976,9 +3101,23 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             openStudioDesigner(resource.getType(), resource.getId());
             return;
         }
+        ReSyncResourceType jsonType = ReSyncResourceType.byTypeId(resource.getType());
+        if (jsonType != null) {
+            JsonObject json = manager.getJsonResourcesForServer(serverId, jsonType).get(resource.getId());
+            if (json == null) {
+                manager.ensureFlowClient(serverId).requestResource(jsonType, resource.getId(), false);
+                json = manager.createJsonResource(serverId, jsonType, resource.getId(), resource.getPath());
+            }
+            openJsonResourceDocument(resource.getType(), resource.getId(), resource.getDisplayName(), json);
+            return;
+        }
         if (ReSyncResourceDragPayload.WORLD.equals(resource.getType())) {
             openStudioWorldDocument(resource.getId(), resource.getDisplayName());
         }
+    }
+
+    private void openJsonResourceDocument(String type, String id, String title, JsonObject resource) {
+        openStudioViewDocument(type, id, title == null || title.isBlank() ? id : title, new JsonResourceStudioView(type, id, resource));
     }
 
     private void openStudioWorldDocument(String id, String title) {
@@ -2992,6 +3131,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
         ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
         return metadata.getFolders().stream()
+            .filter(this::isVisibleStudioFolder)
             .filter(folder -> parentPath.equals(folder.getParentPath()))
             .sorted(Comparator.comparingInt(ReSyncProjectMetadata.FolderEntry::getSortOrder).thenComparing(ReSyncProjectMetadata.FolderEntry::getName))
             .toList();
@@ -3003,7 +3143,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return List.of();
         }
         ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
-        return metadata.getFolders();
+        return metadata.getFolders().stream()
+            .filter(this::isVisibleStudioFolder)
+            .toList();
     }
 
     private List<ReSyncProjectMetadata.ResourceEntry> studioResources(String folderPath) {
@@ -3013,6 +3155,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
         ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
         return metadata.getResources().stream()
+            .filter(this::isVisibleStudioResource)
             .filter(resource -> folderPath.equals(resource.getPath()))
             .sorted(Comparator.comparing(ReSyncProjectMetadata.ResourceEntry::getDisplayName))
             .toList();
@@ -3024,7 +3167,17 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return List.of();
         }
         ReSyncProjectMetadata metadata = manager.getProjectMetadata(serverId);
-        return metadata.getResources();
+        return metadata.getResources().stream()
+            .filter(this::isVisibleStudioResource)
+            .toList();
+    }
+
+    private boolean isVisibleStudioResource(ReSyncProjectMetadata.ResourceEntry resource) {
+        return resource != null;
+    }
+
+    private boolean isVisibleStudioFolder(ReSyncProjectMetadata.FolderEntry folder) {
+        return folder != null;
     }
 
     private void syncStudioDocumentTabs() {
@@ -3089,11 +3242,18 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
 
     private String studioResourceIconPath(String type, String id) {
         return switch (type) {
+            case ReSyncResourceDragPayload.FUNCTION -> "snippets.png";
             case ReSyncResourceDragPayload.COMMAND -> "terminal.png";
             case ReSyncResourceDragPayload.CUSTOM_CONTENT -> customContentIconPath(id);
             case ReSyncResourceDragPayload.GUI -> "fullPanel.png";
             case ReSyncResourceDragPayload.SCOREBOARD -> "panel.png";
             case ReSyncResourceDragPayload.TAB -> "topPanel.png";
+            case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT, ReSyncResourceDragPayload.CHAT_RULE,
+                 ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE, ReSyncResourceDragPayload.IGNORE_LIST -> "chat.png";
+            case ReSyncResourceDragPayload.MOTD_PROFILE -> "hi.png";
+            case ReSyncResourceDragPayload.MESSAGE_RULE -> "edit.png";
+            case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "crafting.png";
+            case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "text.png";
             case ReSyncResourceDragPayload.WORLDGEN -> "map.png";
             case ReSyncResourceDragPayload.WORLD -> "earth.png";
             default -> "graph.png";
@@ -3107,7 +3267,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             case "armor" -> "armor.png";
             case "block" -> "block.png";
             case "item" -> "item.png";
-            default -> "resources.png";
+            default -> "item.png";
         };
     }
 
@@ -3149,6 +3309,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         } else if (ReSyncResourceDragPayload.WORLD.equals(activeStudioDocument.type())) {
             clearStudioResourcePanelWidgets();
             studioResourcePanel.hide();
+        } else if (activeStudioView() instanceof JsonResourceStudioView jsonResourceStudioView) {
+            jsonResourceStudioView.buildResourcePanel();
         }
         studioResourcePanel.container().updateWidgetPositions();
     }
@@ -3605,13 +3767,13 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                     }
                 }
                 if (studioResourcePanel != null) {
-                    if (document.view() != null) {
+                    if (document.view() != null && !(document.view() instanceof JsonResourceStudioView)) {
                         studioResourcePanel.hide();
                     } else {
                         studioResourcePanel.show();
                     }
                 }
-                if (document.view() == null) {
+                if (document.view() == null || document.view() instanceof JsonResourceStudioView) {
                     refreshStudioResourcePanel();
                 }
                 updatePositions();
@@ -4350,6 +4512,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 studioResourcePanelKey = "";
                 buildCommandResourcePanel(commandDraft);
                 studioResourcePanel.container().updateWidgetPositions();
+            } else if (previousWidth != studioPanelState.width() && activeStudioView() instanceof JsonResourceStudioView jsonResourceStudioView) {
+                studioResourcePanelKey = "";
+                jsonResourceStudioView.buildResourcePanel();
+                studioResourcePanel.container().updateWidgetPositions();
             }
         }
         for (StudioDocument document : studioDocuments) {
@@ -4739,6 +4905,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         return studioMode && activeStudioDocument != null ? activeStudioDocument.view() : null;
     }
 
+    private boolean activeStudioViewUsesResourcePanel() {
+        return activeStudioView() instanceof JsonResourceStudioView;
+    }
+
     private void refreshActiveViewHeaderButtons() {
         List<AnimatedWidget> nextButtons = new ArrayList<>();
         ReSyncStudioView view = activeStudioView();
@@ -4853,11 +5023,12 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             paletteSidePanel.container().render(context, mouseX, mouseY, delta);
             paletteSidePanel.renderHeader(context);
         }
-        if (activeStudioDocument != null && activeStudioView() == null && studioResourcePanel != null) {
+        if (activeStudioDocument != null && (activeStudioView() == null || activeStudioViewUsesResourcePanel()) && studioResourcePanel != null) {
             studioResourcePanel.update();
             studioResourcePanel.container().render(context, mouseX, mouseY, delta);
             studioResourcePanel.renderHeader(context);
         }
+        renderActiveResourceSelectorOverlay(context, mouseX, mouseY, delta);
 
         for (Widget widget : widgets) {
             if (widget instanceof ItemSelectorWidget || widget instanceof ContextMenuWidget) {
@@ -5041,11 +5212,24 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (handleNodeItemSelectorMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
             return true;
         }
+        if (handleActiveStudioSelectorMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+        if (handlePopupWidgetMouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
+        JsonResourceStudioView jsonResourceView = activeJsonResourceView();
+        if (jsonResourceView != null && jsonResourceView.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+            return true;
+        }
         if (studioMode && studioContentBrowser != null && studioContentBrowser.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
             return true;
         }
         ReSyncStudioView activeView = activeStudioView();
         if (activeView != null) {
+            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+                return true;
+            }
             return activeView.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
         }
         if (studioResourcePanel != null && studioResourcePanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
@@ -5489,6 +5673,16 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (handleNodeItemSelectorMouseClicked(mouseX, mouseY, button)) {
             return true;
         }
+        if (handleActiveStudioSelectorMouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (handlePopupWidgetMouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        JsonResourceStudioView jsonResourceView = activeJsonResourceView();
+        if (jsonResourceView != null && jsonResourceView.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
         if (handleStudioHudMouseClicked(mouseX, mouseY, button)) {
             return true;
         }
@@ -5498,6 +5692,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         }
         ReSyncStudioView activeView = activeStudioView();
         if (activeView != null) {
+            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
             return activeView.mouseClicked(mouseX, mouseY, button);
         }
         if (paletteSidePanel != null && paletteSidePanel.mouseClicked(mouseX, mouseY, button)) {
@@ -5532,11 +5729,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             Widget outputWidget = widget.getOutputWidgetAt(wx, wy);
             if (outputWidget != null) {
                 outputWidget.mouseClicked(wx, wy, button);
-                if (outputWidget instanceof DropDownWidget<?>) {
-                    setFocusedWidget(outputWidget);
-                } else {
-                    setFocusedWidget(null);
-                }
+                setFocusedWidget(null);
                 focusedNode = widget;
                 bringToFront(widget);
                 selectNode(widget, hasShiftDown() || hasControlDown());
@@ -5575,7 +5768,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             Widget inputWidget = widget.getInputWidgetAt(wx, wy);
             if (inputWidget != null) {
                 inputWidget.mouseClicked(wx, wy, button);
-                if (inputWidget instanceof TextInputWidget || inputWidget instanceof DropDownWidget<?>) {
+                if (inputWidget instanceof TextInputWidget) {
                     setFocusedWidget(inputWidget);
                 } else {
                     setFocusedWidget(null);
@@ -5629,6 +5822,138 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 return true;
             }
             return button != GLFW.GLFW_MOUSE_BUTTON_RIGHT;
+        }
+        return false;
+    }
+
+    private boolean handlePopupWidgetMouseClicked(double mouseX, double mouseY, int button) {
+        List<Widget> widgetSnapshot = new ArrayList<>(widgets);
+        for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
+            Widget widget = widgetSnapshot.get(i);
+            if (widget instanceof PopupWidget popup && popup.isVisible() && popup.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean handlePopupWidgetMouseReleased(double mouseX, double mouseY, int button) {
+        List<Widget> widgetSnapshot = new ArrayList<>(widgets);
+        for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
+            Widget widget = widgetSnapshot.get(i);
+            if (widget instanceof PopupWidget popup && popup.isVisible() && popup.mouseReleased(mouseX, mouseY, button)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean handlePopupWidgetMouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        List<Widget> widgetSnapshot = new ArrayList<>(widgets);
+        for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
+            Widget widget = widgetSnapshot.get(i);
+            if (widget instanceof PopupWidget popup && popup.isVisible() && popup.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean handlePopupWidgetMouseScrolled(double mouseX, double mouseY, double verticalAmount) {
+        List<Widget> widgetSnapshot = new ArrayList<>(widgets);
+        for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
+            Widget widget = widgetSnapshot.get(i);
+            if (widget instanceof PopupWidget popup && popup.isVisible() && popup.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean handlePopupWidgetKeyPressed(int keyCode, int scanCode, int modifiers) {
+        List<Widget> widgetSnapshot = new ArrayList<>(widgets);
+        for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
+            Widget widget = widgetSnapshot.get(i);
+            if (widget instanceof PopupWidget popup && popup.isVisible() && popup.keyPressed(keyCode, scanCode, modifiers)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean handlePopupWidgetCharTyped(char chr, int modifiers) {
+        List<Widget> widgetSnapshot = new ArrayList<>(widgets);
+        for (int i = widgetSnapshot.size() - 1; i >= 0; i--) {
+            Widget widget = widgetSnapshot.get(i);
+            if (widget instanceof PopupWidget popup && popup.isVisible() && popup.charTyped(chr, modifiers)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean handleActiveStudioSelectorMouseClicked(double mouseX, double mouseY, int button) {
+        ReSyncStudioView view = activeStudioView();
+        if (view instanceof JsonResourceStudioView jsonView && jsonView.hasActiveResourceSelector()) {
+            return jsonView.mouseClicked(mouseX, mouseY, button);
+        }
+        if (view instanceof WorldStudioView worldView && worldView.hasActiveWorldSelector()) {
+            return worldView.mouseClicked(mouseX, mouseY, button);
+        }
+        return false;
+    }
+
+    private boolean handleActiveStudioSelectorMouseReleased(double mouseX, double mouseY, int button) {
+        ReSyncStudioView view = activeStudioView();
+        if (view instanceof JsonResourceStudioView jsonView && jsonView.hasActiveResourceSelector()) {
+            return jsonView.mouseReleased(mouseX, mouseY, button);
+        }
+        if (view instanceof WorldStudioView worldView && worldView.hasActiveWorldSelector()) {
+            return worldView.mouseReleased(mouseX, mouseY, button);
+        }
+        return false;
+    }
+
+    private boolean handleActiveStudioSelectorMouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        ReSyncStudioView view = activeStudioView();
+        if (view instanceof JsonResourceStudioView jsonView && jsonView.hasActiveResourceSelector()) {
+            return jsonView.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        }
+        if (view instanceof WorldStudioView worldView && worldView.hasActiveWorldSelector()) {
+            return worldView.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        }
+        return false;
+    }
+
+    private boolean handleActiveStudioSelectorMouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        ReSyncStudioView view = activeStudioView();
+        if (view instanceof JsonResourceStudioView jsonView && jsonView.hasActiveResourceSelector()) {
+            return jsonView.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        }
+        if (view instanceof WorldStudioView worldView && worldView.hasActiveWorldSelector()) {
+            return worldView.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        }
+        return false;
+    }
+
+    private boolean handleActiveStudioSelectorKeyPressed(int keyCode, int scanCode, int modifiers) {
+        ReSyncStudioView view = activeStudioView();
+        if (view instanceof JsonResourceStudioView jsonView && jsonView.hasActiveResourceSelector()) {
+            return jsonView.keyPressed(keyCode, scanCode, modifiers);
+        }
+        if (view instanceof WorldStudioView worldView && worldView.hasActiveWorldSelector()) {
+            return worldView.keyPressed(keyCode, scanCode, modifiers);
+        }
+        return false;
+    }
+
+    private boolean handleActiveStudioSelectorCharTyped(char chr, int modifiers) {
+        ReSyncStudioView view = activeStudioView();
+        if (view instanceof JsonResourceStudioView jsonView && jsonView.hasActiveResourceSelector()) {
+            return jsonView.charTyped(chr, modifiers);
+        }
+        if (view instanceof WorldStudioView worldView && worldView.hasActiveWorldSelector()) {
+            return worldView.charTyped(chr, modifiers);
         }
         return false;
     }
@@ -5722,11 +6047,24 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (handleNodeItemSelectorMouseReleased(mouseX, mouseY, button)) {
             return true;
         }
+        if (handleActiveStudioSelectorMouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (handlePopupWidgetMouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
+        JsonResourceStudioView jsonResourceView = activeJsonResourceView();
+        if (jsonResourceView != null && jsonResourceView.mouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
         if (studioMode && studioContentBrowser != null && studioContentBrowser.mouseReleased(mouseX, mouseY, button)) {
             return true;
         }
         ReSyncStudioView activeView = activeStudioView();
         if (activeView != null) {
+            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.mouseReleased(mouseX, mouseY, button)) {
+                return true;
+            }
             return activeView.mouseReleased(mouseX, mouseY, button);
         }
         if (paletteSidePanel != null && paletteSidePanel.mouseReleased(mouseX, mouseY, button)) {
@@ -5789,11 +6127,24 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
+        if (handleActiveStudioSelectorKeyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        if (handlePopupWidgetKeyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
+        JsonResourceStudioView jsonResourceView = activeJsonResourceView();
+        if (jsonResourceView != null && jsonResourceView.keyPressed(keyCode, scanCode, modifiers)) {
+            return true;
+        }
         if (studioMode && studioContentBrowser != null && studioContentBrowser.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
         ReSyncStudioView activeView = activeStudioView();
         if (activeView != null) {
+            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.container().keyPressed(keyCode, scanCode, modifiers)) {
+                return true;
+            }
             return activeView.keyPressed(keyCode, scanCode, modifiers);
         }
         if (studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.container().keyPressed(keyCode, scanCode, modifiers)) {
@@ -5881,11 +6232,24 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.charTyped(chr, modifiers)) {
             return true;
         }
+        if (handleActiveStudioSelectorCharTyped(chr, modifiers)) {
+            return true;
+        }
+        if (handlePopupWidgetCharTyped(chr, modifiers)) {
+            return true;
+        }
+        JsonResourceStudioView jsonResourceView = activeJsonResourceView();
+        if (jsonResourceView != null && jsonResourceView.charTyped(chr, modifiers)) {
+            return true;
+        }
         if (studioMode && studioContentBrowser != null && studioContentBrowser.charTyped(chr, modifiers)) {
             return true;
         }
         ReSyncStudioView activeView = activeStudioView();
         if (activeView != null) {
+            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.container().charTyped(chr, modifiers)) {
+                return true;
+            }
             return activeView.charTyped(chr, modifiers);
         }
         if (studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.container().charTyped(chr, modifiers)) {
@@ -7140,32 +7504,73 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         @Override
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
             init();
+            if (activeOptionSelector != null && activeOptionSelector.visible && activeOptionSelector.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+            if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
             return detailPane.mouseClicked(mouseX, mouseY, button) || worldsList.mouseClicked(mouseX, mouseY, button);
         }
 
         @Override
         public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            if (activeOptionSelector != null && activeOptionSelector.visible && activeOptionSelector.mouseReleased(mouseX, mouseY, button)) {
+                return true;
+            }
+            if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.mouseReleased(mouseX, mouseY, button)) {
+                return true;
+            }
             return detailPane.mouseReleased(mouseX, mouseY, button) || worldsList.mouseReleased(mouseX, mouseY, button);
         }
 
         @Override
         public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+            if (activeOptionSelector != null && activeOptionSelector.visible && activeOptionSelector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+                return true;
+            }
+            if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+                return true;
+            }
             return detailPane.mouseDragged(mouseX, mouseY, button, deltaX, deltaY) || worldsList.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
         }
 
         @Override
         public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+            if (activeOptionSelector != null && activeOptionSelector.visible && activeOptionSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+                return true;
+            }
+            if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+                return true;
+            }
             return detailPane.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount) || worldsList.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount);
         }
 
         @Override
         public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            if (activeOptionSelector != null && activeOptionSelector.visible && activeOptionSelector.keyPressed(keyCode, scanCode, modifiers)) {
+                return true;
+            }
+            if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.keyPressed(keyCode, scanCode, modifiers)) {
+                return true;
+            }
             return detailPane.keyPressed(keyCode, scanCode, modifiers) || worldsList.keyPressed(keyCode, scanCode, modifiers);
         }
 
         @Override
         public boolean charTyped(char chr, int modifiers) {
+            if (activeOptionSelector != null && activeOptionSelector.visible && activeOptionSelector.charTyped(chr, modifiers)) {
+                return true;
+            }
+            if (activePlayerSelector != null && activePlayerSelector.visible && activePlayerSelector.charTyped(chr, modifiers)) {
+                return true;
+            }
             return detailPane.charTyped(chr, modifiers) || worldsList.charTyped(chr, modifiers);
+        }
+
+        private boolean hasActiveWorldSelector() {
+            return activeOptionSelector != null && activeOptionSelector.visible
+                || activePlayerSelector != null && activePlayerSelector.visible;
         }
 
         private void createHeaderActions() {
@@ -7398,11 +7803,11 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             WorldProfileSettings profile = world.getProfileSettings();
             int rowWidth = Math.max(220, detailPane.getWidth() - 18);
             TextInputWidget alias = detailInput("Alias", profile.getAlias(), rowWidth / 2 - 5);
-            DropDownWidget<String> difficulty = dropdown(WorldUiSupport.mergeOptions(List.of("PEACEFUL", "EASY", "NORMAL", "HARD"), safeText(world.getDifficulty()).toUpperCase(Locale.ROOT)),
+            OptionField difficulty = optionField(WorldUiSupport.mergeOptions(List.of("PEACEFUL", "EASY", "NORMAL", "HARD"), safeText(world.getDifficulty()).toUpperCase(Locale.ROOT)),
                 safeText(world.getDifficulty()).isBlank() ? "NORMAL" : safeText(world.getDifficulty()).toUpperCase(Locale.ROOT), rowWidth / 2 - 5);
             ToggleWidget hidden = detailToggle("Hidden", profile.isHidden(), 92);
             ToggleWidget forceGameMode = detailToggle("Force Game Mode", profile.isForceGameMode(), 132);
-            DropDownWidget<String> gameMode = dropdown(WorldUiSupport.mergeOptions(List.of("SURVIVAL", "CREATIVE", "ADVENTURE", "SPECTATOR"), safeText(profile.getGameMode()).toUpperCase(Locale.ROOT)),
+            OptionField gameMode = optionField(WorldUiSupport.mergeOptions(List.of("SURVIVAL", "CREATIVE", "ADVENTURE", "SPECTATOR"), safeText(profile.getGameMode()).toUpperCase(Locale.ROOT)),
                 safeText(profile.getGameMode()).isBlank() ? "SURVIVAL" : safeText(profile.getGameMode()).toUpperCase(Locale.ROOT), rowWidth / 2 - 5);
             ToggleWidget pvp = detailToggle("PVP", profile.isPvpEnabled(), 70);
             ToggleWidget autoSave = detailToggle("Auto Save", profile.isAutoSaveEnabled(), 105);
@@ -7443,8 +7848,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             ToggleWidget thundering = detailToggle("Thunder", world.isLockedThundering(), 92);
 
             addDetailWidget(metricRow(rowWidth, world));
-            addDetailWidget(row("Identity", rowWidth, alias, difficulty));
-            addDetailWidget(row("Access", rowWidth, hidden, forceGameMode, gameMode));
+            addDetailWidget(row("Identity", rowWidth, alias, difficulty.button()));
+            addDetailWidget(row("Access", rowWidth, hidden, forceGameMode, gameMode.button()));
             addDetailWidget(row("Permissions", rowWidth, accessPermission, bypassPermission));
             addDetailWidget(row("Messages", rowWidth, arrivalMessage, denyMessage));
             addDetailWidget(row("Rules", rowWidth, pvp, autoSave, keepSpawn, animals, monsters));
@@ -7478,10 +7883,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         private class WorldDetailForm {
             private final String worldName;
             private final TextInputWidget alias;
-            private final DropDownWidget<String> difficulty;
+            private final OptionField difficulty;
             private final ToggleWidget hidden;
             private final ToggleWidget forceGameMode;
-            private final DropDownWidget<String> gameMode;
+            private final OptionField gameMode;
             private final ToggleWidget pvp;
             private final ToggleWidget autoSave;
             private final ToggleWidget keepSpawn;
@@ -7518,8 +7923,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             private final ToggleWidget storm;
             private final ToggleWidget thundering;
 
-            private WorldDetailForm(String worldName, TextInputWidget alias, DropDownWidget<String> difficulty, ToggleWidget hidden,
-                                    ToggleWidget forceGameMode, DropDownWidget<String> gameMode, ToggleWidget pvp, ToggleWidget autoSave,
+            private WorldDetailForm(String worldName, TextInputWidget alias, OptionField difficulty, ToggleWidget hidden,
+                                    ToggleWidget forceGameMode, OptionField gameMode, ToggleWidget pvp, ToggleWidget autoSave,
                                     ToggleWidget keepSpawn, ToggleWidget animals, ToggleWidget monsters, ToggleWidget hunger,
                                     ToggleWidget autoHeal, ToggleWidget bedRespawn, ToggleWidget anchorRespawn, ToggleWidget miscSpawns,
                                     TextInputWidget accessPermission, TextInputWidget bypassPermission, TextInputWidget arrivalMessage,
@@ -7576,10 +7981,10 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             private void update(WorldRegistryEntry world) {
                 WorldProfileSettings profile = world.getProfileSettings();
                 updateInput(alias, profile.getAlias());
-                setDropdown(difficulty, safeText(world.getDifficulty()).isBlank() ? "NORMAL" : safeText(world.getDifficulty()).toUpperCase(Locale.ROOT));
+                difficulty.setValue(safeText(world.getDifficulty()).isBlank() ? "NORMAL" : safeText(world.getDifficulty()).toUpperCase(Locale.ROOT));
                 hidden.setValue(profile.isHidden());
                 forceGameMode.setValue(profile.isForceGameMode());
-                setDropdown(gameMode, safeText(profile.getGameMode()).isBlank() ? "SURVIVAL" : safeText(profile.getGameMode()).toUpperCase(Locale.ROOT));
+                gameMode.setValue(safeText(profile.getGameMode()).isBlank() ? "SURVIVAL" : safeText(profile.getGameMode()).toUpperCase(Locale.ROOT));
                 pvp.setValue(profile.isPvpEnabled());
                 autoSave.setValue(profile.isAutoSaveEnabled());
                 keepSpawn.setValue(profile.isKeepSpawnLoaded());
@@ -7623,11 +8028,6 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 }
             }
 
-            private void setDropdown(DropDownWidget<String> dropdown, String value) {
-                if (dropdown != null && !dropdown.isExpanded() && !Objects.equals(dropdown.getSelectedItem(), value)) {
-                    dropdown.setSelectedItem(value);
-                }
-            }
         }
 
         private AnimatedWidget metricRow(int rowWidth, WorldRegistryEntry world) {
@@ -7698,6 +8098,91 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             return row;
         }
 
+        private OptionField optionField(List<String> options, String selected, int width) {
+            return optionField(options, selected, width, this::worldOptionLabel);
+        }
+
+        private OptionField optionField(List<String> options, String selected, int width, Function<String, String> labeler) {
+            return new OptionField(options, selected, width, labeler);
+        }
+
+        private final class OptionField {
+            private final List<String> options;
+            private final AnimatedButton button;
+            private final Function<String, String> labeler;
+            private String value;
+
+            private OptionField(List<String> options, String selected, int width, Function<String, String> labeler) {
+                this.options = options == null ? List.of() : options.stream()
+                    .filter(option -> option != null && !option.isBlank())
+                    .distinct()
+                    .toList();
+                this.labeler = labeler == null ? value -> value : labeler;
+                value = resolveOptionValue(this.options, selected);
+                button = new AnimatedButton.Builder()
+                    .label(optionLabel(value))
+                    .size(Math.max(80, width), 20)
+                    .entranceAnimation(false)
+                    .build();
+                button.setAction(() -> showOptionSelector(button, this.options, this::setValue));
+            }
+
+            private AnimatedButton button() {
+                return button;
+            }
+
+            private String value() {
+                return value;
+            }
+
+            private void setValue(String value) {
+                String resolved = resolveOptionValue(options, value);
+                if (!Objects.equals(this.value, resolved)) {
+                    this.value = resolved;
+                    button.setMessage(optionLabel(resolved));
+                }
+            }
+
+            private String optionLabel(String value) {
+                String label = labeler.apply(safeText(value));
+                return label == null || label.isBlank() ? "None" : label;
+            }
+        }
+
+        private String resolveOptionValue(List<String> options, String value) {
+            if (options == null || options.isEmpty()) {
+                return safeText(value);
+            }
+            String text = safeText(value);
+            for (String option : options) {
+                if (safeText(option).equalsIgnoreCase(text)) {
+                    return option;
+                }
+            }
+            return options.getFirst();
+        }
+
+        private String worldOptionLabel(String value) {
+            if (value == null || value.isBlank()) {
+                return "None";
+            }
+            String cleaned = value.trim().replace('_', ' ').replace('-', ' ');
+            StringBuilder builder = new StringBuilder();
+            for (String part : cleaned.split("\\s+")) {
+                if (part.isBlank()) {
+                    continue;
+                }
+                if (!builder.isEmpty()) {
+                    builder.append(' ');
+                }
+                builder.append(part.substring(0, 1).toUpperCase(Locale.ROOT));
+                if (part.length() > 1) {
+                    builder.append(part.substring(1).toLowerCase(Locale.ROOT));
+                }
+            }
+            return builder.isEmpty() ? value : builder.toString();
+        }
+
         private void showOptionSelector(AnimatedWidget anchor, List<String> options, Consumer<String> onSelected) {
             if (anchor == null || onSelected == null) {
                 return;
@@ -7754,15 +8239,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .build();
         }
 
-        private DropDownWidget<String> dropdown(List<String> values, String selected, int width) {
-            return new DropDownWidget.Builder<>(values)
-                .selectedItem(selected)
-                .size(Math.max(80, width), 20)
-                .build();
-        }
-
-        private IconButton saveWorldButton(int rowWidth, WorldRegistryEntry world, TextInputWidget alias, DropDownWidget<String> difficulty,
-                                           ToggleWidget hidden, ToggleWidget forceGameMode, DropDownWidget<String> gameMode, ToggleWidget pvp,
+        private IconButton saveWorldButton(int rowWidth, WorldRegistryEntry world, TextInputWidget alias, OptionField difficulty,
+                                           ToggleWidget hidden, ToggleWidget forceGameMode, OptionField gameMode, ToggleWidget pvp,
                                            ToggleWidget autoSave, ToggleWidget keepSpawn, ToggleWidget animals, ToggleWidget monsters,
                                            ToggleWidget hunger, ToggleWidget autoHeal, ToggleWidget bedRespawn, ToggleWidget anchorRespawn,
                                            ToggleWidget miscSpawns, TextInputWidget accessPermission, TextInputWidget bypassPermission,
@@ -7786,8 +8264,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .build();
         }
 
-        private void saveWorld(WorldRegistryEntry world, TextInputWidget alias, DropDownWidget<String> difficulty, ToggleWidget hidden,
-                               ToggleWidget forceGameMode, DropDownWidget<String> gameMode, ToggleWidget pvp, ToggleWidget autoSave,
+        private void saveWorld(WorldRegistryEntry world, TextInputWidget alias, OptionField difficulty, ToggleWidget hidden,
+                               ToggleWidget forceGameMode, OptionField gameMode, ToggleWidget pvp, ToggleWidget autoSave,
                                ToggleWidget keepSpawn, ToggleWidget animals, ToggleWidget monsters, ToggleWidget hunger, ToggleWidget autoHeal,
                                ToggleWidget bedRespawn, ToggleWidget anchorRespawn, ToggleWidget miscSpawns, TextInputWidget accessPermission,
                                TextInputWidget bypassPermission, TextInputWidget arrivalMessage, TextInputWidget denyMessage,
@@ -7828,7 +8306,7 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             profile.setBypassPermission(bypassPermission.getText());
             profile.setRespawnWorld(respawnWorld.getText());
             profile.setForceGameMode(forceGameMode.getValue());
-            profile.setGameMode(safeText(gameMode.getSelectedItem()));
+            profile.setGameMode(safeText(gameMode.value()));
             profile.setCustomSpawnEnabled(customSpawn.getValue());
             profile.setSpawnX(parsedSpawnX);
             profile.setSpawnY(parsedSpawnY);
@@ -7856,9 +8334,9 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             profile.setAutoLinkNetherPortal(autoNether.getValue());
             profile.setAutoLinkEndPortal(autoEnd.getValue());
             String worldName = world.getWorldName();
-            if (!safeText(difficulty.getSelectedItem()).equalsIgnoreCase(safeText(world.getDifficulty()))) {
+            if (!safeText(difficulty.value()).equalsIgnoreCase(safeText(world.getDifficulty()))) {
                 manager.suppressNextWorldSuccessNotification(serverId, "setDifficulty");
-                manager.setWorldDifficulty(serverId, worldName, safeText(difficulty.getSelectedItem()));
+                manager.setWorldDifficulty(serverId, worldName, safeText(difficulty.value()));
             }
             manager.suppressNextWorldSuccessNotification(serverId, "setWorldProfile");
             manager.setWorldProfile(serverId, worldName, profile);
@@ -7913,16 +8391,18 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
             List<WorldGeneratorDescriptor> generatorDescriptors = snapshot == null ? List.of() : snapshot.getGeneratorDescriptors();
             TextInputWidget worldInput = new TextInputWidget.Builder().placeholder("World Name").size(220, 18).build();
             TextInputWidget seedInput = new TextInputWidget.Builder().placeholder("Seed").size(220, 18).build();
-            DropDownWidget<String> environmentSelect = dropdown(List.of("NORMAL", "NETHER", "THE_END", "CUSTOM"), "NORMAL", 220);
+            OptionField environmentSelect = optionField(List.of("NORMAL", "NETHER", "THE_END", "CUSTOM"), "NORMAL", 220);
             List<GeneratorOption> generatorOptions = createGeneratorOptions(generatorDescriptors);
-            DropDownWidget<GeneratorOption> generatorSelect = new DropDownWidget.Builder<>(generatorOptions)
-                .displayFunction(GeneratorOption::label)
-                .selectedItem(generatorOptions.getFirst())
-                .size(220, 18)
-                .build();
+            List<String> generatorLabels = generatorOptions.stream().map(GeneratorOption::label).toList();
+            OptionField generatorSelect = optionField(generatorLabels, generatorOptions.getFirst().label(), 220, value -> value);
             TextInputWidget generatorConfig = new TextInputWidget.Builder().placeholder("Generator Config").size(220, 18).build();
-            applyGeneratorOption(generatorSelect.getSelectedItem(), generatorConfig);
-            generatorSelect.setOnSelectionChanged(option -> applyGeneratorOption(option, generatorConfig));
+            GeneratorOption[] selectedGenerator = new GeneratorOption[] {generatorOptionByLabel(generatorOptions, generatorSelect.value())};
+            applyGeneratorOption(selectedGenerator[0], generatorConfig);
+            generatorSelect.button().setAction(() -> showOptionSelector(generatorSelect.button(), generatorLabels, value -> {
+                generatorSelect.setValue(value);
+                selectedGenerator[0] = generatorOptionByLabel(generatorOptions, value);
+                applyGeneratorOption(selectedGenerator[0], generatorConfig);
+            }));
             PopupWidget.Builder builder = new PopupWidget.Builder("Create World")
                 .setResizable(false)
                 .setAntiOutOfBound(true)
@@ -7930,8 +8410,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 .size(420, 220);
             builder.addRow("World", true, 18, worldInput);
             builder.addRow("Seed", true, 18, seedInput);
-            builder.addRow("Environment", true, 18, environmentSelect);
-            builder.addRow("Generator", true, 18, generatorSelect);
+            builder.addRow("Environment", true, 18, environmentSelect.button());
+            builder.addRow("Generator", true, 18, generatorSelect.button());
             builder.addRow("Config", true, 18, generatorConfig);
             PopupWidget[] popupRef = new PopupWidget[1];
             IconButton createButton = new IconButton.Builder()
@@ -7949,8 +8429,8 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                         new Notification("World", "World Exists", Notification.Type.ERROR);
                         return;
                     }
-                    GeneratorOption generatorOption = generatorSelect.getSelectedItem();
-                    manager.createWorld(serverId, worldName, seedInput.getText(), safeText(environmentSelect.getSelectedItem()),
+                    GeneratorOption generatorOption = selectedGenerator[0];
+                    manager.createWorld(serverId, worldName, seedInput.getText(), safeText(environmentSelect.value()),
                         generatorOption == null ? "" : generatorOption.generator(), generatorConfig.getText());
                     selectedWorldName = worldName;
                     if (popupRef[0] != null) {
@@ -7998,6 +8478,18 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 }
             }
             options.add(option);
+        }
+
+        private GeneratorOption generatorOptionByLabel(List<GeneratorOption> options, String label) {
+            if (options == null || options.isEmpty()) {
+                return null;
+            }
+            for (GeneratorOption option : options) {
+                if (safeText(option.label()).equalsIgnoreCase(safeText(label))) {
+                    return option;
+                }
+            }
+            return options.getFirst();
         }
 
         private void applyGeneratorOption(GeneratorOption option, TextInputWidget generatorConfig) {
@@ -8497,18 +8989,31 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
                 addDetailWidget(row("Worlds", rowWidth, readOnlyButton("No Worlds")));
                 return;
             }
-            DropDownWidget<String> worldsDropdown = new DropDownWidget.Builder<>(worlds)
-                .multiSelect(true)
-                .size(Math.max(220, rowWidth - 12), 20)
-                .maxVisibleItems(10)
-                .entranceAnimation(false)
-                .onMultiSelectionChanged(dropdown -> {
-                    selectedWorlds.clear();
-                    selectedWorlds.addAll(dropdown.getSelectedItems());
-                })
-                .build();
-            worldsDropdown.setSelectedItems(worlds.stream().filter(world -> containsIgnoreCase(selectedWorlds, world)).toList(), List.of());
-            addDetailWidget(row("Worlds", rowWidth, worldsDropdown));
+            int buttonWidth = Math.max(110, (rowWidth - 24) / 3);
+            List<ToggleWidget> rowToggles = new ArrayList<>();
+            for (String world : worlds) {
+                ToggleWidget toggle = new ToggleWidget.Builder()
+                    .label(world)
+                    .toggled(containsIgnoreCase(selectedWorlds, world))
+                    .size(buttonWidth, 20)
+                    .entranceAnimation(false)
+                    .onChange(value -> {
+                        if (value) {
+                            selectedWorlds.add(world);
+                        } else {
+                            selectedWorlds.removeIf(selected -> selected.equalsIgnoreCase(world));
+                        }
+                    })
+                    .build();
+                rowToggles.add(toggle);
+                if (rowToggles.size() == 3) {
+                    addDetailWidget(row("Worlds", rowWidth, rowToggles.toArray(new AnimatedWidget[0])));
+                    rowToggles.clear();
+                }
+            }
+            if (!rowToggles.isEmpty()) {
+                addDetailWidget(row("Worlds", rowWidth, rowToggles.toArray(new AnimatedWidget[0])));
+            }
         }
 
         private String inventoryGroupIdFromName(String name) {
@@ -8758,6 +9263,46 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         return value == null ? "" : value;
     }
 
+    private int textWidth(String value) {
+        String clean = safeText(value).replaceAll("(?i)[&§][0-9a-fk-or]", "").replaceAll("<[^>]+>", "");
+        if (RemotelyClient.tr != null) {
+            return RemotelyClient.tr.getWidth(clean);
+        }
+        return clean.length() * 6;
+    }
+
+    private MinecraftGameAssets getGameAssets() {
+        if (RemotelyClient.INSTANCE != null && RemotelyClient.INSTANCE.getHost() != null) {
+            MinecraftGameAssets gameAssets = RemotelyClient.INSTANCE.getHost().getGameAssets();
+            if (gameAssets != null) {
+                return gameAssets;
+            }
+        }
+        return MinecraftGameAssets.EMPTY;
+    }
+
+    private void drawMinecraftTexture(IDrawContext context, MinecraftGameAssets gameAssets, MinecraftAssetReference reference, BufferedImage fallback, int x, int y, int width, int height, int u, int v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
+        Object nativeIdentifier = gameAssets.getNativeIdentifier(reference);
+        if (nativeIdentifier != null && context.drawNativeTexture(nativeIdentifier, x, y, width, height, u, v, regionWidth, regionHeight, textureWidth, textureHeight)) {
+            return;
+        }
+        if (fallback != null && fallback != ResourceManager.getInstance().getMissingTexture()) {
+            context.drawPixelArt(fallback, x, y, width, height);
+        }
+    }
+
+    private void renderActiveResourceSelectorOverlay(IDrawContext context, int mouseX, int mouseY, float delta) {
+        JsonResourceStudioView view = activeJsonResourceView();
+        if (view != null) {
+            view.renderResourceSelector(context, mouseX, mouseY, delta);
+        }
+    }
+
+    private JsonResourceStudioView activeJsonResourceView() {
+        ReSyncStudioView view = activeStudioView();
+        return view instanceof JsonResourceStudioView jsonView ? jsonView : null;
+    }
+
     private Long parseNullableLong(String value) {
         String text = safeText(value).trim();
         if (text.isBlank()) {
@@ -8809,11 +9354,24 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         if (nodeItemSelector != null && nodeItemSelector.visible && nodeItemSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
             return true;
         }
+        if (handleActiveStudioSelectorMouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
+            return true;
+        }
+        if (handlePopupWidgetMouseScrolled(mouseX, mouseY, verticalAmount)) {
+            return true;
+        }
+        JsonResourceStudioView jsonResourceView = activeJsonResourceView();
+        if (jsonResourceView != null && jsonResourceView.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)) {
+            return true;
+        }
         if (studioMode && studioContentBrowser != null && studioContentBrowser.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
             return true;
         }
         ReSyncStudioView activeView = activeStudioView();
         if (activeView != null) {
+            if (activeStudioViewUsesResourcePanel() && studioResourcePanel != null && studioResourcePanel.isVisible() && studioResourcePanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+                return true;
+            }
             return activeView.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
         if (paletteSidePanel != null && paletteSidePanel.isVisible() && paletteSidePanel.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
@@ -8866,6 +9424,1859 @@ public class FlowEditorScreen extends InfiniteScreen implements UiHost, StudioHe
         return initialHeight;
     }
 
+    private class JsonResourceStudioView implements ReSyncStudioView {
+        private final String type;
+        private final String id;
+        private final JsonObject resource;
+        private final List<AnimatedWidget> headerActions = new ArrayList<>();
+        private final Map<String, TextInputWidget> fieldInputs = new LinkedHashMap<>();
+        private final Map<String, CodeEditorWidget> codeFieldInputs = new LinkedHashMap<>();
+        private ItemSelectorWidget activeResourceSelector;
+        private int recipePreviewX;
+        private int recipePreviewY;
+        private int recipePreviewScale = 1;
+        private RecipeStationLayout recipePreviewLayout;
+        private String selectedRecipeField;
+        private String pressedRecipeField;
+        private String dragRecipeTargetField;
+        private boolean draggingRecipeField;
+        private int x;
+        private int y;
+        private int width;
+        private int height;
+
+        private JsonResourceStudioView(String type, String id, JsonObject resource) {
+            this.type = type;
+            this.id = id;
+            this.resource = resource != null ? resource : new JsonObject();
+            headerActions.add(headerButton("save.png", "Save", this::save));
+        }
+
+        @Override
+        public List<AnimatedWidget> headerButtons() {
+            return headerActions;
+        }
+
+        @Override
+        public void resize(int width, int height) {
+            this.x = 18;
+            this.y = 44;
+            this.width = Math.max(120, width - 36);
+            this.height = Math.max(80, height - 62);
+        }
+
+        @Override
+        public void render(IDrawContext context, int mouseX, int mouseY, float delta) {
+            int text = ThemeManager.getColor(ThemeColor.text);
+            int muted = ThemeManager.getColor(ThemeColor.textDark);
+            renderPreviewCanvas(context, text, muted);
+        }
+
+        private void renderPreviewCanvas(IDrawContext context, int text, int muted) {
+            int previewX = x + 12;
+            int previewY = y + 12;
+            int rightReserve = studioResourcePanel != null && studioResourcePanel.isVisible() && !studioResourcePanel.isLeftAnchored() ? studioResourcePanel.getDesiredWidth() + 10 : 0;
+            int previewWidth = Math.max(160, x + width - rightReserve - previewX - 14);
+            int previewHeight = Math.max(80, height - 24);
+            switch (type) {
+                case ReSyncResourceDragPayload.MOTD_PROFILE -> renderMotdRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
+                case ReSyncResourceDragPayload.RECIPE_DEFINITION -> renderRecipeRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
+                case ReSyncResourceDragPayload.TEXT_TEMPLATE -> renderTextRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
+                case ReSyncResourceDragPayload.MESSAGE_RULE -> renderMessageRuleRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
+                case ReSyncResourceDragPayload.IGNORE_LIST -> renderIgnoreListRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
+                case ReSyncResourceDragPayload.CHAT_CHANNEL, ReSyncResourceDragPayload.CHAT_FORMAT, ReSyncResourceDragPayload.CHAT_RULE,
+                     ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT, ReSyncResourceDragPayload.MENTION_STYLE -> renderChatRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
+                default -> renderGenericRealPreview(context, previewX, previewY, previewWidth, previewHeight, text, muted);
+            }
+        }
+
+        private void renderMotdRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
+            int top = previewY + Math.max(20, previewHeight / 2 - 38);
+            BufferedImage icon = motdPreviewIcon();
+            String[] lines = motdPreviewLines();
+            context.drawPixelArt(icon, previewX + 12, top + 16, 32, 32);
+            drawFormattedLine(context, "Cool Server", previewX + 48, top + 16, text, true);
+            drawFormattedLine(context, lines[0], previewX + 48, top + 28, text, true);
+            drawFormattedLine(context, lines[1], previewX + 48, top + 37, muted, true);
+            context.drawText(sampleCountText(), previewX + previewWidth - 74, top + 16, 0xFFFFFFFF, false);
+        }
+
+        private BufferedImage motdPreviewIcon() {
+            String hash = jsonText("iconHash");
+            if (!hash.isBlank()) {
+                BufferedImage cached;
+                synchronized (MOTD_ICON_CACHE) {
+                    cached = MOTD_ICON_CACHE.get(hash);
+                }
+                if (cached != null) {
+                    return cached;
+                }
+            }
+            String data = jsonText("iconData");
+            if (!data.isBlank()) {
+                try {
+                    byte[] bytes = Base64.getDecoder().decode(stripImageDataPrefix(data));
+                    BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
+                    if (image != null) {
+                        String key = hash.isBlank() ? sha256(bytes) : hash;
+                        synchronized (MOTD_ICON_CACHE) {
+                            MOTD_ICON_CACHE.put(key, image);
+                        }
+                        return image;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            return ResourceManager.getInstance().getImage(Identifier.icon("fullPanel.png"));
+        }
+
+        private void renderRecipeRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
+            String recipeType = normalizedRecipeType();
+            RecipeStationLayout layout = recipeStationLayout(recipeType);
+            MinecraftGameAssets gameAssets = getGameAssets();
+            MinecraftAssetReference reference = layout.hasTexture() ? gameAssets.containerTexture(layout.texture()) : null;
+            BufferedImage texture = reference != null ? gameAssets.getImage(reference) : null;
+            boolean hasTexture = texture != null && texture != ResourceManager.getInstance().getMissingTexture();
+            int textureWidth = hasTexture ? texture.getWidth() : layout.fallbackWidth();
+            int textureHeight = hasTexture ? texture.getHeight() : layout.fallbackHeight();
+            int scale = Math.max(1, Math.min(previewWidth / textureWidth, previewHeight / textureHeight));
+            scale = Math.min(scale, 3);
+            int viewWidth = textureWidth * scale;
+            int viewHeight = textureHeight * scale;
+            int viewX = previewX + Math.max(0, (previewWidth - viewWidth) / 2);
+            int viewY = previewY + Math.max(0, (previewHeight - viewHeight) / 2);
+            recipePreviewX = viewX;
+            recipePreviewY = viewY;
+            recipePreviewScale = scale;
+            recipePreviewLayout = layout;
+            if (hasTexture) {
+                drawMinecraftTexture(context, gameAssets, reference, texture, viewX, viewY, viewWidth, viewHeight, 0, 0, textureWidth, textureHeight, textureWidth, textureHeight);
+            } else {
+                drawRecipeFallbackPanel(context, layout, viewX, viewY, viewWidth, viewHeight, muted, scale);
+            }
+            drawRecipeSlotHighlights(context, recipeType, layout, viewX, viewY, scale);
+            drawRecipeStationItems(context, recipeType, layout, viewX, viewY, scale);
+        }
+
+        private void drawRecipeFallbackPanel(IDrawContext context, RecipeStationLayout layout, int viewX, int viewY, int viewWidth, int viewHeight, int muted, int scale) {
+            int border = ThemeManager.getColor(ThemeColor.innerBorder);
+            for (RecipeSlotTarget target : recipeSlotTargets(normalizedRecipeType(), layout)) {
+                int[] point = target.point();
+                if (point == null || point.length < 2) {
+                    continue;
+                }
+                int left = viewX + point[0] * scale;
+                int top = viewY + point[1] * scale;
+                int size = 16 * scale;
+                context.fill(left, top, left + size, top + size, ThemeManager.getColor(ThemeColor.elementBackground));
+                context.fillBorder(left, top, left + size, top + size, 1, border);
+            }
+            if (layout.ingredients().length > 0 && layout.output() != null && layout.output().length >= 2) {
+                int[] input = layout.ingredients()[0];
+                int[] output = layout.output();
+                int centerY = viewY + (input[1] * scale) + 8 * scale;
+                int lineHeight = Math.max(1, scale);
+                int startX = viewX + (input[0] + 24) * scale;
+                int endX = viewX + (output[0] - 8) * scale;
+                context.fill(startX, centerY, endX, centerY + lineHeight, muted);
+            }
+        }
+
+        private void renderTextRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
+            int centerY = previewY + previewHeight / 2;
+            List<String> lines = previewTextLines();
+            int startY = centerY - Math.min(3, lines.size()) * 12;
+            for (int i = 0; i < Math.min(5, lines.size()); i++) {
+                drawFormattedLine(context, lines.get(i), previewX + 28, startY + i * 24, i == 0 ? text : muted, true);
+            }
+        }
+
+        private void renderMessageRuleRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
+            int centerY = previewY + previewHeight / 2 - 46;
+            String source = jsonText("source");
+            String find = jsonText("contains");
+            String original = sampleMessageSource(source);
+            String action = jsonText("action").toLowerCase(Locale.ROOT);
+            context.drawText(messageSourceLabel(source) + "  " + messageActionLabel(action), previewX + 34, centerY - 6, muted, false);
+            drawFormattedLine(context, original, previewX + 34, centerY + 12, muted, true);
+            String replacement = jsonText("replacement");
+            String rendered = messagePreviewResult(original, find, replacement, action);
+            context.drawText(messageMatchLabel(original, find), previewX + 34, centerY + 40, muted, true);
+            drawFormattedLine(context, rendered, previewX + 34, centerY + 58, text, true);
+            if ("flow".equals(action) && !jsonText("flowId").isBlank()) {
+                context.drawText("Runs " + jsonText("flowId"), previewX + 34, centerY + 84, muted, true);
+            }
+        }
+
+        private String messagePreviewResult(String original, String find, String replacement, String action) {
+            boolean matches = find == null || find.isBlank() || original.contains(find);
+            if (!matches) {
+                return "<dark_gray>No Match</dark_gray>";
+            }
+            String renderedReplacement = messageReplacementText(original, replacement);
+            return switch (action) {
+                case "remove", "clear", "hide" -> "<dark_gray>Hidden</dark_gray>";
+                case "append" -> original + renderedReplacement;
+                case "prepend" -> renderedReplacement + original;
+                case "replace_section", "section" -> find == null || find.isBlank() ? renderedReplacement : original.replace(find, renderedReplacement);
+                case "flow" -> renderedReplacement;
+                default -> renderedReplacement;
+            };
+        }
+
+        private String messageReplacementText(String original, String replacement) {
+            String template = replacement == null || replacement.isBlank() ? "{message}" : replacement;
+            return template.replace("{player}", "Steve").replace("{message}", original);
+        }
+
+        private String messageMatchLabel(String original, String find) {
+            if (find == null || find.isBlank()) {
+                return "Applies To All";
+            }
+            return original.contains(find) ? "Matches " + find : "Missing " + find;
+        }
+
+        private String messageSourceLabel(String source) {
+            return switch (source == null ? "" : source.toLowerCase(Locale.ROOT)) {
+                case "quit" -> "Quit";
+                case "kick" -> "Kick";
+                case "death" -> "Death";
+                case "title" -> "Title";
+                case "actionbar" -> "Actionbar";
+                case "bossbar" -> "Bossbar";
+                case "openscreen" -> "Open Screen";
+                case "packettext" -> "Packet Text";
+                case "system" -> "System";
+                default -> "Join";
+            };
+        }
+
+        private String messageActionLabel(String action) {
+            return switch (action == null ? "" : action.toLowerCase(Locale.ROOT)) {
+                case "remove", "clear", "hide" -> "Hide";
+                case "append" -> "Append";
+                case "prepend" -> "Prepend";
+                case "flow" -> "Flow";
+                case "replace_section", "section" -> "Replace Part";
+                default -> "Replace";
+            };
+        }
+
+        private String sampleMessageSource(String source) {
+            return switch (source == null ? "" : source.toLowerCase(Locale.ROOT)) {
+                case "quit" -> "Steve left the game";
+                case "kick" -> "Steve was kicked";
+                case "death" -> "Steve fell from a high place";
+                case "title" -> "Welcome Steve";
+                case "actionbar" -> "Objective Updated";
+                case "bossbar" -> "Dragon Health";
+                case "openscreen" -> "Chest";
+                case "packettext" -> "Server Notice";
+                case "system" -> "Server restarting soon";
+                default -> "Steve joined the game";
+            };
+        }
+
+        private void renderChatRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
+            int chatX = previewX + Math.max(14, previewWidth / 2 - 150);
+            int chatY = previewY + Math.max(18, previewHeight / 2 - 48);
+            String prefix = jsonText("prefix");
+            String template = jsonText("template");
+            if (template.isBlank()) {
+                template = "{prefix}{sender}: {message}";
+            }
+            String line = template.replace("{prefix}", prefix).replace("{sender}", "Steve").replace("{receiver}", "Alex").replace("{message}", "Hello @Alex");
+            drawFormattedLine(context, applyMentionPreview(line), chatX + 12, chatY + 16, text, true);
+            drawFormattedLine(context, "<gray>Alex: Looks good", chatX + 12, chatY + 36, muted, true);
+            drawFormattedLine(context, "<yellow>@Steve</yellow> synced", chatX + 12, chatY + 56, text, true);
+        }
+
+        private void renderIgnoreListRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
+            int listX = previewX + Math.max(18, previewWidth / 2 - 120);
+            int listY = previewY + Math.max(18, previewHeight / 2 - 70);
+            context.drawText("Ignored Players", listX + 12, listY + 12, text, false);
+            JsonArray players = resource.has("players") && resource.get("players").isJsonArray() ? resource.getAsJsonArray("players") : new JsonArray();
+            int row = 0;
+            for (int i = 0; i < players.size() && row < 5; i++) {
+                String player = players.get(i).isJsonNull() ? "" : players.get(i).getAsString();
+                if (player.isBlank()) {
+                    continue;
+                }
+                context.drawText(player, listX + 18, listY + 37 + row * 17, row == 0 ? text : muted, false);
+                row++;
+            }
+            if (row == 0) {
+                context.drawText("None", listX + 18, listY + 38, muted, false);
+            }
+        }
+
+        private void renderGenericRealPreview(IDrawContext context, int previewX, int previewY, int previewWidth, int previewHeight, int text, int muted) {
+            int centerY = previewY + previewHeight / 2;
+            context.drawText(resourceDisplayName(), previewX + 24, centerY - 10, text, false);
+            context.drawText("Ready", previewX + 24, centerY + 8, muted, false);
+        }
+
+        private void save() {
+            ReSyncResourceType resourceType = ReSyncResourceType.byTypeId(type);
+            FlowManager manager = FlowManager.getInstance();
+            if (resourceType != null && manager != null) {
+                sanitizeLegacyResourceFields();
+                manager.saveJsonResource(serverId, resourceType, resource);
+            }
+        }
+
+        private void sanitizeLegacyResourceFields() {
+            if (ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type)) {
+                resource.remove("colorsText");
+                if (jsonText("mode").isBlank()) {
+                    resource.addProperty("mode", "frames");
+                }
+                JsonArray frames = resource.has("frames") && resource.get("frames").isJsonArray() ? resource.getAsJsonArray("frames") : new JsonArray();
+                if (frames.isEmpty()) {
+                    String text = jsonText("text");
+                    if (text.isBlank()) {
+                        text = id;
+                    }
+                    if (text != null && !text.isBlank()) {
+                        frames.add(text);
+                        resource.add("frames", frames);
+                    }
+                }
+            } else if (ReSyncResourceDragPayload.MOTD_PROFILE.equals(type)) {
+                resource.remove("mode");
+                resource.remove("frames");
+                resource.remove("frameMillis");
+                resource.remove("rotationMillis");
+                resource.remove("line1Frames");
+                resource.remove("line2Frames");
+                resource.remove("versionText");
+                resource.remove("protocolVersion");
+                resource.remove("protocolText");
+                resource.remove("match");
+                resource.remove("samplePlayers");
+                resource.remove("countMode");
+                resource.remove("fakePlayers");
+                resource.remove("overrideMaxPlayers");
+                if (!"fixed".equalsIgnoreCase(jsonText("playerCountMode"))) {
+                    resource.remove("onlinePlayers");
+                    resource.remove("maxPlayers");
+                }
+            } else if (ReSyncResourceDragPayload.MESSAGE_RULE.equals(type)) {
+                resource.remove("regex");
+                resource.remove("componentPath");
+                resource.remove("componentValue");
+            }
+        }
+
+        private void reloadFields() {
+            fieldInputs.clear();
+            codeFieldInputs.clear();
+            studioResourcePanelKey = "";
+            buildResourcePanel();
+        }
+
+        private void buildResourcePanel() {
+            if (studioResourcePanel == null) {
+                return;
+            }
+            String panelKey = activeStudioDocument != null ? activeStudioDocument.key() : ReSyncProjectMetadata.resourceKey(type, id);
+            if (reuseStudioResourcePanel(panelKey)) {
+                refreshResourcePanelFields();
+                return;
+            }
+            setStudioResourcePanelKey(panelKey);
+            fieldInputs.clear();
+            codeFieldInputs.clear();
+            int rowWidth = studioPanelState.rowWidth(studioResourcePanel);
+            List<AnimatedWidget> widgets = new ArrayList<>();
+            MountableButtonWidget summary = new MountableButtonWidget.Builder(resourceDisplayName())
+                .description(resourceSummary())
+                .iconPath(studioResourceIconPath(type, id))
+                .build();
+            summary.setSize(rowWidth, 30);
+            widgets.add(summary);
+            for (String field : editorFields()) {
+                widgets.add(fieldRow(field, rowWidth));
+            }
+            if (ReSyncResourceDragPayload.MOTD_PROFILE.equals(type)) {
+                widgets.add(motdIconUploadRow(rowWidth));
+            }
+            widgets.add(panelSaveButton(this::save));
+            setStudioResourcePanelWidgets(widgets.toArray(new AnimatedWidget[0]));
+        }
+
+        private void refreshResourcePanelFields() {
+            for (Map.Entry<String, TextInputWidget> entry : fieldInputs.entrySet()) {
+                TextInputWidget input = entry.getValue();
+                String value = jsonPathText(entry.getKey());
+                if (input != null && !input.isFocused() && !Objects.equals(input.getText(), value)) {
+                    input.setText(value);
+                }
+            }
+            for (Map.Entry<String, CodeEditorWidget> entry : codeFieldInputs.entrySet()) {
+                CodeEditorWidget input = entry.getValue();
+                String value = jsonPathText(entry.getKey());
+                if (input != null && !input.isFocused() && !Objects.equals(input.getText(), value)) {
+                    input.setText(value);
+                }
+            }
+        }
+
+        private AnimatedWidget fieldRow(String field, int rowWidth) {
+            String label = fieldLabel(field);
+            if ("conditions.world".equals(field)) {
+                return worldConditionFieldRow(label, rowWidth);
+            }
+            List<String> selectorOptions = selectorOptions(field);
+            if (!selectorOptions.isEmpty()) {
+                return searchableFieldRow(field, label, selectorOptions, rowWidth);
+            }
+            if (isCodeField(field)) {
+                int editorHeight = codeFieldHeight(field);
+                CodeEditorWidget input = new CodeEditorWidget(0, 0, rowWidth, editorHeight);
+                input.setText(jsonPathText(field));
+                input.onChange = value -> putJsonText(field, input.getText());
+                ReSyncStudioPanelState.disableEntrance(input);
+                codeFieldInputs.put(field, input);
+                return studioPanelState.codeRow(label, input, rowWidth, editorHeight + 18);
+            }
+            TextInputWidget input = new TextInputWidget.Builder()
+                .text(jsonPathText(field))
+                .placeholder(label)
+                .forcePlaceholder(false)
+                .size(rowWidth, ReSyncStudioPanelState.FIELD_HEIGHT)
+                .onChange(value -> putJsonText(field, value))
+                .build();
+            ReSyncStudioPanelState.disableEntrance(input);
+            fieldInputs.put(field, input);
+            return studioPanelState.row(label, input, rowWidth);
+        }
+
+        private AnimatedWidget motdIconUploadRow(int rowWidth) {
+            MountableButtonWidget button = new MountableButtonWidget.Builder(jsonText("iconHash").isBlank() ? "Upload Icon" : "Replace Icon")
+                .description(jsonText("iconHash").isBlank() ? "No Icon" : "Icon Ready")
+                .onClick(this::pickMotdIcon)
+                .build();
+            button.setSize(rowWidth, 30);
+            BufferedImage icon = motdPreviewIcon();
+            if (icon != null) {
+                button.setIcon(icon);
+            }
+            ReSyncStudioPanelState.disableEntrance(button);
+            return button;
+        }
+
+        private void pickMotdIcon() {
+            FileUtils.pickImageFileAsync("Select Server Icon", path -> {
+                if (path == null) {
+                    return;
+                }
+                CompletableFuture.runAsync(() -> loadMotdIcon(path));
+            });
+        }
+
+        private void loadMotdIcon(Path path) {
+            try {
+                BufferedImage source = ImageIO.read(path.toFile());
+                if (source == null) {
+                    throw new IOException("Invalid Image");
+                }
+                BufferedImage normalized = normalizeMotdIcon(source);
+                if (normalized.getWidth() != 64 || normalized.getHeight() != 64) {
+                    throw new IOException("Icon Must Be 64x64");
+                }
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                ImageIO.write(normalized, "png", output);
+                byte[] bytes = output.toByteArray();
+                String hash = sha256(bytes);
+                String encoded = Base64.getEncoder().encodeToString(bytes);
+                synchronized (MOTD_ICON_CACHE) {
+                    MOTD_ICON_CACHE.put(hash, normalized);
+                }
+                ScreenManager.getInstance().execute(() -> {
+                    resource.addProperty("iconHash", hash);
+                    resource.addProperty("iconData", encoded);
+                    resource.addProperty("icon", "motd-icons/" + hash + ".png");
+                    reloadFields();
+                    save();
+                });
+            } catch (Exception e) {
+                ScreenManager.getInstance().execute(() -> new Notification("Icon Upload Failed", e.getMessage(), Notification.Type.ERROR));
+            }
+        }
+
+        private BufferedImage normalizeMotdIcon(BufferedImage source) {
+            BufferedImage normalized = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D graphics = normalized.createGraphics();
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+            graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
+            graphics.drawImage(source, 0, 0, 64, 64, null);
+            graphics.dispose();
+            return normalized;
+        }
+
+        private String stripImageDataPrefix(String data) {
+            int comma = data.indexOf(',');
+            return data.startsWith("data:image/") && comma >= 0 ? data.substring(comma + 1) : data;
+        }
+
+        private String sha256(byte[] bytes) throws NoSuchAlgorithmException {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(bytes);
+            StringBuilder result = new StringBuilder(hash.length * 2);
+            for (byte value : hash) {
+                result.append(String.format("%02x", value));
+            }
+            return result.toString();
+        }
+
+        private AnimatedWidget worldConditionFieldRow(String label, int rowWidth) {
+            List<String> selected = worldConditionValues();
+            List<String> options = normalizedWorldOptions(catalogOptions("server:minecraft:world"), selected);
+            DropDownWidget<String> dropdown = new DropDownWidget.Builder<>(options)
+                .multiSelect(true)
+                .size(174, 18)
+                .maxVisibleItems(8)
+                .onMultiSelectionChanged(widget -> putWorldConditionValues(widget.getSelectedItems()))
+                .build();
+            dropdown.setSelectedItems(selected, List.of());
+            ReSyncStudioPanelState.disableEntrance(dropdown);
+            return studioPanelState.row(label, dropdown, rowWidth);
+        }
+
+        private List<String> normalizedWorldOptions(List<String> choices, List<String> selected) {
+            List<String> options = new ArrayList<>();
+            if (choices != null) {
+                for (String choice : choices) {
+                    if (choice != null && !choice.isBlank() && !"Loading".equals(choice) && !options.contains(choice)) {
+                        options.add(choice);
+                    }
+                }
+            }
+            if (selected != null) {
+                for (String value : selected) {
+                    if (value != null && !value.isBlank() && !options.contains(value)) {
+                        options.addFirst(value);
+                    }
+                }
+            }
+            if (options.isEmpty()) {
+                options.add("Loading");
+            }
+            return options;
+        }
+
+        private AnimatedWidget searchableFieldRow(String field, String label, List<String> options, int rowWidth) {
+            List<String> normalized = normalizedSelectorOptions(options, jsonPathText(field));
+            AnimatedButton button = new AnimatedButton.Builder()
+                .label(selectorLabel(field, resolveSelectedOption(normalized, jsonPathText(field))))
+                .size(174, 18)
+                .entranceAnimation(false)
+                .build();
+            button.setAction(() -> {
+                if (normalized.size() == 1 && "Loading".equals(normalized.getFirst())) {
+                    return;
+                }
+                showResourceSelector(field, normalized, jsonPathText(field), value -> {
+                    if (!isRealOption(value)) {
+                        return;
+                    }
+                    button.setMessage(selectorLabel(field, value));
+                    putJsonText(field, value);
+                    if (rebuildOnSelection(field)) {
+                        reloadFields();
+                    }
+                }, button.getX(), button.getY() + button.getHeight());
+            });
+            return studioPanelState.row(label, button, rowWidth);
+        }
+
+        private void showResourceSelector(String field, List<String> options, String selected, Consumer<String> onSelected, int selectorX, int selectorY) {
+            closeResourceSelector();
+            ItemSelectorWidget[] selectorRef = new ItemSelectorWidget[1];
+            ItemSelectorWidget selector = new ItemSelectorWidget.Builder(FlowEditorScreen.this)
+                .size(220, 240)
+                .dismissOnSelect(true)
+                .onClose(() -> closeResourceSelector(selectorRef[0]))
+                .build();
+            selector.setLayer(900);
+            selector.setPriority(30);
+            selectorRef[0] = selector;
+            for (String option : options.stream().filter(this::isRealOption).distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList()) {
+                selector.addItem(selectorLabel(field, option), () -> onSelected.accept(option));
+            }
+            selector.setSelectedItem(selectorLabel(field, selected));
+            activeResourceSelector = selector;
+            FlowEditorScreen.this.addDrawableChild(selector);
+            int left = Math.clamp(selectorX, 8, Math.max(8, width - selector.getWidth() - 8));
+            int top = Math.clamp(selectorY, 32, Math.max(32, height - selector.getHeight() - 20));
+            selector.show(left, top);
+        }
+
+        private void closeResourceSelector() {
+            closeResourceSelector(activeResourceSelector);
+        }
+
+        private void closeResourceSelector(ItemSelectorWidget selector) {
+            if (selector != null) {
+                selector.onClose = null;
+                selector.hide();
+                FlowEditorScreen.this.remove(selector);
+            }
+            if (selector == activeResourceSelector) {
+                activeResourceSelector = null;
+            }
+            setFocusedWidget(null);
+        }
+
+        private void renderResourceSelector(IDrawContext context, int mouseX, int mouseY, float delta) {
+        }
+
+        private boolean searchableSelectorField(String field) {
+            return "output.material".equals(field) || "template.material".equals(field) || "base.material".equals(field) || "addition.material".equals(field)
+                || field.endsWith("Flow") || "flowId".equals(field) || "flowPredicate".equals(field) || field.contains("Flow")
+                || recipeSlotIndex(field) >= 0 || recipeIngredientIndex(field) >= 0;
+        }
+
+        private List<String> normalizedSelectorOptions(List<String> choices, String selected) {
+            List<String> options = new ArrayList<>();
+            if (choices != null) {
+                for (String choice : choices) {
+                    if (choice != null && !choice.isBlank() && !options.contains(choice)) {
+                        options.add(choice);
+                    }
+                }
+            }
+            if (selected != null && !selected.isBlank() && !"Loading".equals(selected) && !options.contains(selected)) {
+                options.addFirst(selected);
+            }
+            if (options.isEmpty()) {
+                options.add("No Options");
+            }
+            return options;
+        }
+
+        private String resolveSelectedOption(List<String> options, String selected) {
+            if (selected != null && options.contains(selected)) {
+                return selected;
+            }
+            if (selected != null) {
+                String normalized = selected.toUpperCase(Locale.ROOT);
+                if (options.contains(normalized)) {
+                    return normalized;
+                }
+            }
+            return options.isEmpty() ? null : options.getFirst();
+        }
+
+        private List<String> selectorOptions(String field) {
+            return switch (field) {
+                case "enabled", "allowMiniMessage" -> List.of("true", "false");
+                case "type" -> recipeTypeOptions();
+                case "output.material", "template.material", "base.material", "addition.material" -> materialOptions();
+                case "playerCountMode" -> List.of("real", "hidden", "fixed");
+                case "mode" -> ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type)
+                    ? List.of("frames", "typing", "scroll", "gradient", "blink", "random", "conditional")
+                    : List.of();
+                case "action" -> switch (type) {
+                    case ReSyncResourceDragPayload.CHAT_RULE -> List.of("block", "replace", "flow", "channel");
+                    case ReSyncResourceDragPayload.MESSAGE_RULE -> List.of("replace_section", "replace", "append", "prepend", "remove", "flow");
+                    default -> List.of();
+                };
+                case "source" -> List.of("join", "quit", "kick", "death", "title", "actionbar", "bossbar", "openScreen", "packetText", "system");
+                case "flowId", "flowPredicate", "craftedFlow", "deniedFlow", "cookedFlow", "privateMessageFlow", "mentionFlow" -> flowOptions();
+                default -> recipeSlotIndex(field) >= 0 || recipeIngredientIndex(field) >= 0 ? materialOptions() : List.of();
+            };
+        }
+
+        private boolean rebuildOnSelection(String field) {
+            return "type".equals(field) || "playerCountMode".equals(field) || "action".equals(field);
+        }
+
+        private String selectorLabel(String field, String value) {
+            if (value == null || value.isBlank()) {
+                return "none";
+            }
+            if ("output.material".equals(field)) {
+                return formatOptionLabel(value);
+            }
+            if (field.endsWith("Flow") || "flowId".equals(field) || "flowPredicate".equals(field) || field.contains("Flow")) {
+                FlowManager manager = FlowManager.getInstance();
+                return manager != null && !"none".equals(value) ? manager.getFlowName(serverId, value) : value;
+            }
+            return formatOptionLabel(value);
+        }
+
+        private String formatOptionLabel(String value) {
+            if (value == null || value.isBlank()) {
+                return "none";
+            }
+            String cleaned = value.trim().replace("minecraft:", "").replace('_', ' ').replace('-', ' ');
+            StringBuilder builder = new StringBuilder();
+            for (String part : cleaned.split("\\s+")) {
+                if (part.isBlank()) {
+                    continue;
+                }
+                if (!builder.isEmpty()) {
+                    builder.append(' ');
+                }
+                builder.append(part.substring(0, 1).toUpperCase(Locale.ROOT));
+                if (part.length() > 1) {
+                    builder.append(part.substring(1).toLowerCase(Locale.ROOT));
+                }
+            }
+            return builder.isEmpty() ? value : builder.toString();
+        }
+
+        private List<String> recipeTypeOptions() {
+            return List.of("shaped", "shapeless", "furnace", "blasting", "smoking", "campfire", "stonecutting", "smithing_transform", "smithing_trim");
+        }
+
+        private List<String> materialOptions() {
+            List<String> values = OptionCatalogCache.getInstance().getValues(serverId, MATERIAL_OPTIONS_SOURCE);
+            if (!values.isEmpty()) {
+                return values;
+            }
+            FlowManager manager = FlowManager.getInstance();
+            if (manager != null && serverId != null) {
+                manager.ensureFlowClient(serverId).requestOptionCatalog(MATERIAL_OPTIONS_SOURCE);
+            }
+            return FALLBACK_MATERIAL_OPTIONS;
+        }
+
+        private List<String> flowOptions() {
+            List<String> options = new ArrayList<>();
+            options.add("none");
+            FlowManager manager = FlowManager.getInstance();
+            if (manager != null) {
+                options.addAll(manager.getFlowsForServer(serverId).keySet().stream().sorted(String.CASE_INSENSITIVE_ORDER).toList());
+            }
+            return options;
+        }
+
+        private List<String> catalogOptions(String source) {
+            List<String> values = OptionCatalogCache.getInstance().getValues(serverId, source);
+            if (!values.isEmpty()) {
+                return values;
+            }
+            if (!OptionCatalogCache.getInstance().hasCatalog(serverId, source)) {
+                FlowManager manager = FlowManager.getInstance();
+                if (manager != null) {
+                    manager.ensureFlowClient(serverId).requestOptionCatalog(source);
+                }
+                return List.of("Loading");
+            }
+            return List.of();
+        }
+
+        private boolean isRealOption(String value) {
+            return value != null && !"Loading".equals(value) && !"No Options".equals(value);
+        }
+
+        private boolean isCodeField(String field) {
+            return switch (field) {
+                case "template", "sender", "receiver", "spy", "replacement", "text", "motdText", "format", "framesText", "colorsText" -> true;
+                default -> false;
+            };
+        }
+
+        private int codeFieldHeight(String field) {
+            return switch (field) {
+                case "motdText" -> 46;
+                case "text", "template", "format", "replacement", "framesText", "colorsText" -> dynamicCodeFieldHeight(field);
+                default -> 82;
+            };
+        }
+
+        private int dynamicCodeFieldHeight(String field) {
+            String value = jsonPathText(field);
+            int lines = value == null || value.isBlank() ? 4 : Math.clamp(value.split("\\R", -1).length, 4, 10);
+            return Math.clamp(lines * 18 + 28, 100, 208);
+        }
+
+        private String resourceSummary() {
+            return switch (type) {
+                case ReSyncResourceDragPayload.MOTD_PROFILE -> firstFilled(jsonPathText("motdText"), "Server List");
+                case ReSyncResourceDragPayload.RECIPE_DEFINITION -> firstFilled(jsonText(jsonObject("output"), "material"), "Crafting");
+                case ReSyncResourceDragPayload.TEXT_TEMPLATE -> firstFilled(jsonText("text"), "Template");
+                case ReSyncResourceDragPayload.MESSAGE_RULE -> firstFilled(jsonText("source"), "Rewrite");
+                case ReSyncResourceDragPayload.IGNORE_LIST -> jsonArraySize("players") + " Players";
+                case ReSyncResourceDragPayload.CHAT_CHANNEL -> firstFilled(jsonText("displayName"), jsonText("prefix"), "Channel");
+                case ReSyncResourceDragPayload.CHAT_FORMAT -> "Chat Layout";
+                case ReSyncResourceDragPayload.CHAT_RULE -> firstFilled(jsonText("contains"), "Rule");
+                case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> "Private Messages";
+                case ReSyncResourceDragPayload.MENTION_STYLE -> "Mention Style";
+                default -> id;
+            };
+        }
+
+        private String firstFilled(String... values) {
+            for (String value : values) {
+                if (value != null && !value.isBlank()) {
+                    return value;
+                }
+            }
+            return "";
+        }
+
+        private boolean handleRecipePreviewClick(int mouseX, int mouseY, int button) {
+            if (recipePreviewLayout == null || recipePreviewScale <= 0) {
+                return false;
+            }
+            String field = recipeFieldAt(mouseX, mouseY);
+            if (field.isBlank()) {
+                return false;
+            }
+            selectedRecipeField = field;
+            if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                deleteRecipeField(field);
+                reloadFields();
+                return true;
+            }
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                pressedRecipeField = field;
+                dragRecipeTargetField = field;
+                draggingRecipeField = false;
+                return true;
+            }
+            return false;
+        }
+
+        private boolean handleRecipePreviewDrag(int mouseX, int mouseY) {
+            if (pressedRecipeField == null || pressedRecipeField.isBlank()) {
+                return false;
+            }
+            String field = recipeFieldAt(mouseX, mouseY);
+            if (field.isBlank()) {
+                dragRecipeTargetField = null;
+                return true;
+            }
+            dragRecipeTargetField = field;
+            if (!Objects.equals(field, pressedRecipeField)) {
+                draggingRecipeField = true;
+            }
+            return true;
+        }
+
+        private boolean handleRecipePreviewRelease(int mouseX, int mouseY) {
+            if (pressedRecipeField == null || pressedRecipeField.isBlank()) {
+                return false;
+            }
+            String source = pressedRecipeField;
+            String target = recipeFieldAt(mouseX, mouseY);
+            boolean wasDragging = draggingRecipeField;
+            pressedRecipeField = null;
+            dragRecipeTargetField = null;
+            draggingRecipeField = false;
+            if (wasDragging && target.isBlank()) {
+                return true;
+            }
+            if (wasDragging && !target.isBlank() && !Objects.equals(source, target)) {
+                moveRecipeField(source, target);
+                selectedRecipeField = target;
+                reloadFields();
+                return true;
+            }
+            showRecipeMaterialSelector(source, mouseX, mouseY);
+            return true;
+        }
+
+        private String recipeFieldAt(int mouseX, int mouseY) {
+            String recipeType = normalizedRecipeType();
+            List<RecipeSlotTarget> targets = recipeSlotTargets(recipeType, recipePreviewLayout);
+            List<SlotInteractionGrid.SlotRect> slots = new ArrayList<>();
+            for (int i = 0; i < targets.size(); i++) {
+                int[] point = targets.get(i).point();
+                if (point == null || point.length < 2) {
+                    continue;
+                }
+                int size = Math.max(16, 16 * recipePreviewScale);
+                slots.add(new SlotInteractionGrid.SlotRect(i, recipePreviewX + point[0] * recipePreviewScale, recipePreviewY + point[1] * recipePreviewScale, size));
+            }
+            int slot = SlotInteractionGrid.hitSlot(slots, mouseX, mouseY);
+            return slot >= 0 && slot < targets.size() ? targets.get(slot).field() : "";
+        }
+
+        private List<RecipeSlotTarget> recipeSlotTargets(String recipeType, RecipeStationLayout layout) {
+            if (layout == null) {
+                return List.of();
+            }
+            List<RecipeSlotTarget> targets = new ArrayList<>();
+            if (isSmithingRecipe(recipeType)) {
+                String[] fields = new String[]{"template.material", "base.material", "addition.material"};
+                for (int i = 0; i < layout.templates().length && i < fields.length; i++) {
+                    targets.add(new RecipeSlotTarget(fields[i], layout.templates()[i]));
+                }
+                targets.add(new RecipeSlotTarget("output.material", layout.output()));
+                return targets;
+            }
+            int[][] points = layout.ingredients();
+            for (int i = 0; i < points.length; i++) {
+                String field;
+                if (isCookingRecipe(recipeType) || "stonecutting".equals(recipeType) || "shapeless".equals(recipeType)) {
+                    field = "ingredient" + (i + 1);
+                } else {
+                    field = "slot" + (i + 1);
+                }
+                targets.add(new RecipeSlotTarget(field, points[i]));
+            }
+            targets.add(new RecipeSlotTarget("output.material", layout.output()));
+            return targets;
+        }
+
+        private void drawRecipeSlotHighlights(IDrawContext context, String recipeType, RecipeStationLayout layout, int viewX, int viewY, int scale) {
+            int selectedColor = ThemeManager.getAnimatedColor("recipe_slot_selected".hashCode(), (ThemeManager.getAccent("nice").getAccentColor() & 0x00FFFFFF) | 0x99000000);
+            for (RecipeSlotTarget target : recipeSlotTargets(recipeType, layout)) {
+                boolean selected = Objects.equals(target.field(), selectedRecipeField);
+                boolean dragTarget = Objects.equals(target.field(), dragRecipeTargetField);
+                if ((!selected && !dragTarget) || target.point() == null || target.point().length < 2) {
+                    continue;
+                }
+                int size = Math.max(16, 16 * scale);
+                SlotInteractionGrid.drawHighlight(context, viewX + target.point()[0] * scale, viewY + target.point()[1] * scale, size, size, selectedColor, selected);
+            }
+        }
+
+        private void deleteRecipeField(String field) {
+            if ("output.material".equals(field)) {
+                JsonObject output = jsonObject("output");
+                output.remove("material");
+                output.remove("amount");
+            } else if ("template.material".equals(field) || "base.material".equals(field) || "addition.material".equals(field)) {
+                putJsonPathText(field, "");
+            } else if (recipeSlotIndex(field) >= 0) {
+                putRecipeSlotText(recipeSlotIndex(field), "");
+            } else if (recipeIngredientIndex(field) >= 0) {
+                putRecipeIngredientText(recipeIngredientIndex(field), "");
+            }
+        }
+
+        private void moveRecipeField(String source, String target) {
+            String material = jsonPathText(source);
+            if (material.isBlank()) {
+                return;
+            }
+            putJsonText(target, material);
+            putJsonText(source, "");
+            if ("output.material".equals(source)) {
+                jsonObject("output").remove("amount");
+            }
+            if ("output.material".equals(target) && jsonText(jsonObject("output"), "amount").isBlank()) {
+                JsonObject output = jsonObject("output");
+                output.addProperty("amount", 1);
+                resource.add("output", output);
+            }
+        }
+
+        private boolean changeRecipeItemAmount(int mouseX, int mouseY, double verticalAmount) {
+            if (recipePreviewLayout == null || recipePreviewScale <= 0) {
+                return false;
+            }
+            String field = recipeFieldAt(mouseX, mouseY);
+            if (field.isBlank() || jsonPathText(field).isBlank()) {
+                return false;
+            }
+            int amount = recipeFieldAmount(field);
+            int nextAmount = Math.clamp(amount + (verticalAmount > 0 ? 1 : -1), 1, 64);
+            putRecipeFieldAmount(field, nextAmount);
+            return true;
+        }
+
+        private void showRecipeMaterialSelector(String field, int mouseX, int mouseY) {
+            List<String> options = normalizedSelectorOptions(materialOptions(), jsonPathText(field));
+            if (options.size() == 1 && "Loading".equals(options.getFirst())) {
+                return;
+            }
+            showResourceSelector(field, options, jsonPathText(field), value -> {
+                if (!isRealOption(value)) {
+                    return;
+                }
+                putJsonText(field, value);
+                reloadFields();
+            }, mouseX, mouseY);
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (activeResourceSelector != null && activeResourceSelector.visible && activeResourceSelector.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+            return (button == GLFW.GLFW_MOUSE_BUTTON_LEFT || button == GLFW.GLFW_MOUSE_BUTTON_RIGHT)
+                && ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type)
+                && handleRecipePreviewClick((int) mouseX, (int) mouseY, button);
+        }
+
+        private boolean hasActiveResourceSelector() {
+            return activeResourceSelector != null && activeResourceSelector.visible;
+        }
+
+        @Override
+        public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            if (activeResourceSelector != null && activeResourceSelector.visible && activeResourceSelector.mouseReleased(mouseX, mouseY, button)) {
+                return true;
+            }
+            return button == GLFW.GLFW_MOUSE_BUTTON_LEFT && ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && handleRecipePreviewRelease((int) mouseX, (int) mouseY);
+        }
+
+        @Override
+        public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+            if (activeResourceSelector != null && activeResourceSelector.visible && activeResourceSelector.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+                return true;
+            }
+            return button == GLFW.GLFW_MOUSE_BUTTON_LEFT && ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && handleRecipePreviewDrag((int) mouseX, (int) mouseY);
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+            if (activeResourceSelector != null && activeResourceSelector.visible && activeResourceSelector.mouseScrolled((int) mouseX, (int) mouseY, verticalAmount)) {
+                return true;
+            }
+            return ReSyncResourceDragPayload.RECIPE_DEFINITION.equals(type) && changeRecipeItemAmount((int) mouseX, (int) mouseY, verticalAmount);
+        }
+
+        @Override
+        public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+            return activeResourceSelector != null && activeResourceSelector.visible && activeResourceSelector.keyPressed(keyCode, scanCode, modifiers);
+        }
+
+        @Override
+        public boolean charTyped(char chr, int modifiers) {
+            return activeResourceSelector != null && activeResourceSelector.visible && activeResourceSelector.charTyped(chr, modifiers);
+        }
+
+        private List<String> editorFields() {
+            return switch (type) {
+                case ReSyncResourceDragPayload.CHAT_CHANNEL -> List.of("displayName", "prefix", "format", "range", "speakPermission", "readPermission", "allowMiniMessage", "miniMessagePermission");
+                case ReSyncResourceDragPayload.CHAT_FORMAT -> List.of("template");
+                case ReSyncResourceDragPayload.CHAT_RULE -> chatRuleFields();
+                case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> List.of("sender", "receiver", "spy", "privateMessageFlow");
+                case ReSyncResourceDragPayload.MENTION_STYLE -> List.of("template", "mentionFlow");
+                case ReSyncResourceDragPayload.IGNORE_LIST -> List.of("player1", "player2", "player3", "player4", "player5");
+                case ReSyncResourceDragPayload.MOTD_PROFILE -> motdFields();
+                case ReSyncResourceDragPayload.MESSAGE_RULE -> messageRuleFields();
+                case ReSyncResourceDragPayload.RECIPE_DEFINITION -> recipeFields();
+                case ReSyncResourceDragPayload.TEXT_TEMPLATE -> textTemplateFields();
+                default -> List.of("displayName");
+            };
+        }
+
+        private List<String> chatRuleFields() {
+            List<String> fields = new ArrayList<>(List.of("contains", "action"));
+            String action = jsonText("action");
+            if ("replace".equalsIgnoreCase(action)) {
+                fields.add("replacement");
+            } else if ("channel".equalsIgnoreCase(action)) {
+                fields.add("channel");
+            } else if ("flow".equalsIgnoreCase(action)) {
+                fields.add("flowId");
+            }
+            return fields;
+        }
+
+        private List<String> messageRuleFields() {
+            List<String> fields = new ArrayList<>(List.of("source", "contains", "replacement", "action"));
+            String action = jsonText("action");
+            if ("flow".equalsIgnoreCase(action)) {
+                fields.add("flowPredicate");
+                fields.add("flowId");
+            }
+            fields.add("priority");
+            fields.add("enabled");
+            return fields;
+        }
+
+        private List<String> recipeFields() {
+            String recipeType = normalizedRecipeType();
+            List<String> fields = new ArrayList<>(List.of("type"));
+            if (isCookingRecipe(recipeType)) {
+                fields.add("experience");
+                fields.add("cookingTime");
+                fields.add("cookedFlow");
+            } else if ("stonecutting".equals(recipeType)) {
+                fields.add("craftedFlow");
+            } else if ("shapeless".equals(recipeType)) {
+                fields.add("craftedFlow");
+            } else if (!isSmithingRecipe(recipeType)) {
+                fields.add("craftedFlow");
+            }
+            fields.add("conditions.permission");
+            fields.add("conditions.world");
+            fields.add("deniedFlow");
+            return fields;
+        }
+
+        private List<String> motdFields() {
+            List<String> fields = new ArrayList<>(List.of("motdText", "priority", "playerCountMode"));
+            if ("fixed".equalsIgnoreCase(jsonText("playerCountMode"))) {
+                fields.add("onlinePlayers");
+                fields.add("maxPlayers");
+            }
+            return fields;
+        }
+
+        private List<String> textTemplateFields() {
+            return List.of("mode", "text", "framesText", "frameMillis", "width", "visibleCharacters", "colorsText");
+        }
+
+        private String fieldLabel(String field) {
+            String knownLabel = switch (field) {
+                case "displayName" -> "Name";
+                case "source" -> "Source";
+                case "contains" -> "Find";
+                case "replacement" -> "Replace With";
+                case "action" -> "Action";
+                case "motdText" -> "MOTD";
+                case "speakPermission" -> "Speak";
+                case "readPermission" -> "Read";
+                case "allowMiniMessage" -> "Allow MiniMessage";
+                case "miniMessagePermission" -> "MiniMessage Permission";
+                case "privateMessageFlow" -> "Message Flow";
+                case "mentionFlow" -> "Mention Flow";
+                case "playerCountMode" -> "Player Count";
+                case "onlinePlayers" -> "Online";
+                case "maxPlayers" -> "Max Players";
+                case "framesText" -> "Frames";
+                case "colorsText" -> "Colors";
+                case "flowPredicate" -> "Condition";
+                case "flowId" -> "Flow";
+                case "output.material" -> "Output";
+                case "output.amount" -> "Amount";
+                case "conditions.permission" -> "Permission";
+                case "conditions.world" -> "World";
+                case "craftedFlow" -> "Craft Flow";
+                case "deniedFlow" -> "Deny Flow";
+                case "cookedFlow" -> "Cook Flow";
+                default -> null;
+            };
+            if (knownLabel != null) {
+                return knownLabel;
+            }
+            StringBuilder label = new StringBuilder();
+            for (int i = 0; i < field.length(); i++) {
+                char c = field.charAt(i);
+                if (i == 0) {
+                    label.append(Character.toUpperCase(c));
+                } else if (Character.isDigit(c) && Character.isLetter(field.charAt(i - 1))) {
+                    label.append(' ').append(c);
+                } else if (Character.isUpperCase(c)) {
+                    label.append(' ').append(c);
+                } else {
+                    label.append(c);
+                }
+            }
+            return label.toString();
+        }
+
+        private void putJsonText(String field, String value) {
+            if ("motdText".equals(field)) {
+                putMotdText(value);
+                return;
+            }
+            if (ReSyncResourceDragPayload.MOTD_PROFILE.equals(type) && "playerCountMode".equals(field) && !"fixed".equalsIgnoreCase(value)) {
+                resource.remove("onlinePlayers");
+                resource.remove("maxPlayers");
+            }
+            if (ReSyncResourceDragPayload.TEXT_TEMPLATE.equals(type) && "text".equals(field)) {
+                putTemplateText(value);
+                return;
+            }
+            if ("framesText".equals(field)) {
+                putJsonArrayLines("frames", value);
+                return;
+            }
+            if ("colorsText".equals(field)) {
+                putJsonArrayLines("colors", value);
+                return;
+            }
+            if (playerIndex(field) >= 0) {
+                putPlayerText(field, value);
+                return;
+            }
+            if (recipeSlotIndex(field) >= 0) {
+                putRecipeSlotText(recipeSlotIndex(field), value);
+                return;
+            }
+            if (recipeIngredientIndex(field) >= 0) {
+                putRecipeIngredientText(recipeIngredientIndex(field), value);
+                return;
+            }
+            if (field.contains(".")) {
+                putJsonPathText(field, value);
+                return;
+            }
+            if (value == null || value.isBlank()) {
+                resource.remove(field);
+                return;
+            }
+            if ("true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value)) {
+                resource.addProperty(field, Boolean.parseBoolean(value));
+                return;
+            }
+            try {
+                resource.addProperty(field, Integer.parseInt(value));
+            } catch (NumberFormatException ignored) {
+                resource.addProperty(field, value);
+            }
+        }
+
+        private String jsonPathText(String field) {
+            if ("motdText".equals(field)) {
+                return motdText();
+            }
+            if ("framesText".equals(field)) {
+                return jsonArrayLines("frames");
+            }
+            if ("colorsText".equals(field)) {
+                return jsonArrayLines("colors");
+            }
+            if (playerIndex(field) >= 0) {
+                return playerText(field);
+            }
+            if (recipeSlotIndex(field) >= 0) {
+                return recipeSlotText(recipeSlotIndex(field));
+            }
+            if (recipeIngredientIndex(field) >= 0) {
+                return recipeIngredientText(recipeIngredientIndex(field));
+            }
+            if (!field.contains(".")) {
+                JsonElement element = resource.get(field);
+                return element != null && element.isJsonArray() ? "" : jsonText(field);
+            }
+            String[] parts = field.split("\\.", 2);
+            return jsonText(jsonObject(parts[0]), parts[1]);
+        }
+
+        private List<String> worldConditionValues() {
+            JsonObject conditions = jsonObject("conditions");
+            List<String> worlds = new ArrayList<>();
+            JsonArray array = conditions.has("worlds") && conditions.get("worlds").isJsonArray() ? conditions.getAsJsonArray("worlds") : new JsonArray();
+            for (JsonElement element : array) {
+                if (!element.isJsonNull() && !element.getAsString().isBlank() && !worlds.contains(element.getAsString())) {
+                    worlds.add(element.getAsString());
+                }
+            }
+            String legacyWorld = jsonText(conditions, "world");
+            if (!legacyWorld.isBlank() && !worlds.contains(legacyWorld)) {
+                worlds.addFirst(legacyWorld);
+            }
+            return worlds;
+        }
+
+        private void putWorldConditionValues(List<String> values) {
+            JsonObject conditions = jsonObject("conditions");
+            conditions.remove("world");
+            JsonArray array = new JsonArray();
+            if (values != null) {
+                for (String value : values) {
+                    if (value != null && !value.isBlank() && !"Loading".equals(value) && !"Any".equalsIgnoreCase(value)) {
+                        array.add(value);
+                    }
+                }
+            }
+            if (array.isEmpty()) {
+                conditions.remove("worlds");
+            } else {
+                conditions.add("worlds", array);
+            }
+            if (conditions.size() == 0) {
+                resource.remove("conditions");
+            } else {
+                resource.add("conditions", conditions);
+            }
+        }
+
+        private String motdText() {
+            String line1 = jsonText("line1");
+            String line2 = jsonText("line2");
+            if (line1.isBlank() && line2.isBlank()) {
+                return "";
+            }
+            return firstMotdLine(line1) + "\n" + firstMotdLine(line2);
+        }
+
+        private void putMotdText(String value) {
+            String[] lines = (value == null ? "" : value).split("\\R", -1);
+            String line1 = lines.length > 0 ? lines[0] : "";
+            String line2 = lines.length > 1 ? lines[1] : "";
+            if (line1.isBlank()) {
+                resource.remove("line1");
+            } else {
+                resource.addProperty("line1", line1);
+            }
+            if (line2.isBlank()) {
+                resource.remove("line2");
+            } else {
+                resource.addProperty("line2", line2);
+            }
+            resource.remove("mode");
+            resource.remove("frames");
+            resource.remove("frameMillis");
+            resource.remove("rotationMillis");
+            resource.remove("line1Frames");
+            resource.remove("line2Frames");
+            resource.remove("match");
+            resource.remove("versionText");
+            resource.remove("protocolVersion");
+            resource.remove("protocolText");
+            resource.remove("samplePlayers");
+            resource.remove("countMode");
+            resource.remove("fakePlayers");
+            resource.remove("overrideMaxPlayers");
+        }
+
+        private String firstMotdLine(String value) {
+            String[] lines = (value == null ? "" : value).split("\\R", -1);
+            return lines.length > 0 ? lines[0] : "";
+        }
+
+        private void putTemplateText(String value) {
+            if (value == null || value.isBlank()) {
+                resource.remove("text");
+            } else {
+                resource.addProperty("text", value);
+            }
+        }
+
+        private String jsonArrayLines(String key) {
+            JsonArray array = resource.has(key) && resource.get(key).isJsonArray() ? resource.getAsJsonArray(key) : new JsonArray();
+            List<String> values = new ArrayList<>();
+            for (JsonElement element : array) {
+                if (!element.isJsonNull()) {
+                    values.add(element.getAsString());
+                }
+            }
+            return String.join("\n", values);
+        }
+
+        private void putJsonArrayLines(String key, String value) {
+            JsonArray array = new JsonArray();
+            if (value != null) {
+                for (String line : value.split("\\R", -1)) {
+                    String trimmed = line.trim();
+                    if (!trimmed.isBlank()) {
+                        array.add(trimmed);
+                    }
+                }
+            }
+            if (array.isEmpty()) {
+                resource.remove(key);
+                return;
+            }
+            resource.add(key, array);
+        }
+
+        private String playerText(String field) {
+            int index = playerIndex(field);
+            if (index < 0) {
+                return "";
+            }
+            JsonArray players = resource.has("players") && resource.get("players").isJsonArray() ? resource.getAsJsonArray("players") : new JsonArray();
+            return index < players.size() && !players.get(index).isJsonNull() ? players.get(index).getAsString() : "";
+        }
+
+        private void putPlayerText(String field, String value) {
+            int index = playerIndex(field);
+            if (index < 0) {
+                return;
+            }
+            JsonArray players = resource.has("players") && resource.get("players").isJsonArray() ? resource.getAsJsonArray("players") : new JsonArray();
+            resource.add("players", players);
+            while (players.size() <= index) {
+                players.add("");
+            }
+            players.set(index, new JsonPrimitive(value == null ? "" : value.trim()));
+        }
+
+        private int playerIndex(String field) {
+            if (field == null || !field.startsWith("player") || field.length() <= "player".length()) {
+                return -1;
+            }
+            try {
+                return Math.max(0, Integer.parseInt(field.substring("player".length())) - 1);
+            } catch (NumberFormatException exception) {
+                return -1;
+            }
+        }
+
+        private int recipeSlotIndex(String field) {
+            if (field == null || !field.startsWith("slot") || field.length() <= "slot".length()) {
+                return -1;
+            }
+            try {
+                return Math.clamp(Integer.parseInt(field.substring("slot".length())) - 1, 0, 8);
+            } catch (NumberFormatException exception) {
+                return -1;
+            }
+        }
+
+        private int recipeIngredientIndex(String field) {
+            if (field == null || !field.startsWith("ingredient") || field.length() <= "ingredient".length()) {
+                return -1;
+            }
+            try {
+                return Math.clamp(Integer.parseInt(field.substring("ingredient".length())) - 1, 0, 8);
+            } catch (NumberFormatException exception) {
+                return -1;
+            }
+        }
+
+        private String recipeIngredientText(int index) {
+            if (index < 0) {
+                return "";
+            }
+            JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
+            if (index >= ingredients.size()) {
+                if (index == 0 && resource.has("ingredient")) {
+                    return ingredientLabel(resource.get("ingredient"));
+                }
+                return "";
+            }
+            return ingredientLabel(ingredients.get(index));
+        }
+
+        private String recipeSlotText(int index) {
+            if (index < 0) {
+                return "";
+            }
+            JsonObject keys = jsonObject("keys");
+            JsonElement ingredient = keys.get(recipeSlotSymbol(index));
+            if (ingredient != null) {
+                return ingredientLabel(ingredient);
+            }
+            return recipeIngredientText(index);
+        }
+
+        private void putRecipeSlotText(int index, String value) {
+            if (index < 0) {
+                return;
+            }
+            JsonArray shape = resource.has("shape") && resource.get("shape").isJsonArray() ? resource.getAsJsonArray("shape") : new JsonArray();
+            resource.add("shape", shape);
+            while (shape.size() < 3) {
+                shape.add("   ");
+            }
+            JsonObject keys = jsonObject("keys");
+            resource.add("keys", keys);
+            String symbol = recipeSlotSymbol(index);
+            String material = value == null ? "" : value.trim();
+            char shapeSymbol = material.isBlank() || "none".equalsIgnoreCase(material) ? ' ' : symbol.charAt(0);
+            for (int row = 0; row < 3; row++) {
+                String existing = row < shape.size() && !shape.get(row).isJsonNull() ? shape.get(row).getAsString() : "";
+                shape.set(row, new JsonPrimitive(paddedShapeRow(existing, row, index, shapeSymbol)));
+            }
+            if (material.isBlank() || "none".equalsIgnoreCase(material)) {
+                keys.remove(symbol);
+                return;
+            }
+            JsonObject ingredient = new JsonObject();
+            ingredient.addProperty("material", material);
+            keys.add(symbol, ingredient);
+        }
+
+        private String paddedShapeRow(String existing, int row, int index, char shapeSymbol) {
+            StringBuilder builder = new StringBuilder(existing == null ? "" : existing);
+            while (builder.length() < 3) {
+                builder.append(' ');
+            }
+            int column = index % 3;
+            if (row == index / 3) {
+                builder.setCharAt(column, shapeSymbol);
+            }
+            return builder.substring(0, 3);
+        }
+
+        private String recipeSlotSymbol(int index) {
+            return String.valueOf((char) ('A' + Math.clamp(index, 0, 8)));
+        }
+
+        private void putRecipeIngredientText(int index, String value) {
+            if (index < 0) {
+                return;
+            }
+            JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
+            resource.add("ingredients", ingredients);
+            while (ingredients.size() <= index) {
+                ingredients.add("");
+            }
+            String material = value == null ? "" : value.trim();
+            if (material.isBlank() || "none".equalsIgnoreCase(material)) {
+                ingredients.set(index, new JsonPrimitive(""));
+                if (index == 0 && (isCookingRecipe(normalizedRecipeType()) || "stonecutting".equals(normalizedRecipeType()))) {
+                    resource.remove("ingredient");
+                }
+            } else {
+                JsonObject ingredient = new JsonObject();
+                ingredient.addProperty("material", material);
+                ingredients.set(index, ingredient);
+                if (index == 0 && (isCookingRecipe(normalizedRecipeType()) || "stonecutting".equals(normalizedRecipeType()))) {
+                    resource.add("ingredient", ingredient);
+                }
+            }
+        }
+
+        private void putJsonPathText(String field, String value) {
+            String[] parts = field.split("\\.", 2);
+            JsonObject parent = jsonObject(parts[0]);
+            if (!resource.has(parts[0]) || !resource.get(parts[0]).isJsonObject()) {
+                resource.add(parts[0], parent);
+            }
+            if (value == null || value.isBlank()) {
+                parent.remove(parts[1]);
+                return;
+            }
+            try {
+                parent.addProperty(parts[1], Integer.parseInt(value));
+            } catch (NumberFormatException ignored) {
+                parent.addProperty(parts[1], value);
+            }
+        }
+
+        private String jsonText(String key) {
+            return jsonText(resource, key);
+        }
+
+        private String jsonText(JsonObject object, String key) {
+            if (object == null || key == null || !object.has(key) || object.get(key).isJsonNull()) {
+                return "";
+            }
+            return object.get(key).getAsString();
+        }
+
+        private int jsonArraySize(String key) {
+            return resource.has(key) && resource.get(key).isJsonArray() ? resource.getAsJsonArray(key).size() : 0;
+        }
+
+        private int jsonObjectSize(String key) {
+            return resource.has(key) && resource.get(key).isJsonObject() ? resource.getAsJsonObject(key).size() : 0;
+        }
+
+        private JsonObject jsonObject(String key) {
+            return resource.has(key) && resource.get(key).isJsonObject() ? resource.getAsJsonObject(key) : new JsonObject();
+        }
+
+        private String resourceDisplayName() {
+            return switch (type) {
+                case ReSyncResourceDragPayload.CHAT_CHANNEL -> "Chat";
+                case ReSyncResourceDragPayload.CHAT_FORMAT -> "Chat Format";
+                case ReSyncResourceDragPayload.CHAT_RULE -> "Chat Rule";
+                case ReSyncResourceDragPayload.PRIVATE_MESSAGE_FORMAT -> "PM Format";
+                case ReSyncResourceDragPayload.MENTION_STYLE -> "Mention";
+                case ReSyncResourceDragPayload.IGNORE_LIST -> "Ignore List";
+                case ReSyncResourceDragPayload.MOTD_PROFILE -> "MOTD";
+                case ReSyncResourceDragPayload.MESSAGE_RULE -> "Message Rule";
+                case ReSyncResourceDragPayload.RECIPE_DEFINITION -> "Recipe";
+                case ReSyncResourceDragPayload.TEXT_TEMPLATE -> "Text";
+                default -> "Resource";
+            };
+        }
+
+        private void drawFormattedLine(IDrawContext context, String value, int startX, int y, int fallbackColor, boolean shadow) {
+            context.drawRichText(value, startX, y, fallbackColor, shadow);
+        }
+
+        private String applyMentionPreview(String line) {
+            String template = ReSyncResourceDragPayload.MENTION_STYLE.equals(type) ? jsonText("template") : "<yellow>@{player}</yellow>";
+            return line.replace("@Alex", template.replace("{player}", "Alex"));
+        }
+
+        private String[] motdPreviewLines() {
+            String line1 = jsonText("line1").isBlank() ? "<green>ReSync Server" : firstMotdLine(jsonText("line1"));
+            String line2 = jsonText("line2").isBlank() ? "<gray>Flow Powered" : firstMotdLine(jsonText("line2"));
+            return new String[]{line1, line2};
+        }
+
+        private String sampleCountText() {
+            String mode = jsonText("playerCountMode");
+            if ("hidden".equalsIgnoreCase(mode)) {
+                return "Hidden";
+            }
+            String online = jsonText("onlinePlayers");
+            String max = jsonText("maxPlayers");
+            return ("§7" + (online.isBlank() ? "12" : online)) + "§8/§7" + (max.isBlank() ? "80" : max);
+        }
+
+        private String recipeSlotLabel(int row, int column) {
+            JsonArray shape = resource.has("shape") && resource.get("shape").isJsonArray() ? resource.getAsJsonArray("shape") : new JsonArray();
+            JsonObject keys = jsonObject("keys");
+            if (!shape.isEmpty() && row < shape.size()) {
+                String line = shape.get(row).getAsString();
+                if (column < line.length()) {
+                    JsonElement ingredient = keys.get(String.valueOf(line.charAt(column)));
+                    String shaped = ingredientLabel(ingredient);
+                    if (!shaped.isBlank()) {
+                        return shaped;
+                    }
+                }
+            }
+            JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
+            int index = row * 3 + column;
+            return index < ingredients.size() ? ingredientLabel(ingredients.get(index)) : "";
+        }
+
+        private String normalizedRecipeType() {
+            String value = jsonText("type").trim().toLowerCase(Locale.ROOT);
+            if (value.startsWith("minecraft:")) {
+                value = value.substring("minecraft:".length());
+            }
+            value = switch (value) {
+                case "smelting" -> "furnace";
+                case "blast" -> "blasting";
+                case "smoker" -> "smoking";
+                case "campfire_cooking" -> "campfire";
+                case "stonecutter" -> "stonecutting";
+                default -> value;
+            };
+            return value.isBlank() ? "shaped" : value;
+        }
+
+        private boolean isCookingRecipe(String recipeType) {
+            return "furnace".equals(recipeType) || "blasting".equals(recipeType) || "smoking".equals(recipeType) || "campfire".equals(recipeType);
+        }
+
+        private boolean isSmithingRecipe(String recipeType) {
+            return "smithing".equals(recipeType) || "smithing_transform".equals(recipeType) || "smithing_trim".equals(recipeType) || "trim".equals(recipeType);
+        }
+
+        private String ingredientLabel(JsonElement ingredient) {
+            if (ingredient == null || ingredient.isJsonNull()) {
+                return "";
+            }
+            if (ingredient.isJsonArray() && !ingredient.getAsJsonArray().isEmpty()) {
+                return ingredientLabel(ingredient.getAsJsonArray().get(0));
+            }
+            if (!ingredient.isJsonObject()) {
+                return ingredient.getAsString();
+            }
+            JsonObject object = ingredient.getAsJsonObject();
+            return jsonText(object, "material").isBlank() ? jsonText(object, "contentId") : jsonText(object, "material");
+        }
+
+        private int ingredientAmount(JsonElement ingredient) {
+            if (ingredient == null || ingredient.isJsonNull()) {
+                return 1;
+            }
+            if (ingredient.isJsonArray() && !ingredient.getAsJsonArray().isEmpty()) {
+                return ingredientAmount(ingredient.getAsJsonArray().get(0));
+            }
+            if (!ingredient.isJsonObject()) {
+                return 1;
+            }
+            return parseInt(jsonText(ingredient.getAsJsonObject(), "amount"), 1, 1, 64);
+        }
+
+        private JsonElement firstIngredient() {
+            JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
+            return ingredients.isEmpty() ? null : ingredients.get(0);
+        }
+
+        private String cookingIngredientLabel() {
+            JsonElement ingredient = resource.has("ingredient") ? resource.get("ingredient") : firstIngredient();
+            return ingredientLabel(ingredient);
+        }
+
+        private int cookingIngredientAmount() {
+            JsonElement ingredient = resource.has("ingredient") ? resource.get("ingredient") : firstIngredient();
+            return ingredientAmount(ingredient);
+        }
+
+        private JsonElement recipeSlotIngredient(int row, int column) {
+            JsonArray shape = resource.has("shape") && resource.get("shape").isJsonArray() ? resource.getAsJsonArray("shape") : new JsonArray();
+            JsonObject keys = jsonObject("keys");
+            if (!shape.isEmpty() && row < shape.size()) {
+                String line = shape.get(row).getAsString();
+                if (column < line.length()) {
+                    JsonElement ingredient = keys.get(String.valueOf(line.charAt(column)));
+                    if (ingredient != null) {
+                        return ingredient;
+                    }
+                }
+            }
+            JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
+            int index = row * 3 + column;
+            return index < ingredients.size() ? ingredients.get(index) : null;
+        }
+
+        private int recipeSlotAmount(int row, int column) {
+            return ingredientAmount(recipeSlotIngredient(row, column));
+        }
+
+        private int recipeFieldAmount(String field) {
+            if ("output.material".equals(field)) {
+                return parseInt(jsonText(jsonObject("output"), "amount"), 1, 1, 64);
+            }
+            if ("template.material".equals(field)) {
+                return ingredientAmount(jsonObject("template"));
+            }
+            if ("base.material".equals(field)) {
+                return ingredientAmount(jsonObject("base"));
+            }
+            if ("addition.material".equals(field)) {
+                return ingredientAmount(jsonObject("addition"));
+            }
+            int slotIndex = recipeSlotIndex(field);
+            if (slotIndex >= 0) {
+                return recipeSlotAmount(slotIndex / 3, slotIndex % 3);
+            }
+            int ingredientIndex = recipeIngredientIndex(field);
+            if (ingredientIndex >= 0) {
+                JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
+                if (ingredientIndex < ingredients.size()) {
+                    return ingredientAmount(ingredients.get(ingredientIndex));
+                }
+                return ingredientIndex == 0 && resource.has("ingredient") ? ingredientAmount(resource.get("ingredient")) : 1;
+            }
+            return 1;
+        }
+
+        private void putRecipeFieldAmount(String field, int amount) {
+            if ("output.material".equals(field) || "template.material".equals(field) || "base.material".equals(field) || "addition.material".equals(field)) {
+                String[] parts = field.split("\\.", 2);
+                JsonObject object = jsonObject(parts[0]);
+                object.addProperty("amount", amount);
+                resource.add(parts[0], object);
+                return;
+            }
+            int slotIndex = recipeSlotIndex(field);
+            if (slotIndex >= 0) {
+                putRecipeSlotAmount(slotIndex, amount);
+                return;
+            }
+            int ingredientIndex = recipeIngredientIndex(field);
+            if (ingredientIndex >= 0) {
+                putRecipeIngredientAmount(ingredientIndex, amount);
+            }
+        }
+
+        private void putRecipeSlotAmount(int index, int amount) {
+            JsonObject keys = jsonObject("keys");
+            String symbol = recipeSlotSymbol(index);
+            JsonElement ingredient = keys.get(symbol);
+            if (ingredient != null) {
+                JsonObject object = recipeIngredientObject(ingredient);
+                object.addProperty("amount", amount);
+                keys.add(symbol, object);
+                resource.add("keys", keys);
+                return;
+            }
+            putRecipeIngredientAmount(index, amount);
+        }
+
+        private void putRecipeIngredientAmount(int index, int amount) {
+            JsonArray ingredients = resource.has("ingredients") && resource.get("ingredients").isJsonArray() ? resource.getAsJsonArray("ingredients") : new JsonArray();
+            resource.add("ingredients", ingredients);
+            while (ingredients.size() <= index) {
+                ingredients.add("");
+            }
+            JsonObject object = recipeIngredientObject(ingredients.get(index));
+            object.addProperty("amount", amount);
+            ingredients.set(index, object);
+            if (index == 0 && (isCookingRecipe(normalizedRecipeType()) || "stonecutting".equals(normalizedRecipeType()))) {
+                resource.add("ingredient", object);
+            }
+        }
+
+        private JsonObject recipeIngredientObject(JsonElement ingredient) {
+            if (ingredient != null && ingredient.isJsonArray() && !ingredient.getAsJsonArray().isEmpty()) {
+                return recipeIngredientObject(ingredient.getAsJsonArray().get(0));
+            }
+            if (ingredient != null && ingredient.isJsonObject()) {
+                return ingredient.getAsJsonObject();
+            }
+            JsonObject object = new JsonObject();
+            if (ingredient != null && ingredient.isJsonPrimitive() && !ingredient.getAsString().isBlank()) {
+                object.addProperty("material", ingredient.getAsString());
+            }
+            return object;
+        }
+
+        private void drawRecipeItem(IDrawContext context, String material, int amount, int x, int y, int scale) {
+            if (material == null || material.isBlank()) {
+                return;
+            }
+            int iconSize = Math.max(16, 16 * scale);
+            MinecraftRenderItem item = MinecraftGameItems.of(material, Math.clamp(amount, 1, 64));
+            if (scale <= 1) {
+                context.drawItem(item, x, y, 0);
+            } else {
+                context.getMatrices().push();
+                context.getMatrices().translate(x, y, 0);
+                context.getMatrices().scale(scale, scale, 1);
+                context.drawItem(item, 0, 0, 0);
+                context.getMatrices().pop();
+            }
+            drawRecipeItemAmount(context, Math.clamp(amount, 1, 64), x, y, iconSize);
+        }
+
+        private void drawRecipeItemAmount(IDrawContext context, int amount, int x, int y, int iconSize) {
+            String text = String.valueOf(amount);
+            int textX = x + iconSize - textWidth(text);
+            int textY = y + iconSize - 8;
+            context.drawText(text, textX + 1, textY + 1, 0xFF000000, false);
+            context.drawText(text, textX, textY, 0xFFFFFFFF, false);
+        }
+
+        private void drawRecipeStationItems(IDrawContext context, String recipeType, RecipeStationLayout layout, int viewX, int viewY, int scale) {
+            if (isSmithingRecipe(recipeType)) {
+                drawRecipeLayoutItem(context, jsonText(jsonObject("template"), "material"), ingredientAmount(jsonObject("template")), layout.templates()[0], viewX, viewY, scale);
+                drawRecipeLayoutItem(context, jsonText(jsonObject("base"), "material"), ingredientAmount(jsonObject("base")), layout.templates()[1], viewX, viewY, scale);
+                drawRecipeLayoutItem(context, jsonText(jsonObject("addition"), "material"), ingredientAmount(jsonObject("addition")), layout.templates()[2], viewX, viewY, scale);
+            } else if (isCookingRecipe(recipeType)) {
+                drawRecipeLayoutItem(context, cookingIngredientLabel(), cookingIngredientAmount(), layout.ingredients()[0], viewX, viewY, scale);
+            } else if ("stonecutting".equals(recipeType)) {
+                drawRecipeLayoutItem(context, ingredientLabel(firstIngredient()), ingredientAmount(firstIngredient()), layout.ingredients()[0], viewX, viewY, scale);
+            } else {
+                int[][] points = layout.ingredients();
+                for (int i = 0; i < points.length; i++) {
+                    drawRecipeLayoutItem(context, recipeSlotLabel(i / 3, i % 3), recipeSlotAmount(i / 3, i % 3), points[i], viewX, viewY, scale);
+                }
+            }
+            drawRecipeLayoutItem(context, jsonText(jsonObject("output"), "material"), parseInt(jsonText(jsonObject("output"), "amount"), 1, 1, 64), layout.output(), viewX, viewY, scale);
+        }
+
+        private void drawRecipeLayoutItem(IDrawContext context, String material, int amount, int[] point, int viewX, int viewY, int scale) {
+            if (point == null || point.length < 2) {
+                return;
+            }
+            drawRecipeItem(context, material, amount, viewX + point[0] * scale, viewY + point[1] * scale, scale);
+        }
+
+        private RecipeStationLayout recipeStationLayout(String recipeType) {
+            int[][] craftingSlots = new int[][]{
+                {30, 17}, {48, 17}, {66, 17},
+                {30, 35}, {48, 35}, {66, 35},
+                {30, 53}, {48, 53}, {66, 53}
+            };
+            return switch (recipeType) {
+                case "furnace" -> new RecipeStationLayout("furnace.png", 176, 166, new int[][]{{56, 17}}, new int[0][0], new int[]{116, 35});
+                case "blasting" -> new RecipeStationLayout("blast_furnace.png", 176, 166, new int[][]{{56, 17}}, new int[0][0], new int[]{116, 35});
+                case "smoking" -> new RecipeStationLayout("smoker.png", 176, 166, new int[][]{{56, 17}}, new int[0][0], new int[]{116, 35});
+                case "campfire" -> new RecipeStationLayout("", 88, 16, new int[][]{{8, 0}}, new int[0][0], new int[]{64, 0});
+                case "stonecutting" -> new RecipeStationLayout("stonecutter.png", 176, 166, new int[][]{{20, 33}}, new int[0][0], new int[]{143, 33});
+                case "smithing", "smithing_transform", "smithing_trim", "trim" -> new RecipeStationLayout("smithing.png", 176, 166, new int[0][0], new int[][]{{8, 48}, {26, 48}, {44, 48}}, new int[]{98, 48});
+                default -> new RecipeStationLayout("crafting_table.png", 176, 166, craftingSlots, new int[0][0], new int[]{124, 35});
+            };
+        }
+
+        private List<String> previewTextLines() {
+            List<String> lines = new ArrayList<>();
+            JsonArray frames = resource.has("frames") && resource.get("frames").isJsonArray() ? resource.getAsJsonArray("frames") : new JsonArray();
+            for (JsonElement frame : frames) {
+                if (!frame.isJsonNull() && !frame.getAsString().isBlank()) {
+                    lines.add(frame.getAsString());
+                }
+            }
+            if (!lines.isEmpty()) {
+                return lines;
+            }
+            String text = jsonText("text");
+            for (String line : text.split("\\R")) {
+                if (!line.isBlank()) {
+                    lines.add(line);
+                }
+            }
+            return lines.isEmpty() ? List.of("Text") : lines;
+        }
+    }
 
     @Override
     public Screen asScreen() {
