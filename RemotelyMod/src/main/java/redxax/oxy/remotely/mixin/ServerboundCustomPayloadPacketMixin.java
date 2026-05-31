@@ -45,8 +45,19 @@ public class ServerboundCustomPayloadPacketMixin {
     private static List<TypeAndCodec<? super FriendlyByteBuf, ?>> remotely$addFabricBridgePayload(List<TypeAndCodec<? super FriendlyByteBuf, ?>> codecs) {
         List<TypeAndCodec<? super FriendlyByteBuf, ?>> updated = new ArrayList<>(codecs);
         updated.add(new CustomPacketPayload.TypeAndCodec<>(ReSyncVanillaPacketAdapter.BridgePayload.TYPE, ReSyncVanillaPacketAdapter.BridgePayload.STREAM_CODEC));
-        updated.add(new CustomPacketPayload.TypeAndCodec<>(ReSyncVanillaPacketAdapter.RegisterPayload.TYPE, ReSyncVanillaPacketAdapter.RegisterPayload.STREAM_CODEC));
+        if (!remotely$hasFabricRegistrationPayload()) {
+            updated.add(new CustomPacketPayload.TypeAndCodec<>(ReSyncVanillaPacketAdapter.RegisterPayload.TYPE, ReSyncVanillaPacketAdapter.RegisterPayload.STREAM_CODEC));
+        }
         return updated;
+    }
+
+    private static boolean remotely$hasFabricRegistrationPayload() {
+        try {
+            Class.forName("net.fabricmc.fabric.impl.networking.RegistrationPayload", false, ServerboundCustomPayloadPacketMixin.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError ignored) {
+            return false;
+        }
     }
     //#endif
     //#endif

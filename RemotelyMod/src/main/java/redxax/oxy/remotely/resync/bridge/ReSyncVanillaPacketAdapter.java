@@ -22,7 +22,9 @@ import net.minecraft.resources.Identifier;
 //$$ import net.minecraft.resources.ResourceLocation;
 //#endif
 
+import java.lang.reflect.Constructor;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 public class ReSyncVanillaPacketAdapter {
     private static final int MAX_PAYLOAD_BYTES = 1_048_576;
@@ -52,7 +54,7 @@ public class ReSyncVanillaPacketAdapter {
         }
         try {
             //#if MC >= 1.21.1
-            connection.send(new ServerboundCustomPayloadPacket(new RegisterPayload()));
+            connection.send(new ServerboundCustomPayloadPacket(createRegisterPayload()));
             //#else
             //$$ FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
             //$$ buffer.writeBytes(REGISTER_PAYLOAD);
@@ -106,6 +108,17 @@ public class ReSyncVanillaPacketAdapter {
     }
 
     //#if MC >= 1.21.1
+    private CustomPacketPayload createRegisterPayload() {
+        try {
+            Class<?> payloadClass = Class.forName("net.fabricmc.fabric.impl.networking.RegistrationPayload");
+            Constructor<?> constructor = payloadClass.getConstructor(CustomPacketPayload.Type.class, List.class);
+            Object registerType = payloadClass.getField("REGISTER").get(null);
+            return (CustomPacketPayload) constructor.newInstance(registerType, List.of(CHANNEL));
+        } catch (ReflectiveOperationException | LinkageError | ClassCastException ignored) {
+            return new RegisterPayload();
+        }
+    }
+
     public byte[] read(CustomPacketPayload payload) {
         if (payload == null) {
             return null;
