@@ -79,19 +79,27 @@ jobs:
           chmod +x gradlew
           ./gradlew jar --no-daemon --stacktrace
 
-      - name: Build or publish RemotelyMod
+      - name: Ensure version project directories
+        working-directory: Remotely/RemotelyMod
+        run: |
+          chmod +x scripts/ensure-version-project-dirs.sh
+          ./scripts/ensure-version-project-dirs.sh
+
+      - name: Build all RemotelyMod versions
+        working-directory: Remotely/RemotelyMod
+        run: |
+          chmod +x gradlew
+          ./gradlew buildAllVersions --no-daemon --stacktrace
+
+      - name: Publish RemotelyMod
+        if: startsWith(inputs.goal, 'publish')
         working-directory: Remotely/RemotelyMod
         env:
           MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
           CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
         run: |
           chmod +x gradlew
-          if [[ "${{ inputs.goal }}" == buildAllVersions ]]; then
-            ./gradlew buildAllVersions --no-daemon --stacktrace
-          else
-            ./gradlew buildAllVersions --no-daemon --stacktrace
-            ./gradlew ${{ inputs.goal }} --no-daemon --stacktrace
-          fi
+          ./gradlew ${{ inputs.goal }} --no-daemon --stacktrace
 
       - name: Upload mod jars
         uses: actions/upload-artifact@v4
