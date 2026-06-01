@@ -99,15 +99,17 @@ jobs:
           chmod +x gradlew
           goal="${{ inputs.goal }}"
           confirm="${{ inputs.publish_confirm }}"
+          publish_task=""
           echo "workflow goal=$goal publish_confirm=$confirm"
           if [[ "$confirm" == "PUBLISH" && "$goal" == "buildAllVersions" ]]; then
-            echo "publish_confirm=PUBLISH — running publishAllVersionsToModrinth after build."
-            goal="publishAllVersionsToModrinth"
-          fi
-          if [[ "$goal" == "buildAllVersions" ]]; then
-            ./gradlew buildAllVersions --no-daemon --stacktrace
+            publish_task="publishAllVersionsToModrinth"
           elif [[ "$goal" == publish* ]]; then
-            ./gradlew buildAllVersions "$goal" --no-daemon --stacktrace
+            publish_task="$goal"
+          fi
+          if [[ -n "$publish_task" ]]; then
+            echo "Building all versions, then $publish_task (separate Gradle runs)."
+            ./gradlew buildAllVersions --no-daemon --stacktrace
+            ./gradlew "$publish_task" --no-daemon --stacktrace
           else
             ./gradlew "$goal" --no-daemon --stacktrace
           fi

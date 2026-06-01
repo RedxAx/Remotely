@@ -435,14 +435,8 @@ private fun Project.publishingProperties(): Properties {
     }
 }
 
-private fun Project.publishingArtifact() = rootProject.layout.buildDirectory.file("versions/Remotely-${modVersion()}+$name.jar").also { artifact ->
-    gradle.taskGraph.whenReady {
-        val file = artifact.get().asFile
-        if (!file.isFile) {
-            throw GradleException("Publishing artifact is missing: ${file.absolutePath}. Run buildAllVersions before publishing.")
-        }
-    }
-}
+private fun Project.publishingArtifact() =
+    rootProject.layout.buildDirectory.file("versions/Remotely-${modVersion()}+$name.jar")
 
 private fun Project.loaderDisplayName(): String {
     return when (loader()) {
