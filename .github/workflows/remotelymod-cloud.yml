@@ -15,7 +15,7 @@ on:
           - publishAllFabric
           - publishAllNeoForge
       publish_confirm:
-        description: Type PUBLISH to run publish goals
+        description: Type PUBLISH to upload (uses Modrinth when goal is buildAllVersions)
         required: false
         type: string
         default: ''
@@ -97,12 +97,19 @@ jobs:
           CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
         run: |
           chmod +x gradlew
-          if [[ "${{ inputs.goal }}" == buildAllVersions ]]; then
+          goal="${{ inputs.goal }}"
+          confirm="${{ inputs.publish_confirm }}"
+          echo "workflow goal=$goal publish_confirm=$confirm"
+          if [[ "$confirm" == "PUBLISH" && "$goal" == "buildAllVersions" ]]; then
+            echo "publish_confirm=PUBLISH — running publishAllVersionsToModrinth after build."
+            goal="publishAllVersionsToModrinth"
+          fi
+          if [[ "$goal" == "buildAllVersions" ]]; then
             ./gradlew buildAllVersions --no-daemon --stacktrace
-          elif [[ "${{ inputs.goal }}" == publish* ]]; then
-            ./gradlew buildAllVersions "${{ inputs.goal }}" --no-daemon --stacktrace
+          elif [[ "$goal" == publish* ]]; then
+            ./gradlew buildAllVersions "$goal" --no-daemon --stacktrace
           else
-            ./gradlew "${{ inputs.goal }}" --no-daemon --stacktrace
+            ./gradlew "$goal" --no-daemon --stacktrace
           fi
 
       - name: Upload mod jars
