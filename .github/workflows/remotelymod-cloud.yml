@@ -45,12 +45,23 @@ jobs:
           path: Remotely
           ref: ${{ inputs.remotely_ref != '' && inputs.remotely_ref || github.ref }}
 
+      - name: Load sibling repository pins
+        working-directory: Remotely
+        run: |
+          set -a
+          source ci/sibling-pins.env
+          set +a
+          echo "RESCREEN_REF=${RESCREEN_REF}" >> "$GITHUB_ENV"
+          echo "REMODEL_REF=${REMODEL_REF}" >> "$GITHUB_ENV"
+          echo "REBASE_REF=${REBASE_REF}" >> "$GITHUB_ENV"
+
       - name: Checkout ReScreen
         uses: actions/checkout@v4
         with:
           repository: RedxAx/ReScreen
           token: ${{ secrets.REPROJECTS_PAT }}
           path: ReScreen
+          ref: ${{ env.RESCREEN_REF }}
 
       - name: Checkout Remodel
         uses: actions/checkout@v4
@@ -58,6 +69,7 @@ jobs:
           repository: RedxAx/Remodel
           token: ${{ secrets.REPROJECTS_PAT }}
           path: Remodel
+          ref: ${{ env.REMODEL_REF }}
 
       - name: Checkout Rebase
         uses: actions/checkout@v4
@@ -65,13 +77,22 @@ jobs:
           repository: RedxAx/Rebase
           token: ${{ secrets.REPROJECTS_PAT }}
           path: Rebase
+          ref: ${{ env.REBASE_REF }}
 
-      - name: Set up JDK 21
+      - name: Ensure Remodel Java 21 toolchain
+        run: |
+          chmod +x Remotely/RemotelyMod/scripts/ci-ensure-remodel-java21.sh
+          Remotely/RemotelyMod/scripts/ci-ensure-remodel-java21.sh Remodel
+
+      - name: Set up JDK 21 and 25
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '21,25'
           cache: gradle
+          cache-dependency-path: |
+            Remotely/gradle/wrapper/gradle-wrapper.properties
+            Remotely/RemotelyMod/gradle/wrapper/gradle-wrapper.properties
 
       - name: Preflight Remotely App jar
         working-directory: Remotely
@@ -82,24 +103,24 @@ jobs:
       - name: Ensure version project directories
         working-directory: Remotely/RemotelyMod
         run: |
-          chmod +x scripts/ensure-version-project-dirs.sh
+          chmod +x scripts/ensure-version-project-dirs.sh scripts/ci-verify-version-layout.sh
           ./scripts/ensure-version-project-dirs.sh
+          ./scripts/ci-verify-version-layout.sh
 
-      - name: Build all RemotelyMod versions
-        working-directory: Remotely/RemotelyMod
-        run: |
-          chmod +x gradlew
-          ./gradlew buildAllVersions --no-daemon --stacktrace
-
-      - name: Publish RemotelyMod
-        if: startsWith(inputs.goal, 'publish')
+      - name: Run RemotelyMod Gradle goal
         working-directory: Remotely/RemotelyMod
         env:
           MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
           CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
         run: |
           chmod +x gradlew
-          ./gradlew ${{ inputs.goal }} --no-daemon --stacktrace
+          if [[ "${{ inputs.goal }}" == buildAllVersions ]]; then
+            ./gradlew buildAllVersions --no-daemon --stacktrace
+          elif [[ "${{ inputs.goal }}" == publish* ]]; then
+            ./gradlew buildAllVersions "${{ inputs.goal }}" --no-daemon --stacktrace
+          else
+            ./gradlew "${{ inputs.goal }}" --no-daemon --stacktrace
+          fi
 
       - name: Upload mod jars
         uses: actions/upload-artifact@v4
