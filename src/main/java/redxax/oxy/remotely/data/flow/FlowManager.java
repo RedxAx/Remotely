@@ -790,7 +790,8 @@ public class FlowManager {
             || type == ReSyncResourceType.MOTD_PROFILE
             || type == ReSyncResourceType.MESSAGE_RULE
             || type == ReSyncResourceType.RECIPE_DEFINITION
-            || type == ReSyncResourceType.TEXT_TEMPLATE;
+            || type == ReSyncResourceType.TEXT_TEMPLATE
+            || type == ReSyncResourceType.ADVANCEMENT_TREE;
     }
 
     private String jsonResourceId(JsonObject resource) {
@@ -864,6 +865,39 @@ public class FlowManager {
             }
             case TEXT_TEMPLATE -> {
                 resource.addProperty("text", id);
+            }
+            case ADVANCEMENT_TREE -> {
+                JsonObject nodes = new JsonObject();
+                JsonObject root = new JsonObject();
+                root.addProperty("enabled", true);
+                root.addProperty("parent", "");
+                JsonObject position = new JsonObject();
+                position.addProperty("x", 0);
+                position.addProperty("y", 0);
+                root.add("position", position);
+                JsonObject display = new JsonObject();
+                display.addProperty("title", id);
+                display.addProperty("description", "Server Progress");
+                display.addProperty("icon", "minecraft:nether_star");
+                display.addProperty("frame", "task");
+                display.addProperty("background", "minecraft:gui/advancements/backgrounds/adventure");
+                display.addProperty("showToast", false);
+                display.addProperty("announceToChat", false);
+                display.addProperty("hidden", false);
+                root.add("display", display);
+                root.add("criteria", new JsonObject());
+                root.add("requirements", new JsonArray());
+                JsonObject rewards = new JsonObject();
+                rewards.addProperty("experience", 0);
+                rewards.add("loot", new JsonArray());
+                rewards.add("recipes", new JsonArray());
+                root.add("rewards", rewards);
+                JsonObject onComplete = new JsonObject();
+                onComplete.add("commands", new JsonArray());
+                onComplete.addProperty("flowId", "");
+                root.add("onComplete", onComplete);
+                nodes.add("root", root);
+                resource.add("nodes", nodes);
             }
             default -> {
             }
