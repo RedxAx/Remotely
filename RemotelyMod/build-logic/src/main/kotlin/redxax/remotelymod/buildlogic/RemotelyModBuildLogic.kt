@@ -1016,7 +1016,12 @@ private fun jarCoordinate(jar: File, modVersion: String): NestedJarCoordinate {
             val split = Regex("""^(.+)-([0-9][A-Za-z0-9_.+-]*)$""").matchEntire(name)
             val artifact = (split?.groupValues?.get(1) ?: name).lowercase().replace(Regex("""[^a-z0-9_.-]"""), ".")
             val version = split?.groupValues?.get(2) ?: "1.0.0"
-            NestedJarCoordinate("remotely.embedded", artifact, version)
+            val group = when (artifact) {
+                "common-image", "common-io", "common-lang" -> "com.twelvemonkeys.common"
+                "imageio-core", "imageio-metadata", "imageio-webp" -> "com.twelvemonkeys.imageio"
+                else -> "remotely.embedded"
+            }
+            NestedJarCoordinate(group, artifact, version)
         }
     }
 }
